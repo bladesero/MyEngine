@@ -5,7 +5,7 @@
 #include <string>
 
 // Forward declarations to keep this header light.
-struct IWindow;
+class IWindow;
 
 // --------------------------------------------------------------------------
 // GpuBuffer  – opaque handle wrapping a GPU vertex/index buffer.

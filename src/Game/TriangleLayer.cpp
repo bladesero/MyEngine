@@ -5,7 +5,6 @@
 #include "../Renderer/TriangleShader.h"
 
 #include <SDL3/SDL_scancode.h>
-#include <cmath>
 
 // --------------------------------------------------------------------------
 // Vertex layout (must match HLSL VSIn)
@@ -46,8 +45,7 @@ void TriangleLayer::OnAttach() {
         k_Layout, 2);
 
     // ---- Camera ------------------------------------------------------------
-    m_Camera.SetPosition({ 0.0f, 0.0f, 3.0f });
-    m_Camera.SetTarget  ({ 0.0f, 0.0f, 0.0f });
+    m_Camera.LookAt({ 0.0f, 0.0f, 3.0f }, { 0.0f, 0.0f, 0.0f });
     m_Camera.SetPerspective(60.0f,
         static_cast<float>(m_VpW) / static_cast<float>(m_VpH));
 }
@@ -63,7 +61,7 @@ void TriangleLayer::OnEvent(Event& event) {
         m_VpW = event.resize.width;
         m_VpH = event.resize.height;
         if (m_VpH > 0) {
-            m_Camera.SetPerspective(60.0f,
+            m_Camera.SetAspect(
                 static_cast<float>(m_VpW) / static_cast<float>(m_VpH));
         }
         m_Renderer->SetViewport(0, 0,
@@ -111,15 +109,8 @@ void TriangleLayer::OnRender() {
     if (!m_Renderer || !m_VB || !m_Shader) return;
 
     // ---- Build MVP ---------------------------------------------------------
-    // Model: rotate around Y axis.
-    float rad = m_Rotation * (3.14159265f / 180.0f);
-    Mat4 model = Mat4::Identity();
-    model.m[0][0] =  std::cos(rad);
-    model.m[0][2] =  std::sin(rad);
-    model.m[2][0] = -std::sin(rad);
-    model.m[2][2] =  std::cos(rad);
-
-    Mat4 mvp = model * m_Camera.GetViewProj();
+    Mat4 model = Mat4::RotationY(m_Rotation * kDeg2Rad);
+    Mat4 mvp   = model * m_Camera.GetViewProj();
 
     // ---- Clear + draw ------------------------------------------------------
     m_Renderer->BeginFrame(0.12f, 0.12f, 0.18f);

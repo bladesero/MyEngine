@@ -55,6 +55,7 @@ target_link_libraries(MyEngineCore PUBLIC SDL3::SDL3 d3d11 dxgi d3dcompiler)
 add_library(MyEngineGame STATIC
     src/Game/GameLayer.cpp
     src/Game/TriangleLayer.cpp
+    src/Camera/Camera.cpp
 )
 
 target_include_directories(MyEngineGame PUBLIC
