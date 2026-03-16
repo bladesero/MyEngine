@@ -87,3 +87,35 @@ Mat4	*, *=, Transform, TransformDir/Point, Transposed, Data()
 平移（orbit）	Pan(rightDelta, upDelta)
 自由飞行	MoveForward / MoveRight / MoveUp / Rotate
 Orbit 限制	pitch 被 clamp 避免 gimbal lock，dolly 防止穿透目标
+
+src/Assets/
+├── Asset.h           ← 基类 + AssetID + AssetHandle<T> + AssetState/Type
+├── TextureAsset.h    ← CPU 像素数据 + GPU void* 句柄 + CreateSolid()
+├── MeshAsset.h       ← 顶点/索引/SubMesh/AABB + GpuBuffer 句柄
+├── MeshAsset.cpp     ← 内置基本体：Triangle / Quad / Cube
+├── MaterialAsset.h   ← 纹理槽(按名) + 标量/向量参数 + GpuShader + BlendMode
+├── ModelAsset.h      ← Mesh + Material[] + ModelNode 层级树
+├── AssetManager.h    ← 单例注册表，Load/Get/Register/Unload + 内置资产
+└── AssetManager.cpp  ← 内置资产实现（白色纹理/法线纹理/默认材质/基本体网格）
+
+
+功能	接口
+加载文件（按扩展名路由）	AssetManager::Get().Load<TextureAsset>("textures/rock.png")
+注册运行时资产	AssetManager::Get().Register(myMesh)
+获取内置资产	GetWhiteTexture() / GetCubeMesh() / GetDefaultMaterial()
+类型安全句柄	TextureHandle / MeshHandle / MaterialHandle / ModelHandle
+卸载未引用资产	AssetManager::Get().UnloadUnreferenced()
+注册自定义加载器	RegisterLoader("png", [](path){ ... return asset; })
+
+// 注册 PNG 加载器（用 stb_image 等库实现）
+AssetManager::Get().RegisterLoader("png", [](const std::string& path) {
+    auto tex = std::make_shared<TextureAsset>(path);
+    // ... stbi_load(...) → tex->SetPixelData(...)
+    return tex;
+});
+
+// 加载并使用
+TextureHandle rock = AssetManager::Get().Load<TextureAsset>("textures/rock.png");
+if (rock.IsValid()) {
+    mat->SetTexture("BaseColorMap", rock);
+}

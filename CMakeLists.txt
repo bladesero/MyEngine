@@ -29,6 +29,19 @@ set(SDL_EXAMPLES     OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(SDL3)
 
 # --------------------------------------------------------------------------
+# Dependencies – nlohmann/json (header-only) via FetchContent
+# --------------------------------------------------------------------------
+FetchContent_Declare(
+    nlohmann_json
+    GIT_REPOSITORY https://github.com/nlohmann/json.git
+    GIT_TAG        v3.11.3
+    GIT_SHALLOW    TRUE
+)
+set(JSON_BuildTests OFF CACHE BOOL "" FORCE)
+set(JSON_Install    OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(nlohmann_json)
+
+# --------------------------------------------------------------------------
 # Core static library
 # --------------------------------------------------------------------------
 add_library(MyEngineCore STATIC
@@ -41,13 +54,18 @@ add_library(MyEngineCore STATIC
     src/Core/Application.cpp
     src/Input/Input.cpp
     src/Renderer/D3D11Context.cpp
+    src/Scene/Actor.cpp
+    src/Scene/Scene.cpp
+    src/Scene/SceneSerializer.cpp
+    src/Assets/MeshAsset.cpp
+    src/Assets/AssetManager.cpp
 )
 
 target_include_directories(MyEngineCore PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
-target_link_libraries(MyEngineCore PUBLIC SDL3::SDL3 d3d11 dxgi d3dcompiler)
+target_link_libraries(MyEngineCore PUBLIC SDL3::SDL3 d3d11 dxgi d3dcompiler nlohmann_json::nlohmann_json)
 
 # --------------------------------------------------------------------------
 # Game layer static library
@@ -55,6 +73,7 @@ target_link_libraries(MyEngineCore PUBLIC SDL3::SDL3 d3d11 dxgi d3dcompiler)
 add_library(MyEngineGame STATIC
     src/Game/GameLayer.cpp
     src/Game/TriangleLayer.cpp
+    src/Game/SceneLayer.cpp
     src/Camera/Camera.cpp
 )
 

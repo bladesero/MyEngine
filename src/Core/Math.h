@@ -163,6 +163,7 @@ struct Mat4 {
         return r;
     }
     static Mat4 Scale(float s) { return Scale(s, s, s); }
+    static Mat4 Scale(const Vec3& s) { return Scale(s.x, s.y, s.z); }
 
     // Rotation around an arbitrary axis (Rodrigues).
     static Mat4 Rotation(const Vec3& axis, float rad) {
