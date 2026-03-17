@@ -2,8 +2,8 @@
 
 #include "Event.h"
 #include "LayerStack.h"
+#include "PlatformEventBridge.h"
 #include "Time.h"
-#include <functional>
 #include <string>
 
 // Forward-declare to avoid pulling Window.h (and SDL) into every TU.
@@ -33,9 +33,8 @@ public:
     void PushEvent(const Event& event);
     void RequestQuit();
 
-    // Optional hook to observe raw SDL events (e.g. ImGui wants the original SDL_Event).
-    // Kept in runtime so editor can plug in without changing the event system.
-    void SetSDLEventHook(std::function<void(const SDL_Event&)> hook) { m_SdlEventHook = std::move(hook); }
+    // Optional platform bridge for raw platform events.
+    void SetPlatformEventBridge(IPlatformEventBridge* bridge) { m_PlatformEventBridge = bridge; }
 
 private:
     void PollPlatformEvents();   // translates SDL_Event → our Event
@@ -50,5 +49,5 @@ private:
     bool         m_Running = false;
     EventQueue   m_EventQueue;
     LayerStack   m_Layers;
-    std::function<void(const SDL_Event&)> m_SdlEventHook;
+    IPlatformEventBridge* m_PlatformEventBridge = nullptr;
 };

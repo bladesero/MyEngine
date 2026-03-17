@@ -5,7 +5,9 @@
 #include "Scene/SceneSerializer.h"
 #include "Core/Engine.h"
 #include "Core/Window.h"
+#include "Core/PlatformEventBridge.h"
 #include "Renderer/IRenderContext.h"
+#include <memory>
 
 // Forward-declare ImGui to avoid hard dependency when disabled.
 #if defined(MYENGINE_ENABLE_IMGUI)
@@ -42,6 +44,8 @@ private:
     Actor*            m_Selected   = nullptr;
 
 #if defined(MYENGINE_ENABLE_IMGUI)
+    class ImGuiPlatformEventBridge;
+    std::unique_ptr<ImGuiPlatformEventBridge> m_PlatformBridge;
     bool m_ImGuiReady = false;
 #endif
 };

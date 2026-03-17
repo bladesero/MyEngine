@@ -15,6 +15,15 @@
 #endif
 #endif
 
+#if defined(MYENGINE_ENABLE_IMGUI)
+class EditorLayer::ImGuiPlatformEventBridge : public IPlatformEventBridge {
+public:
+    void OnSDLEvent(const SDL_Event& event) override {
+        ImGui_ImplSDL3_ProcessEvent(&event);
+    }
+};
+#endif
+
 EditorLayer::EditorLayer(SceneRenderLayer* sceneLayer, IWindow* window, Engine* engine)
     : Layer("EditorLayer")
     , m_SceneLayer(sceneLayer)
@@ -41,11 +50,10 @@ void EditorLayer::OnAttach()
     ImGui::CreateContext();
     ImGui::StyleColorsDark();
 
-    // Hook raw SDL events for ImGui.
+    // Hook raw SDL events for ImGui through platform bridge.
     if (m_Engine) {
-        m_Engine->SetSDLEventHook([](const SDL_Event& ev) {
-            ImGui_ImplSDL3_ProcessEvent(&ev);
-        });
+        m_PlatformBridge = std::make_unique<ImGuiPlatformEventBridge>();
+        m_Engine->SetPlatformEventBridge(m_PlatformBridge.get());
     }
 
     ImGui_ImplSDL3_InitForD3D(m_Window->GetSDLWindow());
@@ -59,8 +67,9 @@ void EditorLayer::OnDetach()
 {
 #if defined(MYENGINE_ENABLE_IMGUI)
     if (m_Engine) {
-        m_Engine->SetSDLEventHook(nullptr);
+        m_Engine->SetPlatformEventBridge(nullptr);
     }
+    m_PlatformBridge.reset();
     if (m_ImGuiReady) {
         ImGui_ImplDX11_Shutdown();
         ImGui_ImplSDL3_Shutdown();

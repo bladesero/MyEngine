@@ -88,10 +88,6 @@ add_library(MyEngineRuntime STATIC
     src/Scene/SceneSerializer.cpp
     src/Assets/MeshAsset.cpp
     src/Assets/AssetManager.cpp
-    src/Game/GameLayer.cpp
-    src/Game/TriangleLayer.cpp
-    src/Game/SceneLayer.cpp
-    src/Game/SceneRenderLayer.cpp
     src/Camera/Camera.cpp
 )
 
@@ -100,6 +96,22 @@ target_include_directories(MyEngineRuntime PUBLIC
 )
 
 target_link_libraries(MyEngineRuntime PUBLIC SDL3::SDL3 d3d11 dxgi d3dcompiler nlohmann_json::nlohmann_json)
+
+# --------------------------------------------------------------------------
+# Game static library (depends on runtime)
+# --------------------------------------------------------------------------
+add_library(MyEngineGame STATIC
+    src/Game/GameLayer.cpp
+    src/Game/TriangleLayer.cpp
+    src/Game/SceneLayer.cpp
+    src/Game/SceneRenderLayer.cpp
+)
+
+target_include_directories(MyEngineGame PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+
+target_link_libraries(MyEngineGame PRIVATE MyEngineRuntime)
 
 # --------------------------------------------------------------------------
 # Editor executable
@@ -114,7 +126,25 @@ target_include_directories(MyEngineEditor PRIVATE
 )
 
 target_link_libraries(MyEngineEditor PRIVATE MyEngineRuntime MyEngineImGui)
+target_link_libraries(MyEngineEditor PRIVATE MyEngineGame)
 target_compile_definitions(MyEngineEditor PRIVATE MYENGINE_ENABLE_IMGUI)
+
+# --------------------------------------------------------------------------
+# Tests
+# --------------------------------------------------------------------------
+enable_testing()
+
+add_executable(MyEngineTests
+    tests/EngineTests.cpp
+)
+
+target_include_directories(MyEngineTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+
+target_link_libraries(MyEngineTests PRIVATE MyEngineRuntime)
+
+add_test(NAME MyEngineTests COMMAND MyEngineTests)
 
 # On Windows, copy SDL3.dll next to the executable automatically.
 if(WIN32)
@@ -123,6 +153,11 @@ if(WIN32)
             $<TARGET_FILE:SDL3::SDL3>
             $<TARGET_FILE_DIR:MyEngineEditor>
     )
+    add_custom_command(TARGET MyEngineTests POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            $<TARGET_FILE:SDL3::SDL3>
+            $<TARGET_FILE_DIR:MyEngineTests>
+    )
 endif()
 
 # --------------------------------------------------------------------------
@@ -130,10 +165,14 @@ endif()
 # --------------------------------------------------------------------------
 if(MSVC)
     target_compile_options(MyEngineRuntime PRIVATE /W4)
+    target_compile_options(MyEngineGame    PRIVATE /W4)
     target_compile_options(MyEngineEditor  PRIVATE /W4)
     target_compile_options(MyEngineImGui   PRIVATE /W4)
+    target_compile_options(MyEngineTests   PRIVATE /W4)
 else()
     target_compile_options(MyEngineRuntime PRIVATE -Wall -Wextra -Wpedantic)
+    target_compile_options(MyEngineGame    PRIVATE -Wall -Wextra -Wpedantic)
     target_compile_options(MyEngineEditor  PRIVATE -Wall -Wextra -Wpedantic)
     target_compile_options(MyEngineImGui   PRIVATE -Wall -Wextra -Wpedantic)
+    target_compile_options(MyEngineTests   PRIVATE -Wall -Wextra -Wpedantic)
 endif()

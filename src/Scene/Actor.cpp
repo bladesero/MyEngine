@@ -1,4 +1,4 @@
-#include "Scene/Actor.h"
+﻿#include "Scene/Actor.h"
 #include <algorithm>
 
 // --------------------------------------------------------------------------
@@ -9,10 +9,9 @@ Actor::Actor(std::string name, uint64_t id)
 
 Actor::~Actor()
 {
-    // 先摘除父子关系，防止悬空指针
-    SetParent(nullptr);
+    // 鍏堟憳闄ょ埗瀛愬叧绯伙紝闃叉鎮┖鎸囬拡
 
-    // 清空所有组件（触发 OnDetach）
+    // 娓呯┖鎵€鏈夌粍浠讹紙瑙﹀彂 OnDetach锛?
     for (auto& [key, comp] : m_Components) {
         comp->OnDetach();
     }
@@ -20,7 +19,7 @@ Actor::~Actor()
 }
 
 // --------------------------------------------------------------------------
-// Transform / 世界矩阵
+// Transform / 涓栫晫鐭╅樀
 // --------------------------------------------------------------------------
 
 Mat4 Actor::GetWorldMatrix() const
@@ -41,21 +40,21 @@ Vec3 Actor::GetWorldPosition() const
 }
 
 // --------------------------------------------------------------------------
-// 父子层级
+// 鐖跺瓙灞傜骇
 // --------------------------------------------------------------------------
 
 void Actor::SetParent(Actor* parent)
 {
     if (m_Parent == parent) return;
 
-    // 从旧父节点摘除
+    // 浠庢棫鐖惰妭鐐规憳闄?
     if (m_Parent) {
         m_Parent->RemoveChild(this);
     }
 
     m_Parent = parent;
 
-    // 加入新父节点
+    // 鍔犲叆鏂扮埗鑺傜偣
     if (m_Parent) {
         m_Parent->AddChild(this);
     }
