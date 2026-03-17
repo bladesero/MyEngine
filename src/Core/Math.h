@@ -8,7 +8,7 @@
 //
 // Convention:
 //   - Row-major Mat4 stored as m[row][col]
-//   - Right-hand coordinate system, Y-up
+//   - Left-hand coordinate system, Y-up (+Z forward)
 //   - Depth range 0..1  (D3D11 NDC)
 //   - HLSL mul(vector, matrix) friendly  (vector * matrix)
 // ==========================================================================
@@ -74,7 +74,7 @@ struct Vec3 {
     static Vec3 Zero()    { return {0,0,0}; }
     static Vec3 One()     { return {1,1,1}; }
     static Vec3 Up()      { return {0,1,0}; }
-    static Vec3 Forward() { return {0,0,-1}; }
+    static Vec3 Forward() { return {0,0,1}; }
     static Vec3 Right()   { return {1,0,0}; }
 };
 
@@ -149,8 +149,9 @@ struct Mat4 {
     }
 
     static Mat4 Translation(float tx, float ty, float tz) {
+        // Row-vector convention: translation lives in the last row.
         Mat4 r = Identity();
-        r.m[0][3] = tx; r.m[1][3] = ty; r.m[2][3] = tz;
+        r.m[3][0] = tx; r.m[3][1] = ty; r.m[3][2] = tz;
         return r;
     }
     static Mat4 Translation(const Vec3& t) {
@@ -165,56 +166,88 @@ struct Mat4 {
     static Mat4 Scale(float s) { return Scale(s, s, s); }
     static Mat4 Scale(const Vec3& s) { return Scale(s.x, s.y, s.z); }
 
-    // Rotation around an arbitrary axis (Rodrigues).
+    // Rotation around an arbitrary axis (Rodrigues) – row-vector form.
     static Mat4 Rotation(const Vec3& axis, float rad) {
         Vec3 a = axis.Normalized();
         const float c = std::cos(rad), s = std::sin(rad), t = 1.0f - c;
+        // This is the transpose of the common column-vector Rodrigues matrix,
+        // i.e. directly usable for v * R.
         Mat4 r = Identity();
-        r.m[0][0] = t*a.x*a.x + c;       r.m[0][1] = t*a.x*a.y - s*a.z; r.m[0][2] = t*a.x*a.z + s*a.y;
-        r.m[1][0] = t*a.x*a.y + s*a.z;   r.m[1][1] = t*a.y*a.y + c;     r.m[1][2] = t*a.y*a.z - s*a.x;
-        r.m[2][0] = t*a.x*a.z - s*a.y;   r.m[2][1] = t*a.y*a.z + s*a.x; r.m[2][2] = t*a.z*a.z + c;
+        r.m[0][0] = t*a.x*a.x + c;       r.m[0][1] = t*a.x*a.y + s*a.z; r.m[0][2] = t*a.x*a.z - s*a.y;
+        r.m[1][0] = t*a.x*a.y - s*a.z;   r.m[1][1] = t*a.y*a.y + c;     r.m[1][2] = t*a.y*a.z + s*a.x;
+        r.m[2][0] = t*a.x*a.z + s*a.y;   r.m[2][1] = t*a.y*a.z - s*a.x; r.m[2][2] = t*a.z*a.z + c;
         return r;
     }
-    static Mat4 RotationX(float rad) { return Rotation({1,0,0}, rad); }
-    static Mat4 RotationY(float rad) { return Rotation({0,1,0}, rad); }
-    static Mat4 RotationZ(float rad) { return Rotation({0,0,1}, rad); }
+    // Left-handed, row-vector rotations.
+    static Mat4 RotationX(float rad) {
+        const float c = std::cos(rad), s = std::sin(rad);
+        Mat4 r = Identity();
+        // v' = v * Rx
+        r.m[1][1] =  c; r.m[1][2] =  s;
+        r.m[2][1] = -s; r.m[2][2] =  c;
+        return r;
+    }
+    static Mat4 RotationY(float rad) {
+        const float c = std::cos(rad), s = std::sin(rad);
+        Mat4 r = Identity();
+        // v' = v * Ry
+        r.m[0][0] =  c; r.m[0][2] = -s;
+        r.m[2][0] =  s; r.m[2][2] =  c;
+        return r;
+    }
+    static Mat4 RotationZ(float rad) {
+        const float c = std::cos(rad), s = std::sin(rad);
+        Mat4 r = Identity();
+        // v' = v * Rz
+        r.m[0][0] =  c; r.m[0][1] =  s;
+        r.m[1][0] = -s; r.m[1][1] =  c;
+        return r;
+    }
 
-    // Look-at view matrix (right-hand, Y-up).
+    // Look-at view matrix (left-hand, Y-up). Row-vector convention.
     static Mat4 LookAt(const Vec3& eye, const Vec3& target, const Vec3& up) {
-        Vec3 f = (target - eye).Normalized();   // forward
-        Vec3 r = f.Cross(up).Normalized();       // right
-        Vec3 u = r.Cross(f);                     // recomputed up
+        // Row-vector view matrix. Basis vectors are stored in the first 3 rows,
+        // translation is stored in the last row.
+        Vec3 f = (target - eye).Normalized();      // forward (+Z)
+        Vec3 r = up.Cross(f).Normalized();         // right (+X)
+        Vec3 u = f.Cross(r);                       // up (+Y)
 
-        Mat4 v;
-        v.m[0][0] =  r.x; v.m[0][1] =  r.y; v.m[0][2] =  r.z; v.m[0][3] = -r.Dot(eye);
-        v.m[1][0] =  u.x; v.m[1][1] =  u.y; v.m[1][2] =  u.z; v.m[1][3] = -u.Dot(eye);
-        v.m[2][0] = -f.x; v.m[2][1] = -f.y; v.m[2][2] = -f.z; v.m[2][3] =  f.Dot(eye);
-        v.m[3][3] = 1.0f;
+        Mat4 v = Identity();
+        v.m[0][0] = r.x; v.m[0][1] = u.x; v.m[0][2] = f.x;
+        v.m[1][0] = r.y; v.m[1][1] = u.y; v.m[1][2] = f.y;
+        v.m[2][0] = r.z; v.m[2][1] = u.z; v.m[2][2] = f.z;
+        v.m[3][0] = -eye.Dot(r);
+        v.m[3][1] = -eye.Dot(u);
+        v.m[3][2] = -eye.Dot(f);
+         v.m[3][3] = 1.0f;
         return v;
     }
 
-    // Perspective (right-hand, depth 0..1, D3D11).
+    // Perspective (left-hand, depth 0..1, D3D11). Row-vector convention.
     static Mat4 Perspective(float fovYRad, float aspect, float zNear, float zFar) {
         const float f = 1.0f / std::tan(fovYRad * 0.5f);
-        Mat4 p;
+        // Row-vector LH perspective (0..1). This is the transpose of the
+        // common column-vector D3D matrix.
+        Mat4 p = {};
         p.m[0][0] = f / aspect;
         p.m[1][1] = f;
-        p.m[2][2] = zFar / (zNear - zFar);
-        p.m[2][3] = -1.0f;
-        p.m[3][2] = -(zFar * zNear) / (zFar - zNear);
+        p.m[2][2] = zFar / (zFar - zNear);
+        p.m[3][2] = (-zNear * zFar) / (zFar - zNear);
+        p.m[2][3] = 1.0f;
+        p.m[3][3] = 0.0f;// by default
         return p;
     }
 
-    // Orthographic (right-hand, depth 0..1).
+    // Orthographic (left-hand, depth 0..1). Row-vector convention.
     static Mat4 Ortho(float l, float r, float b, float t, float zn, float zf) {
-        Mat4 o;
+        // Row-vector LH ortho (0..1).
+        Mat4 o = Identity();
         o.m[0][0] =  2.0f / (r - l);
         o.m[1][1] =  2.0f / (t - b);
-        o.m[2][2] = -1.0f / (zf - zn);
-        o.m[0][3] = -(r + l) / (r - l);
-        o.m[1][3] = -(t + b) / (t - b);
-        o.m[2][3] = -zn / (zf - zn);
-        o.m[3][3] =  1.0f;
+        o.m[2][2] =  1.0f / (zf - zn);
+        o.m[3][0] = -(r + l) / (r - l);
+        o.m[3][1] = -(t + b) / (t - b);
+        o.m[3][2] = -zn / (zf - zn);
         return o;
     }
 };

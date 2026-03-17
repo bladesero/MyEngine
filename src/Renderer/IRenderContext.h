@@ -53,6 +53,10 @@ public:
     virtual std::shared_ptr<GpuBuffer> CreateVertexBuffer(
         const void* data, uint32_t byteSize, uint32_t strideBytes) = 0;
 
+    // Create an immutable index buffer (32-bit indices).
+    virtual std::shared_ptr<GpuBuffer> CreateIndexBuffer(
+        const void* data, uint32_t byteSize) = 0;
+
     // Compile shader from HLSL source (vertex + pixel in same string,
     // separated by entry-point names).
     virtual std::shared_ptr<GpuShader> CreateShader(
@@ -65,11 +69,15 @@ public:
     // Draw calls --------------------------------------------------------------
     virtual void BindShader(GpuShader* shader) = 0;
     virtual void BindVertexBuffer(GpuBuffer* buffer) = 0;
+    // Bind index buffer (pass nullptr to unbind for non-indexed draw).
+    virtual void BindIndexBuffer(GpuBuffer* buffer) = 0;
 
     // Upload a small per-draw constant buffer (MVP matrix, 64 bytes).
     virtual void SetVSConstants(const void* data, uint32_t byteSize) = 0;
 
     virtual void Draw(uint32_t vertexCount, uint32_t startVertex = 0) = 0;
+    virtual void DrawIndexed(uint32_t indexCount, uint32_t startIndex = 0,
+                             uint32_t baseVertex = 0) = 0;
 
     // Viewport ----------------------------------------------------------------
     virtual void SetViewport(float x, float y, float w, float h) = 0;

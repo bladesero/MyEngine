@@ -1,11 +1,13 @@
 #include "src/Core/Application.h"
 #include "src/Renderer/IRenderContext.h"
 #include "src/Game/TriangleLayer.h"
+#include "src/Game/SceneRenderLayer.h"
 
 #include <memory>
 
 // --------------------------------------------------------------------------
-// MyApp  –  bootstraps the D3D11 context and pushes TriangleLayer.
+// MyApp  –  bootstraps the D3D11 context and pushes SceneRenderLayer
+//           (scene with MeshRenderer: cube + default material).
 // --------------------------------------------------------------------------
 class MyApp : public Application {
 public:
@@ -21,8 +23,8 @@ protected:
 
         auto& win = GetWindow();
         GetEngine().PushLayer(
-            new TriangleLayer(m_RenderContext.get(),
-                              win.GetWidth(), win.GetHeight()));
+            new SceneRenderLayer(m_RenderContext.get(),
+                                 win.GetWidth(), win.GetHeight()));
     }
 
     void OnShutdown() override {
@@ -35,7 +37,7 @@ private:
 
 int main() {
     ApplicationConfig cfg;
-    cfg.window.title     = "MyEngine – DX11 Triangle";
+    cfg.window.title     = "MyEngine – Scene + MeshRenderer";
     cfg.window.width     = 1280;
     cfg.window.height    = 720;
     cfg.window.vsync     = false;  // D3D11 vsync handled by SwapChain Present(1,0)

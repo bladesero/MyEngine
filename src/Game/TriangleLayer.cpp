@@ -45,9 +45,11 @@ void TriangleLayer::OnAttach() {
         k_Layout, 2);
 
     // ---- Camera ------------------------------------------------------------
-    m_Camera.LookAt({ 0.0f, 0.0f, 3.0f }, { 0.0f, 0.0f, 0.0f });
+    m_Camera.LookAt({ 0.0f, 0.0f, -3.0f }, { 0.0f, 0.0f, 0.0f });
     m_Camera.SetPerspective(60.0f,
-        static_cast<float>(m_VpW) / static_cast<float>(m_VpH));
+        static_cast<float>(m_VpW) / static_cast<float>(m_VpH),
+        0.1f,
+        1000.0f);
 }
 
 void TriangleLayer::OnDetach() {
@@ -108,16 +110,17 @@ void TriangleLayer::OnUpdate(float dt) {
 void TriangleLayer::OnRender() {
     if (!m_Renderer || !m_VB || !m_Shader) return;
 
-    // ---- Build MVP ---------------------------------------------------------
+    // ---- Build MVP (row-vector: world * Model * View * Proj) ---------------
     Mat4 model = Mat4::RotationY(m_Rotation * kDeg2Rad);
     Mat4 mvp   = model * m_Camera.GetViewProj();
+    // Upload row-major; HLSL interprets as transpose, mul(pos, g_MVP) then correct.
 
     // ---- Clear + draw ------------------------------------------------------
     m_Renderer->BeginFrame(0.12f, 0.12f, 0.18f);
 
     m_Renderer->BindShader(m_Shader.get());
     m_Renderer->BindVertexBuffer(m_VB.get());
-    m_Renderer->SetVSConstants(&mvp, sizeof(mvp));
+    m_Renderer->SetVSConstants(mvp.Data(), 64);
     m_Renderer->Draw(3);
 
     m_Renderer->EndFrame();

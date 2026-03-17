@@ -14,6 +14,11 @@ struct D3D11Buffer : GpuBuffer {
     uint32_t             stride = 0;
 };
 
+struct D3D11IndexBuffer : GpuBuffer {
+    ComPtr<ID3D11Buffer> buffer;
+    DXGI_FORMAT          format = DXGI_FORMAT_R32_UINT;
+};
+
 struct D3D11Shader : GpuShader {
     ComPtr<ID3D11VertexShader>  vs;
     ComPtr<ID3D11PixelShader>   ps;
@@ -36,6 +41,9 @@ public:
     std::shared_ptr<GpuBuffer> CreateVertexBuffer(
         const void* data, uint32_t byteSize, uint32_t strideBytes) override;
 
+    std::shared_ptr<GpuBuffer> CreateIndexBuffer(
+        const void* data, uint32_t byteSize) override;
+
     std::shared_ptr<GpuShader> CreateShader(
         const std::string& hlslSource,
         const std::string& vsEntry,
@@ -45,8 +53,11 @@ public:
 
     void BindShader(GpuShader* shader)       override;
     void BindVertexBuffer(GpuBuffer* buffer) override;
+    void BindIndexBuffer(GpuBuffer* buffer) override;
     void SetVSConstants(const void* data, uint32_t byteSize) override;
     void Draw(uint32_t vertexCount, uint32_t startVertex)    override;
+    void DrawIndexed(uint32_t indexCount, uint32_t startIndex = 0,
+                     uint32_t baseVertex = 0) override;
     void SetViewport(float x, float y, float w, float h)     override;
 
 private:

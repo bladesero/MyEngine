@@ -92,7 +92,7 @@ const Mat4& Camera::GetView() const {
 
 Mat4 Camera::GetViewProj() const {
     if (m_ViewDirty) RebuildView();
-    return m_View * m_Proj;
+    return m_View*m_Proj ;
 }
 
 // --------------------------------------------------------------------------

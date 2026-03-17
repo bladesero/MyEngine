@@ -134,6 +134,27 @@ std::shared_ptr<GpuBuffer> D3D11Context::CreateVertexBuffer(
     return buf;
 }
 
+std::shared_ptr<GpuBuffer> D3D11Context::CreateIndexBuffer(
+    const void* data, uint32_t byteSize)
+{
+    D3D11_BUFFER_DESC bd = {};
+    bd.ByteWidth      = byteSize;
+    bd.Usage          = D3D11_USAGE_IMMUTABLE;
+    bd.BindFlags      = D3D11_BIND_INDEX_BUFFER;
+
+    D3D11_SUBRESOURCE_DATA sd = {};
+    sd.pSysMem = data;
+
+    auto buf = std::make_shared<D3D11IndexBuffer>();
+    buf->format = DXGI_FORMAT_R32_UINT;
+    HRESULT hr = m_Device->CreateBuffer(&bd, &sd, &buf->buffer);
+    if (FAILED(hr)) {
+        Logger::Error("CreateIndexBuffer failed");
+        return nullptr;
+    }
+    return buf;
+}
+
 std::shared_ptr<GpuShader> D3D11Context::CreateShader(
     const std::string& hlslSource,
     const std::string& vsEntry,
@@ -227,6 +248,15 @@ void D3D11Context::BindVertexBuffer(GpuBuffer* buffer) {
     m_Context->IASetVertexBuffers(0, 1, b->buffer.GetAddressOf(), &b->stride, &offset);
 }
 
+void D3D11Context::BindIndexBuffer(GpuBuffer* buffer) {
+    if (!buffer) {
+        m_Context->IASetIndexBuffer(nullptr, DXGI_FORMAT_R32_UINT, 0);
+        return;
+    }
+    auto* b = static_cast<D3D11IndexBuffer*>(buffer);
+    m_Context->IASetIndexBuffer(b->buffer.Get(), b->format, 0);
+}
+
 void D3D11Context::SetVSConstants(const void* data, uint32_t byteSize) {
     CreateConstantBuffer(byteSize);
 
@@ -235,10 +265,16 @@ void D3D11Context::SetVSConstants(const void* data, uint32_t byteSize) {
     memcpy(ms.pData, data, byteSize);
     m_Context->Unmap(m_CBuffer.Get(), 0);
     m_Context->VSSetConstantBuffers(0, 1, m_CBuffer.GetAddressOf());
+    m_Context->PSSetConstantBuffers(0, 1, m_CBuffer.GetAddressOf());
 }
 
 void D3D11Context::Draw(uint32_t vertexCount, uint32_t startVertex) {
     m_Context->Draw(vertexCount, startVertex);
+}
+
+void D3D11Context::DrawIndexed(uint32_t indexCount, uint32_t startIndex,
+                               uint32_t baseVertex) {
+    m_Context->DrawIndexed(indexCount, startIndex, baseVertex);
 }
 
 void D3D11Context::SetViewport(float x, float y, float w, float h) {

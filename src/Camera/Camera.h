@@ -104,7 +104,7 @@ private:
     void RebuildProj();
 
     // ---- View state --------------------------------------------------------
-    Vec3 m_Position = { 0.0f, 0.0f,  3.0f };
+    Vec3 m_Position = { 0.0f, 0.0f,  0.0f };
     Vec3 m_Target   = { 0.0f, 0.0f,  0.0f };
     Vec3 m_Up       = { 0.0f, 1.0f,  0.0f };
 

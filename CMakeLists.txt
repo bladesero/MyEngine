@@ -55,6 +55,7 @@ add_library(MyEngineCore STATIC
     src/Input/Input.cpp
     src/Renderer/D3D11Context.cpp
     src/Scene/Actor.cpp
+    src/Scene/MeshRendererComponent.cpp
     src/Scene/Scene.cpp
     src/Scene/SceneSerializer.cpp
     src/Assets/MeshAsset.cpp
@@ -74,6 +75,7 @@ add_library(MyEngineGame STATIC
     src/Game/GameLayer.cpp
     src/Game/TriangleLayer.cpp
     src/Game/SceneLayer.cpp
+    src/Game/SceneRenderLayer.cpp
     src/Camera/Camera.cpp
 )
 
