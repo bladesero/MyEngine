@@ -75,12 +75,25 @@ bool D3D11Context::Init(IWindow* window) {
         return false;
     }
 
-    // ---- Render target view ------------------------------------------------
+    // ---- Render target + depth buffer --------------------------------------
     ComPtr<ID3D11Texture2D> backBuffer;
     m_SwapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer));
     m_Device->CreateRenderTargetView(backBuffer.Get(), nullptr, &m_RTV);
 
-    m_Context->OMSetRenderTargets(1, m_RTV.GetAddressOf(), nullptr);
+    // Create depth stencil buffer
+    D3D11_TEXTURE2D_DESC depthDesc = {};
+    depthDesc.Width              = static_cast<UINT>(w);
+    depthDesc.Height             = static_cast<UINT>(h);
+    depthDesc.MipLevels          = 1;
+    depthDesc.ArraySize          = 1;
+    depthDesc.Format             = DXGI_FORMAT_D24_UNORM_S8_UINT;
+    depthDesc.SampleDesc.Count   = 1;
+    depthDesc.Usage              = D3D11_USAGE_DEFAULT;
+    depthDesc.BindFlags          = D3D11_BIND_DEPTH_STENCIL;
+    m_Device->CreateTexture2D(&depthDesc, nullptr, &m_Depth);
+    m_Device->CreateDepthStencilView(m_Depth.Get(), nullptr, &m_DSV);
+
+    m_Context->OMSetRenderTargets(1, m_RTV.GetAddressOf(), m_DSV.Get());
 
     // ---- Default viewport --------------------------------------------------
     SetViewport(0, 0, static_cast<float>(w), static_cast<float>(h));
@@ -91,6 +104,8 @@ bool D3D11Context::Init(IWindow* window) {
 
 void D3D11Context::Shutdown() {
     if (m_Context) { m_Context->ClearState(); }
+    m_DSV.Reset();
+    m_Depth.Reset();
     m_CBuffer.Reset();
     m_RTV.Reset();
     m_SwapChain.Reset();
@@ -101,7 +116,12 @@ void D3D11Context::Shutdown() {
 void D3D11Context::BeginFrame(float r, float g, float b, float a) {
     const float color[4] = { r, g, b, a };
     m_Context->ClearRenderTargetView(m_RTV.Get(), color);
-    m_Context->OMSetRenderTargets(1, m_RTV.GetAddressOf(), nullptr);
+    if (m_DSV) {
+        m_Context->ClearDepthStencilView(m_DSV.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+        m_Context->OMSetRenderTargets(1, m_RTV.GetAddressOf(), m_DSV.Get());
+    } else {
+        m_Context->OMSetRenderTargets(1, m_RTV.GetAddressOf(), nullptr);
+    }
     m_Context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 }
 

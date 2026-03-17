@@ -1,6 +1,7 @@
 #include "Scene/SceneSerializer.h"
 #include "Scene/Actor.h"
 #include "Scene/Component.h"
+#include "Scene/MeshRendererComponent.h"
 #include "Core/Logger.h"
 
 #include <nlohmann/json.hpp>
@@ -136,10 +137,7 @@ static bool JsonToScene(const Json& root, Scene& scene)
         }
 
         // --- Pass 3: deserialize components ---
-        // Component deserialization requires a component registry for
-        // dynamic dispatch. For now, we call Deserialize on any already-
-        // attached component that matches the stored type name.
-        // (Custom registration can be layered on top later.)
+        // Minimal component \"registry\": currently supports MeshRendererComponent.
         for (const Json& a : actorsArr) {
             uint64_t id    = static_cast<uint64_t>(a.value("id", 0));
             Actor*   actor = scene.FindByID(id);
@@ -151,12 +149,20 @@ static bool JsonToScene(const Json& root, Scene& scene)
                 Json emptyObj = Json::object();
                 const Json& data = c.contains("data") ? c["data"] : emptyObj;
 
-                actor->ForEachComponent([&](Component& comp){
-                    if (comp.GetTypeName() == typeName) {
-                        comp.SetEnabled(enabled);
-                        comp.Deserialize(data);
+                // Create component instance if not present.
+                Component* compPtr = nullptr;
+                if (typeName == "MeshRenderer") {
+                    if (!actor->GetComponent<MeshRendererComponent>()) {
+                        compPtr = actor->AddComponent<MeshRendererComponent>();
+                    } else {
+                        compPtr = actor->GetComponent<MeshRendererComponent>();
                     }
-                });
+                }
+
+                if (compPtr) {
+                    compPtr->SetEnabled(enabled);
+                    compPtr->Deserialize(data);
+                }
             }
         }
 

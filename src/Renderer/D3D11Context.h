@@ -60,6 +60,11 @@ public:
                      uint32_t baseVertex = 0) override;
     void SetViewport(float x, float y, float w, float h)     override;
 
+    // Native handles (needed by editor overlays such as ImGui).
+    ID3D11Device*        GetDevice() const        { return m_Device.Get(); }
+    ID3D11DeviceContext* GetDeviceContext() const { return m_Context.Get(); }
+    IDXGISwapChain*      GetSwapChain() const     { return m_SwapChain.Get(); }
+
 private:
     void CreateConstantBuffer(uint32_t byteSize);
 
@@ -67,6 +72,8 @@ private:
     ComPtr<ID3D11DeviceContext>    m_Context;
     ComPtr<IDXGISwapChain>         m_SwapChain;
     ComPtr<ID3D11RenderTargetView> m_RTV;
-    ComPtr<ID3D11Buffer>           m_CBuffer;      // per-draw VS constants
+    ComPtr<ID3D11Texture2D>        m_Depth;
+    ComPtr<ID3D11DepthStencilView> m_DSV;
+    ComPtr<ID3D11Buffer>           m_CBuffer;      // per-draw VS/PS constants
     uint32_t                       m_CBufferSize = 0;
 };

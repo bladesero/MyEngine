@@ -1,7 +1,7 @@
 #include "src/Core/Application.h"
 #include "src/Renderer/IRenderContext.h"
-#include "src/Game/TriangleLayer.h"
 #include "src/Game/SceneRenderLayer.h"
+#include "src/Editor/EditorLayer.h"
 
 #include <memory>
 
@@ -22,9 +22,11 @@ protected:
         }
 
         auto& win = GetWindow();
-        GetEngine().PushLayer(
-            new SceneRenderLayer(m_RenderContext.get(),
-                                 win.GetWidth(), win.GetHeight()));
+        auto* sceneLayer = new SceneRenderLayer(m_RenderContext.get(),
+                                                win.GetWidth(), win.GetHeight());
+        sceneLayer->SetPresentEnabled(false); // editor will present after ImGui overlay
+        GetEngine().PushLayer(sceneLayer);
+        GetEngine().PushLayer(new EditorLayer(sceneLayer, &win, &GetEngine()));
     }
 
     void OnShutdown() override {
@@ -37,7 +39,7 @@ private:
 
 int main() {
     ApplicationConfig cfg;
-    cfg.window.title     = "MyEngine – Scene + MeshRenderer";
+    cfg.window.title     = "MyEngine Editor – Scene + MeshRenderer";
     cfg.window.width     = 1280;
     cfg.window.height    = 720;
     cfg.window.vsync     = false;  // D3D11 vsync handled by SwapChain Present(1,0)

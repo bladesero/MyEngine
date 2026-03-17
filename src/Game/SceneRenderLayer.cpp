@@ -1,24 +1,18 @@
 #include "Game/SceneRenderLayer.h"
-#include "Renderer/MeshShader.h"
-#include "Renderer/IRenderContext.h"
 #include "Assets/AssetManager.h"
-#include "Assets/MeshAsset.h"
-#include "Assets/MaterialAsset.h"
 #include "Core/Logger.h"
-#include "Core/Math.h"
 #include "Input/Input.h"
 #include <SDL3/SDL_scancode.h>
-#include <cstring>
 
 // --------------------------------------------------------------------------
 SceneRenderLayer::SceneRenderLayer(IRenderContext* context,
                                    int viewportWidth, int viewportHeight)
     : SceneLayer("SceneRenderLayer")
     , m_RenderContext(context)
+    , m_Renderer(context)
     , m_VpW(viewportWidth)
     , m_VpH(viewportHeight)
-{
-}
+{}
 
 void SceneRenderLayer::OnAttach() {
     SceneLayer::OnAttach();
@@ -35,7 +29,6 @@ void SceneRenderLayer::OnAttach() {
 }
 
 void SceneRenderLayer::OnDetach() {
-    m_DefaultMeshShader.reset();
     SceneLayer::OnDetach();
 }
 
@@ -69,92 +62,31 @@ void SceneRenderLayer::OnEvent(Event& event) {
 void SceneRenderLayer::OnSceneLoaded() {
     SceneLayer::OnSceneLoaded();
     if (GetScene().ActorCount() == 0) {
-        Actor* cube = GetScene().CreateActor("Cube");
-        auto* mr = cube->AddComponent<MeshRendererComponent>();
-        mr->SetMesh(AssetManager::Get().GetCubeMesh());
-        mr->SetMaterial(AssetManager::Get().GetDefaultMaterial());
-        Logger::Info("[SceneRenderLayer] added demo Cube with MeshRenderer");
-    }
-}
+        // First cube at origin
+        Actor* cube1 = GetScene().CreateActor("Cube1");
+        cube1->GetTransform().position = Vec3::Zero();
+        auto* mr1 = cube1->AddComponent<MeshRendererComponent>();
+        mr1->SetMesh(AssetManager::Get().GetCubeMesh());
+        mr1->SetMaterial(AssetManager::Get().GetDefaultMaterial());
 
-GpuShader* SceneRenderLayer::GetOrCreateMeshShader() {
-    if (m_DefaultMeshShader) return m_DefaultMeshShader.get();
-    if (!m_RenderContext) return nullptr;
-    m_DefaultMeshShader = m_RenderContext->CreateShader(
-        k_MeshHLSL, "VSMain", "PSMain",
-        k_MeshVertexLayout, k_MeshVertexLayoutCount);
-    return m_DefaultMeshShader.get();
-}
+        // Second cube offset in X and colored differently
+        Actor* cube2 = GetScene().CreateActor("Cube2");
+        cube2->GetTransform().position = Vec3{ 2.0f, 0.0f, 0.0f };
+        auto* mr2 = cube2->AddComponent<MeshRendererComponent>();
+        mr2->SetMesh(AssetManager::Get().GetCubeMesh());
+        auto mat2 = AssetManager::Get().GetDefaultMaterial();
+        if (mat2) {
+            mat2->SetParam("BaseColor", MaterialParam::FromColor({0.1f, 0.7f, 1.0f}));
+            mr2->SetMaterial(mat2);
+        } else {
+            mr2->SetMaterial(AssetManager::Get().GetDefaultMaterial());
+        }
 
-void SceneRenderLayer::EnsureMeshUploaded(MeshAsset* mesh) {
-    if (!mesh || mesh->IsUploaded() || !m_RenderContext) return;
-    const auto& verts = mesh->GetVertices();
-    const auto& idx   = mesh->GetIndices();
-    if (verts.empty()) return;
-
-    uint32_t vbBytes = static_cast<uint32_t>(verts.size() * sizeof(MeshVertex));
-    auto vb = m_RenderContext->CreateVertexBuffer(
-        verts.data(), vbBytes, sizeof(MeshVertex));
-    mesh->SetVertexBuffer(vb);
-
-    if (!idx.empty()) {
-        uint32_t ibBytes = static_cast<uint32_t>(idx.size() * sizeof(uint32_t));
-        auto ib = m_RenderContext->CreateIndexBuffer(idx.data(), ibBytes);
-        mesh->SetIndexBuffer(ib);
+        Logger::Info("[SceneRenderLayer] added demo cubes with MeshRenderer");
     }
 }
 
 void SceneRenderLayer::OnRender() {
     if (!m_RenderContext) return;
-
-    GpuShader* shader = GetOrCreateMeshShader();
-    if (!shader) return;
-
-    m_RenderContext->BeginFrame(0.12f, 0.12f, 0.18f);
-
-    Mat4 viewProj = m_Camera.GetViewProj();
-
-    GetScene().ForEach([this, viewProj, shader](Actor& actor) {
-        if (!actor.IsActive()) return;
-        auto* mr = actor.GetComponent<MeshRendererComponent>();
-        if (!mr || !mr->IsValid()) return;
-
-        MeshAsset*    mesh = mr->GetMesh().Get();
-        MaterialAsset* mat = mr->GetMaterial().Get();
-        if (!mesh || !mat) return;
-
-        EnsureMeshUploaded(mesh);
-        if (!mesh->GetVertexBuffer()) return;
-
-        Mat4 world = actor.GetWorldMatrix();
-        Mat4 mvp   = world * viewProj;
-
-        MeshPerDrawConstants constants;
-        // Upload row-major MVP; HLSL mul(pos, g_MVP) matches engine row-vector convention.
-        memcpy(constants.mvp, mvp.Data(), 64);
-        Vec3 baseColor = mat->GetColor("BaseColor", Vec3::One());
-        constants.baseColor[0] = baseColor.x;
-        constants.baseColor[1] = baseColor.y;
-        constants.baseColor[2] = baseColor.z;
-        constants.baseColor[3] = 1.0f;
-
-        m_RenderContext->BindShader(shader);
-        m_RenderContext->BindVertexBuffer(mesh->GetVertexBuffer());
-        if (mesh->GetIndexBuffer()) {
-            m_RenderContext->BindIndexBuffer(mesh->GetIndexBuffer());
-            for (const auto& sm : mesh->GetSubMeshes()) {
-                m_RenderContext->SetVSConstants(&constants, sizeof(constants));
-                m_RenderContext->DrawIndexed(sm.indexCount, sm.indexOffset,
-                                             static_cast<uint32_t>(sm.vertexOffset));
-            }
-        } else {
-            m_RenderContext->BindIndexBuffer(nullptr);
-            for (const auto& sm : mesh->GetSubMeshes()) {
-                m_RenderContext->SetVSConstants(&constants, sizeof(constants));
-                m_RenderContext->Draw(sm.indexCount, sm.vertexOffset);
-            }
-        }
-    });
-
-    m_RenderContext->EndFrame();
+    m_Renderer.RenderScene(GetScene(), m_Camera, m_PresentEnabled);
 }

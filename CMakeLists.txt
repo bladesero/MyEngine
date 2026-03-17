@@ -42,9 +42,36 @@ set(JSON_Install    OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(nlohmann_json)
 
 # --------------------------------------------------------------------------
-# Core static library
+# Dependencies – Dear ImGui (for editor)
 # --------------------------------------------------------------------------
-add_library(MyEngineCore STATIC
+FetchContent_Declare(
+    imgui
+    GIT_REPOSITORY https://github.com/ocornut/imgui.git
+    GIT_TAG        v1.91.3
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(imgui)
+
+add_library(MyEngineImGui STATIC
+    ${imgui_SOURCE_DIR}/imgui.cpp
+    ${imgui_SOURCE_DIR}/imgui_draw.cpp
+    ${imgui_SOURCE_DIR}/imgui_tables.cpp
+    ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_sdl3.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_dx11.cpp
+)
+
+target_include_directories(MyEngineImGui PUBLIC
+    ${imgui_SOURCE_DIR}
+    ${imgui_SOURCE_DIR}/backends
+)
+
+target_link_libraries(MyEngineImGui PUBLIC SDL3::SDL3 d3d11 dxgi d3dcompiler)
+
+# --------------------------------------------------------------------------
+# Runtime static library (packaged as lib for editor)
+# --------------------------------------------------------------------------
+add_library(MyEngineRuntime STATIC
     src/Core/Event.cpp
     src/Core/Layer.cpp
     src/Core/LayerStack.cpp
@@ -54,24 +81,13 @@ add_library(MyEngineCore STATIC
     src/Core/Application.cpp
     src/Input/Input.cpp
     src/Renderer/D3D11Context.cpp
+    src/Renderer/Renderer.cpp
     src/Scene/Actor.cpp
     src/Scene/MeshRendererComponent.cpp
     src/Scene/Scene.cpp
     src/Scene/SceneSerializer.cpp
     src/Assets/MeshAsset.cpp
     src/Assets/AssetManager.cpp
-)
-
-target_include_directories(MyEngineCore PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
-)
-
-target_link_libraries(MyEngineCore PUBLIC SDL3::SDL3 d3d11 dxgi d3dcompiler nlohmann_json::nlohmann_json)
-
-# --------------------------------------------------------------------------
-# Game layer static library
-# --------------------------------------------------------------------------
-add_library(MyEngineGame STATIC
     src/Game/GameLayer.cpp
     src/Game/TriangleLayer.cpp
     src/Game/SceneLayer.cpp
@@ -79,29 +95,33 @@ add_library(MyEngineGame STATIC
     src/Camera/Camera.cpp
 )
 
-target_include_directories(MyEngineGame PUBLIC
+target_include_directories(MyEngineRuntime PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
-target_link_libraries(MyEngineGame PRIVATE MyEngineCore)
+target_link_libraries(MyEngineRuntime PUBLIC SDL3::SDL3 d3d11 dxgi d3dcompiler nlohmann_json::nlohmann_json)
 
 # --------------------------------------------------------------------------
-# Executable
+# Editor executable
 # --------------------------------------------------------------------------
-add_executable(MyEngine main.cpp)
+add_executable(MyEngineEditor
+    main.cpp
+    src/Editor/EditorLayer.cpp
+)
 
-target_include_directories(MyEngine PRIVATE
+target_include_directories(MyEngineEditor PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-target_link_libraries(MyEngine PRIVATE MyEngineCore MyEngineGame)
+target_link_libraries(MyEngineEditor PRIVATE MyEngineRuntime MyEngineImGui)
+target_compile_definitions(MyEngineEditor PRIVATE MYENGINE_ENABLE_IMGUI)
 
 # On Windows, copy SDL3.dll next to the executable automatically.
 if(WIN32)
-    add_custom_command(TARGET MyEngine POST_BUILD
+    add_custom_command(TARGET MyEngineEditor POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             $<TARGET_FILE:SDL3::SDL3>
-            $<TARGET_FILE_DIR:MyEngine>
+            $<TARGET_FILE_DIR:MyEngineEditor>
     )
 endif()
 
@@ -109,11 +129,11 @@ endif()
 # Compiler warnings
 # --------------------------------------------------------------------------
 if(MSVC)
-    target_compile_options(MyEngineCore  PRIVATE /W4)
-    target_compile_options(MyEngineGame  PRIVATE /W4)
-    target_compile_options(MyEngine      PRIVATE /W4)
+    target_compile_options(MyEngineRuntime PRIVATE /W4)
+    target_compile_options(MyEngineEditor  PRIVATE /W4)
+    target_compile_options(MyEngineImGui   PRIVATE /W4)
 else()
-    target_compile_options(MyEngineCore  PRIVATE -Wall -Wextra -Wpedantic)
-    target_compile_options(MyEngineGame  PRIVATE -Wall -Wextra -Wpedantic)
-    target_compile_options(MyEngine      PRIVATE -Wall -Wextra -Wpedantic)
+    target_compile_options(MyEngineRuntime PRIVATE -Wall -Wextra -Wpedantic)
+    target_compile_options(MyEngineEditor  PRIVATE -Wall -Wextra -Wpedantic)
+    target_compile_options(MyEngineImGui   PRIVATE -Wall -Wextra -Wpedantic)
 endif()

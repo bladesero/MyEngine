@@ -84,6 +84,9 @@ void Engine::PollPlatformEvents() {
 
     SDL_Event sdlEvent;
     while (SDL_PollEvent(&sdlEvent)) {
+        if (m_SdlEventHook) {
+            m_SdlEventHook(sdlEvent);
+        }
         switch (sdlEvent.type) {
         case SDL_EVENT_QUIT: {
             RequestQuit();

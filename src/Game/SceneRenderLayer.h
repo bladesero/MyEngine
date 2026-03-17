@@ -2,8 +2,8 @@
 
 #include "Game/SceneLayer.h"
 #include "Renderer/IRenderContext.h"
+#include "Renderer/Renderer.h"
 #include "Camera/Camera.h"
-#include "Scene/MeshRendererComponent.h"
 #include <memory>
 
 // ==========================================================================
@@ -25,6 +25,12 @@ public:
     void OnEvent(Event& event) override;
     void OnRender()  override;
 
+    // Editor overlay needs to present after UI. When false, this layer will render
+    // the 3D scene but will not call Present (EndFrame).
+    void SetPresentEnabled(bool enabled) { m_PresentEnabled = enabled; }
+
+    IRenderContext* GetRenderContext() const { return m_RenderContext; }
+
 protected:
     void OnSceneLoaded() override;
 
@@ -32,13 +38,12 @@ protected:
     const Camera& GetCamera() const { return m_Camera; }
 
 private:
-    void EnsureMeshUploaded(MeshAsset* mesh);
-    GpuShader* GetOrCreateMeshShader();
-
     IRenderContext*       m_RenderContext = nullptr;
+    Renderer              m_Renderer;
     int                   m_VpW = 0;
     int                   m_VpH = 0;
     Camera                m_Camera;
     std::shared_ptr<GpuShader> m_DefaultMeshShader;
     bool                  m_RmbDown = false;
+    bool                  m_PresentEnabled = true;
 };
