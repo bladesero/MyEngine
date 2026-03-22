@@ -4,9 +4,11 @@
 #include "Scene/Actor.h"
 #include "Core/Logger.h"
 #include "Renderer/D3D11Context.h"
+#include "Renderer/D3D12Context.h"
 
 #if defined(MYENGINE_ENABLE_IMGUI)
 #include <backends/imgui_impl_dx11.h>
+#include <backends/imgui_impl_dx12.h>
 #include <backends/imgui_impl_sdl3.h>
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -36,11 +38,6 @@ void EditorLayer::OnAttach()
 #if defined(MYENGINE_ENABLE_IMGUI)
     if (!m_Window || !m_SceneLayer) return;
     IRenderContext* rc = m_SceneLayer->GetRenderContext();
-    auto* d3d = dynamic_cast<D3D11Context*>(rc);
-    if (!d3d) {
-        Logger::Error("[Editor] ImGui requires D3D11Context");
-        return;
-    }
     if (!m_Window->GetSDLWindow()) {
         Logger::Error("[Editor] ImGui requires SDLWindow (SDL_Window*)");
         return;
@@ -57,7 +54,26 @@ void EditorLayer::OnAttach()
     }
 
     ImGui_ImplSDL3_InitForD3D(m_Window->GetSDLWindow());
-    ImGui_ImplDX11_Init(d3d->GetDevice(), d3d->GetDeviceContext());
+
+    // Choose renderer backend depending on current IRenderContext.
+    if (auto* d3d = dynamic_cast<D3D11Context*>(rc)) {
+        m_ImGuiBackend = ImGuiBackendType::DX11;
+        ImGui_ImplDX11_Init(d3d->GetDevice(), d3d->GetDeviceContext());
+    }
+    else if (auto* d3d12 = dynamic_cast<D3D12Context*>(rc)) {
+        m_ImGuiBackend = ImGuiBackendType::DX12;
+        ImGui_ImplDX12_Init(
+            d3d12->GetDevice(),
+            d3d12->GetNumFramesInFlight(),
+            DXGI_FORMAT_R8G8B8A8_UNORM,
+            d3d12->GetSrvDescriptorHeap(),
+            d3d12->GetFontSrvCpuHandle(),
+            d3d12->GetFontSrvGpuHandle());
+    }
+    else {
+        Logger::Error("[Editor] ImGui requires D3D11Context or D3D12Context");
+        return;
+    }
 
     m_ImGuiReady = true;
 #endif
@@ -71,7 +87,12 @@ void EditorLayer::OnDetach()
     }
     m_PlatformBridge.reset();
     if (m_ImGuiReady) {
-        ImGui_ImplDX11_Shutdown();
+        if (m_ImGuiBackend == ImGuiBackendType::DX11) {
+            ImGui_ImplDX11_Shutdown();
+        }
+        else {
+            ImGui_ImplDX12_Shutdown();
+        }
         ImGui_ImplSDL3_Shutdown();
         ImGui::DestroyContext();
         m_ImGuiReady = false;
@@ -84,18 +105,36 @@ void EditorLayer::OnRender()
 #if defined(MYENGINE_ENABLE_IMGUI)
     if (!m_SceneLayer || !m_ImGuiReady) return;
     IRenderContext* rc = m_SceneLayer->GetRenderContext();
-    auto* d3d = dynamic_cast<D3D11Context*>(rc);
-    if (!d3d) return;
+    if (m_ImGuiBackend == ImGuiBackendType::DX11) {
+        auto* d3d = dynamic_cast<D3D11Context*>(rc);
+        if (!d3d) return;
 
-    ImGui_ImplDX11_NewFrame();
-    ImGui_ImplSDL3_NewFrame();
+        ImGui_ImplDX11_NewFrame();
+        ImGui_ImplSDL3_NewFrame();
+    }
+    else {
+        auto* d3d12 = dynamic_cast<D3D12Context*>(rc);
+        if (!d3d12) return;
+
+        ImGui_ImplDX12_NewFrame();
+        ImGui_ImplSDL3_NewFrame();
+    }
+
     ImGui::NewFrame();
 
     DrawToolbar();
     DrawSceneOutliner();
 
     ImGui::Render();
-    ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+
+    if (m_ImGuiBackend == ImGuiBackendType::DX11) {
+        ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+    }
+    else {
+        auto* d3d12 = dynamic_cast<D3D12Context*>(rc);
+        if (!d3d12) return;
+        ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), d3d12->GetCommandList());
+    }
 
     // Present AFTER UI overlay (SceneRenderLayer rendered with present disabled).
     rc->EndFrame();

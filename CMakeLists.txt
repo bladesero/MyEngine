@@ -59,6 +59,7 @@ add_library(MyEngineImGui STATIC
     ${imgui_SOURCE_DIR}/imgui_widgets.cpp
     ${imgui_SOURCE_DIR}/backends/imgui_impl_sdl3.cpp
     ${imgui_SOURCE_DIR}/backends/imgui_impl_dx11.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_dx12.cpp
 )
 
 target_include_directories(MyEngineImGui PUBLIC
@@ -66,7 +67,7 @@ target_include_directories(MyEngineImGui PUBLIC
     ${imgui_SOURCE_DIR}/backends
 )
 
-target_link_libraries(MyEngineImGui PUBLIC SDL3::SDL3 d3d11 dxgi d3dcompiler)
+target_link_libraries(MyEngineImGui PUBLIC SDL3::SDL3 d3d11 d3d12 dxgi d3dcompiler)
 
 # --------------------------------------------------------------------------
 # Runtime static library (packaged as lib for editor)
@@ -81,6 +82,7 @@ add_library(MyEngineRuntime STATIC
     src/Core/Application.cpp
     src/Input/Input.cpp
     src/Renderer/D3D11Context.cpp
+    src/Renderer/D3D12Context.cpp
     src/Renderer/Renderer.cpp
     src/Scene/Actor.cpp
     src/Scene/MeshRendererComponent.cpp
@@ -95,7 +97,7 @@ target_include_directories(MyEngineRuntime PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
-target_link_libraries(MyEngineRuntime PUBLIC SDL3::SDL3 d3d11 dxgi d3dcompiler nlohmann_json::nlohmann_json)
+target_link_libraries(MyEngineRuntime PUBLIC SDL3::SDL3 d3d11 d3d12 dxgi d3dcompiler nlohmann_json::nlohmann_json)
 
 # --------------------------------------------------------------------------
 # Game static library (depends on runtime)

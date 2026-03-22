@@ -85,3 +85,4 @@ public:
 
 // Factory
 std::unique_ptr<IRenderContext> CreateD3D11Context();
+std::unique_ptr<IRenderContext> CreateD3D12Context();

@@ -7,9 +7,15 @@
 // --------------------------------------------------------------------------
 // ApplicationConfig  –  combines window + engine settings
 // --------------------------------------------------------------------------
+enum class RenderBackend : uint8_t {
+    D3D11 = 0,
+    D3D12 = 1,
+};
+
 struct ApplicationConfig {
     WindowConfig window;
     EngineConfig engine;
+    RenderBackend backend = RenderBackend::D3D11;
 };
 
 // --------------------------------------------------------------------------
