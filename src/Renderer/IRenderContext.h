@@ -84,9 +84,12 @@ public:
     virtual void SetViewport(float x, float y, float w, float h) = 0;
 };
 
-// Factory
+// Factory functions – guarded by platform so including this header on any
+// platform does not implicitly require platform-specific link libraries.
+#ifdef MYENGINE_PLATFORM_WINDOWS
 std::unique_ptr<IRenderContext> CreateD3D11Context();
 std::unique_ptr<IRenderContext> CreateD3D12Context();
+#endif
 
 #ifdef MYENGINE_PLATFORM_MACOS
 std::unique_ptr<IRenderContext> CreateMetalContext();
