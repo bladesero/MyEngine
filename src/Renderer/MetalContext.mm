@@ -235,24 +235,24 @@ void MetalContext::EndFrame() {
 std::shared_ptr<GpuBuffer> MetalContext::CreateVertexBuffer(
     const void* data, uint32_t byteSize, uint32_t strideBytes)
 {
-    auto buf = std::make_shared<MetalGpuBuffer>();
-    buf->buffer = [m_Impl->device newBufferWithBytes:data
-                                              length:byteSize
-                                             options:MTLResourceStorageModeShared];
-    buf->stride   = strideBytes;
-    buf->byteSize = byteSize;
-    return buf;
+    auto gpuBuf = std::make_shared<MetalGpuBuffer>();
+    gpuBuf->buffer = [m_Impl->device newBufferWithBytes:data
+                                                 length:byteSize
+                                                options:MTLResourceStorageModeShared];
+    gpuBuf->stride   = strideBytes;
+    gpuBuf->byteSize = byteSize;
+    return gpuBuf;
 }
 
 std::shared_ptr<GpuBuffer> MetalContext::CreateIndexBuffer(
     const void* data, uint32_t byteSize)
 {
-    auto buf = std::make_shared<MetalGpuBuffer>();
-    buf->buffer = [m_Impl->device newBufferWithBytes:data
-                                              length:byteSize
-                                             options:MTLResourceStorageModeShared];
-    buf->byteSize = byteSize;
-    return buf;
+    auto gpuBuf = std::make_shared<MetalGpuBuffer>();
+    gpuBuf->buffer = [m_Impl->device newBufferWithBytes:data
+                                                 length:byteSize
+                                                options:MTLResourceStorageModeShared];
+    gpuBuf->byteSize = byteSize;
+    return gpuBuf;
 }
 
 std::shared_ptr<GpuShader> MetalContext::CreateShader(

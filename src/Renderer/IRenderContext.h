@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Core/Platform.h"
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -88,6 +89,5 @@ std::unique_ptr<IRenderContext> CreateD3D11Context();
 std::unique_ptr<IRenderContext> CreateD3D12Context();
 
 #ifdef MYENGINE_PLATFORM_MACOS
-#include "Core/Platform.h"
 std::unique_ptr<IRenderContext> CreateMetalContext();
 #endif

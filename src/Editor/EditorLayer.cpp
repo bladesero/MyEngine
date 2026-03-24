@@ -148,7 +148,8 @@ void EditorLayer::OnRender()
 
 #ifdef MYENGINE_PLATFORM_WINDOWS
     if (m_ImGuiBackend == ImGuiBackendType::DX11) {
-        if (!dynamic_cast<D3D11Context*>(rc)) return;
+        auto* d3d11 = dynamic_cast<D3D11Context*>(rc);
+        if (!d3d11) return;
         ImGui_ImplDX11_NewFrame();
         ImGui_ImplSDL3_NewFrame();
     }
