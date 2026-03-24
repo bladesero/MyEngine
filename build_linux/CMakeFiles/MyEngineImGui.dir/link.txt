@@ -1,2 +1,0 @@
-/usr/bin/ar qc libMyEngineImGui.a "CMakeFiles/MyEngineImGui.dir/_deps/imgui-src/imgui.cpp.o" "CMakeFiles/MyEngineImGui.dir/_deps/imgui-src/imgui_draw.cpp.o" "CMakeFiles/MyEngineImGui.dir/_deps/imgui-src/imgui_tables.cpp.o" "CMakeFiles/MyEngineImGui.dir/_deps/imgui-src/imgui_widgets.cpp.o" "CMakeFiles/MyEngineImGui.dir/_deps/imgui-src/backends/imgui_impl_sdl3.cpp.o"
-/usr/bin/ranlib libMyEngineImGui.a

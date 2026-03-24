@@ -1,2 +1,0 @@
-/usr/bin/ar qc libMyEngineGame.a CMakeFiles/MyEngineGame.dir/src/Game/GameLayer.cpp.o CMakeFiles/MyEngineGame.dir/src/Game/TriangleLayer.cpp.o CMakeFiles/MyEngineGame.dir/src/Game/SceneLayer.cpp.o CMakeFiles/MyEngineGame.dir/src/Game/SceneRenderLayer.cpp.o
-/usr/bin/ranlib libMyEngineGame.a
