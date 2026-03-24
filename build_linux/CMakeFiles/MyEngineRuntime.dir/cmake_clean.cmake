@@ -1,0 +1,41 @@
+file(REMOVE_RECURSE
+  "CMakeFiles/MyEngineRuntime.dir/src/Assets/AssetManager.cpp.o"
+  "CMakeFiles/MyEngineRuntime.dir/src/Assets/AssetManager.cpp.o.d"
+  "CMakeFiles/MyEngineRuntime.dir/src/Assets/MeshAsset.cpp.o"
+  "CMakeFiles/MyEngineRuntime.dir/src/Assets/MeshAsset.cpp.o.d"
+  "CMakeFiles/MyEngineRuntime.dir/src/Camera/Camera.cpp.o"
+  "CMakeFiles/MyEngineRuntime.dir/src/Camera/Camera.cpp.o.d"
+  "CMakeFiles/MyEngineRuntime.dir/src/Core/Application.cpp.o"
+  "CMakeFiles/MyEngineRuntime.dir/src/Core/Application.cpp.o.d"
+  "CMakeFiles/MyEngineRuntime.dir/src/Core/Engine.cpp.o"
+  "CMakeFiles/MyEngineRuntime.dir/src/Core/Engine.cpp.o.d"
+  "CMakeFiles/MyEngineRuntime.dir/src/Core/Event.cpp.o"
+  "CMakeFiles/MyEngineRuntime.dir/src/Core/Event.cpp.o.d"
+  "CMakeFiles/MyEngineRuntime.dir/src/Core/Layer.cpp.o"
+  "CMakeFiles/MyEngineRuntime.dir/src/Core/Layer.cpp.o.d"
+  "CMakeFiles/MyEngineRuntime.dir/src/Core/LayerStack.cpp.o"
+  "CMakeFiles/MyEngineRuntime.dir/src/Core/LayerStack.cpp.o.d"
+  "CMakeFiles/MyEngineRuntime.dir/src/Core/Time.cpp.o"
+  "CMakeFiles/MyEngineRuntime.dir/src/Core/Time.cpp.o.d"
+  "CMakeFiles/MyEngineRuntime.dir/src/Core/Window.cpp.o"
+  "CMakeFiles/MyEngineRuntime.dir/src/Core/Window.cpp.o.d"
+  "CMakeFiles/MyEngineRuntime.dir/src/Input/Input.cpp.o"
+  "CMakeFiles/MyEngineRuntime.dir/src/Input/Input.cpp.o.d"
+  "CMakeFiles/MyEngineRuntime.dir/src/Renderer/Renderer.cpp.o"
+  "CMakeFiles/MyEngineRuntime.dir/src/Renderer/Renderer.cpp.o.d"
+  "CMakeFiles/MyEngineRuntime.dir/src/Scene/Actor.cpp.o"
+  "CMakeFiles/MyEngineRuntime.dir/src/Scene/Actor.cpp.o.d"
+  "CMakeFiles/MyEngineRuntime.dir/src/Scene/MeshRendererComponent.cpp.o"
+  "CMakeFiles/MyEngineRuntime.dir/src/Scene/MeshRendererComponent.cpp.o.d"
+  "CMakeFiles/MyEngineRuntime.dir/src/Scene/Scene.cpp.o"
+  "CMakeFiles/MyEngineRuntime.dir/src/Scene/Scene.cpp.o.d"
+  "CMakeFiles/MyEngineRuntime.dir/src/Scene/SceneSerializer.cpp.o"
+  "CMakeFiles/MyEngineRuntime.dir/src/Scene/SceneSerializer.cpp.o.d"
+  "libMyEngineRuntime.a"
+  "libMyEngineRuntime.pdb"
+)
+
+# Per-language clean rules from dependency scanning.
+foreach(lang CXX)
+  include(CMakeFiles/MyEngineRuntime.dir/cmake_clean_${lang}.cmake OPTIONAL)
+endforeach()

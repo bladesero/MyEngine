@@ -47,7 +47,7 @@ private:
     class ImGuiPlatformEventBridge;
     std::unique_ptr<ImGuiPlatformEventBridge> m_PlatformBridge;
     bool m_ImGuiReady = false;
-    enum class ImGuiBackendType : uint8_t { DX11, DX12 };
+    enum class ImGuiBackendType : uint8_t { DX11, DX12, Metal };
     ImGuiBackendType m_ImGuiBackend = ImGuiBackendType::DX11;
 #endif
 };

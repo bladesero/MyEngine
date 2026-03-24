@@ -57,10 +57,10 @@ public:
     virtual std::shared_ptr<GpuBuffer> CreateIndexBuffer(
         const void* data, uint32_t byteSize) = 0;
 
-    // Compile shader from HLSL source (vertex + pixel in same string,
-    // separated by entry-point names).
+    // Compile shader from source (HLSL on Windows, MSL on macOS).
+    // vsEntry / psEntry are the vertex / pixel (fragment) entry-point names.
     virtual std::shared_ptr<GpuShader> CreateShader(
-        const std::string& hlslSource,
+        const std::string& shaderSource,
         const std::string& vsEntry,
         const std::string& psEntry,
         const VertexElement* layout,
@@ -86,3 +86,8 @@ public:
 // Factory
 std::unique_ptr<IRenderContext> CreateD3D11Context();
 std::unique_ptr<IRenderContext> CreateD3D12Context();
+
+#ifdef MYENGINE_PLATFORM_MACOS
+#include "Core/Platform.h"
+std::unique_ptr<IRenderContext> CreateMetalContext();
+#endif

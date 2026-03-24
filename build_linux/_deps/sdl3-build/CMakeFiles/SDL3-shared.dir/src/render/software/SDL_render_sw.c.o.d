@@ -1,0 +1,19 @@
+_deps/sdl3-build/CMakeFiles/SDL3-shared.dir/src/render/software/SDL_render_sw.c.o: \
+ /home/runner/work/MyEngine/MyEngine/build_linux/_deps/sdl3-src/src/render/software/SDL_render_sw.c \
+ /usr/include/stdc-predef.h \
+ /home/runner/work/MyEngine/MyEngine/build_linux/_deps/sdl3-src/src/SDL_internal.h \
+ /home/runner/work/MyEngine/MyEngine/build_linux/_deps/sdl3-src/src/render/software/../SDL_sysrender.h \
+ /home/runner/work/MyEngine/MyEngine/build_linux/_deps/sdl3-src/src/render/software/../../video/SDL_surface_c.h \
+ /home/runner/work/MyEngine/MyEngine/build_linux/_deps/sdl3-src/src/render/software/../../video/SDL_blit.h \
+ /home/runner/work/MyEngine/MyEngine/build_linux/_deps/sdl3-src/src/render/software/../SDL_yuv_sw_c.h \
+ /home/runner/work/MyEngine/MyEngine/build_linux/_deps/sdl3-src/src/render/software/SDL_render_sw_c.h \
+ /home/runner/work/MyEngine/MyEngine/build_linux/_deps/sdl3-src/src/render/software/SDL_draw.h \
+ /home/runner/work/MyEngine/MyEngine/build_linux/_deps/sdl3-src/src/render/software/../../video/SDL_surface_c.h \
+ /home/runner/work/MyEngine/MyEngine/build_linux/_deps/sdl3-src/src/render/software/SDL_blendfillrect.h \
+ /home/runner/work/MyEngine/MyEngine/build_linux/_deps/sdl3-src/src/render/software/SDL_blendline.h \
+ /home/runner/work/MyEngine/MyEngine/build_linux/_deps/sdl3-src/src/render/software/SDL_blendpoint.h \
+ /home/runner/work/MyEngine/MyEngine/build_linux/_deps/sdl3-src/src/render/software/SDL_drawline.h \
+ /home/runner/work/MyEngine/MyEngine/build_linux/_deps/sdl3-src/src/render/software/SDL_drawpoint.h \
+ /home/runner/work/MyEngine/MyEngine/build_linux/_deps/sdl3-src/src/render/software/SDL_rotate.h \
+ /home/runner/work/MyEngine/MyEngine/build_linux/_deps/sdl3-src/src/render/software/SDL_triangle.h \
+ /home/runner/work/MyEngine/MyEngine/build_linux/_deps/sdl3-src/src/render/software/../../video/SDL_pixels_c.h

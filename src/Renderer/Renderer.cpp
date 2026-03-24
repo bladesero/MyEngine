@@ -33,7 +33,7 @@ GpuShader* Renderer::GetOrCreateMeshShader()
     if (!m_Context)   return nullptr;
 
     m_MeshShader = m_Context->CreateShader(
-        k_MeshHLSL, "VSMain", "PSMain",
+        k_MeshShaderSource, "VSMain", "PSMain",
         k_MeshVertexLayout, k_MeshVertexLayoutCount);
     return m_MeshShader.get();
 }
