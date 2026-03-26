@@ -159,6 +159,25 @@ static std::string OpenSceneFileDialogWin32()
     }
     return {};
 }
+
+static std::string SaveSceneFileDialogWin32()
+{
+    char fileName[MAX_PATH] = {};
+    OPENFILENAMEA ofn = {};
+    ofn.lStructSize  = sizeof(ofn);
+    ofn.hwndOwner    = nullptr;
+    ofn.lpstrFile    = fileName;
+    ofn.nMaxFile     = MAX_PATH;
+    ofn.lpstrFilter  = "Scene (*.json)\0*.json\0All Files\0*.*\0";
+    ofn.nFilterIndex = 1;
+    ofn.lpstrDefExt  = "json";
+    ofn.Flags = OFN_OVERWRITEPROMPT | OFN_NOCHANGEDIR;
+
+    if (GetSaveFileNameA(&ofn) == TRUE) {
+        return std::string(fileName);
+    }
+    return {};
+}
 #endif
 
 void EditorLayer::DrawToolbar()
@@ -196,6 +215,23 @@ void EditorLayer::DrawToolbar()
             Logger::Error("[Editor] Failed to open scene: ", path);
         } else {
             m_Selected = nullptr;
+        }
+#endif
+    }
+    ImGui::SameLine();
+
+    if (ImGui::Button("Save Scene")) {
+#if defined(_WIN32)
+        std::string path = SaveSceneFileDialogWin32();
+        if (!path.empty()) {
+            if (!SceneSerializer::SaveToFile(m_SceneLayer->GetScene(), path)) {
+                Logger::Error("[Editor] Failed to save scene: ", path);
+            }
+        }
+#else
+        const char* path = "scene.json";
+        if (!SceneSerializer::SaveToFile(m_SceneLayer->GetScene(), path)) {
+            Logger::Error("[Editor] Failed to save scene: ", path);
         }
 #endif
     }
