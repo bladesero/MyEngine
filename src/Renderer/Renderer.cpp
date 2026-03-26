@@ -38,6 +38,23 @@ GpuShader* Renderer::GetOrCreateMeshShader()
     return m_MeshShader.get();
 }
 
+void Renderer::EnsureTextureUploaded(TextureAsset* tex)
+{
+    if (!tex || !m_Context) return;
+    if (tex->HasGpuHandle()) return;   // already uploaded this session
+    if (m_TexCache.count(tex)) return; // shared_ptr already alive
+
+    const auto& pixels = tex->GetPixelData();
+    if (pixels.empty()) return;
+
+    auto gpuTex = m_Context->UploadTexture2D(
+        pixels.data(), tex->GetWidth(), tex->GetHeight());
+    if (gpuTex) {
+        tex->SetGpuHandle(gpuTex.get());
+        m_TexCache[tex] = std::move(gpuTex);
+    }
+}
+
 void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool present)
 {
     if (!m_Context) return;
@@ -77,6 +94,17 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
 
         m_Context->BindShader(shader);
         m_Context->BindVertexBuffer(mesh->GetVertexBuffer());
+
+        // Bind BaseColorMap texture (slot 0)
+        GpuTexture* gpuTex = nullptr;
+        if (mat->HasTexture("BaseColorMap")) {
+            TextureAsset* texAsset = mat->GetTexture("BaseColorMap").Get();
+            if (texAsset) {
+                EnsureTextureUploaded(texAsset);
+                gpuTex = static_cast<GpuTexture*>(texAsset->GetGpuHandle());
+            }
+        }
+        m_Context->BindPSTexture(0, gpuTex);
 
         if (mesh->GetIndexBuffer()) {
             m_Context->BindIndexBuffer(mesh->GetIndexBuffer());

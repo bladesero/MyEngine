@@ -729,3 +729,14 @@ void D3D12Context::SetViewport(float x, float y, float w, float h) {
     }
 }
 
+// Texture upload – not yet implemented for D3D12; returns nullptr.
+std::shared_ptr<GpuTexture> D3D12Context::UploadTexture2D(
+    const void*, int, int)
+{
+    return nullptr;
+}
+
+void D3D12Context::BindPSTexture(uint32_t, GpuTexture*)
+{
+    // No-op for D3D12 (not yet implemented).
+}

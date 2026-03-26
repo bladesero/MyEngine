@@ -304,3 +304,78 @@ void D3D11Context::SetViewport(float x, float y, float w, float h) {
     vp.MinDepth = 0.0f; vp.MaxDepth = 1.0f;
     m_Context->RSSetViewports(1, &vp);
 }
+
+// --------------------------------------------------------------------------
+// Texture upload / bind
+// --------------------------------------------------------------------------
+
+std::shared_ptr<GpuTexture> D3D11Context::UploadTexture2D(
+    const void* rgba8Data, int width, int height)
+{
+    if (!rgba8Data || width <= 0 || height <= 0) return nullptr;
+
+    auto tex = std::make_shared<D3D11Texture>();
+
+    D3D11_TEXTURE2D_DESC desc = {};
+    desc.Width            = static_cast<UINT>(width);
+    desc.Height           = static_cast<UINT>(height);
+    desc.MipLevels        = 1;
+    desc.ArraySize        = 1;
+    desc.Format           = DXGI_FORMAT_R8G8B8A8_UNORM;
+    desc.SampleDesc.Count = 1;
+    desc.Usage            = D3D11_USAGE_IMMUTABLE;
+    desc.BindFlags        = D3D11_BIND_SHADER_RESOURCE;
+
+    D3D11_SUBRESOURCE_DATA sd = {};
+    sd.pSysMem     = rgba8Data;
+    sd.SysMemPitch = static_cast<UINT>(width * 4);
+
+    HRESULT hr = m_Device->CreateTexture2D(&desc, &sd, &tex->texture);
+    if (FAILED(hr)) {
+        Logger::Error("D3D11: UploadTexture2D – CreateTexture2D failed");
+        return nullptr;
+    }
+
+    D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+    srvDesc.Format                    = DXGI_FORMAT_R8G8B8A8_UNORM;
+    srvDesc.ViewDimension             = D3D11_SRV_DIMENSION_TEXTURE2D;
+    srvDesc.Texture2D.MipLevels       = 1;
+    srvDesc.Texture2D.MostDetailedMip = 0;
+
+    hr = m_Device->CreateShaderResourceView(tex->texture.Get(), &srvDesc, &tex->srv);
+    if (FAILED(hr)) {
+        Logger::Error("D3D11: UploadTexture2D – CreateShaderResourceView failed");
+        return nullptr;
+    }
+
+    D3D11_SAMPLER_DESC sampDesc = {};
+    sampDesc.Filter         = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+    sampDesc.AddressU       = D3D11_TEXTURE_ADDRESS_WRAP;
+    sampDesc.AddressV       = D3D11_TEXTURE_ADDRESS_WRAP;
+    sampDesc.AddressW       = D3D11_TEXTURE_ADDRESS_WRAP;
+    sampDesc.MaxAnisotropy  = 1;
+    sampDesc.ComparisonFunc = D3D11_COMPARISON_ALWAYS;
+    sampDesc.MaxLOD         = D3D11_FLOAT32_MAX;
+
+    hr = m_Device->CreateSamplerState(&sampDesc, &tex->sampler);
+    if (FAILED(hr)) {
+        Logger::Error("D3D11: UploadTexture2D – CreateSamplerState failed");
+        return nullptr;
+    }
+
+    return tex;
+}
+
+void D3D11Context::BindPSTexture(uint32_t slot, GpuTexture* tex)
+{
+    if (!tex) {
+        ID3D11ShaderResourceView* nullSrv    = nullptr;
+        ID3D11SamplerState*       nullSampler = nullptr;
+        m_Context->PSSetShaderResources(slot, 1, &nullSrv);
+        m_Context->PSSetSamplers(slot, 1, &nullSampler);
+        return;
+    }
+    auto* d3dTex = static_cast<D3D11Texture*>(tex);
+    m_Context->PSSetShaderResources(slot, 1, d3dTex->srv.GetAddressOf());
+    m_Context->PSSetSamplers(slot, 1, d3dTex->sampler.GetAddressOf());
+}

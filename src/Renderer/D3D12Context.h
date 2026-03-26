@@ -64,6 +64,11 @@ public:
 
     void SetViewport(float x, float y, float w, float h) override;
 
+    // Texture upload (stub – D3D12 texture path not yet implemented)
+    std::shared_ptr<GpuTexture> UploadTexture2D(
+        const void* rgba8Data, int width, int height) override;
+    void BindPSTexture(uint32_t slot, GpuTexture* tex) override;
+
     // -------------------------------------------------------------------------
     // Native handles for Editor (ImGui DX12 backend).
     // -------------------------------------------------------------------------

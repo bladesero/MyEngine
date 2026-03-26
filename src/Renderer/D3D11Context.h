@@ -25,6 +25,12 @@ struct D3D11Shader : GpuShader {
     ComPtr<ID3D11InputLayout>   inputLayout;
 };
 
+struct D3D11Texture : GpuTexture {
+    ComPtr<ID3D11Texture2D>          texture;
+    ComPtr<ID3D11ShaderResourceView> srv;
+    ComPtr<ID3D11SamplerState>       sampler;
+};
+
 // --------------------------------------------------------------------------
 // D3D11Context
 // --------------------------------------------------------------------------
@@ -59,6 +65,10 @@ public:
     void DrawIndexed(uint32_t indexCount, uint32_t startIndex = 0,
                      uint32_t baseVertex = 0) override;
     void SetViewport(float x, float y, float w, float h)     override;
+
+    std::shared_ptr<GpuTexture> UploadTexture2D(
+        const void* rgba8Data, int width, int height) override;
+    void BindPSTexture(uint32_t slot, GpuTexture* tex) override;
 
     // Native handles (needed by editor overlays such as ImGui).
     ID3D11Device*        GetDevice() const        { return m_Device.Get(); }

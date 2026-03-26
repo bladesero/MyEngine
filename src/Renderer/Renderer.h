@@ -5,8 +5,10 @@
 #include "Scene/Scene.h"
 #include "Scene/MeshRendererComponent.h"
 #include "Camera/Camera.h"
+#include "Assets/TextureAsset.h"
 
 #include <memory>
+#include <unordered_map>
 
 // ============================================================================
 // Renderer  –  minimal scene renderer for MeshRendererComponent
@@ -28,9 +30,12 @@ public:
 
 private:
     void EnsureMeshUploaded(MeshAsset* mesh);
+    void EnsureTextureUploaded(TextureAsset* tex);
     GpuShader* GetOrCreateMeshShader();
 
     IRenderContext*              m_Context = nullptr;
     std::shared_ptr<GpuShader>   m_MeshShader;
+    // Keeps GpuTexture objects alive (TextureAsset::m_GpuHandle is a raw ptr).
+    std::unordered_map<TextureAsset*, std::shared_ptr<GpuTexture>> m_TexCache;
 };
 

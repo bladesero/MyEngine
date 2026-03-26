@@ -14,6 +14,9 @@ cbuffer PerDraw : register(b0)
     float4   g_BaseColor;
 };
 
+Texture2D    g_BaseColorMap : register(t0);
+SamplerState g_Sampler      : register(s0);
+
 struct VSIn
 {
     float3 pos     : POSITION;
@@ -41,7 +44,9 @@ VSOut VSMain(VSIn v)
 
 float4 PSMain(VSOut p) : SV_TARGET
 {
-    return 0.5+0.5*g_BaseColor*saturate(dot(p.normal,normalize(float3(0.0f,1.0f,1.0f))));
+    float4 texColor = g_BaseColorMap.Sample(g_Sampler, p.uv);
+    float  diffuse  = 0.5f + 0.5f * saturate(dot(p.normal, normalize(float3(0.0f, 1.0f, 1.0f))));
+    return float4(texColor.rgb * g_BaseColor.rgb * diffuse, texColor.a * g_BaseColor.a);
 }
 
 )HLSL";

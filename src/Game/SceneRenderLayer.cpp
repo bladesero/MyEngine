@@ -1,8 +1,11 @@
 #include "Game/SceneRenderLayer.h"
 #include "Assets/AssetManager.h"
+#include "Assets/TextureAsset.h"
+#include "Assets/MaterialAsset.h"
 #include "Core/Logger.h"
 #include "Input/Input.h"
 #include <SDL3/SDL_scancode.h>
+#include <vector>
 
 // --------------------------------------------------------------------------
 SceneRenderLayer::SceneRenderLayer(IRenderContext* context,
@@ -62,12 +65,37 @@ void SceneRenderLayer::OnEvent(Event& event) {
 void SceneRenderLayer::OnSceneLoaded() {
     SceneLayer::OnSceneLoaded();
     if (GetScene().ActorCount() == 0) {
-        // First cube at origin
+        // Build a 16x16 checkerboard texture (orange / dark-grey)
+        constexpr int kTexSize = 16;
+        constexpr int kCellSize = 2; // cells of 2×2 pixels each
+        std::vector<uint8_t> pixels(kTexSize * kTexSize * 4);
+        for (int y = 0; y < kTexSize; ++y) {
+            for (int x = 0; x < kTexSize; ++x) {
+                const bool light = ((x / kCellSize) + (y / kCellSize)) % 2 == 0;
+                int idx = (y * kTexSize + x) * 4;
+                pixels[idx + 0] = light ? 230 : 50;   // R
+                pixels[idx + 1] = light ? 130 : 50;   // G
+                pixels[idx + 2] = light ?  30 : 50;   // B
+                pixels[idx + 3] = 255;
+            }
+        }
+        auto checkerTex = std::make_shared<TextureAsset>("__builtin__/Checker");
+        checkerTex->SetName("Checker");
+        TextureDesc td;
+        td.width  = kTexSize;
+        td.height = kTexSize;
+        td.sRGB   = false;
+        checkerTex->SetPixelData(std::move(pixels), td);
+        TextureHandle checkerHandle = AssetManager::Get().Register(std::move(checkerTex));
+
+        // First cube – checkerboard texture
         Actor* cube1 = GetScene().CreateActor("Cube1");
         cube1->GetTransform().position = Vec3::Zero();
         auto* mr1 = cube1->AddComponent<MeshRendererComponent>();
         mr1->SetMesh(AssetManager::Get().GetCubeMesh());
-        mr1->SetMaterial(AssetManager::Get().GetDefaultMaterial());
+        auto mat1 = MaterialAsset::CreateDefault("CheckerMat");
+        mat1->SetTexture("BaseColorMap", checkerHandle);
+        mr1->SetMaterial(AssetManager::Get().Register(std::move(mat1)));
 
         // Second cube offset in X and colored differently
         Actor* cube2 = GetScene().CreateActor("Cube2");

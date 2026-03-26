@@ -22,6 +22,13 @@ struct GpuShader {
 };
 
 // --------------------------------------------------------------------------
+// GpuTexture  – opaque handle wrapping a GPU 2D texture + sampler.
+// --------------------------------------------------------------------------
+struct GpuTexture {
+    virtual ~GpuTexture() = default;
+};
+
+// --------------------------------------------------------------------------
 // VertexElement / InputLayout desc (API-agnostic)
 // --------------------------------------------------------------------------
 enum class VertexFormat { Float2, Float3, Float4 };
@@ -81,6 +88,15 @@ public:
 
     // Viewport ----------------------------------------------------------------
     virtual void SetViewport(float x, float y, float w, float h) = 0;
+
+    // Textures ----------------------------------------------------------------
+    // Upload RGBA8 CPU pixels to a GPU texture. Returns nullptr on failure.
+    virtual std::shared_ptr<GpuTexture> UploadTexture2D(
+        const void* rgba8Data, int width, int height) = 0;
+
+    // Bind a GPU texture to a pixel-shader slot (slot 0 = t0/s0).
+    // Pass nullptr to unbind.
+    virtual void BindPSTexture(uint32_t slot, GpuTexture* tex) = 0;
 };
 
 // Factory
