@@ -1,11 +1,24 @@
 cmake_minimum_required(VERSION 3.20)
-project(MyEngine LANGUAGES CXX)
+
+# On Apple platforms we need Objective-C++ (OBJCXX) for the Metal back-end.
+if(APPLE)
+    project(MyEngine LANGUAGES CXX OBJCXX)
+else()
+    project(MyEngine LANGUAGES CXX)
+endif()
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-if (MSVC)
+# Objective-C++ standard (Metal / AppKit APIs require modern ObjC runtime).
+if(APPLE)
+    set(CMAKE_OBJCXX_STANDARD 17)
+    set(CMAKE_OBJCXX_STANDARD_REQUIRED ON)
+    set(CMAKE_OBJCXX_EXTENSIONS OFF)
+endif()
+
+if(MSVC)
     add_compile_options(/utf-8)
 endif()
 
@@ -52,27 +65,54 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(imgui)
 
-add_library(MyEngineImGui STATIC
-    ${imgui_SOURCE_DIR}/imgui.cpp
-    ${imgui_SOURCE_DIR}/imgui_draw.cpp
-    ${imgui_SOURCE_DIR}/imgui_tables.cpp
-    ${imgui_SOURCE_DIR}/imgui_widgets.cpp
-    ${imgui_SOURCE_DIR}/backends/imgui_impl_sdl3.cpp
-    ${imgui_SOURCE_DIR}/backends/imgui_impl_dx11.cpp
-    ${imgui_SOURCE_DIR}/backends/imgui_impl_dx12.cpp
-)
+# ImGui static library – sources and back-ends are platform-specific.
+if(WIN32)
+    add_library(MyEngineImGui STATIC
+        ${imgui_SOURCE_DIR}/imgui.cpp
+        ${imgui_SOURCE_DIR}/imgui_draw.cpp
+        ${imgui_SOURCE_DIR}/imgui_tables.cpp
+        ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+        ${imgui_SOURCE_DIR}/backends/imgui_impl_sdl3.cpp
+        ${imgui_SOURCE_DIR}/backends/imgui_impl_dx11.cpp
+        ${imgui_SOURCE_DIR}/backends/imgui_impl_dx12.cpp
+    )
+    target_link_libraries(MyEngineImGui PUBLIC SDL3::SDL3 d3d11 d3d12 dxgi d3dcompiler)
+elseif(APPLE)
+    add_library(MyEngineImGui STATIC
+        ${imgui_SOURCE_DIR}/imgui.cpp
+        ${imgui_SOURCE_DIR}/imgui_draw.cpp
+        ${imgui_SOURCE_DIR}/imgui_tables.cpp
+        ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+        ${imgui_SOURCE_DIR}/backends/imgui_impl_sdl3.cpp
+        ${imgui_SOURCE_DIR}/backends/imgui_impl_metal.mm
+    )
+    target_link_libraries(MyEngineImGui PUBLIC
+        SDL3::SDL3
+        "-framework Metal"
+        "-framework MetalKit"
+        "-framework QuartzCore"
+        "-framework AppKit"
+    )
+else()
+    add_library(MyEngineImGui STATIC
+        ${imgui_SOURCE_DIR}/imgui.cpp
+        ${imgui_SOURCE_DIR}/imgui_draw.cpp
+        ${imgui_SOURCE_DIR}/imgui_tables.cpp
+        ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+        ${imgui_SOURCE_DIR}/backends/imgui_impl_sdl3.cpp
+    )
+    target_link_libraries(MyEngineImGui PUBLIC SDL3::SDL3)
+endif()
 
 target_include_directories(MyEngineImGui PUBLIC
     ${imgui_SOURCE_DIR}
     ${imgui_SOURCE_DIR}/backends
 )
 
-target_link_libraries(MyEngineImGui PUBLIC SDL3::SDL3 d3d11 d3d12 dxgi d3dcompiler)
-
 # --------------------------------------------------------------------------
 # Runtime static library (packaged as lib for editor)
 # --------------------------------------------------------------------------
-add_library(MyEngineRuntime STATIC
+set(RUNTIME_SOURCES
     src/Core/Event.cpp
     src/Core/Layer.cpp
     src/Core/LayerStack.cpp
@@ -81,8 +121,6 @@ add_library(MyEngineRuntime STATIC
     src/Core/Engine.cpp
     src/Core/Application.cpp
     src/Input/Input.cpp
-    src/Renderer/D3D11Context.cpp
-    src/Renderer/D3D12Context.cpp
     src/Renderer/Renderer.cpp
     src/Scene/Actor.cpp
     src/Scene/MeshRendererComponent.cpp
@@ -93,11 +131,56 @@ add_library(MyEngineRuntime STATIC
     src/Camera/Camera.cpp
 )
 
+if(WIN32)
+    list(APPEND RUNTIME_SOURCES
+        src/Renderer/D3D11Context.cpp
+        src/Renderer/D3D12Context.cpp
+    )
+elseif(APPLE)
+    list(APPEND RUNTIME_SOURCES
+        src/Renderer/MetalContext.mm
+    )
+endif()
+
+add_library(MyEngineRuntime STATIC ${RUNTIME_SOURCES})
+
 target_include_directories(MyEngineRuntime PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
-target_link_libraries(MyEngineRuntime PUBLIC SDL3::SDL3 d3d11 d3d12 dxgi d3dcompiler nlohmann_json::nlohmann_json)
+# Platform / compiler compile-time macros.
+if(WIN32)
+    target_compile_definitions(MyEngineRuntime PUBLIC MYENGINE_PLATFORM_WINDOWS)
+elseif(APPLE)
+    target_compile_definitions(MyEngineRuntime PUBLIC MYENGINE_PLATFORM_MACOS)
+elseif(UNIX)
+    target_compile_definitions(MyEngineRuntime PUBLIC MYENGINE_PLATFORM_LINUX)
+endif()
+
+if(MSVC)
+    target_compile_definitions(MyEngineRuntime PUBLIC MYENGINE_COMPILER_MSVC)
+elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    target_compile_definitions(MyEngineRuntime PUBLIC MYENGINE_COMPILER_CLANG)
+elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
+    target_compile_definitions(MyEngineRuntime PUBLIC MYENGINE_COMPILER_GCC)
+endif()
+
+# Platform link libraries.
+if(WIN32)
+    target_link_libraries(MyEngineRuntime PUBLIC
+        SDL3::SDL3 d3d11 d3d12 dxgi d3dcompiler nlohmann_json::nlohmann_json)
+elseif(APPLE)
+    target_link_libraries(MyEngineRuntime PUBLIC
+        SDL3::SDL3
+        nlohmann_json::nlohmann_json
+        "-framework Metal"
+        "-framework MetalKit"
+        "-framework QuartzCore"
+        "-framework AppKit"
+    )
+else()
+    target_link_libraries(MyEngineRuntime PUBLIC SDL3::SDL3 nlohmann_json::nlohmann_json)
+endif()
 
 # --------------------------------------------------------------------------
 # Game static library (depends on runtime)
@@ -123,6 +206,12 @@ add_executable(MyEngineEditor
     src/Editor/EditorLayer.cpp
 )
 
+# On macOS, EditorLayer.cpp uses Objective-C++ (Metal + ImGui Metal backend).
+if(APPLE)
+    set_source_files_properties(src/Editor/EditorLayer.cpp
+        PROPERTIES LANGUAGE OBJCXX)
+endif()
+
 target_include_directories(MyEngineEditor PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
@@ -130,6 +219,17 @@ target_include_directories(MyEngineEditor PRIVATE
 target_link_libraries(MyEngineEditor PRIVATE MyEngineRuntime MyEngineImGui)
 target_link_libraries(MyEngineEditor PRIVATE MyEngineGame)
 target_compile_definitions(MyEngineEditor PRIVATE MYENGINE_ENABLE_IMGUI)
+
+# macOS bundle settings (required for proper Xcode project / app packaging).
+if(APPLE)
+    set_target_properties(MyEngineEditor PROPERTIES
+        MACOSX_BUNDLE                TRUE
+        MACOSX_BUNDLE_BUNDLE_NAME    "MyEngineEditor"
+        MACOSX_BUNDLE_BUNDLE_VERSION "1.0"
+        MACOSX_BUNDLE_GUI_IDENTIFIER "com.myengine.editor"
+        XCODE_ATTRIBUTE_PRODUCT_NAME "MyEngineEditor"
+    )
+endif()
 
 # --------------------------------------------------------------------------
 # Tests

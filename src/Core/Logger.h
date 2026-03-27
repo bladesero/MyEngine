@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Core/Platform.h"
 #include <chrono>
 #include <iomanip>
 #include <iostream>
@@ -29,7 +30,7 @@ private:
         const auto now = clock::now();
         const auto tt = clock::to_time_t(now);
         std::tm tm{};
-#ifdef _WIN32
+#ifdef MYENGINE_PLATFORM_WINDOWS
         localtime_s(&tm, &tt);
 #else
         localtime_r(&tt, &tm);

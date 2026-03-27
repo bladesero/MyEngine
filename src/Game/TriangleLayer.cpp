@@ -41,7 +41,7 @@ void TriangleLayer::OnAttach() {
 
     // ---- Shader ------------------------------------------------------------
     m_Shader = m_Renderer->CreateShader(
-        k_TriangleHLSL, "VSMain", "PSMain",
+        k_TriangleShaderSource, "VSMain", "PSMain",
         k_Layout, 2);
 
     // ---- Camera ------------------------------------------------------------

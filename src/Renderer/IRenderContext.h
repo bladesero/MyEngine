@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Core/Platform.h"
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -64,10 +65,10 @@ public:
     virtual std::shared_ptr<GpuBuffer> CreateIndexBuffer(
         const void* data, uint32_t byteSize) = 0;
 
-    // Compile shader from HLSL source (vertex + pixel in same string,
-    // separated by entry-point names).
+    // Compile shader from source (HLSL on Windows, MSL on macOS).
+    // vsEntry / psEntry are the vertex / pixel (fragment) entry-point names.
     virtual std::shared_ptr<GpuShader> CreateShader(
-        const std::string& hlslSource,
+        const std::string& shaderSource,
         const std::string& vsEntry,
         const std::string& psEntry,
         const VertexElement* layout,
@@ -99,6 +100,13 @@ public:
     virtual void BindPSTexture(uint32_t slot, GpuTexture* tex) = 0;
 };
 
-// Factory
+// Factory functions – guarded by platform so including this header on any
+// platform does not implicitly require platform-specific link libraries.
+#ifdef MYENGINE_PLATFORM_WINDOWS
 std::unique_ptr<IRenderContext> CreateD3D11Context();
 std::unique_ptr<IRenderContext> CreateD3D12Context();
+#endif
+
+#ifdef MYENGINE_PLATFORM_MACOS
+std::unique_ptr<IRenderContext> CreateMetalContext();
+#endif

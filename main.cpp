@@ -1,4 +1,5 @@
 #include "src/Core/Application.h"
+#include "src/Core/Platform.h"
 #include "src/Renderer/IRenderContext.h"
 #include "src/Game/SceneRenderLayer.h"
 #include "src/Editor/EditorLayer.h"
@@ -8,8 +9,10 @@
 #include <string>
 
 // --------------------------------------------------------------------------
-// MyApp  –  bootstraps the D3D11 context and pushes SceneRenderLayer
-//           (scene with MeshRenderer: cube + default material).
+// MyApp  –  bootstraps the platform render context and pushes layers.
+//
+//  Windows : D3D11 (default) or D3D12 (--backend d3d12)
+//  macOS   : Metal
 // --------------------------------------------------------------------------
 class MyApp : public Application {
 public:
@@ -19,6 +22,7 @@ public:
 
 protected:
     void OnInit() override {
+#ifdef MYENGINE_PLATFORM_WINDOWS
         switch (m_Backend) {
         case RenderBackend::D3D12:
             m_RenderContext = CreateD3D12Context();
@@ -28,6 +32,12 @@ protected:
             m_RenderContext = CreateD3D11Context();
             break;
         }
+#elif defined(MYENGINE_PLATFORM_MACOS)
+        m_RenderContext = CreateMetalContext();
+#else
+        Logger::Error("[App] No render backend available on this platform");
+        return;
+#endif
 
         if (!m_RenderContext->Init(&GetWindow())) {
             return; // error already logged
@@ -47,7 +57,7 @@ protected:
 
 private:
     std::unique_ptr<IRenderContext> m_RenderContext;
-    RenderBackend m_Backend = RenderBackend::D3D11;
+    RenderBackend m_Backend = kDefaultRenderBackend;
 };
 
 int main(int argc, char** argv) {
@@ -55,30 +65,35 @@ int main(int argc, char** argv) {
     cfg.window.title     = "MyEngine Editor – Scene + MeshRenderer";
     cfg.window.width     = 1280;
     cfg.window.height    = 720;
-    cfg.window.vsync     = false;  // D3D11 vsync handled by SwapChain Present(1,0)
+    cfg.window.vsync     = false;
     cfg.engine.appName   = "MyEngine";
     cfg.engine.targetFps = 60;
 
-    // Optional: --backend d3d11 | d3d12
+    // Optional: --backend d3d11 | d3d12  (Windows only)
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
         if (arg == "--backend" && i + 1 < argc) {
             const std::string b = argv[++i];
-            if (b == "d3d11" || b == "11") cfg.backend = RenderBackend::D3D11;
+#ifdef MYENGINE_PLATFORM_WINDOWS
+            if      (b == "d3d11" || b == "11") cfg.backend = RenderBackend::D3D11;
             else if (b == "d3d12" || b == "12") cfg.backend = RenderBackend::D3D12;
             else Logger::Warn("Unknown backend: ", b, " (use d3d11/d3d12)");
+#else
+            Logger::Warn("--backend flag ignored: not on Windows (got: ", b, ")");
+#endif
         }
         else if (arg.rfind("--backend=", 0) == 0) {
             const std::string b = arg.substr(std::string("--backend=").size());
-            if (b == "d3d11" || b == "11") cfg.backend = RenderBackend::D3D11;
+#ifdef MYENGINE_PLATFORM_WINDOWS
+            if      (b == "d3d11" || b == "11") cfg.backend = RenderBackend::D3D11;
             else if (b == "d3d12" || b == "12") cfg.backend = RenderBackend::D3D12;
             else Logger::Warn("Unknown backend: ", b, " (use d3d11/d3d12)");
+#else
+            Logger::Warn("--backend flag ignored: not on Windows (got: ", b, ")");
+#endif
         }
     }
 
     MyApp app(cfg);
     return app.Run();
 }
-
-
-
