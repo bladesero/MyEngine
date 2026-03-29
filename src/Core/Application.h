@@ -2,20 +2,29 @@
 
 #include "Engine.h"
 #include "Window.h"
+#include "Platform.h"
 #include <memory>
 
 // --------------------------------------------------------------------------
 // ApplicationConfig  –  combines window + engine settings
 // --------------------------------------------------------------------------
 enum class RenderBackend : uint8_t {
-    D3D11 = 0,
-    D3D12 = 1,
+    D3D11  = 0,
+    D3D12  = 1,
+    Metal  = 2,
 };
 
+// Choose a sensible compile-time default for each platform.
+#ifdef MYENGINE_PLATFORM_MACOS
+inline constexpr RenderBackend kDefaultRenderBackend = RenderBackend::Metal;
+#else
+inline constexpr RenderBackend kDefaultRenderBackend = RenderBackend::D3D11;
+#endif
+
 struct ApplicationConfig {
-    WindowConfig window;
-    EngineConfig engine;
-    RenderBackend backend = RenderBackend::D3D11;
+    WindowConfig  window;
+    EngineConfig  engine;
+    RenderBackend backend = kDefaultRenderBackend;
 };
 
 // --------------------------------------------------------------------------

@@ -1,9 +1,10 @@
 #include "Window.h"
 #include "Logger.h"
+#include "Platform.h"
 
 #include <SDL3/SDL.h>
 
-#ifdef _WIN32
+#ifdef MYENGINE_PLATFORM_WINDOWS
 #  include <windows.h>
 #endif
 
@@ -75,11 +76,16 @@ void SDLWindow::SwapBuffers() {
 }
 
 void* SDLWindow::GetNativeHandle() const {
-#ifdef _WIN32
+#ifdef MYENGINE_PLATFORM_WINDOWS
     if (!m_Window) return nullptr;
     return SDL_GetPointerProperty(
         SDL_GetWindowProperties(m_Window),
         SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr);
+#elif defined(MYENGINE_PLATFORM_MACOS)
+    if (!m_Window) return nullptr;
+    return SDL_GetPointerProperty(
+        SDL_GetWindowProperties(m_Window),
+        SDL_PROP_WINDOW_COCOA_WINDOW_POINTER, nullptr);
 #else
     return nullptr;
 #endif
