@@ -42,6 +42,17 @@ set(JSON_Install    OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(nlohmann_json)
 
 # --------------------------------------------------------------------------
+# Dependencies - stb_image for texture import
+# --------------------------------------------------------------------------
+FetchContent_Declare(
+    stb
+    GIT_REPOSITORY https://github.com/nothings/stb.git
+    GIT_TAG        master
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(stb)
+
+# --------------------------------------------------------------------------
 # Dependencies – Dear ImGui (for editor)
 # --------------------------------------------------------------------------
 FetchContent_Declare(
@@ -80,6 +91,8 @@ add_library(MyEngineRuntime STATIC
     src/Core/Window.cpp
     src/Core/Engine.cpp
     src/Core/Application.cpp
+    src/Assets/AssetManager.cpp
+    src/Assets/AssetImporters.cpp
     src/Input/Input.cpp
     src/Renderer/D3D11Context.cpp
     src/Renderer/D3D12Context.cpp
@@ -89,12 +102,12 @@ add_library(MyEngineRuntime STATIC
     src/Scene/Scene.cpp
     src/Scene/SceneSerializer.cpp
     src/Assets/MeshAsset.cpp
-    src/Assets/AssetManager.cpp
     src/Camera/Camera.cpp
 )
 
 target_include_directories(MyEngineRuntime PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${stb_SOURCE_DIR}
 )
 
 target_link_libraries(MyEngineRuntime PUBLIC SDL3::SDL3 d3d11 d3d12 dxgi d3dcompiler nlohmann_json::nlohmann_json)

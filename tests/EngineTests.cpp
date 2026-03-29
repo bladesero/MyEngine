@@ -5,6 +5,8 @@
 #include "Scene/SceneSerializer.h"
 
 #include <cmath>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <string>
 
@@ -109,6 +111,97 @@ bool TestInputBoundaries() {
     return true;
 }
 
+bool TestGamepadStateTransitions() {
+    const SDL_JoystickID pad = 42;
+
+    Input::OnGamepadAdded(pad);
+    if (!Check(Input::IsGamepadConnected(pad), "gamepad should be connected after add")) return false;
+    if (!Check(Input::GetGamepadCount() == 1, "gamepad count should be 1")) return false;
+
+    Input::Flush();
+    Input::OnGamepadButton(pad, SDL_GAMEPAD_BUTTON_SOUTH, true);
+    if (!Check(Input::IsGamepadButtonDown(pad, SDL_GAMEPAD_BUTTON_SOUTH), "gamepad button should be down")) return false;
+    if (!Check(Input::IsGamepadButtonPressed(pad, SDL_GAMEPAD_BUTTON_SOUTH), "gamepad button press transition failed")) return false;
+
+    Input::Flush();
+    if (!Check(!Input::IsGamepadButtonPressed(pad, SDL_GAMEPAD_BUTTON_SOUTH), "pressed should clear next frame")) return false;
+
+    Input::OnGamepadButton(pad, SDL_GAMEPAD_BUTTON_SOUTH, false);
+    if (!Check(Input::IsGamepadButtonReleased(pad, SDL_GAMEPAD_BUTTON_SOUTH), "gamepad button release transition failed")) return false;
+
+    Input::OnGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTX, 16384);
+    if (!Check(NearlyEqual(Input::GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTX), 0.5f, 0.02f),
+               "gamepad axis normalization failed")) return false;
+
+    Input::OnGamepadRemoved(pad);
+    if (!Check(!Input::IsGamepadConnected(pad), "gamepad should be disconnected after remove")) return false;
+
+    return true;
+}
+
+bool TestAssetFileImporters() {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "myengine_asset_import_test";
+    fs::create_directories(root);
+
+    const fs::path texPath = root / "albedo.ppm";
+    const fs::path mtlPath = root / "tri.mtl";
+    const fs::path objPath = root / "tri.obj";
+
+    {
+        std::ofstream tex(texPath, std::ios::binary);
+        tex << "P6\n2 2\n255\n";
+        const unsigned char pixels[] = {
+            255, 0,   0,
+            0,   255, 0,
+            0,   0,   255,
+            255, 255, 255,
+        };
+        tex.write(reinterpret_cast<const char*>(pixels), sizeof(pixels));
+    }
+
+    {
+        std::ofstream mtl(mtlPath, std::ios::binary);
+        mtl << "newmtl Material0\n";
+        mtl << "Kd 1 1 1\n";
+        mtl << "map_Kd albedo.ppm\n";
+    }
+
+    {
+        std::ofstream obj(objPath, std::ios::binary);
+        obj << "mtllib tri.mtl\n";
+        obj << "o Tri\n";
+        obj << "usemtl Material0\n";
+        obj << "v 0 0 0\n";
+        obj << "v 1 0 0\n";
+        obj << "v 0 1 0\n";
+        obj << "vt 0 0\n";
+        obj << "vt 1 0\n";
+        obj << "vt 0 1\n";
+        obj << "vn 0 0 1\n";
+        obj << "vn 0 0 1\n";
+        obj << "vn 0 0 1\n";
+        obj << "f 1/1/1 2/2/2 3/3/3\n";
+    }
+
+    AssetManager& am = AssetManager::Get();
+    auto tex = am.Load<TextureAsset>(texPath.string());
+    if (!Check(tex.IsValid(), "texture import should succeed")) return false;
+    if (!Check(tex->GetWidth() == 2 && tex->GetHeight() == 2, "texture dimensions mismatch")) return false;
+    if (!Check(tex->GetPixelData().size() == 16, "texture pixel data size mismatch")) return false;
+
+    auto model = am.Load<ModelAsset>(objPath.string());
+    if (!Check(model.IsValid(), "model import should succeed")) return false;
+    if (!Check(model->GetMesh() && model->GetMesh()->VertexCount() == 3, "model vertex count mismatch")) return false;
+    if (!Check(model->MaterialCount() == 1, "model material count mismatch")) return false;
+    if (!Check(model->GetMaterial(0).IsValid(), "model material should be valid")) return false;
+    if (!Check(model->GetMaterial(0)->HasTexture("BaseColorMap"), "material should keep imported texture")) return false;
+
+    am.Clear();
+    fs::remove_all(root);
+    return true;
+}
+
 } // namespace
 
 int main() {
@@ -117,6 +210,10 @@ int main() {
     if (!TestSceneSerializationRegression()) { ++failed; }
     if (!TestTransformHierarchyWorldPosition()) { ++failed; }
     if (!TestInputBoundaries()) { ++failed; }
+    if (!TestGamepadStateTransitions()) { ++failed; }
+    if (!TestAssetFileImporters()) { ++failed; }
+
+    Input::Shutdown();
 
     if (failed == 0) {
         std::cout << "[PASS] All tests passed\n";

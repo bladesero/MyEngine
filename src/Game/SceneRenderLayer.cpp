@@ -5,6 +5,8 @@
 #include "Core/Logger.h"
 #include "Input/Input.h"
 #include <SDL3/SDL_scancode.h>
+#include <SDL3/SDL_gamepad.h>
+#include <cmath>
 #include <vector>
 
 // --------------------------------------------------------------------------
@@ -47,6 +49,23 @@ void SceneRenderLayer::OnUpdate(float dt) {
         if (rx != 0 || ry != 0)
             m_Camera.Orbit(static_cast<float>(rx) * 0.3f,
                            static_cast<float>(ry) * 0.3f);
+    }
+
+    const SDL_JoystickID pad = Input::GetPrimaryGamepadId();
+    if (pad != 0 && Input::IsGamepadConnected(pad)) {
+        const float lx = Input::GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTX);
+        const float ly = Input::GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTY);
+        const float rt = Input::GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER);
+        const float lt = Input::GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFT_TRIGGER);
+
+        if (std::fabs(lx) > 0.15f || std::fabs(ly) > 0.15f) {
+            m_Camera.Orbit(lx * 120.0f * dt, ly * 120.0f * dt);
+        }
+
+        const float dolly = rt - lt;
+        if (std::fabs(dolly) > 0.05f) {
+            m_Camera.Dolly(dolly * 4.0f * dt);
+        }
     }
 }
 

@@ -154,6 +154,56 @@ void Engine::PollPlatformEvents() {
             PushEvent(e);
             break;
         }
+        case SDL_EVENT_GAMEPAD_ADDED: {
+            const auto instanceId = static_cast<int>(sdlEvent.gdevice.which);
+            Input::OnGamepadAdded(sdlEvent.gdevice.which);
+
+            Event e;
+            e.type = EventType::GamepadAdded;
+            e.gamepadDevice.instanceId = instanceId;
+            PushEvent(e);
+            break;
+        }
+        case SDL_EVENT_GAMEPAD_REMOVED: {
+            const auto instanceId = static_cast<int>(sdlEvent.gdevice.which);
+            Input::OnGamepadRemoved(sdlEvent.gdevice.which);
+
+            Event e;
+            e.type = EventType::GamepadRemoved;
+            e.gamepadDevice.instanceId = instanceId;
+            PushEvent(e);
+            break;
+        }
+        case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
+        case SDL_EVENT_GAMEPAD_BUTTON_UP: {
+            const bool down = (sdlEvent.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN);
+            Input::OnGamepadButton(
+                sdlEvent.gbutton.which,
+                static_cast<SDL_GamepadButton>(sdlEvent.gbutton.button),
+                down);
+
+            Event e;
+            e.type = down ? EventType::GamepadButtonDown : EventType::GamepadButtonUp;
+            e.gamepadButton.instanceId = static_cast<int>(sdlEvent.gbutton.which);
+            e.gamepadButton.button     = static_cast<int>(sdlEvent.gbutton.button);
+            e.gamepadButton.down       = down;
+            PushEvent(e);
+            break;
+        }
+        case SDL_EVENT_GAMEPAD_AXIS_MOTION: {
+            Input::OnGamepadAxis(
+                sdlEvent.gaxis.which,
+                static_cast<SDL_GamepadAxis>(sdlEvent.gaxis.axis),
+                sdlEvent.gaxis.value);
+
+            Event e;
+            e.type = EventType::GamepadAxisMotion;
+            e.gamepadAxis.instanceId = static_cast<int>(sdlEvent.gaxis.which);
+            e.gamepadAxis.axis       = static_cast<int>(sdlEvent.gaxis.axis);
+            e.gamepadAxis.value      = static_cast<int>(sdlEvent.gaxis.value);
+            PushEvent(e);
+            break;
+        }
         default:
             break;
         }

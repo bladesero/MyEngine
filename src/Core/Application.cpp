@@ -1,5 +1,6 @@
 #include "Application.h"
 #include "Logger.h"
+#include "Input/Input.h"
 
 Application::Application(ApplicationConfig config)
     : m_Config(std::move(config))
@@ -27,7 +28,10 @@ int Application::Run() {
     // 5. Derived-class teardown.
     OnShutdown();
 
-    // 6. Destroy window (also calls SDL_Quit).
+    // 6. Tear down input state before SDL shuts down.
+    Input::Shutdown();
+
+    // 7. Destroy window (also calls SDL_Quit).
     m_Window->Shutdown();
     return 0;
 }

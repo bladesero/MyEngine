@@ -1,8 +1,45 @@
 #include "Assets/AssetManager.h"
 
-// --------------------------------------------------------------------------
-// 内置纹理
-// --------------------------------------------------------------------------
+#include <filesystem>
+
+std::string AssetManager::NormalizePath(const std::string& path) {
+    if (path.rfind("__builtin__/", 0) == 0 || path.rfind("__builtin__\\", 0) == 0) {
+        return path;
+    }
+
+    return std::filesystem::absolute(std::filesystem::path(path))
+        .lexically_normal()
+        .string();
+}
+
+AssetManager::AssetManager() {
+    RegisterDefaultLoaders();
+}
+
+void AssetManager::RegisterDefaultLoaders() {
+    // Common texture formats supported by stb_image.
+    auto textureLoader = [](const std::string& path) -> std::shared_ptr<Asset> {
+        return std::static_pointer_cast<Asset>(LoadTextureAssetFromFile(path));
+    };
+
+    RegisterLoader("png", textureLoader);
+    RegisterLoader("jpg", textureLoader);
+    RegisterLoader("jpeg", textureLoader);
+    RegisterLoader("bmp", textureLoader);
+    RegisterLoader("tga", textureLoader);
+    RegisterLoader("gif", textureLoader);
+    RegisterLoader("psd", textureLoader);
+    RegisterLoader("hdr", textureLoader);
+    RegisterLoader("pic", textureLoader);
+    RegisterLoader("pnm", textureLoader);
+    RegisterLoader("ppm", textureLoader);
+    RegisterLoader("pgm", textureLoader);
+    RegisterLoader("pam", textureLoader);
+
+    RegisterLoader("obj", [](const std::string& path) -> std::shared_ptr<Asset> {
+        return std::static_pointer_cast<Asset>(LoadModelAssetFromObj(path));
+    });
+}
 
 TextureHandle AssetManager::GetWhiteTexture()
 {
@@ -26,10 +63,6 @@ TextureHandle AssetManager::GetNormalTexture()
     return Register(TextureAsset::CreateSolid("FlatNormal", 128, 128, 255, 255));
 }
 
-// --------------------------------------------------------------------------
-// 内置网格
-// --------------------------------------------------------------------------
-
 MeshHandle AssetManager::GetTriangleMesh()
 {
     const std::string path = "__builtin__/Triangle";
@@ -51,17 +84,13 @@ MeshHandle AssetManager::GetCubeMesh()
     return Register(MeshAsset::CreateCube("Cube"));
 }
 
-// --------------------------------------------------------------------------
-// 内置材质
-// --------------------------------------------------------------------------
-
 MaterialHandle AssetManager::GetDefaultMaterial()
 {
     const std::string path = "__builtin__/Default";
     if (IsLoaded(path)) return GetByPath<MaterialAsset>(path);
 
     auto mat = MaterialAsset::CreateDefault("Default");
-    // 绑定内置白色纹理到 BaseColorMap 槽
+    // Bind default textures used by the mesh shader.
     mat->SetTexture("BaseColorMap", GetWhiteTexture());
     mat->SetTexture("NormalMap",    GetNormalTexture());
     return Register(std::move(mat));

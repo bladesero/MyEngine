@@ -16,7 +16,7 @@ SDLWindow::~SDLWindow() {
 }
 
 bool SDLWindow::Init(const WindowConfig& config) {
-    if (!SDL_Init(SDL_INIT_VIDEO)) {
+    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) {
         Logger::Error("SDL_Init failed: ", SDL_GetError());
         return false;
     }

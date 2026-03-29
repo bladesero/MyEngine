@@ -11,7 +11,12 @@ enum class EventType {
     WindowResize,
     MouseButtonDown,
     MouseButtonUp,
-    MouseMove
+    MouseMove,
+    GamepadAdded,
+    GamepadRemoved,
+    GamepadButtonDown,
+    GamepadButtonUp,
+    GamepadAxisMotion
 };
 
 // ---- Keyboard event payload ----
@@ -42,6 +47,22 @@ struct MouseMoveEvent {
     int relY = 0;
 };
 
+struct GamepadDeviceEvent {
+    int instanceId = 0;
+};
+
+struct GamepadButtonEvent {
+    int instanceId = 0;
+    int button     = 0;
+    bool down      = false;
+};
+
+struct GamepadAxisEvent {
+    int instanceId = 0;
+    int axis       = 0;
+    int value      = 0;
+};
+
 struct Event {
     EventType type    = EventType::None;
     bool      handled = false;
@@ -51,6 +72,9 @@ struct Event {
         ResizeEvent      resize;
         MouseButtonEvent mouseButton;
         MouseMoveEvent   mouseMove;
+        GamepadDeviceEvent gamepadDevice;
+        GamepadButtonEvent gamepadButton;
+        GamepadAxisEvent   gamepadAxis;
     };
 
     Event() : key{} {}
