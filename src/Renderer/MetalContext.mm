@@ -19,6 +19,12 @@
 #include <cstring>
 #include <vector>
 
+#if defined(MYENGINE_ENABLE_IMGUI)
+#include <imgui.h>
+#include <backends/imgui_impl_metal.h>
+#include <backends/imgui_impl_sdl3.h>
+#endif
+
 // ============================================================================
 // GPU resource types
 // ============================================================================
@@ -79,12 +85,85 @@ struct MetalContext::Impl {
     }
 };
 
+class MetalImmediateCommandList final : public GpuCommandList {
+public:
+    explicit MetalImmediateCommandList(MetalContext& owner)
+        : m_Owner(owner) {}
+
+    void BindShader(GpuShader* shader) override {
+        m_Owner.BindShader(shader);
+    }
+
+    void BindVertexBuffer(GpuBuffer* buffer) override {
+        m_Owner.BindVertexBuffer(buffer);
+    }
+
+    void BindIndexBuffer(GpuBuffer* buffer) override {
+        m_Owner.BindIndexBuffer(buffer);
+    }
+
+    void SetVSConstants(const void* data, uint32_t byteSize) override {
+        m_Owner.SetVSConstants(data, byteSize);
+    }
+
+    void Draw(uint32_t vertexCount, uint32_t startVertex) override {
+        m_Owner.Draw(vertexCount, startVertex);
+    }
+
+    void DrawIndexed(uint32_t indexCount, uint32_t startIndex,
+                     uint32_t baseVertex) override {
+        m_Owner.DrawIndexed(indexCount, startIndex, baseVertex);
+    }
+
+    void SetViewport(float x, float y, float w, float h) override {
+        m_Owner.SetViewport(x, y, w, h);
+    }
+
+    void BindPSTexture(uint32_t slot, GpuTexture* tex) override {
+        m_Owner.BindPSTexture(slot, tex);
+    }
+
+    void* GetNativeHandle() const override {
+        return m_Owner.GetCommandEncoder();
+    }
+
+private:
+    MetalContext& m_Owner;
+};
+
+class MetalSwapChain final : public GpuSwapChain {
+public:
+    explicit MetalSwapChain(MetalContext& owner)
+        : m_Owner(owner) {}
+
+    void Present(bool vsync) override {
+        m_Owner.PresentSwapChain(vsync);
+    }
+
+    bool Resize(uint32_t width, uint32_t height) override {
+        return m_Owner.ResizeSwapChain(width, height);
+    }
+
+    uint32_t GetWidth() const override {
+        return m_Owner.m_Impl ? m_Owner.m_Impl->drawableW : 0;
+    }
+
+    uint32_t GetHeight() const override {
+        return m_Owner.m_Impl ? m_Owner.m_Impl->drawableH : 0;
+    }
+
+private:
+    MetalContext& m_Owner;
+};
+
 // ============================================================================
 // MetalContext
 // ============================================================================
 
 MetalContext::MetalContext()
-    : m_Impl(std::make_unique<Impl>()) {}
+    : m_Impl(std::make_unique<Impl>())
+    , m_SwapChainInterface(std::make_unique<MetalSwapChain>(*this))
+    , m_GraphicsCommandList(std::make_unique<MetalImmediateCommandList>(*this)) {}
 
 MetalContext::~MetalContext() {
     Shutdown();
@@ -144,6 +223,8 @@ bool MetalContext::Init(IWindow* window) {
 }
 
 void MetalContext::Shutdown() {
+    ShutdownImGui();
+
     if (m_Impl->encoder) {
         [m_Impl->encoder endEncoding];
         m_Impl->encoder = nil;
@@ -220,12 +301,101 @@ void MetalContext::EndFrame() {
     }
     m_Impl->currentRPD = nil;
 
+    PresentSwapChain(true);
+    m_Impl->cmdBuffer = nil;
+    m_Impl->drawable  = nil;
+}
+
+GpuSwapChain* MetalContext::GetSwapChain() {
+    return m_SwapChainInterface.get();
+}
+
+GpuCommandList* MetalContext::GetGraphicsCommandList() {
+    return m_GraphicsCommandList.get();
+}
+
+bool MetalContext::InitImGui(IWindow* window) {
+#if defined(MYENGINE_ENABLE_IMGUI)
+    if (!window || !window->GetSDLWindow() || !m_Impl || !m_Impl->device) {
+        return false;
+    }
+
+    ShutdownImGui();
+    if (!ImGui_ImplSDL3_InitForMetal(window->GetSDLWindow())) {
+        return false;
+    }
+    if (!ImGui_ImplMetal_Init(m_Impl->device)) {
+        ImGui_ImplSDL3_Shutdown();
+        return false;
+    }
+
+    m_ImGuiInitialized = true;
+    return true;
+#else
+    (void)window;
+    return false;
+#endif
+}
+
+void MetalContext::ShutdownImGui() {
+#if defined(MYENGINE_ENABLE_IMGUI)
+    if (!m_ImGuiInitialized) return;
+    ImGui_ImplMetal_Shutdown();
+    ImGui_ImplSDL3_Shutdown();
+    m_ImGuiInitialized = false;
+#endif
+}
+
+void MetalContext::ProcessImGuiSDLEvent(const SDL_Event& event) {
+#if defined(MYENGINE_ENABLE_IMGUI)
+    if (!m_ImGuiInitialized) return;
+    ImGui_ImplSDL3_ProcessEvent(&event);
+#else
+    (void)event;
+#endif
+}
+
+void MetalContext::BeginImGuiFrame() {
+#if defined(MYENGINE_ENABLE_IMGUI)
+    if (!m_ImGuiInitialized || !m_Impl || !m_Impl->currentRPD) return;
+    ImGui_ImplMetal_NewFrame(m_Impl->currentRPD);
+    ImGui_ImplSDL3_NewFrame();
+#endif
+}
+
+void MetalContext::RenderImGuiDrawData(ImDrawData* drawData) {
+#if defined(MYENGINE_ENABLE_IMGUI)
+    if (!m_ImGuiInitialized || !drawData || !m_Impl ||
+        !m_Impl->cmdBuffer || !m_Impl->encoder) {
+        return;
+    }
+    ImGui_ImplMetal_RenderDrawData(drawData, m_Impl->cmdBuffer, m_Impl->encoder);
+#else
+    (void)drawData;
+#endif
+}
+
+void MetalContext::PresentSwapChain(bool)
+{
     if (m_Impl->cmdBuffer && m_Impl->drawable) {
         [m_Impl->cmdBuffer presentDrawable:m_Impl->drawable];
         [m_Impl->cmdBuffer commit];
     }
-    m_Impl->cmdBuffer = nil;
-    m_Impl->drawable  = nil;
+}
+
+bool MetalContext::ResizeSwapChain(uint32_t width, uint32_t height)
+{
+    if (!m_Impl || !m_Impl->layer) return false;
+    if (width == 0 || height == 0) return false;
+
+    m_Impl->layer.drawableSize = CGSizeMake(static_cast<CGFloat>(width),
+                                            static_cast<CGFloat>(height));
+    m_Impl->drawableW = width;
+    m_Impl->drawableH = height;
+    m_Impl->vpW = static_cast<float>(width);
+    m_Impl->vpH = static_cast<float>(height);
+    m_Impl->EnsureDepthTexture(width, height);
+    return true;
 }
 
 // ============================================================================
@@ -400,6 +570,17 @@ void MetalContext::SetViewport(float x, float y, float w, float h) {
         MTLViewport vp = { x, y, w, h, 0.0, 1.0 };
         [m_Impl->encoder setViewport:vp];
     }
+}
+
+std::shared_ptr<GpuTexture> MetalContext::UploadTexture2D(
+    const void*, int, int)
+{
+    return nullptr;
+}
+
+void MetalContext::BindPSTexture(uint32_t, GpuTexture*)
+{
+    // Not implemented in current Metal path.
 }
 
 // ============================================================================

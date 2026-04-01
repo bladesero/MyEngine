@@ -36,9 +36,11 @@ public:
 private:
     void DrawToolbar();
     void DrawSceneOutliner();
+    void DrawInspector();
     void DrawActorNode(Actor* actor);
 
     SceneRenderLayer* m_SceneLayer = nullptr;
+    IRenderContext*   m_RenderContext = nullptr;
     IWindow*          m_Window     = nullptr;
     Engine*           m_Engine     = nullptr;
     Actor*            m_Selected   = nullptr;
@@ -47,8 +49,6 @@ private:
     class ImGuiPlatformEventBridge;
     std::unique_ptr<ImGuiPlatformEventBridge> m_PlatformBridge;
     bool m_ImGuiReady = false;
-    enum class ImGuiBackendType : uint8_t { DX11, DX12, Metal };
-    ImGuiBackendType m_ImGuiBackend = ImGuiBackendType::DX11;
 #endif
 };
 

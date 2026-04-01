@@ -30,6 +30,13 @@ public:
 
     void BeginFrame(float r, float g, float b, float a = 1.0f) override;
     void EndFrame()  override;
+    GpuSwapChain* GetSwapChain() override;
+    GpuCommandList* GetGraphicsCommandList() override;
+    bool InitImGui(IWindow* window) override;
+    void ShutdownImGui() override;
+    void ProcessImGuiSDLEvent(const SDL_Event& event) override;
+    void BeginImGuiFrame() override;
+    void RenderImGuiDrawData(ImDrawData* drawData) override;
 
     std::shared_ptr<GpuBuffer> CreateVertexBuffer(
         const void* data, uint32_t byteSize, uint32_t strideBytes) override;
@@ -57,6 +64,9 @@ public:
                      uint32_t baseVertex   = 0)                      override;
 
     void SetViewport(float x, float y, float w, float h) override;
+    std::shared_ptr<GpuTexture> UploadTexture2D(
+        const void* rgba8Data, int width, int height) override;
+    void BindPSTexture(uint32_t slot, GpuTexture* tex) override;
 
     // Metal-specific accessors used by the ImGui Metal back-end.
     // Returned as void* to keep ObjC types out of this header.
@@ -66,8 +76,16 @@ public:
     void* GetRenderPassDescriptor() const; // MTLRenderPassDescriptor*
 
 private:
+    friend class MetalSwapChain;
+
+    void PresentSwapChain(bool vsync);
+    bool ResizeSwapChain(uint32_t width, uint32_t height);
+
     struct Impl;
     std::unique_ptr<Impl> m_Impl;
+    bool m_ImGuiInitialized = false;
+    std::unique_ptr<GpuSwapChain> m_SwapChainInterface;
+    std::unique_ptr<GpuCommandList> m_GraphicsCommandList;
 };
 
 #endif // MYENGINE_PLATFORM_MACOS

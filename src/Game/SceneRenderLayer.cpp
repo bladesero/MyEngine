@@ -2,6 +2,7 @@
 #include "Assets/AssetManager.h"
 #include "Assets/TextureAsset.h"
 #include "Assets/MaterialAsset.h"
+#include "Scene/MeshRendererComponent.h"
 #include "Core/Logger.h"
 #include "Input/Input.h"
 #include <SDL3/SDL_scancode.h>
@@ -29,6 +30,9 @@ void SceneRenderLayer::OnAttach() {
             1000.0f);
         m_RenderContext->SetViewport(0, 0,
             static_cast<float>(m_VpW), static_cast<float>(m_VpH));
+    }
+    if (m_VpW > 0 && m_VpH > 0) {
+        m_Renderer.Resize(static_cast<uint32_t>(m_VpW), static_cast<uint32_t>(m_VpH));
     }
     Logger::Info("[SceneRenderLayer] attached (", m_VpW, "x", m_VpH, ")");
 }
@@ -71,13 +75,22 @@ void SceneRenderLayer::OnUpdate(float dt) {
 
 void SceneRenderLayer::OnEvent(Event& event) {
     SceneLayer::OnEvent(event);
-    if (event.type == EventType::WindowResize && m_VpH > 0) {
+    if (event.type == EventType::WindowResize) {
         m_VpW = event.resize.width;
         m_VpH = event.resize.height;
+        if (m_VpW <= 0 || m_VpH <= 0) return;
+
         m_Camera.SetAspect(static_cast<float>(m_VpW) / static_cast<float>(m_VpH));
-        if (m_RenderContext)
+        if (m_RenderContext) {
+            if (GpuSwapChain* swapChain = m_RenderContext->GetSwapChain()) {
+                swapChain->Resize(static_cast<uint32_t>(m_VpW),
+                                  static_cast<uint32_t>(m_VpH));
+            }
             m_RenderContext->SetViewport(0, 0,
                 static_cast<float>(m_VpW), static_cast<float>(m_VpH));
+        }
+        m_Renderer.Resize(static_cast<uint32_t>(m_VpW),
+                          static_cast<uint32_t>(m_VpH));
     }
 }
 
@@ -86,7 +99,7 @@ void SceneRenderLayer::OnSceneLoaded() {
     if (GetScene().ActorCount() == 0) {
         // Build a 16x16 checkerboard texture (orange / dark-grey)
         constexpr int kTexSize = 16;
-        constexpr int kCellSize = 2; // cells of 2×2 pixels each
+        constexpr int kCellSize = 2; // cells of 2x2 pixels each
         std::vector<uint8_t> pixels(kTexSize * kTexSize * 4);
         for (int y = 0; y < kTexSize; ++y) {
             for (int x = 0; x < kTexSize; ++x) {
@@ -107,9 +120,9 @@ void SceneRenderLayer::OnSceneLoaded() {
         checkerTex->SetPixelData(std::move(pixels), td);
         TextureHandle checkerHandle = AssetManager::Get().Register(std::move(checkerTex));
 
-        // First cube – checkerboard texture
+        // First cube - checkerboard texture
         Actor* cube1 = GetScene().CreateActor("Cube1");
-        cube1->GetTransform().position = Vec3::Zero();
+        cube1->GetTransform().position = Vec3{ 0.0f, 0.5f, 0.0f };
         auto* mr1 = cube1->AddComponent<MeshRendererComponent>();
         mr1->SetMesh(AssetManager::Get().GetCubeMesh());
         auto mat1 = MaterialAsset::CreateDefault("CheckerMat");
@@ -118,7 +131,7 @@ void SceneRenderLayer::OnSceneLoaded() {
 
         // Second cube offset in X and colored differently
         Actor* cube2 = GetScene().CreateActor("Cube2");
-        cube2->GetTransform().position = Vec3{ 2.0f, 0.0f, 0.0f };
+        cube2->GetTransform().position = Vec3{ 2.0f, 0.5f, 0.0f };
         auto* mr2 = cube2->AddComponent<MeshRendererComponent>();
         mr2->SetMesh(AssetManager::Get().GetCubeMesh());
         auto mat2 = AssetManager::Get().GetDefaultMaterial();
@@ -129,7 +142,19 @@ void SceneRenderLayer::OnSceneLoaded() {
             mr2->SetMaterial(AssetManager::Get().GetDefaultMaterial());
         }
 
-        Logger::Info("[SceneRenderLayer] added demo cubes with MeshRenderer");
+        // Ground plane to validate shadow projection in editor.
+        Actor* plane = GetScene().CreateActor("ShadowPlane");
+        plane->GetTransform().position = Vec3{ 0.0f, -0.5f, 0.0f };
+        plane->GetTransform().rotation = Vec3{ -90.0f, 0.0f, 0.0f };
+        plane->GetTransform().scale    = Vec3{ 12.0f, 12.0f, 12.0f };
+        auto* planeMr = plane->AddComponent<MeshRendererComponent>();
+        planeMr->SetMesh(AssetManager::Get().GetQuadMesh());
+        auto planeMat = MaterialAsset::CreateDefault("GroundMat");
+        planeMat->SetParam("BaseColor", MaterialParam::FromColor({0.8f, 0.8f, 0.8f}));
+        planeMat->SetTexture("BaseColorMap", AssetManager::Get().GetWhiteTexture());
+        planeMr->SetMaterial(AssetManager::Get().Register(std::move(planeMat)));
+
+        Logger::Info("[SceneRenderLayer] added demo cubes + plane for shadow test");
     }
 }
 

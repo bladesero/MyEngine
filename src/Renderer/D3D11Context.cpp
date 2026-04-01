@@ -10,6 +10,12 @@
 #pragma comment(lib, "dxgi.lib")
 #pragma comment(lib, "d3dcompiler.lib")
 
+#if defined(MYENGINE_ENABLE_IMGUI)
+#include <imgui.h>
+#include <backends/imgui_impl_dx11.h>
+#include <backends/imgui_impl_sdl3.h>
+#endif
+
 // --------------------------------------------------------------------------
 // Factory
 // --------------------------------------------------------------------------
@@ -29,11 +35,86 @@ static DXGI_FORMAT ToDxgiFormat(VertexFormat fmt) {
     return DXGI_FORMAT_UNKNOWN;
 }
 
+class D3D11ImmediateCommandList final : public GpuCommandList {
+public:
+    explicit D3D11ImmediateCommandList(D3D11Context& owner)
+        : m_Owner(owner) {}
+
+    void BindShader(GpuShader* shader) override {
+        m_Owner.BindShader(shader);
+    }
+
+    void BindVertexBuffer(GpuBuffer* buffer) override {
+        m_Owner.BindVertexBuffer(buffer);
+    }
+
+    void BindIndexBuffer(GpuBuffer* buffer) override {
+        m_Owner.BindIndexBuffer(buffer);
+    }
+
+    void SetVSConstants(const void* data, uint32_t byteSize) override {
+        m_Owner.SetVSConstants(data, byteSize);
+    }
+
+    void Draw(uint32_t vertexCount, uint32_t startVertex) override {
+        m_Owner.Draw(vertexCount, startVertex);
+    }
+
+    void DrawIndexed(uint32_t indexCount, uint32_t startIndex,
+                     uint32_t baseVertex) override {
+        m_Owner.DrawIndexed(indexCount, startIndex, baseVertex);
+    }
+
+    void SetViewport(float x, float y, float w, float h) override {
+        m_Owner.SetViewport(x, y, w, h);
+    }
+
+    void BindPSTexture(uint32_t slot, GpuTexture* tex) override {
+        m_Owner.BindPSTexture(slot, tex);
+    }
+
+    void* GetNativeHandle() const override {
+        return m_Owner.GetDeviceContext();
+    }
+
+private:
+    D3D11Context& m_Owner;
+};
+
+class D3D11SwapChain final : public GpuSwapChain {
+public:
+    explicit D3D11SwapChain(D3D11Context& owner)
+        : m_Owner(owner) {}
+
+    void Present(bool vsync) override {
+        m_Owner.PresentSwapChain(vsync);
+    }
+
+    bool Resize(uint32_t width, uint32_t height) override {
+        return m_Owner.ResizeSwapChain(width, height);
+    }
+
+    uint32_t GetWidth() const override {
+        return m_Owner.m_SwapChainWidth;
+    }
+
+    uint32_t GetHeight() const override {
+        return m_Owner.m_SwapChainHeight;
+    }
+
+private:
+    D3D11Context& m_Owner;
+};
+
 // --------------------------------------------------------------------------
 // D3D11Context
 // --------------------------------------------------------------------------
 
 D3D11Context::~D3D11Context() { Shutdown(); }
+
+D3D11Context::D3D11Context()
+    : m_SwapChainInterface(std::make_unique<D3D11SwapChain>(*this))
+    , m_GraphicsCommandList(std::make_unique<D3D11ImmediateCommandList>(*this)) {}
 
 bool D3D11Context::Init(IWindow* window) {
     HWND hwnd = static_cast<HWND>(window->GetNativeHandle());
@@ -44,6 +125,8 @@ bool D3D11Context::Init(IWindow* window) {
 
     const int w = window->GetWidth();
     const int h = window->GetHeight();
+    m_SwapChainWidth = static_cast<uint32_t>(w);
+    m_SwapChainHeight = static_cast<uint32_t>(h);
 
     // ---- SwapChain + Device ------------------------------------------------
     DXGI_SWAP_CHAIN_DESC scd = {};
@@ -103,6 +186,7 @@ bool D3D11Context::Init(IWindow* window) {
 }
 
 void D3D11Context::Shutdown() {
+    ShutdownImGui();
     if (m_Context) { m_Context->ClearState(); }
     m_DSV.Reset();
     m_Depth.Reset();
@@ -111,6 +195,8 @@ void D3D11Context::Shutdown() {
     m_SwapChain.Reset();
     m_Context.Reset();
     m_Device.Reset();
+    m_SwapChainWidth = 0;
+    m_SwapChainHeight = 0;
 }
 
 void D3D11Context::BeginFrame(float r, float g, float b, float a) {
@@ -126,7 +212,117 @@ void D3D11Context::BeginFrame(float r, float g, float b, float a) {
 }
 
 void D3D11Context::EndFrame() {
-    m_SwapChain->Present(1, 0);
+    PresentSwapChain(true);
+}
+
+GpuSwapChain* D3D11Context::GetSwapChain() {
+    return m_SwapChainInterface.get();
+}
+
+GpuCommandList* D3D11Context::GetGraphicsCommandList() {
+    return m_GraphicsCommandList.get();
+}
+
+bool D3D11Context::InitImGui(IWindow* window) {
+#if defined(MYENGINE_ENABLE_IMGUI)
+    if (!window || !window->GetSDLWindow() || !m_Device || !m_Context) {
+        return false;
+    }
+    ShutdownImGui();
+    if (!ImGui_ImplSDL3_InitForD3D(window->GetSDLWindow())) {
+        return false;
+    }
+    if (!ImGui_ImplDX11_Init(m_Device.Get(), m_Context.Get())) {
+        ImGui_ImplSDL3_Shutdown();
+        return false;
+    }
+    m_ImGuiInitialized = true;
+    return true;
+#else
+    (void)window;
+    return false;
+#endif
+}
+
+void D3D11Context::ShutdownImGui() {
+#if defined(MYENGINE_ENABLE_IMGUI)
+    if (!m_ImGuiInitialized) return;
+    ImGui_ImplDX11_Shutdown();
+    ImGui_ImplSDL3_Shutdown();
+    m_ImGuiInitialized = false;
+#endif
+}
+
+void D3D11Context::ProcessImGuiSDLEvent(const SDL_Event& event) {
+#if defined(MYENGINE_ENABLE_IMGUI)
+    if (!m_ImGuiInitialized) return;
+    ImGui_ImplSDL3_ProcessEvent(&event);
+#else
+    (void)event;
+#endif
+}
+
+void D3D11Context::BeginImGuiFrame() {
+#if defined(MYENGINE_ENABLE_IMGUI)
+    if (!m_ImGuiInitialized) return;
+    ImGui_ImplDX11_NewFrame();
+    ImGui_ImplSDL3_NewFrame();
+#endif
+}
+
+void D3D11Context::RenderImGuiDrawData(ImDrawData* drawData) {
+#if defined(MYENGINE_ENABLE_IMGUI)
+    if (!m_ImGuiInitialized || !drawData) return;
+    ImGui_ImplDX11_RenderDrawData(drawData);
+#else
+    (void)drawData;
+#endif
+}
+
+void D3D11Context::PresentSwapChain(bool vsync) {
+    if (!m_SwapChain) return;
+    m_SwapChain->Present(vsync ? 1 : 0, 0);
+}
+
+bool D3D11Context::ResizeSwapChain(uint32_t width, uint32_t height) {
+    if (!m_Device || !m_Context || !m_SwapChain) return false;
+    if (width == 0 || height == 0) return false;
+
+    m_Context->OMSetRenderTargets(0, nullptr, nullptr);
+    m_RTV.Reset();
+    m_DSV.Reset();
+    m_Depth.Reset();
+
+    const HRESULT hr = m_SwapChain->ResizeBuffers(
+        0, width, height, DXGI_FORMAT_UNKNOWN, 0);
+    if (FAILED(hr)) {
+        Logger::Error("D3D11 ResizeBuffers failed: 0x",
+                      reinterpret_cast<void*>(static_cast<uintptr_t>(hr)));
+        return false;
+    }
+
+    ComPtr<ID3D11Texture2D> backBuffer;
+    m_SwapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer));
+    m_Device->CreateRenderTargetView(backBuffer.Get(), nullptr, &m_RTV);
+
+    D3D11_TEXTURE2D_DESC depthDesc = {};
+    depthDesc.Width              = static_cast<UINT>(width);
+    depthDesc.Height             = static_cast<UINT>(height);
+    depthDesc.MipLevels          = 1;
+    depthDesc.ArraySize          = 1;
+    depthDesc.Format             = DXGI_FORMAT_D24_UNORM_S8_UINT;
+    depthDesc.SampleDesc.Count   = 1;
+    depthDesc.Usage              = D3D11_USAGE_DEFAULT;
+    depthDesc.BindFlags          = D3D11_BIND_DEPTH_STENCIL;
+    m_Device->CreateTexture2D(&depthDesc, nullptr, &m_Depth);
+    m_Device->CreateDepthStencilView(m_Depth.Get(), nullptr, &m_DSV);
+
+    m_Context->OMSetRenderTargets(1, m_RTV.GetAddressOf(), m_DSV.Get());
+    SetViewport(0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height));
+
+    m_SwapChainWidth = width;
+    m_SwapChainHeight = height;
+    return true;
 }
 
 // --------------------------------------------------------------------------

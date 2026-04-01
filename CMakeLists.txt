@@ -135,6 +135,8 @@ set(RUNTIME_SOURCES
     src/Assets/AssetImporters.cpp
     src/Input/Input.cpp
     src/Renderer/Renderer.cpp
+    src/Renderer/MainPass.cpp
+    src/Renderer/ShadowPass.cpp
     src/Scene/Actor.cpp
     src/Scene/MeshRendererComponent.cpp
     src/Scene/Scene.cpp
@@ -169,6 +171,7 @@ elseif(APPLE)
 elseif(UNIX)
     target_compile_definitions(MyEngineRuntime PUBLIC MYENGINE_PLATFORM_LINUX)
 endif()
+target_compile_definitions(MyEngineRuntime PRIVATE MYENGINE_ENABLE_IMGUI)
 
 if(MSVC)
     target_compile_definitions(MyEngineRuntime PUBLIC MYENGINE_COMPILER_MSVC)
@@ -194,6 +197,7 @@ elseif(APPLE)
 else()
     target_link_libraries(MyEngineRuntime PUBLIC SDL3::SDL3 nlohmann_json::nlohmann_json)
 endif()
+target_link_libraries(MyEngineRuntime PRIVATE MyEngineImGui)
 
 # --------------------------------------------------------------------------
 # Game static library (depends on runtime)

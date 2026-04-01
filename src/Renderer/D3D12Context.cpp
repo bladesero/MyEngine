@@ -17,6 +17,12 @@
 #pragma comment(lib, "dxgi.lib")
 #pragma comment(lib, "d3dcompiler.lib")
 
+#if defined(MYENGINE_ENABLE_IMGUI)
+#include <imgui.h>
+#include <backends/imgui_impl_dx12.h>
+#include <backends/imgui_impl_sdl3.h>
+#endif
+
 // --------------------------------------------------------------------------
 // Factory
 // --------------------------------------------------------------------------
@@ -48,9 +54,84 @@ D3D12_GPU_DESCRIPTOR_HANDLE D3D12Context::OffsetHandle(D3D12_GPU_DESCRIPTOR_HAND
     return h;
 }
 
+class D3D12ImmediateCommandList final : public GpuCommandList {
+public:
+    explicit D3D12ImmediateCommandList(D3D12Context& owner)
+        : m_Owner(owner) {}
+
+    void BindShader(GpuShader* shader) override {
+        m_Owner.BindShader(shader);
+    }
+
+    void BindVertexBuffer(GpuBuffer* buffer) override {
+        m_Owner.BindVertexBuffer(buffer);
+    }
+
+    void BindIndexBuffer(GpuBuffer* buffer) override {
+        m_Owner.BindIndexBuffer(buffer);
+    }
+
+    void SetVSConstants(const void* data, uint32_t byteSize) override {
+        m_Owner.SetVSConstants(data, byteSize);
+    }
+
+    void Draw(uint32_t vertexCount, uint32_t startVertex) override {
+        m_Owner.Draw(vertexCount, startVertex);
+    }
+
+    void DrawIndexed(uint32_t indexCount, uint32_t startIndex,
+                     uint32_t baseVertex) override {
+        m_Owner.DrawIndexed(indexCount, startIndex, baseVertex);
+    }
+
+    void SetViewport(float x, float y, float w, float h) override {
+        m_Owner.SetViewport(x, y, w, h);
+    }
+
+    void BindPSTexture(uint32_t slot, GpuTexture* tex) override {
+        m_Owner.BindPSTexture(slot, tex);
+    }
+
+    void* GetNativeHandle() const override {
+        return m_Owner.GetCommandList();
+    }
+
+private:
+    D3D12Context& m_Owner;
+};
+
+class D3D12SwapChain final : public GpuSwapChain {
+public:
+    explicit D3D12SwapChain(D3D12Context& owner)
+        : m_Owner(owner) {}
+
+    void Present(bool vsync) override {
+        m_Owner.PresentSwapChain(vsync);
+    }
+
+    bool Resize(uint32_t width, uint32_t height) override {
+        return m_Owner.ResizeSwapChain(width, height);
+    }
+
+    uint32_t GetWidth() const override {
+        return m_Owner.m_SwapChainWidth;
+    }
+
+    uint32_t GetHeight() const override {
+        return m_Owner.m_SwapChainHeight;
+    }
+
+private:
+    D3D12Context& m_Owner;
+};
+
 // --------------------------------------------------------------------------
 // D3D12Context
 // --------------------------------------------------------------------------
+D3D12Context::D3D12Context()
+    : m_SwapChainInterface(std::make_unique<D3D12SwapChain>(*this))
+    , m_GraphicsCommandList(std::make_unique<D3D12ImmediateCommandList>(*this)) {}
+
 D3D12Context::~D3D12Context() { Shutdown(); }
 
 static HRESULT CheckHR(HRESULT hr) {
@@ -68,6 +149,8 @@ bool D3D12Context::Init(IWindow* window) {
 
     const uint32_t w = static_cast<uint32_t>(window->GetWidth());
     const uint32_t h = static_cast<uint32_t>(window->GetHeight());
+    m_SwapChainWidth = w;
+    m_SwapChainHeight = h;
 
     // ---- Device / Queue ----------------------------------------------------
     HRESULT hr = D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_11_0,
@@ -258,6 +341,8 @@ bool D3D12Context::Init(IWindow* window) {
 }
 
 void D3D12Context::Shutdown() {
+    ShutdownImGui();
+
     if (m_IsRecording) {
         // Best effort: close command list before shutdown.
         if (m_CommandList) {
@@ -280,6 +365,9 @@ void D3D12Context::Shutdown() {
         CloseHandle(m_FenceEvent);
         m_FenceEvent = nullptr;
     }
+
+    m_SwapChainWidth = 0;
+    m_SwapChainHeight = 0;
 }
 
 void D3D12Context::WaitForFrame(uint32_t frameIndex) {
@@ -368,14 +456,134 @@ void D3D12Context::EndFrame() {
     ID3D12CommandList* cmdLists[] = { m_CommandList.Get() };
     m_CommandQueue->ExecuteCommandLists(1, cmdLists);
 
-    const HRESULT presentHr = m_SwapChain->Present(1, 0);
-    (void)presentHr;
+    PresentSwapChain(true);
 
     const uint64_t fenceValue = m_NextFenceValue++;
     m_CommandQueue->Signal(m_Fence.Get(), fenceValue);
     m_Frames[frameIndex].fenceValue = fenceValue;
 
     m_IsRecording = false;
+}
+
+GpuSwapChain* D3D12Context::GetSwapChain() {
+    return m_SwapChainInterface.get();
+}
+
+GpuCommandList* D3D12Context::GetGraphicsCommandList() {
+    return m_GraphicsCommandList.get();
+}
+
+bool D3D12Context::InitImGui(IWindow* window) {
+#if defined(MYENGINE_ENABLE_IMGUI)
+    if (!window || !window->GetSDLWindow() || !m_Device || !m_SrvHeap) {
+        return false;
+    }
+
+    ShutdownImGui();
+    if (!ImGui_ImplSDL3_InitForD3D(window->GetSDLWindow())) {
+        return false;
+    }
+    if (!ImGui_ImplDX12_Init(
+            m_Device.Get(),
+            GetNumFramesInFlight(),
+            m_RtvFormat,
+            m_SrvHeap.Get(),
+            m_FontSrvCpuHandle,
+            m_FontSrvGpuHandle)) {
+        ImGui_ImplSDL3_Shutdown();
+        return false;
+    }
+
+    m_ImGuiInitialized = true;
+    return true;
+#else
+    (void)window;
+    return false;
+#endif
+}
+
+void D3D12Context::ShutdownImGui() {
+#if defined(MYENGINE_ENABLE_IMGUI)
+    if (!m_ImGuiInitialized) return;
+    ImGui_ImplDX12_Shutdown();
+    ImGui_ImplSDL3_Shutdown();
+    m_ImGuiInitialized = false;
+#endif
+}
+
+void D3D12Context::ProcessImGuiSDLEvent(const SDL_Event& event) {
+#if defined(MYENGINE_ENABLE_IMGUI)
+    if (!m_ImGuiInitialized) return;
+    ImGui_ImplSDL3_ProcessEvent(&event);
+#else
+    (void)event;
+#endif
+}
+
+void D3D12Context::BeginImGuiFrame() {
+#if defined(MYENGINE_ENABLE_IMGUI)
+    if (!m_ImGuiInitialized) return;
+    ImGui_ImplDX12_NewFrame();
+    ImGui_ImplSDL3_NewFrame();
+#endif
+}
+
+void D3D12Context::RenderImGuiDrawData(ImDrawData* drawData) {
+#if defined(MYENGINE_ENABLE_IMGUI)
+    if (!m_ImGuiInitialized || !drawData || !m_IsRecording || !m_CommandList) {
+        return;
+    }
+    ImGui_ImplDX12_RenderDrawData(drawData, m_CommandList.Get());
+#else
+    (void)drawData;
+#endif
+}
+
+void D3D12Context::PresentSwapChain(bool vsync) {
+    if (!m_SwapChain) return;
+    const HRESULT presentHr = m_SwapChain->Present(vsync ? 1 : 0, 0);
+    (void)presentHr;
+}
+
+bool D3D12Context::ResizeSwapChain(uint32_t width, uint32_t height) {
+    if (!m_Device || !m_SwapChain || !m_RtvHeap) return false;
+    if (width == 0 || height == 0) return false;
+    if (m_IsRecording) return false;
+
+    for (uint32_t i = 0; i < kFrameCount; ++i) {
+        WaitForFrame(i);
+    }
+
+    for (uint32_t i = 0; i < kFrameCount; ++i) {
+        m_BackBuffers[i].Reset();
+    }
+
+    HRESULT hr = m_SwapChain->ResizeBuffers(
+        kFrameCount, width, height, m_RtvFormat, 0);
+    if (FAILED(hr)) {
+        Logger::Error("D3D12 ResizeBuffers failed: 0x",
+                      reinterpret_cast<void*>(static_cast<uintptr_t>(hr)));
+        return false;
+    }
+
+    auto baseHandle = m_RtvHeap->GetCPUDescriptorHandleForHeapStart();
+    for (uint32_t i = 0; i < kFrameCount; ++i) {
+        m_RtvHandles[i] = OffsetHandle(baseHandle, i, m_RtvDescriptorSize);
+        hr = m_SwapChain->GetBuffer(i, IID_PPV_ARGS(&m_BackBuffers[i]));
+        if (FAILED(hr)) {
+            Logger::Error("D3D12 GetBuffer after resize failed: 0x",
+                          reinterpret_cast<void*>(static_cast<uintptr_t>(hr)));
+            return false;
+        }
+        m_Device->CreateRenderTargetView(m_BackBuffers[i].Get(), nullptr,
+                                         m_RtvHandles[i]);
+    }
+
+    m_SwapChainWidth = width;
+    m_SwapChainHeight = height;
+    m_RenderFrameIndex = m_SwapChain->GetCurrentBackBufferIndex();
+
+    return true;
 }
 
 std::shared_ptr<GpuBuffer> D3D12Context::CreateVertexBuffer(

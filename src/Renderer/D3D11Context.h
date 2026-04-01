@@ -36,6 +36,7 @@ struct D3D11Texture : GpuTexture {
 // --------------------------------------------------------------------------
 class D3D11Context : public IRenderContext {
 public:
+    D3D11Context();
     ~D3D11Context() override;
 
     bool Init(IWindow* window) override;
@@ -43,6 +44,13 @@ public:
 
     void BeginFrame(float r, float g, float b, float a) override;
     void EndFrame()  override;
+    GpuSwapChain* GetSwapChain() override;
+    GpuCommandList* GetGraphicsCommandList() override;
+    bool InitImGui(IWindow* window) override;
+    void ShutdownImGui() override;
+    void ProcessImGuiSDLEvent(const SDL_Event& event) override;
+    void BeginImGuiFrame() override;
+    void RenderImGuiDrawData(ImDrawData* drawData) override;
 
     std::shared_ptr<GpuBuffer> CreateVertexBuffer(
         const void* data, uint32_t byteSize, uint32_t strideBytes) override;
@@ -73,10 +81,14 @@ public:
     // Native handles (needed by editor overlays such as ImGui).
     ID3D11Device*        GetDevice() const        { return m_Device.Get(); }
     ID3D11DeviceContext* GetDeviceContext() const { return m_Context.Get(); }
-    IDXGISwapChain*      GetSwapChain() const     { return m_SwapChain.Get(); }
+    IDXGISwapChain*      GetNativeSwapChain() const { return m_SwapChain.Get(); }
 
 private:
+    friend class D3D11SwapChain;
+
     void CreateConstantBuffer(uint32_t byteSize);
+    void PresentSwapChain(bool vsync);
+    bool ResizeSwapChain(uint32_t width, uint32_t height);
 
     ComPtr<ID3D11Device>           m_Device;
     ComPtr<ID3D11DeviceContext>    m_Context;
@@ -86,4 +98,9 @@ private:
     ComPtr<ID3D11DepthStencilView> m_DSV;
     ComPtr<ID3D11Buffer>           m_CBuffer;      // per-draw VS/PS constants
     uint32_t                       m_CBufferSize = 0;
+    uint32_t                       m_SwapChainWidth = 0;
+    uint32_t                       m_SwapChainHeight = 0;
+    bool                           m_ImGuiInitialized = false;
+    std::unique_ptr<GpuSwapChain>  m_SwapChainInterface;
+    std::unique_ptr<GpuCommandList> m_GraphicsCommandList;
 };

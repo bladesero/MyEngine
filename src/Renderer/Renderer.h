@@ -1,14 +1,13 @@
 #pragma once
 
 #include "Renderer/IRenderContext.h"
-#include "Renderer/MeshShader.h"
 #include "Scene/Scene.h"
-#include "Scene/MeshRendererComponent.h"
 #include "Camera/Camera.h"
-#include "Assets/TextureAsset.h"
 
 #include <memory>
-#include <unordered_map>
+
+class ShadowPass;
+class MainPass;
 
 // ============================================================================
 // Renderer  –  minimal scene renderer for MeshRendererComponent
@@ -20,8 +19,10 @@
 
 class Renderer {
 public:
-    explicit Renderer(IRenderContext* context)
-        : m_Context(context) {}
+    explicit Renderer(IRenderContext* context);
+    ~Renderer();
+
+    void Resize(uint32_t width, uint32_t height);
 
     // Render all visible MeshRendererComponent in the scene from the camera.
     // If present == false, the caller is responsible for calling IRenderContext::EndFrame()
@@ -29,13 +30,8 @@ public:
     void RenderScene(const Scene& scene, const Camera& camera, bool present = true);
 
 private:
-    void EnsureMeshUploaded(MeshAsset* mesh);
-    void EnsureTextureUploaded(TextureAsset* tex);
-    GpuShader* GetOrCreateMeshShader();
-
-    IRenderContext*              m_Context = nullptr;
-    std::shared_ptr<GpuShader>   m_MeshShader;
-    // Keeps GpuTexture objects alive (TextureAsset::m_GpuHandle is a raw ptr).
-    std::unordered_map<TextureAsset*, std::shared_ptr<GpuTexture>> m_TexCache;
+    IRenderContext*            m_Context = nullptr;
+    std::unique_ptr<ShadowPass> m_ShadowPass;
+    std::unique_ptr<MainPass>   m_MainPass;
 };
 

@@ -32,6 +32,7 @@ public:
     static constexpr uint32_t kDefaultConstantBufferCapacity = 1024 * 1024; // 1MB per frame
     static constexpr uint32_t kDefaultSrvDescriptorCount      = 256;
 
+    D3D12Context();
     ~D3D12Context() override;
 
     bool Init(IWindow* window) override;
@@ -39,6 +40,13 @@ public:
 
     void BeginFrame(float r, float g, float b, float a = 1.0f) override;
     void EndFrame() override;
+    GpuSwapChain* GetSwapChain() override;
+    GpuCommandList* GetGraphicsCommandList() override;
+    bool InitImGui(IWindow* window) override;
+    void ShutdownImGui() override;
+    void ProcessImGuiSDLEvent(const SDL_Event& event) override;
+    void BeginImGuiFrame() override;
+    void RenderImGuiDrawData(ImDrawData* drawData) override;
 
     std::shared_ptr<GpuBuffer> CreateVertexBuffer(
         const void* data, uint32_t byteSize, uint32_t strideBytes) override;
@@ -119,9 +127,13 @@ private:
     };
 
 private:
+    friend class D3D12SwapChain;
+
     void WaitForFrame(uint32_t frameIndex);
     void TransitionToRenderTarget(ID3D12GraphicsCommandList* cmdList, uint32_t frameIndex);
     void TransitionToPresent(ID3D12GraphicsCommandList* cmdList, uint32_t frameIndex);
+    void PresentSwapChain(bool vsync);
+    bool ResizeSwapChain(uint32_t width, uint32_t height);
 
     static DXGI_FORMAT ToDxgiFormat(VertexFormat fmt);
     static D3D12_CPU_DESCRIPTOR_HANDLE OffsetHandle(D3D12_CPU_DESCRIPTOR_HANDLE h, uint32_t index, uint32_t inc);
@@ -129,7 +141,10 @@ private:
 
 private:
     bool m_IsRecording = false;
+    bool m_ImGuiInitialized = false;
     uint32_t m_RenderFrameIndex = 0;
+    uint32_t m_SwapChainWidth = 0;
+    uint32_t m_SwapChainHeight = 0;
 
     // D3D core objects
     ComPtr<ID3D12Device>              m_Device;
@@ -160,6 +175,8 @@ private:
     // Pipeline / viewport state
     D3D12_VIEWPORT                   m_Viewport{};
     bool                             m_HasViewport = false;
+    std::unique_ptr<GpuSwapChain>    m_SwapChainInterface;
+    std::unique_ptr<GpuCommandList>  m_GraphicsCommandList;
 };
 
 std::unique_ptr<IRenderContext> CreateD3D12Context();

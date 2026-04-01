@@ -62,12 +62,16 @@ void TriangleLayer::OnEvent(Event& event) {
     if (event.type == EventType::WindowResize) {
         m_VpW = event.resize.width;
         m_VpH = event.resize.height;
-        if (m_VpH > 0) {
+        if (m_VpW > 0 && m_VpH > 0) {
             m_Camera.SetAspect(
                 static_cast<float>(m_VpW) / static_cast<float>(m_VpH));
+            if (GpuSwapChain* swapChain = m_Renderer->GetSwapChain()) {
+                swapChain->Resize(static_cast<uint32_t>(m_VpW),
+                                  static_cast<uint32_t>(m_VpH));
+            }
+            m_Renderer->SetViewport(0, 0,
+                static_cast<float>(m_VpW), static_cast<float>(m_VpH));
         }
-        m_Renderer->SetViewport(0, 0,
-            static_cast<float>(m_VpW), static_cast<float>(m_VpH));
     }
 }
 
@@ -109,6 +113,8 @@ void TriangleLayer::OnUpdate(float dt) {
 
 void TriangleLayer::OnRender() {
     if (!m_Renderer || !m_VB || !m_Shader) return;
+    GpuCommandList* cmd = m_Renderer->GetGraphicsCommandList();
+    if (!cmd) return;
 
     // ---- Build MVP (row-vector: world * Model * View * Proj) ---------------
     Mat4 model = Mat4::RotationY(m_Rotation * kDeg2Rad);
@@ -118,10 +124,10 @@ void TriangleLayer::OnRender() {
     // ---- Clear + draw ------------------------------------------------------
     m_Renderer->BeginFrame(0.12f, 0.12f, 0.18f);
 
-    m_Renderer->BindShader(m_Shader.get());
-    m_Renderer->BindVertexBuffer(m_VB.get());
-    m_Renderer->SetVSConstants(mvp.Data(), 64);
-    m_Renderer->Draw(3);
+    cmd->BindShader(m_Shader.get());
+    cmd->BindVertexBuffer(m_VB.get());
+    cmd->SetVSConstants(mvp.Data(), 64);
+    cmd->Draw(3);
 
     m_Renderer->EndFrame();
 }
