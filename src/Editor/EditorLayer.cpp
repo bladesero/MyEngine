@@ -5,6 +5,8 @@
 #include "Core/Logger.h"
 #include "Core/Platform.h"
 
+#include <vector>
+
 #if defined(MYENGINE_ENABLE_IMGUI) && defined(MYENGINE_PLATFORM_WINDOWS)
 #  define WIN32_LEAN_AND_MEAN
 #  include <windows.h>
@@ -17,6 +19,8 @@ namespace
     constexpr float kToolbarHeight      = 40.0f;
     constexpr float kOutlinerPanelWidth = 280.0f;
     constexpr float kInspectorWidth     = 320.0f;
+    constexpr float kLogPanelHeight     = 220.0f;
+    constexpr size_t kMaxLogLines       = 4096;
 
     bool DrawVec3Editor(const char* label, Vec3& value, float speed)
     {
@@ -82,6 +86,7 @@ void EditorLayer::OnAttach()
         m_Engine->SetPlatformEventBridge(m_PlatformBridge.get());
     }
 
+    Logger::SetSink([this](const std::string& line) { OnLogMessage(line); });
     m_ImGuiReady = true;
 #endif
 }
@@ -89,6 +94,7 @@ void EditorLayer::OnAttach()
 void EditorLayer::OnDetach()
 {
 #if defined(MYENGINE_ENABLE_IMGUI)
+    Logger::SetSink({});
     if (m_Engine) {
         m_Engine->SetPlatformEventBridge(nullptr);
     }
@@ -114,8 +120,10 @@ void EditorLayer::OnRender()
     ImGui::NewFrame();
 
     DrawToolbar();
+    DrawSceneView();
     DrawSceneOutliner();
     DrawInspector();
+    DrawLogOutput();
 
     ImGui::Render();
 
@@ -256,8 +264,8 @@ void EditorLayer::DrawSceneOutliner()
 {
 #if defined(MYENGINE_ENABLE_IMGUI)
     const ImGuiViewport* vp = ImGui::GetMainViewport();
-    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x, vp->WorkPos.y + kToolbarHeight), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(kOutlinerPanelWidth, vp->WorkSize.y - kToolbarHeight), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x, vp->WorkPos.y + kToolbarHeight), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(kOutlinerPanelWidth, vp->WorkSize.y - kToolbarHeight), ImGuiCond_Always);
 
     ImGui::Begin("Scene Outliner");
 
@@ -272,14 +280,67 @@ void EditorLayer::DrawSceneOutliner()
 #endif
 }
 
+void EditorLayer::DrawSceneView()
+{
+#if defined(MYENGINE_ENABLE_IMGUI)
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    const float centerX = vp->WorkPos.x + kOutlinerPanelWidth;
+    const float centerW = vp->WorkSize.x - kOutlinerPanelWidth - kInspectorWidth;
+    const float sceneY = vp->WorkPos.y + kToolbarHeight;
+    const float sceneH = vp->WorkSize.y - kToolbarHeight - kLogPanelHeight;
+
+    if (centerW <= 1.0f || sceneH <= 1.0f) {
+        m_SceneLayer->SetViewportInputEnabled(false);
+        return;
+    }
+
+    ImGui::SetNextWindowPos(ImVec2(centerX, sceneY), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(centerW, sceneH), ImGuiCond_Always);
+    ImGui::SetNextWindowBgAlpha(0.0f);
+
+    ImGuiWindowFlags flags = ImGuiWindowFlags_NoScrollbar |
+                             ImGuiWindowFlags_NoScrollWithMouse;
+
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+    if (!ImGui::Begin("Scene View", nullptr, flags)) {
+        ImGui::End();
+        ImGui::PopStyleVar();
+        m_SceneLayer->SetViewportInputEnabled(false);
+        return;
+    }
+
+    const ImVec2 contentMin = ImGui::GetWindowContentRegionMin();
+    const ImVec2 contentMax = ImGui::GetWindowContentRegionMax();
+    const ImVec2 winPos = ImGui::GetWindowPos();
+    const float viewportX = winPos.x + contentMin.x;
+    const float viewportY = winPos.y + contentMin.y;
+    const float viewportW = contentMax.x - contentMin.x;
+    const float viewportH = contentMax.y - contentMin.y;
+
+    if (viewportW > 1.0f && viewportH > 1.0f) {
+        m_SceneLayer->SetEditorViewportRect(
+            static_cast<int>(viewportX),
+            static_cast<int>(viewportY),
+            static_cast<int>(viewportW),
+            static_cast<int>(viewportH));
+    }
+
+    const bool hovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows);
+    m_SceneLayer->SetViewportInputEnabled(hovered);
+
+    ImGui::End();
+    ImGui::PopStyleVar();
+#endif
+}
+
 void EditorLayer::DrawInspector()
 {
 #if defined(MYENGINE_ENABLE_IMGUI)
     const ImGuiViewport* vp = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(
         ImVec2(vp->WorkPos.x + vp->WorkSize.x - kInspectorWidth, vp->WorkPos.y + kToolbarHeight),
-        ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(kInspectorWidth, vp->WorkSize.y - kToolbarHeight), ImGuiCond_FirstUseEver);
+        ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(kInspectorWidth, vp->WorkSize.y - kToolbarHeight), ImGuiCond_Always);
 
     ImGui::Begin("Inspector");
 
@@ -306,4 +367,59 @@ void EditorLayer::DrawInspector()
 
     ImGui::End();
 #endif
+}
+
+void EditorLayer::DrawLogOutput()
+{
+#if defined(MYENGINE_ENABLE_IMGUI)
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    const float centerX = vp->WorkPos.x + kOutlinerPanelWidth;
+    const float centerW = vp->WorkSize.x - kOutlinerPanelWidth - kInspectorWidth;
+    const float logY = vp->WorkPos.y + vp->WorkSize.y - kLogPanelHeight;
+
+    if (centerW <= 1.0f) return;
+
+    ImGui::SetNextWindowPos(ImVec2(centerX, logY), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(centerW, kLogPanelHeight), ImGuiCond_Always);
+    ImGui::Begin("Log Output");
+
+    if (ImGui::Button("Clear")) {
+        std::lock_guard<std::mutex> lock(m_LogMutex);
+        m_LogLines.clear();
+        m_LogScrollToBottom = false;
+    }
+    ImGui::SameLine();
+    ImGui::Checkbox("Auto-scroll", &m_LogAutoScroll);
+    ImGui::Separator();
+
+    std::vector<std::string> logs;
+    bool scrollToBottom = false;
+    {
+        std::lock_guard<std::mutex> lock(m_LogMutex);
+        logs.assign(m_LogLines.begin(), m_LogLines.end());
+        scrollToBottom = m_LogScrollToBottom;
+        m_LogScrollToBottom = false;
+    }
+
+    ImGui::BeginChild("##LogScrollRegion", ImVec2(0.0f, 0.0f), false, ImGuiWindowFlags_HorizontalScrollbar);
+    for (const std::string& line : logs) {
+        ImGui::TextUnformatted(line.c_str());
+    }
+    if (m_LogAutoScroll && scrollToBottom) {
+        ImGui::SetScrollHereY(1.0f);
+    }
+    ImGui::EndChild();
+
+    ImGui::End();
+#endif
+}
+
+void EditorLayer::OnLogMessage(const std::string& line)
+{
+    std::lock_guard<std::mutex> lock(m_LogMutex);
+    if (m_LogLines.size() >= kMaxLogLines) {
+        m_LogLines.pop_front();
+    }
+    m_LogLines.push_back(line);
+    m_LogScrollToBottom = true;
 }

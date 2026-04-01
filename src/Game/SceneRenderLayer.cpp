@@ -7,6 +7,7 @@
 #include "Input/Input.h"
 #include <SDL3/SDL_scancode.h>
 #include <SDL3/SDL_gamepad.h>
+#include <algorithm>
 #include <cmath>
 #include <vector>
 
@@ -23,12 +24,15 @@ SceneRenderLayer::SceneRenderLayer(IRenderContext* context,
 void SceneRenderLayer::OnAttach() {
     SceneLayer::OnAttach();
     if (m_RenderContext && m_VpH > 0) {
+        m_VpX = 0;
+        m_VpY = 0;
         m_Camera.LookAt({ 0.0f, 0.0f, -4.0f }, { 0.0f, 0.0f, 0.0f });
         m_Camera.SetPerspective(60.0f,
             static_cast<float>(m_VpW) / static_cast<float>(m_VpH),
             0.1f,
             1000.0f);
-        m_RenderContext->SetViewport(0, 0,
+        m_RenderContext->SetViewport(
+            static_cast<float>(m_VpX), static_cast<float>(m_VpY),
             static_cast<float>(m_VpW), static_cast<float>(m_VpH));
     }
     if (m_VpW > 0 && m_VpH > 0) {
@@ -43,6 +47,12 @@ void SceneRenderLayer::OnDetach() {
 
 void SceneRenderLayer::OnUpdate(float dt) {
     SceneLayer::OnUpdate(dt);
+
+    if (!m_ViewportInputEnabled) {
+        m_RmbDown = false;
+        return;
+    }
+
     // Simple orbit: Q/E dolly, right-mouse orbit
     if (Input::IsKeyDown(SDL_SCANCODE_Q)) m_Camera.Dolly( 2.0f * dt);
     if (Input::IsKeyDown(SDL_SCANCODE_E)) m_Camera.Dolly(-2.0f * dt);
@@ -76,21 +86,29 @@ void SceneRenderLayer::OnUpdate(float dt) {
 void SceneRenderLayer::OnEvent(Event& event) {
     SceneLayer::OnEvent(event);
     if (event.type == EventType::WindowResize) {
-        m_VpW = event.resize.width;
-        m_VpH = event.resize.height;
-        if (m_VpW <= 0 || m_VpH <= 0) return;
+        const int windowW = event.resize.width;
+        const int windowH = event.resize.height;
+        if (windowW <= 0 || windowH <= 0) return;
 
-        m_Camera.SetAspect(static_cast<float>(m_VpW) / static_cast<float>(m_VpH));
+        if (!m_UseEditorViewport) {
+            m_VpX = 0;
+            m_VpY = 0;
+            m_VpW = windowW;
+            m_VpH = windowH;
+            m_Camera.SetAspect(static_cast<float>(m_VpW) / static_cast<float>(m_VpH));
+            m_Renderer.Resize(static_cast<uint32_t>(m_VpW),
+                              static_cast<uint32_t>(m_VpH));
+        }
+
         if (m_RenderContext) {
             if (GpuSwapChain* swapChain = m_RenderContext->GetSwapChain()) {
-                swapChain->Resize(static_cast<uint32_t>(m_VpW),
-                                  static_cast<uint32_t>(m_VpH));
+                swapChain->Resize(static_cast<uint32_t>(windowW),
+                                  static_cast<uint32_t>(windowH));
             }
-            m_RenderContext->SetViewport(0, 0,
+            m_RenderContext->SetViewport(
+                static_cast<float>(m_VpX), static_cast<float>(m_VpY),
                 static_cast<float>(m_VpW), static_cast<float>(m_VpH));
         }
-        m_Renderer.Resize(static_cast<uint32_t>(m_VpW),
-                          static_cast<uint32_t>(m_VpH));
     }
 }
 
@@ -160,5 +178,45 @@ void SceneRenderLayer::OnSceneLoaded() {
 
 void SceneRenderLayer::OnRender() {
     if (!m_RenderContext) return;
+    if (m_VpW > 0 && m_VpH > 0) {
+        m_RenderContext->SetViewport(
+            static_cast<float>(m_VpX), static_cast<float>(m_VpY),
+            static_cast<float>(m_VpW), static_cast<float>(m_VpH));
+    }
     m_Renderer.RenderScene(GetScene(), m_Camera, m_PresentEnabled);
+}
+
+void SceneRenderLayer::SetEditorViewportRect(int x, int y, int width, int height)
+{
+    if (width <= 0 || height <= 0) return;
+    m_UseEditorViewport = true;
+
+    const int clampedX = (std::max)(0, x);
+    const int clampedY = (std::max)(0, y);
+    if (m_VpX == clampedX && m_VpY == clampedY &&
+        m_VpW == width && m_VpH == height) {
+        return;
+    }
+
+    m_VpX = clampedX;
+    m_VpY = clampedY;
+    m_VpW = width;
+    m_VpH = height;
+
+    m_Camera.SetAspect(static_cast<float>(m_VpW) / static_cast<float>(m_VpH));
+
+    if (m_RenderContext) {
+        m_RenderContext->SetViewport(
+            static_cast<float>(m_VpX), static_cast<float>(m_VpY),
+            static_cast<float>(m_VpW), static_cast<float>(m_VpH));
+    }
+    m_Renderer.Resize(static_cast<uint32_t>(m_VpW), static_cast<uint32_t>(m_VpH));
+}
+
+void SceneRenderLayer::SetViewportInputEnabled(bool enabled)
+{
+    m_ViewportInputEnabled = enabled;
+    if (!enabled) {
+        m_RmbDown = false;
+    }
 }

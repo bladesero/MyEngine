@@ -28,6 +28,8 @@ public:
     // Editor overlay needs to present after UI. When false, this layer will render
     // the 3D scene but will not call Present (EndFrame).
     void SetPresentEnabled(bool enabled) { m_PresentEnabled = enabled; }
+    void SetEditorViewportRect(int x, int y, int width, int height);
+    void SetViewportInputEnabled(bool enabled);
 
     IRenderContext* GetRenderContext() const { return m_RenderContext; }
 
@@ -40,10 +42,14 @@ protected:
 private:
     IRenderContext*       m_RenderContext = nullptr;
     Renderer              m_Renderer;
+    int                   m_VpX = 0;
+    int                   m_VpY = 0;
     int                   m_VpW = 0;
     int                   m_VpH = 0;
     Camera                m_Camera;
     std::shared_ptr<GpuShader> m_DefaultMeshShader;
     bool                  m_RmbDown = false;
+    bool                  m_UseEditorViewport = false;
+    bool                  m_ViewportInputEnabled = true;
     bool                  m_PresentEnabled = true;
 };
