@@ -1,0 +1,200 @@
+#pragma once
+
+#include <cmath>
+
+// ==========================================================================
+// MyEngine  –  Core Math
+//
+// Convention:
+//   - Row-major Mat4 stored as m[row][col]
+//   - Left-hand coordinate system, Y-up (+Z forward)
+//   - Depth range 0..1  (D3D11 NDC)
+//   - HLSL mul(vector, matrix) friendly  (vector * matrix)
+//
+// Named EngineMath.h (not Math.h) so MSVC on Windows does not pick this file
+// when the standard library includes <math.h> (case-insensitive match).
+//
+// Vec* / Ray / Plane / AABB / Color live under namespace Math; this header pulls
+// them into the global namespace for existing call sites.
+// ==========================================================================
+
+static constexpr float kPi    = 3.14159265358979323846f;
+static constexpr float kTwoPi = 6.28318530717958647692f;
+static constexpr float kDeg2Rad = kPi / 180.0f;
+static constexpr float kRad2Deg = 180.0f / kPi;
+
+#include "Math/Vector2.h"
+#include "Math/Vector3.h"
+#include "Math/Vector4.h"
+#include "Math/Ray.h"
+#include "Math/Plane.h"
+#include "Math/AABB.h"
+#include "Math/Color.h"
+
+using Math::Vec2;
+using Math::Vec3;
+using Math::Vec4;
+using Math::Ray;
+using Math::Plane;
+using Math::AABB;
+using Math::Color;
+
+// --------------------------------------------------------------------------
+// Mat4  –  row-major, stored as m[row][col]
+// --------------------------------------------------------------------------
+struct Mat4 {
+    float m[4][4] = {};
+
+    // ---- Arithmetic --------------------------------------------------------
+    Mat4 operator*(const Mat4& o) const {
+        Mat4 r;
+        for (int row = 0; row < 4; ++row)
+            for (int col = 0; col < 4; ++col)
+                for (int k   = 0; k   < 4; ++k)
+                    r.m[row][col] += m[row][k] * o.m[k][col];
+        return r;
+    }
+
+    Mat4& operator*=(const Mat4& o) { *this = *this * o; return *this; }
+
+    // Transform a Vec4 (row-vector * matrix).
+    Vec4 Transform(const Vec4& v) const {
+        return {
+            v.x*m[0][0] + v.y*m[1][0] + v.z*m[2][0] + v.w*m[3][0],
+            v.x*m[0][1] + v.y*m[1][1] + v.z*m[2][1] + v.w*m[3][1],
+            v.x*m[0][2] + v.y*m[1][2] + v.z*m[2][2] + v.w*m[3][2],
+            v.x*m[0][3] + v.y*m[1][3] + v.z*m[2][3] + v.w*m[3][3],
+        };
+    }
+
+    // Transform a direction (w=0).
+    Vec3 TransformDir(const Vec3& v) const {
+        return Transform(Vec4::FromVec3(v, 0.0f)).XYZ();
+    }
+
+    // Transform a point (w=1).
+    Vec3 TransformPoint(const Vec3& v) const {
+        return Transform(Vec4::FromVec3(v, 1.0f)).XYZ();
+    }
+
+    Mat4 Transposed() const {
+        Mat4 r;
+        for (int i = 0; i < 4; ++i)
+            for (int j = 0; j < 4; ++j)
+                r.m[i][j] = m[j][i];
+        return r;
+    }
+
+    // Pointer to first element (for uploading to GPU as flat float[16]).
+    const float* Data() const { return &m[0][0]; }
+
+    // ---- Factories ---------------------------------------------------------
+    static Mat4 Identity() {
+        Mat4 r;
+        r.m[0][0] = r.m[1][1] = r.m[2][2] = r.m[3][3] = 1.0f;
+        return r;
+    }
+
+    static Mat4 Translation(float tx, float ty, float tz) {
+        // Row-vector convention: translation lives in the last row.
+        Mat4 r = Identity();
+        r.m[3][0] = tx; r.m[3][1] = ty; r.m[3][2] = tz;
+        return r;
+    }
+    static Mat4 Translation(const Vec3& t) {
+        return Translation(t.x, t.y, t.z);
+    }
+
+    static Mat4 Scale(float sx, float sy, float sz) {
+        Mat4 r;
+        r.m[0][0] = sx; r.m[1][1] = sy; r.m[2][2] = sz; r.m[3][3] = 1.0f;
+        return r;
+    }
+    static Mat4 Scale(float s) { return Scale(s, s, s); }
+    static Mat4 Scale(const Vec3& s) { return Scale(s.x, s.y, s.z); }
+
+    // Rotation around an arbitrary axis (Rodrigues) – row-vector form.
+    static Mat4 Rotation(const Vec3& axis, float rad) {
+        Vec3 a = axis.Normalized();
+        const float c = std::cos(rad), s = std::sin(rad), t = 1.0f - c;
+        // This is the transpose of the common column-vector Rodrigues matrix,
+        // i.e. directly usable for v * R.
+        Mat4 r = Identity();
+        r.m[0][0] = t*a.x*a.x + c;       r.m[0][1] = t*a.x*a.y + s*a.z; r.m[0][2] = t*a.x*a.z - s*a.y;
+        r.m[1][0] = t*a.x*a.y - s*a.z;   r.m[1][1] = t*a.y*a.y + c;     r.m[1][2] = t*a.y*a.z + s*a.x;
+        r.m[2][0] = t*a.x*a.z + s*a.y;   r.m[2][1] = t*a.y*a.z - s*a.x; r.m[2][2] = t*a.z*a.z + c;
+        return r;
+    }
+    // Left-handed, row-vector rotations.
+    static Mat4 RotationX(float rad) {
+        const float c = std::cos(rad), s = std::sin(rad);
+        Mat4 r = Identity();
+        // v' = v * Rx
+        r.m[1][1] =  c; r.m[1][2] =  s;
+        r.m[2][1] = -s; r.m[2][2] =  c;
+        return r;
+    }
+    static Mat4 RotationY(float rad) {
+        const float c = std::cos(rad), s = std::sin(rad);
+        Mat4 r = Identity();
+        // v' = v * Ry
+        r.m[0][0] =  c; r.m[0][2] = -s;
+        r.m[2][0] =  s; r.m[2][2] =  c;
+        return r;
+    }
+    static Mat4 RotationZ(float rad) {
+        const float c = std::cos(rad), s = std::sin(rad);
+        Mat4 r = Identity();
+        // v' = v * Rz
+        r.m[0][0] =  c; r.m[0][1] =  s;
+        r.m[1][0] = -s; r.m[1][1] =  c;
+        return r;
+    }
+
+    // Look-at view matrix (left-hand, Y-up). Row-vector convention.
+    static Mat4 LookAt(const Vec3& eye, const Vec3& target, const Vec3& up) {
+        // Row-vector view matrix. Basis vectors are stored in the first 3 rows,
+        // translation is stored in the last row.
+        Vec3 f = (target - eye).Normalized();      // forward (+Z)
+        Vec3 r = up.Cross(f).Normalized();         // right (+X)
+        Vec3 u = f.Cross(r);                       // up (+Y)
+
+        Mat4 v = Identity();
+        v.m[0][0] = r.x; v.m[0][1] = u.x; v.m[0][2] = f.x;
+        v.m[1][0] = r.y; v.m[1][1] = u.y; v.m[1][2] = f.y;
+        v.m[2][0] = r.z; v.m[2][1] = u.z; v.m[2][2] = f.z;
+        v.m[3][0] = -eye.Dot(r);
+        v.m[3][1] = -eye.Dot(u);
+        v.m[3][2] = -eye.Dot(f);
+         v.m[3][3] = 1.0f;
+        return v;
+    }
+
+    // Perspective (left-hand, depth 0..1, D3D11). Row-vector convention.
+    static Mat4 Perspective(float fovYRad, float aspect, float zNear, float zFar) {
+        const float f = 1.0f / std::tan(fovYRad * 0.5f);
+        // Row-vector LH perspective (0..1). This is the transpose of the
+        // common column-vector D3D matrix.
+        Mat4 p = {};
+        p.m[0][0] = f / aspect;
+        p.m[1][1] = f;
+        p.m[2][2] = zFar / (zFar - zNear);
+        p.m[3][2] = (-zNear * zFar) / (zFar - zNear);
+        p.m[2][3] = 1.0f;
+        p.m[3][3] = 0.0f;// by default
+        return p;
+    }
+
+    // Orthographic (left-hand, depth 0..1). Row-vector convention.
+    static Mat4 Ortho(float l, float r, float b, float t, float zn, float zf) {
+        // Row-vector LH ortho (0..1).
+        Mat4 o = Identity();
+        o.m[0][0] =  2.0f / (r - l);
+        o.m[1][1] =  2.0f / (t - b);
+        o.m[2][2] =  1.0f / (zf - zn);
+        o.m[3][0] = -(r + l) / (r - l);
+        o.m[3][1] = -(t + b) / (t - b);
+        o.m[3][2] = -zn / (zf - zn);
+        return o;
+    }
+};

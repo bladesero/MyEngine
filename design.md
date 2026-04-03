@@ -1,5 +1,5 @@
 MyEngine/
-├── CMakeLists.txt                  ← FetchContent 拉取 SDL3，分三个 target
+├── xmake.lua                       ← 构建与依赖（xmake）
 ├── main.cpp                        ← MyApp : Application，OnInit 推 GameLayer
 └── src/
     ├── Core/
@@ -13,14 +13,12 @@ MyEngine/
     └── Game/
         ├── GameLayer.h/.cpp        ← ♻️ OnRender 用 SDL 渲染彩色背景，ESC 退出
 
-# 配置（选择你喜欢的生成器）
-cmake -S . -B build -G "Ninja"        # 或 "Visual Studio 17 2022"
-
-# 编译
-cmake --build build
+# 配置与编译（xmake）
+xmake f -m debug    # 或 release
+xmake
 
 # 运行
-.\build\MyEngine.exe
+xmake run MyEngineEditor
 
 分层设计说明：
 

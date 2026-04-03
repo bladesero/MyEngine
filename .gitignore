@@ -1,17 +1,10 @@
+﻿# Xmake
+.xmake/
+
 # Build directories
 build/
 build_*/
-cmake-build-*/
 out/
-
-# CMake generated
-CMakeCache.txt
-CMakeFiles/
-cmake_install.cmake
-CTestTestfile.cmake
-install_manifest.txt
-_CPack_Packages/
-CPack*.cmake
 
 # IDE / Editor files
 .vs/
@@ -38,5 +31,5 @@ DerivedData/
 *.ilk
 *.exp
 
-# FetchContent / build artifacts
+# Legacy / local deps
 _deps/

@@ -1,9 +1,13 @@
-#include "src/Core/Application.h"
-#include "src/Core/Platform.h"
-#include "src/Renderer/IRenderContext.h"
-#include "src/Game/SceneRenderLayer.h"
-#include "src/Editor/EditorLayer.h"
-#include "src/Core/Logger.h"
+#define SDL_MAIN_HANDLED
+#include <SDL3/SDL.h>
+#include <SDL3/SDL_main.h>
+
+#include "Core/Application.h"
+#include "Core/Platform.h"
+#include "Renderer/IRenderContext.h"
+#include "Game/SceneRenderLayer.h"
+#include "Editor/EditorLayer.h"
+#include "Core/Logger.h"
 
 #include <memory>
 #include <string>
@@ -60,11 +64,11 @@ private:
     RenderBackend m_Backend = kDefaultRenderBackend;
 };
 
-int main(int argc, char** argv) {
+static int RunEditor(int argc, char* argv[]) {
     ApplicationConfig cfg;
     cfg.window.title     = "MyEngine Editor – Scene + MeshRenderer";
-    cfg.window.width     = 1280;
-    cfg.window.height    = 720;
+    cfg.window.width     = 1920;
+    cfg.window.height    = 1080;
     cfg.window.vsync     = false;
     cfg.engine.appName   = "MyEngine";
     cfg.engine.targetFps = 60;
@@ -96,4 +100,8 @@ int main(int argc, char** argv) {
 
     MyApp app(cfg);
     return app.Run();
+}
+
+int main(int argc, char* argv[]) {
+    return SDL_RunApp(argc, argv, RunEditor, nullptr);
 }
