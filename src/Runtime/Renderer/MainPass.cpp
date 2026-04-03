@@ -227,7 +227,7 @@ void MainPass::Execute(const Scene& scene, const Camera& camera)
             cmd->BindPSTexture(1, shadowTexture);
 
             ShadowedPerDrawConstants constants{};
-            std::memcpy(constants.mvp, mvp.Data(), sizeof(constants.mvp));
+            std::memcpy(constants.mvp, viewProj.Data(), sizeof(constants.mvp));
             std::memcpy(constants.world, world.Data(), sizeof(constants.world));
             std::memcpy(constants.lightViewProj, m_LightViewProj.Data(), sizeof(constants.lightViewProj));
 

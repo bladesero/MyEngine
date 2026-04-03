@@ -5,6 +5,7 @@
 build/
 build_*/
 out/
+vs2022/
 
 # IDE / Editor files
 .vs/

@@ -4,6 +4,7 @@
 #include "Renderer/IRenderContext.h"
 #include "Renderer/Renderer.h"
 #include "Camera/Camera.h"
+#include "Math/Ray.h"
 #include <memory>
 
 // ==========================================================================
@@ -13,6 +14,7 @@
 // MeshRendererComponent 的 Actor，上传 Mesh 到 GPU（若未上传），
 // 使用材质或默认 Mesh 着色器绘制（MVP + BaseColor）。
 // OnSceneLoaded 时若场景为空则创建一个带立方体 + 默认材质的演示 Actor。
+// 视口输入：飞行相机 — WASD 平移，Q/E 上下，按住右键拖动转向（手柄左摇杆移动、右摇杆转向）。
 // ==========================================================================
 
 class SceneRenderLayer : public SceneLayer {
@@ -33,11 +35,16 @@ public:
 
     IRenderContext* GetRenderContext() const { return m_RenderContext; }
 
-protected:
-    void OnSceneLoaded() override;
-
     Camera&       GetCamera()       { return m_Camera; }
     const Camera& GetCamera() const { return m_Camera; }
+
+    void GetViewportRect(int& outX, int& outY, int& outW, int& outH) const;
+
+    // Window-space pixel coordinates (same space as SDL / ImGui::GetIO().MousePos).
+    bool BuildRayFromScreen(float screenX, float screenY, Math::Ray& outRay) const;
+
+protected:
+    void OnSceneLoaded() override;
 
 private:
     IRenderContext*       m_RenderContext = nullptr;

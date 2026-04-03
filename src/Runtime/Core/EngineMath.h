@@ -198,3 +198,30 @@ struct Mat4 {
         return o;
     }
 };
+
+// World-space AABB from a model-space AABB and object matrix (eight corners).
+inline AABB TransformAABB(const AABB& local, const Mat4& world)
+{
+    const Vec3 corners[8] = {
+        { local.min.x, local.min.y, local.min.z },
+        { local.max.x, local.min.y, local.min.z },
+        { local.min.x, local.max.y, local.min.z },
+        { local.max.x, local.max.y, local.min.z },
+        { local.min.x, local.min.y, local.max.z },
+        { local.max.x, local.min.y, local.max.z },
+        { local.min.x, local.max.y, local.max.z },
+        { local.max.x, local.max.y, local.max.z },
+    };
+    AABB r;
+    bool first = true;
+    for (const Vec3& c : corners) {
+        const Vec3 w = world.TransformPoint(c);
+        if (first) {
+            r.min = r.max = w;
+            first = false;
+        } else {
+            r.Expand(w);
+        }
+    }
+    return r;
+}

@@ -1,5 +1,6 @@
 #include "Assets/AssetManager.h"
 
+#include <algorithm>
 #include <filesystem>
 
 std::string AssetManager::NormalizePath(const std::string& path) {
@@ -82,6 +83,19 @@ MeshHandle AssetManager::GetCubeMesh()
     const std::string path = "__builtin__/Cube";
     if (IsLoaded(path)) return GetByPath<MeshAsset>(path);
     return Register(MeshAsset::CreateCube("Cube"));
+}
+
+std::vector<std::string> AssetManager::GetCachedPathsByType(AssetType type) const
+{
+    std::vector<std::string> out;
+    for (const auto& kv : m_Cache) {
+        const auto& asset = kv.second;
+        if (asset && asset->GetType() == type) {
+            out.push_back(asset->GetPath());
+        }
+    }
+    std::sort(out.begin(), out.end());
+    return out;
 }
 
 MaterialHandle AssetManager::GetDefaultMaterial()

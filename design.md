@@ -1,119 +1,76 @@
-MyEngine/
-├── xmake.lua                       ← 构建与依赖（xmake）
-├── main.cpp                        ← MyApp : Application，OnInit 推 GameLayer
-└── src/
-    ├── Core/
-    │   ├── Application.h/.cpp      ← 🆕 用户继承的入口抽象
-    │   ├── Window.h/.cpp           ← 🆕 IWindow 接口 + SDLWindow 实现
-    │   ├── Engine.h/.cpp           ← ♻️ 持有 IWindow*，真正 SDL 事件轮询
-    │   ├── Event.h/.cpp            ← ♻️ 新增 KeyEvent/ResizeEvent/MouseEvent
-    │   ├── Layer / LayerStack      ← 不变
-    │   ├── Logger.h                ← 不变
-    │   └── Time.h/.cpp             ← 不变
-    └── Game/
-        ├── GameLayer.h/.cpp        ← ♻️ OnRender 用 SDL 渲染彩色背景，ESC 退出
+# MyEngine 架构说明
 
-# 配置与编译（xmake）
-xmake f -m debug    # 或 release
+## 仓库布局
+
+```
+MyEngine/
+├── xmake.lua              # 构建：MyEngineRuntime（共享库）、MyEngineEditor、MyEnginePlayer、MyEngineTests
+├── main.cpp               # 编辑器入口：SDL3 + Application，推入 SceneRenderLayer 与 EditorLayer
+├── player_main.cpp        # 运行时入口：仅 SceneRenderLayer（无 ImGui），适合发行/全屏演示
+├── design.md              # 本文档
+├── tests/EngineTests.cpp  # 单元测试（序列化、Transform、Input、资源导入）
+└── src/
+    ├── Runtime/Core/      # Application、Engine、Window、Event、Layer、Time、Logger
+    ├── Runtime/Renderer/  # IRenderContext（RHI）、D3D11/D3D12（Windows）、Metal（macOS）、MainPass/ShadowPass
+    ├── Runtime/Assets/    # AssetManager、Mesh/Material/Texture/Model
+    ├── Runtime/Scene/     # Scene、Actor、Transform、组件、SceneSerializer（JSON）
+    ├── Runtime/Camera/    # Camera（透视/正交、轨道/飞行）
+    ├── Runtime/Input/     # Input 快照
+    ├── Runtime/Game/      # SceneLayer、SceneRenderLayer、TriangleLayer、GameLayer
+    └── Editor/            # EditorLayer（ImGui：工具栏、Outliner、Scene View、Inspector、日志）
+```
+
+## 构建与运行
+
+```bash
+xmake f -m debug   # 或 release / development
 xmake
 
-# 运行
-xmake run MyEngineEditor
+xmake run MyEngineEditor   # 编辑器（Windows 可选 --backend d3d11 | d3d12）
+xmake run MyEnginePlayer   # 无 UI 场景渲染
+xmake run MyEngineTests      # 单元测试
+```
 
-分层设计说明：
+## 目标与依赖
 
-库/目标	职责
-MyEngineCore (static lib)	Time / Event / Layer / LayerStack / Engine
-MyEngineGame (static lib)	GameLayer，依赖 Core
-MyEngine (executable)	只含 main.cpp，链接以上两个库
-Logger.h 因为包含模板函数，保持为纯头文件（header-only）。
+| 目标 | 说明 |
+|------|------|
+| `MyEngineRuntime` | 共享库：引擎、渲染、场景、编辑器 UI 层（`MYENGINE_ENABLE_IMGUI`） |
+| `MyEngineEditor` | 可执行文件，链接 `MyEngineRuntime`，入口 `main.cpp` |
+| `MyEnginePlayer` | 可执行文件，链接 `MyEngineRuntime`，入口 `player_main.cpp`，不推 EditorLayer |
+| `MyEngineTests` | 仅头文件 + 测试，不启动 GPU |
 
-关键设计
-抽象	职责
-IWindow	平台无关接口：Init/Shutdown/SwapBuffers/GetWidth/GetHeight
-SDLWindow	SDL3 实现：创建窗口 + Renderer，vsync 支持
-Application	生命周期入口：Run() = 建窗→OnInit()→Engine::RunLoop()→OnShutdown()→销毁窗口
-Engine	通过 SDL_PollEvent 将 SDL 事件翻译为内部 Event 并派发给 LayerStack
+第三方库（见 `xmake.lua`）：SDL3、ImGui（含各后端）、nlohmann_json、stb、tinyobjloader。
 
-新增文件结构
-src/
-├── Renderer/
-│   ├── IRenderContext.h       ← 渲染后端接口 (CreateVertexBuffer/Shader/Draw…)
-│   ├── D3D11Context.h/.cpp    ← DX11 实现
-│   └── TriangleShader.h       ← 内联 HLSL (POSITION+COLOR → MVP变换)
-├── Input/
-│   ├── Input.h/.cpp           ← 静态快照 Input 类 (IsKeyDown/IsKeyPressed 等)
-├── Camera/
-│   └── Camera.h               ← Vec3/Mat4 + Camera (Perspective/Ortho/Orbit/Dolly)
-└── Game/
-    ├── TriangleLayer.h/.cpp   ← 🆕 主演示层，替代 GameLayer
-    ├── GameLayer.h/.cpp       ← 保留（SDL 渲染路径）
+## 运行时架构
 
-架构关系
+```
 Application::Run()
   └─ Engine::RunLoop()
-       ├─ PollPlatformEvents()  → SDL_PollEvent → Input::OnKey/Mouse* + PushEvent
-       ├─ DispatchEvents()      → Layer::OnEvent (WindowResize 更新 Camera + Viewport)
-       ├─ UpdateLayers()        → TriangleLayer::OnUpdate (键盘旋转/轨道相机)
-       └─ RenderLayers()        → TriangleLayer::OnRender
-              ├─ 构建 MVP = Model(Y旋转) * Camera.GetViewProj()
-              ├─ D3D11Context::BeginFrame (ClearRTV)
-              ├─ BindShader / BindVertexBuffer / SetVSConstants(MVP)
-              ├─ Draw(3)
-              └─ EndFrame → SwapChain::Present
+       ├─ PollPlatformEvents()  → SDL_PollEvent → Input + 事件队列
+       ├─ DispatchEvents()       → Layer::OnEvent
+       ├─ UpdateLayers()         → Layer::OnUpdate
+       └─ RenderLayers()        → Layer::OnRender（顺序：先 SceneRenderLayer，后 EditorLayer）
+```
 
-变更概览
-新增：Math.h （原 Camera.h 里的 math 重构到此）
-类型	内容
-Vec2	+, -, *, /, +=, Dot, Length, Normalized
-Vec3	全套运算符 + Cross, Lerp, Zero/One/Up/Forward/Right 静态常量
-Vec4	基础运算, XYZ(), FromVec3()
-Mat4	*, *=, Transform, TransformDir/Point, Transposed, Data()
-工厂：Identity, Translation, Scale, Rotation(axis/X/Y/Z), LookAt, Perspective, Ortho
-常量	kPi, kTwoPi, kDeg2Rad, kRad2Deg
+- **SceneRenderLayer**：持有 `IRenderContext`、`Camera`、`Renderer`；按视口矩形渲染 `MeshRendererComponent`；可与编辑器共享「仅渲染、不 Present」，由 EditorLayer 在 ImGui 之后 `EndFrame`。
+- **EditorLayer**：ImGui 面板、文件对话框（SDL3）、视口拾取与简易操作（与 `SceneRenderLayer` 协作）。
 
-重构：Camera.h + 新增 Camera.cpp
-新增能力	接口
-完整 LookAt	LookAt(eye, target, up)
-独立调节 FOV	SetFovY(deg)
-独立调节宽高比	SetAspect(aspect) — 窗口 resize 时只调此项
-独立近远平面	SetNear / SetFar
-正交投影	SetOrtho(w, h, near, far)
-切换投影模式	SetProjectionMode(Perspective\|Orthographic)
-切换运动模式	SetCameraMode(Orbit\|Fly)
-方向向量	GetForward / GetRight / GetCamUp
-平移（orbit）	Pan(rightDelta, upDelta)
-自由飞行	MoveForward / MoveRight / MoveUp / Rotate
-Orbit 限制	pitch 被 clamp 避免 gimbal lock，dolly 防止穿透目标
+## 渲染后端
 
-src/Assets/
-├── Asset.h           ← 基类 + AssetID + AssetHandle<T> + AssetState/Type
-├── TextureAsset.h    ← CPU 像素数据 + GPU void* 句柄 + CreateSolid()
-├── MeshAsset.h       ← 顶点/索引/SubMesh/AABB + GpuBuffer 句柄
-├── MeshAsset.cpp     ← 内置基本体：Triangle / Quad / Cube
-├── MaterialAsset.h   ← 纹理槽(按名) + 标量/向量参数 + GpuShader + BlendMode
-├── ModelAsset.h      ← Mesh + Material[] + ModelNode 层级树
-├── AssetManager.h    ← 单例注册表，Load/Get/Register/Unload + 内置资产
-└── AssetManager.cpp  ← 内置资产实现（白色纹理/法线纹理/默认材质/基本体网格）
+- **Windows**：`CreateD3D11Context()` / `CreateD3D12Context()`（`main.cpp` / `player_main.cpp` 中 `--backend`）。
+- **macOS**：`CreateMetalContext()`。
+- **Linux**：当前无 GPU 后端实现；`MYENGINE_PLATFORM_LINUX` 仅编译定义，需后续补充 OpenGL/Vulkan 与 `IRenderContext` 实现。
 
+## 资源与场景
 
-功能	接口
-加载文件（按扩展名路由）	AssetManager::Get().Load<TextureAsset>("textures/rock.png")
-注册运行时资产	AssetManager::Get().Register(myMesh)
-获取内置资产	GetWhiteTexture() / GetCubeMesh() / GetDefaultMaterial()
-类型安全句柄	TextureHandle / MeshHandle / MaterialHandle / ModelHandle
-卸载未引用资产	AssetManager::Get().UnloadUnreferenced()
-注册自定义加载器	RegisterLoader("png", [](path){ ... return asset; })
+- **AssetManager**：按扩展名加载纹理/模型；内置白/黑/法线、立方体等；`GetByPath` / `Load` / `Register`。
+- **序列化**：`SceneSerializer` 将场景保存为 JSON；`MeshRendererComponent` 保存 mesh/material 路径，反序列化时从 `AssetManager` 解析。
 
-// 注册 PNG 加载器（用 stb_image 等库实现）
-AssetManager::Get().RegisterLoader("png", [](const std::string& path) {
-    auto tex = std::make_shared<TextureAsset>(path);
-    // ... stbi_load(...) → tex->SetPixelData(...)
-    return tex;
-});
+## 数学约定
 
-// 加载并使用
-TextureHandle rock = AssetManager::Get().Load<TextureAsset>("textures/rock.png");
-if (rock.IsValid()) {
-    mat->SetTexture("BaseColorMap", rock);
-}
+- 行主序 `Mat4`，左手坐标系，Y 向上，与 D3D 深度 0..1 及 HLSL `mul(vector, matrix)` 风格一致（见 `EngineMath.h`）。
+
+## 与旧版文档的差异
+
+早期版本曾以 `TriangleLayer` + 多静态库拆分为文档主线；当前主线为 **SceneRenderLayer + Renderer + EditorLayer**，并以 **MyEnginePlayer** 作为无编辑器运行时。若文档与代码不一致，以代码与 `xmake.lua` 为准。

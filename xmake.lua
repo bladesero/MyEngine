@@ -14,6 +14,22 @@ add_requires("nlohmann_json 3.11.3")
 add_requires("stb")
 add_requires("tinyobjloader")
 
+-- Must live in rule after_build: root xmake.lua locals use project-scope `os` (no os.cp).
+rule("copy_game_content")
+    after_build(function (target)
+        local src = path.absolute(path.join(os.projectdir(), "Content"))
+        if not os.isdir(src) then
+            return
+        end
+        local destdir = target:targetdir()
+        local dest = path.join(destdir, "Content")
+        if os.isdir(dest) then
+            os.rm(dest)
+        end
+        os.cp(src, destdir)
+    end)
+rule_end()
+
 if is_plat("windows") then
     add_requires("imgui", { version = "v1.91.3", configs = { sdl3 = true, dx11 = true, dx12 = true } })
 else
@@ -52,7 +68,9 @@ target("MyEngineRuntime")
         "src/Runtime/Game/TriangleLayer.cpp",
         "src/Runtime/Game/SceneLayer.cpp",
         "src/Runtime/Game/SceneRenderLayer.cpp",
-        "src/Editor/EditorLayer.cpp"
+        "src/Runtime/Math/Mat4Inverse.cpp",
+        "src/Editor/EditorLayer.cpp",
+        "thirdparty/ImGuizmo/ImGuizmo.cpp", { warnings = "none" }
     )
 
     if is_plat("windows") then
@@ -77,6 +95,7 @@ target("MyEngineRuntime")
     add_includedirs("src/Runtime", { public = true })
     add_includedirs("src")
     add_includedirs("src/Editor")
+    add_includedirs("thirdparty/ImGuizmo", { public = true })
     add_packages("libsdl3", { public = true })
     add_packages("nlohmann_json", { public = true })
     add_packages("stb", { public = true })
@@ -121,6 +140,7 @@ target_end()
 
 target("MyEngineEditor")
     set_kind("binary")
+    add_rules("copy_game_content")
     add_files("main.cpp")
     add_includedirs("src", "src/Editor")
     add_deps("MyEngineRuntime")
@@ -158,8 +178,48 @@ target("MyEngineEditor")
     end)
 target_end()
 
+target("MyEnginePlayer")
+    set_kind("binary")
+    add_rules("copy_game_content")
+    add_files("player_main.cpp")
+    add_includedirs("src", "src/Editor")
+    add_deps("MyEngineRuntime")
+    add_packages("libsdl3")
+    add_defines("MYENGINE_ENABLE_IMGUI")
+    if is_plat("windows") then
+        add_cxflags("/utf-8", { toolset = "msvc" })
+    end
+    set_rundir("$(projectdir)")
+    after_build(function (target)
+        if not is_plat("windows") then
+            return
+        end
+        local pkg = target:pkg("libsdl3")
+        if pkg then
+            local bindir = path.join(pkg:installdir(), "bin")
+            if os.isdir(bindir) then
+                for _, dll in ipairs(os.files(path.join(bindir, "*.dll"))) do
+                    os.cp(dll, target:targetdir())
+                end
+            end
+        end
+        local rt = target:dep("MyEngineRuntime")
+        if rt then
+            local dll = rt:targetfile()
+            if os.isfile(dll) then
+                local destdir = target:targetdir()
+                local dest = path.join(destdir, path.filename(dll))
+                if path.normalize(path.absolute(dll)) ~= path.normalize(path.absolute(dest)) then
+                    os.cp(dll, destdir)
+                end
+            end
+        end
+    end)
+target_end()
+
 target("MyEngineTests")
     set_kind("binary")
+    add_rules("copy_game_content")
     add_files("tests/EngineTests.cpp")
     add_includedirs("src/Runtime")
     add_deps("MyEngineRuntime")

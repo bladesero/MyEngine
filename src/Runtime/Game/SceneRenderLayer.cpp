@@ -1,4 +1,5 @@
 #include "Game/SceneRenderLayer.h"
+#include "Math/Mat4Inverse.h"
 #include "Assets/AssetManager.h"
 #include "Assets/TextureAsset.h"
 #include "Assets/MaterialAsset.h"
@@ -9,6 +10,7 @@
 #include <SDL3/SDL_gamepad.h>
 #include <algorithm>
 #include <cmath>
+#include <cfloat>
 #include <vector>
 
 // --------------------------------------------------------------------------
@@ -26,6 +28,7 @@ void SceneRenderLayer::OnAttach() {
     if (m_RenderContext && m_VpH > 0) {
         m_VpX = 0;
         m_VpY = 0;
+        m_Camera.SetCameraMode(CameraMode::Fly);
         m_Camera.LookAt({ 0.0f, 0.0f, -4.0f }, { 0.0f, 0.0f, 0.0f });
         m_Camera.SetPerspective(60.0f,
             static_cast<float>(m_VpW) / static_cast<float>(m_VpH),
@@ -53,32 +56,46 @@ void SceneRenderLayer::OnUpdate(float dt) {
         return;
     }
 
-    // Simple orbit: Q/E dolly, right-mouse orbit
-    if (Input::IsKeyDown(SDL_SCANCODE_Q)) m_Camera.Dolly( 2.0f * dt);
-    if (Input::IsKeyDown(SDL_SCANCODE_E)) m_Camera.Dolly(-2.0f * dt);
+    const float moveSpeed = 6.0f;
+    if (Input::IsKeyDown(SDL_SCANCODE_W)) m_Camera.MoveForward( moveSpeed * dt);
+    if (Input::IsKeyDown(SDL_SCANCODE_S)) m_Camera.MoveForward(-moveSpeed * dt);
+    if (Input::IsKeyDown(SDL_SCANCODE_D)) m_Camera.MoveRight( -moveSpeed * dt);
+    if (Input::IsKeyDown(SDL_SCANCODE_A)) m_Camera.MoveRight( moveSpeed * dt);
+    if (Input::IsKeyDown(SDL_SCANCODE_Q)) m_Camera.MoveUp( moveSpeed * dt);
+    if (Input::IsKeyDown(SDL_SCANCODE_E)) m_Camera.MoveUp(-moveSpeed * dt);
+
     if (Input::IsMousePressed(3))  { m_RmbDown = true; }
     if (Input::IsMouseReleased(3)) { m_RmbDown = false; }
     if (m_RmbDown) {
-        int rx = Input::GetMouseRelX(), ry = Input::GetMouseRelY();
-        if (rx != 0 || ry != 0)
-            m_Camera.Orbit(static_cast<float>(rx) * 0.3f,
-                           static_cast<float>(ry) * 0.3f);
+        const int rx = Input::GetMouseRelX(), ry = Input::GetMouseRelY();
+        if (rx != 0 || ry != 0) {
+            const float lookSens = 0.25f;
+            m_Camera.Rotate(-static_cast<float>(rx) * lookSens,
+                            -static_cast<float>(ry) * lookSens);
+        }
     }
 
     const SDL_JoystickID pad = Input::GetPrimaryGamepadId();
     if (pad != 0 && Input::IsGamepadConnected(pad)) {
         const float lx = Input::GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTX);
         const float ly = Input::GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTY);
+        const float rx = Input::GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_RIGHTX);
+        const float ry = Input::GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_RIGHTY);
         const float rt = Input::GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER);
         const float lt = Input::GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFT_TRIGGER);
 
-        if (std::fabs(lx) > 0.15f || std::fabs(ly) > 0.15f) {
-            m_Camera.Orbit(lx * 120.0f * dt, ly * 120.0f * dt);
+        constexpr float kStickDead = 0.15f;
+        if (std::fabs(lx) > kStickDead || std::fabs(ly) > kStickDead) {
+            m_Camera.MoveRight(lx * moveSpeed * dt);
+            m_Camera.MoveForward(-ly * moveSpeed * dt);
+        }
+        if (std::fabs(rx) > kStickDead || std::fabs(ry) > kStickDead) {
+            m_Camera.Rotate(-rx * 120.0f * dt, -ry * 120.0f * dt);
         }
 
         const float dolly = rt - lt;
         if (std::fabs(dolly) > 0.05f) {
-            m_Camera.Dolly(dolly * 4.0f * dt);
+            m_Camera.MoveForward(dolly * 4.0f * dt);
         }
     }
 }
@@ -162,13 +179,13 @@ void SceneRenderLayer::OnSceneLoaded() {
 
         // Ground plane to validate shadow projection in editor.
         Actor* plane = GetScene().CreateActor("ShadowPlane");
-        plane->GetTransform().position = Vec3{ 0.0f, -0.5f, 0.0f };
-        plane->GetTransform().rotation = Vec3{ -90.0f, 0.0f, 0.0f };
+        plane->GetTransform().position = Vec3{ 0.0f, 0.0f, 0.0f };
+        plane->GetTransform().rotation = Vec3{ -270.0f, 0.0f, 0.0f };
         plane->GetTransform().scale    = Vec3{ 12.0f, 12.0f, 12.0f };
         auto* planeMr = plane->AddComponent<MeshRendererComponent>();
         planeMr->SetMesh(AssetManager::Get().GetQuadMesh());
         auto planeMat = MaterialAsset::CreateDefault("GroundMat");
-        planeMat->SetParam("BaseColor", MaterialParam::FromColor({0.8f, 0.8f, 0.8f}));
+        planeMat->SetParam("BaseColor", MaterialParam::FromColor({1.0f, 1.0f, 1.0f}));
         planeMat->SetTexture("BaseColorMap", AssetManager::Get().GetWhiteTexture());
         planeMr->SetMaterial(AssetManager::Get().Register(std::move(planeMat)));
 
@@ -219,4 +236,66 @@ void SceneRenderLayer::SetViewportInputEnabled(bool enabled)
     if (!enabled) {
         m_RmbDown = false;
     }
+}
+
+void SceneRenderLayer::GetViewportRect(int& outX, int& outY, int& outW, int& outH) const
+{
+    outX = m_VpX;
+    outY = m_VpY;
+    outW = m_VpW;
+    outH = m_VpH;
+}
+
+bool SceneRenderLayer::BuildRayFromScreen(float screenX, float screenY, Math::Ray& outRay) const
+{
+    if (m_VpW <= 0 || m_VpH <= 0) {
+        return false;
+    }
+    if (screenX < static_cast<float>(m_VpX) || screenY < static_cast<float>(m_VpY) ||
+        screenX > static_cast<float>(m_VpX + m_VpW) || screenY > static_cast<float>(m_VpY + m_VpH)) {
+        return false;
+    }
+
+    // Match ImGui / ImGuizmo::ComputeCameraRay: NDC in [-1,1], Y up in NDC.
+    const float mox = ((screenX - static_cast<float>(m_VpX)) / static_cast<float>(m_VpW)) * 2.0f - 1.0f;
+    const float moy = (1.0f - ((screenY - static_cast<float>(m_VpY)) / static_cast<float>(m_VpH))) * 2.0f - 1.0f;
+
+    const Mat4& proj = m_Camera.GetProj();
+    // Same depth ordering test as ImGuizmo (projection-only, row-vector v * P).
+    const Vec4 nearProbe = proj.Transform(Vec4(0.0f, 0.0f, 1.0f, 1.0f));
+    const Vec4 farProbe  = proj.Transform(Vec4(0.0f, 0.0f, 2.0f, 1.0f));
+    const bool reversed =
+        (nearProbe.w > 1e-8f && farProbe.w > 1e-8f) &&
+        ((nearProbe.z / nearProbe.w) > (farProbe.z / farProbe.w));
+
+    const float zNear = reversed ? (1.0f - FLT_EPSILON) : 0.0f;
+    const float zFar  = reversed ? 0.0f : (1.0f - FLT_EPSILON);
+
+    const Mat4 vp = m_Camera.GetViewProj();
+    Mat4       invVP{};
+    if (!Mat4Invert(vp, invVP)) {
+        return false;
+    }
+
+    Vec4 ray0 = invVP.Transform(Vec4(mox, moy, zNear, 1.0f));
+    Vec4 ray1 = invVP.Transform(Vec4(mox, moy, zFar, 1.0f));
+    if (std::fabs(ray0.w) < 1e-8f || std::fabs(ray1.w) < 1e-8f) {
+        return false;
+    }
+
+    ray0 = ray0 * (1.0f / ray0.w);
+    ray1 = ray1 * (1.0f / ray1.w);
+
+    const Vec3 p0 = ray0.XYZ();
+    const Vec3 p1 = ray1.XYZ();
+    Vec3       dir = p1 - p0;
+    const float len = dir.Length();
+    if (len < 1e-8f) {
+        return false;
+    }
+    dir = dir * (1.0f / len);
+
+    outRay.origin    = p0;
+    outRay.direction = dir;
+    return true;
 }

@@ -13,6 +13,7 @@
 #include <string>
 #include <typeindex>
 #include <unordered_map>
+#include <vector>
 
 using AssetLoaderFn = std::function<std::shared_ptr<Asset>(const std::string& path)>;
 
@@ -145,6 +146,9 @@ public:
     MaterialHandle GetDefaultMaterial();
 
     size_t CachedCount() const { return m_Cache.size(); }
+
+    // Sorted list of loaded asset paths of the given type (for editor pickers).
+    std::vector<std::string> GetCachedPathsByType(AssetType type) const;
 
     void PrintStats() const {
         Logger::Info("[AssetManager] Cached assets: ", m_Cache.size());

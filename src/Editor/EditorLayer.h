@@ -11,17 +11,20 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <vector>
 
-// Forward-declare ImGui to avoid hard dependency when disabled.
 #if defined(MYENGINE_ENABLE_IMGUI)
 #include <imgui.h>
+#include <ImGuizmo.h>
 #endif
 
 // ============================================================================
 // EditorLayer  –  ImGui-based editor UI on top of runtime
 //
-//  - Toolbar: New / Open Scene
-//  - Scene Outliner: tree view of all actors in the current scene
+//  - Toolbar: New / Open / Save Scene (SDL3 file dialogs)
+//  - Scene Outliner: tree view, create/delete actors
+//  - Scene View: viewport rect, picking, ImGuizmo
+//  - Inspector: Transform + MeshRenderer mesh/material
 //
 //  Assumes there is a SceneRenderLayer driving the runtime scene + camera.
 // ============================================================================
@@ -32,7 +35,7 @@ public:
 
     void OnAttach() override;
     void OnDetach() override;
-    void OnUpdate(float dt) override { (void)dt; }
+    void OnUpdate(float dt) override;
     void OnEvent(Event& e) override { (void)e; }
     void OnRender() override;
 
@@ -42,8 +45,35 @@ private:
     void DrawSceneView();
     void DrawInspector();
     void DrawLogOutput();
+    void DrawAssetBrowser();
     void DrawActorNode(Actor* actor);
     void OnLogMessage(const std::string& line);
+
+#if defined(MYENGINE_ENABLE_IMGUI)
+    friend void EditorOpenFileDialogCallback(void* userdata, const char* const* filelist, int filter);
+    friend void EditorSaveFileDialogCallback(void* userdata, const char* const* filelist, int filter);
+
+    void ProcessPendingFileDialogs();
+    void RefreshAssetBrowserListing();
+    void TryCreateMeshActorFromDroppedObj(const std::string& absObjPath, float screenX, float screenY);
+    void RequestOpenSceneDialog();
+    void RequestSaveSceneDialog();
+    void TryPickActorFromSceneView(float screenX, float screenY);
+    void DrawMeshMaterialInspector(Actor* actor);
+
+    enum class PendingFileOp : uint8_t {
+        None,
+        OpenScene,
+        SaveScene,
+    };
+
+    std::mutex        m_FileDialogMutex;
+    std::string       m_PendingFilePath;
+    PendingFileOp     m_PendingFileOp = PendingFileOp::None;
+
+    ImGuizmo::OPERATION m_GizmoOperation = ImGuizmo::TRANSLATE;
+    ImGuizmo::MODE      m_GizmoMode      = ImGuizmo::LOCAL;
+#endif
 
     SceneRenderLayer* m_SceneLayer = nullptr;
     IRenderContext*   m_RenderContext = nullptr;
@@ -59,6 +89,8 @@ private:
     class ImGuiPlatformEventBridge;
     std::unique_ptr<ImGuiPlatformEventBridge> m_PlatformBridge;
     bool m_ImGuiReady = false;
+
+    std::vector<std::string> m_AssetBrowserRelPaths;
+    std::string              m_AssetBrowserRootAbs;
 #endif
 };
-
