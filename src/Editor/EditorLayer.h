@@ -8,9 +8,11 @@
 #include "Core/PlatformEventBridge.h"
 #include "Renderer/IRenderContext.h"
 #include <deque>
+#include <filesystem>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #if defined(MYENGINE_ENABLE_IMGUI)
@@ -60,6 +62,8 @@ private:
     void RequestSaveSceneDialog();
     void TryPickActorFromSceneView(float screenX, float screenY);
     void DrawMeshMaterialInspector(Actor* actor);
+    void RefreshShaderWatchList();
+    void PollShaderChanges();
 
     enum class PendingFileOp : uint8_t {
         None,
@@ -92,5 +96,8 @@ private:
 
     std::vector<std::string> m_AssetBrowserRelPaths;
     std::string              m_AssetBrowserRootAbs;
+    std::vector<std::string> m_WatchedShaders;
+    std::unordered_map<std::string, std::filesystem::file_time_type> m_ShaderWriteTimes;
+    float m_ShaderWatchAccumulator = 0.0f;
 #endif
 };

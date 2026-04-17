@@ -2,15 +2,18 @@
 
 #include "Assets/MeshAsset.h"
 #include "Core/Logger.h"
+#include "Renderer/ShaderManager.h"
 #include "Scene/Actor.h"
 #include "Scene/MeshRendererComponent.h"
 
 #include <algorithm>
 #include <cstring>
 #include <limits>
+#include <string>
 
 #ifdef MYENGINE_PLATFORM_WINDOWS
 #include "Renderer/D3D11Context.h"
+#include "ShaderBytecodeWindows.h"
 #endif
 
 namespace {
@@ -19,35 +22,6 @@ namespace {
 const VertexElement k_ShadowVertexLayout[] = {
     { "POSITION", 0, VertexFormat::Float3, offsetof(MeshVertex, position) },
 };
-
-constexpr const char* k_ShadowHLSL = R"HLSL(
-cbuffer ShadowPerDraw : register(b0)
-{
-    row_major float4x4 g_LightMVP;
-};
-
-struct VSIn
-{
-    float3 pos : POSITION;
-};
-
-struct VSOut
-{
-    float4 pos : SV_POSITION;
-};
-
-VSOut VSMain(VSIn v)
-{
-    VSOut o;
-    o.pos = mul(float4(v.pos, 1.0f), g_LightMVP);
-    return o;
-}
-
-float4 PSMain(VSOut input) : SV_TARGET
-{
-    return 1.0f.xxxx;
-}
-)HLSL";
 
 struct ShadowPerDrawConstants {
     float lightMvp[16];
@@ -197,16 +171,29 @@ void ShadowPass::UpdateLightMatrices(const Scene& scene)
 
 void ShadowPass::EnsureShadowShader()
 {
-    if (m_ShadowShader || !Context()) return;
+    if (!Context()) return;
 
 #ifdef MYENGINE_PLATFORM_WINDOWS
-    m_ShadowShader = Context()->CreateShader(
-        k_ShadowHLSL,
-        "VSMain",
-        "PSMain",
-        k_ShadowVertexLayout,
-        1);
-    if (!m_ShadowShader) {
+    ShaderManager::Get().SetContext(Context());
+
+    if (dynamic_cast<D3D11Context*>(Context()) != nullptr) {
+        if (!m_ShadowShaderHandle) {
+            m_ShadowShaderHandle = ShaderManager::Get().GetOrCreate(
+                "src/Runtime/Renderer/Shaders/ShadowDepth.hlsl",
+                "VSMain", "PSMain",
+                k_ShadowVertexLayout, 1);
+        }
+    } else {
+        if (!m_ShadowShaderHandle) {
+            m_ShadowShaderHandle = std::make_shared<ShaderHandle>();
+            m_ShadowShaderHandle->shader = Context()->CreateShaderFromBytecode(
+                k_ShadowDepthVsBytecode, k_ShadowDepthVsBytecodeSize,
+                k_ShadowDepthPsBytecode, k_ShadowDepthPsBytecodeSize,
+                k_ShadowVertexLayout,
+                1);
+        }
+    }
+    if (!m_ShadowShaderHandle || !m_ShadowShaderHandle->shader) {
         Logger::Error("[ShadowPass] Failed to create shadow shader");
     }
 #endif
@@ -303,7 +290,8 @@ void ShadowPass::Execute(const Scene& scene, const Camera&)
 {
     if (!Context()) return;
     EnsureShadowShader();
-    if (!m_ShadowShader) return;
+    if (!m_ShadowShaderHandle || !m_ShadowShaderHandle->shader) return;
+    m_ShadowShaderVersion = m_ShadowShaderHandle->version;
 
     UpdateLightMatrices(scene);
 
@@ -368,7 +356,7 @@ void ShadowPass::Execute(const Scene& scene, const Camera&)
         ShadowPerDrawConstants constants{};
         std::memcpy(constants.lightMvp, lightMvp.Data(), sizeof(constants.lightMvp));
 
-        cmd->BindShader(m_ShadowShader.get());
+        cmd->BindShader(m_ShadowShaderHandle->shader.get());
         cmd->BindVertexBuffer(mesh->GetVertexBuffer());
 
         if (mesh->GetIndexBuffer()) {

@@ -5,60 +5,13 @@
 #include "Assets/MeshAsset.h"
 
 // ============================================================================
-// Mesh shader sources – HLSL (Windows / D3D) and MSL (macOS / Metal).
+// Mesh shaders: Windows uses offline DXBC from src/Runtime/Renderer/Shaders/Mesh.hlsl
+// (built with dxc via xmake). macOS uses MSL below. Linux has no GPU backend yet.
 //
-// Both shaders implement identical semantics:
+// Semantics:
 //   VS constant buffer slot / buffer index 1: MVP (64 bytes) + BaseColor (16 bytes)
 //   Vertex attributes: POSITION (float3), NORMAL (float3), TANGENT (float3), UV (float2)
 // ============================================================================
-
-// ---------------------------------------------------------------------------
-// HLSL – DirectX 11 / 12 (Windows)
-// ---------------------------------------------------------------------------
-inline constexpr const char* k_MeshHLSL = R"HLSL(
-
-cbuffer PerDraw : register(b0)
-{
-    row_major float4x4 g_MVP;
-    float4   g_BaseColor;
-};
-
-Texture2D    g_BaseColorMap : register(t0);
-SamplerState g_Sampler      : register(s0);
-
-struct VSIn
-{
-    float3 pos     : POSITION;
-    float3 normal   : NORMAL;
-    float3 tangent  : TANGENT;
-    float2 uv       : TEXCOORD0;
-};
-
-struct VSOut
-{
-    float4 pos    : SV_POSITION;
-    float3 normal : NORMAL;
-    float2 uv     : TEXCOORD0;
-};
-
-VSOut VSMain(VSIn v)
-{
-    VSOut o;
-    // Row-major + row-vector convention (no transpose anywhere).
-    o.pos   = mul(float4(v.pos, 1.0f), g_MVP);
-    o.normal = v.normal;
-    o.uv    = v.uv;
-    return o;
-}
-
-float4 PSMain(VSOut p) : SV_TARGET
-{
-    float4 texColor = g_BaseColorMap.Sample(g_Sampler, p.uv);
-    float  diffuse  = 0.5f + 0.5f * saturate(dot(p.normal, normalize(float3(0.0f, 1.0f, 1.0f))));
-    return float4(texColor.rgb * g_BaseColor.rgb * diffuse, texColor.a * g_BaseColor.a);
-}
-
-)HLSL";
 
 // ---------------------------------------------------------------------------
 // MSL – Metal (macOS)
@@ -87,6 +40,7 @@ struct VSIn {
 struct VSOut {
     float4 position [[position]];
     float3 normal;
+    float3 tangent;
     float2 uv;
 };
 
@@ -96,6 +50,7 @@ vertex VSOut VSMain(VSIn in [[stage_in]],
     VSOut out;
     out.position = perDraw.g_MVP * float4(in.position, 1.0);
     out.normal   = in.normal;
+    out.tangent  = in.tangent;
     out.uv       = in.uv;
     return out;
 }
@@ -103,17 +58,18 @@ vertex VSOut VSMain(VSIn in [[stage_in]],
 fragment float4 PSMain(VSOut in [[stage_in]],
                         constant PerDraw& perDraw [[buffer(1)]])
 {
-    return 0.5 + 0.5 * perDraw.g_BaseColor *
-           saturate(dot(in.normal, normalize(float3(0.0, 1.0, 1.0))));
+    float d = saturate(dot(in.normal, normalize(float3(0.0, 1.0, 1.0))));
+    d += dot(in.tangent, float3(1.0, 1.0, 1.0)) * 1e-10f;
+    return 0.5 + 0.5 * perDraw.g_BaseColor * d;
 }
 
 )MSL";
 
-// Platform-selected shader source used by Renderer.cpp / TriangleLayer.cpp.
+// Runtime MSL source (Metal). Windows uses CreateShaderFromBytecode + ShaderBytecodeWindows.h.
 #ifdef MYENGINE_PLATFORM_MACOS
 inline constexpr const char* k_MeshShaderSource = k_MeshMSL;
-#else
-inline constexpr const char* k_MeshShaderSource = k_MeshHLSL;
+#elif !defined(MYENGINE_PLATFORM_WINDOWS)
+inline constexpr const char* k_MeshShaderSource = "";
 #endif
 
 // ---------------------------------------------------------------------------

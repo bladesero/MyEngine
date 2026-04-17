@@ -1,0 +1,101 @@
+#include "Renderer/ShaderManager.h"
+
+#include "Core/Logger.h"
+
+#ifdef MYENGINE_PLATFORM_WINDOWS
+#include "Renderer/D3D11Context.h"
+#include "Renderer/ShaderCompilerD3D11.h"
+#endif
+
+#include <sstream>
+
+ShaderManager& ShaderManager::Get() {
+    static ShaderManager g_Instance;
+    return g_Instance;
+}
+
+std::string ShaderManager::MakeKey(
+    const std::string& shaderPath,
+    const std::string& vsEntry,
+    const std::string& psEntry,
+    const VertexElement* layout,
+    uint32_t layoutCount) {
+    std::ostringstream oss;
+    oss << shaderPath << "|" << vsEntry << "|" << psEntry
+        << "|layout=" << reinterpret_cast<uintptr_t>(layout)
+        << "|count=" << layoutCount;
+    return oss.str();
+}
+
+std::shared_ptr<GpuShader> ShaderManager::CompileRecord(const ShaderRecord& rec) {
+    if (!m_Context) return nullptr;
+
+#ifdef MYENGINE_PLATFORM_WINDOWS
+    if (dynamic_cast<D3D11Context*>(m_Context) != nullptr) {
+        D3D11CompiledShaderProgram program{};
+        if (!ShaderCompilerD3D11::CompileProgramFromFile(
+                rec.path, rec.vsEntry, rec.psEntry, program)) {
+            return nullptr;
+        }
+        return m_Context->CreateShaderFromBytecode(
+            program.vsBytecode.data(), program.vsBytecode.size(),
+            program.psBytecode.data(), program.psBytecode.size(),
+            rec.layout, rec.layoutCount);
+    }
+#endif
+    return nullptr;
+}
+
+std::shared_ptr<ShaderHandle> ShaderManager::GetOrCreate(
+    const std::string& shaderPath,
+    const std::string& vsEntry,
+    const std::string& psEntry,
+    const VertexElement* layout,
+    uint32_t layoutCount) {
+    const std::string key = MakeKey(shaderPath, vsEntry, psEntry, layout, layoutCount);
+    auto it = m_KeyToIndex.find(key);
+    if (it != m_KeyToIndex.end()) {
+        return m_Records[it->second].handle;
+    }
+
+    ShaderRecord rec{};
+    rec.key = key;
+    rec.path = shaderPath;
+    rec.vsEntry = vsEntry;
+    rec.psEntry = psEntry;
+    rec.layout = layout;
+    rec.layoutCount = layoutCount;
+    rec.handle = std::make_shared<ShaderHandle>();
+
+    rec.handle->shader = CompileRecord(rec);
+    if (rec.handle->shader) {
+        rec.handle->version++;
+    } else {
+        Logger::Error("[ShaderCompileError] file=", shaderPath,
+            " entry=(vs:", vsEntry, " ps:", psEntry, ") message=initial compile failed");
+    }
+
+    const size_t idx = m_Records.size();
+    m_Records.push_back(rec);
+    m_KeyToIndex.emplace(key, idx);
+    return rec.handle;
+}
+
+void ShaderManager::Recompile(const std::string& shaderPath) {
+    for (auto& rec : m_Records) {
+        if (!shaderPath.empty() && rec.path != shaderPath) {
+            continue;
+        }
+        const auto newShader = CompileRecord(rec);
+        if (!newShader) {
+            Logger::Error("[ShaderCompileError] file=", rec.path,
+                " entry=(vs:", rec.vsEntry, " ps:", rec.psEntry,
+                ") message=recompile failed, kept previous GPU shader");
+            continue;
+        }
+        rec.handle->shader = newShader;
+        rec.handle->version++;
+        Logger::Info("[ShaderManager] Recompiled: ", rec.path);
+    }
+}
+

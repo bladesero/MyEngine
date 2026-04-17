@@ -3,6 +3,12 @@
 #include "../Core/EngineTime.h"
 #include "../Input/Input.h"
 #include "../Renderer/TriangleShader.h"
+#include "../Renderer/ShaderManager.h"
+
+#ifdef MYENGINE_PLATFORM_WINDOWS
+#include "Renderer/D3D11Context.h"
+#include "ShaderBytecodeWindows.h"
+#endif
 
 #include <SDL3/SDL_scancode.h>
 
@@ -40,9 +46,26 @@ void TriangleLayer::OnAttach() {
         vertices, sizeof(vertices), sizeof(Vertex));
 
     // ---- Shader ------------------------------------------------------------
-    m_Shader = m_Renderer->CreateShader(
+#ifdef MYENGINE_PLATFORM_WINDOWS
+    ShaderManager::Get().SetContext(m_Renderer);
+    if (dynamic_cast<D3D11Context*>(m_Renderer) != nullptr) {
+        m_ShaderHandle = ShaderManager::Get().GetOrCreate(
+            "src/Runtime/Renderer/Shaders/Triangle.hlsl",
+            "VSMain", "PSMain",
+            k_Layout, 2);
+    } else {
+        m_ShaderHandle = std::make_shared<ShaderHandle>();
+        m_ShaderHandle->shader = m_Renderer->CreateShaderFromBytecode(
+            k_TriangleVsBytecode, k_TriangleVsBytecodeSize,
+            k_TrianglePsBytecode, k_TrianglePsBytecodeSize,
+            k_Layout, 2);
+    }
+#else
+    m_ShaderHandle = std::make_shared<ShaderHandle>();
+    m_ShaderHandle->shader = m_Renderer->CreateShader(
         k_TriangleShaderSource, "VSMain", "PSMain",
         k_Layout, 2);
+#endif
 
     // ---- Camera ------------------------------------------------------------
     m_Camera.LookAt({ 0.0f, 0.0f, -3.0f }, { 0.0f, 0.0f, 0.0f });
@@ -54,7 +77,7 @@ void TriangleLayer::OnAttach() {
 
 void TriangleLayer::OnDetach() {
     m_VB.reset();
-    m_Shader.reset();
+    m_ShaderHandle.reset();
     Logger::Info(Name(), " detached");
 }
 
@@ -112,7 +135,7 @@ void TriangleLayer::OnUpdate(float dt) {
 }
 
 void TriangleLayer::OnRender() {
-    if (!m_Renderer || !m_VB || !m_Shader) return;
+    if (!m_Renderer || !m_VB || !m_ShaderHandle || !m_ShaderHandle->shader) return;
     GpuCommandList* cmd = m_Renderer->GetGraphicsCommandList();
     if (!cmd) return;
 
@@ -124,7 +147,7 @@ void TriangleLayer::OnRender() {
     // ---- Clear + draw ------------------------------------------------------
     m_Renderer->BeginFrame(0.12f, 0.12f, 0.18f);
 
-    cmd->BindShader(m_Shader.get());
+    cmd->BindShader(m_ShaderHandle->shader.get());
     cmd->BindVertexBuffer(m_VB.get());
     cmd->SetVSConstants(mvp.Data(), 64);
     cmd->Draw(3);

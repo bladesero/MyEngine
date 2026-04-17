@@ -5,6 +5,7 @@
 #include "Assets/TextureAsset.h"
 #include "Core/Logger.h"
 #include "Renderer/MeshShader.h"
+#include "Renderer/ShaderManager.h"
 #include "Scene/Actor.h"
 #include "Scene/MeshRendererComponent.h"
 
@@ -12,6 +13,7 @@
 
 #ifdef MYENGINE_PLATFORM_WINDOWS
 #include "Renderer/D3D11Context.h"
+#include "ShaderBytecodeWindows.h"
 #endif
 
 namespace {
@@ -28,76 +30,6 @@ struct ShadowedPerDrawConstants {
     float baseColor[4];
     float lightDirection[4];
 };
-
-#ifdef MYENGINE_PLATFORM_WINDOWS
-constexpr const char* k_ShadowedMainPassHLSL = R"HLSL(
-
-cbuffer PerDraw : register(b0)
-{
-    row_major float4x4 g_MVP;
-    row_major float4x4 g_World;
-    row_major float4x4 g_LightViewProj;
-    float4 g_BaseColor;
-    float4 g_LightDirection;
-};
-
-Texture2D    g_BaseColorMap : register(t0);
-SamplerState g_Sampler      : register(s0);
-Texture2D    g_ShadowMap    : register(t1);
-SamplerState g_ShadowSampler : register(s1);
-
-struct VSIn
-{
-    float3 pos     : POSITION;
-    float3 normal  : NORMAL;
-    float3 tangent : TANGENT;
-    float2 uv      : TEXCOORD0;
-};
-
-struct VSOut
-{
-    float4 pos      : SV_POSITION;
-    float3 normalW  : NORMAL;
-    float2 uv       : TEXCOORD0;
-    float4 lightPos : TEXCOORD1;
-};
-
-VSOut VSMain(VSIn v)
-{
-    VSOut o;
-    float4 worldPos = mul(float4(v.pos, 1.0f), g_World);
-    o.pos      = mul(worldPos, g_MVP);
-    o.lightPos = mul(worldPos, g_LightViewProj);
-    o.normalW  = normalize(mul(float4(v.normal, 0.0f), g_World).xyz);
-    o.uv       = v.uv;
-    return o;
-}
-
-float4 PSMain(VSOut p) : SV_TARGET
-{
-    float4 texColor = g_BaseColorMap.Sample(g_Sampler, p.uv);
-    float3 L = normalize(-g_LightDirection.xyz);
-    float3 N = normalize(p.normalW);
-    float NdotL = saturate(dot(N, L));
-    float diffuse = 0.2f + 0.8f * NdotL;
-
-    float shadow = 1.0f;
-    float3 proj = p.lightPos.xyz / max(p.lightPos.w, 1e-5f);
-    float2 suv = float2(proj.x * 0.5f + 0.5f, -proj.y * 0.5f + 0.5f);
-    if (suv.x >= 0.0f && suv.x <= 1.0f &&
-        suv.y >= 0.0f && suv.y <= 1.0f &&
-        proj.z >= 0.0f && proj.z <= 1.0f) {
-        const float bias = max(0.0020f, 0.0100f * (1.0f - NdotL));
-        float shadowDepth = g_ShadowMap.Sample(g_ShadowSampler, suv).r;
-        shadow = ((proj.z - bias) <= shadowDepth) ? 1.0f : 0.35f;
-    }
-
-    float3 lit = texColor.rgb * g_BaseColor.rgb * diffuse * shadow;
-    return float4(lit, texColor.a * g_BaseColor.a);
-}
-
-)HLSL";
-#endif
 
 } // namespace
 
@@ -155,30 +87,53 @@ void MainPass::EnsureTextureUploaded(TextureAsset* tex)
 
 GpuShader* MainPass::GetOrCreateShader()
 {
-    if (m_MainShader) return m_MainShader.get();
     if (!Context()) return nullptr;
 
 #ifdef MYENGINE_PLATFORM_WINDOWS
+    ShaderManager::Get().SetContext(Context());
+
     if (dynamic_cast<D3D11Context*>(Context()) != nullptr) {
-        m_MainShader = Context()->CreateShader(
-            k_ShadowedMainPassHLSL,
-            "VSMain", "PSMain",
-            k_MeshVertexLayout, k_MeshVertexLayoutCount);
-        if (m_MainShader) {
+        if (!m_MainShaderHandle) {
+            m_MainShaderHandle = ShaderManager::Get().GetOrCreate(
+                "src/Runtime/Renderer/Shaders/ShadowedMainPass.hlsl",
+                "VSMain", "PSMain",
+                k_MeshVertexLayout, k_MeshVertexLayoutCount);
             m_ShaderMode = ShaderMode::ShadowedD3D11;
-            return m_MainShader.get();
         }
-        Logger::Warn("[MainPass] Shadowed D3D11 shader failed; fallback to legacy shader");
+        if ((!m_MainShaderHandle || !m_MainShaderHandle->shader) && m_ShaderMode == ShaderMode::ShadowedD3D11) {
+            Logger::Warn("[MainPass] Shadowed D3D11 shader failed; fallback to legacy shader");
+            m_MainShaderHandle = ShaderManager::Get().GetOrCreate(
+                "src/Runtime/Renderer/Shaders/Mesh.hlsl",
+                "VSMain", "PSMain",
+                k_MeshVertexLayout, k_MeshVertexLayoutCount);
+            m_ShaderMode = ShaderMode::Legacy;
+        }
+    } else {
+        if (!m_MainShaderHandle) {
+            m_MainShaderHandle = std::make_shared<ShaderHandle>();
+            m_MainShaderHandle->shader = Context()->CreateShaderFromBytecode(
+                k_MeshVsBytecode, k_MeshVsBytecodeSize,
+                k_MeshPsBytecode, k_MeshPsBytecodeSize,
+                k_MeshVertexLayout, k_MeshVertexLayoutCount);
+        }
+    }
+#else
+    if (!m_MainShaderHandle) {
+        m_MainShaderHandle = std::make_shared<ShaderHandle>();
+        m_MainShaderHandle->shader = Context()->CreateShader(
+            k_MeshShaderSource, "VSMain", "PSMain",
+            k_MeshVertexLayout, k_MeshVertexLayoutCount);
     }
 #endif
 
-    m_MainShader = Context()->CreateShader(
-        k_MeshShaderSource, "VSMain", "PSMain",
-        k_MeshVertexLayout, k_MeshVertexLayoutCount);
-    if (m_MainShader) {
+    if (!m_MainShaderHandle) return nullptr;
+    if (m_MainShaderVersion != m_MainShaderHandle->version) {
+        m_MainShaderVersion = m_MainShaderHandle->version;
+    }
+    if (m_MainShaderHandle->shader && m_ShaderMode == ShaderMode::Unknown) {
         m_ShaderMode = ShaderMode::Legacy;
     }
-    return m_MainShader.get();
+    return m_MainShaderHandle->shader.get();
 }
 
 void MainPass::Execute(const Scene& scene, const Camera& camera)

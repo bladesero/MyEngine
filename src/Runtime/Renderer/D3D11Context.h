@@ -2,6 +2,8 @@
 
 #include "IRenderContext.h"
 
+#include <cstddef>
+
 #include <d3d11.h>
 #include <wrl/client.h>
 using Microsoft::WRL::ComPtr;
@@ -62,6 +64,14 @@ public:
         const std::string& hlslSource,
         const std::string& vsEntry,
         const std::string& psEntry,
+        const VertexElement* layout,
+        uint32_t layoutCount) override;
+
+    std::shared_ptr<GpuShader> CreateShaderFromBytecode(
+        const void* vsBytecode,
+        size_t vsSize,
+        const void* psBytecode,
+        size_t psSize,
         const VertexElement* layout,
         uint32_t layoutCount) override;
 

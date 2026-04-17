@@ -8,6 +8,7 @@
 
 class TextureAsset;
 class MeshAsset;
+struct ShaderHandle;
 
 class MainPass final : public RenderPass {
 public:
@@ -34,7 +35,8 @@ private:
     ShaderMode m_ShaderMode = ShaderMode::Unknown;
     bool m_PresentEnabled = true;
 
-    std::shared_ptr<GpuShader> m_MainShader;
+    std::shared_ptr<ShaderHandle> m_MainShaderHandle;
+    uint64_t m_MainShaderVersion = 0;
     std::unordered_map<TextureAsset*, std::shared_ptr<GpuTexture>> m_TexCache;
     GpuTexture* m_ShadowMap = nullptr;
     Mat4 m_LightViewProj = Mat4::Identity();

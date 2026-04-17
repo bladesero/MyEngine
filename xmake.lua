@@ -2,6 +2,27 @@
 set_version("0.1.0")
 set_xmakever("2.8.0")
 
+-- ---------------------------------------------------------------------------
+-- Windows: HLSL -> dxc -> embedded DXBC (tools/embed_hlsl.ps1).
+-- Lua sandbox has no reliable binary io.readfile; PowerShell reads bytes correctly.
+-- ---------------------------------------------------------------------------
+function setup_hlsl_windows_bytecode(target)
+    if target:name() ~= "MyEngineRuntime" or not is_plat("windows") then
+        return
+    end
+    local script = path.join(os.projectdir(), "tools", "embed_hlsl.ps1")
+    if not os.isfile(script) then
+        raise("missing tools/embed_hlsl.ps1")
+    end
+    os.execv("powershell", {
+        "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script,
+        os.projectdir()
+    })
+    local gen = path.join(os.projectdir(), "build", "hlsl_generated")
+    target:add("files", path.join(gen, "ShaderBytecodeWindows.cpp"))
+    target:add("includedirs", gen)
+end
+
 add_rules("mode.debug", "mode.release")
 set_languages("c++17")
 set_warnings("all")
@@ -62,6 +83,8 @@ target("MyEngineRuntime")
         "src/Runtime/Scene/SceneSerializer.cpp",
         "src/Runtime/Camera/Camera.cpp",
         "src/Runtime/Renderer/Renderer.cpp",
+        "src/Runtime/Renderer/ShaderManager.cpp",
+        "src/Runtime/Renderer/ShaderCompilerD3D11.cpp",
         "src/Runtime/Renderer/MainPass.cpp",
         "src/Runtime/Renderer/ShadowPass.cpp",
         "src/Runtime/Game/GameLayer.cpp",
@@ -74,6 +97,7 @@ target("MyEngineRuntime")
     )
 
     if is_plat("windows") then
+        on_load(setup_hlsl_windows_bytecode)
         add_files("src/Runtime/Renderer/D3D11Context.cpp", "src/Runtime/Renderer/D3D12Context.cpp")
     elseif is_plat("macosx") then
         add_files("src/Runtime/Renderer/MetalContext.mm")

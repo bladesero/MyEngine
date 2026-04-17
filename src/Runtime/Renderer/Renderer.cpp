@@ -1,13 +1,16 @@
 #include "Renderer/Renderer.h"
 
 #include "Renderer/MainPass.h"
+#include "Renderer/ShaderManager.h"
 #include "Renderer/ShadowPass.h"
 
 Renderer::Renderer(IRenderContext* context)
     : m_Context(context)
     , m_ShadowPass(std::make_unique<ShadowPass>(context))
     , m_MainPass(std::make_unique<MainPass>(context))
-{}
+{
+    ShaderManager::Get().SetContext(context);
+}
 
 Renderer::~Renderer() = default;
 

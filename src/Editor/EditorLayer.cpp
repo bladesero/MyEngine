@@ -6,9 +6,11 @@
 #include "Assets/ModelAsset.h"
 #include "Camera/Camera.h"
 #include "Core/EngineMath.h"
+#include "Core/EngineTime.h"
 #include "Core/Logger.h"
 #include "Core/Platform.h"
 #include "Math/Mat4Inverse.h"
+#include "Renderer/ShaderManager.h"
 #include "Scene/Actor.h"
 #include "Scene/MeshRendererComponent.h"
 #include "Scene/Scene.h"
@@ -56,6 +58,12 @@ namespace {
     void Mat4CopyFromFloat16(const float in[16], Mat4& out)
     {
         std::memcpy(out.m, in, sizeof(float) * 16);
+    }
+
+    bool IsShaderCompileErrorLine(const std::string& line)
+    {
+        return line.find("[ShaderCompileError]") != std::string::npos ||
+               line.find("[ShaderCompilerD3D11]") != std::string::npos;
     }
 
     // Transform::GetLocalMatrix builds upper 3x3 as (Ry*Rx*Rz) * diag(sx,sy,sz) with
@@ -272,6 +280,7 @@ void EditorLayer::OnAttach()
 
     Logger::SetSink([this](const std::string& line) { OnLogMessage(line); });
     RefreshAssetBrowserListing();
+    RefreshShaderWatchList();
     m_ImGuiReady = true;
 #endif
 }
@@ -300,6 +309,7 @@ void EditorLayer::OnUpdate(float dt)
     (void)dt;
 #if defined(MYENGINE_ENABLE_IMGUI)
     ProcessPendingFileDialogs();
+    PollShaderChanges();
 #endif
 }
 
@@ -465,6 +475,56 @@ void EditorLayer::RefreshAssetBrowserListing()
     std::sort(m_AssetBrowserRelPaths.begin(), m_AssetBrowserRelPaths.end());
 }
 
+void EditorLayer::RefreshShaderWatchList()
+{
+    namespace fs = std::filesystem;
+    m_WatchedShaders.clear();
+    m_ShaderWriteTimes.clear();
+
+    const fs::path root = fs::path("src/Runtime/Renderer/Shaders");
+    if (!fs::exists(root) || !fs::is_directory(root)) {
+        Logger::Warn("[Editor] Shader folder not found: ", root.generic_string());
+        return;
+    }
+
+    for (const auto& entry : fs::recursive_directory_iterator(root)) {
+        if (!entry.is_regular_file()) continue;
+        const auto ext = entry.path().extension().string();
+        if (ext != ".hlsl" && ext != ".hlsli") continue;
+        const std::string path = entry.path().generic_string();
+        m_WatchedShaders.push_back(path);
+        m_ShaderWriteTimes[path] = fs::last_write_time(entry.path());
+    }
+}
+
+void EditorLayer::PollShaderChanges()
+{
+    m_ShaderWatchAccumulator += Time::DeltaSeconds();
+    if (m_ShaderWatchAccumulator < 0.5f) return;
+    m_ShaderWatchAccumulator = 0.0f;
+
+    namespace fs = std::filesystem;
+    if (m_WatchedShaders.empty()) {
+        RefreshShaderWatchList();
+    }
+
+    for (const std::string& path : m_WatchedShaders) {
+        std::error_code ec;
+        const fs::file_time_type t = fs::last_write_time(path, ec);
+        if (ec) continue;
+        auto it = m_ShaderWriteTimes.find(path);
+        if (it == m_ShaderWriteTimes.end()) {
+            m_ShaderWriteTimes[path] = t;
+            continue;
+        }
+        if (it->second != t) {
+            it->second = t;
+            Logger::Info("[Editor] Hot-reload shader: ", path);
+            ShaderManager::Get().Recompile(path);
+        }
+    }
+}
+
 void EditorLayer::TryCreateMeshActorFromDroppedObj(const std::string& absObjPath,
                                                    float                 screenX,
                                                    float                 screenY)
@@ -554,6 +614,11 @@ void EditorLayer::DrawToolbar()
         } else {
             RequestSaveSceneDialog();
         }
+    }
+    ImGui::SameLine();
+
+    if (ImGui::Button("Recompile All Shaders")) {
+        ShaderManager::Get().RecompileAll();
     }
 
     ImGui::End();
@@ -995,7 +1060,14 @@ void EditorLayer::DrawLogOutput()
 
     ImGui::BeginChild("##LogScrollRegion", ImVec2(0.0f, 0.0f), false, ImGuiWindowFlags_HorizontalScrollbar);
     for (const std::string& line : logs) {
+        const bool shaderErr = IsShaderCompileErrorLine(line);
+        if (shaderErr) {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.42f, 0.38f, 1.0f));
+        }
         ImGui::TextUnformatted(line.c_str());
+        if (shaderErr) {
+            ImGui::PopStyleColor();
+        }
     }
     if (m_LogAutoScroll && scrollToBottom) {
         ImGui::SetScrollHereY(1.0f);

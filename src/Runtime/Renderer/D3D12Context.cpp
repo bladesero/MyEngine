@@ -825,6 +825,119 @@ std::shared_ptr<GpuShader> D3D12Context::CreateShader(
     return sh;
 }
 
+std::shared_ptr<GpuShader> D3D12Context::CreateShaderFromBytecode(
+    const void* vsBytecode,
+    size_t vsSize,
+    const void* psBytecode,
+    size_t psSize,
+    const VertexElement* layout,
+    uint32_t layoutCount) {
+    if (!vsBytecode || vsSize == 0 || !psBytecode || psSize == 0 ||
+        !layout || layoutCount == 0) {
+        return nullptr;
+    }
+
+    auto sh = std::make_shared<D3D12Shader>();
+
+    D3D12_ROOT_PARAMETER rootParam = {};
+    rootParam.ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    rootParam.Descriptor.ShaderRegister = 0;
+    rootParam.Descriptor.RegisterSpace = 0;
+    rootParam.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+    D3D12_ROOT_SIGNATURE_DESC rsDesc = {};
+    rsDesc.NumParameters = 1;
+    rsDesc.pParameters = &rootParam;
+    rsDesc.NumStaticSamplers = 0;
+    rsDesc.pStaticSamplers = nullptr;
+    rsDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+
+    ComPtr<ID3DBlob> serializedRootSig;
+    ComPtr<ID3DBlob> errorBlob;
+    HRESULT hr = D3D12SerializeRootSignature(
+        &rsDesc, D3D_ROOT_SIGNATURE_VERSION_1,
+        &serializedRootSig, &errorBlob);
+    if (FAILED(hr)) {
+        if (errorBlob) {
+            Logger::Error("D3D12SerializeRootSignature failed: ",
+                          static_cast<const char*>(errorBlob->GetBufferPointer()));
+        }
+        return nullptr;
+    }
+
+    hr = m_Device->CreateRootSignature(
+        0, serializedRootSig->GetBufferPointer(),
+        serializedRootSig->GetBufferSize(), IID_PPV_ARGS(&sh->rootSignature));
+    if (FAILED(hr)) {
+        Logger::Error("CreateRootSignature failed: 0x",
+                      reinterpret_cast<void*>(static_cast<uintptr_t>(hr)));
+        return nullptr;
+    }
+
+    std::vector<D3D12_INPUT_ELEMENT_DESC> descs(layoutCount);
+    for (uint32_t i = 0; i < layoutCount; ++i) {
+        descs[i] = {
+            layout[i].semantic,
+            layout[i].index,
+            ToDxgiFormat(layout[i].format),
+            0,
+            layout[i].offset,
+            D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,
+            0
+        };
+    }
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
+    psoDesc.InputLayout = { descs.data(), static_cast<UINT>(layoutCount) };
+    psoDesc.pRootSignature = sh->rootSignature.Get();
+
+    psoDesc.VS = { vsBytecode, vsSize };
+    psoDesc.PS = { psBytecode, psSize };
+
+    psoDesc.RasterizerState = {};
+    psoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+    psoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_BACK;
+    psoDesc.RasterizerState.FrontCounterClockwise = FALSE;
+    psoDesc.RasterizerState.DepthBias = D3D12_DEFAULT_DEPTH_BIAS;
+    psoDesc.RasterizerState.DepthBiasClamp = D3D12_DEFAULT_DEPTH_BIAS_CLAMP;
+    psoDesc.RasterizerState.SlopeScaledDepthBias = D3D12_DEFAULT_SLOPE_SCALED_DEPTH_BIAS;
+    psoDesc.RasterizerState.DepthClipEnable = TRUE;
+    psoDesc.RasterizerState.MultisampleEnable = FALSE;
+    psoDesc.RasterizerState.AntialiasedLineEnable = FALSE;
+    psoDesc.RasterizerState.ForcedSampleCount = 0;
+    psoDesc.RasterizerState.ConservativeRaster = D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF;
+
+    psoDesc.BlendState = {};
+    psoDesc.BlendState.AlphaToCoverageEnable = FALSE;
+    psoDesc.BlendState.IndependentBlendEnable = FALSE;
+    psoDesc.BlendState.RenderTarget[0].RenderTargetWriteMask =
+        D3D12_COLOR_WRITE_ENABLE_ALL;
+
+    psoDesc.DepthStencilState = {};
+    psoDesc.DepthStencilState.DepthEnable = FALSE;
+    psoDesc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+    psoDesc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+    psoDesc.DepthStencilState.StencilEnable = FALSE;
+
+    psoDesc.SampleMask = UINT_MAX;
+    psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    psoDesc.NumRenderTargets = 1;
+    psoDesc.RTVFormats[0] = m_RtvFormat;
+    psoDesc.DSVFormat = DXGI_FORMAT_UNKNOWN;
+    psoDesc.SampleDesc.Count = 1;
+    psoDesc.SampleDesc.Quality = 0;
+    psoDesc.IBStripCutValue = D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED;
+
+    hr = m_Device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&sh->pipelineState));
+    if (FAILED(hr)) {
+        Logger::Error("CreateGraphicsPipelineState failed: 0x",
+                      reinterpret_cast<void*>(static_cast<uintptr_t>(hr)));
+        return nullptr;
+    }
+
+    return sh;
+}
+
 void D3D12Context::BindShader(GpuShader* shader) {
     if (!m_IsRecording || !shader) return;
     auto* s = static_cast<D3D12Shader*>(shader);

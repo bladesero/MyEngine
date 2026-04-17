@@ -8,6 +8,7 @@
 #include "Renderer/RHI/GpuTexture.h"
 #include "Renderer/RHI/VertexLayout.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -63,6 +64,23 @@ public:
         const std::string& psEntry,
         const VertexElement* layout,
         uint32_t layoutCount) = 0;
+
+    // Precompiled DXBC from dxc (vs_5_0 / ps_5_0). Default: unsupported (e.g. Metal).
+    virtual std::shared_ptr<GpuShader> CreateShaderFromBytecode(
+        const void* vsBytecode,
+        size_t vsSize,
+        const void* psBytecode,
+        size_t psSize,
+        const VertexElement* layout,
+        uint32_t layoutCount) {
+        (void)vsBytecode;
+        (void)vsSize;
+        (void)psBytecode;
+        (void)psSize;
+        (void)layout;
+        (void)layoutCount;
+        return nullptr;
+    }
 
     virtual std::shared_ptr<GpuTexture> UploadTexture2D(
         const void* rgba8Data, int width, int height) = 0;

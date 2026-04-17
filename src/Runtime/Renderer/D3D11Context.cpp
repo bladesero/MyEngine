@@ -144,11 +144,15 @@ bool D3D11Context::Init(IWindow* window) {
     scd.SwapEffect                         = DXGI_SWAP_EFFECT_FLIP_DISCARD;
 
     D3D_FEATURE_LEVEL featureLevel;
-    const D3D_FEATURE_LEVEL levels[] = { D3D_FEATURE_LEVEL_11_0 };
+    // Prefer 11_1 so vs_5_1 / newer DXBC from dxc still binds; fall back is implicit.
+    const D3D_FEATURE_LEVEL levels[] = {
+        D3D_FEATURE_LEVEL_11_1,
+        D3D_FEATURE_LEVEL_11_0,
+    };
 
     HRESULT hr = D3D11CreateDeviceAndSwapChain(
         nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr,
-        0, levels, 1,
+        0, levels, (UINT)(sizeof(levels) / sizeof(levels[0])),
         D3D11_SDK_VERSION,
         &scd,
         &m_SwapChain, &m_Device, &featureLevel, &m_Context);
@@ -411,12 +415,21 @@ std::shared_ptr<GpuShader> D3D11Context::CreateShader(
     if (!compileShader(vsEntry, "vs_5_0", vsBlob)) return nullptr;
     if (!compileShader(psEntry, "ps_5_0", psBlob)) return nullptr;
 
-    m_Device->CreateVertexShader(
+    HRESULT hr = m_Device->CreateVertexShader(
         vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), nullptr, &sh->vs);
-    m_Device->CreatePixelShader(
+    if (FAILED(hr)) {
+        Logger::Error("D3D11 CreateVertexShader (D3DCompile) failed: 0x",
+            reinterpret_cast<void*>(static_cast<uintptr_t>(hr)));
+        return nullptr;
+    }
+    hr = m_Device->CreatePixelShader(
         psBlob->GetBufferPointer(), psBlob->GetBufferSize(), nullptr, &sh->ps);
+    if (FAILED(hr)) {
+        Logger::Error("D3D11 CreatePixelShader (D3DCompile) failed: 0x",
+            reinterpret_cast<void*>(static_cast<uintptr_t>(hr)));
+        return nullptr;
+    }
 
-    // Build input layout from VertexElement descriptors.
     std::vector<D3D11_INPUT_ELEMENT_DESC> descs(layoutCount);
     for (uint32_t i = 0; i < layoutCount; ++i) {
         descs[i] = {
@@ -428,10 +441,67 @@ std::shared_ptr<GpuShader> D3D11Context::CreateShader(
             D3D11_INPUT_PER_VERTEX_DATA, 0
         };
     }
-    m_Device->CreateInputLayout(
+    hr = m_Device->CreateInputLayout(
         descs.data(), layoutCount,
         vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(),
         &sh->inputLayout);
+    if (FAILED(hr)) {
+        Logger::Error("D3D11 CreateInputLayout (D3DCompile) failed: 0x",
+            reinterpret_cast<void*>(static_cast<uintptr_t>(hr)));
+        return nullptr;
+    }
+
+    return sh;
+}
+
+std::shared_ptr<GpuShader> D3D11Context::CreateShaderFromBytecode(
+    const void* vsBytecode,
+    size_t vsSize,
+    const void* psBytecode,
+    size_t psSize,
+    const VertexElement* layout,
+    uint32_t layoutCount) {
+    if (!vsBytecode || vsSize == 0 || !psBytecode || psSize == 0 ||
+        !layout || layoutCount == 0) {
+        return nullptr;
+    }
+
+    auto sh = std::make_shared<D3D11Shader>();
+
+    HRESULT hr = m_Device->CreateVertexShader(vsBytecode, vsSize, nullptr, &sh->vs);
+    if (FAILED(hr)) {
+        Logger::Error("D3D11 CreateVertexShader failed: 0x",
+            reinterpret_cast<void*>(static_cast<uintptr_t>(hr)));
+        return nullptr;
+    }
+    hr = m_Device->CreatePixelShader(psBytecode, psSize, nullptr, &sh->ps);
+    if (FAILED(hr)) {
+        Logger::Error("D3D11 CreatePixelShader failed: 0x",
+            reinterpret_cast<void*>(static_cast<uintptr_t>(hr)));
+        return nullptr;
+    }
+
+    std::vector<D3D11_INPUT_ELEMENT_DESC> descs(layoutCount);
+    for (uint32_t i = 0; i < layoutCount; ++i) {
+        descs[i] = {
+            layout[i].semantic,
+            layout[i].index,
+            ToDxgiFormat(layout[i].format),
+            0,
+            layout[i].offset,
+            D3D11_INPUT_PER_VERTEX_DATA, 0
+        };
+    }
+    hr = m_Device->CreateInputLayout(
+        descs.data(), layoutCount,
+        vsBytecode, vsSize,
+        &sh->inputLayout);
+    if (FAILED(hr)) {
+        Logger::Error(
+            "D3D11 CreateInputLayout failed (VS signature must match VertexElement layout): 0x",
+            reinterpret_cast<void*>(static_cast<uintptr_t>(hr)));
+        return nullptr;
+    }
 
     return sh;
 }

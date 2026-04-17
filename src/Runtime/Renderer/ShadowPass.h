@@ -10,6 +10,7 @@
 #include <wrl/client.h>
 using Microsoft::WRL::ComPtr;
 #endif
+struct ShaderHandle;
 
 class ShadowPass final : public RenderPass {
 public:
@@ -33,7 +34,8 @@ private:
 private:
     static constexpr uint32_t kDefaultShadowMapSize = 2048;
 
-    std::shared_ptr<GpuShader> m_ShadowShader;
+    std::shared_ptr<ShaderHandle> m_ShadowShaderHandle;
+    uint64_t m_ShadowShaderVersion = 0;
     Mat4 m_LightViewProj = Mat4::Identity();
     Vec3 m_LightDirection = Vec3{ -0.55f, -1.0f, -0.45f }.Normalized();
     uint32_t m_ShadowMapSize = kDefaultShadowMapSize;

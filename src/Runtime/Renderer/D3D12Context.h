@@ -2,6 +2,8 @@
 
 #include "IRenderContext.h"
 
+#include <cstddef>
+
 #include <d3d12.h>
 #include <dxgi1_4.h>
 
@@ -58,6 +60,14 @@ public:
         const std::string& hlslSource,
         const std::string& vsEntry,
         const std::string& psEntry,
+        const VertexElement* layout,
+        uint32_t layoutCount) override;
+
+    std::shared_ptr<GpuShader> CreateShaderFromBytecode(
+        const void* vsBytecode,
+        size_t vsSize,
+        const void* psBytecode,
+        size_t psSize,
         const VertexElement* layout,
         uint32_t layoutCount) override;
 

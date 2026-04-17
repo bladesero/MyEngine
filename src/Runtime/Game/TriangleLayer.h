@@ -6,6 +6,8 @@
 
 #include <memory>
 
+struct ShaderHandle;
+
 // --------------------------------------------------------------------------
 // TriangleLayer
 //
@@ -30,7 +32,7 @@ private:
     int             m_VpH       = 720;
 
     std::shared_ptr<GpuBuffer> m_VB;
-    std::shared_ptr<GpuShader> m_Shader;
+    std::shared_ptr<ShaderHandle> m_ShaderHandle;
 
     Camera m_Camera;
 
