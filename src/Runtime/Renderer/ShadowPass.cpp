@@ -185,10 +185,9 @@ void ShadowPass::EnsureShadowShader()
         }
     } else {
         if (!m_ShadowShaderHandle) {
-            m_ShadowShaderHandle = std::make_shared<ShaderHandle>();
-            m_ShadowShaderHandle->shader = Context()->CreateShaderFromBytecode(
-                k_ShadowDepthVsBytecode, k_ShadowDepthVsBytecodeSize,
-                k_ShadowDepthPsBytecode, k_ShadowDepthPsBytecodeSize,
+            m_ShadowShaderHandle = ShaderManager::Get().GetOrCreate(
+                "src/Runtime/Renderer/Shaders/ShadowDepth.hlsl",
+                "VSMain", "PSMain",
                 k_ShadowVertexLayout,
                 1);
         }

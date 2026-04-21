@@ -4,7 +4,9 @@
 
 #ifdef MYENGINE_PLATFORM_WINDOWS
 #include "Renderer/D3D11Context.h"
+#include "Renderer/D3D12Context.h"
 #include "Renderer/ShaderCompilerD3D11.h"
+#include "Renderer/ShaderCompilerD3D12.h"
 #endif
 
 #include <sstream>
@@ -34,6 +36,17 @@ std::shared_ptr<GpuShader> ShaderManager::CompileRecord(const ShaderRecord& rec)
     if (dynamic_cast<D3D11Context*>(m_Context) != nullptr) {
         D3D11CompiledShaderProgram program{};
         if (!ShaderCompilerD3D11::CompileProgramFromFile(
+                rec.path, rec.vsEntry, rec.psEntry, program)) {
+            return nullptr;
+        }
+        return m_Context->CreateShaderFromBytecode(
+            program.vsBytecode.data(), program.vsBytecode.size(),
+            program.psBytecode.data(), program.psBytecode.size(),
+            rec.layout, rec.layoutCount);
+    }
+    if (dynamic_cast<D3D12Context*>(m_Context) != nullptr) {
+        D3D12CompiledShaderProgram program{};
+        if (!ShaderCompilerD3D12::CompileProgramFromFile(
                 rec.path, rec.vsEntry, rec.psEntry, program)) {
             return nullptr;
         }

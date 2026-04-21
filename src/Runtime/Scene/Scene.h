@@ -19,7 +19,7 @@
 class Scene {
 public:
     explicit Scene(std::string name = "Scene");
-    ~Scene() = default;
+    ~Scene();
 
     // 禁止拷贝
     Scene(const Scene&)            = delete;

@@ -54,10 +54,9 @@ void TriangleLayer::OnAttach() {
             "VSMain", "PSMain",
             k_Layout, 2);
     } else {
-        m_ShaderHandle = std::make_shared<ShaderHandle>();
-        m_ShaderHandle->shader = m_Renderer->CreateShaderFromBytecode(
-            k_TriangleVsBytecode, k_TriangleVsBytecodeSize,
-            k_TrianglePsBytecode, k_TrianglePsBytecodeSize,
+        m_ShaderHandle = ShaderManager::Get().GetOrCreate(
+            "src/Runtime/Renderer/Shaders/Triangle.hlsl",
+            "VSMain", "PSMain",
             k_Layout, 2);
     }
 #else

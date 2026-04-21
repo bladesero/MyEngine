@@ -26,6 +26,7 @@ static constexpr float kRad2Deg = 180.0f / kPi;
 #include "Math/Vector2.h"
 #include "Math/Vector3.h"
 #include "Math/Vector4.h"
+#include "Math/Simd.h"
 #include "Math/Ray.h"
 #include "Math/Plane.h"
 #include "Math/AABB.h"
@@ -67,6 +68,9 @@ struct Mat4 {
         };
     }
 
+    // Same as Transform; uses SSE packed math on x86/x64 when MYENGINE_HAS_SSE.
+    Vec4 TransformSimd(const Vec4& v) const;
+
     // Transform a direction (w=0).
     Vec3 TransformDir(const Vec3& v) const {
         return Transform(Vec4::FromVec3(v, 0.0f)).XYZ();
@@ -76,6 +80,9 @@ struct Mat4 {
     Vec3 TransformPoint(const Vec3& v) const {
         return Transform(Vec4::FromVec3(v, 1.0f)).XYZ();
     }
+
+    Vec3 TransformDirSimd(const Vec3& v) const { return TransformSimd(Vec4::FromVec3(v, 0.0f)).XYZ(); }
+    Vec3 TransformPointSimd(const Vec3& v) const { return TransformSimd(Vec4::FromVec3(v, 1.0f)).XYZ(); }
 
     Mat4 Transposed() const {
         Mat4 r;
@@ -198,6 +205,25 @@ struct Mat4 {
         return o;
     }
 };
+
+inline Vec4 Mat4::TransformSimd(const Vec4& v) const
+{
+#if MYENGINE_HAS_SSE
+    const __m128 vx = _mm_loadu_ps(&v.x);
+    const __m128 c0 = _mm_set_ps(m[3][0], m[2][0], m[1][0], m[0][0]);
+    const __m128 c1 = _mm_set_ps(m[3][1], m[2][1], m[1][1], m[0][1]);
+    const __m128 c2 = _mm_set_ps(m[3][2], m[2][2], m[1][2], m[0][2]);
+    const __m128 c3 = _mm_set_ps(m[3][3], m[2][3], m[1][3], m[0][3]);
+    const __m128 r = _mm_add_ps(
+        _mm_add_ps(_mm_mul_ps(_mm_shuffle_ps(vx, vx, _MM_SHUFFLE(0, 0, 0, 0)), c0),
+                   _mm_mul_ps(_mm_shuffle_ps(vx, vx, _MM_SHUFFLE(1, 1, 1, 1)), c1)),
+        _mm_add_ps(_mm_mul_ps(_mm_shuffle_ps(vx, vx, _MM_SHUFFLE(2, 2, 2, 2)), c2),
+                   _mm_mul_ps(_mm_shuffle_ps(vx, vx, _MM_SHUFFLE(3, 3, 3, 3)), c3)));
+    return Math::Simd::ToVec4(r);
+#else
+    return Transform(v);
+#endif
+}
 
 // World-space AABB from a model-space AABB and object matrix (eight corners).
 inline AABB TransformAABB(const AABB& local, const Mat4& world)

@@ -1,6 +1,7 @@
 #include "Engine.h"
 #include "Logger.h"
 #include "EngineTime.h"
+#include "Core/Memory/MemoryService.h"
 #include "Window.h"
 #include "../Input/Input.h"
 
@@ -16,12 +17,14 @@ void Engine::SetWindow(IWindow* window) {
 }
 
 void Engine::Init() {
+    MemoryService::Get().Init();
     Logger::Info("Init Engine: ", m_Config.appName);
     Time::Reset();
     m_Running = true;
 }
 
 void Engine::Shutdown() {
+    MemoryService::Get().Shutdown();
     Logger::Info("Shutdown Engine");
     m_Running = false;
 }
@@ -52,6 +55,8 @@ void Engine::RunLoop() {
 
     while (m_Running) {
         const auto frameStart = Time::Clock::now();
+
+        MemoryService::Get().FrameBegin();
 
         Time::Tick();
         PollPlatformEvents();

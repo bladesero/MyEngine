@@ -110,11 +110,11 @@ GpuShader* MainPass::GetOrCreateShader()
         }
     } else {
         if (!m_MainShaderHandle) {
-            m_MainShaderHandle = std::make_shared<ShaderHandle>();
-            m_MainShaderHandle->shader = Context()->CreateShaderFromBytecode(
-                k_MeshVsBytecode, k_MeshVsBytecodeSize,
-                k_MeshPsBytecode, k_MeshPsBytecodeSize,
+            m_MainShaderHandle = ShaderManager::Get().GetOrCreate(
+                "src/Runtime/Renderer/Shaders/Mesh.hlsl",
+                "VSMain", "PSMain",
                 k_MeshVertexLayout, k_MeshVertexLayoutCount);
+            m_ShaderMode = ShaderMode::Legacy;
         }
     }
 #else

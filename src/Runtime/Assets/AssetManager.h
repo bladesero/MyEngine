@@ -7,6 +7,7 @@
 #include "Assets/ModelAsset.h"
 #include "Core/Logger.h"
 
+#include <array>
 #include <cctype>
 #include <functional>
 #include <memory>
@@ -72,21 +73,31 @@ public:
         }
 
         m_Cache[id] = asset;
-        Logger::Info("[AssetManager] Loaded [", AssetTypeToString(asset->GetType()),
-                     "] '", asset->GetName(), "'");
 
         auto typed = std::dynamic_pointer_cast<T>(asset);
         if (!typed) {
             Logger::Warn("[AssetManager] Loaded asset type mismatch: ", normalizedPath);
+            m_Cache.erase(id);
             return {};
         }
+
+        RegisterAssetMemoryFor(*asset);
+        Logger::Info("[AssetManager] Loaded [", AssetTypeToString(asset->GetType()),
+                     "] '", asset->GetName(), "'");
+
         return AssetHandle<T>{ typed };
     }
 
     template<typename T>
     AssetHandle<T> Register(std::shared_ptr<T> asset) {
         if (!asset) return {};
-        m_Cache[asset->GetID()] = asset;
+        const AssetID id = asset->GetID();
+        auto it = m_Cache.find(id);
+        if (it != m_Cache.end()) {
+            ReleaseAssetMemoryFor(*it->second);
+        }
+        m_Cache[id] = std::static_pointer_cast<Asset>(asset);
+        RegisterAssetMemoryFor(*asset);
         return AssetHandle<T>{ std::move(asset) };
     }
 
@@ -110,30 +121,12 @@ public:
         return m_Cache.count(id) > 0;
     }
 
-    void Unload(const std::string& path) { Unload(MakeAssetID(NormalizePath(path))); }
-    void Unload(AssetID id) {
-        auto it = m_Cache.find(id);
-        if (it != m_Cache.end()) {
-            Logger::Info("[AssetManager] Unload '", it->second->GetName(), "'");
-            m_Cache.erase(it);
-        }
-    }
+    void Unload(const std::string& path);
+    void Unload(AssetID id);
 
-    void UnloadUnreferenced() {
-        for (auto it = m_Cache.begin(); it != m_Cache.end(); ) {
-            if (it->second.use_count() == 1) {
-                Logger::Info("[AssetManager] GC '", it->second->GetName(), "'");
-                it = m_Cache.erase(it);
-            } else {
-                ++it;
-            }
-        }
-    }
+    void UnloadUnreferenced();
 
-    void Clear() {
-        Logger::Info("[AssetManager] Clearing all assets (", m_Cache.size(), ")");
-        m_Cache.clear();
-    }
+    void Clear();
 
     TextureHandle  GetWhiteTexture();
     TextureHandle  GetBlackTexture();
@@ -150,13 +143,16 @@ public:
     // Sorted list of loaded asset paths of the given type (for editor pickers).
     std::vector<std::string> GetCachedPathsByType(AssetType type) const;
 
-    void PrintStats() const {
-        Logger::Info("[AssetManager] Cached assets: ", m_Cache.size());
-        for (const auto& [id, asset] : m_Cache) {
-            Logger::Info("  [", AssetTypeToString(asset->GetType()), "] ",
-                         asset->GetName(), "  refs=", asset.use_count() - 1);
-        }
-    }
+    void PrintStats() const;
+
+    // -----------------------------------------------------------------------
+    // CPU-side asset memory (rough estimate for budgeting / telemetry)
+    // -----------------------------------------------------------------------
+    void SetAssetCpuBudgetBytes(size_t bytes);
+    size_t GetAssetCpuBudgetBytes() const { return m_AssetCpuBudgetBytes; }
+    size_t GetEstimatedAssetCpuBytes() const { return m_AssetCpuTotalBytes; }
+    size_t GetEstimatedAssetCpuBytesByType(AssetType type) const;
+    void   LogAssetMemorySummary() const;
 
 private:
     AssetManager();
@@ -176,6 +172,14 @@ private:
 
     static std::string NormalizePath(const std::string& path);
 
+    void RegisterAssetMemoryFor(const Asset& asset);
+    void ReleaseAssetMemoryFor(const Asset& asset);
+    void MaybeWarnAssetBudget() const;
+
     std::unordered_map<AssetID,     std::shared_ptr<Asset>> m_Cache;
     std::unordered_map<std::string, AssetLoaderFn>          m_Loaders;
+
+    size_t              m_AssetCpuBudgetBytes = 0; // 0 = no budget / no warn
+    size_t              m_AssetCpuTotalBytes = 0;
+    std::array<size_t, 6> m_AssetCpuBytesByType{};
 };

@@ -1,10 +1,16 @@
 #include "Scene/Scene.h"
+#include "Core/Memory/MemoryService.h"
+
 #include <algorithm>
 
 // --------------------------------------------------------------------------
 Scene::Scene(std::string name)
     : m_Name(std::move(name))
 {
+}
+
+Scene::~Scene() {
+    Clear();
 }
 
 // --------------------------------------------------------------------------
@@ -19,6 +25,9 @@ Actor* Scene::CreateActor(const std::string& name)
 
     m_IDMap[id] = raw;
     m_Actors.push_back(std::move(ptr));
+    if (MemoryService::Get().IsInitialized()) {
+        MemoryService::Get().SceneNotifyActorCreated();
+    }
     return raw;
 }
 
@@ -42,6 +51,9 @@ Actor* Scene::CreateActorWithID(const std::string& name, uint64_t id)
     m_Actors.push_back(std::move(ptr));
     // 确保 m_NextID 始终大于已分配的最大 ID
     if (id >= m_NextID) m_NextID = id + 1;
+    if (MemoryService::Get().IsInitialized()) {
+        MemoryService::Get().SceneNotifyActorCreated();
+    }
     return raw;
 }
 
@@ -49,8 +61,12 @@ void Scene::Clear()
 {
     m_PendingDestroy.clear();
     m_IDMap.clear();
+    const size_t n = m_Actors.size();
     m_Actors.clear();
     m_NextID = 1;
+    if (MemoryService::Get().IsInitialized() && n > 0) {
+        MemoryService::Get().SceneNotifyActorsDestroyed(static_cast<uint64_t>(n));
+    }
 }
 
 // --------------------------------------------------------------------------
@@ -108,6 +124,9 @@ void Scene::DestroyActorInternal(Actor* actor)
         [actor](const std::unique_ptr<Actor>& p){ return p.get() == actor; });
     if (it != m_Actors.end()) {
         m_Actors.erase(it);
+        if (MemoryService::Get().IsInitialized()) {
+            MemoryService::Get().SceneNotifyActorDestroyed();
+        }
     }
 }
 

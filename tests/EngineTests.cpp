@@ -1,10 +1,15 @@
 ﻿#include "Assets/AssetManager.h"
+#include "Core/Memory/LinearAllocator.h"
+#include "Core/Memory/MemoryService.h"
+#include "Core/Memory/PoolAllocator.h"
 #include "Input/Input.h"
 #include "Scene/MeshRendererComponent.h"
 #include "Scene/Scene.h"
 #include "Scene/SceneSerializer.h"
 
 #include <cmath>
+#include <cstdint>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -202,10 +207,82 @@ bool TestAssetFileImporters() {
     return true;
 }
 
+bool TestMemoryLinearAllocator() {
+    LinearAllocator arena;
+    if (!Check(arena.Init(4096), "LinearAllocator::Init failed")) return false;
+    void* p1 = arena.Allocate(64, 8);
+    void* p2 = arena.Allocate(128, 16);
+    if (!Check(p1 != nullptr && p2 != nullptr, "LinearAllocator bump failed")) return false;
+    if (!Check(reinterpret_cast<std::uintptr_t>(p2) > reinterpret_cast<std::uintptr_t>(p1),
+               "LinearAllocator ordering unexpected")) return false;
+    arena.Reset();
+    void* p3 = arena.Allocate(4000, 8);
+    if (!Check(p3 != nullptr, "LinearAllocator reuse after Reset failed")) return false;
+    arena.Shutdown();
+    return true;
+}
+
+bool TestMemoryPoolAllocator() {
+    PoolAllocator<int> pool(4);
+    int* a = pool.Allocate(1);
+    int* b = pool.Allocate(2);
+    if (!Check(a && b, "PoolAllocator Allocate failed")) return false;
+    if (!Check(pool.LiveCount() == 2, "PoolAllocator live count")) return false;
+    pool.Free(a);
+    if (!Check(pool.LiveCount() == 1, "PoolAllocator after one Free")) return false;
+    int* c = pool.Allocate(3);
+    if (!Check(c && *c == 3, "PoolAllocator recycle slot")) return false;
+    pool.Free(b);
+    pool.Free(c);
+    if (!Check(pool.LiveCount() == 0, "PoolAllocator empty")) return false;
+    if (!Check(pool.Allocate(42) != nullptr, "PoolAllocator fill after empty")) return false;
+    return true;
+}
+
+bool TestMemoryServiceHeapRoundTrip() {
+    void* p = MemoryService::Get().Allocate(AllocTag::Test, 32, 8, __FILE__, __LINE__);
+    if (!Check(p != nullptr, "MemoryService::Allocate failed")) {
+        return false;
+    }
+    std::memset(p, 0xAB, 32);
+    MemoryService::Get().Free(p, __FILE__, __LINE__);
+    return true;
+}
+
+bool TestSceneAndAssetMemoryCounters() {
+    MemoryService::Get().SetSceneActorBudget(1000);
+    Scene sc("MemScene");
+    Actor* a = sc.CreateActor("A");
+    Actor* b = sc.CreateActor("B");
+    (void)a;
+    (void)b;
+    if (!Check(MemoryService::Get().GetSceneLiveActorCount() == 2, "scene live actor count")) return false;
+    sc.DestroyActor(a);
+    if (!Check(MemoryService::Get().GetSceneLiveActorCount() == 1, "scene count after DestroyActor")) return false;
+    sc.Clear();
+    if (!Check(MemoryService::Get().GetSceneLiveActorCount() == 0, "scene count after Clear")) return false;
+
+    AssetManager& am = AssetManager::Get();
+    am.Clear();
+    (void)am.GetCubeMesh();
+    if (!Check(am.GetEstimatedAssetCpuBytes() > 0, "asset CPU estimate after builtin mesh")) return false;
+    if (!Check(am.GetEstimatedAssetCpuBytesByType(AssetType::Mesh) > 0, "per-type mesh bucket")) return false;
+    am.Clear();
+    if (!Check(am.GetEstimatedAssetCpuBytes() == 0, "asset CPU zero after Clear")) return false;
+    return true;
+}
+
 } // namespace
 
 int main() {
+    MemoryService::Get().Init();
+
     int failed = 0;
+
+    if (!TestMemoryLinearAllocator()) { ++failed; }
+    if (!TestMemoryPoolAllocator()) { ++failed; }
+    if (!TestMemoryServiceHeapRoundTrip()) { ++failed; }
+    if (!TestSceneAndAssetMemoryCounters()) { ++failed; }
 
     if (!TestSceneSerializationRegression()) { ++failed; }
     if (!TestTransformHierarchyWorldPosition()) { ++failed; }
@@ -214,6 +291,8 @@ int main() {
     if (!TestAssetFileImporters()) { ++failed; }
 
     Input::Shutdown();
+
+    MemoryService::Get().Shutdown();
 
     if (failed == 0) {
         std::cout << "[PASS] All tests passed\n";

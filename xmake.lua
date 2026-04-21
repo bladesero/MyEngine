@@ -27,6 +27,35 @@ add_rules("mode.debug", "mode.release")
 set_languages("c++17")
 set_warnings("all")
 
+-- ---------------------------------------------------------------------------
+-- Memory subsystem (ME_* heap helpers / future MemoryService)
+-- Configure: xmake f --mem_stats=y|n --mem_tracking=y|n --mem_guard=y|n
+-- Defaults: stats on; tracking+guard follow current mode (on in debug).
+-- ---------------------------------------------------------------------------
+option("mem_stats", function()
+    set_default(true)
+    set_showmenu(true)
+    set_category("memory")
+    set_description("MYENGINE_MEM_STATS: per-tag bytes / live counts / lifetime calls")
+    add_defines("MYENGINE_MEM_STATS")
+end)
+
+option("mem_tracking", function()
+    set_default(is_mode("debug"))
+    set_showmenu(true)
+    set_category("memory")
+    set_description("MYENGINE_MEM_TRACKING: live allocation map + leak dump with file:line")
+    add_defines("MYENGINE_MEM_TRACKING")
+end)
+
+option("mem_guard", function()
+    set_default(is_mode("debug"))
+    set_showmenu(true)
+    set_category("memory")
+    set_description("MYENGINE_MEM_GUARD: allocation poison fill + tail canaries")
+    add_defines("MYENGINE_MEM_GUARD")
+end)
+
 add_requires("libsdl3 3.2.14", { configs = { shared = true } })
 -- imgui pulls libsdl3 as a transitive dep; without this, that instance defaults to static and you get
 -- SDL3-static.lib + SDL3.lib together (LNK2005 duplicate symbols on MSVC).
@@ -74,6 +103,11 @@ target("MyEngineRuntime")
         "src/Runtime/Core/Window.cpp",
         "src/Runtime/Core/Engine.cpp",
         "src/Runtime/Core/Application.cpp",
+        "src/Runtime/Core/Memory/PlatformAlignedAlloc.cpp",
+        "src/Runtime/Core/Memory/AllocTracker.cpp",
+        "src/Runtime/Core/Memory/GeneralHeapAllocator.cpp",
+        "src/Runtime/Core/Memory/LinearAllocator.cpp",
+        "src/Runtime/Core/Memory/MemoryService.cpp",
         "src/Runtime/Assets/AssetManager.cpp",
         "src/Runtime/Assets/AssetImporters.cpp",
         "src/Runtime/Assets/MeshAsset.cpp",
@@ -85,6 +119,7 @@ target("MyEngineRuntime")
         "src/Runtime/Renderer/Renderer.cpp",
         "src/Runtime/Renderer/ShaderManager.cpp",
         "src/Runtime/Renderer/ShaderCompilerD3D11.cpp",
+        "src/Runtime/Renderer/ShaderCompilerD3D12.cpp",
         "src/Runtime/Renderer/MainPass.cpp",
         "src/Runtime/Renderer/ShadowPass.cpp",
         "src/Runtime/Game/GameLayer.cpp",
@@ -125,6 +160,8 @@ target("MyEngineRuntime")
     add_packages("stb", { public = true })
     add_packages("tinyobjloader")
     add_packages("imgui", { public = true })
+
+    add_options("mem_stats", "mem_tracking", "mem_guard")
 
     add_defines("MYENGINE_ENABLE_IMGUI")
     -- ImGui comes from the static imgui package; do not set IMGUI_API=dllexport here (that only affects
@@ -247,6 +284,7 @@ target("MyEngineTests")
     add_files("tests/EngineTests.cpp")
     add_includedirs("src/Runtime")
     add_deps("MyEngineRuntime")
+    add_options("mem_stats", "mem_tracking", "mem_guard")
     add_packages("libsdl3", "nlohmann_json")
     if is_plat("windows") then
         add_cxflags("/utf-8", { toolset = "msvc" })

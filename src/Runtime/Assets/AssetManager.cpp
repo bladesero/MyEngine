@@ -3,6 +3,40 @@
 #include <algorithm>
 #include <filesystem>
 
+namespace {
+
+size_t TypeIndex(AssetType t) {
+    const size_t i = static_cast<size_t>(t);
+    return i < 6 ? i : 0;
+}
+
+size_t EstimateAssetCpuBytes(const Asset& a) {
+    switch (a.GetType()) {
+        case AssetType::Texture: {
+            const auto& tx = static_cast<const TextureAsset&>(a);
+            return tx.GetPixelData().size() + 512;
+        }
+        case AssetType::Mesh: {
+            const auto& m = static_cast<const MeshAsset&>(a);
+            return m.GetVertices().size() * sizeof(MeshVertex) + m.GetIndices().size() * sizeof(uint32_t) + 512;
+        }
+        case AssetType::Material: {
+            const auto& mat = static_cast<const MaterialAsset&>(a);
+            return 1024 + mat.GetTextures().size() * 128 + mat.GetParams().size() * 64;
+        }
+        case AssetType::Model: {
+            const auto& mod = static_cast<const ModelAsset&>(a);
+            size_t n = 2048 + mod.GetNodes().size() * 128;
+            n += static_cast<size_t>(std::max(0, mod.MaterialCount())) * 512;
+            return n;
+        }
+        default:
+            return 256;
+    }
+}
+
+} // namespace
+
 std::string AssetManager::NormalizePath(const std::string& path) {
     if (path.rfind("__builtin__/", 0) == 0 || path.rfind("__builtin__\\", 0) == 0) {
         return path;
@@ -108,4 +142,101 @@ MaterialHandle AssetManager::GetDefaultMaterial()
     mat->SetTexture("BaseColorMap", GetWhiteTexture());
     mat->SetTexture("NormalMap",    GetNormalTexture());
     return Register(std::move(mat));
+}
+
+void AssetManager::Unload(const std::string& path) {
+    Unload(MakeAssetID(NormalizePath(path)));
+}
+
+void AssetManager::Unload(AssetID id) {
+    auto it = m_Cache.find(id);
+    if (it != m_Cache.end()) {
+        Logger::Info("[AssetManager] Unload '", it->second->GetName(), "'");
+        ReleaseAssetMemoryFor(*it->second);
+        m_Cache.erase(it);
+    }
+}
+
+void AssetManager::UnloadUnreferenced() {
+    for (auto it = m_Cache.begin(); it != m_Cache.end();) {
+        if (it->second.use_count() == 1) {
+            Logger::Info("[AssetManager] GC '", it->second->GetName(), "'");
+            ReleaseAssetMemoryFor(*it->second);
+            it = m_Cache.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
+void AssetManager::Clear() {
+    Logger::Info("[AssetManager] Clearing all assets (", m_Cache.size(), ")");
+    for (auto& kv : m_Cache) {
+        ReleaseAssetMemoryFor(*kv.second);
+    }
+    m_Cache.clear();
+}
+
+void AssetManager::PrintStats() const {
+    Logger::Info("[AssetManager] Cached assets: ", m_Cache.size());
+    for (const auto& kv : m_Cache) {
+        const auto& asset = kv.second;
+        Logger::Info("  [", AssetTypeToString(asset->GetType()), "] ", asset->GetName(),
+                     "  refs=", asset.use_count() - 1);
+    }
+    LogAssetMemorySummary();
+}
+
+void AssetManager::SetAssetCpuBudgetBytes(size_t bytes) {
+    m_AssetCpuBudgetBytes = bytes;
+    MaybeWarnAssetBudget();
+}
+
+size_t AssetManager::GetEstimatedAssetCpuBytesByType(AssetType type) const {
+    return m_AssetCpuBytesByType[TypeIndex(type)];
+}
+
+void AssetManager::LogAssetMemorySummary() const {
+    Logger::Info("[AssetManager] Estimated CPU asset memory total=", m_AssetCpuTotalBytes);
+    if (m_AssetCpuBudgetBytes != 0) {
+        Logger::Info("[AssetManager]   budget=", m_AssetCpuBudgetBytes);
+    }
+    for (size_t i = 0; i < m_AssetCpuBytesByType.size(); ++i) {
+        if (m_AssetCpuBytesByType[i] == 0) {
+            continue;
+        }
+        const auto t = static_cast<AssetType>(i);
+        Logger::Info("[AssetManager]   ", AssetTypeToString(t), ": ", m_AssetCpuBytesByType[i]);
+    }
+}
+
+void AssetManager::RegisterAssetMemoryFor(const Asset& asset) {
+    const size_t est = EstimateAssetCpuBytes(asset);
+    const size_t idx = TypeIndex(asset.GetType());
+    m_AssetCpuBytesByType[idx] += est;
+    m_AssetCpuTotalBytes += est;
+    MaybeWarnAssetBudget();
+}
+
+void AssetManager::ReleaseAssetMemoryFor(const Asset& asset) {
+    const size_t est = EstimateAssetCpuBytes(asset);
+    const size_t idx = TypeIndex(asset.GetType());
+    if (m_AssetCpuBytesByType[idx] >= est) {
+        m_AssetCpuBytesByType[idx] -= est;
+    } else {
+        m_AssetCpuBytesByType[idx] = 0;
+    }
+    if (m_AssetCpuTotalBytes >= est) {
+        m_AssetCpuTotalBytes -= est;
+    } else {
+        m_AssetCpuTotalBytes = 0;
+    }
+}
+
+void AssetManager::MaybeWarnAssetBudget() const {
+    if (m_AssetCpuBudgetBytes == 0 || m_AssetCpuTotalBytes <= m_AssetCpuBudgetBytes) {
+        return;
+    }
+    Logger::Warn("[AssetManager] Estimated asset CPU memory exceeds budget: ", m_AssetCpuTotalBytes,
+                 " > ", m_AssetCpuBudgetBytes);
 }
