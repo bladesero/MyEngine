@@ -31,6 +31,7 @@ static constexpr float kRad2Deg = 180.0f / kPi;
 #include "Math/Plane.h"
 #include "Math/AABB.h"
 #include "Math/Color.h"
+#include "Math/Quaternion.h"
 
 using Math::Vec2;
 using Math::Vec3;
@@ -39,6 +40,8 @@ using Math::Ray;
 using Math::Plane;
 using Math::AABB;
 using Math::Color;
+using Math::Quat;
+using Math::Slerp;
 
 // --------------------------------------------------------------------------
 // Mat4  –  row-major, stored as m[row][col]
@@ -205,6 +208,87 @@ struct Mat4 {
         return o;
     }
 };
+
+// Quat::ToMat4 — R_c is the column-vector rotation matrix (v' = R_c * v as column);
+// row-vector multiply uses M = R_c^T so that v' = v * M matches Transform().
+inline Mat4 Quat::ToMat4() const
+{
+    const Quat q = Normalized();
+    const float x = q.x, y = q.y, z = q.z, w = q.w;
+    const float xx = x * x, yy = y * y, zz = z * z;
+    const float xy = x * y, xz = x * z, yz = y * z;
+    const float wx = w * x, wy = w * y, wz = w * z;
+
+    const float rc00 = 1.0f - 2.0f * (yy + zz);
+    const float rc01 = 2.0f * (xy - wz);
+    const float rc02 = 2.0f * (xz + wy);
+    const float rc10 = 2.0f * (xy + wz);
+    const float rc11 = 1.0f - 2.0f * (xx + zz);
+    const float rc12 = 2.0f * (yz - wx);
+    const float rc20 = 2.0f * (xz - wy);
+    const float rc21 = 2.0f * (yz + wx);
+    const float rc22 = 1.0f - 2.0f * (xx + yy);
+
+    Mat4 r = Mat4::Identity();
+    r.m[0][0] = rc00;
+    r.m[0][1] = rc10;
+    r.m[0][2] = rc20;
+    r.m[1][0] = rc01;
+    r.m[1][1] = rc11;
+    r.m[1][2] = rc21;
+    r.m[2][0] = rc02;
+    r.m[2][1] = rc12;
+    r.m[2][2] = rc22;
+    return r;
+}
+
+// M stores row-vector rotation; R_c = M^T for column-vector extraction.
+inline Quat Quat::FromMat4(const Mat4& m)
+{
+    const float r00 = m.m[0][0], r01 = m.m[0][1], r02 = m.m[0][2];
+    const float r10 = m.m[1][0], r11 = m.m[1][1], r12 = m.m[1][2];
+    const float r20 = m.m[2][0], r21 = m.m[2][1], r22 = m.m[2][2];
+
+    const float rc00 = r00, rc01 = r10, rc02 = r20;
+    const float rc10 = r01, rc11 = r11, rc12 = r21;
+    const float rc20 = r02, rc21 = r12, rc22 = r22;
+
+    const float tr = rc00 + rc11 + rc22;
+    if (tr > 0.0f) {
+        const float s = std::sqrt(tr + 1.0f) * 2.0f;
+        return Quat{
+            (rc21 - rc12) / s,
+            (rc02 - rc20) / s,
+            (rc10 - rc01) / s,
+            0.25f * s,
+        }.Normalized();
+    }
+    if (rc00 > rc11 && rc00 > rc22) {
+        const float s = std::sqrt(1.0f + rc00 - rc11 - rc22) * 2.0f;
+        return Quat{
+            0.25f * s,
+            (rc01 + rc10) / s,
+            (rc02 + rc20) / s,
+            (rc21 - rc12) / s,
+        }.Normalized();
+    }
+    if (rc11 > rc22) {
+        const float s = std::sqrt(1.0f + rc11 - rc00 - rc22) * 2.0f;
+        return Quat{
+            (rc01 + rc10) / s,
+            0.25f * s,
+            (rc12 + rc21) / s,
+            (rc02 - rc20) / s,
+        }.Normalized();
+    }
+    const float s = std::sqrt(1.0f + rc22 - rc00 - rc11) * 2.0f;
+    return Quat{
+        (rc02 + rc20) / s,
+        (rc12 + rc21) / s,
+        0.25f * s,
+        (rc10 - rc01) / s,
+    }.Normalized();
+}
 
 inline Vec4 Mat4::TransformSimd(const Vec4& v) const
 {

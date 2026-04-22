@@ -22,7 +22,7 @@ MyEngine/
     ├── Runtime/
     │   ├── Core/             # Application、Engine、Window、Event、Layer、LayerStack、Time、Logger、Platform、EngineMath
     │   ├── Input/            # 输入快照（与 Engine 事件循环配合）
-    │   ├── Math/             # Vector/Mat4/Color/Ray/AABB 等；Mat4Inverse 实现
+    │   ├── Math/             # Vector/Quaternion/Mat4/Color/Ray/AABB 等；Mat4Inverse 实现
     │   ├── Assets/           # AssetManager、导入器；Mesh/Material/Texture/Model 资产类型
     │   ├── Scene/            # Scene、Actor、Transform、组件、SceneSerializer（JSON）
     │   ├── Camera/           # 相机（透视/正交；与 SceneRenderLayer 中飞行/轨道逻辑配合）
@@ -158,6 +158,7 @@ Application::Run()
 ## 7. 数学约定
 
 - **行主序** `Mat4`，**左手坐标系**，**Y 向上**，与 D3D 深度 0..1 及 HLSL `mul(vector, matrix)` 风格一致（见 `Core/EngineMath.h`）。
+- **Quaternion** `Math::Quat`（`x,y,z,w`）：与上述 `Mat4` 行向量约定一致；`Quat::ToMat4` / `Quat::FromMat4` 在 `EngineMath.h` 中实现，与 `Transform`/`Mat4::Rotation` 同一套旋转语义。
 
 ---
 
