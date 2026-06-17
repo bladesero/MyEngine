@@ -22,6 +22,8 @@ struct MeshVertex {
     Vec3  tangent  = Vec3::Right();
     float u = 0.0f, v = 0.0f;  // TEXCOORD0
     float u2= 0.0f, v2= 0.0f;  // TEXCOORD1 (lightmap / second UV)
+    float boneIndices[4] = { 0, 0, 0, 0 };
+    float boneWeights[4] = { 1, 0, 0, 0 };
 };
 
 // --------------------------------------------------------------------------
@@ -33,6 +35,17 @@ struct SubMesh {
     uint32_t vertexOffset = 0;
     int      materialSlot = 0;  // 对应 ModelAsset::m_Materials[i]
     std::string name;
+};
+
+struct MeshLod {
+    std::vector<uint32_t> indices;
+    float screenCoverage = 1.0f;
+};
+
+struct MeshColliderData {
+    AABB bounds;
+    std::vector<Vec3> vertices;
+    std::vector<uint32_t> indices;
 };
 
 // --------------------------------------------------------------------------
@@ -52,6 +65,8 @@ public:
         m_Indices   = std::move(indices);
         m_SubMeshes = std::move(subMeshes);
         RebuildAABB();
+        RebuildDerivedData();
+        InvalidateGpuBuffers();
         SetState(AssetState::Ready);
     }
 
@@ -60,6 +75,14 @@ public:
     const std::vector<uint32_t>&   GetIndices()   const { return m_Indices;   }
     const std::vector<SubMesh>&    GetSubMeshes() const { return m_SubMeshes; }
     const AABB&                    GetAABB()      const { return m_AABB;      }
+    const std::vector<MeshLod>&    GetLods()      const { return m_Lods;      }
+    const MeshColliderData&        GetColliderData() const { return m_ColliderData; }
+    const MeshLod& GetLod(size_t level) const {
+        static const MeshLod empty;
+        if (m_Lods.empty()) return empty;
+        const size_t clampedLevel = level < m_Lods.size() ? level : m_Lods.size() - 1;
+        return m_Lods[clampedLevel];
+    }
 
     bool HasIndices()  const { return !m_Indices.empty(); }
     uint32_t VertexCount() const { return static_cast<uint32_t>(m_Vertices.size()); }
@@ -71,6 +94,14 @@ public:
     GpuBuffer* GetVertexBuffer() const { return m_VB.get(); }
     GpuBuffer* GetIndexBuffer()  const { return m_IB.get(); }
     bool IsUploaded() const { return m_VB != nullptr; }
+    void InvalidateGpuBuffers() { m_VB.reset(); m_IB.reset(); }
+
+    bool ReloadFrom(const Asset& source) override {
+        const auto* mesh = dynamic_cast<const MeshAsset*>(&source);
+        if (!mesh) return false;
+        SetGeometry(mesh->m_Vertices, mesh->m_Indices, mesh->m_SubMeshes);
+        return true;
+    }
 
     // ---- 工厂：内置基本体 ------------------------------------------------
     static std::shared_ptr<MeshAsset> CreateTriangle(const std::string& name = "Triangle");
@@ -79,15 +110,21 @@ public:
 
 private:
     void RebuildAABB() {
-        if (m_Vertices.empty()) return;
+        if (m_Vertices.empty()) {
+            m_AABB = {};
+            return;
+        }
         m_AABB.min = m_AABB.max = m_Vertices[0].position;
         for (const auto& v : m_Vertices) m_AABB.Expand(v.position);
     }
+    void RebuildDerivedData();
 
     std::vector<MeshVertex> m_Vertices;
     std::vector<uint32_t>   m_Indices;
     std::vector<SubMesh>    m_SubMeshes;
     AABB                    m_AABB;
+    std::vector<MeshLod>    m_Lods;
+    MeshColliderData        m_ColliderData;
 
     std::shared_ptr<GpuBuffer> m_VB;
     std::shared_ptr<GpuBuffer> m_IB;

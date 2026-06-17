@@ -7,6 +7,7 @@
 
 #include <SDL3/SDL.h>
 #include <algorithm>
+#include <exception>
 #include <thread>
 
 Engine::Engine(EngineConfig config)
@@ -27,6 +28,10 @@ void Engine::Shutdown() {
     MemoryService::Get().Shutdown();
     Logger::Info("Shutdown Engine");
     m_Running = false;
+}
+
+void Engine::ClearLayers() {
+    m_Layers.Clear();
 }
 
 void Engine::PushLayer(Layer* layer) {
@@ -61,8 +66,11 @@ void Engine::RunLoop() {
         Time::Tick();
         PollPlatformEvents();
         DispatchEvents();
+        const auto updateStart = Time::Clock::now();
         UpdateLayers();
+        const auto renderStart = Time::Clock::now();
         RenderLayers();
+        const auto renderEnd = Time::Clock::now();
         // NOTE: SwapBuffers is intentionally NOT called here.
         // Each render layer (e.g. TriangleLayer via IRenderContext::EndFrame,
         // or GameLayer via SDL_RenderPresent) is responsible for presenting.
@@ -72,6 +80,24 @@ void Engine::RunLoop() {
         if (m_Config.autoQuitAfterSeconds > 0.0f &&
             Time::TotalSeconds() > m_Config.autoQuitAfterSeconds) {
             RequestQuit();
+        }
+
+        const std::chrono::duration<float, std::milli> updateCost = renderStart - updateStart;
+        const std::chrono::duration<float, std::milli> renderCost = renderEnd - renderStart;
+        const std::chrono::duration<float, std::milli> frameCost = renderEnd - frameStart;
+        m_FrameStats.frameNumber = Time::FrameCount();
+        m_FrameStats.updateMs = updateCost.count();
+        m_FrameStats.renderMs = renderCost.count();
+        m_FrameStats.frameMs = frameCost.count();
+        m_FrameStats.smoothedFrameMs = m_FrameStats.smoothedFrameMs == 0.0f
+            ? m_FrameStats.frameMs
+            : m_FrameStats.smoothedFrameMs * 0.9f + m_FrameStats.frameMs * 0.1f;
+        m_StatsAccumulator += Time::DeltaSeconds();
+        ++m_StatsFrames;
+        if (m_StatsAccumulator >= 0.5f) {
+            m_FrameStats.fps = static_cast<float>(m_StatsFrames) / m_StatsAccumulator;
+            m_StatsAccumulator = 0.0f;
+            m_StatsFrames = 0;
         }
 
         SleepForFrameRate(targetFrameSeconds, frameStart);
@@ -228,7 +254,21 @@ void Engine::DispatchEvents() {
         // Top-most layer handles event first.
         auto& layers = m_Layers.GetLayers();
         for (auto it = layers.rbegin(); it != layers.rend(); ++it) {
-            (*it)->OnEvent(event);
+            Layer* layer = *it;
+            if (IsLayerFaulted(layer)) {
+                continue;
+            }
+            try {
+                layer->OnEvent(event);
+            }
+            catch (const std::exception& e) {
+                MarkLayerFaulted(layer, "event", e.what());
+                continue;
+            }
+            catch (...) {
+                MarkLayerFaulted(layer, "event", "unknown exception");
+                continue;
+            }
             if (event.handled) {
                 break;
             }
@@ -239,13 +279,47 @@ void Engine::DispatchEvents() {
 void Engine::UpdateLayers() {
     const float dt = Time::DeltaSeconds();
     for (Layer* layer : m_Layers.GetLayers()) {
-        layer->OnUpdate(dt);
+        if (IsLayerFaulted(layer)) {
+            continue;
+        }
+        try {
+            layer->OnUpdate(dt);
+        }
+        catch (const std::exception& e) {
+            MarkLayerFaulted(layer, "update", e.what());
+        }
+        catch (...) {
+            MarkLayerFaulted(layer, "update", "unknown exception");
+        }
     }
 }
 
 void Engine::RenderLayers() {
     for (Layer* layer : m_Layers.GetLayers()) {
-        layer->OnRender();
+        if (IsLayerFaulted(layer)) {
+            continue;
+        }
+        try {
+            layer->OnRender();
+        }
+        catch (const std::exception& e) {
+            MarkLayerFaulted(layer, "render", e.what());
+        }
+        catch (...) {
+            MarkLayerFaulted(layer, "render", "unknown exception");
+        }
+    }
+}
+
+bool Engine::IsLayerFaulted(const Layer* layer) const {
+    return m_FaultedLayers.count(layer) > 0;
+}
+
+void Engine::MarkLayerFaulted(const Layer* layer, const char* phase, const char* message) {
+    if (!layer) return;
+    if (m_FaultedLayers.insert(layer).second) {
+        Logger::Error("[Engine] Layer '", layer->Name(), "' failed during ",
+                      phase, ": ", message, "; disabling layer");
     }
 }
 

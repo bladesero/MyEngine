@@ -26,7 +26,7 @@ Mat4 Actor::GetWorldMatrix() const
 {
     Mat4 local = m_Transform.GetLocalMatrix();
     if (m_Parent) {
-        return m_Parent->GetWorldMatrix() * local;
+        return local * m_Parent->GetWorldMatrix();
     }
     return local;
 }
@@ -37,6 +37,30 @@ Vec3 Actor::GetWorldPosition() const
         return m_Parent->GetWorldMatrix().TransformPoint(m_Transform.position);
     }
     return m_Transform.position;
+}
+
+Component* Actor::GetComponentByTypeName(const std::string& typeName) const
+{
+    for (const auto& [key, comp] : m_Components) {
+        (void)key;
+        if (comp && typeName == comp->GetTypeName()) {
+            return comp.get();
+        }
+    }
+    return nullptr;
+}
+
+bool Actor::RemoveComponentByTypeName(const std::string& typeName)
+{
+    for (auto it = m_Components.begin(); it != m_Components.end(); ++it) {
+        Component* comp = it->second.get();
+        if (comp && typeName == comp->GetTypeName()) {
+            comp->OnDetach();
+            m_Components.erase(it);
+            return true;
+        }
+    }
+    return false;
 }
 
 // --------------------------------------------------------------------------
@@ -89,5 +113,13 @@ void Actor::Update(float deltaSeconds)
         if (comp->IsEnabled()) {
             comp->OnUpdate(deltaSeconds);
         }
+    }
+}
+
+void Actor::FixedUpdate(float deltaSeconds)
+{
+    if (!m_Active) return;
+    for (auto& [key, comp] : m_Components) {
+        if (comp->IsEnabled()) comp->OnFixedUpdate(deltaSeconds);
     }
 }

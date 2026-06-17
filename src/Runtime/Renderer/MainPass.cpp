@@ -3,16 +3,24 @@
 #include "Assets/MaterialAsset.h"
 #include "Assets/MeshAsset.h"
 #include "Assets/TextureAsset.h"
+#include "Animation/SkinnedMeshRendererComponent.h"
 #include "Core/Logger.h"
 #include "Renderer/MeshShader.h"
+#include "Renderer/LightComponent.h"
+#include "Renderer/PostProcessComponent.h"
 #include "Renderer/ShaderManager.h"
 #include "Scene/Actor.h"
 #include "Scene/MeshRendererComponent.h"
+#include "Math/Mat4Inverse.h"
 
+#include <algorithm>
+#include <cmath>
 #include <cstring>
+#include <vector>
 
 #ifdef MYENGINE_PLATFORM_WINDOWS
 #include "Renderer/D3D11Context.h"
+#include "Renderer/D3D12Context.h"
 #include "ShaderBytecodeWindows.h"
 #endif
 
@@ -24,12 +32,185 @@ struct LegacyPerDrawConstants {
 };
 
 struct ShadowedPerDrawConstants {
-    float mvp[16];
+    float viewProj[16];
     float world[16];
     float lightViewProj[16];
+    float lightViewProjCascade[3][16];
+    float cascadeSplits[4];
+    float spotLightViewProj[16];
     float baseColor[4];
     float lightDirection[4];
+    float lightColor[4];
+    float cameraPosition[4];
+    float material[4];
+    float emissive[4];
+    float mapFlags[4];
+    float pointLightPositions[4][4];
+    float pointLightColors[4][4];
+    float spotLightPositions[4][4];
+    float spotLightDirections[4][4];
+    float spotLightColors[4][4];
+    float spotLightParams[4][4];
+    float lightInfo[4];
+    float pointShadowPosition[4];
+    float shadowInfo[4];
+    float postProcess[4];
+    float postProcess2[4];
+    float instanceWorld[64][16];
+    float instanceNormal[64][16];
+    float drawInfo[4];
+    float boneMatrices[128][16];
+    float skinInfo[4];
+    float iblInfo[4];
+    float normalMatrix[16];
+    float cameraForward[4];
 };
+
+struct SkyConstants {
+    float forward[4];
+    float right[4];
+    float up[4];
+    float parameters[4];
+};
+
+bool GetRenderable(Actor& actor, MeshAsset*& mesh, MaterialAsset*& material,
+                   SkinnedMeshRendererComponent*& skin)
+{
+    skin = nullptr;
+    if (auto* skinned = actor.GetComponent<SkinnedMeshRendererComponent>()) {
+        if (!skinned->IsEnabled() || !skinned->IsValid()) return false;
+        mesh = skinned->GetRenderMesh();
+        material = skinned->GetMaterial().Get();
+        skin = skinned;
+        return mesh && material;
+    }
+    if (auto* renderer = actor.GetComponent<MeshRendererComponent>()) {
+        if (!renderer->IsEnabled() || !renderer->IsValid()) return false;
+        mesh = renderer->GetMesh().Get();
+        material = renderer->GetMaterial().Get();
+        return mesh && material;
+    }
+    return false;
+}
+
+struct RenderItem {
+    Actor* actor = nullptr;
+    MeshAsset* mesh = nullptr;
+    MaterialAsset* material = nullptr;
+    SkinnedMeshRendererComponent* skin = nullptr;
+    float distanceSq = 0.0f;
+};
+
+struct ScenePointLight {
+    Vec3 position = Vec3::Zero();
+    Vec3 color = Vec3::One();
+    float intensity = 1.0f;
+    float range = 8.0f;
+};
+
+struct SceneSpotLight {
+    Vec3 position = Vec3::Zero();
+    Vec3 direction = Vec3{ 0.0f, -1.0f, 0.0f };
+    Vec3 color = Vec3::One();
+    float intensity = 1.0f;
+    float range = 8.0f;
+    float innerConeCos = 0.9f;
+    float outerConeCos = 0.8f;
+};
+
+struct SceneLightData {
+    Vec3 direction = Vec3{ -0.55f, -1.0f, -0.45f }.Normalized();
+    Vec3 color = Vec3::One();
+    float directionalIntensity = 0.0f;
+    float ambientIntensity = 1.0f;
+    std::vector<ScenePointLight> pointLights;
+    std::vector<SceneSpotLight> spotLights;
+};
+
+struct ScenePostProcessData {
+    float exposure = 1.0f;
+    float gamma = 2.2f;
+    float toneMapping = 1.0f;
+    float vignette = 0.0f;
+    float saturation = 1.0f;
+    float contrast = 1.0f;
+    float antiAliasingStrength = 0.0f;
+};
+
+void FillColorConstants(float out[4], const MaterialAsset& material,
+                        const char* name, const Vec3& fallback, float fallbackAlpha = 1.0f)
+{
+    const MaterialParam color = material.GetParam(
+        name, MaterialParam::FromColor(fallback, fallbackAlpha));
+    out[0] = color.data[0];
+    out[1] = color.data[1];
+    out[2] = color.data[2];
+    out[3] = color.data[3];
+}
+
+SceneLightData CollectSceneLights(const Scene& scene)
+{
+    SceneLightData out;
+    bool foundDirectional = false;
+    scene.ForEach([&](Actor& actor) {
+        if (!actor.IsActive()) return;
+        auto* light = actor.GetComponent<LightComponent>();
+        if (!light || !light->IsEnabled()) return;
+
+        if (light->GetLightType() == LightType::Directional) {
+            if (!foundDirectional) {
+                out.direction = light->GetDirection();
+                out.color = light->GetColor();
+                out.directionalIntensity = light->GetIntensity();
+                foundDirectional = true;
+            }
+            return;
+        }
+
+        if (light->GetLightType() == LightType::Point && out.pointLights.size() < 4) {
+            ScenePointLight point;
+            point.position = actor.GetWorldPosition();
+            point.color = light->GetColor();
+            point.intensity = light->GetIntensity();
+            point.range = light->GetRange();
+            out.pointLights.push_back(point);
+            return;
+        }
+
+        if (light->GetLightType() == LightType::Spot && out.spotLights.size() < 4) {
+            SceneSpotLight spot;
+            spot.position = actor.GetWorldPosition();
+            spot.direction = light->GetDirection();
+            spot.color = light->GetColor();
+            spot.intensity = light->GetIntensity();
+            spot.range = light->GetRange();
+            spot.innerConeCos = std::cos(light->GetInnerConeAngle() * kDeg2Rad);
+            spot.outerConeCos = std::cos(light->GetOuterConeAngle() * kDeg2Rad);
+            out.spotLights.push_back(spot);
+        }
+    });
+    return out;
+}
+
+ScenePostProcessData CollectPostProcess(const Scene& scene)
+{
+    ScenePostProcessData out;
+    bool found = false;
+    scene.ForEach([&](Actor& actor) {
+        if (found || !actor.IsActive()) return;
+        auto* post = actor.GetComponent<PostProcessComponent>();
+        if (!post || !post->IsEnabled()) return;
+        out.exposure = post->GetExposure();
+        out.gamma = post->GetGamma();
+        out.toneMapping = post->IsToneMappingEnabled() ? 1.0f : 0.0f;
+        out.vignette = post->GetVignette();
+        out.saturation = post->GetSaturation();
+        out.contrast = post->GetContrast();
+        out.antiAliasingStrength = post->GetAntiAliasingStrength();
+        found = true;
+    });
+    return out;
+}
 
 } // namespace
 
@@ -44,11 +225,68 @@ void MainPass::Resize(uint32_t, uint32_t)
 
 void MainPass::SetShadowInput(const Mat4& lightViewProj,
                               const Vec3& lightDirection,
-                              GpuTexture* shadowMap)
+                              bool directionalShadowEnabled,
+                              GpuTexture* shadowMap,
+                              const Mat4& spotLightViewProj,
+                              int spotShadowIndex,
+                              GpuTexture* spotShadowMap,
+                              const Vec3& pointShadowPosition,
+                              float pointShadowRange,
+                              int pointShadowIndex,
+                              GpuTexture* pointShadowMap,
+                              const Mat4* cascadeViewProj,
+                              uint32_t cascadeCount,
+                              const float* cascadeSplits)
 {
     m_LightViewProj = lightViewProj;
     m_LightDirection = lightDirection;
+    m_DirectionalShadowEnabled = directionalShadowEnabled;
     m_ShadowMap = shadowMap;
+    m_SpotLightViewProj = spotLightViewProj;
+    m_SpotShadowIndex = spotShadowIndex;
+    m_SpotShadowMap = spotShadowMap;
+    m_PointShadowPosition = pointShadowPosition;
+    m_PointShadowRange = pointShadowRange;
+    m_PointShadowIndex = pointShadowIndex;
+    m_PointShadowMap = pointShadowMap;
+    for (uint32_t i = 0; i < 3; ++i) {
+        m_LightViewProjCascade[i] =
+            (cascadeViewProj && i < cascadeCount) ? cascadeViewProj[i] : Mat4::Identity();
+    }
+    if (cascadeSplits) {
+        std::memcpy(m_CascadeSplits, cascadeSplits, sizeof(m_CascadeSplits));
+    } else {
+        std::memset(m_CascadeSplits, 0, sizeof(m_CascadeSplits));
+    }
+}
+
+void MainPass::SetCascadeShadowInput(const Mat4* cascadeViewProj, uint32_t cascadeCount,
+                                     const float* cascadeSplits)
+{
+    const uint32_t count = (std::min)(cascadeCount, 3u);
+    for (uint32_t i = 0; i < 3; ++i) {
+        m_LightViewProjCascade[i] =
+            (cascadeViewProj && i < count) ? cascadeViewProj[i] : Mat4::Identity();
+    }
+    if (cascadeSplits) {
+        for (uint32_t i = 0; i < 4; ++i) {
+            m_CascadeSplits[i] = cascadeSplits[i];
+        }
+    } else {
+        std::memset(m_CascadeSplits, 0, sizeof(m_CascadeSplits));
+    }
+}
+
+void MainPass::SetEnvironmentInput(GpuTexture* environmentCubemap, GpuTexture* sh2Buffer,
+                                   const float* sh2Coefficients)
+{
+    m_EnvironmentCubemap = environmentCubemap;
+    m_EnvironmentSH2Buffer = sh2Buffer;
+    if (sh2Coefficients) {
+        std::memcpy(m_EnvironmentSH2, sh2Coefficients, sizeof(m_EnvironmentSH2));
+    } else {
+        std::memset(m_EnvironmentSH2, 0, sizeof(m_EnvironmentSH2));
+    }
 }
 
 void MainPass::EnsureMeshUploaded(MeshAsset* mesh)
@@ -92,16 +330,20 @@ GpuShader* MainPass::GetOrCreateShader()
 #ifdef MYENGINE_PLATFORM_WINDOWS
     ShaderManager::Get().SetContext(Context());
 
-    if (dynamic_cast<D3D11Context*>(Context()) != nullptr) {
+    const bool supportsWindowsPbr =
+        dynamic_cast<D3D11Context*>(Context()) != nullptr ||
+        dynamic_cast<D3D12Context*>(Context()) != nullptr;
+    if (supportsWindowsPbr) {
         if (!m_MainShaderHandle) {
             m_MainShaderHandle = ShaderManager::Get().GetOrCreate(
                 "src/Runtime/Renderer/Shaders/ShadowedMainPass.hlsl",
                 "VSMain", "PSMain",
                 k_MeshVertexLayout, k_MeshVertexLayoutCount);
-            m_ShaderMode = ShaderMode::ShadowedD3D11;
+            m_ShaderMode = ShaderMode::ShadowedPbr;
         }
-        if ((!m_MainShaderHandle || !m_MainShaderHandle->shader) && m_ShaderMode == ShaderMode::ShadowedD3D11) {
-            Logger::Warn("[MainPass] Shadowed D3D11 shader failed; fallback to legacy shader");
+        if ((!m_MainShaderHandle || !m_MainShaderHandle->shader) &&
+            m_ShaderMode == ShaderMode::ShadowedPbr) {
+            Logger::Warn("[MainPass] PBR shader failed; fallback to legacy shader");
             m_MainShaderHandle = ShaderManager::Get().GetOrCreate(
                 "src/Runtime/Renderer/Shaders/Mesh.hlsl",
                 "VSMain", "PSMain",
@@ -136,6 +378,48 @@ GpuShader* MainPass::GetOrCreateShader()
     return m_MainShaderHandle->shader.get();
 }
 
+GpuShader* MainPass::GetOrCreateSkyShader()
+{
+    if (!Context()) return nullptr;
+    ShaderManager::Get().SetContext(Context());
+    if (!m_SkyShaderHandle) {
+        m_SkyShaderHandle = ShaderManager::Get().GetOrCreate(
+            "src/Runtime/Renderer/Shaders/ProceduralSky.hlsl",
+            "VSMain", "PSMain", nullptr, 0);
+    }
+    return m_SkyShaderHandle ? m_SkyShaderHandle->shader.get() : nullptr;
+}
+
+void MainPass::RenderSky(const Camera& camera, GpuCommandList& cmd)
+{
+    GpuShader* skyShader = GetOrCreateSkyShader();
+    if (!skyShader) return;
+    SkyConstants constants{};
+    const Vec3 forward = camera.GetForward();
+    const Vec3 right = camera.GetRight();
+    const Vec3 up = camera.GetCamUp();
+    constants.forward[0] = forward.x;
+    constants.forward[1] = forward.y;
+    constants.forward[2] = forward.z;
+    constants.right[0] = right.x;
+    constants.right[1] = right.y;
+    constants.right[2] = right.z;
+    constants.up[0] = up.x;
+    constants.up[1] = up.y;
+    constants.up[2] = up.z;
+    constants.parameters[0] = std::tan(camera.GetFovY() * kDeg2Rad * 0.5f);
+    constants.parameters[1] = camera.GetAspect();
+    constants.parameters[2] = 1.0f;
+    constants.parameters[3] = 1.0f;
+
+    cmd.BindShader(skyShader);
+    cmd.SetBlendMode(GpuBlendMode::Opaque);
+    cmd.BindVertexBuffer(nullptr);
+    cmd.BindIndexBuffer(nullptr);
+    cmd.SetVSConstants(&constants, sizeof(constants));
+    cmd.Draw(3);
+}
+
 void MainPass::Execute(const Scene& scene, const Camera& camera)
 {
     if (!Context()) return;
@@ -145,27 +429,93 @@ void MainPass::Execute(const Scene& scene, const Camera& camera)
     GpuShader* shader = GetOrCreateShader();
     if (!shader) return;
 
-    Context()->BeginFrame(0.12f, 0.12f, 0.18f);
+    // BeginFrame/EndFrame moved to Renderer for offscreen pipeline.
 
     const Mat4 viewProj = camera.GetViewProj();
+    const SceneLightData sceneLights = CollectSceneLights(scene);
+    const ScenePostProcessData postProcess = CollectPostProcess(scene);
+    RenderSky(camera, *cmd);
     cmd->BindShader(shader);
 
+    std::vector<RenderItem> opaqueItems;
+    std::vector<RenderItem> transparentItems;
     scene.ForEach([&](Actor& actor) {
         if (!actor.IsActive()) return;
-        auto* mr = actor.GetComponent<MeshRendererComponent>();
-        if (!mr || !mr->IsValid()) return;
+        MeshAsset* mesh = nullptr;
+        MaterialAsset* mat = nullptr;
+        SkinnedMeshRendererComponent* skin = nullptr;
+        if (!GetRenderable(actor, mesh, mat, skin)) return;
+        const Mat4 world = actor.GetWorldMatrix();
+        if (!camera.IsVisible(TransformAABB(mesh->GetAABB(), world))) return;
 
-        MeshAsset* mesh = mr->GetMesh().Get();
-        MaterialAsset* mat = mr->GetMaterial().Get();
-        if (!mesh || !mat) return;
+        RenderItem item;
+        item.actor = &actor;
+        item.mesh = mesh;
+        item.material = mat;
+        item.skin = skin;
+        item.distanceSq = (actor.GetWorldPosition() - camera.GetPosition()).LengthSq();
+        if (mat->GetBlendMode() == BlendMode::Transparent) {
+            transparentItems.push_back(item);
+        } else {
+            opaqueItems.push_back(item);
+        }
+    });
+    std::sort(opaqueItems.begin(), opaqueItems.end(),
+        [](const RenderItem& a, const RenderItem& b) {
+            if (a.mesh != b.mesh) return a.mesh < b.mesh;
+            if (a.material != b.material) return a.material < b.material;
+            return a.distanceSq < b.distanceSq;
+        });
+    std::sort(transparentItems.begin(), transparentItems.end(),
+        [](const RenderItem& a, const RenderItem& b) {
+            return a.distanceSq > b.distanceSq;
+        });
+    opaqueItems.insert(opaqueItems.end(), transparentItems.begin(), transparentItems.end());
+
+    for (size_t itemIndex = 0; itemIndex < opaqueItems.size();) {
+        const RenderItem& item = opaqueItems[itemIndex];
+        size_t instanceCount = 1;
+        if (m_ShaderMode == ShaderMode::ShadowedPbr &&
+            item.skin == nullptr &&
+            item.material->GetBlendMode() != BlendMode::Transparent) {
+            while (instanceCount < 64 &&
+                   itemIndex + instanceCount < opaqueItems.size()) {
+                const RenderItem& candidate = opaqueItems[itemIndex + instanceCount];
+                if (candidate.mesh != item.mesh ||
+                    candidate.material != item.material ||
+                    candidate.skin != nullptr ||
+                    candidate.material->GetBlendMode() == BlendMode::Transparent) {
+                    break;
+                }
+                ++instanceCount;
+            }
+        }
+        Actor& actor = *item.actor;
+        MeshAsset* mesh = item.mesh;
+        MaterialAsset* mat = item.material;
+        cmd->SetBlendMode(mat->GetBlendMode() == BlendMode::Transparent
+            ? GpuBlendMode::Alpha : GpuBlendMode::Opaque);
+        cmd->SetRasterState(mat->IsTwoSided(), mat->IsWireframe());
 
         EnsureMeshUploaded(mesh);
-        if (!mesh->GetVertexBuffer()) return;
+        if (!mesh->GetVertexBuffer()) continue;
 
-        const Mat4 world = actor.GetWorldMatrix();
-        const Mat4 mvp = world * viewProj;
+        GpuShader* drawShader = shader;
+        if (mat->HasShader()) {
+            drawShader = mat->GetShader();
+        }
+        if (drawShader) {
+            cmd->BindShader(drawShader);
+        }
 
-        cmd->BindVertexBuffer(mesh->GetVertexBuffer());
+            const Mat4 world = actor.GetWorldMatrix();
+            const Mat4 mvp = world * viewProj;
+            Mat4 normalMatrix = Mat4::Identity();
+            if (Mat4Invert(world, normalMatrix)) {
+                normalMatrix = normalMatrix.Transposed();
+            }
+
+            cmd->BindVertexBuffer(mesh->GetVertexBuffer());
 
         GpuTexture* baseColorTexture = nullptr;
         if (mat->HasTexture("BaseColorMap")) {
@@ -177,48 +527,191 @@ void MainPass::Execute(const Scene& scene, const Camera& camera)
         }
         cmd->BindPSTexture(0, baseColorTexture);
 
-        if (m_ShaderMode == ShaderMode::ShadowedD3D11) {
+        if (m_ShaderMode == ShaderMode::ShadowedPbr) {
             GpuTexture* shadowTexture = m_ShadowMap ? m_ShadowMap : baseColorTexture;
             cmd->BindPSTexture(1, shadowTexture);
 
+            const char* mapSlots[] = {
+                "NormalMap", "MetallicRoughnessMap", "OcclusionMap", "EmissiveMap"
+            };
+            float mapFlags[4] = {};
+            for (uint32_t mapIndex = 0; mapIndex < 4; ++mapIndex) {
+                GpuTexture* gpuTexture = nullptr;
+                if (mat->HasTexture(mapSlots[mapIndex])) {
+                    TextureAsset* texture = mat->GetTexture(mapSlots[mapIndex]).Get();
+                    if (texture) {
+                        EnsureTextureUploaded(texture);
+                        gpuTexture = static_cast<GpuTexture*>(texture->GetGpuHandle());
+                        mapFlags[mapIndex] = gpuTexture ? 1.0f : 0.0f;
+                    }
+                }
+                cmd->BindPSTexture(2 + mapIndex, gpuTexture);
+            }
+            cmd->BindPSTexture(6, m_SpotShadowMap);
+            cmd->BindPSTexture(7, m_PointShadowMap);
+
+            GpuTexture* iblTexture = nullptr;
+            float iblEnabled = 0.0f;
+            if (m_EnvironmentCubemap && m_EnvironmentCubemap->IsCube()) {
+                iblTexture = m_EnvironmentCubemap;
+                iblEnabled = 1.0f;
+            } else if (mat->HasTexture("IBLCubemap")) {
+                TextureAsset* iblAsset = mat->GetTexture("IBLCubemap").Get();
+                if (iblAsset) {
+                    EnsureTextureUploaded(iblAsset);
+                    iblTexture = static_cast<GpuTexture*>(iblAsset->GetGpuHandle());
+                    iblEnabled = (iblTexture && iblTexture->IsCube()) ? 1.0f : 0.0f;
+                }
+            }
+            cmd->BindPSTexture(8, iblEnabled > 0.5f ? iblTexture : nullptr);
+            cmd->BindPSTexture(9, m_EnvironmentSH2Buffer);
+
             ShadowedPerDrawConstants constants{};
-            std::memcpy(constants.mvp, viewProj.Data(), sizeof(constants.mvp));
+            std::memcpy(constants.viewProj, viewProj.Data(), sizeof(constants.viewProj));
             std::memcpy(constants.world, world.Data(), sizeof(constants.world));
             std::memcpy(constants.lightViewProj, m_LightViewProj.Data(), sizeof(constants.lightViewProj));
+            for (uint32_t cascade = 0; cascade < 3; ++cascade) {
+                std::memcpy(constants.lightViewProjCascade[cascade],
+                            m_LightViewProjCascade[cascade].Data(),
+                            sizeof(constants.lightViewProjCascade[cascade]));
+            }
+            std::memcpy(constants.cascadeSplits, m_CascadeSplits, sizeof(constants.cascadeSplits));
+            std::memcpy(constants.spotLightViewProj, m_SpotLightViewProj.Data(), sizeof(constants.spotLightViewProj));
 
-            const Vec3 baseColor = mat->GetColor("BaseColor", Vec3::One());
-            constants.baseColor[0] = baseColor.x;
-            constants.baseColor[1] = baseColor.y;
-            constants.baseColor[2] = baseColor.z;
-            constants.baseColor[3] = 1.0f;
+            FillColorConstants(constants.baseColor, *mat, "BaseColor", Vec3::One());
 
-            constants.lightDirection[0] = m_LightDirection.x;
-            constants.lightDirection[1] = m_LightDirection.y;
-            constants.lightDirection[2] = m_LightDirection.z;
-            constants.lightDirection[3] = 0.0f;
+            constants.lightDirection[0] = sceneLights.direction.x;
+            constants.lightDirection[1] = sceneLights.direction.y;
+            constants.lightDirection[2] = sceneLights.direction.z;
+            constants.lightDirection[3] = sceneLights.directionalIntensity;
+
+            constants.lightColor[0] = sceneLights.color.x;
+            constants.lightColor[1] = sceneLights.color.y;
+            constants.lightColor[2] = sceneLights.color.z;
+            constants.lightColor[3] = 1.0f;
+
+            const Vec3 cameraPosition = camera.GetPosition();
+            constants.cameraPosition[0] = cameraPosition.x;
+            constants.cameraPosition[1] = cameraPosition.y;
+            constants.cameraPosition[2] = cameraPosition.z;
+            constants.cameraPosition[3] = 1.0f;
+            const Vec3 cameraForward = camera.GetForward();
+            constants.cameraForward[0] = cameraForward.x;
+            constants.cameraForward[1] = cameraForward.y;
+            constants.cameraForward[2] = cameraForward.z;
+            constants.cameraForward[3] = 0.0f;
+
+            constants.material[0] = std::clamp(mat->GetFloat("Metallic", 0.0f), 0.0f, 1.0f);
+            constants.material[1] = std::clamp(mat->GetFloat("Roughness", 0.5f), 0.04f, 1.0f);
+            constants.material[2] = (std::max)(0.0f, mat->GetFloat("AmbientOcclusion", 1.0f));
+            constants.material[3] = mat->GetAlphaThreshold();
+
+            const Vec3 emissive = mat->GetColor("Emissive", Vec3::Zero());
+            constants.emissive[0] = emissive.x;
+            constants.emissive[1] = emissive.y;
+            constants.emissive[2] = emissive.z;
+            constants.emissive[3] =
+                mat->GetBlendMode() == BlendMode::AlphaTest ? 1.0f : 0.0f;
+            std::memcpy(constants.mapFlags, mapFlags, sizeof(mapFlags));
+            const size_t pointCount = (std::min)(sceneLights.pointLights.size(), size_t{4});
+            for (size_t i = 0; i < pointCount; ++i) {
+                const ScenePointLight& point = sceneLights.pointLights[i];
+                constants.pointLightPositions[i][0] = point.position.x;
+                constants.pointLightPositions[i][1] = point.position.y;
+                constants.pointLightPositions[i][2] = point.position.z;
+                constants.pointLightPositions[i][3] = point.range;
+                constants.pointLightColors[i][0] = point.color.x;
+                constants.pointLightColors[i][1] = point.color.y;
+                constants.pointLightColors[i][2] = point.color.z;
+                constants.pointLightColors[i][3] = point.intensity;
+            }
+            const size_t spotCount = (std::min)(sceneLights.spotLights.size(), size_t{4});
+            for (size_t i = 0; i < spotCount; ++i) {
+                const SceneSpotLight& spot = sceneLights.spotLights[i];
+                constants.spotLightPositions[i][0] = spot.position.x;
+                constants.spotLightPositions[i][1] = spot.position.y;
+                constants.spotLightPositions[i][2] = spot.position.z;
+                constants.spotLightPositions[i][3] = spot.range;
+                constants.spotLightDirections[i][0] = spot.direction.x;
+                constants.spotLightDirections[i][1] = spot.direction.y;
+                constants.spotLightDirections[i][2] = spot.direction.z;
+                constants.spotLightDirections[i][3] = 0.0f;
+                constants.spotLightColors[i][0] = spot.color.x;
+                constants.spotLightColors[i][1] = spot.color.y;
+                constants.spotLightColors[i][2] = spot.color.z;
+                constants.spotLightColors[i][3] = spot.intensity;
+                constants.spotLightParams[i][0] = spot.innerConeCos;
+                constants.spotLightParams[i][1] = spot.outerConeCos;
+            }
+            constants.lightInfo[0] = static_cast<float>(pointCount);
+            constants.lightInfo[1] = sceneLights.ambientIntensity;
+            constants.lightInfo[2] = static_cast<float>(spotCount);
+            constants.pointShadowPosition[0] = m_PointShadowPosition.x;
+            constants.pointShadowPosition[1] = m_PointShadowPosition.y;
+            constants.pointShadowPosition[2] = m_PointShadowPosition.z;
+            constants.pointShadowPosition[3] = m_PointShadowRange;
+            constants.shadowInfo[0] =
+                (m_DirectionalShadowEnabled && m_ShadowMap) ? 1.0f : 0.0f;
+            constants.shadowInfo[1] = static_cast<float>(m_SpotShadowIndex);
+            constants.shadowInfo[2] = static_cast<float>(m_PointShadowIndex);
+            constants.shadowInfo[3] = 0.05f;
+            constants.postProcess[0] = postProcess.exposure;
+            constants.postProcess[1] = postProcess.gamma;
+            constants.postProcess[2] = postProcess.toneMapping;
+            constants.postProcess[3] = postProcess.vignette;
+            constants.postProcess2[0] = postProcess.saturation;
+            constants.postProcess2[1] = postProcess.contrast;
+            constants.postProcess2[2] = postProcess.antiAliasingStrength;
+            constants.postProcess2[3] = m_HdrPassthrough ? -1.0f : 0.0f;
+            constants.drawInfo[0] = static_cast<float>(instanceCount);
+            constants.drawInfo[1] = constants.shadowInfo[0];
+            for (size_t instance = 0; instance < instanceCount; ++instance) {
+                const Mat4 instanceMatrix =
+                    opaqueItems[itemIndex + instance].actor->GetWorldMatrix();
+                std::memcpy(constants.instanceWorld[instance], instanceMatrix.Data(),
+                            sizeof(constants.instanceWorld[instance]));
+                Mat4 instanceNormalMatrix = Mat4::Identity();
+                if (Mat4Invert(instanceMatrix, instanceNormalMatrix)) {
+                    instanceNormalMatrix = instanceNormalMatrix.Transposed();
+                }
+                std::memcpy(constants.instanceNormal[instance], instanceNormalMatrix.Data(),
+                            sizeof(constants.instanceNormal[instance]));
+            }
+            if (item.skin && item.skin->UsesGpuSkinning()) {
+                const auto& matrices = item.skin->GetSkinMatrices();
+                const size_t boneCount = (std::min)(matrices.size(), size_t{128});
+                constants.skinInfo[0] = static_cast<float>(boneCount);
+                for (size_t bone = 0; bone < boneCount; ++bone) {
+                    std::memcpy(constants.boneMatrices[bone], matrices[bone].Data(),
+                                sizeof(constants.boneMatrices[bone]));
+                }
+            }
+            constants.iblInfo[0] = iblEnabled;
+            constants.iblInfo[1] = mat->GetFloat("IBLIntensity", 1.0f);
+            std::memcpy(constants.normalMatrix, normalMatrix.Data(),
+                        sizeof(constants.normalMatrix));
 
             if (mesh->GetIndexBuffer()) {
                 cmd->BindIndexBuffer(mesh->GetIndexBuffer());
                 for (const auto& sm : mesh->GetSubMeshes()) {
                     cmd->SetVSConstants(&constants, sizeof(constants));
-                    cmd->DrawIndexed(sm.indexCount, sm.indexOffset,
-                                     static_cast<uint32_t>(sm.vertexOffset));
+                    cmd->DrawIndexedInstanced(
+                        sm.indexCount, static_cast<uint32_t>(instanceCount),
+                        sm.indexOffset, static_cast<uint32_t>(sm.vertexOffset));
                 }
             } else {
                 cmd->BindIndexBuffer(nullptr);
                 for (const auto& sm : mesh->GetSubMeshes()) {
                     cmd->SetVSConstants(&constants, sizeof(constants));
-                    cmd->Draw(sm.indexCount, sm.vertexOffset);
+                    cmd->DrawInstanced(
+                        sm.indexCount, static_cast<uint32_t>(instanceCount),
+                        sm.vertexOffset);
                 }
             }
         } else {
             LegacyPerDrawConstants constants{};
             std::memcpy(constants.mvp, mvp.Data(), sizeof(constants.mvp));
-            const Vec3 baseColor = mat->GetColor("BaseColor", Vec3::One());
-            constants.baseColor[0] = baseColor.x;
-            constants.baseColor[1] = baseColor.y;
-            constants.baseColor[2] = baseColor.z;
-            constants.baseColor[3] = 1.0f;
+            FillColorConstants(constants.baseColor, *mat, "BaseColor", Vec3::One());
 
             if (mesh->GetIndexBuffer()) {
                 cmd->BindIndexBuffer(mesh->GetIndexBuffer());
@@ -235,9 +728,8 @@ void MainPass::Execute(const Scene& scene, const Camera& camera)
                 }
             }
         }
-    });
-
-    if (m_PresentEnabled) {
-        Context()->EndFrame();
+        itemIndex += instanceCount;
     }
+
+    // EndFrame called by Renderer after PostProcessPass.
 }

@@ -14,6 +14,13 @@
 ## Build and run
 
 - **Prerequisites**: [xmake](https://xmake.io/) ≥ **2.8.0**, C++17 toolchain (MSVC on Windows, Clang on macOS). On Windows, **PowerShell** is used for HLSL embedding (see below).
+- **Smoke check** (recommended before/after engine changes):
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\smoke.ps1
+```
+
+This checks that `xmake` itself starts, configures debug mode, builds, and runs `MyEngineTests`.
 - **Configure and build** (from repo root):
 
 ```bash

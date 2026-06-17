@@ -20,8 +20,8 @@ struct Transform {
         Mat4 rx = Mat4::RotationX(rotation.x * kDeg2Rad);
         Mat4 rz = Mat4::RotationZ(rotation.z * kDeg2Rad);
         Mat4 s  = Mat4::Scale(scale);
-        // TRS = T * Ry * Rx * Rz * S
-        return t * ry * rx * rz * s;
+        // Row-vector TRS: v * S * Ry * Rx * Rz * T.
+        return s * ry * rx * rz * t;
     }
 
     // 本地前向量

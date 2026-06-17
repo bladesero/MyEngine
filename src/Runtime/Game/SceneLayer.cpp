@@ -27,7 +27,10 @@ void SceneLayer::OnDetach()
 
 void SceneLayer::OnUpdate(float dt)
 {
-    m_Scene->OnUpdate(dt);
+    if (m_RunState == SceneRunState::Play || m_StepRequested) {
+        m_Scene->OnUpdate(dt);
+        m_StepRequested = false;
+    }
 }
 
 void SceneLayer::OnEvent(Event& event)
@@ -42,6 +45,7 @@ void SceneLayer::OnEvent(Event& event)
 
 void SceneLayer::NewScene(const std::string& sceneName)
 {
+    if (!IsEditing()) StopPlay();
     OnSceneUnloaded();
 
     m_Scene          = std::make_unique<Scene>(sceneName);
@@ -54,6 +58,7 @@ void SceneLayer::NewScene(const std::string& sceneName)
 
 bool SceneLayer::LoadScene(const std::string& filepath)
 {
+    if (!IsEditing()) StopPlay();
     OnSceneUnloaded();
 
     auto newScene = std::make_unique<Scene>();
@@ -83,11 +88,83 @@ bool SceneLayer::SaveScene()
 
 bool SceneLayer::SaveSceneAs(const std::string& filepath)
 {
+    if (!IsEditing()) {
+        Logger::Warn("[SceneLayer] Runtime scene cannot be saved; stop Play mode first");
+        return false;
+    }
     if (!SceneSerializer::SaveToFile(*m_Scene, filepath)) {
         Logger::Error("[SceneLayer] Failed to save: ", filepath);
         return false;
     }
     m_SceneFilePath = filepath;
     m_Dirty         = false;
+    return true;
+}
+
+bool SceneLayer::CloneSceneFromJson(const std::string& json)
+{
+    auto clone = std::make_unique<Scene>();
+    if (!SceneSerializer::LoadFromString(*clone, json)) return false;
+    OnSceneUnloaded();
+    m_Scene = std::move(clone);
+    OnSceneLoaded();
+    return true;
+}
+
+bool SceneLayer::BeginPlay()
+{
+    if (m_RunState != SceneRunState::Edit) {
+        if (m_RunState == SceneRunState::Pause) ResumePlay();
+        return true;
+    }
+
+    m_EditSceneSnapshot = SceneSerializer::SaveToString(*m_Scene);
+    m_EditDirtySnapshot = m_Dirty;
+    if (!CloneSceneFromJson(m_EditSceneSnapshot)) {
+        m_EditSceneSnapshot.clear();
+        Logger::Error("[SceneLayer] Failed to clone scene for Play mode");
+        return false;
+    }
+    m_RunState = SceneRunState::Play;
+    m_StepRequested = false;
+    Logger::Info("[SceneLayer] Enter Play mode");
+    return true;
+}
+
+void SceneLayer::StopPlay()
+{
+    if (m_RunState == SceneRunState::Edit) return;
+    const std::string snapshot = std::move(m_EditSceneSnapshot);
+    m_EditSceneSnapshot.clear();
+    if (!snapshot.empty() && !CloneSceneFromJson(snapshot)) {
+        Logger::Error("[SceneLayer] Failed to restore Edit scene");
+    }
+    m_Dirty = m_EditDirtySnapshot;
+    m_RunState = SceneRunState::Edit;
+    m_StepRequested = false;
+    Logger::Info("[SceneLayer] Return to Edit mode");
+}
+
+void SceneLayer::PausePlay()
+{
+    if (m_RunState == SceneRunState::Play) {
+        m_RunState = SceneRunState::Pause;
+        Logger::Info("[SceneLayer] Play mode paused");
+    }
+}
+
+void SceneLayer::ResumePlay()
+{
+    if (m_RunState == SceneRunState::Pause) {
+        m_RunState = SceneRunState::Play;
+        Logger::Info("[SceneLayer] Play mode resumed");
+    }
+}
+
+bool SceneLayer::StepPlay()
+{
+    if (m_RunState == SceneRunState::Edit && !BeginPlay()) return false;
+    m_RunState = SceneRunState::Pause;
+    m_StepRequested = true;
     return true;
 }

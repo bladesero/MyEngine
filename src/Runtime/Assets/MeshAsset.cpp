@@ -1,5 +1,49 @@
 #include "Assets/MeshAsset.h"
+#include <algorithm>
 #include <cmath>
+
+void MeshAsset::RebuildDerivedData()
+{
+    m_Lods.clear();
+    if (!m_Indices.empty()) {
+        m_Lods.push_back({ m_Indices, 1.0f });
+        const size_t triangleCount = m_Indices.size() / 3;
+        for (size_t stride : { size_t{2}, size_t{4} }) {
+            if (triangleCount <= 1) break;
+            MeshLod lod;
+            lod.screenCoverage = 1.0f / static_cast<float>(stride);
+            lod.indices.reserve(((triangleCount + stride - 1) / stride) * 3);
+            for (size_t triangle = 0; triangle < triangleCount; triangle += stride) {
+                const size_t firstIndex = triangle * 3;
+                lod.indices.insert(lod.indices.end(), {
+                    m_Indices[firstIndex],
+                    m_Indices[firstIndex + 1],
+                    m_Indices[firstIndex + 2]
+                });
+            }
+            if (lod.indices.size() < m_Lods.back().indices.size()) {
+                m_Lods.push_back(std::move(lod));
+            }
+        }
+    }
+
+    m_ColliderData = {};
+    m_ColliderData.bounds = m_AABB;
+    if (m_Vertices.empty()) return;
+    const Vec3& lo = m_AABB.min;
+    const Vec3& hi = m_AABB.max;
+    m_ColliderData.vertices = {
+        {lo.x, lo.y, lo.z}, {hi.x, lo.y, lo.z},
+        {hi.x, hi.y, lo.z}, {lo.x, hi.y, lo.z},
+        {lo.x, lo.y, hi.z}, {hi.x, lo.y, hi.z},
+        {hi.x, hi.y, hi.z}, {lo.x, hi.y, hi.z},
+    };
+    m_ColliderData.indices = {
+        0,2,1, 0,3,2, 4,5,6, 4,6,7,
+        0,1,5, 0,5,4, 3,7,6, 3,6,2,
+        1,2,6, 1,6,5, 0,4,7, 0,7,3,
+    };
+}
 
 // --------------------------------------------------------------------------
 // Helper: push a quad (2 triangles) into index buffer

@@ -10,6 +10,29 @@
 #endif
 
 #include <sstream>
+#include <fstream>
+#include <filesystem>
+
+namespace {
+
+std::filesystem::path ResolveShaderPath(const std::string& path)
+{
+    namespace fs = std::filesystem;
+    fs::path requested(path);
+    if (requested.is_absolute() || fs::exists(requested)) return requested;
+
+    fs::path cursor = fs::current_path();
+    while (!cursor.empty()) {
+        const fs::path candidate = cursor / requested;
+        if (fs::exists(candidate)) return candidate;
+        const fs::path parent = cursor.parent_path();
+        if (parent == cursor) break;
+        cursor = parent;
+    }
+    return requested;
+}
+
+} // namespace
 
 ShaderManager& ShaderManager::Get() {
     static ShaderManager g_Instance;
@@ -31,12 +54,14 @@ std::string ShaderManager::MakeKey(
 
 std::shared_ptr<GpuShader> ShaderManager::CompileRecord(const ShaderRecord& rec) {
     if (!m_Context) return nullptr;
+    const std::filesystem::path resolvedPath = ResolveShaderPath(rec.path);
+    const std::string resolvedPathString = resolvedPath.string();
 
 #ifdef MYENGINE_PLATFORM_WINDOWS
     if (dynamic_cast<D3D11Context*>(m_Context) != nullptr) {
         D3D11CompiledShaderProgram program{};
         if (!ShaderCompilerD3D11::CompileProgramFromFile(
-                rec.path, rec.vsEntry, rec.psEntry, program)) {
+                resolvedPathString, rec.vsEntry, rec.psEntry, program)) {
             return nullptr;
         }
         return m_Context->CreateShaderFromBytecode(
@@ -47,7 +72,7 @@ std::shared_ptr<GpuShader> ShaderManager::CompileRecord(const ShaderRecord& rec)
     if (dynamic_cast<D3D12Context*>(m_Context) != nullptr) {
         D3D12CompiledShaderProgram program{};
         if (!ShaderCompilerD3D12::CompileProgramFromFile(
-                rec.path, rec.vsEntry, rec.psEntry, program)) {
+                resolvedPathString, rec.vsEntry, rec.psEntry, program)) {
             return nullptr;
         }
         return m_Context->CreateShaderFromBytecode(
@@ -56,7 +81,12 @@ std::shared_ptr<GpuShader> ShaderManager::CompileRecord(const ShaderRecord& rec)
             rec.layout, rec.layoutCount);
     }
 #endif
-    return nullptr;
+    std::ifstream input(resolvedPath, std::ios::binary);
+    if (!input.is_open()) return nullptr;
+    std::ostringstream source;
+    source << input.rdbuf();
+    return m_Context->CreateShader(
+        source.str(), rec.vsEntry, rec.psEntry, rec.layout, rec.layoutCount);
 }
 
 std::shared_ptr<ShaderHandle> ShaderManager::GetOrCreate(
@@ -112,3 +142,8 @@ void ShaderManager::Recompile(const std::string& shaderPath) {
     }
 }
 
+void ShaderManager::Clear() {
+    m_Records.clear();
+    m_KeyToIndex.clear();
+    m_Context = nullptr;
+}

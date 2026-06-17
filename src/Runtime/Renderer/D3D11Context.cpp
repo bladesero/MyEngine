@@ -4,6 +4,7 @@
 
 #include <d3dcompiler.h>
 #include <dxgi.h>
+#include <sstream>
 #include <vector>
 
 #pragma comment(lib, "d3d11.lib")
@@ -66,12 +67,31 @@ public:
         m_Owner.DrawIndexed(indexCount, startIndex, baseVertex);
     }
 
+    void DrawInstanced(uint32_t vertexCount, uint32_t instanceCount,
+                       uint32_t startVertex) override {
+        m_Owner.DrawInstanced(vertexCount, instanceCount, startVertex);
+    }
+
+    void DrawIndexedInstanced(uint32_t indexCount, uint32_t instanceCount,
+                              uint32_t startIndex, uint32_t baseVertex) override {
+        m_Owner.DrawIndexedInstanced(
+            indexCount, instanceCount, startIndex, baseVertex);
+    }
+
     void SetViewport(float x, float y, float w, float h) override {
         m_Owner.SetViewport(x, y, w, h);
     }
 
     void BindPSTexture(uint32_t slot, GpuTexture* tex) override {
         m_Owner.BindPSTexture(slot, tex);
+    }
+
+    void SetBlendMode(GpuBlendMode mode) override {
+        m_Owner.SetBlendMode(mode);
+    }
+
+    void SetRasterState(bool twoSided, bool wireframe) override {
+        m_Owner.SetRasterState(twoSided, wireframe);
     }
 
     void* GetNativeHandle() const override {
@@ -165,8 +185,10 @@ bool D3D11Context::Init(IWindow* window) {
 
     // ---- Render target + depth buffer --------------------------------------
     ComPtr<ID3D11Texture2D> backBuffer;
-    m_SwapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer));
-    m_Device->CreateRenderTargetView(backBuffer.Get(), nullptr, &m_RTV);
+    hr = m_SwapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer));
+    if (FAILED(hr)) return CheckDeviceResult(hr, "D3D11 GetBuffer");
+    hr = m_Device->CreateRenderTargetView(backBuffer.Get(), nullptr, &m_RTV);
+    if (FAILED(hr)) return CheckDeviceResult(hr, "D3D11 CreateRenderTargetView");
 
     // Create depth stencil buffer
     D3D11_TEXTURE2D_DESC depthDesc = {};
@@ -178,8 +200,10 @@ bool D3D11Context::Init(IWindow* window) {
     depthDesc.SampleDesc.Count   = 1;
     depthDesc.Usage              = D3D11_USAGE_DEFAULT;
     depthDesc.BindFlags          = D3D11_BIND_DEPTH_STENCIL;
-    m_Device->CreateTexture2D(&depthDesc, nullptr, &m_Depth);
-    m_Device->CreateDepthStencilView(m_Depth.Get(), nullptr, &m_DSV);
+    hr = m_Device->CreateTexture2D(&depthDesc, nullptr, &m_Depth);
+    if (FAILED(hr)) return CheckDeviceResult(hr, "D3D11 CreateTexture2D(depth)");
+    hr = m_Device->CreateDepthStencilView(m_Depth.Get(), nullptr, &m_DSV);
+    if (FAILED(hr)) return CheckDeviceResult(hr, "D3D11 CreateDepthStencilView");
 
     m_Context->OMSetRenderTargets(1, m_RTV.GetAddressOf(), m_DSV.Get());
 
@@ -193,6 +217,12 @@ bool D3D11Context::Init(IWindow* window) {
 void D3D11Context::Shutdown() {
     ShutdownImGui();
     if (m_Context) { m_Context->ClearState(); }
+    m_RasterWireCullNone.Reset();
+    m_RasterWireCullBack.Reset();
+    m_RasterSolidCullNone.Reset();
+    m_RasterSolidCullBack.Reset();
+    m_AlphaBlendState.Reset();
+    m_OpaqueBlendState.Reset();
     m_DSV.Reset();
     m_Depth.Reset();
     m_CBuffer.Reset();
@@ -202,9 +232,14 @@ void D3D11Context::Shutdown() {
     m_Device.Reset();
     m_SwapChainWidth = 0;
     m_SwapChainHeight = 0;
+    m_DeviceLost = false;
+    m_LastDeviceError.clear();
 }
 
 void D3D11Context::BeginFrame(float r, float g, float b, float a) {
+    if (!m_Context || !m_RTV) {
+        return;
+    }
     const float color[4] = { r, g, b, a };
     m_Context->ClearRenderTargetView(m_RTV.Get(), color);
     if (m_DSV) {
@@ -291,7 +326,7 @@ void D3D11Context::RenderImGuiDrawData(ImDrawData* drawData) {
 
 void D3D11Context::PresentSwapChain(bool vsync) {
     if (!m_SwapChain) return;
-    m_SwapChain->Present(vsync ? 1 : 0, 0);
+    CheckDeviceResult(m_SwapChain->Present(vsync ? 1 : 0, 0), "D3D11 Present");
 }
 
 bool D3D11Context::ResizeSwapChain(uint32_t width, uint32_t height) {
@@ -312,8 +347,10 @@ bool D3D11Context::ResizeSwapChain(uint32_t width, uint32_t height) {
     }
 
     ComPtr<ID3D11Texture2D> backBuffer;
-    m_SwapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer));
-    m_Device->CreateRenderTargetView(backBuffer.Get(), nullptr, &m_RTV);
+    HRESULT createHr = m_SwapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer));
+    if (FAILED(createHr)) return CheckDeviceResult(createHr, "D3D11 GetBuffer after resize");
+    createHr = m_Device->CreateRenderTargetView(backBuffer.Get(), nullptr, &m_RTV);
+    if (FAILED(createHr)) return CheckDeviceResult(createHr, "D3D11 CreateRenderTargetView after resize");
 
     D3D11_TEXTURE2D_DESC depthDesc = {};
     depthDesc.Width              = static_cast<UINT>(width);
@@ -324,8 +361,10 @@ bool D3D11Context::ResizeSwapChain(uint32_t width, uint32_t height) {
     depthDesc.SampleDesc.Count   = 1;
     depthDesc.Usage              = D3D11_USAGE_DEFAULT;
     depthDesc.BindFlags          = D3D11_BIND_DEPTH_STENCIL;
-    m_Device->CreateTexture2D(&depthDesc, nullptr, &m_Depth);
-    m_Device->CreateDepthStencilView(m_Depth.Get(), nullptr, &m_DSV);
+    createHr = m_Device->CreateTexture2D(&depthDesc, nullptr, &m_Depth);
+    if (FAILED(createHr)) return CheckDeviceResult(createHr, "D3D11 CreateTexture2D(depth) after resize");
+    createHr = m_Device->CreateDepthStencilView(m_Depth.Get(), nullptr, &m_DSV);
+    if (FAILED(createHr)) return CheckDeviceResult(createHr, "D3D11 CreateDepthStencilView after resize");
 
     m_Context->OMSetRenderTargets(1, m_RTV.GetAddressOf(), m_DSV.Get());
     SetViewport(0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height));
@@ -333,6 +372,19 @@ bool D3D11Context::ResizeSwapChain(uint32_t width, uint32_t height) {
     m_SwapChainWidth = width;
     m_SwapChainHeight = height;
     return true;
+}
+
+bool D3D11Context::CheckDeviceResult(HRESULT hr, const char* operation) {
+    if (SUCCEEDED(hr)) return true;
+    std::ostringstream stream;
+    stream << operation << " failed: 0x" << std::hex << static_cast<unsigned long>(hr);
+    m_LastDeviceError = stream.str();
+    if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET ||
+        hr == DXGI_ERROR_DEVICE_HUNG) {
+        m_DeviceLost = true;
+    }
+    Logger::Error(m_LastDeviceError);
+    return false;
 }
 
 // --------------------------------------------------------------------------
@@ -441,14 +493,16 @@ std::shared_ptr<GpuShader> D3D11Context::CreateShader(
             D3D11_INPUT_PER_VERTEX_DATA, 0
         };
     }
-    hr = m_Device->CreateInputLayout(
-        descs.data(), layoutCount,
-        vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(),
-        &sh->inputLayout);
-    if (FAILED(hr)) {
-        Logger::Error("D3D11 CreateInputLayout (D3DCompile) failed: 0x",
-            reinterpret_cast<void*>(static_cast<uintptr_t>(hr)));
-        return nullptr;
+    if (layoutCount > 0) {
+        hr = m_Device->CreateInputLayout(
+            descs.data(), layoutCount,
+            vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(),
+            &sh->inputLayout);
+        if (FAILED(hr)) {
+            Logger::Error("D3D11 CreateInputLayout (D3DCompile) failed: 0x",
+                reinterpret_cast<void*>(static_cast<uintptr_t>(hr)));
+            return nullptr;
+        }
     }
 
     return sh;
@@ -462,7 +516,7 @@ std::shared_ptr<GpuShader> D3D11Context::CreateShaderFromBytecode(
     const VertexElement* layout,
     uint32_t layoutCount) {
     if (!vsBytecode || vsSize == 0 || !psBytecode || psSize == 0 ||
-        !layout || layoutCount == 0) {
+        (layoutCount > 0 && !layout)) {
         return nullptr;
     }
 
@@ -492,15 +546,17 @@ std::shared_ptr<GpuShader> D3D11Context::CreateShaderFromBytecode(
             D3D11_INPUT_PER_VERTEX_DATA, 0
         };
     }
-    hr = m_Device->CreateInputLayout(
-        descs.data(), layoutCount,
-        vsBytecode, vsSize,
-        &sh->inputLayout);
-    if (FAILED(hr)) {
-        Logger::Error(
-            "D3D11 CreateInputLayout failed (VS signature must match VertexElement layout): 0x",
-            reinterpret_cast<void*>(static_cast<uintptr_t>(hr)));
-        return nullptr;
+    if (layoutCount > 0) {
+        hr = m_Device->CreateInputLayout(
+            descs.data(), layoutCount,
+            vsBytecode, vsSize,
+            &sh->inputLayout);
+        if (FAILED(hr)) {
+            Logger::Error(
+                "D3D11 CreateInputLayout failed (VS signature must match VertexElement layout): 0x",
+                reinterpret_cast<void*>(static_cast<uintptr_t>(hr)));
+            return nullptr;
+        }
     }
 
     return sh;
@@ -535,6 +591,13 @@ void D3D11Context::BindShader(GpuShader* shader) {
 }
 
 void D3D11Context::BindVertexBuffer(GpuBuffer* buffer) {
+    if (!buffer) {
+        ID3D11Buffer* nullBuffer = nullptr;
+        const UINT stride = 0;
+        const UINT offset = 0;
+        m_Context->IASetVertexBuffers(0, 1, &nullBuffer, &stride, &offset);
+        return;
+    }
     auto* b = static_cast<D3D11Buffer*>(buffer);
     UINT offset = 0;
     m_Context->IASetVertexBuffers(0, 1, b->buffer.GetAddressOf(), &b->stride, &offset);
@@ -567,6 +630,17 @@ void D3D11Context::Draw(uint32_t vertexCount, uint32_t startVertex) {
 void D3D11Context::DrawIndexed(uint32_t indexCount, uint32_t startIndex,
                                uint32_t baseVertex) {
     m_Context->DrawIndexed(indexCount, startIndex, baseVertex);
+}
+
+void D3D11Context::DrawInstanced(uint32_t vertexCount, uint32_t instanceCount,
+                                 uint32_t startVertex) {
+    m_Context->DrawInstanced(vertexCount, instanceCount, startVertex, 0);
+}
+
+void D3D11Context::DrawIndexedInstanced(uint32_t indexCount, uint32_t instanceCount,
+                                        uint32_t startIndex, uint32_t baseVertex) {
+    m_Context->DrawIndexedInstanced(
+        indexCount, instanceCount, startIndex, baseVertex, 0);
 }
 
 void D3D11Context::SetViewport(float x, float y, float w, float h) {
@@ -650,4 +724,65 @@ void D3D11Context::BindPSTexture(uint32_t slot, GpuTexture* tex)
     auto* d3dTex = static_cast<D3D11Texture*>(tex);
     m_Context->PSSetShaderResources(slot, 1, d3dTex->srv.GetAddressOf());
     m_Context->PSSetSamplers(slot, 1, d3dTex->sampler.GetAddressOf());
+}
+
+void D3D11Context::SetBlendMode(GpuBlendMode mode)
+{
+    if (!m_Device || !m_Context) return;
+    if (!m_OpaqueBlendState || !m_AlphaBlendState) {
+        D3D11_BLEND_DESC opaqueDesc = {};
+        opaqueDesc.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+        m_Device->CreateBlendState(&opaqueDesc, &m_OpaqueBlendState);
+
+        D3D11_BLEND_DESC alphaDesc = opaqueDesc;
+        auto& target = alphaDesc.RenderTarget[0];
+        target.BlendEnable = TRUE;
+        target.SrcBlend = D3D11_BLEND_SRC_ALPHA;
+        target.DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
+        target.BlendOp = D3D11_BLEND_OP_ADD;
+        target.SrcBlendAlpha = D3D11_BLEND_ONE;
+        target.DestBlendAlpha = D3D11_BLEND_INV_SRC_ALPHA;
+        target.BlendOpAlpha = D3D11_BLEND_OP_ADD;
+        m_Device->CreateBlendState(&alphaDesc, &m_AlphaBlendState);
+    }
+    ID3D11BlendState* state = mode == GpuBlendMode::Alpha
+        ? m_AlphaBlendState.Get() : m_OpaqueBlendState.Get();
+    const float blendFactor[4] = { 0, 0, 0, 0 };
+    m_Context->OMSetBlendState(state, blendFactor, 0xffffffffu);
+}
+
+void D3D11Context::SetRasterState(bool twoSided, bool wireframe)
+{
+    if (!m_Device || !m_Context) return;
+
+    auto ensureState = [&](ComPtr<ID3D11RasterizerState>& state,
+                           D3D11_CULL_MODE cullMode,
+                           D3D11_FILL_MODE fillMode) {
+        if (state) return;
+        D3D11_RASTERIZER_DESC desc = {};
+        desc.FillMode = fillMode;
+        desc.CullMode = cullMode;
+        desc.FrontCounterClockwise = FALSE;
+        desc.DepthBias = 0;
+        desc.DepthBiasClamp = 0.0f;
+        desc.SlopeScaledDepthBias = 0.0f;
+        desc.DepthClipEnable = TRUE;
+        desc.ScissorEnable = FALSE;
+        desc.MultisampleEnable = FALSE;
+        desc.AntialiasedLineEnable = FALSE;
+        m_Device->CreateRasterizerState(&desc, &state);
+    };
+
+    ensureState(m_RasterSolidCullBack, D3D11_CULL_BACK, D3D11_FILL_SOLID);
+    ensureState(m_RasterSolidCullNone, D3D11_CULL_NONE, D3D11_FILL_SOLID);
+    ensureState(m_RasterWireCullBack, D3D11_CULL_BACK, D3D11_FILL_WIREFRAME);
+    ensureState(m_RasterWireCullNone, D3D11_CULL_NONE, D3D11_FILL_WIREFRAME);
+
+    ID3D11RasterizerState* state = nullptr;
+    if (wireframe) {
+        state = twoSided ? m_RasterWireCullNone.Get() : m_RasterWireCullBack.Get();
+    } else {
+        state = twoSided ? m_RasterSolidCullNone.Get() : m_RasterSolidCullBack.Get();
+    }
+    m_Context->RSSetState(state);
 }

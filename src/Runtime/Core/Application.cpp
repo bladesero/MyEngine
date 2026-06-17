@@ -1,6 +1,9 @@
 #include "Application.h"
 #include "Logger.h"
+#include "CrashHandler.h"
+#include "Assets/AssetManager.h"
 #include "Input/Input.h"
+#include "Renderer/ShaderManager.h"
 
 Application::Application(ApplicationConfig config)
     : m_Config(std::move(config))
@@ -8,9 +11,11 @@ Application::Application(ApplicationConfig config)
     , m_Engine(m_Config.engine) {}
 
 int Application::Run() {
+    CrashHandler::Install(m_Config.engine.appName);
     // 1. Create the OS window.
     if (!m_Window->Init(m_Config.window)) {
         Logger::Error("Failed to create window – aborting.");
+        CrashHandler::Uninstall();
         return 1;
     }
 
@@ -25,14 +30,21 @@ int Application::Run() {
     m_Engine.Init();
     m_Engine.RunLoop();
 
-    // 5. Derived-class teardown.
+    // 5. Release layers before backend teardown so renderer-owned GPU resources
+    //    are destroyed while the render context is still alive.
+    m_Engine.ClearLayers();
+    ShaderManager::Get().Clear();
+    AssetManager::Get().Clear();
+
+    // 6. Derived-class teardown.
     OnShutdown();
 
-    // 6. Tear down input state before SDL shuts down.
+    // 7. Tear down input state before SDL shuts down.
     Input::Shutdown();
 
-    // 7. Destroy window (also calls SDL_Quit).
+    // 8. Destroy window (also calls SDL_Quit).
     m_Window->Shutdown();
+    CrashHandler::Uninstall();
     return 0;
 }
 

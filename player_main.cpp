@@ -53,11 +53,13 @@ protected:
             win.GetHeight());
         sceneLayer->SetPresentEnabled(true);
         GetEngine().PushLayer(sceneLayer);
+        sceneLayer->BeginPlay();
     }
 
     void OnShutdown() override {
         if (m_RenderContext) {
             m_RenderContext->Shutdown();
+            m_RenderContext.reset();
         }
     }
 

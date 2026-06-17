@@ -50,6 +50,8 @@ public:
     float GetAspect() const { return m_Aspect;  }
     float GetNear()   const { return m_ZNear;   }
     float GetFar()    const { return m_ZFar;    }
+    float GetOrthoWidth() const { return m_OrthoW; }
+    float GetOrthoHeight() const { return m_OrthoH; }
 
     // -----------------------------------------------------------------------
     // Orthographic settings
@@ -75,6 +77,8 @@ public:
     const Mat4& GetView()     const;
     const Mat4& GetProj()     const { return m_Proj; }
     Mat4        GetViewProj() const;
+    bool        IsVisible(const AABB& worldBounds) const;
+    bool        BuildRayFromNdc(float ndcX, float ndcY, Ray& outRay) const;
 
     // -----------------------------------------------------------------------
     // Orbit-mode controls (angles in degrees, distances in world units)
@@ -109,7 +113,7 @@ private:
     Vec3 m_Up       = { 0.0f, 1.0f,  0.0f };
 
     // Fly-mode Euler angles (degrees).
-    float m_Yaw   = -90.0f;   // looking down -Z
+    float m_Yaw   = 180.0f;   // looking down +Z
     float m_Pitch =   0.0f;
 
     // ---- Projection state --------------------------------------------------

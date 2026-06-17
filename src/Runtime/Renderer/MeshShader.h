@@ -80,8 +80,10 @@ inline const VertexElement k_MeshVertexLayout[] = {
     { "NORMAL",   0, VertexFormat::Float3, offsetof(MeshVertex, normal)   },
     { "TANGENT",  0, VertexFormat::Float3, offsetof(MeshVertex, tangent)  },
     { "TEXCOORD", 0, VertexFormat::Float2, offsetof(MeshVertex, u)       },
+    { "BLENDINDICES", 0, VertexFormat::Float4, offsetof(MeshVertex, boneIndices) },
+    { "BLENDWEIGHT",  0, VertexFormat::Float4, offsetof(MeshVertex, boneWeights) },
 };
-inline constexpr uint32_t k_MeshVertexLayoutCount = 4;
+inline constexpr uint32_t k_MeshVertexLayoutCount = 6;
 
 // Per-draw constants: Mat4 MVP + Vec4 BaseColor (80 bytes, 16-byte aligned).
 struct MeshPerDrawConstants {

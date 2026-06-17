@@ -15,94 +15,79 @@
 #include <typeindex>
 #include <unordered_map>
 #include <vector>
+#include <future>
+#include <mutex>
+#include <filesystem>
 
 using AssetLoaderFn = std::function<std::shared_ptr<Asset>(const std::string& path)>;
 
 std::shared_ptr<TextureAsset> LoadTextureAssetFromFile(const std::string& path);
 std::shared_ptr<ModelAsset>   LoadModelAssetFromObj(const std::string& path);
+std::shared_ptr<ModelAsset>   LoadModelAssetFromGltf(const std::string& path);
 
 class AssetManager {
 public:
-    static AssetManager& Get() {
-        static AssetManager instance;
-        return instance;
-    }
+    // Defined in AssetManager.cpp so every EXE/DLL caller reaches the same
+    // instance owned by MyEngineRuntime.
+    static AssetManager& Get();
 
     AssetManager(const AssetManager&)            = delete;
     AssetManager& operator=(const AssetManager&) = delete;
 
     void RegisterLoader(const std::string& extension, AssetLoaderFn fn) {
+        std::lock_guard<std::recursive_mutex> lock(m_Mutex);
         m_Loaders[extension] = std::move(fn);
     }
 
     template<typename T = Asset>
     AssetHandle<T> Load(const std::string& path) {
-        const std::string normalizedPath = NormalizePath(path);
-        const AssetID id = MakeAssetID(normalizedPath);
-
-        auto it = m_Cache.find(id);
-        if (it != m_Cache.end()) {
-            auto typed = std::dynamic_pointer_cast<T>(it->second);
-            if (typed) return AssetHandle<T>{ typed };
-            Logger::Warn("[AssetManager] Type mismatch for: ", normalizedPath);
-            return {};
-        }
-
-        const std::string ext = GetExtension(normalizedPath);
-        auto loaderIt = m_Loaders.find(ext);
-        std::shared_ptr<Asset> asset;
-        if (loaderIt == m_Loaders.end()) {
-            if (ext == "png" || ext == "jpg" || ext == "jpeg" ||
-                ext == "bmp" || ext == "tga" || ext == "gif" ||
-                ext == "psd" || ext == "hdr" || ext == "pic" ||
-                ext == "pnm" || ext == "ppm" || ext == "pgm" ||
-                ext == "pam") {
-                asset = std::static_pointer_cast<Asset>(LoadTextureAssetFromFile(normalizedPath));
-            } else if (ext == "obj") {
-                asset = std::static_pointer_cast<Asset>(LoadModelAssetFromObj(normalizedPath));
-            } else {
-                Logger::Error("[AssetManager] No loader for extension '.", ext, "': ", normalizedPath);
-                return {};
-            }
-        } else {
-            asset = loaderIt->second(normalizedPath);
-        }
-        if (!asset) {
-            Logger::Error("[AssetManager] Loader returned null for: ", normalizedPath);
-            return {};
-        }
-
-        m_Cache[id] = asset;
-
+        std::shared_ptr<Asset> asset = LoadAsset(path);
         auto typed = std::dynamic_pointer_cast<T>(asset);
         if (!typed) {
-            Logger::Warn("[AssetManager] Loaded asset type mismatch: ", normalizedPath);
-            m_Cache.erase(id);
+            Logger::Warn("[AssetManager] Loaded asset type mismatch: ", path);
             return {};
         }
-
-        RegisterAssetMemoryFor(*asset);
-        Logger::Info("[AssetManager] Loaded [", AssetTypeToString(asset->GetType()),
-                     "] '", asset->GetName(), "'");
-
         return AssetHandle<T>{ typed };
     }
+
+    std::shared_ptr<Asset> LoadAsset(const std::string& path);
+    std::future<std::shared_ptr<Asset>> LoadAsync(const std::string& path);
+    bool Reload(const std::string& path);
+    size_t PollHotReload();
 
     template<typename T>
     AssetHandle<T> Register(std::shared_ptr<T> asset) {
         if (!asset) return {};
+        std::lock_guard<std::recursive_mutex> lock(m_Mutex);
+        ApplyPersistentIdentity(*asset);
         const AssetID id = asset->GetID();
         auto it = m_Cache.find(id);
         if (it != m_Cache.end()) {
-            ReleaseAssetMemoryFor(*it->second);
+            auto existing = std::dynamic_pointer_cast<T>(it->second);
+            if (existing) {
+                ReleaseAssetMemoryFor(*existing);
+                if (existing->ReloadFrom(*asset)) {
+                    existing->IncrementVersion();
+                    RefreshDependencies(*existing);
+                    RegisterAssetMemoryFor(*existing);
+                    m_PathToID[NormalizePath(existing->GetPath())] = id;
+                    return AssetHandle<T>{ std::move(existing) };
+                }
+                RegisterAssetMemoryFor(*existing);
+            } else {
+                ReleaseAssetMemoryFor(*it->second);
+            }
         }
         m_Cache[id] = std::static_pointer_cast<Asset>(asset);
+        m_PathToID[NormalizePath(asset->GetPath())] = id;
+        RefreshDependencies(*asset);
         RegisterAssetMemoryFor(*asset);
         return AssetHandle<T>{ std::move(asset) };
     }
 
     template<typename T = Asset>
     AssetHandle<T> GetByID(AssetID id) const {
+        std::lock_guard<std::recursive_mutex> lock(m_Mutex);
         auto it = m_Cache.find(id);
         if (it == m_Cache.end()) return {};
         auto typed = std::dynamic_pointer_cast<T>(it->second);
@@ -111,13 +96,17 @@ public:
 
     template<typename T = Asset>
     AssetHandle<T> GetByPath(const std::string& path) const {
-        return GetByID<T>(MakeAssetID(NormalizePath(path)));
+        std::lock_guard<std::recursive_mutex> lock(m_Mutex);
+        const auto it = m_PathToID.find(NormalizePath(path));
+        return it != m_PathToID.end() ? GetByID<T>(it->second) : AssetHandle<T>{};
     }
 
     bool IsLoaded(const std::string& path) const {
-        return m_Cache.count(MakeAssetID(NormalizePath(path))) > 0;
+        std::lock_guard<std::recursive_mutex> lock(m_Mutex);
+        return m_PathToID.count(NormalizePath(path)) > 0;
     }
     bool IsLoaded(AssetID id) const {
+        std::lock_guard<std::recursive_mutex> lock(m_Mutex);
         return m_Cache.count(id) > 0;
     }
 
@@ -138,7 +127,10 @@ public:
 
     MaterialHandle GetDefaultMaterial();
 
-    size_t CachedCount() const { return m_Cache.size(); }
+    size_t CachedCount() const {
+        std::lock_guard<std::recursive_mutex> lock(m_Mutex);
+        return m_Cache.size();
+    }
 
     // Sorted list of loaded asset paths of the given type (for editor pickers).
     std::vector<std::string> GetCachedPathsByType(AssetType type) const;
@@ -149,8 +141,14 @@ public:
     // CPU-side asset memory (rough estimate for budgeting / telemetry)
     // -----------------------------------------------------------------------
     void SetAssetCpuBudgetBytes(size_t bytes);
-    size_t GetAssetCpuBudgetBytes() const { return m_AssetCpuBudgetBytes; }
-    size_t GetEstimatedAssetCpuBytes() const { return m_AssetCpuTotalBytes; }
+    size_t GetAssetCpuBudgetBytes() const {
+        std::lock_guard<std::recursive_mutex> lock(m_Mutex);
+        return m_AssetCpuBudgetBytes;
+    }
+    size_t GetEstimatedAssetCpuBytes() const {
+        std::lock_guard<std::recursive_mutex> lock(m_Mutex);
+        return m_AssetCpuTotalBytes;
+    }
     size_t GetEstimatedAssetCpuBytesByType(AssetType type) const;
     void   LogAssetMemorySummary() const;
 
@@ -171,15 +169,23 @@ private:
     }
 
     static std::string NormalizePath(const std::string& path);
+    void ApplyPersistentIdentity(Asset& asset);
+    void RefreshDependencies(Asset& asset);
+    std::shared_ptr<Asset> InvokeLoader(const std::string& normalizedPath,
+                                        const AssetLoaderFn& loader) const;
+    bool CaptureSourceWriteTime(AssetID id, const std::string& normalizedPath);
 
     void RegisterAssetMemoryFor(const Asset& asset);
     void ReleaseAssetMemoryFor(const Asset& asset);
     void MaybeWarnAssetBudget() const;
 
     std::unordered_map<AssetID,     std::shared_ptr<Asset>> m_Cache;
+    std::unordered_map<std::string, AssetID>                m_PathToID;
     std::unordered_map<std::string, AssetLoaderFn>          m_Loaders;
 
     size_t              m_AssetCpuBudgetBytes = 0; // 0 = no budget / no warn
     size_t              m_AssetCpuTotalBytes = 0;
     std::array<size_t, 6> m_AssetCpuBytesByType{};
+    std::unordered_map<AssetID, std::filesystem::file_time_type> m_SourceWriteTimes;
+    mutable std::recursive_mutex m_Mutex;
 };

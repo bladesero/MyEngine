@@ -9,6 +9,7 @@ public:
 
     void PushLayer(Layer* layer);
     void PopLayer(Layer* layer);
+    void Clear();
 
     std::vector<Layer*>& GetLayers() { return m_Layers; }
     const std::vector<Layer*>& GetLayers() const { return m_Layers; }

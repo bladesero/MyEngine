@@ -3,6 +3,7 @@
 #include "IRenderContext.h"
 
 #include <cstddef>
+#include <string>
 
 #include <d3d11.h>
 #include <wrl/client.h>
@@ -31,6 +32,9 @@ struct D3D11Texture : GpuTexture {
     ComPtr<ID3D11Texture2D>          texture;
     ComPtr<ID3D11ShaderResourceView> srv;
     ComPtr<ID3D11SamplerState>       sampler;
+    bool isCube = false;
+
+    bool IsCube() const override { return isCube; }
 };
 
 // --------------------------------------------------------------------------
@@ -46,6 +50,8 @@ public:
 
     void BeginFrame(float r, float g, float b, float a) override;
     void EndFrame()  override;
+    bool IsDeviceLost() const override { return m_DeviceLost; }
+    const std::string& GetLastDeviceError() const override { return m_LastDeviceError; }
     GpuSwapChain* GetSwapChain() override;
     GpuCommandList* GetGraphicsCommandList() override;
     bool InitImGui(IWindow* window) override;
@@ -82,11 +88,17 @@ public:
     void Draw(uint32_t vertexCount, uint32_t startVertex)    override;
     void DrawIndexed(uint32_t indexCount, uint32_t startIndex = 0,
                      uint32_t baseVertex = 0) override;
+    void DrawInstanced(uint32_t vertexCount, uint32_t instanceCount,
+                       uint32_t startVertex = 0);
+    void DrawIndexedInstanced(uint32_t indexCount, uint32_t instanceCount,
+                              uint32_t startIndex = 0, uint32_t baseVertex = 0);
     void SetViewport(float x, float y, float w, float h)     override;
 
     std::shared_ptr<GpuTexture> UploadTexture2D(
         const void* rgba8Data, int width, int height) override;
     void BindPSTexture(uint32_t slot, GpuTexture* tex) override;
+    void SetBlendMode(GpuBlendMode mode);
+    void SetRasterState(bool twoSided, bool wireframe);
 
     // Native handles (needed by editor overlays such as ImGui).
     ID3D11Device*        GetDevice() const        { return m_Device.Get(); }
@@ -99,6 +111,7 @@ private:
     void CreateConstantBuffer(uint32_t byteSize);
     void PresentSwapChain(bool vsync);
     bool ResizeSwapChain(uint32_t width, uint32_t height);
+    bool CheckDeviceResult(HRESULT hr, const char* operation);
 
     ComPtr<ID3D11Device>           m_Device;
     ComPtr<ID3D11DeviceContext>    m_Context;
@@ -107,10 +120,18 @@ private:
     ComPtr<ID3D11Texture2D>        m_Depth;
     ComPtr<ID3D11DepthStencilView> m_DSV;
     ComPtr<ID3D11Buffer>           m_CBuffer;      // per-draw VS/PS constants
+    ComPtr<ID3D11BlendState>       m_OpaqueBlendState;
+    ComPtr<ID3D11BlendState>       m_AlphaBlendState;
+    ComPtr<ID3D11RasterizerState>  m_RasterSolidCullBack;
+    ComPtr<ID3D11RasterizerState>  m_RasterSolidCullNone;
+    ComPtr<ID3D11RasterizerState>  m_RasterWireCullBack;
+    ComPtr<ID3D11RasterizerState>  m_RasterWireCullNone;
     uint32_t                       m_CBufferSize = 0;
     uint32_t                       m_SwapChainWidth = 0;
     uint32_t                       m_SwapChainHeight = 0;
     bool                           m_ImGuiInitialized = false;
+    bool                           m_DeviceLost = false;
+    std::string                    m_LastDeviceError;
     std::unique_ptr<GpuSwapChain>  m_SwapChainInterface;
     std::unique_ptr<GpuCommandList> m_GraphicsCommandList;
 };

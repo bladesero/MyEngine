@@ -6,6 +6,7 @@
 #include "Core/Engine.h"
 #include "Core/Window.h"
 #include "Core/PlatformEventBridge.h"
+#include "Assets/MaterialAsset.h"
 #include "Renderer/IRenderContext.h"
 #include <deque>
 #include <filesystem>
@@ -50,18 +51,30 @@ private:
     void DrawAssetBrowser();
     void DrawActorNode(Actor* actor);
     void OnLogMessage(const std::string& line);
+    void SelectActor(Actor* actor);
+    void ValidateSelection();
 
 #if defined(MYENGINE_ENABLE_IMGUI)
     friend void EditorOpenFileDialogCallback(void* userdata, const char* const* filelist, int filter);
     friend void EditorSaveFileDialogCallback(void* userdata, const char* const* filelist, int filter);
+    friend void EditorImportAssetDialogCallback(void* userdata, const char* const* filelist, int filter);
 
     void ProcessPendingFileDialogs();
     void RefreshAssetBrowserListing();
-    void TryCreateMeshActorFromDroppedObj(const std::string& absObjPath, float screenX, float screenY);
+    bool ImportAssetToContent(const std::string& sourcePath);
+    void RequestImportAssetDialog();
+    void TryCreateMeshActorFromDroppedModel(const std::string& absModelPath, float screenX, float screenY);
     void RequestOpenSceneDialog();
     void RequestSaveSceneDialog();
     void TryPickActorFromSceneView(float screenX, float screenY);
+    void DrawAddComponentInspector(Actor* actor);
     void DrawMeshMaterialInspector(Actor* actor);
+    bool DrawMaterialAssetInspector(MaterialHandle material);
+    void DrawPhysicsInspector(Actor* actor);
+    void DrawSkinnedMeshInspector(Actor* actor);
+    void DrawLightInspector(Actor* actor);
+    void DrawPostProcessInspector(Actor* actor);
+    void DrawScriptInspector(Actor* actor);
     void RefreshShaderWatchList();
     void PollShaderChanges();
 
@@ -69,6 +82,7 @@ private:
         None,
         OpenScene,
         SaveScene,
+        ImportAsset,
     };
 
     std::mutex        m_FileDialogMutex;
@@ -84,6 +98,8 @@ private:
     IWindow*          m_Window     = nullptr;
     Engine*           m_Engine     = nullptr;
     Actor*            m_Selected   = nullptr;
+    uint64_t          m_SelectedID = 0;
+    const Scene*      m_SelectedScene = nullptr;
     std::deque<std::string> m_LogLines;
     std::mutex        m_LogMutex;
     bool              m_LogAutoScroll = true;
@@ -96,6 +112,8 @@ private:
 
     std::vector<std::string> m_AssetBrowserRelPaths;
     std::string              m_AssetBrowserRootAbs;
+    std::string              m_SelectedAssetRelPath;
+    std::string              m_SelectedAssetAbsPath;
     std::vector<std::string> m_WatchedShaders;
     std::unordered_map<std::string, std::filesystem::file_time_type> m_ShaderWriteTimes;
     float m_ShaderWatchAccumulator = 0.0f;

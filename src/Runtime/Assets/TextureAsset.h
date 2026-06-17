@@ -43,6 +43,13 @@ struct TextureDesc {
     bool          sRGB     = true;   // gamma-correct sampling
 };
 
+struct TextureMipData {
+    int width = 0;
+    int height = 0;
+    std::vector<uint8_t> rgba8;
+    std::vector<uint8_t> bc1;
+};
+
 class TextureAsset : public Asset {
 public:
     explicit TextureAsset(const std::string& path)
@@ -52,11 +59,17 @@ public:
     void SetPixelData(std::vector<uint8_t> data, const TextureDesc& desc) {
         m_PixelData = std::move(data);
         m_Desc      = desc;
+        RebuildDerivedData();
         SetState(AssetState::Ready);
     }
 
     const std::vector<uint8_t>& GetPixelData() const { return m_PixelData; }
     const TextureDesc&          GetDesc()       const { return m_Desc; }
+    const std::vector<TextureMipData>& GetMips() const { return m_Mips; }
+    const std::vector<uint8_t>& GetCompressedMip(size_t level) const {
+        static const std::vector<uint8_t> empty;
+        return level < m_Mips.size() ? m_Mips[level].bc1 : empty;
+    }
 
     int  GetWidth()     const { return m_Desc.width;  }
     int  GetHeight()    const { return m_Desc.height; }
@@ -68,6 +81,14 @@ public:
     void  SetGpuHandle(void* handle) { m_GpuHandle = handle; }
     void* GetGpuHandle()       const { return m_GpuHandle; }
     bool  HasGpuHandle()       const { return m_GpuHandle != nullptr; }
+
+    bool ReloadFrom(const Asset& source) override {
+        const auto* texture = dynamic_cast<const TextureAsset*>(&source);
+        if (!texture) return false;
+        SetPixelData(texture->m_PixelData, texture->m_Desc);
+        m_GpuHandle = nullptr;
+        return true;
+    }
 
     // ---- 工厂：创建纯色占位纹理（1×1）--------------------------------------
     static std::shared_ptr<TextureAsset> CreateSolid(
@@ -83,8 +104,11 @@ public:
     }
 
 private:
+    void RebuildDerivedData();
+
     TextureDesc          m_Desc;
     std::vector<uint8_t> m_PixelData;
+    std::vector<TextureMipData> m_Mips;
     void*                m_GpuHandle = nullptr;
 };
 

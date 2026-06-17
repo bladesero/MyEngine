@@ -2,6 +2,7 @@
 
 #include <string>
 #include <nlohmann/json.hpp>
+#include "Physics/CollisionEvent.h"
 
 // Forward declaration
 class Actor;
@@ -20,6 +21,8 @@ public:
     virtual void OnAttach() {}
     virtual void OnDetach() {}
     virtual void OnUpdate(float deltaSeconds) { (void)deltaSeconds; }
+    virtual void OnFixedUpdate(float deltaSeconds) { (void)deltaSeconds; }
+    virtual void OnCollisionEvent(const CollisionEvent& event) { (void)event; }
 
     // 所属 Actor
     Actor* GetOwner() const { return m_Owner; }

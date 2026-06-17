@@ -7,10 +7,12 @@
 #include <memory>
 
 class ShadowPass;
+class PostProcessPass;
 class MainPass;
+class EnvironmentPass;
 
 // ============================================================================
-// Renderer  –  minimal scene renderer for MeshRendererComponent
+// Renderer  鈥? minimal scene renderer for MeshRendererComponent
 //
 //  - Owns no window; works on top of an IRenderContext (D3D11 in this repo)
 //  - Traverses Scene, finds actors with MeshRendererComponent and draws them
@@ -29,9 +31,15 @@ public:
     // (useful for editor overlays like ImGui).
     void RenderScene(const Scene& scene, const Camera& camera, bool present = true);
 
+    void SetEditorOffscreen(bool enabled);
+    void* GetSceneColorTextureHandle() const;
+
 private:
     IRenderContext*            m_Context = nullptr;
     std::unique_ptr<ShadowPass> m_ShadowPass;
+    std::unique_ptr<EnvironmentPass> m_EnvironmentPass;
     std::unique_ptr<MainPass>   m_MainPass;
+    std::unique_ptr<PostProcessPass> m_PostProcessPass;
+    bool m_EditorOffscreen = false;
 };
 

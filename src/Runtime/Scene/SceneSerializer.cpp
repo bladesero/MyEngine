@@ -1,7 +1,7 @@
 #include "Scene/SceneSerializer.h"
 #include "Scene/Actor.h"
 #include "Scene/Component.h"
-#include "Scene/MeshRendererComponent.h"
+#include "Scene/ComponentRegistry.h"
 #include "Core/Logger.h"
 
 #include <nlohmann/json.hpp>
@@ -20,9 +20,14 @@ static Json Vec3ToJson(const Vec3& v) {
 
 static Vec3 Vec3FromJson(const Json& j) {
     Vec3 out;
-    out.x = static_cast<float>(j[0]);
-    out.y = static_cast<float>(j[1]);
-    out.z = static_cast<float>(j[2]);
+    if (!j.is_array() || j.size() < 3 ||
+        !j[0].is_number() || !j[1].is_number() || !j[2].is_number()) {
+        Logger::Warn("SceneSerializer: invalid Vec3 field, using default");
+        return out;
+    }
+    out.x = j[0].get<float>();
+    out.y = j[1].get<float>();
+    out.z = j[2].get<float>();
     return out;
 }
 
@@ -103,10 +108,19 @@ static bool JsonToScene(const Json& root, Scene& scene)
         if (!root.contains("actors")) return true; // empty scene is valid
 
         const Json& actorsArr = root["actors"];
+        if (!actorsArr.is_array()) {
+            Logger::Warn("SceneSerializer: 'actors' is not an array");
+            return true;
+        }
 
         // --- Pass 1: create all actors with their IDs ---
         for (const Json& a : actorsArr) {
-            uint64_t    id     = static_cast<uint64_t>(a.value("id",     0));
+            if (!a.is_object()) {
+                Logger::Warn("SceneSerializer: skipping malformed actor entry");
+                continue;
+            }
+
+            uint64_t    id     = a.value("id",     uint64_t(0));
             std::string name   = a.value("name",   std::string("Actor"));
             bool        active = a.value("active", true);
 
@@ -125,8 +139,9 @@ static bool JsonToScene(const Json& root, Scene& scene)
 
         // --- Pass 2: wire up parent-child relationships ---
         for (const Json& a : actorsArr) {
-            uint64_t id       = static_cast<uint64_t>(a.value("id",       0));
-            uint64_t parentID = static_cast<uint64_t>(a.value("parentID", 0));
+            if (!a.is_object()) continue;
+            uint64_t id       = a.value("id",       uint64_t(0));
+            uint64_t parentID = a.value("parentID", uint64_t(0));
             if (parentID != 0) {
                 Actor* actor  = scene.FindByID(id);
                 Actor* parent = scene.FindByID(parentID);
@@ -137,31 +152,44 @@ static bool JsonToScene(const Json& root, Scene& scene)
         }
 
         // --- Pass 3: deserialize components ---
-        // Minimal component \"registry\": currently supports MeshRendererComponent.
         for (const Json& a : actorsArr) {
-            uint64_t id    = static_cast<uint64_t>(a.value("id", 0));
+            if (!a.is_object()) continue;
+            uint64_t id    = a.value("id", uint64_t(0));
             Actor*   actor = scene.FindByID(id);
             if (!actor || !a.contains("components")) continue;
+            if (!a["components"].is_array()) {
+                Logger::Warn("SceneSerializer: components for actor '",
+                             actor->GetName(), "' is not an array");
+                continue;
+            }
 
             for (const Json& c : a["components"]) {
+                if (!c.is_object()) {
+                    Logger::Warn("SceneSerializer: skipping malformed component on actor '",
+                                 actor->GetName(), "'");
+                    continue;
+                }
                 std::string typeName = c.value("type", "");
                 bool        enabled  = c.value("enabled", true);
                 Json emptyObj = Json::object();
                 const Json& data = c.contains("data") ? c["data"] : emptyObj;
 
-                // Create component instance if not present.
-                Component* compPtr = nullptr;
-                if (typeName == "MeshRenderer") {
-                    if (!actor->GetComponent<MeshRendererComponent>()) {
-                        compPtr = actor->AddComponent<MeshRendererComponent>();
-                    } else {
-                        compPtr = actor->GetComponent<MeshRendererComponent>();
-                    }
-                }
+                Component* compPtr = ComponentRegistry::Get().Create(typeName, *actor);
 
                 if (compPtr) {
-                    compPtr->SetEnabled(enabled);
-                    compPtr->Deserialize(data);
+                    try {
+                        compPtr->SetEnabled(enabled);
+                        compPtr->Deserialize(data);
+                    }
+                    catch (const std::exception& e) {
+                        Logger::Error("SceneSerializer: component '", typeName,
+                                      "' on actor '", actor->GetName(),
+                                      "' failed to deserialize: ", e.what());
+                        actor->RemoveComponentByTypeName(typeName);
+                    }
+                } else {
+                    Logger::Warn("SceneSerializer: unregistered component type '",
+                                 typeName, "'");
                 }
             }
         }

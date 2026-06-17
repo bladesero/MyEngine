@@ -29,6 +29,7 @@ public:
     // Recompile all shaders when shaderPath empty, otherwise only matching file.
     void Recompile(const std::string& shaderPath = "");
     void RecompileAll() { Recompile(""); }
+    void Clear();
 
 private:
     struct ShaderRecord {
@@ -54,4 +55,3 @@ private:
     std::vector<ShaderRecord> m_Records;
     std::unordered_map<std::string, size_t> m_KeyToIndex;
 };
-

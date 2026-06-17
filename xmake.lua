@@ -1,4 +1,4 @@
-﻿set_project("MyEngine")
+set_project("MyEngine")
 set_version("0.1.0")
 set_xmakever("2.8.0")
 
@@ -90,6 +90,21 @@ if is_plat("macosx") then
     includes("xmake/imgui_metal.lua")
 end
 
+target("Lua")
+    set_kind("static")
+    set_languages("c11")
+    add_files("thirdparty/lua/*.c")
+    remove_files("thirdparty/lua/lua.c", "thirdparty/lua/luac.c")
+    add_headerfiles("thirdparty/lua/*.h", { public = true })
+    add_includedirs("thirdparty/lua", { public = true })
+    if is_plat("linux") then
+        add_defines("LUA_USE_LINUX")
+        add_syslinks("dl", "m")
+    elseif is_plat("macosx") then
+        add_defines("LUA_USE_MACOSX")
+    end
+target_end()
+
 target("MyEngineRuntime")
     set_kind("shared")
     set_basename("runtime")
@@ -97,6 +112,8 @@ target("MyEngineRuntime")
         "src/Runtime/RuntimeModule.cpp",
         "src/Runtime/Input/Input.cpp",
         "src/Runtime/Core/Event.cpp",
+        "src/Runtime/Core/Logger.cpp",
+        "src/Runtime/Core/CrashHandler.cpp",
         "src/Runtime/Core/Layer.cpp",
         "src/Runtime/Core/LayerStack.cpp",
         "src/Runtime/Core/Time.cpp",
@@ -109,14 +126,34 @@ target("MyEngineRuntime")
         "src/Runtime/Core/Memory/LinearAllocator.cpp",
         "src/Runtime/Core/Memory/MemoryService.cpp",
         "src/Runtime/Assets/AssetManager.cpp",
+        "src/Runtime/Assets/AssetMeta.cpp",
         "src/Runtime/Assets/AssetImporters.cpp",
+        "src/Runtime/Assets/GltfImporter.cpp",
+        "src/Runtime/Assets/MaterialAsset.cpp",
         "src/Runtime/Assets/MeshAsset.cpp",
+        "src/Runtime/Assets/TextureAsset.cpp",
+        "src/Runtime/Scripting/ScriptRuntime.cpp",
+        "src/Runtime/Scripting/ScriptComponent.cpp",
+        "src/Runtime/Physics/RigidBodyComponent.cpp",
+        "src/Runtime/Physics/BoxColliderComponent.cpp",
+        "src/Runtime/Physics/SphereColliderComponent.cpp",
+        "src/Runtime/Physics/CapsuleColliderComponent.cpp",
+        "src/Runtime/Physics/CharacterControllerComponent.cpp",
+        "src/Runtime/Physics/CollisionShapes.cpp",
+        "src/Runtime/Physics/PhysicsWorld.cpp",
+        "src/Runtime/Animation/SkinnedMeshRendererComponent.cpp",
         "src/Runtime/Scene/Actor.cpp",
+        "src/Runtime/Scene/ComponentRegistry.cpp",
         "src/Runtime/Scene/MeshRendererComponent.cpp",
         "src/Runtime/Scene/Scene.cpp",
         "src/Runtime/Scene/SceneSerializer.cpp",
         "src/Runtime/Camera/Camera.cpp",
         "src/Runtime/Renderer/Renderer.cpp",
+        "src/Runtime/Renderer/GpuUploadQueue.cpp",
+        "src/Runtime/Renderer/LightComponent.cpp",
+        "src/Runtime/Renderer/PostProcessComponent.cpp",
+        "src/Runtime/Renderer/PostProcessPass.cpp",
+        "src/Runtime/Renderer/EnvironmentPass.cpp",
         "src/Runtime/Renderer/ShaderManager.cpp",
         "src/Runtime/Renderer/ShaderCompilerD3D11.cpp",
         "src/Runtime/Renderer/ShaderCompilerD3D12.cpp",
@@ -159,6 +196,8 @@ target("MyEngineRuntime")
     add_packages("nlohmann_json", { public = true })
     add_packages("stb", { public = true })
     add_packages("tinyobjloader")
+    add_deps("Lua")
+    add_includedirs("thirdparty")
     add_packages("imgui", { public = true })
 
     add_options("mem_stats", "mem_tracking", "mem_guard")

@@ -1,16 +1,20 @@
 #include "Game/SceneRenderLayer.h"
-#include "Math/Mat4Inverse.h"
 #include "Assets/AssetManager.h"
 #include "Assets/TextureAsset.h"
 #include "Assets/MaterialAsset.h"
 #include "Scene/MeshRendererComponent.h"
+#include "Animation/SkinnedMeshRendererComponent.h"
+#include "Physics/BoxColliderComponent.h"
+#include "Physics/RigidBodyComponent.h"
+#include "Renderer/LightComponent.h"
+#include "Renderer/PostProcessComponent.h"
+#include "Scripting/ScriptComponent.h"
 #include "Core/Logger.h"
 #include "Input/Input.h"
 #include <SDL3/SDL_scancode.h>
 #include <SDL3/SDL_gamepad.h>
 #include <algorithm>
 #include <cmath>
-#include <cfloat>
 #include <vector>
 
 // --------------------------------------------------------------------------
@@ -22,6 +26,12 @@ SceneRenderLayer::SceneRenderLayer(IRenderContext* context,
     , m_VpW(viewportWidth)
     , m_VpH(viewportHeight)
 {}
+
+void SceneRenderLayer::SetPresentEnabled(bool enabled)
+{
+    m_PresentEnabled = enabled;
+    m_Renderer.SetEditorOffscreen(!enabled);
+}
 
 void SceneRenderLayer::OnAttach() {
     SceneLayer::OnAttach();
@@ -40,6 +50,8 @@ void SceneRenderLayer::OnAttach() {
     }
     if (m_VpW > 0 && m_VpH > 0) {
         m_Renderer.Resize(static_cast<uint32_t>(m_VpW), static_cast<uint32_t>(m_VpH));
+        m_RendererW = m_VpW;
+        m_RendererH = m_VpH;
     }
     Logger::Info("[SceneRenderLayer] attached (", m_VpW, "x", m_VpH, ")");
 }
@@ -59,8 +71,8 @@ void SceneRenderLayer::OnUpdate(float dt) {
     const float moveSpeed = 6.0f;
     if (Input::IsKeyDown(SDL_SCANCODE_W)) m_Camera.MoveForward( moveSpeed * dt);
     if (Input::IsKeyDown(SDL_SCANCODE_S)) m_Camera.MoveForward(-moveSpeed * dt);
-    if (Input::IsKeyDown(SDL_SCANCODE_D)) m_Camera.MoveRight( -moveSpeed * dt);
-    if (Input::IsKeyDown(SDL_SCANCODE_A)) m_Camera.MoveRight( moveSpeed * dt);
+    if (Input::IsKeyDown(SDL_SCANCODE_D)) m_Camera.MoveRight( moveSpeed * dt);
+    if (Input::IsKeyDown(SDL_SCANCODE_A)) m_Camera.MoveRight(-moveSpeed * dt);
     if (Input::IsKeyDown(SDL_SCANCODE_Q)) m_Camera.MoveUp( moveSpeed * dt);
     if (Input::IsKeyDown(SDL_SCANCODE_E)) m_Camera.MoveUp(-moveSpeed * dt);
 
@@ -115,6 +127,8 @@ void SceneRenderLayer::OnEvent(Event& event) {
             m_Camera.SetAspect(static_cast<float>(m_VpW) / static_cast<float>(m_VpH));
             m_Renderer.Resize(static_cast<uint32_t>(m_VpW),
                               static_cast<uint32_t>(m_VpH));
+            m_RendererW = m_VpW;
+            m_RendererH = m_VpH;
         }
 
         if (m_RenderContext) {
@@ -155,6 +169,26 @@ void SceneRenderLayer::OnSceneLoaded() {
         checkerTex->SetPixelData(std::move(pixels), td);
         TextureHandle checkerHandle = AssetManager::Get().Register(std::move(checkerTex));
 
+        Actor* sun = GetScene().CreateActor("Sun");
+        auto* sunLight = sun->AddComponent<LightComponent>();
+        sunLight->SetLightType(LightType::Directional);
+        sunLight->SetDirection(Vec3{ -0.55f, -1.0f, -0.45f });
+        sunLight->SetColor(Vec3{ 1.0f, 0.96f, 0.88f });
+        sunLight->SetIntensity(3.0f);
+        sunLight->SetCastShadows(true);
+
+        Actor* postActor = GetScene().CreateActor("PostProcess");
+        auto* post = postActor->AddComponent<PostProcessComponent>();
+        post->SetExposure(1.0f);
+        post->SetGamma(2.2f);
+        post->SetToneMappingEnabled(true);
+        post->SetSaturation(1.0f);
+        post->SetContrast(1.0f);
+        post->SetAntiAliasingStrength(1.0f);
+        post->SetSSAORadius(1.5f);
+        post->SetSSAOPower(1.8f);
+        post->SetSSAOIntensity(0.8f);
+
         // First cube - checkerboard texture
         Actor* cube1 = GetScene().CreateActor("Cube1");
         cube1->GetTransform().position = Vec3{ 0.0f, 0.5f, 0.0f };
@@ -162,39 +196,101 @@ void SceneRenderLayer::OnSceneLoaded() {
         mr1->SetMesh(AssetManager::Get().GetCubeMesh());
         auto mat1 = MaterialAsset::CreateDefault("CheckerMat");
         mat1->SetTexture("BaseColorMap", checkerHandle);
+        mat1->SetParam("Metallic", MaterialParam::FromFloat(0.15f));
+        mat1->SetParam("Roughness", MaterialParam::FromFloat(0.35f));
         mr1->SetMaterial(AssetManager::Get().Register(std::move(mat1)));
+        auto* script = cube1->AddComponent<ScriptComponent>();
+        script->SetSource("function Update(dt) Actor.rotate(0, 35 * dt, 0) end\n");
 
         // Second cube offset in X and colored differently
         Actor* cube2 = GetScene().CreateActor("Cube2");
         cube2->GetTransform().position = Vec3{ 2.0f, 0.5f, 0.0f };
         auto* mr2 = cube2->AddComponent<MeshRendererComponent>();
         mr2->SetMesh(AssetManager::Get().GetCubeMesh());
-        auto mat2 = AssetManager::Get().GetDefaultMaterial();
-        if (mat2) {
-            mat2->SetParam("BaseColor", MaterialParam::FromColor({0.1f, 0.7f, 1.0f}));
-            mr2->SetMaterial(mat2);
-        } else {
-            mr2->SetMaterial(AssetManager::Get().GetDefaultMaterial());
-        }
+        auto mat2 = MaterialAsset::CreateDefault("DynamicPbrMat");
+        mat2->SetTexture("BaseColorMap", AssetManager::Get().GetWhiteTexture());
+        mat2->SetParam("BaseColor", MaterialParam::FromColor({0.1f, 0.7f, 1.0f}));
+        mat2->SetParam("Metallic", MaterialParam::FromFloat(0.75f));
+        mat2->SetParam("Roughness", MaterialParam::FromFloat(0.2f));
+        mr2->SetMaterial(AssetManager::Get().Register(std::move(mat2)));
+        auto* dynamicBody = cube2->AddComponent<RigidBodyComponent>();
+        dynamicBody->SetRestitution(0.25f);
+        cube2->AddComponent<BoxColliderComponent>();
 
         // Ground plane to validate shadow projection in editor.
         Actor* plane = GetScene().CreateActor("ShadowPlane");
         plane->GetTransform().position = Vec3{ 0.0f, 0.0f, 0.0f };
-        plane->GetTransform().rotation = Vec3{ -270.0f, 0.0f, 0.0f };
+        plane->GetTransform().rotation = Vec3{ -90.0f, 0.0f, 0.0f };
         plane->GetTransform().scale    = Vec3{ 12.0f, 12.0f, 12.0f };
         auto* planeMr = plane->AddComponent<MeshRendererComponent>();
         planeMr->SetMesh(AssetManager::Get().GetQuadMesh());
         auto planeMat = MaterialAsset::CreateDefault("GroundMat");
-        planeMat->SetParam("BaseColor", MaterialParam::FromColor({1.0f, 1.0f, 1.0f}));
         planeMat->SetTexture("BaseColorMap", AssetManager::Get().GetWhiteTexture());
+        planeMat->SetParam("BaseColor", MaterialParam::FromColor({0.55f, 0.55f, 0.52f}));
+        planeMat->SetParam("Metallic", MaterialParam::FromFloat(0.0f));
+        planeMat->SetParam("Roughness", MaterialParam::FromFloat(0.9f));
+        planeMat->SetParam("AmbientOcclusion", MaterialParam::FromFloat(1.0f));
         planeMr->SetMaterial(AssetManager::Get().Register(std::move(planeMat)));
+        auto* groundBody = plane->AddComponent<RigidBodyComponent>();
+        groundBody->SetBodyType(BodyType::Static);
+        groundBody->SetUseGravity(false);
+        groundBody->SetFriction(0.9f);
+        groundBody->SetRestitution(0.0f);
+        auto* groundCollider = plane->AddComponent<BoxColliderComponent>();
+        groundCollider->SetHalfExtents({ 0.5f, 0.5f, 0.01f });
 
-        Logger::Info("[SceneRenderLayer] added demo cubes + plane for shadow test");
+        Actor* skinnedActor = GetScene().CreateActor("SkinnedCube");
+        skinnedActor->GetTransform().position = Vec3{ -2.0f, 0.5f, 0.0f };
+        auto* skinned = skinnedActor->AddComponent<SkinnedMeshRendererComponent>();
+        const MeshHandle cubeMesh = AssetManager::Get().GetCubeMesh();
+        skinned->SetSourceMesh(cubeMesh);
+        auto skinMat = MaterialAsset::CreateDefault("SkinPbrMat");
+        skinMat->SetTexture("BaseColorMap", AssetManager::Get().GetWhiteTexture());
+        skinMat->SetParam("BaseColor", MaterialParam::FromColor({0.85f, 0.25f, 0.15f}));
+        skinMat->SetParam("Metallic", MaterialParam::FromFloat(0.05f));
+        skinMat->SetParam("Roughness", MaterialParam::FromFloat(0.5f));
+        skinned->SetMaterial(AssetManager::Get().Register(std::move(skinMat)));
+
+        std::vector<Bone> bones(2);
+        bones[0].name = "Root";
+        bones[1].name = "Upper";
+        bones[1].parent = 0;
+        bones[1].bindTranslation = Vec3{ 0.0f, 0.5f, 0.0f };
+        bones[1].inverseBind = Mat4::Translation(0.0f, -0.5f, 0.0f);
+        std::vector<SkinWeight> weights(cubeMesh->VertexCount());
+        for (size_t i = 0; i < weights.size(); ++i) {
+            if (cubeMesh->GetVertices()[i].position.y > 0.0f) {
+                weights[i].boneIndices[0] = 1;
+            }
+        }
+        skinned->SetSkeleton(std::move(bones), std::move(weights));
+
+        AnimationClip clip;
+        clip.name = "Bend";
+        clip.duration = 2.0f;
+        BoneTrack upperTrack;
+        upperTrack.boneIndex = 1;
+        upperTrack.keys = {
+            { 0.0f, Vec3{0.0f, 0.5f, 0.0f}, Quat::FromAxisAngle(Vec3::Forward(), -0.45f), Vec3::One() },
+            { 1.0f, Vec3{0.0f, 0.5f, 0.0f}, Quat::FromAxisAngle(Vec3::Forward(),  0.45f), Vec3::One() },
+            { 2.0f, Vec3{0.0f, 0.5f, 0.0f}, Quat::FromAxisAngle(Vec3::Forward(), -0.45f), Vec3::One() },
+        };
+        clip.tracks.push_back(std::move(upperTrack));
+        skinned->SetAnimation(std::move(clip));
+
+        Logger::Info("[SceneRenderLayer] added scripted PBR, physics and skinned-mesh demo");
     }
 }
 
 void SceneRenderLayer::OnRender() {
     if (!m_RenderContext) return;
+    if (m_VpW > 0 && m_VpH > 0 &&
+        (m_RendererW != m_VpW || m_RendererH != m_VpH)) {
+        m_Renderer.Resize(static_cast<uint32_t>(m_VpW),
+                          static_cast<uint32_t>(m_VpH));
+        m_RendererW = m_VpW;
+        m_RendererH = m_VpH;
+    }
     if (m_VpW > 0 && m_VpH > 0) {
         m_RenderContext->SetViewport(
             static_cast<float>(m_VpX), static_cast<float>(m_VpY),
@@ -227,7 +323,6 @@ void SceneRenderLayer::SetEditorViewportRect(int x, int y, int width, int height
             static_cast<float>(m_VpX), static_cast<float>(m_VpY),
             static_cast<float>(m_VpW), static_cast<float>(m_VpH));
     }
-    m_Renderer.Resize(static_cast<uint32_t>(m_VpW), static_cast<uint32_t>(m_VpH));
 }
 
 void SceneRenderLayer::SetViewportInputEnabled(bool enabled)
@@ -250,6 +345,7 @@ bool SceneRenderLayer::BuildRayFromScreen(float screenX, float screenY, Math::Ra
 {
     if (m_VpW <= 0 || m_VpH <= 0) {
         return false;
+
     }
     if (screenX < static_cast<float>(m_VpX) || screenY < static_cast<float>(m_VpY) ||
         screenX > static_cast<float>(m_VpX + m_VpW) || screenY > static_cast<float>(m_VpY + m_VpH)) {
@@ -260,42 +356,5 @@ bool SceneRenderLayer::BuildRayFromScreen(float screenX, float screenY, Math::Ra
     const float mox = ((screenX - static_cast<float>(m_VpX)) / static_cast<float>(m_VpW)) * 2.0f - 1.0f;
     const float moy = (1.0f - ((screenY - static_cast<float>(m_VpY)) / static_cast<float>(m_VpH))) * 2.0f - 1.0f;
 
-    const Mat4& proj = m_Camera.GetProj();
-    // Same depth ordering test as ImGuizmo (projection-only, row-vector v * P).
-    const Vec4 nearProbe = proj.Transform(Vec4(0.0f, 0.0f, 1.0f, 1.0f));
-    const Vec4 farProbe  = proj.Transform(Vec4(0.0f, 0.0f, 2.0f, 1.0f));
-    const bool reversed =
-        (nearProbe.w > 1e-8f && farProbe.w > 1e-8f) &&
-        ((nearProbe.z / nearProbe.w) > (farProbe.z / farProbe.w));
-
-    const float zNear = reversed ? (1.0f - FLT_EPSILON) : 0.0f;
-    const float zFar  = reversed ? 0.0f : (1.0f - FLT_EPSILON);
-
-    const Mat4 vp = m_Camera.GetViewProj();
-    Mat4       invVP{};
-    if (!Mat4Invert(vp, invVP)) {
-        return false;
-    }
-
-    Vec4 ray0 = invVP.Transform(Vec4(mox, moy, zNear, 1.0f));
-    Vec4 ray1 = invVP.Transform(Vec4(mox, moy, zFar, 1.0f));
-    if (std::fabs(ray0.w) < 1e-8f || std::fabs(ray1.w) < 1e-8f) {
-        return false;
-    }
-
-    ray0 = ray0 * (1.0f / ray0.w);
-    ray1 = ray1 * (1.0f / ray1.w);
-
-    const Vec3 p0 = ray0.XYZ();
-    const Vec3 p1 = ray1.XYZ();
-    Vec3       dir = p1 - p0;
-    const float len = dir.Length();
-    if (len < 1e-8f) {
-        return false;
-    }
-    dir = dir * (1.0f / len);
-
-    outRay.origin    = p0;
-    outRay.direction = dir;
-    return true;
+    return m_Camera.BuildRayFromNdc(mox, moy, outRay);
 }

@@ -22,6 +22,7 @@ Actor* Scene::CreateActor(const std::string& name)
     uint64_t id  = m_NextID++;
     auto     ptr = std::make_unique<Actor>(name, id);
     Actor*   raw = ptr.get();
+    raw->m_Scene = this;
 
     m_IDMap[id] = raw;
     m_Actors.push_back(std::move(ptr));
@@ -47,6 +48,7 @@ Actor* Scene::CreateActorWithID(const std::string& name, uint64_t id)
 
     auto   ptr = std::make_unique<Actor>(name, id);
     Actor* raw = ptr.get();
+    raw->m_Scene = this;
     m_IDMap[id] = raw;
     m_Actors.push_back(std::move(ptr));
     // 确保 m_NextID 始终大于已分配的最大 ID
@@ -182,4 +184,5 @@ void Scene::OnUpdate(float deltaSeconds)
     for (const auto& ptr : m_Actors) {
         ptr->Update(deltaSeconds);
     }
+    m_PhysicsWorld.Step(*this, deltaSeconds);
 }

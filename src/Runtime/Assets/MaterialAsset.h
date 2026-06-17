@@ -76,7 +76,10 @@ public:
         return (it != m_Params.end()) ? it->second : def;
     }
 
-    float GetFloat (const std::string& n, float def = 0.f)  const { auto p = GetParam(n); return p.data[0]; (void)def; }
+    float GetFloat (const std::string& n, float def = 0.f) const {
+        auto it = m_Params.find(n);
+        return it != m_Params.end() ? it->second.data[0] : def;
+    }
     Vec3  GetColor (const std::string& n, Vec3 def = Vec3::One()) const {
         auto it = m_Params.find(n);
         if (it == m_Params.end()) return def;
@@ -89,6 +92,20 @@ public:
     void       SetShader(std::shared_ptr<GpuShader> shader) { m_Shader = std::move(shader); SetState(AssetState::Ready); }
     GpuShader* GetShader() const { return m_Shader.get(); }
     bool       HasShader() const { return m_Shader != nullptr; }
+    void       MarkReady() { SetState(AssetState::Ready); }
+
+    bool ReloadFrom(const Asset& source) override {
+        const auto* material = dynamic_cast<const MaterialAsset*>(&source);
+        if (!material) return false;
+        m_BlendMode = material->m_BlendMode;
+        m_TwoSided = material->m_TwoSided;
+        m_Wireframe = material->m_Wireframe;
+        m_AlphaThreshold = material->m_AlphaThreshold;
+        m_Textures = material->m_Textures;
+        m_Params = material->m_Params;
+        SetState(AssetState::Ready);
+        return true;
+    }
 
     // ---- 工厂：常用预设材质 -----------------------------------------------
     static std::shared_ptr<MaterialAsset> CreateDefault(const std::string& name = "Default") {
@@ -113,3 +130,6 @@ private:
 };
 
 using MaterialHandle = AssetHandle<MaterialAsset>;
+
+std::shared_ptr<MaterialAsset> LoadMaterialAssetFromFile(const std::string& path);
+bool SaveMaterialAssetToFile(const MaterialAsset& material, const std::string& path);

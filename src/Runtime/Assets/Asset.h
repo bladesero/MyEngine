@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <memory>
 #include <atomic>
+#include <vector>
 
 // ==========================================================================
 // Asset system – type hierarchy
@@ -77,6 +78,9 @@ public:
     const std::string& GetName()     const { return m_Name; }
     AssetType          GetType()     const { return m_Type; }
     AssetState         GetState()    const { return m_State; }
+    const std::string& GetUuid()     const { return m_Uuid; }
+    uint64_t           GetVersion()  const { return m_Version; }
+    const std::vector<AssetID>& GetDependencies() const { return m_Dependencies; }
 
     bool IsReady()  const { return m_State == AssetState::Ready;  }
     bool IsFailed() const { return m_State == AssetState::Failed; }
@@ -85,6 +89,10 @@ public:
     int  RefCount() const { return m_RefCount.load(); }
 
     void SetName(const std::string& name) { m_Name = name; }
+    virtual bool ReloadFrom(const Asset& source) {
+        (void)source;
+        return false;
+    }
 
 protected:
     explicit Asset(AssetType type, const std::string& path)
@@ -99,6 +107,14 @@ protected:
 
 private:
     friend class AssetManager;
+    void SetPersistentIdentity(AssetID id, std::string uuid) {
+        m_ID = id;
+        m_Uuid = std::move(uuid);
+    }
+    void IncrementVersion() { ++m_Version; }
+    void SetDependencies(std::vector<AssetID> dependencies) {
+        m_Dependencies = std::move(dependencies);
+    }
 
     static std::string ExtractName(const std::string& path) {
         auto pos = path.find_last_of("/\\");
@@ -114,7 +130,10 @@ private:
     std::string        m_Path;
     AssetID            m_ID;
     std::string        m_Name;
+    std::string        m_Uuid;
     AssetState         m_State;
+    uint64_t           m_Version = 1;
+    std::vector<AssetID> m_Dependencies;
     std::atomic<int>   m_RefCount{ 0 };
 };
 

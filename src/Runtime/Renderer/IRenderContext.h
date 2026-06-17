@@ -31,6 +31,11 @@ public:
     // Per-frame ---------------------------------------------------------------
     virtual void BeginFrame(float r, float g, float b, float a = 1.0f) = 0;
     virtual void EndFrame()  = 0;   // swap chain present
+    virtual bool IsDeviceLost() const { return false; }
+    virtual const std::string& GetLastDeviceError() const {
+        static const std::string empty;
+        return empty;
+    }
     // Optional swapchain abstraction (nullptr when backend keeps it internal).
     virtual GpuSwapChain* GetSwapChain() { return nullptr; }
     virtual GpuCommandList* GetGraphicsCommandList() = 0;

@@ -4,6 +4,7 @@
 #include "Assets/MeshAsset.h"
 #include "Assets/MaterialAsset.h"
 #include "Core/EngineMath.h"
+#include "Animation/AnimationData.h"
 #include <vector>
 #include <string>
 
@@ -71,6 +72,32 @@ public:
     int                           GetRootIndex()const { return m_RootIndex; }
     bool                          HasNodes()    const { return !m_Nodes.empty(); }
 
+    void SetSkin(std::vector<Bone> bones, std::vector<SkinWeight> weights) {
+        m_Bones = std::move(bones);
+        m_SkinWeights = std::move(weights);
+    }
+    void SetAnimations(std::vector<AnimationClip> clips) {
+        m_Animations = std::move(clips);
+    }
+    const std::vector<Bone>& GetBones() const { return m_Bones; }
+    const std::vector<SkinWeight>& GetSkinWeights() const { return m_SkinWeights; }
+    const std::vector<AnimationClip>& GetAnimations() const { return m_Animations; }
+    bool HasSkin() const { return !m_Bones.empty() && !m_SkinWeights.empty(); }
+
+    bool ReloadFrom(const Asset& source) override {
+        const auto* model = dynamic_cast<const ModelAsset*>(&source);
+        if (!model) return false;
+        m_Mesh = model->m_Mesh;
+        m_Materials = model->m_Materials;
+        m_Nodes = model->m_Nodes;
+        m_RootIndex = model->m_RootIndex;
+        m_Bones = model->m_Bones;
+        m_SkinWeights = model->m_SkinWeights;
+        m_Animations = model->m_Animations;
+        SetState(AssetState::Ready);
+        return true;
+    }
+
     // ---- 工厂：从已有 mesh + material 快速构建 ----------------------------
     static std::shared_ptr<ModelAsset> Create(
         const std::string& name,
@@ -96,6 +123,9 @@ private:
     std::vector<MaterialHandle>m_Materials;
     std::vector<ModelNode>     m_Nodes;
     int                        m_RootIndex = 0;
+    std::vector<Bone>          m_Bones;
+    std::vector<SkinWeight>    m_SkinWeights;
+    std::vector<AnimationClip> m_Animations;
 };
 
 using ModelHandle = AssetHandle<ModelAsset>;

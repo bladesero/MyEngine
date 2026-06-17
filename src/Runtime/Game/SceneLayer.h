@@ -16,6 +16,12 @@
 //   - 追踪当前打开的场景文件路径（m_SceneFilePath）
 // ==========================================================================
 
+enum class SceneRunState {
+    Edit,
+    Play,
+    Pause,
+};
+
 class SceneLayer : public Layer {
 public:
     explicit SceneLayer(const std::string& layerName = "SceneLayer");
@@ -56,6 +62,17 @@ public:
     void MarkDirty()     { m_Dirty = true; }
     void ClearDirty()    { m_Dirty = false; }
 
+    SceneRunState GetRunState() const { return m_RunState; }
+    bool IsEditing() const { return m_RunState == SceneRunState::Edit; }
+    bool IsPlaying() const { return m_RunState == SceneRunState::Play; }
+    bool IsPaused() const { return m_RunState == SceneRunState::Pause; }
+
+    bool BeginPlay();
+    void StopPlay();
+    void PausePlay();
+    void ResumePlay();
+    bool StepPlay();
+
 protected:
     // 子类可重写，在 Scene 加载/创建完成后触发
     virtual void OnSceneLoaded()  {}
@@ -64,6 +81,12 @@ protected:
     std::unique_ptr<Scene> m_Scene;
 
 private:
+    bool CloneSceneFromJson(const std::string& json);
+
     std::string m_SceneFilePath;
     bool        m_Dirty = false;
+    SceneRunState m_RunState = SceneRunState::Edit;
+    std::string m_EditSceneSnapshot;
+    bool m_EditDirtySnapshot = false;
+    bool m_StepRequested = false;
 };

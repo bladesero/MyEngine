@@ -1,5 +1,7 @@
 #include "Camera.h"
+#include "Math/Mat4Inverse.h"
 #include <algorithm>
+#include <cfloat>
 #include <cmath>
 
 // --------------------------------------------------------------------------
@@ -27,8 +29,8 @@ void Camera::SetUp      (const Vec3& up)  { m_Up       = up;  m_ViewDirty = true
 // --------------------------------------------------------------------------
 
 Vec3 Camera::GetForward() const { return (m_Target - m_Position).Normalized(); }
-Vec3 Camera::GetRight()   const { return GetForward().Cross(m_Up).Normalized(); }
-Vec3 Camera::GetCamUp()   const { return GetRight().Cross(GetForward()); }
+Vec3 Camera::GetRight()   const { return m_Up.Cross(GetForward()).Normalized(); }
+Vec3 Camera::GetCamUp()   const { return GetForward().Cross(GetRight()).Normalized(); }
 
 // --------------------------------------------------------------------------
 // Perspective setters
@@ -93,6 +95,74 @@ const Mat4& Camera::GetView() const {
 Mat4 Camera::GetViewProj() const {
     if (m_ViewDirty) RebuildView();
     return m_View*m_Proj ;
+}
+
+bool Camera::IsVisible(const AABB& worldBounds) const {
+    const Vec3 center = worldBounds.Center();
+    const float radius = worldBounds.Radius();
+    const Vec3 relative = center - m_Position;
+    const Vec3 forward = GetForward();
+    const Vec3 right = GetRight();
+    const Vec3 up = GetCamUp();
+    const float depth = relative.Dot(forward);
+
+    const float nearPlane = m_ProjMode == ProjectionMode::Perspective
+        ? m_ZNear : m_OrthoNear;
+    const float farPlane = m_ProjMode == ProjectionMode::Perspective
+        ? m_ZFar : m_OrthoFar;
+    if (depth + radius < nearPlane || depth - radius > farPlane) return false;
+
+    const float horizontal = std::fabs(relative.Dot(right));
+    const float vertical = std::fabs(relative.Dot(up));
+    if (m_ProjMode == ProjectionMode::Perspective) {
+        const float halfHeight = (std::max)(0.0f, depth) *
+            std::tan(m_FovYDeg * kDeg2Rad * 0.5f);
+        const float halfWidth = halfHeight * m_Aspect;
+        return horizontal <= halfWidth + radius &&
+               vertical <= halfHeight + radius;
+    }
+
+    return horizontal <= m_OrthoW * 0.5f + radius &&
+           vertical <= m_OrthoH * 0.5f + radius;
+}
+
+bool Camera::BuildRayFromNdc(float ndcX, float ndcY, Ray& outRay) const
+{
+    const Mat4& proj = GetProj();
+    const Vec4 nearProbe = proj.Transform(Vec4(0.0f, 0.0f, 1.0f, 1.0f));
+    const Vec4 farProbe  = proj.Transform(Vec4(0.0f, 0.0f, 2.0f, 1.0f));
+    const bool reversed =
+        (nearProbe.w > 1e-8f && farProbe.w > 1e-8f) &&
+        ((nearProbe.z / nearProbe.w) > (farProbe.z / farProbe.w));
+
+    const float zNear = reversed ? (1.0f - FLT_EPSILON) : 0.0f;
+    const float zFar  = reversed ? 0.0f : (1.0f - FLT_EPSILON);
+
+    Mat4 invVP{};
+    if (!Mat4Invert(GetViewProj(), invVP)) {
+        return false;
+    }
+
+    Vec4 ray0 = invVP.Transform(Vec4(ndcX, ndcY, zNear, 1.0f));
+    Vec4 ray1 = invVP.Transform(Vec4(ndcX, ndcY, zFar, 1.0f));
+    if (std::fabs(ray0.w) < 1e-8f || std::fabs(ray1.w) < 1e-8f) {
+        return false;
+    }
+
+    ray0 = ray0 * (1.0f / ray0.w);
+    ray1 = ray1 * (1.0f / ray1.w);
+
+    const Vec3 p0 = ray0.XYZ();
+    const Vec3 p1 = ray1.XYZ();
+    Vec3 dir = p1 - p0;
+    const float len = dir.Length();
+    if (len < 1e-8f) {
+        return false;
+    }
+
+    outRay.origin = p0;
+    outRay.direction = dir * (1.0f / len);
+    return true;
 }
 
 // --------------------------------------------------------------------------

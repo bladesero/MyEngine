@@ -10,20 +10,33 @@
 #include "Core/Logger.h"
 #include "Core/Platform.h"
 #include "Math/Mat4Inverse.h"
+#include "Animation/SkinnedMeshRendererComponent.h"
+#include "Physics/BoxColliderComponent.h"
+#include "Physics/CapsuleColliderComponent.h"
+#include "Physics/CharacterControllerComponent.h"
+#include "Physics/ColliderComponent.h"
+#include "Physics/RigidBodyComponent.h"
+#include "Physics/SphereColliderComponent.h"
+#include "Renderer/LightComponent.h"
+#include "Renderer/PostProcessComponent.h"
 #include "Renderer/ShaderManager.h"
 #include "Scene/Actor.h"
+#include "Scene/ComponentRegistry.h"
 #include "Scene/MeshRendererComponent.h"
 #include "Scene/Scene.h"
+#include "Scripting/ScriptComponent.h"
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_dialog.h>
 #include <SDL3/SDL_filesystem.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cfloat>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
+#include <string>
 #include <vector>
 
 namespace {
@@ -47,7 +60,7 @@ namespace {
         return true;
     }
 
-    // ImGuizmo::matrix_t is a float[4][4] union layout — same row-major packing as our Mat4.
+    // ImGuizmo::matrix_t is a float[4][4] union layout 閳?same row-major packing as our Mat4.
     // Do not transpose; a prior bug used col-major shuffle and broke MVP / gizmo placement.
     void Mat4CopyToFloat16(const Mat4& m, float out[16])
     {
@@ -66,57 +79,56 @@ namespace {
                line.find("[ShaderCompilerD3D11]") != std::string::npos;
     }
 
-    // Transform::GetLocalMatrix builds upper 3x3 as (Ry*Rx*Rz) * diag(sx,sy,sz) with
-    // M_ij = R_ij * s_j. ImGuizmo OrthoNormalize() normalizes each ROW of the model matrix,
-    // which breaks R when scales differ — rotation rings track the view and feel "camera
-    // locked". Split out orthonormal R and per-column scale for rotate gizmo input.
-    void ExtractOrthonormalRAndColumnScale(const Mat4& w, float colScale[3], Mat4& outR)
+    // Transform::GetLocalMatrix uses row-vector TRS: S * Ry * Rx * Rz * T.
+    // Non-uniform scale therefore lives in rows; split out row scale before
+    // ImGuizmo orthonormalizes the model matrix for rotate gizmo input.
+    void ExtractOrthonormalRAndRowScale(const Mat4& w, float rowScale[3], Mat4& outR)
     {
-        for (int j = 0; j < 3; ++j) {
-            const float x = w.m[0][j];
-            const float y = w.m[1][j];
-            const float z = w.m[2][j];
-            colScale[j]   = std::sqrt(x * x + y * y + z * z);
-            if (colScale[j] < 1e-8f) {
-                colScale[j] = 1e-8f;
+        for (int i = 0; i < 3; ++i) {
+            const float x = w.m[i][0];
+            const float y = w.m[i][1];
+            const float z = w.m[i][2];
+            rowScale[i]   = std::sqrt(x * x + y * y + z * z);
+            if (rowScale[i] < 1e-8f) {
+                rowScale[i] = 1e-8f;
             }
         }
         outR             = Mat4::Identity();
-        for (int j = 0; j < 3; ++j) {
-            for (int i = 0; i < 3; ++i) {
-                outR.m[i][j] = w.m[i][j] / colScale[j];
+        for (int i = 0; i < 3; ++i) {
+            for (int j = 0; j < 3; ++j) {
+                outR.m[i][j] = w.m[i][j] / rowScale[i];
             }
         }
         outR.m[3][3] = 1.0f;
     }
 
-    // Inverse of Transform::GetLocalMatrix(): upper 3x3 is (Ry*Rx*Rz)*diag(scale),
+    // Inverse of Transform::GetLocalMatrix(): upper 3x3 is diag(scale)*(Ry*Rx*Rz),
     // with rotation.x/y/z = pitch/yaw/roll in degrees. ImGuizmo's
-    // DecomposeMatrixToComponents uses a different Euler order — using it caused rotate
+    // DecomposeMatrixToComponents uses a different Euler order 閳?using it caused rotate
     // drift and apparent coupling to the camera.
     void DecomposeLocalMatrixToTransform(const Mat4& m, Vec3& outPos, Vec3& outRotDeg, Vec3& outScale)
     {
         outPos = Vec3{ m.m[3][0], m.m[3][1], m.m[3][2] };
 
-        auto colLen = [&](int c) {
-            const float x = m.m[0][c];
-            const float y = m.m[1][c];
-            const float z = m.m[2][c];
+        auto rowLen = [&](int r) {
+            const float x = m.m[r][0];
+            const float y = m.m[r][1];
+            const float z = m.m[r][2];
             return std::sqrt(x * x + y * y + z * z);
         };
-        outScale = Vec3{ colLen(0), colLen(1), colLen(2) };
+        outScale = Vec3{ rowLen(0), rowLen(1), rowLen(2) };
 
         const float s0 = outScale.x > 1e-8f ? outScale.x : 1e-8f;
         const float s1 = outScale.y > 1e-8f ? outScale.y : 1e-8f;
         const float s2 = outScale.z > 1e-8f ? outScale.z : 1e-8f;
 
-        const float r02 = m.m[0][2] / s2;
-        const float r12 = m.m[1][2] / s2;
+        const float r02 = m.m[0][2] / s0;
+        const float r12 = m.m[1][2] / s1;
         const float r22 = m.m[2][2] / s2;
-        const float r10 = m.m[1][0] / s0;
+        const float r10 = m.m[1][0] / s1;
         const float r11 = m.m[1][1] / s1;
         const float r00 = m.m[0][0] / s0;
-        const float r01 = m.m[0][1] / s1;
+        const float r01 = m.m[0][1] / s0;
 
         const float sp  = std::clamp(r12, -1.0f, 1.0f);
         const float pitch = std::asin(sp);
@@ -140,26 +152,129 @@ namespace {
         paths.erase(std::unique(paths.begin(), paths.end()), paths.end());
     }
 
+    MeshHandle ResolveEditorMeshPath(const std::string& path)
+    {
+        AssetManager& am = AssetManager::Get();
+        MeshHandle h = am.GetByPath<MeshAsset>(path);
+        if (h.IsValid()) {
+            return h;
+        }
+        if (path == "__builtin__/Triangle") {
+            return am.GetTriangleMesh();
+        }
+        if (path == "__builtin__/Quad") {
+            return am.GetQuadMesh();
+        }
+        if (path == "__builtin__/Cube") {
+            return am.GetCubeMesh();
+        }
+        return am.Load<MeshAsset>(path);
+    }
+
+    MaterialHandle ResolveEditorMaterialPath(const std::string& path)
+    {
+        AssetManager& am = AssetManager::Get();
+        MaterialHandle h = am.GetByPath<MaterialAsset>(path);
+        if (h.IsValid()) {
+            return h;
+        }
+        if (path == "__builtin__/Default") {
+            return am.GetDefaultMaterial();
+        }
+        return am.Load<MaterialAsset>(path);
+    }
+
+    bool DrawComponentEnabled(Component& component)
+    {
+        bool enabled = component.IsEnabled();
+        if (!ImGui::Checkbox("Enabled", &enabled)) {
+            return false;
+        }
+        component.SetEnabled(enabled);
+        return true;
+    }
+
+    bool DrawColliderCommon(ColliderComponent& collider)
+    {
+        bool changed = false;
+
+        bool trigger = collider.IsTrigger();
+        if (ImGui::Checkbox("Is Trigger", &trigger)) {
+            collider.SetTrigger(trigger);
+            changed = true;
+        }
+
+        int layer = static_cast<int>(collider.GetLayer());
+        if (ImGui::InputInt("Layer", &layer)) {
+            collider.SetLayer(static_cast<uint32_t>((std::max)(1, layer)));
+            changed = true;
+        }
+
+        int layerMask = static_cast<int>(collider.GetLayerMask());
+        if (ImGui::InputInt("Layer Mask", &layerMask)) {
+            collider.SetLayerMask(static_cast<uint32_t>(layerMask));
+            changed = true;
+        }
+
+        return changed;
+    }
+
     static const SDL_DialogFileFilter kSceneJsonFilters[] = {
         { "Scene JSON", "json" },
     };
 
-    constexpr const char kObjDragPayloadType[] = "MYENGINE_OBJ_PATH";
+    static const SDL_DialogFileFilter kImportAssetFilters[] = {
+        { "Importable Assets", "gltf;glb;png;jpg;jpeg" },
+        { "Models", "gltf;glb" },
+        { "Images", "png;jpg;jpeg" },
+    };
 
-    bool PathEndsWithObj(const std::string& path)
+    constexpr const char kModelDragPayloadType[] = "MYENGINE_MODEL_PATH";
+    constexpr const char kTextureDragPayloadType[] = "MYENGINE_TEXTURE_PATH";
+
+    std::string LowerExtension(const std::string& path)
     {
-        if (path.size() < 4) {
-            return false;
+        std::string ext = std::filesystem::path(path).extension().string();
+        if (!ext.empty() && ext[0] == '.') {
+            ext.erase(ext.begin());
         }
-        const size_t i = path.size() - 4;
-        const char a = path[i];
-        const char b = path[i + 1];
-        const char c = path[i + 2];
-        const char d = path[i + 3];
-        return a == '.' &&
-               (b == 'o' || b == 'O') &&
-               (c == 'b' || c == 'B') &&
-               (d == 'j' || d == 'J');
+        for (char& c : ext) {
+            c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        }
+        return ext;
+    }
+
+    bool IsModelAssetPath(const std::string& path)
+    {
+        const std::string ext = LowerExtension(path);
+        return ext == "obj" || ext == "gltf" || ext == "glb";
+    }
+
+    bool IsTextureAssetPath(const std::string& path)
+    {
+        const std::string ext = LowerExtension(path);
+        return ext == "png" || ext == "jpg" || ext == "jpeg" ||
+               ext == "bmp" || ext == "tga" || ext == "ppm" ||
+               ext == "pgm" || ext == "pam" || ext == "hdr";
+    }
+
+    bool IsMaterialAssetPath(const std::string& path)
+    {
+        return LowerExtension(path) == "mat";
+    }
+
+    std::filesystem::path MakeUniqueContentPath(
+        const std::filesystem::path& directory,
+        const std::string& stem,
+        const std::string& extension)
+    {
+        namespace fs = std::filesystem;
+        fs::path candidate = directory / (stem + extension);
+        int suffix = 1;
+        while (fs::exists(candidate)) {
+            candidate = directory / (stem + "_" + std::to_string(suffix++) + extension);
+        }
+        return candidate;
     }
 
     bool RayIntersectYPlane(const Math::Ray& ray, float planeY, float& outT)
@@ -170,6 +285,53 @@ namespace {
         }
         outT = (planeY - ray.origin.y) / dy;
         return outT > 1e-4f;
+    }
+
+    void HelpMarker(const char* text)
+    {
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort |
+                                 ImGuiHoveredFlags_AllowWhenDisabled)) {
+            ImGui::SetTooltip("%s", text);
+        }
+    }
+
+    bool DrawEditableInspectorJson(nlohmann::json& fields)
+    {
+        if (!fields.is_object()) {
+            fields = nlohmann::json::object();
+        }
+
+        bool changed = false;
+        for (auto it = fields.begin(); it != fields.end(); ++it) {
+            const std::string label = it.key();
+            nlohmann::json& value = it.value();
+            ImGui::PushID(label.c_str());
+            if (value.is_boolean()) {
+                bool v = value.get<bool>();
+                if (ImGui::Checkbox(label.c_str(), &v)) {
+                    value = v;
+                    changed = true;
+                }
+            } else if (value.is_number()) {
+                float v = value.get<float>();
+                if (ImGui::DragFloat(label.c_str(), &v, 0.05f)) {
+                    value = v;
+                    changed = true;
+                }
+            } else if (value.is_string()) {
+                char buffer[256] = {};
+                const std::string text = value.get<std::string>();
+                std::snprintf(buffer, sizeof(buffer), "%s", text.c_str());
+                if (ImGui::InputText(label.c_str(), buffer, sizeof(buffer))) {
+                    value = std::string(buffer);
+                    changed = true;
+                }
+            } else {
+                ImGui::TextDisabled("%s: %s", label.c_str(), value.dump().c_str());
+            }
+            ImGui::PopID();
+        }
+        return changed;
     }
 
     std::filesystem::path ResolveEditorContentDirectory()
@@ -235,6 +397,19 @@ static void SDLCALL EditorSaveFileDialogCallback(void* userdata, const char* con
     if (filelist && filelist[0]) {
         self->m_PendingFilePath = filelist[0];
         self->m_PendingFileOp   = EditorLayer::PendingFileOp::SaveScene;
+    } else {
+        self->m_PendingFileOp = EditorLayer::PendingFileOp::None;
+    }
+}
+
+static void SDLCALL EditorImportAssetDialogCallback(void* userdata, const char* const* filelist, int /*filter*/)
+{
+    auto* self = static_cast<EditorLayer*>(userdata);
+    std::lock_guard<std::mutex> lock(self->m_FileDialogMutex);
+    self->m_PendingFilePath.clear();
+    if (filelist && filelist[0]) {
+        self->m_PendingFilePath = filelist[0];
+        self->m_PendingFileOp   = EditorLayer::PendingFileOp::ImportAsset;
     } else {
         self->m_PendingFileOp = EditorLayer::PendingFileOp::None;
     }
@@ -309,6 +484,7 @@ void EditorLayer::OnUpdate(float dt)
     (void)dt;
 #if defined(MYENGINE_ENABLE_IMGUI)
     ProcessPendingFileDialogs();
+    ValidateSelection();
     PollShaderChanges();
 #endif
 }
@@ -317,11 +493,13 @@ void EditorLayer::OnRender()
 {
 #if defined(MYENGINE_ENABLE_IMGUI)
     if (!m_SceneLayer || !m_ImGuiReady || !m_RenderContext) return;
+    ValidateSelection();
 
     m_RenderContext->BeginImGuiFrame();
 
     ImGui::NewFrame();
     ImGuizmo::BeginFrame();
+    ImGuizmo::AllowAxisFlip(false);
 
     DrawToolbar();
     DrawSceneView();
@@ -358,7 +536,7 @@ void EditorLayer::ProcessPendingFileDialogs()
             if (!m_SceneLayer->LoadScene(path)) {
                 Logger::Error("[Editor] Failed to open scene: ", path);
             } else {
-                m_Selected = nullptr;
+                SelectActor(nullptr);
             }
         }
         return;
@@ -369,6 +547,13 @@ void EditorLayer::ProcessPendingFileDialogs()
             if (!m_SceneLayer->SaveSceneAs(path)) {
                 Logger::Error("[Editor] Failed to save scene: ", path);
             }
+        }
+        return;
+    }
+
+    if (op == PendingFileOp::ImportAsset) {
+        if (!path.empty()) {
+            ImportAssetToContent(path);
         }
     }
 }
@@ -396,6 +581,19 @@ void EditorLayer::RequestSaveSceneDialog()
         kSceneJsonFilters,
         1,
         nullptr);
+}
+
+void EditorLayer::RequestImportAssetDialog()
+{
+    if (!m_Window || !m_Window->GetSDLWindow()) return;
+    SDL_ShowOpenFileDialog(
+        &EditorImportAssetDialogCallback,
+        this,
+        m_Window->GetSDLWindow(),
+        kImportAssetFilters,
+        3,
+        nullptr,
+        false);
 }
 
 void EditorLayer::TryPickActorFromSceneView(float screenX, float screenY)
@@ -440,7 +638,41 @@ void EditorLayer::TryPickActorFromSceneView(float screenX, float screenY)
         }
     });
 
-    m_Selected = best;
+    SelectActor(best);
+}
+
+void EditorLayer::SelectActor(Actor* actor)
+{
+    m_Selected = actor;
+    m_SelectedID = actor ? actor->GetID() : 0;
+    m_SelectedScene = (actor && m_SceneLayer) ? &m_SceneLayer->GetScene() : nullptr;
+}
+
+void EditorLayer::ValidateSelection()
+{
+    if (!m_SceneLayer || m_SelectedID == 0) {
+        m_Selected = nullptr;
+        m_SelectedID = 0;
+        m_SelectedScene = nullptr;
+        return;
+    }
+
+    const Scene* currentScene = &m_SceneLayer->GetScene();
+    if (m_SelectedScene != currentScene) {
+        m_Selected = nullptr;
+        m_SelectedID = 0;
+        m_SelectedScene = nullptr;
+        return;
+    }
+
+    Actor* live = m_SceneLayer->GetScene().FindByID(m_SelectedID);
+    if (!live) {
+        m_Selected = nullptr;
+        m_SelectedID = 0;
+        m_SelectedScene = nullptr;
+        return;
+    }
+    m_Selected = live;
 }
 
 void EditorLayer::RefreshAssetBrowserListing()
@@ -473,6 +705,81 @@ void EditorLayer::RefreshAssetBrowserListing()
     }
 
     std::sort(m_AssetBrowserRelPaths.begin(), m_AssetBrowserRelPaths.end());
+}
+
+bool EditorLayer::ImportAssetToContent(const std::string& sourcePath)
+{
+    namespace fs = std::filesystem;
+    if (sourcePath.empty()) return false;
+
+    fs::path source(sourcePath);
+    std::error_code ec;
+    if (!fs::is_regular_file(source, ec)) {
+        Logger::Warn("[Editor] Import source is not a file: ", sourcePath);
+        return false;
+    }
+
+    fs::path root = !m_AssetBrowserRootAbs.empty()
+        ? fs::path(m_AssetBrowserRootAbs)
+        : ResolveEditorContentDirectory();
+    if (root.empty()) {
+        root = fs::current_path() / "Content";
+    }
+    fs::create_directories(root, ec);
+    if (ec) {
+        Logger::Error("[Editor] Failed to create Content directory: ", root.string());
+        return false;
+    }
+
+    const std::string sourceString = source.string();
+    const bool model = IsModelAssetPath(sourceString);
+    const bool texture = IsTextureAssetPath(sourceString);
+    if (!model && !texture) {
+        Logger::Warn("[Editor] Unsupported import asset: ", sourcePath);
+        return false;
+    }
+
+    const fs::path targetDir = root / (model ? "Models" : "Textures");
+    fs::create_directories(targetDir, ec);
+    if (ec) {
+        Logger::Error("[Editor] Failed to create import directory: ", targetDir.string());
+        return false;
+    }
+
+    const fs::path target = MakeUniqueContentPath(
+        targetDir,
+        source.stem().string(),
+        source.extension().string());
+    fs::copy_file(source, target, fs::copy_options::none, ec);
+    if (ec) {
+        Logger::Error("[Editor] Failed to import asset: ", ec.message());
+        return false;
+    }
+
+    if (LowerExtension(sourceString) == "gltf") {
+        const fs::path sourceBin = source.parent_path() / (source.stem().string() + ".bin");
+        if (fs::is_regular_file(sourceBin, ec)) {
+            const fs::path targetBin = target.parent_path() / sourceBin.filename();
+            fs::copy_file(sourceBin, targetBin, fs::copy_options::skip_existing, ec);
+            ec.clear();
+        }
+    }
+
+    RefreshAssetBrowserListing();
+    m_SelectedAssetAbsPath = target.lexically_normal().string();
+    std::error_code relError;
+    m_SelectedAssetRelPath = fs::relative(target, root, relError).generic_string();
+    if (relError) {
+        m_SelectedAssetRelPath = target.filename().generic_string();
+    }
+
+    if (texture) {
+        AssetManager::Get().Load<TextureAsset>(m_SelectedAssetAbsPath);
+    } else if (model) {
+        AssetManager::Get().Load<ModelAsset>(m_SelectedAssetAbsPath);
+    }
+    Logger::Info("[Editor] Imported asset: ", m_SelectedAssetAbsPath);
+    return true;
 }
 
 void EditorLayer::RefreshShaderWatchList()
@@ -525,17 +832,17 @@ void EditorLayer::PollShaderChanges()
     }
 }
 
-void EditorLayer::TryCreateMeshActorFromDroppedObj(const std::string& absObjPath,
-                                                   float                 screenX,
-                                                   float                 screenY)
+void EditorLayer::TryCreateMeshActorFromDroppedModel(const std::string& absModelPath,
+                                                     float              screenX,
+                                                     float              screenY)
 {
-    if (!m_SceneLayer || absObjPath.empty() || !PathEndsWithObj(absObjPath)) {
+    if (!m_SceneLayer || absModelPath.empty() || !IsModelAssetPath(absModelPath)) {
         return;
     }
 
-    ModelHandle model = AssetManager::Get().Load<ModelAsset>(absObjPath);
+    ModelHandle model = AssetManager::Get().Load<ModelAsset>(absModelPath);
     if (!model || !model->GetMesh()) {
-        Logger::Warn("[Editor] Failed to load model: ", absObjPath);
+        Logger::Warn("[Editor] Failed to load model: ", absModelPath);
         return;
     }
 
@@ -545,7 +852,7 @@ void EditorLayer::TryCreateMeshActorFromDroppedObj(const std::string& absObjPath
         mat = AssetManager::Get().GetDefaultMaterial();
     }
 
-    std::string stem = std::filesystem::path(absObjPath).stem().string();
+    std::string stem = std::filesystem::path(absModelPath).stem().string();
     if (stem.empty()) {
         stem = "Mesh";
     }
@@ -578,7 +885,7 @@ void EditorLayer::TryCreateMeshActorFromDroppedObj(const std::string& absObjPath
 
     actor->GetTransform().position = spawnPos;
     m_SceneLayer->MarkDirty();
-    m_Selected = actor;
+    SelectActor(actor);
 }
 #endif
 
@@ -595,9 +902,10 @@ void EditorLayer::DrawToolbar()
 
     ImGui::Begin("##Toolbar", nullptr, flags);
 
+    const bool editing = m_SceneLayer->IsEditing();
     if (ImGui::Button("New Scene")) {
         m_SceneLayer->NewScene("Untitled");
-        m_Selected = nullptr;
+        SelectActor(nullptr);
     }
     ImGui::SameLine();
 
@@ -606,6 +914,7 @@ void EditorLayer::DrawToolbar()
     }
     ImGui::SameLine();
 
+    ImGui::BeginDisabled(!editing);
     if (ImGui::Button("Save Scene")) {
         if (m_SceneLayer->HasFilePath()) {
             if (!m_SceneLayer->SaveScene()) {
@@ -615,10 +924,43 @@ void EditorLayer::DrawToolbar()
             RequestSaveSceneDialog();
         }
     }
+    ImGui::EndDisabled();
+    if (!editing) {
+        HelpMarker("Runtime scene cannot be saved. Stop Play mode first.");
+    }
     ImGui::SameLine();
 
     if (ImGui::Button("Recompile All Shaders")) {
         ShaderManager::Get().RecompileAll();
+    }
+    ImGui::SameLine();
+
+    const SceneRunState runState = m_SceneLayer->GetRunState();
+    if (runState == SceneRunState::Edit) {
+        if (ImGui::Button("Play")) {
+            SelectActor(nullptr);
+            m_SceneLayer->BeginPlay();
+        }
+    } else {
+        if (ImGui::Button("Stop")) {
+            SelectActor(nullptr);
+            m_SceneLayer->StopPlay();
+        }
+        ImGui::SameLine();
+        if (runState == SceneRunState::Play) {
+            if (ImGui::Button("Pause")) m_SceneLayer->PausePlay();
+        } else {
+            if (ImGui::Button("Resume")) m_SceneLayer->ResumePlay();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Step")) m_SceneLayer->StepPlay();
+    }
+    if (m_Engine) {
+        const FrameStats& stats = m_Engine->GetFrameStats();
+        ImGui::SameLine();
+        ImGui::Text("FPS %.1f | Frame %.2f ms | U %.2f | R %.2f",
+                    stats.fps, stats.smoothedFrameMs,
+                    stats.updateMs, stats.renderMs);
     }
 
     ImGui::End();
@@ -630,7 +972,7 @@ void EditorLayer::DrawActorNode(Actor* actor)
 #if defined(MYENGINE_ENABLE_IMGUI)
     if (!actor) return;
 
-    const bool selected = (m_Selected == actor);
+    const bool selected = (m_SelectedID != 0 && m_SelectedID == actor->GetID());
     const bool hasChildren = !actor->GetChildren().empty();
 
     ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow |
@@ -640,7 +982,7 @@ void EditorLayer::DrawActorNode(Actor* actor)
 
     const bool open = ImGui::TreeNodeEx((void*)actor, flags, "%s", actor->GetName().c_str());
     if (ImGui::IsItemClicked()) {
-        m_Selected = actor;
+        SelectActor(actor);
     }
 
     if (open && hasChildren) {
@@ -662,6 +1004,12 @@ void EditorLayer::DrawSceneOutliner()
 
     ImGui::Begin("Scene Outliner");
 
+    const bool editing = m_SceneLayer->IsEditing();
+    if (!editing) {
+        ImGui::TextDisabled("Runtime scene is read-only here. Stop Play mode to edit.");
+    }
+
+    ImGui::BeginDisabled(!editing);
     if (ImGui::Button("Create Actor")) {
         m_SceneLayer->GetScene().CreateActor("Actor");
         m_SceneLayer->MarkDirty();
@@ -670,11 +1018,12 @@ void EditorLayer::DrawSceneOutliner()
     if (ImGui::Button("Delete Selected")) {
         if (m_Selected) {
             Actor* victim = m_Selected;
-            m_Selected    = nullptr;
+            SelectActor(nullptr);
             m_SceneLayer->GetScene().DestroyActor(victim);
             m_SceneLayer->MarkDirty();
         }
     }
+    ImGui::EndDisabled();
 
     Scene& scene = m_SceneLayer->GetScene();
     auto   roots = scene.GetRootActors();
@@ -706,7 +1055,8 @@ void EditorLayer::DrawSceneView()
     ImGui::SetNextWindowBgAlpha(0.0f);
 
     ImGuiWindowFlags flags = ImGuiWindowFlags_NoScrollbar |
-                             ImGuiWindowFlags_NoScrollWithMouse;
+                             ImGuiWindowFlags_NoScrollWithMouse |
+                             ImGuiWindowFlags_NoBackground;
 
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
     if (!ImGui::Begin("Scene View", nullptr, flags)) {
@@ -751,13 +1101,22 @@ void EditorLayer::DrawSceneView()
     }
 
     ImGui::SetCursorScreenPos(ImVec2(viewportX, viewportY));
-    ImGui::Dummy(ImVec2(viewportW, viewportH));
-    if (ImGui::BeginDragDropTarget()) {
-        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kObjDragPayloadType)) {
+    if (void* sceneTexture = m_SceneLayer->GetSceneColorTextureHandle()) {
+        ImGui::Image(
+            reinterpret_cast<ImTextureID>(sceneTexture),
+            ImVec2(viewportW, viewportH),
+            ImVec2(0.0f, 0.0f),
+            ImVec2(1.0f, 1.0f));
+    } else {
+        ImGui::Dummy(ImVec2(viewportW, viewportH));
+    }
+    const bool editing = m_SceneLayer->IsEditing();
+    if (editing && ImGui::BeginDragDropTarget()) {
+        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kModelDragPayloadType)) {
             if (payload->Data && payload->DataSize > 0) {
                 const char* path = static_cast<const char*>(payload->Data);
                 const ImVec2 mousePos = ImGui::GetMousePos();
-                TryCreateMeshActorFromDroppedObj(path, mousePos.x, mousePos.y);
+                TryCreateMeshActorFromDroppedModel(path, mousePos.x, mousePos.y);
             }
         }
         ImGui::EndDragDropTarget();
@@ -765,18 +1124,23 @@ void EditorLayer::DrawSceneView()
 
     // Manipulate() must run before mouse picking so IsOver()/IsUsing() match this frame's gizmo.
     // Gizmo is placed at mesh AABB center in world space (falls back to actor pivot when no mesh).
-    if (m_Selected && viewportW > 1.0f && viewportH > 1.0f) {
+    if (editing && m_Selected && viewportW > 1.0f && viewportH > 1.0f) {
         Camera& cam = m_SceneLayer->GetCamera();
+        ImGuizmo::SetDrawlist(ImGui::GetWindowDrawList());
         ImGuizmo::SetRect(viewportX, viewportY, viewportW, viewportH);
         ImGuizmo::SetOrthographic(cam.GetProjectionMode() == ProjectionMode::Orthographic);
 
         float viewM[16];
         float projM[16];
-        // Must use the same View and Proj as MainPass (world * view * proj). A separate
-        // "GL style" projection tweak makes ImGuizmo's MVP disagree with the scene and the
-        // gizmo slides on screen when the camera moves.
-        Mat4CopyToFloat16(cam.GetView(), viewM);
-        Mat4CopyToFloat16(cam.GetProj(), projM);
+        // Keep the same view-projection as MainPass, while adapting inverse-view
+        // camera direction to ImGuizmo's right-handed expectation. For row vectors:
+        // (view * zFlip) * (zFlip * proj) == view * proj.
+        Mat4 zFlip = Mat4::Identity();
+        zFlip.m[2][2] = -1.0f;
+        const Mat4 gizmoView = cam.GetView() * zFlip;
+        const Mat4 gizmoProj = zFlip * cam.GetProj();
+        Mat4CopyToFloat16(gizmoView, viewM);
+        Mat4CopyToFloat16(gizmoProj, projM);
 
         Mat4 world      = m_Selected->GetWorldMatrix();
         Vec3 pivotModel = Vec3::Zero();
@@ -790,12 +1154,12 @@ void EditorLayer::DrawSceneView()
             }
         }
 
-        float        rotateColScale[3] = { 1.0f, 1.0f, 1.0f };
+        float        rotateRowScale[3] = { 1.0f, 1.0f, 1.0f };
         Mat4         gizmoLinear       = world;
         const bool   rotateGizmo       = (m_GizmoOperation == ImGuizmo::ROTATE);
         if (rotateGizmo) {
             Mat4 R{};
-            ExtractOrthonormalRAndColumnScale(world, rotateColScale, R);
+            ExtractOrthonormalRAndRowScale(world, rotateRowScale, R);
             gizmoLinear = R;
         }
 
@@ -807,7 +1171,7 @@ void EditorLayer::DrawSceneView()
         float matrix[16];
         Mat4CopyToFloat16(gizmoMat, matrix);
 
-        ImGuizmo::Manipulate(
+        const bool manipulated = ImGuizmo::Manipulate(
             viewM,
             projM,
             m_GizmoOperation,
@@ -816,15 +1180,15 @@ void EditorLayer::DrawSceneView()
             nullptr,
             nullptr);
 
-        if (ImGuizmo::IsUsing()) {
+        if (manipulated) {
             Mat4 gizmoNew{};
             Mat4CopyFromFloat16(matrix, gizmoNew);
 
             Mat4 oriented = gizmoNew;
             if (rotateGizmo) {
-                for (int j = 0; j < 3; ++j) {
-                    for (int i = 0; i < 3; ++i) {
-                        oriented.m[i][j] = gizmoNew.m[i][j] * rotateColScale[j];
+                for (int i = 0; i < 3; ++i) {
+                    for (int j = 0; j < 3; ++j) {
+                        oriented.m[i][j] = gizmoNew.m[i][j] * rotateRowScale[i];
                     }
                 }
             }
@@ -846,7 +1210,7 @@ void EditorLayer::DrawSceneView()
             if (Actor* parent = m_Selected->GetParent()) {
                 Mat4 invParent{};
                 if (Mat4Invert(parent->GetWorldMatrix(), invParent)) {
-                    localNew = invParent * worldNew;
+                    localNew = worldNew * invParent;
                 }
             }
 
@@ -874,6 +1238,630 @@ void EditorLayer::DrawSceneView()
 }
 
 #if defined(MYENGINE_ENABLE_IMGUI)
+void EditorLayer::DrawAddComponentInspector(Actor* actor)
+{
+    if (!actor) return;
+
+    ImGui::Separator();
+    ImGui::TextUnformatted("Add Component");
+
+    const char* preview = "Select component...";
+    if (ImGui::BeginCombo("##AddComponent", preview)) {
+        const std::vector<std::string> types = ComponentRegistry::Get().GetRegisteredTypes();
+        for (const std::string& type : types) {
+            const bool alreadyAdded = actor->HasComponentType(type);
+            if (alreadyAdded) {
+                ImGui::BeginDisabled();
+            }
+
+            const std::string label = alreadyAdded ? (type + " (added)") : type;
+            if (ImGui::Selectable(label.c_str(), false) && !alreadyAdded) {
+                Component* component = ComponentRegistry::Get().Create(type, *actor);
+                if (component) {
+                    if (auto* meshRenderer = actor->GetComponent<MeshRendererComponent>()) {
+                        if (!meshRenderer->GetMesh().IsValid()) {
+                            meshRenderer->SetMesh(AssetManager::Get().GetCubeMesh());
+                        }
+                        if (!meshRenderer->GetMaterial().IsValid()) {
+                            meshRenderer->SetMaterial(AssetManager::Get().GetDefaultMaterial());
+                        }
+                    }
+                    if (auto* skinned = actor->GetComponent<SkinnedMeshRendererComponent>()) {
+                        if (!skinned->GetMaterial().IsValid()) {
+                            skinned->SetMaterial(AssetManager::Get().GetDefaultMaterial());
+                        }
+                    }
+                    m_SceneLayer->MarkDirty();
+                }
+            }
+
+            if (alreadyAdded) {
+                ImGui::EndDisabled();
+            }
+        }
+        ImGui::EndCombo();
+    }
+}
+
+void EditorLayer::DrawPhysicsInspector(Actor* actor)
+{
+    if (!actor) return;
+
+    if (auto* rb = actor->GetComponent<RigidBodyComponent>()) {
+        ImGui::Separator();
+        ImGui::PushID("RigidBody");
+        ImGui::TextUnformatted("RigidBody");
+        bool changed = DrawComponentEnabled(*rb);
+
+        const char* bodyTypes[] = { "Static", "Dynamic" };
+        int bodyType = rb->GetBodyType() == BodyType::Static ? 0 : 1;
+        if (ImGui::Combo("Body Type", &bodyType, bodyTypes, 2)) {
+            rb->SetBodyType(bodyType == 0 ? BodyType::Static : BodyType::Dynamic);
+            changed = true;
+        }
+
+        float mass = rb->GetMass();
+        if (ImGui::DragFloat("Mass", &mass, 0.05f, 0.0001f, 100000.0f)) {
+            rb->SetMass(mass);
+            changed = true;
+        }
+
+        Vec3 velocity = rb->GetVelocity();
+        if (DrawVec3Editor("Velocity", velocity, 0.05f)) {
+            rb->SetVelocity(velocity);
+            changed = true;
+        }
+
+        float restitution = rb->GetRestitution();
+        if (ImGui::SliderFloat("Restitution", &restitution, 0.0f, 1.0f)) {
+            rb->SetRestitution(restitution);
+            changed = true;
+        }
+
+        float damping = rb->GetLinearDamping();
+        if (ImGui::DragFloat("Linear Damping", &damping, 0.01f, 0.0f, 100.0f)) {
+            rb->SetLinearDamping(damping);
+            changed = true;
+        }
+
+        float friction = rb->GetFriction();
+        if (ImGui::SliderFloat("Friction", &friction, 0.0f, 2.0f)) {
+            rb->SetFriction(friction);
+            changed = true;
+        }
+
+        bool useGravity = rb->UsesGravity();
+        if (ImGui::Checkbox("Use Gravity", &useGravity)) {
+            rb->SetUseGravity(useGravity);
+            changed = true;
+        }
+
+        ImGui::Text("Sleeping: %s", rb->IsSleeping() ? "yes" : "no");
+        if (changed) m_SceneLayer->MarkDirty();
+        if (ImGui::Button("Remove RigidBody")) {
+            actor->RemoveComponent<RigidBodyComponent>();
+            m_SceneLayer->MarkDirty();
+            ImGui::PopID();
+            return;
+        }
+        ImGui::PopID();
+    }
+
+    if (auto* box = actor->GetComponent<BoxColliderComponent>()) {
+        ImGui::Separator();
+        ImGui::PushID("BoxCollider");
+        ImGui::TextUnformatted("BoxCollider");
+        bool changed = DrawComponentEnabled(*box);
+        changed |= DrawColliderCommon(*box);
+        Vec3 halfExtents = box->GetHalfExtents();
+        if (DrawVec3Editor("Half Extents", halfExtents, 0.02f)) {
+            box->SetHalfExtents(halfExtents);
+            changed = true;
+        }
+        if (changed) m_SceneLayer->MarkDirty();
+        if (ImGui::Button("Remove BoxCollider")) {
+            actor->RemoveComponent<BoxColliderComponent>();
+            m_SceneLayer->MarkDirty();
+            ImGui::PopID();
+            return;
+        }
+        ImGui::PopID();
+    }
+
+    if (auto* sphere = actor->GetComponent<SphereColliderComponent>()) {
+        ImGui::Separator();
+        ImGui::PushID("SphereCollider");
+        ImGui::TextUnformatted("SphereCollider");
+        bool changed = DrawComponentEnabled(*sphere);
+        changed |= DrawColliderCommon(*sphere);
+        float radius = sphere->GetRadius();
+        if (ImGui::DragFloat("Radius", &radius, 0.02f, 0.001f, 100000.0f)) {
+            sphere->SetRadius(radius);
+            changed = true;
+        }
+        if (changed) m_SceneLayer->MarkDirty();
+        if (ImGui::Button("Remove SphereCollider")) {
+            actor->RemoveComponent<SphereColliderComponent>();
+            m_SceneLayer->MarkDirty();
+            ImGui::PopID();
+            return;
+        }
+        ImGui::PopID();
+    }
+
+    if (auto* capsule = actor->GetComponent<CapsuleColliderComponent>()) {
+        ImGui::Separator();
+        ImGui::PushID("CapsuleCollider");
+        ImGui::TextUnformatted("CapsuleCollider");
+        bool changed = DrawComponentEnabled(*capsule);
+        changed |= DrawColliderCommon(*capsule);
+        float radius = capsule->GetRadius();
+        if (ImGui::DragFloat("Radius", &radius, 0.02f, 0.001f, 100000.0f)) {
+            capsule->SetRadius(radius);
+            changed = true;
+        }
+        float halfHeight = capsule->GetHalfHeight();
+        if (ImGui::DragFloat("Half Height", &halfHeight, 0.02f, 0.0f, 100000.0f)) {
+            capsule->SetHalfHeight(halfHeight);
+            changed = true;
+        }
+        if (changed) m_SceneLayer->MarkDirty();
+        if (ImGui::Button("Remove CapsuleCollider")) {
+            actor->RemoveComponent<CapsuleColliderComponent>();
+            m_SceneLayer->MarkDirty();
+            ImGui::PopID();
+            return;
+        }
+        ImGui::PopID();
+    }
+
+    if (auto* controller = actor->GetComponent<CharacterControllerComponent>()) {
+        ImGui::Separator();
+        ImGui::PushID("CharacterController");
+        ImGui::TextUnformatted("CharacterController");
+        bool changed = DrawComponentEnabled(*controller);
+        Vec3 velocity = controller->GetVelocity();
+        if (DrawVec3Editor("Velocity", velocity, 0.05f)) {
+            controller->Move(velocity);
+            changed = true;
+        }
+        bool useGravity = controller->UsesGravity();
+        if (ImGui::Checkbox("Use Gravity", &useGravity)) {
+            controller->SetUseGravity(useGravity);
+            changed = true;
+        }
+        float stepOffset = controller->GetStepOffset();
+        if (ImGui::DragFloat("Step Offset", &stepOffset, 0.01f, 0.0f, 1000.0f)) {
+            controller->SetStepOffset(stepOffset);
+            changed = true;
+        }
+        ImGui::Text("Grounded: %s", controller->IsGrounded() ? "yes" : "no");
+        if (changed) m_SceneLayer->MarkDirty();
+        if (ImGui::Button("Remove CharacterController")) {
+            actor->RemoveComponent<CharacterControllerComponent>();
+            m_SceneLayer->MarkDirty();
+            ImGui::PopID();
+            return;
+        }
+        ImGui::PopID();
+    }
+}
+
+void EditorLayer::DrawSkinnedMeshInspector(Actor* actor)
+{
+    if (!actor) return;
+
+    auto* skinned = actor->GetComponent<SkinnedMeshRendererComponent>();
+    if (!skinned) return;
+
+    ImGui::Separator();
+    ImGui::PushID("SkinnedMeshRenderer");
+    ImGui::TextUnformatted("Skinned Mesh Renderer");
+    bool changed = DrawComponentEnabled(*skinned);
+
+    std::vector<std::string> meshPaths = {
+        "__builtin__/Triangle",
+        "__builtin__/Quad",
+        "__builtin__/Cube",
+    };
+    {
+        auto extra = AssetManager::Get().GetCachedPathsByType(AssetType::Mesh);
+        meshPaths.insert(meshPaths.end(), extra.begin(), extra.end());
+        MergeUniqueSorted(meshPaths);
+    }
+
+    MeshHandle sourceMesh = skinned->GetSourceMesh();
+    const std::string meshCurrent = sourceMesh.IsValid() ? sourceMesh->GetPath() : "";
+    const char* meshPreview = meshCurrent.empty() ? "(none)" : meshCurrent.c_str();
+    if (ImGui::BeginCombo("Source Mesh", meshPreview)) {
+        for (const std::string& p : meshPaths) {
+            const bool selected = (p == meshCurrent);
+            if (ImGui::Selectable(p.c_str(), selected)) {
+                MeshHandle h = ResolveEditorMeshPath(p);
+                if (h.IsValid()) {
+                    skinned->SetSourceMesh(h);
+                    changed = true;
+                } else {
+                    Logger::Warn("[Editor] Failed to resolve skinned mesh source: ", p);
+                }
+            }
+        }
+        ImGui::EndCombo();
+    }
+
+    std::vector<std::string> matPaths = { "__builtin__/Default" };
+    {
+        auto extra = AssetManager::Get().GetCachedPathsByType(AssetType::Material);
+        matPaths.insert(matPaths.end(), extra.begin(), extra.end());
+        MergeUniqueSorted(matPaths);
+    }
+
+    MaterialHandle mat = skinned->GetMaterial();
+    const std::string matCurrent = mat.IsValid() ? mat->GetPath() : "";
+    const char* matPreview = matCurrent.empty() ? "(none)" : matCurrent.c_str();
+    if (ImGui::BeginCombo("Material", matPreview)) {
+        for (const std::string& p : matPaths) {
+            const bool selected = (p == matCurrent);
+            if (ImGui::Selectable(p.c_str(), selected)) {
+                MaterialHandle mh = ResolveEditorMaterialPath(p);
+                if (mh.IsValid()) {
+                    skinned->SetMaterial(mh);
+                    changed = true;
+                } else {
+                    Logger::Warn("[Editor] Failed to resolve skinned material: ", p);
+                }
+            }
+        }
+        ImGui::EndCombo();
+    }
+
+    if (DrawMaterialAssetInspector(skinned->GetMaterial())) {
+        changed = true;
+    }
+
+    bool playing = skinned->IsPlaying();
+    if (ImGui::Checkbox("Playing", &playing)) {
+        skinned->SetPlaying(playing);
+        changed = true;
+    }
+
+    float time = skinned->GetAnimationTime();
+    if (ImGui::DragFloat("Animation Time", &time, 0.01f, 0.0f, 100000.0f)) {
+        skinned->SetAnimationTime(time);
+        changed = true;
+    }
+
+    float blendWeight = skinned->GetBlendWeight();
+    if (ImGui::SliderFloat("Blend Weight", &blendWeight, 0.0f, 1.0f)) {
+        skinned->SetBlendWeight(blendWeight);
+        changed = true;
+    }
+
+    ImGui::Text("Bones: %zu", skinned->GetBones().size());
+    ImGui::Text("Weights: %zu", skinned->GetWeights().size());
+    ImGui::Text("Skin Matrices: %zu", skinned->GetSkinMatrices().size());
+    ImGui::Text("GPU Skinning: %s", skinned->UsesGpuSkinning() ? "yes" : "no");
+
+    if (changed) m_SceneLayer->MarkDirty();
+    if (ImGui::Button("Remove SkinnedMeshRenderer")) {
+        actor->RemoveComponent<SkinnedMeshRendererComponent>();
+        m_SceneLayer->MarkDirty();
+        ImGui::PopID();
+        return;
+    }
+    ImGui::PopID();
+}
+
+void EditorLayer::DrawLightInspector(Actor* actor)
+{
+    if (!actor) return;
+
+    auto* light = actor->GetComponent<LightComponent>();
+    if (!light) return;
+
+    ImGui::Separator();
+    ImGui::PushID("Light");
+    ImGui::TextUnformatted("Light");
+    bool changed = DrawComponentEnabled(*light);
+
+    const char* lightTypes[] = { "Directional", "Point", "Spot" };
+    int type = 0;
+    if (light->GetLightType() == LightType::Point) {
+        type = 1;
+    } else if (light->GetLightType() == LightType::Spot) {
+        type = 2;
+    }
+    if (ImGui::Combo("Type", &type, lightTypes, 3)) {
+        light->SetLightType(type == 0 ? LightType::Directional :
+            (type == 1 ? LightType::Point : LightType::Spot));
+        changed = true;
+    }
+
+    Vec3 color = light->GetColor();
+    float colorValues[3] = { color.x, color.y, color.z };
+    if (ImGui::ColorEdit3("Color", colorValues)) {
+        light->SetColor({ colorValues[0], colorValues[1], colorValues[2] });
+        changed = true;
+    }
+
+    float intensity = light->GetIntensity();
+    if (ImGui::DragFloat("Intensity", &intensity, 0.05f, 0.0f, 1000.0f)) {
+        light->SetIntensity(intensity);
+        changed = true;
+    }
+
+    if (light->GetLightType() == LightType::Directional) {
+        Vec3 direction = light->GetDirection();
+        if (DrawVec3Editor("Direction", direction, 0.02f)) {
+            light->SetDirection(direction);
+            changed = true;
+        }
+        bool castShadows = light->CastsShadows();
+        if (ImGui::Checkbox("Cast Shadows", &castShadows)) {
+            light->SetCastShadows(castShadows);
+            changed = true;
+        }
+    } else {
+        float range = light->GetRange();
+        if (ImGui::DragFloat("Range", &range, 0.05f, 0.01f, 10000.0f)) {
+            light->SetRange(range);
+            changed = true;
+        }
+        if (light->GetLightType() == LightType::Spot) {
+            Vec3 direction = light->GetDirection();
+            if (DrawVec3Editor("Direction", direction, 0.02f)) {
+                light->SetDirection(direction);
+                changed = true;
+            }
+
+            float innerCone = light->GetInnerConeAngle();
+            if (ImGui::DragFloat("Inner Cone", &innerCone, 0.25f, 0.0f, 89.0f)) {
+                light->SetInnerConeAngle(innerCone);
+                changed = true;
+            }
+
+            float outerCone = light->GetOuterConeAngle();
+            if (ImGui::DragFloat("Outer Cone", &outerCone, 0.25f, 0.0f, 89.0f)) {
+                light->SetOuterConeAngle(outerCone);
+                changed = true;
+            }
+        }
+        bool castShadows = light->CastsShadows();
+        if (ImGui::Checkbox("Cast Shadows", &castShadows)) {
+            light->SetCastShadows(castShadows);
+            changed = true;
+        }
+        ImGui::TextDisabled(light->GetLightType() == LightType::Point
+            ? "Point light position uses the actor transform."
+            : "Spot light position uses the actor transform.");
+    }
+
+    if (changed) m_SceneLayer->MarkDirty();
+    if (ImGui::Button("Remove Light")) {
+        actor->RemoveComponent<LightComponent>();
+        m_SceneLayer->MarkDirty();
+        ImGui::PopID();
+        return;
+    }
+    ImGui::PopID();
+}
+
+void EditorLayer::DrawPostProcessInspector(Actor* actor)
+{
+    if (!actor) return;
+
+    auto* post = actor->GetComponent<PostProcessComponent>();
+    if (!post) return;
+
+    ImGui::Separator();
+    ImGui::PushID("PostProcess");
+    ImGui::TextUnformatted("Post Process");
+    bool changed = DrawComponentEnabled(*post);
+
+    bool toneMapping = post->IsToneMappingEnabled();
+    if (ImGui::Checkbox("Tone Mapping", &toneMapping)) {
+        post->SetToneMappingEnabled(toneMapping);
+        changed = true;
+    }
+
+    float exposure = post->GetExposure();
+    if (ImGui::DragFloat("Exposure", &exposure, 0.02f, 0.0f, 16.0f)) {
+        post->SetExposure(exposure);
+        changed = true;
+    }
+
+    float gamma = post->GetGamma();
+    if (ImGui::DragFloat("Gamma", &gamma, 0.01f, 0.1f, 8.0f)) {
+        post->SetGamma(gamma);
+        changed = true;
+    }
+
+    float vignette = post->GetVignette();
+    if (ImGui::SliderFloat("Vignette", &vignette, 0.0f, 1.0f)) {
+        post->SetVignette(vignette);
+        changed = true;
+    }
+
+    float saturation = post->GetSaturation();
+    if (ImGui::DragFloat("Saturation", &saturation, 0.02f, 0.0f, 4.0f)) {
+        post->SetSaturation(saturation);
+        changed = true;
+    }
+
+    float contrast = post->GetContrast();
+    if (ImGui::DragFloat("Contrast", &contrast, 0.02f, 0.0f, 4.0f)) {
+        post->SetContrast(contrast);
+        changed = true;
+    }
+
+    float aa = post->GetAntiAliasingStrength();
+    if (ImGui::SliderFloat("Shader AA Strength", &aa, 0.0f, 1.0f)) {
+        post->SetAntiAliasingStrength(aa);
+        changed = true;
+    }
+    ImGui::TextDisabled("FXAA applied in fullscreen post-process pass.");
+
+    float ssaoRadius = post->GetSSAORadius();
+    if (ImGui::DragFloat("SSAO Radius", &ssaoRadius, 0.02f, 0.01f, 10.0f)) {
+        post->SetSSAORadius(ssaoRadius);
+        changed = true;
+    }
+
+    float ssaoBias = post->GetSSAOBias();
+    if (ImGui::DragFloat("SSAO Bias", &ssaoBias, 0.001f, 0.0f, 0.5f)) {
+        post->SetSSAOBias(ssaoBias);
+        changed = true;
+    }
+
+    float ssaoPower = post->GetSSAOPower();
+    if (ImGui::DragFloat("SSAO Power", &ssaoPower, 0.02f, 0.1f, 8.0f)) {
+        post->SetSSAOPower(ssaoPower);
+        changed = true;
+    }
+
+    float ssaoIntensity = post->GetSSAOIntensity();
+    if (ImGui::DragFloat("SSAO Intensity", &ssaoIntensity, 0.02f, 0.0f, 4.0f)) {
+        post->SetSSAOIntensity(ssaoIntensity);
+        changed = true;
+    }
+
+    if (changed) m_SceneLayer->MarkDirty();
+    if (ImGui::Button("Remove PostProcess")) {
+        actor->RemoveComponent<PostProcessComponent>();
+        m_SceneLayer->MarkDirty();
+        ImGui::PopID();
+        return;
+    }
+    ImGui::PopID();
+}
+
+bool EditorLayer::DrawMaterialAssetInspector(MaterialHandle material)
+{
+    if (!material.IsValid()) {
+        return false;
+    }
+
+    bool changed = false;
+    MaterialAsset& mat = *material.Get();
+
+    ImGui::Separator();
+    ImGui::PushID(&mat);
+    ImGui::TextUnformatted("Material Properties");
+    ImGui::TextWrapped("%s", mat.GetPath().c_str());
+
+    const char* blendModes[] = { "Opaque", "AlphaTest", "Transparent" };
+    int blendMode = static_cast<int>(mat.GetBlendMode());
+    if (ImGui::Combo("Blend Mode", &blendMode, blendModes, 3)) {
+        mat.SetBlendMode(static_cast<BlendMode>(std::clamp(blendMode, 0, 2)));
+        changed = true;
+    }
+
+    bool twoSided = mat.IsTwoSided();
+    if (ImGui::Checkbox("Two Sided", &twoSided)) {
+        mat.SetTwoSided(twoSided);
+        changed = true;
+    }
+
+    bool wireframe = mat.IsWireframe();
+    if (ImGui::Checkbox("Wireframe", &wireframe)) {
+        mat.SetWireframe(wireframe);
+        changed = true;
+    }
+
+    float alphaThreshold = mat.GetAlphaThreshold();
+    if (ImGui::SliderFloat("Alpha Threshold", &alphaThreshold, 0.0f, 1.0f)) {
+        mat.SetAlphaThreshold(alphaThreshold);
+        changed = true;
+    }
+
+    MaterialParam baseColorParam = mat.GetParam(
+        "BaseColor",
+        MaterialParam::FromVec4(1.0f, 1.0f, 1.0f, 1.0f));
+    float baseColor[4] = {
+        baseColorParam.data[0],
+        baseColorParam.data[1],
+        baseColorParam.data[2],
+        baseColorParam.data[3],
+    };
+    if (ImGui::ColorEdit4("Base Color", baseColor)) {
+        mat.SetParam("BaseColor", MaterialParam::FromVec4(
+            baseColor[0], baseColor[1], baseColor[2], baseColor[3]));
+        changed = true;
+    }
+
+    float metallic = mat.GetFloat("Metallic", 0.0f);
+    if (ImGui::SliderFloat("Metallic", &metallic, 0.0f, 1.0f)) {
+        mat.SetParam("Metallic", MaterialParam::FromFloat(metallic));
+        changed = true;
+    }
+
+    float roughness = mat.GetFloat("Roughness", 0.5f);
+    if (ImGui::SliderFloat("Roughness", &roughness, 0.04f, 1.0f)) {
+        mat.SetParam("Roughness", MaterialParam::FromFloat(roughness));
+        changed = true;
+    }
+
+    float ao = mat.GetFloat("AmbientOcclusion", 1.0f);
+    if (ImGui::SliderFloat("Ambient Occlusion", &ao, 0.0f, 1.0f)) {
+        mat.SetParam("AmbientOcclusion", MaterialParam::FromFloat(ao));
+        changed = true;
+    }
+
+    Vec3 emissiveColor = mat.GetColor("Emissive", Vec3::Zero());
+    float emissiveArr[3] = { emissiveColor.x, emissiveColor.y, emissiveColor.z };
+    if (ImGui::ColorEdit3("Emissive", emissiveArr)) {
+        mat.SetParam("Emissive", MaterialParam::FromVec4(
+            emissiveArr[0], emissiveArr[1], emissiveArr[2], 1.0f));
+        changed = true;
+    }
+
+    auto drawTextureSlot = [&](const char* label, const char* slot) {
+        TextureHandle texture = mat.GetTexture(slot);
+        const std::string current = texture.IsValid() ? texture->GetPath() : std::string("(none)");
+        ImGui::Text("%s: %s", label, current.c_str());
+        if (ImGui::BeginDragDropTarget()) {
+            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kTextureDragPayloadType)) {
+                if (payload->Data && payload->DataSize > 0) {
+                    const char* path = static_cast<const char*>(payload->Data);
+                    TextureHandle loaded = AssetManager::Get().GetByPath<TextureAsset>(path);
+                    if (!loaded.IsValid()) {
+                        loaded = AssetManager::Get().Load<TextureAsset>(path);
+                    }
+                    if (loaded.IsValid()) {
+                        mat.SetTexture(slot, loaded);
+                        changed = true;
+                    } else {
+                        Logger::Warn("[Editor] Failed to assign texture: ", path);
+                    }
+                }
+            }
+            ImGui::EndDragDropTarget();
+        }
+    };
+
+    ImGui::TextDisabled("Drag textures from Asset Browser onto a slot.");
+    drawTextureSlot("BaseColor Map", "BaseColorMap");
+    drawTextureSlot("Normal Map", "NormalMap");
+    drawTextureSlot("Metallic/Roughness Map", "MetallicRoughnessMap");
+    drawTextureSlot("Occlusion Map", "OcclusionMap");
+    drawTextureSlot("Emissive Map", "EmissiveMap");
+
+    const bool isMatFile = IsMaterialAssetPath(mat.GetPath());
+    ImGui::BeginDisabled(!isMatFile);
+    if (ImGui::Button("Save Material")) {
+        if (SaveMaterialAssetToFile(mat, mat.GetPath())) {
+            Logger::Info("[Editor] Saved material: ", mat.GetPath());
+        }
+    }
+    ImGui::EndDisabled();
+    if (!isMatFile) {
+        ImGui::TextDisabled("Create a .mat asset to persist material edits.");
+    }
+
+    ImGui::PopID();
+    return changed;
+}
+
 void EditorLayer::DrawMeshMaterialInspector(Actor* actor)
 {
     if (!actor) return;
@@ -914,10 +1902,7 @@ void EditorLayer::DrawMeshMaterialInspector(Actor* actor)
         for (const std::string& p : meshPaths) {
             const bool selected = (p == meshCurrent);
             if (ImGui::Selectable(p.c_str(), selected)) {
-                MeshHandle h = AssetManager::Get().GetByPath<MeshAsset>(p);
-                if (!h.IsValid()) {
-                    h = AssetManager::Get().Load<MeshAsset>(p);
-                }
+                MeshHandle h = ResolveEditorMeshPath(p);
                 if (h.IsValid()) {
                     mr->SetMesh(h);
                     m_SceneLayer->MarkDirty();
@@ -944,10 +1929,7 @@ void EditorLayer::DrawMeshMaterialInspector(Actor* actor)
         for (const std::string& p : matPaths) {
             const bool selected = (p == matCurrent);
             if (ImGui::Selectable(p.c_str(), selected)) {
-                MaterialHandle mh = AssetManager::Get().GetByPath<MaterialAsset>(p);
-                if (!mh.IsValid()) {
-                    mh = AssetManager::Get().Load<MaterialAsset>(p);
-                }
+                MaterialHandle mh = ResolveEditorMaterialPath(p);
                 if (mh.IsValid()) {
                     mr->SetMaterial(mh);
                     m_SceneLayer->MarkDirty();
@@ -959,8 +1941,55 @@ void EditorLayer::DrawMeshMaterialInspector(Actor* actor)
         ImGui::EndCombo();
     }
 
+    if (DrawMaterialAssetInspector(mr->GetMaterial())) {
+        m_SceneLayer->MarkDirty();
+    }
+
     if (ImGui::Button("Remove Mesh Renderer")) {
         actor->RemoveComponent<MeshRendererComponent>();
+        m_SceneLayer->MarkDirty();
+    }
+}
+#endif
+
+#if defined(MYENGINE_ENABLE_IMGUI)
+void EditorLayer::DrawScriptInspector(Actor* actor)
+{
+    if (!actor) return;
+
+    auto* script = actor->GetComponent<ScriptComponent>();
+    ImGui::Separator();
+    ImGui::TextUnformatted("Script");
+    if (!script) {
+        if (ImGui::Button("Add Script")) {
+            actor->AddComponent<ScriptComponent>();
+            m_SceneLayer->MarkDirty();
+        }
+        return;
+    }
+
+    ImGui::Text("Status: %s", script->IsCompiled() ? "Compiled" : "Error");
+    const std::string& path = script->GetScriptPath();
+    ImGui::TextWrapped("Path: %s", path.empty() ? "(inline)" : path.c_str());
+
+    const std::string& error = script->GetLastError();
+    if (!error.empty()) {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.42f, 0.38f, 1.0f));
+        ImGui::TextWrapped("%s", error.c_str());
+        ImGui::PopStyleColor();
+    }
+
+    ImGui::TextUnformatted("Inspector Fields");
+    nlohmann::json fields = script->GetInspectorFields();
+    if (fields.empty()) {
+        ImGui::TextDisabled("No fields. Define Inspector = { ... } in Lua.");
+    } else if (DrawEditableInspectorJson(fields)) {
+        script->SetInspectorFields(std::move(fields));
+        m_SceneLayer->MarkDirty();
+    }
+
+    if (ImGui::Button("Remove Script")) {
+        actor->RemoveComponent<ScriptComponent>();
         m_SceneLayer->MarkDirty();
     }
 }
@@ -983,11 +2012,17 @@ void EditorLayer::DrawInspector()
         return;
     }
 
+    const bool editing = m_SceneLayer->IsEditing();
+    if (!editing) {
+        ImGui::TextDisabled("Runtime scene is read-only here. Stop Play mode to edit.");
+    }
+
     ImGui::Text("Actor: %s", m_Selected->GetName().c_str());
     ImGui::Text("ID: %llu", static_cast<unsigned long long>(m_Selected->GetID()));
     ImGui::Separator();
     ImGui::TextUnformatted("Transform");
 
+    ImGui::BeginDisabled(!editing);
     Transform& transform = m_Selected->GetTransform();
     bool changed = false;
     changed |= DrawVec3Editor("Position", transform.position, 0.05f);
@@ -1021,6 +2056,13 @@ void EditorLayer::DrawInspector()
     }
 
     DrawMeshMaterialInspector(m_Selected);
+    DrawSkinnedMeshInspector(m_Selected);
+    DrawPhysicsInspector(m_Selected);
+    DrawLightInspector(m_Selected);
+    DrawPostProcessInspector(m_Selected);
+    DrawScriptInspector(m_Selected);
+    DrawAddComponentInspector(m_Selected);
+    ImGui::EndDisabled();
 
     ImGui::End();
 #endif
@@ -1103,6 +2145,27 @@ void EditorLayer::DrawAssetBrowser()
     }
 
     ImGui::SameLine();
+    if (ImGui::Button("Import")) {
+        RequestImportAssetDialog();
+    }
+
+    ImGui::SameLine();
+    ImGui::BeginDisabled(m_AssetBrowserRootAbs.empty());
+    if (ImGui::Button("Create Material")) {
+        namespace fs = std::filesystem;
+        const fs::path materialDir = fs::path(m_AssetBrowserRootAbs) / "Materials";
+        const fs::path materialPath = MakeUniqueContentPath(materialDir, "NewMaterial", ".mat");
+        auto material = MaterialAsset::CreateDefault(materialPath.stem().string());
+        material->SetParam("AmbientOcclusion", MaterialParam::FromFloat(1.0f));
+        if (SaveMaterialAssetToFile(*material, materialPath.string())) {
+            AssetManager::Get().Load<MaterialAsset>(materialPath.string());
+            RefreshAssetBrowserListing();
+            Logger::Info("[Editor] Created material: ", materialPath.string());
+        }
+    }
+    ImGui::EndDisabled();
+
+    ImGui::SameLine();
     ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
     static char s_Filter[128] = {};
     ImGui::InputTextWithHint("##AssetFilter", "Filter...", s_Filter, sizeof(s_Filter));
@@ -1117,6 +2180,42 @@ void EditorLayer::DrawAssetBrowser()
     }
 
     ImGui::TextWrapped("%s", m_AssetBrowserRootAbs.c_str());
+    if (!m_SelectedAssetAbsPath.empty()) {
+        ImGui::Separator();
+        ImGui::TextWrapped("Selected: %s", m_SelectedAssetRelPath.c_str());
+        if (IsTextureAssetPath(m_SelectedAssetAbsPath)) {
+            TextureHandle texture = AssetManager::Get().GetByPath<TextureAsset>(m_SelectedAssetAbsPath);
+            if (!texture.IsValid()) {
+                texture = AssetManager::Get().Load<TextureAsset>(m_SelectedAssetAbsPath);
+            }
+            if (texture.IsValid()) {
+                ImGui::Text("Texture: %dx%d mips=%d",
+                    texture->GetWidth(), texture->GetHeight(), texture->GetMipLevels());
+            }
+        } else if (IsModelAssetPath(m_SelectedAssetAbsPath)) {
+            ModelHandle model = AssetManager::Get().GetByPath<ModelAsset>(m_SelectedAssetAbsPath);
+            if (!model.IsValid()) {
+                model = AssetManager::Get().Load<ModelAsset>(m_SelectedAssetAbsPath);
+            }
+            if (model.IsValid() && model->GetMesh()) {
+                ImGui::Text("Model: vertices=%zu indices=%zu materials=%d",
+                    model->GetMesh()->VertexCount(),
+                    model->GetMesh()->IndexCount(),
+                    model->MaterialCount());
+            }
+        } else if (IsMaterialAssetPath(m_SelectedAssetAbsPath)) {
+            MaterialHandle material = AssetManager::Get().GetByPath<MaterialAsset>(m_SelectedAssetAbsPath);
+            if (!material.IsValid()) {
+                material = AssetManager::Get().Load<MaterialAsset>(m_SelectedAssetAbsPath);
+            }
+            if (material.IsValid()) {
+                ImGui::Text("Material: params=%zu textures=%zu",
+                    material->GetParams().size(),
+                    material->GetTextures().size());
+            }
+        }
+        ImGui::Separator();
+    }
     const char* filter = s_Filter;
     const bool useFilter = (filter[0] != '\0');
 
@@ -1127,17 +2226,35 @@ void EditorLayer::DrawAssetBrowser()
                 continue;
             }
         }
-        const bool isObj = PathEndsWithObj(rel);
+        const bool isModel = IsModelAssetPath(rel);
+        const bool isTexture = IsTextureAssetPath(rel);
+        const bool isMaterial = IsMaterialAssetPath(rel);
         if (ImGui::Selectable(rel.c_str())) {
             const std::string full =
                 (std::filesystem::path(m_AssetBrowserRootAbs) / rel).lexically_normal().string();
+            m_SelectedAssetRelPath = rel;
+            m_SelectedAssetAbsPath = full;
             Logger::Info("[Editor] Asset path: ", full);
+            if (isMaterial) {
+                AssetManager::Get().Load<MaterialAsset>(full);
+            } else if (isTexture) {
+                AssetManager::Get().Load<TextureAsset>(full);
+            } else if (isModel) {
+                AssetManager::Get().Load<ModelAsset>(full);
+            }
         }
-        if (isObj && ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
+        if (isModel && ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
             const std::string full =
                 (std::filesystem::path(m_AssetBrowserRootAbs) / rel).lexically_normal().string();
-            ImGui::SetDragDropPayload(kObjDragPayloadType, full.c_str(), full.size() + 1);
-            ImGui::TextUnformatted("OBJ → Scene");
+            ImGui::SetDragDropPayload(kModelDragPayloadType, full.c_str(), full.size() + 1);
+            ImGui::TextUnformatted("OBJ 閳?Scene");
+            ImGui::EndDragDropSource();
+        }
+        if (isTexture && ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
+            const std::string full =
+                (std::filesystem::path(m_AssetBrowserRootAbs) / rel).lexically_normal().string();
+            ImGui::SetDragDropPayload(kTextureDragPayloadType, full.c_str(), full.size() + 1);
+            ImGui::Text("Texture -> Material: %s", rel.c_str());
             ImGui::EndDragDropSource();
         }
     }

@@ -18,6 +18,8 @@
 //  - 有名字和唯一数值 ID（由 Scene 分配）
 // ==========================================================================
 
+class Scene;
+
 class Actor {
 public:
     // -----------------------------------------------------------------------
@@ -41,6 +43,7 @@ public:
 
     bool IsActive() const { return m_Active; }
     void SetActive(bool active) { m_Active = active; }
+    Scene* GetScene() const { return m_Scene; }
 
     // -----------------------------------------------------------------------
     // Transform
@@ -104,6 +107,12 @@ public:
     }
 
     // 移除组件
+    Component* GetComponentByTypeName(const std::string& typeName) const;
+    bool HasComponentType(const std::string& typeName) const {
+        return GetComponentByTypeName(typeName) != nullptr;
+    }
+    bool RemoveComponentByTypeName(const std::string& typeName);
+
     template<typename T>
     bool RemoveComponent() {
         auto key = std::type_index(typeid(T));
@@ -125,6 +134,7 @@ public:
     // 生命周期（由 Scene 驱动）
     // -----------------------------------------------------------------------
     void Update(float deltaSeconds);
+    void FixedUpdate(float deltaSeconds);
 
 private:
     void AddChild(Actor* child);
@@ -140,4 +150,7 @@ private:
     std::vector<Actor*> m_Children;
 
     std::unordered_map<std::type_index, std::unique_ptr<Component>> m_Components;
+    Scene* m_Scene = nullptr;
+
+    friend class Scene;
 };

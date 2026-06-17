@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Scene/Actor.h"
+#include "Physics/PhysicsWorld.h"
 #include <string>
 #include <vector>
 #include <memory>
@@ -88,6 +89,9 @@ public:
     // -----------------------------------------------------------------------
     void OnUpdate(float deltaSeconds);
 
+    PhysicsWorld& GetPhysicsWorld() { return m_PhysicsWorld; }
+    const PhysicsWorld& GetPhysicsWorld() const { return m_PhysicsWorld; }
+
 private:
     // 真正销毁 Actor 及其全部子树
     void DestroyActorInternal(Actor* actor);
@@ -100,4 +104,5 @@ private:
 
     // 待销毁队列（延迟删除）
     std::vector<Actor*> m_PendingDestroy;
+    PhysicsWorld m_PhysicsWorld;
 };

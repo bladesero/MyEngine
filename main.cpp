@@ -56,7 +56,10 @@ protected:
     }
 
     void OnShutdown() override {
-        if (m_RenderContext) m_RenderContext->Shutdown();
+        if (m_RenderContext) {
+            m_RenderContext->Shutdown();
+            m_RenderContext.reset();
+        }
     }
 
 private:

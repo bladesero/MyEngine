@@ -1,7 +1,10 @@
 #include "Assets/AssetManager.h"
+#include "Assets/AssetMeta.h"
 
 #include <algorithm>
 #include <filesystem>
+#include <future>
+#include <system_error>
 
 namespace {
 
@@ -14,11 +17,22 @@ size_t EstimateAssetCpuBytes(const Asset& a) {
     switch (a.GetType()) {
         case AssetType::Texture: {
             const auto& tx = static_cast<const TextureAsset&>(a);
-            return tx.GetPixelData().size() + 512;
+            size_t bytes = tx.GetPixelData().size() + 512;
+            for (const TextureMipData& mip : tx.GetMips()) {
+                bytes += mip.rgba8.size() + mip.bc1.size();
+            }
+            return bytes;
         }
         case AssetType::Mesh: {
             const auto& m = static_cast<const MeshAsset&>(a);
-            return m.GetVertices().size() * sizeof(MeshVertex) + m.GetIndices().size() * sizeof(uint32_t) + 512;
+            size_t bytes = m.GetVertices().size() * sizeof(MeshVertex) +
+                m.GetIndices().size() * sizeof(uint32_t) + 512;
+            for (const MeshLod& lod : m.GetLods()) {
+                bytes += lod.indices.size() * sizeof(uint32_t);
+            }
+            bytes += m.GetColliderData().vertices.size() * sizeof(Vec3) +
+                m.GetColliderData().indices.size() * sizeof(uint32_t);
+            return bytes;
         }
         case AssetType::Material: {
             const auto& mat = static_cast<const MaterialAsset&>(a);
@@ -37,6 +51,11 @@ size_t EstimateAssetCpuBytes(const Asset& a) {
 
 } // namespace
 
+AssetManager& AssetManager::Get() {
+    static AssetManager instance;
+    return instance;
+}
+
 std::string AssetManager::NormalizePath(const std::string& path) {
     if (path.rfind("__builtin__/", 0) == 0 || path.rfind("__builtin__\\", 0) == 0) {
         return path;
@@ -45,6 +64,183 @@ std::string AssetManager::NormalizePath(const std::string& path) {
     return std::filesystem::absolute(std::filesystem::path(path))
         .lexically_normal()
         .string();
+}
+
+void AssetManager::ApplyPersistentIdentity(Asset& asset)
+{
+    const std::string& path = asset.GetPath();
+    if (path.rfind("__builtin__/", 0) == 0 || path.rfind("__builtin__\\", 0) == 0) {
+        return;
+    }
+
+    const size_t fragment = path.find('#');
+    const std::string sourcePath =
+        fragment == std::string::npos ? path : path.substr(0, fragment);
+    if (!std::filesystem::exists(sourcePath)) return;
+
+    const AssetMeta meta = AssetMeta::LoadOrCreate(sourcePath);
+    const std::string uuid = fragment == std::string::npos
+        ? meta.uuid
+        : meta.uuid + path.substr(fragment);
+    asset.SetPersistentIdentity(MakeAssetID(uuid), uuid);
+}
+
+std::shared_ptr<Asset> AssetManager::LoadAsset(const std::string& path)
+{
+    std::lock_guard<std::recursive_mutex> lock(m_Mutex);
+    const std::string normalizedPath = NormalizePath(path);
+    const auto pathIt = m_PathToID.find(normalizedPath);
+    if (pathIt != m_PathToID.end()) {
+        const auto cached = m_Cache.find(pathIt->second);
+        if (cached != m_Cache.end()) return cached->second;
+    }
+
+    const std::string ext = GetExtension(normalizedPath);
+    const auto loaderIt = m_Loaders.find(ext);
+    if (loaderIt == m_Loaders.end()) {
+        Logger::Error("[AssetManager] No loader for extension '.", ext,
+                      "': ", normalizedPath);
+        return {};
+    }
+
+    std::shared_ptr<Asset> asset = InvokeLoader(normalizedPath, loaderIt->second);
+    if (!asset) {
+        Logger::Error("[AssetManager] Loader returned null for: ", normalizedPath);
+        return {};
+    }
+
+    ApplyPersistentIdentity(*asset);
+    const AssetID id = asset->GetID();
+    m_Cache[id] = asset;
+    m_PathToID[normalizedPath] = id;
+    RefreshDependencies(*asset);
+    RegisterAssetMemoryFor(*asset);
+    CaptureSourceWriteTime(id, normalizedPath);
+    Logger::Info("[AssetManager] Loaded [", AssetTypeToString(asset->GetType()),
+                 "] '", asset->GetName(), "' uuid=", asset->GetUuid());
+    return asset;
+}
+
+std::future<std::shared_ptr<Asset>> AssetManager::LoadAsync(const std::string& path)
+{
+    return std::async(std::launch::async, [this, path] {
+        return LoadAsset(path);
+    });
+}
+
+bool AssetManager::Reload(const std::string& path)
+{
+    std::lock_guard<std::recursive_mutex> lock(m_Mutex);
+    const std::string normalizedPath = NormalizePath(path);
+    const auto pathIt = m_PathToID.find(normalizedPath);
+    if (pathIt == m_PathToID.end()) return false;
+
+    const auto cachedIt = m_Cache.find(pathIt->second);
+    if (cachedIt == m_Cache.end() || !cachedIt->second) return false;
+
+    const auto loaderIt = m_Loaders.find(GetExtension(normalizedPath));
+    if (loaderIt == m_Loaders.end()) return false;
+
+    std::shared_ptr<Asset> replacement = InvokeLoader(normalizedPath, loaderIt->second);
+    if (!replacement || replacement->GetType() != cachedIt->second->GetType()) {
+        Logger::Error("[AssetManager] Reload failed for: ", normalizedPath);
+        return false;
+    }
+
+    ApplyPersistentIdentity(*replacement);
+    Asset& existing = *cachedIt->second;
+    ReleaseAssetMemoryFor(existing);
+    if (!existing.ReloadFrom(*replacement)) {
+        RegisterAssetMemoryFor(existing);
+        Logger::Error("[AssetManager] Asset does not support in-place reload: ", normalizedPath);
+        return false;
+    }
+
+    existing.IncrementVersion();
+    RefreshDependencies(existing);
+    RegisterAssetMemoryFor(existing);
+    CaptureSourceWriteTime(existing.GetID(), normalizedPath);
+    Logger::Info("[AssetManager] Reloaded '", existing.GetName(),
+                 "' version=", existing.GetVersion());
+    return true;
+}
+
+size_t AssetManager::PollHotReload()
+{
+    std::lock_guard<std::recursive_mutex> lock(m_Mutex);
+    std::vector<std::string> changedPaths;
+    for (const auto& [id, previousWriteTime] : m_SourceWriteTimes) {
+        const auto assetIt = m_Cache.find(id);
+        if (assetIt == m_Cache.end() || !assetIt->second) continue;
+        const std::string path = NormalizePath(assetIt->second->GetPath());
+        std::error_code error;
+        if (!std::filesystem::is_regular_file(path, error) || error) continue;
+        const auto currentWriteTime = std::filesystem::last_write_time(path, error);
+        if (error) continue;
+        if (currentWriteTime != previousWriteTime) {
+            changedPaths.push_back(path);
+        }
+    }
+
+    size_t reloadCount = 0;
+    for (const std::string& changedPath : changedPaths) {
+        reloadCount += Reload(changedPath) ? 1u : 0u;
+    }
+    return reloadCount;
+}
+
+std::shared_ptr<Asset> AssetManager::InvokeLoader(const std::string& normalizedPath,
+                                                  const AssetLoaderFn& loader) const
+{
+    try {
+        return loader(normalizedPath);
+    }
+    catch (const std::exception& e) {
+        Logger::Error("[AssetManager] Loader exception for '", normalizedPath, "': ", e.what());
+    }
+    catch (...) {
+        Logger::Error("[AssetManager] Loader unknown exception for '", normalizedPath, "'");
+    }
+    return {};
+}
+
+bool AssetManager::CaptureSourceWriteTime(AssetID id, const std::string& normalizedPath)
+{
+    std::error_code error;
+    if (!std::filesystem::is_regular_file(normalizedPath, error) || error) {
+        m_SourceWriteTimes.erase(id);
+        return false;
+    }
+    const auto writeTime = std::filesystem::last_write_time(normalizedPath, error);
+    if (error) {
+        Logger::Warn("[AssetManager] Failed to read source timestamp: ", normalizedPath);
+        return false;
+    }
+    m_SourceWriteTimes[id] = writeTime;
+    return true;
+}
+
+void AssetManager::RefreshDependencies(Asset& asset)
+{
+    std::vector<AssetID> dependencies;
+    if (asset.GetType() == AssetType::Material) {
+        const auto& material = static_cast<const MaterialAsset&>(asset);
+        for (const auto& [slot, texture] : material.GetTextures()) {
+            (void)slot;
+            if (texture) dependencies.push_back(texture->GetID());
+        }
+    } else if (asset.GetType() == AssetType::Model) {
+        const auto& model = static_cast<const ModelAsset&>(asset);
+        if (model.GetMesh()) dependencies.push_back(model.GetMesh()->GetID());
+        for (const MaterialHandle& material : model.GetMaterials()) {
+            if (material) dependencies.push_back(material->GetID());
+        }
+    }
+
+    std::sort(dependencies.begin(), dependencies.end());
+    dependencies.erase(std::unique(dependencies.begin(), dependencies.end()),
+                       dependencies.end());
+    asset.SetDependencies(std::move(dependencies));
 }
 
 AssetManager::AssetManager() {
@@ -73,6 +269,14 @@ void AssetManager::RegisterDefaultLoaders() {
 
     RegisterLoader("obj", [](const std::string& path) -> std::shared_ptr<Asset> {
         return std::static_pointer_cast<Asset>(LoadModelAssetFromObj(path));
+    });
+    auto gltfLoader = [](const std::string& path) -> std::shared_ptr<Asset> {
+        return std::static_pointer_cast<Asset>(LoadModelAssetFromGltf(path));
+    };
+    RegisterLoader("gltf", gltfLoader);
+    RegisterLoader("glb", gltfLoader);
+    RegisterLoader("mat", [](const std::string& path) -> std::shared_ptr<Asset> {
+        return std::static_pointer_cast<Asset>(LoadMaterialAssetFromFile(path));
     });
 }
 
@@ -121,6 +325,7 @@ MeshHandle AssetManager::GetCubeMesh()
 
 std::vector<std::string> AssetManager::GetCachedPathsByType(AssetType type) const
 {
+    std::lock_guard<std::recursive_mutex> lock(m_Mutex);
     std::vector<std::string> out;
     for (const auto& kv : m_Cache) {
         const auto& asset = kv.second;
@@ -145,23 +350,32 @@ MaterialHandle AssetManager::GetDefaultMaterial()
 }
 
 void AssetManager::Unload(const std::string& path) {
-    Unload(MakeAssetID(NormalizePath(path)));
+    std::lock_guard<std::recursive_mutex> lock(m_Mutex);
+    const auto it = m_PathToID.find(NormalizePath(path));
+    if (it != m_PathToID.end()) Unload(it->second);
 }
 
 void AssetManager::Unload(AssetID id) {
+    std::lock_guard<std::recursive_mutex> lock(m_Mutex);
     auto it = m_Cache.find(id);
     if (it != m_Cache.end()) {
         Logger::Info("[AssetManager] Unload '", it->second->GetName(), "'");
         ReleaseAssetMemoryFor(*it->second);
+        m_PathToID.erase(NormalizePath(it->second->GetPath()));
+        m_SourceWriteTimes.erase(id);
         m_Cache.erase(it);
     }
 }
 
 void AssetManager::UnloadUnreferenced() {
+    std::lock_guard<std::recursive_mutex> lock(m_Mutex);
     for (auto it = m_Cache.begin(); it != m_Cache.end();) {
         if (it->second.use_count() == 1) {
+            const AssetID id = it->first;
             Logger::Info("[AssetManager] GC '", it->second->GetName(), "'");
             ReleaseAssetMemoryFor(*it->second);
+            m_PathToID.erase(NormalizePath(it->second->GetPath()));
+            m_SourceWriteTimes.erase(id);
             it = m_Cache.erase(it);
         } else {
             ++it;
@@ -170,14 +384,18 @@ void AssetManager::UnloadUnreferenced() {
 }
 
 void AssetManager::Clear() {
+    std::lock_guard<std::recursive_mutex> lock(m_Mutex);
     Logger::Info("[AssetManager] Clearing all assets (", m_Cache.size(), ")");
     for (auto& kv : m_Cache) {
         ReleaseAssetMemoryFor(*kv.second);
     }
     m_Cache.clear();
+    m_PathToID.clear();
+    m_SourceWriteTimes.clear();
 }
 
 void AssetManager::PrintStats() const {
+    std::lock_guard<std::recursive_mutex> lock(m_Mutex);
     Logger::Info("[AssetManager] Cached assets: ", m_Cache.size());
     for (const auto& kv : m_Cache) {
         const auto& asset = kv.second;
@@ -188,15 +406,18 @@ void AssetManager::PrintStats() const {
 }
 
 void AssetManager::SetAssetCpuBudgetBytes(size_t bytes) {
+    std::lock_guard<std::recursive_mutex> lock(m_Mutex);
     m_AssetCpuBudgetBytes = bytes;
     MaybeWarnAssetBudget();
 }
 
 size_t AssetManager::GetEstimatedAssetCpuBytesByType(AssetType type) const {
+    std::lock_guard<std::recursive_mutex> lock(m_Mutex);
     return m_AssetCpuBytesByType[TypeIndex(type)];
 }
 
 void AssetManager::LogAssetMemorySummary() const {
+    std::lock_guard<std::recursive_mutex> lock(m_Mutex);
     Logger::Info("[AssetManager] Estimated CPU asset memory total=", m_AssetCpuTotalBytes);
     if (m_AssetCpuBudgetBytes != 0) {
         Logger::Info("[AssetManager]   budget=", m_AssetCpuBudgetBytes);
