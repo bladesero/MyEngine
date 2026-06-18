@@ -1,0 +1,72 @@
+#pragma once
+
+#include "Editor/EditorSelection.h"
+#include "Renderer/IRenderContext.h"
+
+#include <filesystem>
+#include <typeindex>
+#include <unordered_map>
+
+class EditorAssetRegistry;
+class EditorActionRegistry;
+class EditorCommandStack;
+class EditorProject;
+class EditorService;
+class Engine;
+class IWindow;
+class Scene;
+class SceneRenderLayer;
+
+class EditorContext {
+public:
+    EditorContext() = default;
+    explicit EditorContext(Scene* scene);
+    EditorContext(SceneRenderLayer* sceneLayer, IRenderContext* renderContext,
+                  IWindow* window, Engine* engine);
+
+    SceneRenderLayer* GetSceneLayer() const { return m_SceneLayer; }
+    IRenderContext* GetRenderContext() const { return m_RenderContext; }
+    IWindow* GetWindow() const { return m_Window; }
+    Engine* GetEngine() const { return m_Engine; }
+    Scene* GetScene() const;
+    bool IsEditing() const;
+    void MarkSceneDirty() const;
+
+    EditorSelection& GetSelection() { return m_Selection; }
+    const EditorSelection& GetSelection() const { return m_Selection; }
+    void SetCommandStack(EditorCommandStack* value) { m_CommandStack = value; }
+    EditorCommandStack* GetCommandStack() const { return m_CommandStack; }
+    void SetAssetRegistry(EditorAssetRegistry* value) { m_AssetRegistry = value; }
+    EditorAssetRegistry* GetAssetRegistry() const { return m_AssetRegistry; }
+    void SetProject(EditorProject* value) { m_Project = value; }
+    EditorProject* GetProject() const { return m_Project; }
+    void SetActionRegistry(EditorActionRegistry* value) { m_ActionRegistry = value; }
+    EditorActionRegistry* GetActionRegistry() const { return m_ActionRegistry; }
+    void SetProjectRoot(std::filesystem::path root);
+    const std::filesystem::path& GetProjectRoot() const { return m_ProjectRoot; }
+    const std::filesystem::path& GetContentRoot() const { return m_ContentRoot; }
+
+    template <typename T> void RegisterService(T& service) {
+        m_Services[std::type_index(typeid(T))] = &service;
+    }
+    template <typename T> T* GetService() const {
+        const auto it = m_Services.find(std::type_index(typeid(T)));
+        return it == m_Services.end() ? nullptr : static_cast<T*>(it->second);
+    }
+    void ClearServices() { m_Services.clear(); }
+
+private:
+    SceneRenderLayer* m_SceneLayer = nullptr;
+    Scene* m_SceneOverride = nullptr;
+    IRenderContext* m_RenderContext = nullptr;
+    IWindow* m_Window = nullptr;
+    Engine* m_Engine = nullptr;
+    EditorCommandStack* m_CommandStack = nullptr;
+    EditorAssetRegistry* m_AssetRegistry = nullptr;
+    EditorProject* m_Project = nullptr;
+    EditorActionRegistry* m_ActionRegistry = nullptr;
+    std::unordered_map<std::type_index, EditorService*> m_Services;
+    std::filesystem::path m_ProjectRoot;
+    std::filesystem::path m_ContentRoot;
+    EditorSelection m_Selection;
+};

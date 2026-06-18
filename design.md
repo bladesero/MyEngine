@@ -165,3 +165,34 @@ Application::Run()
 ## 8. 文档维护说明
 
 早期文档若以 `TriangleLayer` 或多静态库为主线，当前主线为 **`SceneRenderLayer` + `Renderer` + `EditorLayer`**，并以 **`MyEnginePlayer`** 作为无编辑器运行时。后续增删目录或目标时，请同步更新本节与 `xmake.lua`。
+
+---
+
+## 9. Editor 架构
+
+`EditorLayer` 只负责 ImGui 生命周期、顶层对象装配、panel 调度和文件对话框结果转发。Editor 业务按以下边界拆分：
+
+```mermaid
+flowchart LR
+    Layer[EditorLayer shell] --> Context[EditorContext]
+    Layer --> Services[EditorServiceCollection]
+    Layer --> Panels[EditorPanel instances]
+    Layer --> Actions[EditorActionRegistry]
+    Context --> Selection[EditorSelection]
+    Context --> Commands[EditorCommandStack]
+    Context --> Project[EditorProject]
+    Context --> Assets[EditorAssetRegistry]
+    Panels --> Sections[EditorInspectorRegistry]
+    Panels --> Controllers[Picking and Gizmo controllers]
+    Services --> Runtime[Runtime public APIs]
+    Commands --> Runtime
+    Controllers --> Runtime
+```
+
+- **Context**：统一暴露 scene layer、render context、window、engine、selection、command stack、project、asset registry、actions 和 typed services。选择状态只保存 `ActorID` 或资产路径。
+- **Services**：`EditorLogService`、`EditorDialogService`、`EditorImportService`、`EditorShaderWatchService` 由 `EditorServiceCollection` 按注册顺序 attach/update，并按逆序 detach。
+- **Panels**：Toolbar、Scene Hierarchy、Viewport、Inspector、Asset Browser、Log 都继承 `EditorPanel`。固定布局由 `EditorLayout` 统一计算。
+- **Inspector**：组件 UI 实现为独立 `EditorInspectorSection`，由 `EditorInspectorRegistry` 按 order 稳定排序。连续属性拖动通过 scene transaction 合并为一次撤销记录。
+- **Actions and commands**：按钮通过 `EditorActionRegistry` 调度；会修改场景的操作进入 `EditorCommandStack`。事务按执行顺序 redo、逆序 undo，新命令会清空 redo。
+- **Viewport controllers**：`EditorPickingController` 负责 screen ray/AABB picking；`EditorGizmoController` 负责 ImGuizmo 适配和 transform transaction。父子局部矩阵遵守行向量关系 `world = local * parentWorld`，因此 `local = world * inverse(parentWorld)`。
+- **Dependency rule**：依赖方向只能是 `Editor -> Game/Scene/Assets/Renderer public APIs`。Runtime、Renderer 和 RHI 不允许反向包含 Editor 头文件。

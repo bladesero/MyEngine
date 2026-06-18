@@ -164,7 +164,29 @@ target("MyEngineRuntime")
         "src/Runtime/Game/SceneLayer.cpp",
         "src/Runtime/Game/SceneRenderLayer.cpp",
         "src/Runtime/Math/Mat4Inverse.cpp",
+        "src/Editor/EditorAssetRegistry.cpp",
+        "src/Editor/EditorAction.cpp",
+        "src/Editor/EditorCommand.cpp",
+        "src/Editor/EditorContext.cpp",
+        "src/Editor/EditorDialogService.cpp",
+        "src/Editor/EditorImportService.cpp",
         "src/Editor/EditorLayer.cpp",
+        "src/Editor/EditorLayout.cpp",
+        "src/Editor/EditorLogService.cpp",
+        "src/Editor/EditorPanel.cpp",
+        "src/Editor/EditorProject.cpp",
+        "src/Editor/EditorSelection.cpp",
+        "src/Editor/EditorService.cpp",
+        "src/Editor/EditorShaderWatchService.cpp",
+        "src/Editor/EditorUndoUtil.cpp",
+        "src/Editor/EditorViewportControllers.cpp",
+        "src/Editor/InspectorSections.cpp",
+        "src/Editor/Panels/ToolbarPanel.cpp",
+        "src/Editor/Panels/SceneHierarchyPanel.cpp",
+        "src/Editor/Panels/ViewportPanel.cpp",
+        "src/Editor/Panels/InspectorPanel.cpp",
+        "src/Editor/Panels/AssetBrowserPanel.cpp",
+        "src/Editor/Panels/LogPanel.cpp",
         "thirdparty/ImGuizmo/ImGuizmo.cpp", { warnings = "none" }
     )
 
@@ -321,7 +343,7 @@ target("MyEngineTests")
     set_kind("binary")
     add_rules("copy_game_content")
     add_files("tests/EngineTests.cpp")
-    add_includedirs("src/Runtime")
+    add_includedirs("src", "src/Runtime", "src/Editor")
     add_deps("MyEngineRuntime")
     add_options("mem_stats", "mem_tracking", "mem_guard")
     add_packages("libsdl3", "nlohmann_json")

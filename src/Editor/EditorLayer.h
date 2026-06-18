@@ -1,121 +1,61 @@
 #pragma once
 
 #include "Core/Layer.h"
-#include "Game/SceneRenderLayer.h"
-#include "Scene/SceneSerializer.h"
-#include "Core/Engine.h"
-#include "Core/Window.h"
 #include "Core/PlatformEventBridge.h"
-#include "Assets/MaterialAsset.h"
-#include "Renderer/IRenderContext.h"
-#include <deque>
-#include <filesystem>
+#include "Editor/EditorAssetRegistry.h"
+#include "Editor/EditorAction.h"
+#include "Editor/EditorCommand.h"
+#include "Editor/EditorContext.h"
+#include "Editor/EditorDialogService.h"
+#include "Editor/EditorImportService.h"
+#include "Editor/EditorLogService.h"
+#include "Editor/EditorProject.h"
+#include "Editor/EditorShaderWatchService.h"
+#include "Editor/EditorService.h"
+
 #include <memory>
-#include <mutex>
-#include <string>
-#include <unordered_map>
 #include <vector>
 
-#if defined(MYENGINE_ENABLE_IMGUI)
-#include <imgui.h>
-#include <ImGuizmo.h>
-#endif
+class EditorPanel;
+class EditorService;
+class Engine;
+class IWindow;
+class SceneRenderLayer;
 
-// ============================================================================
-// EditorLayer  –  ImGui-based editor UI on top of runtime
-//
-//  - Toolbar: New / Open / Save Scene (SDL3 file dialogs)
-//  - Scene Outliner: tree view, create/delete actors
-//  - Scene View: viewport rect, picking, ImGuizmo
-//  - Inspector: Transform + MeshRenderer mesh/material
-//
-//  Assumes there is a SceneRenderLayer driving the runtime scene + camera.
-// ============================================================================
-
-class EditorLayer : public Layer {
+class EditorLayer final : public Layer {
 public:
     EditorLayer(SceneRenderLayer* sceneLayer, IWindow* window, Engine* engine);
-
     void OnAttach() override;
     void OnDetach() override;
-    void OnUpdate(float dt) override;
-    void OnEvent(Event& e) override { (void)e; }
+    void OnUpdate(float deltaSeconds) override;
+    void OnEvent(Event& event) override { (void)event; }
     void OnRender() override;
 
 private:
-    void DrawToolbar();
-    void DrawSceneOutliner();
-    void DrawSceneView();
-    void DrawInspector();
-    void DrawLogOutput();
-    void DrawAssetBrowser();
-    void DrawActorNode(Actor* actor);
-    void OnLogMessage(const std::string& line);
-    void SelectActor(Actor* actor);
-    void ValidateSelection();
-
-#if defined(MYENGINE_ENABLE_IMGUI)
-    friend void EditorOpenFileDialogCallback(void* userdata, const char* const* filelist, int filter);
-    friend void EditorSaveFileDialogCallback(void* userdata, const char* const* filelist, int filter);
-    friend void EditorImportAssetDialogCallback(void* userdata, const char* const* filelist, int filter);
-
-    void ProcessPendingFileDialogs();
-    void RefreshAssetBrowserListing();
-    bool ImportAssetToContent(const std::string& sourcePath);
-    void RequestImportAssetDialog();
-    void TryCreateMeshActorFromDroppedModel(const std::string& absModelPath, float screenX, float screenY);
-    void RequestOpenSceneDialog();
-    void RequestSaveSceneDialog();
-    void TryPickActorFromSceneView(float screenX, float screenY);
-    void DrawAddComponentInspector(Actor* actor);
-    void DrawMeshMaterialInspector(Actor* actor);
-    bool DrawMaterialAssetInspector(MaterialHandle material);
-    void DrawPhysicsInspector(Actor* actor);
-    void DrawSkinnedMeshInspector(Actor* actor);
-    void DrawLightInspector(Actor* actor);
-    void DrawPostProcessInspector(Actor* actor);
-    void DrawScriptInspector(Actor* actor);
-    void RefreshShaderWatchList();
-    void PollShaderChanges();
-
-    enum class PendingFileOp : uint8_t {
-        None,
-        OpenScene,
-        SaveScene,
-        ImportAsset,
-    };
-
-    std::mutex        m_FileDialogMutex;
-    std::string       m_PendingFilePath;
-    PendingFileOp     m_PendingFileOp = PendingFileOp::None;
-
-    ImGuizmo::OPERATION m_GizmoOperation = ImGuizmo::TRANSLATE;
-    ImGuizmo::MODE      m_GizmoMode      = ImGuizmo::LOCAL;
-#endif
-
-    SceneRenderLayer* m_SceneLayer = nullptr;
-    IRenderContext*   m_RenderContext = nullptr;
-    IWindow*          m_Window     = nullptr;
-    Engine*           m_Engine     = nullptr;
-    Actor*            m_Selected   = nullptr;
-    uint64_t          m_SelectedID = 0;
-    const Scene*      m_SelectedScene = nullptr;
-    std::deque<std::string> m_LogLines;
-    std::mutex        m_LogMutex;
-    bool              m_LogAutoScroll = true;
-    bool              m_LogScrollToBottom = false;
-
-#if defined(MYENGINE_ENABLE_IMGUI)
     class ImGuiPlatformEventBridge;
-    std::unique_ptr<ImGuiPlatformEventBridge> m_PlatformBridge;
-    bool m_ImGuiReady = false;
+    void RegisterServices();
+    void RegisterPanels();
+    void ProcessDialogResults();
+    void NewScene();
+    void OpenSceneDialog();
+    void SaveScene();
+    void ImportAssetDialog();
 
-    std::vector<std::string> m_AssetBrowserRelPaths;
-    std::string              m_AssetBrowserRootAbs;
-    std::string              m_SelectedAssetRelPath;
-    std::string              m_SelectedAssetAbsPath;
-    std::vector<std::string> m_WatchedShaders;
-    std::unordered_map<std::string, std::filesystem::file_time_type> m_ShaderWriteTimes;
-    float m_ShaderWatchAccumulator = 0.0f;
-#endif
+    SceneRenderLayer* m_SceneLayer=nullptr;
+    IWindow* m_Window=nullptr;
+    Engine* m_Engine=nullptr;
+    IRenderContext* m_RenderContext=nullptr;
+    EditorContext m_Context;
+    EditorCommandStack m_CommandStack;
+    EditorAssetRegistry m_AssetRegistry;
+    EditorProject m_Project;
+    EditorLogService m_LogService;
+    EditorDialogService m_DialogService;
+    EditorImportService m_ImportService;
+    EditorShaderWatchService m_ShaderWatchService;
+    EditorServiceCollection m_ServiceCollection;
+    EditorActionRegistry m_ActionRegistry;
+    std::vector<std::unique_ptr<EditorPanel>> m_Panels;
+    std::unique_ptr<ImGuiPlatformEventBridge> m_PlatformBridge;
+    bool m_ImGuiReady=false;
 };
