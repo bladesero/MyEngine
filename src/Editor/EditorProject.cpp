@@ -3,11 +3,13 @@
 #include <fstream>
 #include <nlohmann/json.hpp>
 
-bool EditorProject::Open(std::filesystem::path root) {
+bool EditorProject::Open(std::filesystem::path root, bool allowMissingManifest) {
     m_Root = std::filesystem::absolute(std::move(root)).lexically_normal();
     m_ContentRoot = m_Root / "Content";
     m_StatePath = m_Root / ".myengine_editor_state.json";
-    return LoadState();
+    m_LastError.clear();
+    const bool configLoaded = m_Config.Open(m_Root, allowMissingManifest, &m_LastError);
+    return LoadState() && configLoaded;
 }
 bool EditorProject::SaveState() const {
     nlohmann::json json;

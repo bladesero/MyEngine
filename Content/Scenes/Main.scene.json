@@ -1,0 +1,789 @@
+{
+    "actors": [
+        {
+            "active": true,
+            "components": [
+                {
+                    "data": {
+                        "castShadows": true,
+                        "color": [
+                            1.0,
+                            0.9599999785423279,
+                            0.8799999952316284
+                        ],
+                        "direction": [
+                            -0.44832655787467957,
+                            -0.8151391744613647,
+                            -0.3668126165866852
+                        ],
+                        "innerConeAngle": 25.0,
+                        "intensity": 3.0,
+                        "outerConeAngle": 35.0,
+                        "range": 8.0,
+                        "type": "directional"
+                    },
+                    "enabled": true,
+                    "type": "Light"
+                }
+            ],
+            "id": 1,
+            "name": "Sun",
+            "parentID": 0,
+            "transform": {
+                "position": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            }
+        },
+        {
+            "active": true,
+            "components": [
+                {
+                    "data": {
+                        "antiAliasingStrength": 1.0,
+                        "bloomEnabled": false,
+                        "bloomIntensity": 0.0,
+                        "bloomThreshold": 1.0,
+                        "contrast": 1.0,
+                        "exposure": 1.0,
+                        "gamma": 2.200000047683716,
+                        "saturation": 1.0,
+                        "ssaoBias": 0.02500000037252903,
+                        "ssaoIntensity": 0.800000011920929,
+                        "ssaoPower": 1.7999999523162842,
+                        "ssaoRadius": 1.5,
+                        "toneMapping": true,
+                        "vignette": 0.0
+                    },
+                    "enabled": true,
+                    "type": "PostProcess"
+                }
+            ],
+            "id": 2,
+            "name": "PostProcess",
+            "parentID": 0,
+            "transform": {
+                "position": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            }
+        },
+        {
+            "active": true,
+            "components": [
+                {
+                    "data": {
+                        "material": "__builtin__/Default",
+                        "mesh": "__builtin__/Cube"
+                    },
+                    "enabled": true,
+                    "type": "MeshRenderer"
+                },
+                {
+                    "data": {
+                        "inspector": [],
+                        "scriptPath": "",
+                        "source": "function Update(dt) Actor.rotate(0, 35 * dt, 0) end\n",
+                        "state": []
+                    },
+                    "enabled": true,
+                    "type": "Script"
+                }
+            ],
+            "id": 3,
+            "name": "Cube1",
+            "parentID": 0,
+            "transform": {
+                "position": [
+                    0.0,
+                    0.5,
+                    0.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            }
+        },
+        {
+            "active": true,
+            "components": [
+                {
+                    "data": {
+                        "material": "Content/Materials/NewMaterial.mat",
+                        "mesh": "__builtin__/Cube"
+                    },
+                    "enabled": true,
+                    "type": "MeshRenderer"
+                },
+                {
+                    "data": {
+                        "bodyType": "dynamic",
+                        "friction": 0.6000000238418579,
+                        "linearDamping": 0.05000000074505806,
+                        "mass": 1.0,
+                        "restitution": 0.25,
+                        "useGravity": true,
+                        "velocity": [
+                            0.0,
+                            0.0,
+                            0.0
+                        ]
+                    },
+                    "enabled": true,
+                    "type": "RigidBody"
+                },
+                {
+                    "data": {
+                        "halfExtents": [
+                            0.5,
+                            0.5,
+                            0.5
+                        ],
+                        "isTrigger": false,
+                        "layer": 1,
+                        "layerMask": 4294967295
+                    },
+                    "enabled": true,
+                    "type": "BoxCollider"
+                }
+            ],
+            "id": 4,
+            "name": "Cube2",
+            "parentID": 0,
+            "transform": {
+                "position": [
+                    2.0,
+                    0.5,
+                    0.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            }
+        },
+        {
+            "active": true,
+            "components": [
+                {
+                    "data": {
+                        "material": "__builtin__/Default",
+                        "mesh": "__builtin__/Cube"
+                    },
+                    "enabled": true,
+                    "type": "MeshRenderer"
+                },
+                {
+                    "data": {
+                        "bodyType": "static",
+                        "friction": 0.8999999761581421,
+                        "linearDamping": 0.05000000074505806,
+                        "mass": 1.0,
+                        "restitution": 0.0,
+                        "useGravity": false,
+                        "velocity": [
+                            0.0,
+                            0.0,
+                            0.0
+                        ]
+                    },
+                    "enabled": true,
+                    "type": "RigidBody"
+                },
+                {
+                    "data": {
+                        "halfExtents": [
+                            0.5,
+                            0.5,
+                            0.009999999776482582
+                        ],
+                        "isTrigger": false,
+                        "layer": 1,
+                        "layerMask": 4294967295
+                    },
+                    "enabled": true,
+                    "type": "BoxCollider"
+                }
+            ],
+            "id": 5,
+            "name": "ShadowPlane",
+            "parentID": 0,
+            "transform": {
+                "position": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "rotation": [
+                    -90.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    12.0,
+                    12.0,
+                    0.05000000074505806
+                ]
+            }
+        },
+        {
+            "active": true,
+            "components": [
+                {
+                    "data": {
+                        "bones": [
+                            {
+                                "inverseBind": [
+                                    1.0,
+                                    0.0,
+                                    0.0,
+                                    0.0,
+                                    0.0,
+                                    1.0,
+                                    0.0,
+                                    0.0,
+                                    0.0,
+                                    0.0,
+                                    1.0,
+                                    0.0,
+                                    0.0,
+                                    0.0,
+                                    0.0,
+                                    1.0
+                                ],
+                                "name": "Root",
+                                "parent": -1,
+                                "rotation": [
+                                    0.0,
+                                    0.0,
+                                    0.0,
+                                    1.0
+                                ],
+                                "scale": [
+                                    1.0,
+                                    1.0,
+                                    1.0
+                                ],
+                                "translation": [
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "inverseBind": [
+                                    1.0,
+                                    0.0,
+                                    0.0,
+                                    0.0,
+                                    0.0,
+                                    1.0,
+                                    0.0,
+                                    0.0,
+                                    0.0,
+                                    0.0,
+                                    1.0,
+                                    0.0,
+                                    0.0,
+                                    -0.5,
+                                    0.0,
+                                    1.0
+                                ],
+                                "name": "Upper",
+                                "parent": 0,
+                                "rotation": [
+                                    0.0,
+                                    0.0,
+                                    0.0,
+                                    1.0
+                                ],
+                                "scale": [
+                                    1.0,
+                                    1.0,
+                                    1.0
+                                ],
+                                "translation": [
+                                    0.0,
+                                    0.5,
+                                    0.0
+                                ]
+                            }
+                        ],
+                        "clip": {
+                            "duration": 2.0,
+                            "looping": true,
+                            "name": "Bend"
+                        },
+                        "material": "__builtin__/Default",
+                        "mesh": "__builtin__/Cube",
+                        "playing": true,
+                        "time": 0.0,
+                        "tracks": [
+                            {
+                                "bone": 1,
+                                "keys": [
+                                    {
+                                        "rotation": [
+                                            -0.0,
+                                            -0.0,
+                                            -0.22310636937618256,
+                                            0.9747941493988037
+                                        ],
+                                        "scale": [
+                                            1.0,
+                                            1.0,
+                                            1.0
+                                        ],
+                                        "time": 0.0,
+                                        "translation": [
+                                            0.0,
+                                            0.5,
+                                            0.0
+                                        ]
+                                    },
+                                    {
+                                        "rotation": [
+                                            0.0,
+                                            0.0,
+                                            0.22310636937618256,
+                                            0.9747941493988037
+                                        ],
+                                        "scale": [
+                                            1.0,
+                                            1.0,
+                                            1.0
+                                        ],
+                                        "time": 1.0,
+                                        "translation": [
+                                            0.0,
+                                            0.5,
+                                            0.0
+                                        ]
+                                    },
+                                    {
+                                        "rotation": [
+                                            -0.0,
+                                            -0.0,
+                                            -0.22310636937618256,
+                                            0.9747941493988037
+                                        ],
+                                        "scale": [
+                                            1.0,
+                                            1.0,
+                                            1.0
+                                        ],
+                                        "time": 2.0,
+                                        "translation": [
+                                            0.0,
+                                            0.5,
+                                            0.0
+                                        ]
+                                    }
+                                ]
+                            }
+                        ],
+                        "weights": [
+                            {
+                                "bones": [
+                                    0,
+                                    0,
+                                    0,
+                                    0
+                                ],
+                                "values": [
+                                    1.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "bones": [
+                                    0,
+                                    0,
+                                    0,
+                                    0
+                                ],
+                                "values": [
+                                    1.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "bones": [
+                                    1,
+                                    0,
+                                    0,
+                                    0
+                                ],
+                                "values": [
+                                    1.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "bones": [
+                                    1,
+                                    0,
+                                    0,
+                                    0
+                                ],
+                                "values": [
+                                    1.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "bones": [
+                                    0,
+                                    0,
+                                    0,
+                                    0
+                                ],
+                                "values": [
+                                    1.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "bones": [
+                                    0,
+                                    0,
+                                    0,
+                                    0
+                                ],
+                                "values": [
+                                    1.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "bones": [
+                                    1,
+                                    0,
+                                    0,
+                                    0
+                                ],
+                                "values": [
+                                    1.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "bones": [
+                                    1,
+                                    0,
+                                    0,
+                                    0
+                                ],
+                                "values": [
+                                    1.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "bones": [
+                                    0,
+                                    0,
+                                    0,
+                                    0
+                                ],
+                                "values": [
+                                    1.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "bones": [
+                                    0,
+                                    0,
+                                    0,
+                                    0
+                                ],
+                                "values": [
+                                    1.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "bones": [
+                                    1,
+                                    0,
+                                    0,
+                                    0
+                                ],
+                                "values": [
+                                    1.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "bones": [
+                                    1,
+                                    0,
+                                    0,
+                                    0
+                                ],
+                                "values": [
+                                    1.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "bones": [
+                                    0,
+                                    0,
+                                    0,
+                                    0
+                                ],
+                                "values": [
+                                    1.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "bones": [
+                                    0,
+                                    0,
+                                    0,
+                                    0
+                                ],
+                                "values": [
+                                    1.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "bones": [
+                                    1,
+                                    0,
+                                    0,
+                                    0
+                                ],
+                                "values": [
+                                    1.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "bones": [
+                                    1,
+                                    0,
+                                    0,
+                                    0
+                                ],
+                                "values": [
+                                    1.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "bones": [
+                                    1,
+                                    0,
+                                    0,
+                                    0
+                                ],
+                                "values": [
+                                    1.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "bones": [
+                                    1,
+                                    0,
+                                    0,
+                                    0
+                                ],
+                                "values": [
+                                    1.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "bones": [
+                                    1,
+                                    0,
+                                    0,
+                                    0
+                                ],
+                                "values": [
+                                    1.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "bones": [
+                                    1,
+                                    0,
+                                    0,
+                                    0
+                                ],
+                                "values": [
+                                    1.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "bones": [
+                                    0,
+                                    0,
+                                    0,
+                                    0
+                                ],
+                                "values": [
+                                    1.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "bones": [
+                                    0,
+                                    0,
+                                    0,
+                                    0
+                                ],
+                                "values": [
+                                    1.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "bones": [
+                                    0,
+                                    0,
+                                    0,
+                                    0
+                                ],
+                                "values": [
+                                    1.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "bones": [
+                                    0,
+                                    0,
+                                    0,
+                                    0
+                                ],
+                                "values": [
+                                    1.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            }
+                        ]
+                    },
+                    "enabled": true,
+                    "type": "SkinnedMeshRenderer"
+                }
+            ],
+            "id": 6,
+            "name": "SkinnedCube",
+            "parentID": 0,
+            "transform": {
+                "position": [
+                    -2.0,
+                    0.5,
+                    0.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            }
+        }
+    ],
+    "name": "Main",
+    "nextID": 7
+}

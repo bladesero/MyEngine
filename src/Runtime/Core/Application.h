@@ -33,7 +33,7 @@ struct ApplicationConfig {
 // Usage:
 //   class MyApp : public Application {
 //   protected:
-//       void OnInit()     override { PushLayer(new GameLayer()); }
+//       bool OnInit() override { PushLayer(new GameLayer()); return true; }
 //       void OnShutdown() override { /* cleanup */ }
 //   };
 //
@@ -58,7 +58,7 @@ public:
 
 protected:
     // Override in derived classes to set up layers, resources, etc.
-    virtual void OnInit()     {}
+    virtual bool OnInit()     { return true; }
     virtual void OnShutdown() {}
 
     // Convenience forwarders so subclasses don't need to reach into Engine.

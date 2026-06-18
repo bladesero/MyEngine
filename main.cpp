@@ -10,6 +10,7 @@
 #include "Core/Logger.h"
 
 #include <memory>
+#include <filesystem>
 #include <string>
 
 // --------------------------------------------------------------------------
@@ -20,12 +21,13 @@
 // --------------------------------------------------------------------------
 class MyApp : public Application {
 public:
-    explicit MyApp(ApplicationConfig cfg)
-        : Application(std::move(cfg))
-        , m_Backend(cfg.backend) {}
+    MyApp(ApplicationConfig cfg, std::filesystem::path projectRoot)
+        : Application(cfg)
+        , m_Backend(cfg.backend)
+        , m_ProjectRoot(std::move(projectRoot)) {}
 
 protected:
-    void OnInit() override {
+    bool OnInit() override {
 #ifdef MYENGINE_PLATFORM_WINDOWS
         switch (m_Backend) {
         case RenderBackend::D3D12:
@@ -40,11 +42,11 @@ protected:
         m_RenderContext = CreateMetalContext();
 #else
         Logger::Error("[App] No render backend available on this platform");
-        return;
+        return false;
 #endif
 
         if (!m_RenderContext->Init(&GetWindow())) {
-            return; // error already logged
+            return false; // error already logged
         }
 
         auto& win = GetWindow();
@@ -52,7 +54,9 @@ protected:
                                                 win.GetWidth(), win.GetHeight());
         sceneLayer->SetPresentEnabled(false); // editor will present after ImGui overlay
         GetEngine().PushLayer(sceneLayer);
-        GetEngine().PushLayer(new EditorLayer(sceneLayer, &win, &GetEngine()));
+        GetEngine().PushLayer(new EditorLayer(
+            sceneLayer, &win, &GetEngine(), std::move(m_ProjectRoot)));
+        return true;
     }
 
     void OnShutdown() override {
@@ -65,6 +69,7 @@ protected:
 private:
     std::unique_ptr<IRenderContext> m_RenderContext;
     RenderBackend m_Backend = kDefaultRenderBackend;
+    std::filesystem::path m_ProjectRoot;
 };
 
 static int RunEditor(int argc, char* argv[]) {
@@ -75,11 +80,18 @@ static int RunEditor(int argc, char* argv[]) {
     cfg.window.vsync     = false;
     cfg.engine.appName   = "MyEngine";
     cfg.engine.targetFps = 60;
+    std::filesystem::path projectRoot;
 
     // Optional: --backend d3d11 | d3d12  (Windows only)
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
-        if (arg == "--backend" && i + 1 < argc) {
+        if (arg == "--project" && i + 1 < argc) {
+            projectRoot = argv[++i];
+        }
+        else if (arg.rfind("--project=", 0) == 0) {
+            projectRoot = arg.substr(std::string("--project=").size());
+        }
+        else if (arg == "--backend" && i + 1 < argc) {
             const std::string b = argv[++i];
 #ifdef MYENGINE_PLATFORM_WINDOWS
             if      (b == "d3d11" || b == "11") cfg.backend = RenderBackend::D3D11;
@@ -101,7 +113,7 @@ static int RunEditor(int argc, char* argv[]) {
         }
     }
 
-    MyApp app(cfg);
+    MyApp app(cfg, std::move(projectRoot));
     return app.Run();
 }
 

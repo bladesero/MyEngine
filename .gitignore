@@ -5,6 +5,7 @@
 build/
 build_*/
 out/
+Builds/
 vs2022/
 
 # IDE / Editor files
@@ -13,6 +14,7 @@ vs2022/
 *.user
 *.suo
 *.sln.docstates
+.myengine_editor_state.json
 xcuserdata/
 *.xcworkspace/
 DerivedData/

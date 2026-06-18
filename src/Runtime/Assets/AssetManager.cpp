@@ -56,14 +56,48 @@ AssetManager& AssetManager::Get() {
     return instance;
 }
 
-std::string AssetManager::NormalizePath(const std::string& path) {
+std::string AssetManager::NormalizePath(const std::string& path) const {
+    return ResolvePath(path);
+}
+
+void AssetManager::SetProjectRoot(std::filesystem::path root) {
+    std::lock_guard<std::recursive_mutex> lock(m_Mutex);
+    if (root.empty()) {
+        m_ProjectRoot.clear();
+        return;
+    }
+    std::error_code error;
+    m_ProjectRoot = std::filesystem::absolute(std::move(root), error).lexically_normal();
+    if (error) m_ProjectRoot.clear();
+}
+
+std::string AssetManager::ResolvePath(const std::string& path) const {
     if (path.rfind("__builtin__/", 0) == 0 || path.rfind("__builtin__\\", 0) == 0) {
         return path;
     }
+    const std::filesystem::path input(path);
+    if (input.is_absolute() || m_ProjectRoot.empty()) {
+        return std::filesystem::absolute(input).lexically_normal().string();
+    }
+    return std::filesystem::absolute(m_ProjectRoot / input).lexically_normal().string();
+}
 
-    return std::filesystem::absolute(std::filesystem::path(path))
-        .lexically_normal()
-        .string();
+std::string AssetManager::MakeProjectRelativePath(const std::string& path) const {
+    if (path.empty() || path.rfind("__builtin__/", 0) == 0 ||
+        path.rfind("__builtin__\\", 0) == 0 || m_ProjectRoot.empty()) {
+        return path;
+    }
+    const std::filesystem::path absolutePath(ResolvePath(path));
+    std::error_code error;
+    const std::filesystem::path contentRoot = m_ProjectRoot / "Content";
+    const std::filesystem::path contentRelative =
+        std::filesystem::relative(absolutePath, contentRoot, error);
+    if (error || contentRelative.empty() || contentRelative.is_absolute() ||
+        (contentRelative.begin() != contentRelative.end() &&
+         *contentRelative.begin() == "..")) {
+        return absolutePath.string();
+    }
+    return (std::filesystem::path("Content") / contentRelative).generic_string();
 }
 
 void AssetManager::ApplyPersistentIdentity(Asset& asset)

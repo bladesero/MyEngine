@@ -24,6 +24,12 @@ void Show(EditorDialogService* service, EditorFileOperation operation, IWindow* 
 void EditorDialogService::RequestOpenScene(IWindow* window) { Show(this,EditorFileOperation::OpenScene,window,kSceneFilters,1,false); }
 void EditorDialogService::RequestSaveScene(IWindow* window) { Show(this,EditorFileOperation::SaveScene,window,kSceneFilters,1,true); }
 void EditorDialogService::RequestImportAsset(IWindow* window) { Show(this,EditorFileOperation::ImportAsset,window,kImportFilters,3,false); }
+void EditorDialogService::RequestOpenProjectFolder(IWindow* window) {
+    if (!window || !window->GetSDLWindow()) return;
+    auto* data = new std::pair<EditorDialogService*,EditorFileOperation>(
+        this, EditorFileOperation::OpenProjectFolder);
+    SDL_ShowOpenFolderDialog(DialogCallback, data, window->GetSDLWindow(), nullptr, false);
+}
 void EditorDialogService::Complete(EditorFileOperation operation, const char* const* files) {
     std::lock_guard<std::mutex> lock(m_Mutex); m_Result.operation=operation; m_Result.path=(files&&files[0])?files[0]:"";
 }

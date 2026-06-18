@@ -24,11 +24,15 @@ int Application::Run() {
     m_Engine.SetWindow(m_Window.get());
 
     // 3. Let the derived class push layers / load resources.
-    OnInit();
+    const bool initialized = OnInit();
 
     // 4. Run the main loop (blocks until quit).
-    m_Engine.Init();
-    m_Engine.RunLoop();
+    if (initialized) {
+        m_Engine.Init();
+        m_Engine.RunLoop();
+    } else {
+        Logger::Error("Application initialization failed.");
+    }
 
     // 5. Release layers before backend teardown so renderer-owned GPU resources
     //    are destroyed while the render context is still alive.
@@ -45,7 +49,7 @@ int Application::Run() {
     // 8. Destroy window (also calls SDL_Quit).
     m_Window->Shutdown();
     CrashHandler::Uninstall();
-    return 0;
+    return initialized ? 0 : 1;
 }
 
 void Application::PushLayer(Layer* layer) {

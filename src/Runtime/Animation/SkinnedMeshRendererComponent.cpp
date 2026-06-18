@@ -230,8 +230,10 @@ void SkinnedMeshRendererComponent::Skin()
 
 void SkinnedMeshRendererComponent::Serialize(nlohmann::json& data) const
 {
-    data["mesh"] = m_SourceMesh ? m_SourceMesh->GetPath() : "";
-    data["material"] = m_Material ? m_Material->GetPath() : "";
+    data["mesh"] = m_SourceMesh
+        ? AssetManager::Get().MakeProjectRelativePath(m_SourceMesh->GetPath()) : "";
+    data["material"] = m_Material
+        ? AssetManager::Get().MakeProjectRelativePath(m_Material->GetPath()) : "";
     data["playing"] = m_Playing;
     data["time"] = m_Time;
     data["clip"] = {

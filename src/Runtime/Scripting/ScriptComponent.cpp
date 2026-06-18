@@ -1,5 +1,7 @@
 #include "Scripting/ScriptComponent.h"
 
+#include "Assets/AssetManager.h"
+
 #include <fstream>
 #include <sstream>
 
@@ -80,7 +82,7 @@ void ScriptComponent::Serialize(nlohmann::json& data) const
     auto* self = const_cast<ScriptComponent*>(this);
     self->CaptureRuntimeTables();
     data["source"] = m_Source;
-    data["scriptPath"] = m_ScriptPath;
+    data["scriptPath"] = AssetManager::Get().MakeProjectRelativePath(m_ScriptPath);
     data["inspector"] = m_Inspector;
     data["state"] = m_State;
 }
@@ -88,7 +90,10 @@ void ScriptComponent::Serialize(nlohmann::json& data) const
 void ScriptComponent::Deserialize(const nlohmann::json& data)
 {
     m_Source = data.value("source", std::string{});
-    m_ScriptPath = data.value("scriptPath", std::string{});
+    const std::string storedPath = data.value("scriptPath", std::string{});
+    m_ScriptPath = storedPath.empty()
+        ? std::string{}
+        : AssetManager::Get().ResolvePath(storedPath);
     m_Inspector = data.value("inspector", nlohmann::json::object());
     m_State = data.value("state", nlohmann::json::object());
     if (!m_ScriptPath.empty()) LoadFileSource();

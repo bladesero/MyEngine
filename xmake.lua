@@ -110,6 +110,10 @@ target("MyEngineRuntime")
     set_basename("runtime")
     add_files(
         "src/Runtime/RuntimeModule.cpp",
+        "src/Runtime/Project/ProjectConfig.cpp",
+        "src/Runtime/Project/ContentArchive.cpp",
+        "src/Runtime/Project/CookManifest.cpp",
+        "src/Runtime/Project/CookedProjectCache.cpp",
         "src/Runtime/Input/Input.cpp",
         "src/Runtime/Core/Event.cpp",
         "src/Runtime/Core/Logger.cpp",
@@ -180,6 +184,8 @@ target("MyEngineRuntime")
         "src/Editor/EditorShaderWatchService.cpp",
         "src/Editor/EditorUndoUtil.cpp",
         "src/Editor/EditorViewportControllers.cpp",
+        "src/Editor/EditorWorkspace.cpp",
+        "src/Editor/ProjectPublisher.cpp",
         "src/Editor/InspectorSections.cpp",
         "src/Editor/Panels/ToolbarPanel.cpp",
         "src/Editor/Panels/SceneHierarchyPanel.cpp",
@@ -337,6 +343,18 @@ target("MyEnginePlayer")
             end
         end
     end)
+target_end()
+
+target("MyEngineCooker")
+    set_kind("binary")
+    add_files("cooker_main.cpp")
+    add_includedirs("src", "src/Editor")
+    add_deps("MyEngineRuntime")
+    add_packages("nlohmann_json")
+    if is_plat("windows") then
+        add_cxflags("/utf-8", { toolset = "msvc" })
+    end
+    set_rundir("$(projectdir)")
 target_end()
 
 target("MyEngineTests")

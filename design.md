@@ -168,7 +168,31 @@ Application::Run()
 
 ---
 
-## 9. Editor 架构
+## 9. Project startup flow
+
+- `ProjectConfig` is a Runtime service shared by Editor and Player. It reads
+  `MyEngine.project.json` from the project root.
+- `startupScene` is stored as a project-relative path under `Content/`.
+- Editor can assign the current saved scene as the startup scene. Player loads
+  it before entering Play mode; `--project` selects a root and `--scene`
+  overrides the configured scene.
+- Serialized project-owned asset references are written as project-relative
+  paths. Legacy absolute paths remain readable.
+- Editor startup is gated by `EditorWorkspace`: `--project` opens directly;
+  otherwise the project selector provides recent/open/create flows.
+- `ProjectPublisher` and `MyEngineCooker` create transactional Windows x64
+  standalone builds: the previous successful output is retained until a staged
+  package is complete, and is restored if installation fails.
+- Runtime `CookManifest` is the shared package contract. `CookedProjectCache`
+  verifies the manifest and archive, serializes concurrent extraction by archive
+  hash, atomically installs the cache, and rebuilds missing or damaged files
+  before Player loads `startupScene`.
+- Editor **Project Settings** owns the project name and publish output. Publish
+  is allowed only from Edit mode with a saved, clean current scene.
+
+---
+
+## 10. Editor 架构
 
 `EditorLayer` 只负责 ImGui 生命周期、顶层对象装配、panel 调度和文件对话框结果转发。Editor 业务按以下边界拆分：
 

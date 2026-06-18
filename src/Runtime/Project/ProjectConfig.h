@@ -1,0 +1,52 @@
+#pragma once
+
+#include <filesystem>
+#include <string>
+
+struct ProjectPublishSettings {
+    std::string outputDirectory = "Builds";
+    std::string target = "windows-x64";
+};
+
+class ProjectConfig {
+public:
+    static constexpr int kCurrentVersion = 1;
+    static constexpr const char* kFileName = "MyEngine.project.json";
+
+    bool Open(std::filesystem::path projectRoot, bool allowMissing = false,
+              std::string* error = nullptr);
+    bool Save(std::string* error = nullptr);
+
+    bool SetStartupScene(const std::filesystem::path& scenePath,
+                         std::string* error = nullptr);
+    bool ResolveStartupScene(std::filesystem::path& resolved,
+                             std::string* error = nullptr) const;
+    bool ResolveScenePath(const std::string& projectRelativePath,
+                          std::filesystem::path& resolved,
+                          bool requireExists = true,
+                          std::string* error = nullptr) const;
+
+    int GetVersion() const { return m_Version; }
+    const std::string& GetName() const { return m_Name; }
+    const std::string& GetStartupScene() const { return m_StartupScene; }
+    const std::filesystem::path& GetRoot() const { return m_Root; }
+    const std::filesystem::path& GetManifestPath() const { return m_ManifestPath; }
+    ProjectPublishSettings& GetPublishSettings() { return m_PublishSettings; }
+    const ProjectPublishSettings& GetPublishSettings() const { return m_PublishSettings; }
+    bool HasManifest() const { return m_HasManifest; }
+
+    void SetName(std::string name) { m_Name = std::move(name); }
+
+private:
+    static void SetError(std::string* error, std::string message);
+    static bool IsWithin(const std::filesystem::path& path,
+                         const std::filesystem::path& parent);
+
+    std::filesystem::path m_Root;
+    std::filesystem::path m_ManifestPath;
+    int m_Version = kCurrentVersion;
+    std::string m_Name = "MyEngine";
+    std::string m_StartupScene;
+    ProjectPublishSettings m_PublishSettings;
+    bool m_HasManifest = false;
+};

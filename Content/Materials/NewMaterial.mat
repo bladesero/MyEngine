@@ -1,0 +1,32 @@
+{
+  "alphaThreshold": 0.5,
+  "blendMode": "Opaque",
+  "name": "NewMaterial",
+  "params": {
+    "BaseColor": {
+      "data": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "type": "Vec4"
+    },
+    "Metallic": {
+      "data": [
+        0.0
+      ],
+      "type": "Float"
+    },
+    "Roughness": {
+      "data": [
+        0.5
+      ],
+      "type": "Float"
+    }
+  },
+  "textures": {},
+  "twoSided": false,
+  "type": "Material",
+  "wireframe": false
+}

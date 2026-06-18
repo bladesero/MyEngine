@@ -31,6 +31,11 @@
 - [MaterialAsset](./assets/MaterialAsset.md)
 - [ModelAsset](./assets/ModelAsset.md)
 
+## Project
+
+- [ProjectConfig](./project/ProjectConfig.md)
+- [Workspace, Cook Cache, and Publishing](./project/Publishing.md)
+
 ## Scene
 
 - [Component](./scene/Component.md)

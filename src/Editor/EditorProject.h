@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Project/ProjectConfig.h"
+
 #include <filesystem>
 #include <string>
 
@@ -17,7 +19,7 @@ struct EditorProjectState {
 
 class EditorProject {
 public:
-    bool Open(std::filesystem::path root);
+    bool Open(std::filesystem::path root, bool allowMissingManifest = true);
     bool SaveState() const;
     bool LoadState();
     const std::filesystem::path& GetRoot() const { return m_Root; }
@@ -26,7 +28,12 @@ public:
     const EditorProjectState& GetState() const { return m_State; }
     const std::string& GetLastScenePath() const { return m_State.lastScenePath; }
     void SetLastScenePath(std::string path) { m_State.lastScenePath = std::move(path); }
+    ProjectConfig& GetConfig() { return m_Config; }
+    const ProjectConfig& GetConfig() const { return m_Config; }
+    const std::string& GetLastError() const { return m_LastError; }
 private:
     std::filesystem::path m_Root, m_ContentRoot, m_StatePath;
     EditorProjectState m_State;
+    ProjectConfig m_Config;
+    std::string m_LastError;
 };

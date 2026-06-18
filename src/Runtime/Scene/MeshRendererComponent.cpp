@@ -40,10 +40,10 @@ MaterialHandle ResolveMaterial(const std::string& path)
 void MeshRendererComponent::Serialize(nlohmann::json& data) const {
     Component::Serialize(data);
     if (m_Mesh.Get()) {
-        data["mesh"] = m_Mesh->GetPath();
+        data["mesh"] = AssetManager::Get().MakeProjectRelativePath(m_Mesh->GetPath());
     }
     if (m_Material.Get()) {
-        data["material"] = m_Material->GetPath();
+        data["material"] = AssetManager::Get().MakeProjectRelativePath(m_Material->GetPath());
     }
 }
 

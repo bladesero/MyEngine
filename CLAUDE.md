@@ -36,6 +36,34 @@ xmake run MyEnginePlayer    # no editor UI; SceneRenderLayer only
 xmake run MyEngineTests     # unit tests
 ```
 
+Running the Editor without `--project` opens the project selector. Pass
+`--project <directory>` to open a project directly. The selector can create a
+project and keeps a per-user recent-project workspace list. Use **Project
+Settings** to edit the project name and Windows publish output; publishing is
+rejected while the current scene has unsaved changes.
+
+`MyEnginePlayer` reads `MyEngine.project.json` from the project root and loads its
+`startupScene`. Use `--project <directory>` to select another project or
+`--scene Content/Scenes/Other.scene.json` to override the configured scene.
+
+Publish a standalone project directory with cooked `Content.pak`:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\publish.ps1 -Project . -Mode release
+```
+
+Run the isolated release/package/Player acceptance gate with:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\release-smoke.ps1
+```
+
+The output path is controlled by `publish.outputDirectory` and `publish.target`
+in `MyEngine.project.json`. The package contains Player/runtime binaries,
+`Content.pak`, `CookManifest.json`, and the project manifest. Player validates
+the manifest and archive, then atomically installs or repairs a hash-versioned
+runtime cache. Publishing currently supports Windows x64 only.
+
 - **Windows GPU backend** (Editor/Player): optional ` --backend d3d11` or ` --backend d3d12` (see `main.cpp` / `player_main.cpp`).
 
 ---

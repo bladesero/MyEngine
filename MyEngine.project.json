@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "name": "MyEngine",
+  "startupScene": "Content/Scenes/Main.scene.json",
+  "publish": {
+    "outputDirectory": "Builds",
+    "target": "windows-x64"
+  }
+}

@@ -117,6 +117,11 @@ public:
 
     void Clear();
 
+    void SetProjectRoot(std::filesystem::path root);
+    const std::filesystem::path& GetProjectRoot() const { return m_ProjectRoot; }
+    std::string ResolvePath(const std::string& path) const;
+    std::string MakeProjectRelativePath(const std::string& path) const;
+
     TextureHandle  GetWhiteTexture();
     TextureHandle  GetBlackTexture();
     TextureHandle  GetNormalTexture();
@@ -168,7 +173,7 @@ private:
         return ext;
     }
 
-    static std::string NormalizePath(const std::string& path);
+    std::string NormalizePath(const std::string& path) const;
     void ApplyPersistentIdentity(Asset& asset);
     void RefreshDependencies(Asset& asset);
     std::shared_ptr<Asset> InvokeLoader(const std::string& normalizedPath,
@@ -188,4 +193,5 @@ private:
     std::array<size_t, 6> m_AssetCpuBytesByType{};
     std::unordered_map<AssetID, std::filesystem::file_time_type> m_SourceWriteTimes;
     mutable std::recursive_mutex m_Mutex;
+    std::filesystem::path m_ProjectRoot;
 };

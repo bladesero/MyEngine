@@ -4,6 +4,7 @@
 #include "Editor/EditorAction.h"
 #include "Editor/EditorContext.h"
 #include "Editor/EditorLayout.h"
+#include "Editor/EditorProject.h"
 #include "Game/SceneRenderLayer.h"
 #include "Renderer/ShaderManager.h"
 
@@ -53,6 +54,9 @@ void ToolbarPanel::DrawContent()
         DrawActionButton(*context, "scene.new");
         DrawActionButton(*context, "scene.open");
         DrawActionButton(*context, "scene.save");
+        DrawActionButton(*context, "project.settings");
+        DrawActionButton(*context, "project.setStartup");
+        DrawActionButton(*context, "project.publish");
         DrawActionButton(*context, "edit.undo");
         DrawActionButton(*context, "edit.redo");
 
@@ -77,6 +81,11 @@ void ToolbarPanel::DrawContent()
             const auto& stats = context->GetEngine()->GetFrameStats();
             ImGui::SameLine();
             ImGui::Text("FPS %.1f | %.2f ms", stats.fps, stats.smoothedFrameMs);
+        }
+        if (auto* project = context->GetProject()) {
+            const std::string& startup = project->GetConfig().GetStartupScene();
+            ImGui::SameLine();
+            ImGui::TextDisabled("Startup: %s", startup.empty() ? "<not set>" : startup.c_str());
         }
     }
     ImGui::End();
