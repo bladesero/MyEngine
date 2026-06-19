@@ -105,19 +105,20 @@ bool PostProcessPass::EnsureResources() {
         if (changed) {
             m_FXAAShader = m_FXAAHandle->shader; m_SSAOShader = m_SSAOHandle->shader;
             m_BlurShader = m_BlurHandle->shader;
-            GraphicsPipelineDesc pipeline; pipeline.depthTest = false; pipeline.depthWrite = false;
+            GraphicsPipelineDesc pipeline; pipeline.depthTest = false; pipeline.depthWrite = false; pipeline.twoSided = true;
             pipeline.shader = m_FXAAShader; pipeline.colorFormats = {RHIFormat::RGBA8UNorm};
-            m_FXAABackbufferPipeline = device->CreateGraphicsPipeline(pipeline);
+            m_FXAAOffscreenPipeline = device->CreateGraphicsPipeline(pipeline);
             pipeline.colorFormats = {RHIFormat::RGBA16Float};
-            m_FXAAEditorPipeline = device->CreateGraphicsPipeline(pipeline);
+            m_FXAAOffscreenPipeline = device->CreateGraphicsPipeline(pipeline);
             pipeline.shader = m_SSAOShader; pipeline.colorFormats = {RHIFormat::R8UNorm};
+            pipeline.twoSided = true;
             m_SSAOPipeline = device->CreateGraphicsPipeline(pipeline);
             pipeline.shader = m_BlurShader; m_BlurPipeline = device->CreateGraphicsPipeline(pipeline);
             m_FXAAVersion = m_FXAAHandle->version;
             m_SSAOVersion = m_SSAOHandle->version;
             m_BlurVersion = m_BlurHandle->version;
         }
-        return m_FXAABackbufferPipeline && m_FXAAEditorPipeline && m_SSAOPipeline && m_BlurPipeline;
+        return m_FXAABackbufferPipeline && m_FXAAOffscreenPipeline && m_SSAOPipeline && m_BlurPipeline;
     }
     auto makeTexture = [&](const char* name, RHIFormat format, RHIResourceUsage usage,
                            std::shared_ptr<GpuTexture>& texture,
@@ -178,17 +179,19 @@ bool PostProcessPass::EnsureResources() {
     m_FXAAVersion = m_FXAAHandle ? m_FXAAHandle->version : 0;
     m_SSAOVersion = m_SSAOHandle ? m_SSAOHandle->version : 0;
     m_BlurVersion = m_BlurHandle ? m_BlurHandle->version : 0;
-    GraphicsPipelineDesc pipeline; pipeline.depthTest = false; pipeline.depthWrite = false;
+    GraphicsPipelineDesc pipeline; pipeline.depthTest = false; pipeline.depthWrite = false; pipeline.twoSided = true;
     pipeline.shader = m_FXAAShader; pipeline.colorFormats = {RHIFormat::RGBA8UNorm};
     m_FXAABackbufferPipeline = device->CreateGraphicsPipeline(pipeline);
     pipeline.colorFormats = {RHIFormat::RGBA16Float};
-    m_FXAAEditorPipeline = device->CreateGraphicsPipeline(pipeline);
+    m_FXAAOffscreenPipeline = device->CreateGraphicsPipeline(pipeline);
     pipeline.shader = m_SSAOShader; pipeline.colorFormats = {RHIFormat::R8UNorm};
+    pipeline.twoSided = true;
     m_SSAOPipeline = device->CreateGraphicsPipeline(pipeline);
     pipeline.shader = m_BlurShader;
+    pipeline.twoSided = true;
     m_BlurPipeline = device->CreateGraphicsPipeline(pipeline);
     return m_LinearClamp && m_PointClamp && m_NoiseSampler && m_NoiseSrv &&
-           m_FXAABackbufferPipeline && m_FXAAEditorPipeline && m_SSAOPipeline && m_BlurPipeline;
+           m_FXAABackbufferPipeline && m_FXAAOffscreenPipeline && m_SSAOPipeline && m_BlurPipeline;
 }
 
 void PostProcessPass::BeginOffscreen() {
@@ -280,7 +283,7 @@ void PostProcessPass::EndOffscreenAndComposite(const Scene& scene) {
         commands->SetGraphicsPipeline(m_FXAABackbufferPipeline.get());
         commands->SetBindGroup(0, bindings.get()); commands->Draw(3); commands->EndRendering();
     } else {
-        DrawFullscreen(*commands, *m_FXAAEditorPipeline, *bindings, *m_CompositeRtv,
+        DrawFullscreen(*commands, *m_FXAAOffscreenPipeline, *bindings, *m_CompositeRtv,
                        m_CompositeState, {0, 0, 0, 1});
     }
 }

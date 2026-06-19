@@ -13,6 +13,7 @@
 #include "Editor/EditorShaderWatchService.h"
 #include "Editor/EditorService.h"
 #include "Editor/EditorWorkspace.h"
+#include "Editor/EditorImGuiBackend.h"
 
 #include <array>
 #include <filesystem>
@@ -36,7 +37,6 @@ public:
     void OnRender() override;
 
 private:
-    class ImGuiPlatformEventBridge;
     bool OpenProject(const std::filesystem::path& root);
     void DrawProjectSelector();
     void DrawProjectSettings();
@@ -69,7 +69,8 @@ private:
     EditorServiceCollection m_ServiceCollection;
     EditorActionRegistry m_ActionRegistry;
     std::vector<std::unique_ptr<EditorPanel>> m_Panels;
-    std::unique_ptr<ImGuiPlatformEventBridge> m_PlatformBridge;
+    std::unique_ptr<EditorImGuiBackend> m_ImGuiBackend;
+    std::unique_ptr<IPlatformEventBridge> m_ImGuiEventBridge;
     std::filesystem::path m_InitialProject;
     std::array<char, 1024> m_ProjectPath{};
     std::array<char, 128> m_ProjectName{};

@@ -22,6 +22,22 @@ struct ImDrawData;
 union SDL_Event;
 
 // --------------------------------------------------------------------------
+// ImGuiBackendHandles — platform-specific native handles for EditorImGuiBackend
+// --------------------------------------------------------------------------
+struct ImGuiBackendHandles {
+    RHIBackend backend = RHIBackend::Unknown;
+    void* device = nullptr;           // ID3D11Device* / ID3D12Device* / MTLDevice*
+    void* deviceContext = nullptr;    // ID3D11DeviceContext* (D3D11 only)
+    uint32_t framesInFlight = 0;     // D3D12 only
+    void* srvHeap = nullptr;         // D3D12 ID3D12DescriptorHeap*
+    uint64_t fontSrvCpuHandle = 0;   // D3D12 font SRV CPU handle
+    uint64_t fontSrvGpuHandle = 0;   // D3D12 font SRV GPU handle
+    void* backBufferRtvPtr = nullptr; // D3D11 ID3D11RenderTargetView*
+    void* backBufferDsvPtr = nullptr; // D3D11 ID3D11DepthStencilView*
+    void* commandList = nullptr;      // D3D12 ID3D12GraphicsCommandList*
+};
+
+// --------------------------------------------------------------------------
 // IRHIContext - platform-agnostic rendering hardware interface
 // --------------------------------------------------------------------------
 class IRHIContext : public IRHIDevice {
@@ -45,24 +61,11 @@ public:
     virtual GpuTextureView* GetCurrentBackBufferView() { return nullptr; }
     virtual GpuCommandList* GetGraphicsCommandList() = 0;
     RHIBackend GetBackend() const override { return RHIBackend::Unknown; }
+    virtual ImGuiBackendHandles GetImGuiBackendHandles() { return {}; }
+    using SwapChainResizeCallback = void(*)();
+    virtual void SetSwapChainResizeCallback(SwapChainResizeCallback) {}
     virtual std::shared_ptr<GpuReadbackTicket> ReadbackBufferAsync(
         const std::shared_ptr<GpuBuffer>&) { return nullptr; }
-
-    // ImGui backend hooks -----------------------------------------------------
-    // Editor/UI layers call these backend-agnostic hooks. Concrete contexts
-    // map them to imgui_impl_* implementations.
-    virtual bool InitImGui(IWindow* window) {
-        (void)window;
-        return false;
-    }
-    virtual void ShutdownImGui() {}
-    virtual void ProcessImGuiSDLEvent(const SDL_Event& event) {
-        (void)event;
-    }
-    virtual void BeginImGuiFrame() {}
-    virtual void RenderImGuiDrawData(ImDrawData* drawData) {
-        (void)drawData;
-    }
 
     // Resource creation -------------------------------------------------------
     virtual std::shared_ptr<GpuBuffer> CreateVertexBuffer(
@@ -112,7 +115,6 @@ public:
         const std::shared_ptr<GpuShader>& shader) {
         return shader ? std::make_shared<GpuBindGroup>(shader) : nullptr;
     }
-    virtual void* GetImGuiTextureId(GpuTextureView*) { return nullptr; }
 
 };
 

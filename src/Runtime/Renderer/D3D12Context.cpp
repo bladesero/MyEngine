@@ -19,13 +19,6 @@
 #pragma comment(lib, "dxgi.lib")
 #pragma comment(lib, "d3dcompiler.lib")
 
-#if defined(MYENGINE_ENABLE_IMGUI)
-#include <SDL3/SDL.h>
-#include <imgui.h>
-#include <backends/imgui_impl_dx12.h>
-#include <backends/imgui_impl_sdl3.h>
-#endif
-
 // --------------------------------------------------------------------------
 // Factory
 // --------------------------------------------------------------------------
@@ -645,7 +638,6 @@ bool D3D12Context::Init(IWindow* window) {
 }
 
 void D3D12Context::Shutdown() {
-    ShutdownImGui();
 
     // Wait for all GPU work to finish before releasing resources.
     if (m_Fence && m_FenceEvent) {
@@ -738,6 +730,44 @@ void D3D12Context::WaitForGpuIdle()
     for (auto& frame : m_Frames) {
         frame.fenceValue = fenceValue;
     }
+}
+
+bool D3D12Context::UploadBufferData(ID3D12Resource* destination,
+                                    ID3D12Resource* uploadBuffer,
+                                    uint64_t byteSize,
+                                    D3D12_RESOURCE_STATES finalState) {
+    if (!destination || !uploadBuffer || !m_UploadCommandAllocator || !m_UploadCommandList ||
+        !m_CommandQueue || !m_Fence || !m_FenceEvent) {
+        return false;
+    }
+
+    if (FAILED(m_UploadCommandAllocator->Reset())) return false;
+    if (FAILED(m_UploadCommandList->Reset(m_UploadCommandAllocator.Get(), nullptr))) return false;
+
+    m_UploadCommandList->CopyBufferRegion(destination, 0, uploadBuffer, 0, byteSize);
+
+    if (finalState != D3D12_RESOURCE_STATE_COPY_DEST) {
+        D3D12_RESOURCE_BARRIER barrier = {};
+        barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        barrier.Transition.pResource = destination;
+        barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+        barrier.Transition.StateAfter = finalState;
+        barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        m_UploadCommandList->ResourceBarrier(1, &barrier);
+    }
+
+    if (FAILED(m_UploadCommandList->Close())) return false;
+
+    ID3D12CommandList* cmdLists[] = { m_UploadCommandList.Get() };
+    m_CommandQueue->ExecuteCommandLists(1, cmdLists);
+
+    const uint64_t fenceValue = m_NextFenceValue++;
+    if (FAILED(m_CommandQueue->Signal(m_Fence.Get(), fenceValue))) return false;
+    if (m_Fence->GetCompletedValue() < fenceValue) {
+        if (FAILED(m_Fence->SetEventOnCompletion(fenceValue, m_FenceEvent))) return false;
+        WaitForSingleObject(m_FenceEvent, INFINITE);
+    }
+    return true;
 }
 
 void D3D12Context::TransitionToRenderTarget(ID3D12GraphicsCommandList* cmdList,
@@ -847,81 +877,16 @@ GpuCommandList* D3D12Context::GetGraphicsCommandList() {
     return m_GraphicsCommandList.get();
 }
 
-bool D3D12Context::InitImGui(IWindow* window) {
-#if defined(MYENGINE_ENABLE_IMGUI)
-    if (!window || !window->GetSDLWindow() || !m_Device || !m_SrvHeap) {
-        return false;
-    }
-    if (!SDL_GetCurrentVideoDriver()) {
-        Logger::Error("D3D12Context::InitImGui – SDL_GetCurrentVideoDriver() is null");
-        return false;
-    }
-
-    ShutdownImGui();
-    if (!ImGui_ImplSDL3_InitForD3D(window->GetSDLWindow())) {
-        return false;
-    }
-    if (!ImGui_ImplDX12_Init(
-            m_Device.Get(),
-            GetNumFramesInFlight(),
-            m_RtvFormat,
-            m_SrvHeap.Get(),
-            m_FontSrvCpuHandle,
-            m_FontSrvGpuHandle)) {
-        ImGui_ImplSDL3_Shutdown();
-        return false;
-    }
-
-    m_ImGuiInitialized = true;
-    return true;
-#else
-    (void)window;
-    return false;
-#endif
-}
-
-void D3D12Context::ShutdownImGui() {
-#if defined(MYENGINE_ENABLE_IMGUI)
-    if (!m_ImGuiInitialized) return;
-    ImGui_ImplDX12_Shutdown();
-    ImGui_ImplSDL3_Shutdown();
-    m_ImGuiInitialized = false;
-#endif
-}
-
-void D3D12Context::ProcessImGuiSDLEvent(const SDL_Event& event) {
-#if defined(MYENGINE_ENABLE_IMGUI)
-    if (!m_ImGuiInitialized) return;
-    ImGui_ImplSDL3_ProcessEvent(&event);
-#else
-    (void)event;
-#endif
-}
-
-void D3D12Context::BeginImGuiFrame() {
-#if defined(MYENGINE_ENABLE_IMGUI)
-    if (!m_ImGuiInitialized) return;
-    ImGui_ImplDX12_NewFrame();
-    ImGui_ImplSDL3_NewFrame();
-#endif
-}
-
-void D3D12Context::RenderImGuiDrawData(ImDrawData* drawData) {
-#if defined(MYENGINE_ENABLE_IMGUI)
-    if (!m_ImGuiInitialized || !drawData || !m_IsRecording || !m_CommandList) {
-        return;
-    }
-    const D3D12_CPU_DESCRIPTOR_HANDLE colorRtv = GetMainColorRtv();
-    const D3D12_CPU_DESCRIPTOR_HANDLE depthDsv = GetMainDsvHandle();
-    const D3D12_CPU_DESCRIPTOR_HANDLE* depthDsvPtr =
-        depthDsv.ptr != 0 ? &depthDsv : nullptr;
-    m_CommandList->OMSetRenderTargets(1, &colorRtv, FALSE, depthDsvPtr);
-    ID3D12DescriptorHeap* heaps[] = { m_SrvHeap.Get() };
-    m_CommandList->SetDescriptorHeaps(1, heaps);
-    ImGui_ImplDX12_RenderDrawData(drawData, m_CommandList.Get());
-#else
-    (void)drawData;
-#endif
+ImGuiBackendHandles D3D12Context::GetImGuiBackendHandles() {
+    ImGuiBackendHandles h;
+    h.backend = RHIBackend::D3D12;
+    h.device = m_Device.Get();
+    h.framesInFlight = kFrameCount;
+    h.srvHeap = m_SrvHeap.Get();
+    h.fontSrvCpuHandle = m_FontSrvCpuHandle.ptr;
+    h.fontSrvGpuHandle = m_FontSrvGpuHandle.ptr;
+    h.commandList = m_CommandList.Get();
+    return h;
 }
 
 void D3D12Context::PresentSwapChain(bool vsync) {
@@ -1010,13 +975,16 @@ std::shared_ptr<GpuBuffer> D3D12Context::CreateVertexBuffer(
     }
 
     auto buf = std::make_shared<D3D12VertexBuffer>();
+    buf->desc.size = byteSize;
+    buf->desc.stride = strideBytes;
+    buf->desc.usage = RHIResourceUsage::VertexBuffer;
     buf->byteSize = byteSize;
     buf->stride = strideBytes;
 
     const uint64_t alignedSize = (static_cast<uint64_t>(byteSize) + 255ull) & ~255ull;
 
     D3D12_HEAP_PROPERTIES props = {};
-    props.Type = D3D12_HEAP_TYPE_UPLOAD;
+    props.Type = D3D12_HEAP_TYPE_DEFAULT;
 
     D3D12_RESOURCE_DESC desc = {};
     desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
@@ -1031,23 +999,40 @@ std::shared_ptr<GpuBuffer> D3D12Context::CreateVertexBuffer(
 
     HRESULT hr = m_Device->CreateCommittedResource(
         &props, D3D12_HEAP_FLAG_NONE, &desc,
-        D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&buf->resource));
+        D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&buf->resource));
     if (FAILED(hr)) {
         Logger::Error("CreateVertexBuffer failed: 0x",
                       reinterpret_cast<void*>(static_cast<uintptr_t>(hr)));
         return nullptr;
     }
 
+    ComPtr<ID3D12Resource> uploadBuffer;
+    D3D12_HEAP_PROPERTIES uploadProps = {};
+    uploadProps.Type = D3D12_HEAP_TYPE_UPLOAD;
+    hr = m_Device->CreateCommittedResource(
+        &uploadProps, D3D12_HEAP_FLAG_NONE, &desc,
+        D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&uploadBuffer));
+    if (FAILED(hr)) {
+        Logger::Error("CreateVertexBuffer upload buffer failed: 0x",
+                      reinterpret_cast<void*>(static_cast<uintptr_t>(hr)));
+        return nullptr;
+    }
+
     void* mapped = nullptr;
-    D3D12_RANGE range = { 0, byteSize };
-    hr = buf->resource->Map(0, nullptr, &mapped);
+    hr = uploadBuffer->Map(0, nullptr, &mapped);
     if (FAILED(hr) || !mapped) {
-        Logger::Error("VertexBuffer Map failed: 0x",
+        Logger::Error("VertexBuffer upload Map failed: 0x",
                       reinterpret_cast<void*>(static_cast<uintptr_t>(hr)));
         return nullptr;
     }
     std::memcpy(mapped, data, byteSize);
-    buf->resource->Unmap(0, nullptr);
+    uploadBuffer->Unmap(0, nullptr);
+
+    if (!UploadBufferData(buf->resource.Get(), uploadBuffer.Get(), byteSize,
+                          D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER)) {
+        Logger::Error("CreateVertexBuffer upload submission failed");
+        return nullptr;
+    }
 
     return buf;
 }
@@ -1057,13 +1042,15 @@ std::shared_ptr<GpuBuffer> D3D12Context::CreateIndexBuffer(
     if (!data || byteSize == 0) return nullptr;
 
     auto buf = std::make_shared<D3D12IndexBuffer>();
+    buf->desc.size = byteSize;
+    buf->desc.usage = RHIResourceUsage::IndexBuffer;
     buf->byteSize = byteSize;
     buf->format = DXGI_FORMAT_R32_UINT;
 
     const uint64_t alignedSize = (static_cast<uint64_t>(byteSize) + 255ull) & ~255ull;
 
     D3D12_HEAP_PROPERTIES props = {};
-    props.Type = D3D12_HEAP_TYPE_UPLOAD;
+    props.Type = D3D12_HEAP_TYPE_DEFAULT;
 
     D3D12_RESOURCE_DESC desc = {};
     desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
@@ -1078,23 +1065,40 @@ std::shared_ptr<GpuBuffer> D3D12Context::CreateIndexBuffer(
 
     HRESULT hr = m_Device->CreateCommittedResource(
         &props, D3D12_HEAP_FLAG_NONE, &desc,
-        D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&buf->resource));
+        D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&buf->resource));
     if (FAILED(hr)) {
         Logger::Error("CreateIndexBuffer failed: 0x",
                       reinterpret_cast<void*>(static_cast<uintptr_t>(hr)));
         return nullptr;
     }
 
+    ComPtr<ID3D12Resource> uploadBuffer;
+    D3D12_HEAP_PROPERTIES uploadProps = {};
+    uploadProps.Type = D3D12_HEAP_TYPE_UPLOAD;
+    hr = m_Device->CreateCommittedResource(
+        &uploadProps, D3D12_HEAP_FLAG_NONE, &desc,
+        D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&uploadBuffer));
+    if (FAILED(hr)) {
+        Logger::Error("CreateIndexBuffer upload buffer failed: 0x",
+                      reinterpret_cast<void*>(static_cast<uintptr_t>(hr)));
+        return nullptr;
+    }
+
     void* mapped = nullptr;
-    D3D12_RANGE range = { 0, byteSize };
-    hr = buf->resource->Map(0, nullptr, &mapped);
+    hr = uploadBuffer->Map(0, nullptr, &mapped);
     if (FAILED(hr) || !mapped) {
-        Logger::Error("IndexBuffer Map failed: 0x",
+        Logger::Error("IndexBuffer upload Map failed: 0x",
                       reinterpret_cast<void*>(static_cast<uintptr_t>(hr)));
         return nullptr;
     }
     std::memcpy(mapped, data, byteSize);
-    buf->resource->Unmap(0, nullptr);
+    uploadBuffer->Unmap(0, nullptr);
+
+    if (!UploadBufferData(buf->resource.Get(), uploadBuffer.Get(), byteSize,
+                          D3D12_RESOURCE_STATE_INDEX_BUFFER)) {
+        Logger::Error("CreateIndexBuffer upload submission failed");
+        return nullptr;
+    }
 
     return buf;
 }
@@ -1102,29 +1106,63 @@ std::shared_ptr<GpuBuffer> D3D12Context::CreateIndexBuffer(
 std::shared_ptr<GpuBuffer> D3D12Context::CreateBuffer(
     const RHIBufferDesc& desc, const void* initialData) {
     if (!m_Device || desc.size == 0) return nullptr;
-    auto buffer = std::make_shared<D3D12Buffer>(); buffer->desc = desc; buffer->byteSize = desc.size;
-    D3D12_HEAP_PROPERTIES heap{};
     const bool readback = HasUsage(desc.usage, RHIResourceUsage::Readback);
-    const bool upload = initialData && !HasUsage(desc.usage, RHIResourceUsage::UnorderedAccess);
-    heap.Type = readback ? D3D12_HEAP_TYPE_READBACK : upload ? D3D12_HEAP_TYPE_UPLOAD : D3D12_HEAP_TYPE_DEFAULT;
+    if (readback && initialData) {
+        Logger::Error("[RHI] Initial data for a readback buffer is unsupported");
+        return nullptr;
+    }
+
+    auto buffer = std::make_shared<D3D12Buffer>();
+    buffer->desc = desc;
+    buffer->byteSize = desc.size;
+
+    D3D12_HEAP_PROPERTIES heap{};
+    heap.Type = readback ? D3D12_HEAP_TYPE_READBACK : D3D12_HEAP_TYPE_DEFAULT;
+
     D3D12_RESOURCE_DESC native{}; native.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
     native.Width = (static_cast<uint64_t>(desc.size) + 255ull) & ~255ull;
     native.Height = 1; native.DepthOrArraySize = 1; native.MipLevels = 1;
     native.SampleDesc.Count = 1; native.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
     if (HasUsage(desc.usage, RHIResourceUsage::UnorderedAccess))
         native.Flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
-    const D3D12_RESOURCE_STATES initialState = readback ? D3D12_RESOURCE_STATE_COPY_DEST :
-        upload ? D3D12_RESOURCE_STATE_GENERIC_READ : D3D12_RESOURCE_STATE_COMMON;
+
+    const bool unorderedAccess = HasUsage(desc.usage, RHIResourceUsage::UnorderedAccess);
+    const bool copyDestinationOnly = HasUsage(desc.usage, RHIResourceUsage::CopyDestination) &&
+        !HasUsage(desc.usage, RHIResourceUsage::VertexBuffer) &&
+        !HasUsage(desc.usage, RHIResourceUsage::IndexBuffer) &&
+        !HasUsage(desc.usage, RHIResourceUsage::ConstantBuffer) &&
+        !HasUsage(desc.usage, RHIResourceUsage::ShaderResource) &&
+        !unorderedAccess;
+    const D3D12_RESOURCE_STATES finalState = readback ? D3D12_RESOURCE_STATE_COPY_DEST :
+        unorderedAccess ? D3D12_RESOURCE_STATE_UNORDERED_ACCESS :
+        copyDestinationOnly ? D3D12_RESOURCE_STATE_COPY_DEST :
+        D3D12_RESOURCE_STATE_GENERIC_READ;
+    const D3D12_RESOURCE_STATES initialState = initialData && !readback ?
+        D3D12_RESOURCE_STATE_COPY_DEST : finalState;
+
     if (FAILED(m_Device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &native,
         initialState, nullptr, IID_PPV_ARGS(&buffer->resource)))) return nullptr;
-    if (initialData && upload) {
+
+    if (initialData && !readback) {
+        ComPtr<ID3D12Resource> uploadBuffer;
+        D3D12_HEAP_PROPERTIES uploadHeap{};
+        uploadHeap.Type = D3D12_HEAP_TYPE_UPLOAD;
+        if (FAILED(m_Device->CreateCommittedResource(&uploadHeap, D3D12_HEAP_FLAG_NONE, &native,
+            D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&uploadBuffer)))) {
+            return nullptr;
+        }
+
         void* mapped = nullptr;
-        if (FAILED(buffer->resource->Map(0, nullptr, &mapped)) || !mapped) return nullptr;
-        std::memcpy(mapped, initialData, desc.size); buffer->resource->Unmap(0, nullptr);
-    } else if (initialData) {
-        Logger::Error("[RHI] Initial data for a default-heap generic buffer is unsupported");
-        return nullptr;
+        if (FAILED(uploadBuffer->Map(0, nullptr, &mapped)) || !mapped) return nullptr;
+        std::memcpy(mapped, initialData, desc.size);
+        uploadBuffer->Unmap(0, nullptr);
+
+        if (!UploadBufferData(buffer->resource.Get(), uploadBuffer.Get(), desc.size, finalState)) {
+            Logger::Error("[RHI] Generic buffer upload submission failed");
+            return nullptr;
+        }
     }
+
     return buffer;
 }
 
@@ -1924,6 +1962,11 @@ void D3D12Context::EnsureDefaultResources()
 
 D3D12_CPU_DESCRIPTOR_HANDLE D3D12Context::AllocSrvSlot(D3D12_GPU_DESCRIPTOR_HANDLE& outGpu)
 {
+    if (!m_SrvHeap || m_NextSrvSlot >= kDefaultSrvDescriptorCount) {
+        Logger::Error("[RHI] D3D12 SRV/UAV descriptor heap exhausted");
+        outGpu = {};
+        return {};
+    }
     D3D12_CPU_DESCRIPTOR_HANDLE cpu = OffsetHandle(
         m_SrvHeap->GetCPUDescriptorHandleForHeapStart(), m_NextSrvSlot, m_SrvDescriptorSize);
     D3D12_GPU_DESCRIPTOR_HANDLE gpu = OffsetHandle(
@@ -1936,6 +1979,10 @@ D3D12_CPU_DESCRIPTOR_HANDLE D3D12Context::AllocSrvSlot(D3D12_GPU_DESCRIPTOR_HAND
 D3D12_CPU_DESCRIPTOR_HANDLE D3D12Context::AllocRtvSlot()
 {
     if (!m_OffscreenRtvHeap) return {};
+    if (m_NextOffscreenRtvSlot >= kOffscreenRtvCount) {
+        Logger::Error("[RHI] D3D12 RTV descriptor heap exhausted");
+        return {};
+    }
     D3D12_CPU_DESCRIPTOR_HANDLE cpu = OffsetHandle(
         m_OffscreenRtvHeap->GetCPUDescriptorHandleForHeapStart(),
         m_NextOffscreenRtvSlot,
@@ -1947,6 +1994,10 @@ D3D12_CPU_DESCRIPTOR_HANDLE D3D12Context::AllocRtvSlot()
 D3D12_CPU_DESCRIPTOR_HANDLE D3D12Context::AllocDsvSlot()
 {
     if (!m_DsvHeap) return {};
+    if (m_NextDsvSlot >= kDsvDescriptorCount) {
+        Logger::Error("[RHI] D3D12 DSV descriptor heap exhausted");
+        return {};
+    }
     D3D12_CPU_DESCRIPTOR_HANDLE cpu = OffsetHandle(
         m_DsvHeap->GetCPUDescriptorHandleForHeapStart(),
         m_NextDsvSlot,
@@ -2081,6 +2132,11 @@ std::shared_ptr<GpuShader> D3D12Context::CreateFullscreenShaderFromBytecode(
 
 D3D12_CPU_DESCRIPTOR_HANDLE D3D12Context::AllocSampSlot(D3D12_GPU_DESCRIPTOR_HANDLE& outGpu)
 {
+    if (!m_SamplerHeap || m_NextSampSlot >= kDefaultSamplerDescriptorCount) {
+        Logger::Error("[RHI] D3D12 sampler descriptor heap exhausted");
+        outGpu = {};
+        return {};
+    }
     D3D12_CPU_DESCRIPTOR_HANDLE cpu = OffsetHandle(
         m_SamplerHeap->GetCPUDescriptorHandleForHeapStart(), m_NextSampSlot, m_SamplerDescriptorSize);
     D3D12_GPU_DESCRIPTOR_HANDLE gpu = OffsetHandle(
@@ -2383,11 +2439,6 @@ std::shared_ptr<GpuSampler> D3D12Context::CreateSampler(const RHISamplerDesc& de
     d.AddressU = address(desc.addressU); d.AddressV = address(desc.addressV); d.AddressW = address(desc.addressW);
     d.ComparisonFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL; d.MaxLOD = D3D12_FLOAT32_MAX;
     m_Device->CreateSampler(&d, result->cpu); return result;
-}
-
-void* D3D12Context::GetImGuiTextureId(GpuTextureView* view) {
-    auto* native = dynamic_cast<D3D12TextureView*>(view);
-    return native ? reinterpret_cast<void*>(native->srvGpu.ptr) : nullptr;
 }
 
 std::shared_ptr<GpuReadbackTicket> D3D12Context::ReadbackBufferAsync(

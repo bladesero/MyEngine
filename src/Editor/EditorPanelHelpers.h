@@ -48,5 +48,5 @@ inline bool IsMaterial(const std::string& path){return LowerExtension(path)==".m
 inline bool DrawEnabled(Component& component){bool enabled=component.IsEnabled();if(!ImGui::Checkbox("Enabled",&enabled))return false;component.SetEnabled(enabled);return true;}
 inline bool DrawCollider(ColliderComponent& collider){bool changed=false;bool trigger=collider.IsTrigger();if(ImGui::Checkbox("Is Trigger",&trigger)){collider.SetTrigger(trigger);changed=true;}return changed;}
 inline MeshHandle ResolveMesh(const std::string& path){auto& assets=AssetManager::Get();if(path=="__builtin__/Cube")return assets.GetCubeMesh();if(path=="__builtin__/Quad")return assets.GetQuadMesh();if(path=="__builtin__/Triangle")return assets.GetTriangleMesh();auto value=assets.GetByPath<MeshAsset>(path);return value.IsValid()?value:assets.Load<MeshAsset>(path);}
-inline MaterialHandle ResolveMaterial(const std::string& path){auto& assets=AssetManager::Get();if(path=="__builtin__/Default")return assets.GetDefaultMaterial();auto value=assets.GetByPath<MaterialAsset>(path);return value.IsValid()?value:assets.Load<MaterialAsset>(path);}
+inline MaterialHandle ResolveMaterial(const std::string& path){return AssetManager::Get().ResolveMaterialReference(path);}
 }

@@ -103,9 +103,9 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
     }
 }
 
-void Renderer::SetEditorOffscreen(bool enabled)
+void Renderer::SetOutputOffscreen(bool enabled)
 {
-    m_EditorOffscreen = enabled;
+    m_OutputOffscreen = enabled;
     if (m_PostProcessPass) {
         m_PostProcessPass->SetCompositeToBackbuffer(!enabled);
     }

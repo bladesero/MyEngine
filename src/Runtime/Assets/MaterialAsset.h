@@ -4,6 +4,7 @@
 #include "Assets/TextureAsset.h"
 #include "Core/EngineMath.h"
 #include "Renderer/IRenderContext.h"
+#include <nlohmann/json.hpp>
 #include <string>
 #include <unordered_map>
 
@@ -137,3 +138,6 @@ using MaterialHandle = AssetHandle<MaterialAsset>;
 
 std::shared_ptr<MaterialAsset> LoadMaterialAssetFromFile(const std::string& path);
 bool SaveMaterialAssetToFile(const MaterialAsset& material, const std::string& path);
+void SerializeMaterialAssetForScene(const MaterialAsset& material, nlohmann::json& data);
+std::shared_ptr<MaterialAsset> LoadMaterialAssetFromScene(
+    const nlohmann::json& data, const std::string& path);

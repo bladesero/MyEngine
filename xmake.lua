@@ -198,6 +198,8 @@ target("MyEngineRuntime")
         "thirdparty/ImGuizmo/ImGuizmo.cpp", { warnings = "none" }
     )
 
+    add_files("src/Editor/EditorImGuiBackend.cpp")
+
     if is_plat("windows") then
         on_load(setup_hlsl_windows_bytecode)
         add_files("src/Runtime/Renderer/D3D11Context.cpp", "src/Runtime/Renderer/D3D12Context.cpp")

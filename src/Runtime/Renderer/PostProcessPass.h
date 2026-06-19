@@ -67,7 +67,7 @@ private:
     uint64_t m_SSAOVersion = 0;
     uint64_t m_BlurVersion = 0;
     std::shared_ptr<GpuGraphicsPipeline> m_FXAABackbufferPipeline;
-    std::shared_ptr<GpuGraphicsPipeline> m_FXAAEditorPipeline;
+    std::shared_ptr<GpuGraphicsPipeline> m_FXAAOffscreenPipeline;
     std::shared_ptr<GpuGraphicsPipeline> m_SSAOPipeline;
     std::shared_ptr<GpuGraphicsPipeline> m_BlurPipeline;
     RHIResourceState m_SceneColorState = RHIResourceState::Undefined;

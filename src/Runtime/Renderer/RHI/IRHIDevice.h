@@ -58,5 +58,4 @@ public:
         auto pipeline = std::make_shared<GpuComputePipeline>(); pipeline->desc = desc;
         return pipeline;
     }
-    virtual void* GetImGuiTextureId(GpuTextureView*) { return nullptr; }
 };

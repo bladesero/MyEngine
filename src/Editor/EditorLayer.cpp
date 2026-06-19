@@ -1,4 +1,6 @@
 #include "Editor/EditorLayer.h"
+#include "Core/PlatformEventBridge.h"
+#include "Editor/EditorImGuiBackend.h"
 
 #include "Assets/AssetManager.h"
 #include "Core/Engine.h"
@@ -19,15 +21,20 @@
 #include <algorithm>
 #include <cstring>
 
-class EditorLayer::ImGuiPlatformEventBridge final : public IPlatformEventBridge {
+namespace {
+class EditorImGuiEventBridge final : public IPlatformEventBridge {
 public:
-    explicit ImGuiPlatformEventBridge(IRenderContext* context) : m_Context(context) {}
+    explicit EditorImGuiEventBridge(class EditorImGuiBackend* backend) : m_Backend(backend) {}
     void OnSDLEvent(const SDL_Event& event) override {
-        if (m_Context) m_Context->ProcessImGuiSDLEvent(event);
+        if (m_Backend) m_Backend->ProcessSDLEvent(event);
     }
 private:
-    IRenderContext* m_Context = nullptr;
+    class EditorImGuiBackend* m_Backend = nullptr;
 };
+}
+
+
+
 
 EditorLayer::EditorLayer(SceneRenderLayer* sceneLayer, IWindow* window, Engine* engine,
                          std::filesystem::path initialProject)
@@ -51,15 +58,17 @@ void EditorLayer::OnAttach() {
     ImGui::CreateContext();
     ImGui::StyleColorsDark();
     ImGuizmo::SetImGuiContext(ImGui::GetCurrentContext());
-    if (!m_RenderContext->InitImGui(m_Window)) {
+    m_ImGuiBackend = std::make_unique<EditorImGuiBackend>(m_RenderContext, m_Window);
+    if (!m_ImGuiBackend->Init()) {
         ImGui::DestroyContext();
         return;
     }
-    if (m_Engine) {
-        m_PlatformBridge = std::make_unique<ImGuiPlatformEventBridge>(m_RenderContext);
-        m_Engine->SetPlatformEventBridge(m_PlatformBridge.get());
-    }
     m_Context = EditorContext(m_SceneLayer, m_RenderContext, m_Window, m_Engine);
+    m_Context.SetImGuiBackend(m_ImGuiBackend.get());
+    if (m_Engine) {
+        m_ImGuiEventBridge = std::make_unique<EditorImGuiEventBridge>(m_ImGuiBackend.get());
+        m_Engine->SetPlatformEventBridge(m_ImGuiEventBridge.get());
+    }
     m_Context.SetCommandStack(&m_CommandStack);
     m_Context.SetAssetRegistry(&m_AssetRegistry);
     m_Context.SetProject(&m_Project);
@@ -202,9 +211,9 @@ void EditorLayer::OnDetach() {
     m_Context.SetActionRegistry(nullptr);
     if (m_ServicesRegistered) m_ServiceCollection.DetachAll(m_Context);
     if (m_Engine) m_Engine->SetPlatformEventBridge(nullptr);
-    m_PlatformBridge.reset();
+    m_ImGuiEventBridge.reset();
     if (m_ImGuiReady) {
-        m_RenderContext->ShutdownImGui();
+        m_ImGuiBackend.reset();
         ImGui::DestroyContext();
         m_ImGuiReady = false;
     }
@@ -345,7 +354,7 @@ void EditorLayer::DrawProjectResult() {
 void EditorLayer::OnRender() {
 #if defined(MYENGINE_ENABLE_IMGUI)
     if (!m_ImGuiReady || !m_RenderContext) return;
-    m_RenderContext->BeginImGuiFrame();
+    if (m_ImGuiBackend) m_ImGuiBackend->BeginFrame();
     ImGui::NewFrame();
     ImGuizmo::BeginFrame();
     ImGuizmo::AllowAxisFlip(false);
@@ -357,7 +366,7 @@ void EditorLayer::OnRender() {
         DrawProjectSelector();
     }
     ImGui::Render();
-    m_RenderContext->RenderImGuiDrawData(ImGui::GetDrawData());
+    if (m_ImGuiBackend) m_ImGuiBackend->RenderDrawData(ImGui::GetDrawData());
     m_RenderContext->EndFrame();
 #endif
 }

@@ -94,6 +94,48 @@ std::string MakeSavedTexturePath(
     return absoluteTexture.lexically_normal().string();
 }
 
+TextureHandle ResolveSceneTextureReference(const std::string& texturePath)
+{
+    auto& assets = AssetManager::Get();
+    if (texturePath == "__builtin__/White") return assets.GetWhiteTexture();
+    if (texturePath == "__builtin__/Black") return assets.GetBlackTexture();
+    if (texturePath == "__builtin__/FlatNormal") return assets.GetNormalTexture();
+    if (texturePath == "__builtin__/Checker") {
+        TextureHandle cached = assets.GetByPath<TextureAsset>(texturePath);
+        if (cached.IsValid()) return cached;
+
+        constexpr int kTexSize = 16;
+        constexpr int kCellSize = 2;
+        std::vector<uint8_t> pixels(kTexSize * kTexSize * 4);
+        for (int y = 0; y < kTexSize; ++y) {
+            for (int x = 0; x < kTexSize; ++x) {
+                const bool light = ((x / kCellSize) + (y / kCellSize)) % 2 == 0;
+                const int idx = (y * kTexSize + x) * 4;
+                pixels[idx + 0] = light ? 230 : 50;
+                pixels[idx + 1] = light ? 130 : 50;
+                pixels[idx + 2] = light ? 30 : 50;
+                pixels[idx + 3] = 255;
+            }
+        }
+
+        auto checkerTex = std::make_shared<TextureAsset>(texturePath);
+        checkerTex->SetName("Checker");
+        TextureDesc desc;
+        desc.width = kTexSize;
+        desc.height = kTexSize;
+        desc.sRGB = false;
+        checkerTex->SetPixelData(std::move(pixels), desc);
+        return assets.Register(std::move(checkerTex));
+    }
+
+    const std::string resolved = assets.ResolvePath(texturePath);
+    TextureHandle texture = assets.GetByPath<TextureAsset>(resolved);
+    if (!texture.IsValid()) {
+        texture = assets.Load<TextureAsset>(resolved);
+    }
+    return texture;
+}
+
 } // namespace
 
 std::shared_ptr<MaterialAsset> LoadMaterialAssetFromFile(const std::string& path)
@@ -210,5 +252,86 @@ bool SaveMaterialAssetToFile(const MaterialAsset& material, const std::string& p
     } catch (const std::exception& e) {
         Logger::Error("[Material] Failed to save '", path, "': ", e.what());
         return false;
+    }
+}
+
+void SerializeMaterialAssetForScene(const MaterialAsset& material, nlohmann::json& data)
+{
+    data = nlohmann::json::object();
+    data["name"] = material.GetName();
+    data["blendMode"] = BlendModeToString(material.GetBlendMode());
+    data["twoSided"] = material.IsTwoSided();
+    data["wireframe"] = material.IsWireframe();
+    data["alphaThreshold"] = material.GetAlphaThreshold();
+
+    nlohmann::json params = nlohmann::json::object();
+    for (const auto& [name, param] : material.GetParams()) {
+        nlohmann::json item;
+        item["type"] = ParamTypeToString(param.type);
+        item["data"] = nlohmann::json::array();
+        const int count = ParamComponentCount(param.type);
+        for (int i = 0; i < count; ++i) {
+            item["data"].push_back(param.data[i]);
+        }
+        params[name] = std::move(item);
+    }
+    data["params"] = std::move(params);
+
+    nlohmann::json textures = nlohmann::json::object();
+    for (const auto& [slot, texture] : material.GetTextures()) {
+        if (!texture.IsValid()) continue;
+        textures[slot] = AssetManager::Get().MakeProjectRelativePath(texture->GetPath());
+    }
+    data["textures"] = std::move(textures);
+}
+
+std::shared_ptr<MaterialAsset> LoadMaterialAssetFromScene(
+    const nlohmann::json& data, const std::string& path)
+{
+    try {
+        auto material = std::make_shared<MaterialAsset>(path);
+        material->SetName(data.value("name", material->GetName()));
+        material->SetBlendMode(BlendModeFromString(data.value("blendMode", std::string("Opaque"))));
+        material->SetTwoSided(data.value("twoSided", false));
+        material->SetWireframe(data.value("wireframe", false));
+        material->SetAlphaThreshold(data.value("alphaThreshold", 0.5f));
+
+        const auto params = data.find("params");
+        if (params != data.end() && params->is_object()) {
+            for (auto it = params->begin(); it != params->end(); ++it) {
+                const nlohmann::json& src = it.value();
+                MaterialParam param;
+                param.type = ParamTypeFromString(src.value("type", std::string("Float")));
+                if (src.contains("data") && src["data"].is_array()) {
+                    const int count = std::min<int>(
+                        ParamComponentCount(param.type),
+                        static_cast<int>(src["data"].size()));
+                    for (int i = 0; i < count; ++i) {
+                        param.data[i] = src["data"][i].get<float>();
+                    }
+                }
+                material->SetParam(it.key(), param);
+            }
+        }
+
+        const auto textures = data.find("textures");
+        if (textures != data.end() && textures->is_object()) {
+            for (auto it = textures->begin(); it != textures->end(); ++it) {
+                if (!it.value().is_string()) continue;
+                const std::string texturePath = it.value().get<std::string>();
+                if (texturePath.empty()) continue;
+                TextureHandle texture = ResolveSceneTextureReference(texturePath);
+                if (texture.IsValid()) {
+                    material->SetTexture(it.key(), texture);
+                }
+            }
+        }
+
+        material->MarkReady();
+        return material;
+    } catch (const std::exception& e) {
+        Logger::Error("[Material] Failed to load scene-embedded material '", path,
+                      "': ", e.what());
+        return {};
     }
 }

@@ -48,6 +48,8 @@ struct D3D11TextureView : GpuTextureView {
     ComPtr<ID3D11RenderTargetView> rtv;
     ComPtr<ID3D11DepthStencilView> dsv;
     ComPtr<ID3D11UnorderedAccessView> uav;
+
+    void* GetImGuiTextureId() override { return srv.Get(); }
 };
 
 struct D3D11Sampler : GpuSampler {
@@ -73,11 +75,7 @@ public:
     GpuCommandList* GetGraphicsCommandList() override;
     GpuTextureView* GetCurrentBackBufferView() override { return m_BackBufferView.get(); }
     RHIBackend GetBackend() const override { return RHIBackend::D3D11; }
-    bool InitImGui(IWindow* window) override;
-    void ShutdownImGui() override;
-    void ProcessImGuiSDLEvent(const SDL_Event& event) override;
-    void BeginImGuiFrame() override;
-    void RenderImGuiDrawData(ImDrawData* drawData) override;
+    ImGuiBackendHandles GetImGuiBackendHandles() override;
 
     std::shared_ptr<GpuBuffer> CreateVertexBuffer(
         const void* data, uint32_t byteSize, uint32_t strideBytes) override;
@@ -125,12 +123,15 @@ public:
     std::shared_ptr<GpuTextureView> CreateTextureView(
         const std::shared_ptr<GpuTexture>& texture, const RHITextureViewDesc& desc) override;
     std::shared_ptr<GpuSampler> CreateSampler(const RHISamplerDesc& desc) override;
-    void* GetImGuiTextureId(GpuTextureView* view) override;
     std::shared_ptr<GpuReadbackTicket> ReadbackBufferAsync(
         const std::shared_ptr<GpuBuffer>& buffer) override;
     void BindPSTexture(uint32_t slot, GpuTexture* tex);
     void SetBlendMode(GpuBlendMode mode);
     void SetRasterState(bool twoSided, bool wireframe);
+
+    // Called by EditorImGuiBackend to invalidate ImGui RTV cache on resize.
+    using SwapChainResizeCallback = void(*)();
+    void SetSwapChainResizeCallback(SwapChainResizeCallback cb) { m_ResizeCallback = cb; }
 
     // Native handles (needed by editor overlays such as ImGui).
     ID3D11Device*        GetDevice() const        { return m_Device.Get(); }
@@ -162,9 +163,9 @@ private:
     uint32_t                       m_CBufferSize = 0;
     uint32_t                       m_SwapChainWidth = 0;
     uint32_t                       m_SwapChainHeight = 0;
-    bool                           m_ImGuiInitialized = false;
     bool                           m_DeviceLost = false;
     std::string                    m_LastDeviceError;
+    SwapChainResizeCallback        m_ResizeCallback = nullptr;
     std::unique_ptr<GpuSwapChain>  m_SwapChainInterface;
     std::unique_ptr<GpuCommandList> m_GraphicsCommandList;
 };

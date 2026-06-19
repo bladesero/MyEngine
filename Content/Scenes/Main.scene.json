@@ -97,7 +97,40 @@
             "components": [
                 {
                     "data": {
-                        "material": "__builtin__/Default",
+                        "material": "__builtin__/CheckerMat",
+                        "materialData": {
+                            "alphaThreshold": 0.5,
+                            "blendMode": "Opaque",
+                            "name": "CheckerMat",
+                            "params": {
+                                "BaseColor": {
+                                    "data": [
+                                        1.0,
+                                        1.0,
+                                        1.0,
+                                        1.0
+                                    ],
+                                    "type": "Vec4"
+                                },
+                                "Metallic": {
+                                    "data": [
+                                        0.15000000596046448
+                                    ],
+                                    "type": "Float"
+                                },
+                                "Roughness": {
+                                    "data": [
+                                        0.3499999940395355
+                                    ],
+                                    "type": "Float"
+                                }
+                            },
+                            "textures": {
+                                "BaseColorMap": "__builtin__/Checker"
+                            },
+                            "twoSided": false,
+                            "wireframe": false
+                        },
                         "mesh": "__builtin__/Cube"
                     },
                     "enabled": true,
@@ -140,7 +173,40 @@
             "components": [
                 {
                     "data": {
-                        "material": "Content/Materials/NewMaterial.mat",
+                        "material": "__builtin__/DynamicPbrMat",
+                        "materialData": {
+                            "alphaThreshold": 0.5,
+                            "blendMode": "Opaque",
+                            "name": "DynamicPbrMat",
+                            "params": {
+                                "BaseColor": {
+                                    "data": [
+                                        0.10000000149011612,
+                                        0.699999988079071,
+                                        1.0,
+                                        1.0
+                                    ],
+                                    "type": "Vec4"
+                                },
+                                "Metallic": {
+                                    "data": [
+                                        0.75
+                                    ],
+                                    "type": "Float"
+                                },
+                                "Roughness": {
+                                    "data": [
+                                        0.20000000298023224
+                                    ],
+                                    "type": "Float"
+                                }
+                            },
+                            "textures": {
+                                "BaseColorMap": "__builtin__/White"
+                            },
+                            "twoSided": false,
+                            "wireframe": false
+                        },
                         "mesh": "__builtin__/Cube"
                     },
                     "enabled": true,
@@ -204,8 +270,47 @@
             "components": [
                 {
                     "data": {
-                        "material": "__builtin__/Default",
-                        "mesh": "__builtin__/Cube"
+                        "material": "__builtin__/GroundMat",
+                        "materialData": {
+                            "alphaThreshold": 0.5,
+                            "blendMode": "Opaque",
+                            "name": "GroundMat",
+                            "params": {
+                                "AmbientOcclusion": {
+                                    "data": [
+                                        1.0
+                                    ],
+                                    "type": "Float"
+                                },
+                                "BaseColor": {
+                                    "data": [
+                                        0.550000011920929,
+                                        0.550000011920929,
+                                        0.5199999809265137,
+                                        1.0
+                                    ],
+                                    "type": "Vec4"
+                                },
+                                "Metallic": {
+                                    "data": [
+                                        0.0
+                                    ],
+                                    "type": "Float"
+                                },
+                                "Roughness": {
+                                    "data": [
+                                        0.8999999761581421
+                                    ],
+                                    "type": "Float"
+                                }
+                            },
+                            "textures": {
+                                "BaseColorMap": "__builtin__/White"
+                            },
+                            "twoSided": false,
+                            "wireframe": false
+                        },
+                        "mesh": "__builtin__/Quad"
                     },
                     "enabled": true,
                     "type": "MeshRenderer"
@@ -259,7 +364,7 @@
                 "scale": [
                     12.0,
                     12.0,
-                    0.05000000074505806
+                    12.0
                 ]
             }
         },
@@ -351,7 +456,40 @@
                             "looping": true,
                             "name": "Bend"
                         },
-                        "material": "__builtin__/Default",
+                        "material": "__builtin__/SkinPbrMat",
+                        "materialData": {
+                            "alphaThreshold": 0.5,
+                            "blendMode": "Opaque",
+                            "name": "SkinPbrMat",
+                            "params": {
+                                "BaseColor": {
+                                    "data": [
+                                        0.8500000238418579,
+                                        0.25,
+                                        0.15000000596046448,
+                                        1.0
+                                    ],
+                                    "type": "Vec4"
+                                },
+                                "Metallic": {
+                                    "data": [
+                                        0.05000000074505806
+                                    ],
+                                    "type": "Float"
+                                },
+                                "Roughness": {
+                                    "data": [
+                                        0.5
+                                    ],
+                                    "type": "Float"
+                                }
+                            },
+                            "textures": {
+                                "BaseColorMap": "__builtin__/White"
+                            },
+                            "twoSided": false,
+                            "wireframe": false
+                        },
                         "mesh": "__builtin__/Cube",
                         "playing": true,
                         "time": 0.0,
@@ -800,9 +938,9 @@
             "parentID": 0,
             "transform": {
                 "position": [
-                    0.4854393005371094,
+                    0.13568544387817383,
                     0.0,
-                    2.468353271484375
+                    -1.1716715097427368
                 ],
                 "rotation": [
                     0.0,
@@ -817,6 +955,6 @@
             }
         }
     ],
-    "name": "Main",
+    "name": "Untitled",
     "nextID": 8
 }

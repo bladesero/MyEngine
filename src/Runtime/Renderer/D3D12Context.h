@@ -72,6 +72,8 @@ struct D3D12TextureView : GpuTextureView {
     D3D12_CPU_DESCRIPTOR_HANDLE dsvCpu = {};
     D3D12_CPU_DESCRIPTOR_HANDLE uavCpu = {};
     D3D12_GPU_DESCRIPTOR_HANDLE uavGpu = {};
+
+    void* GetImGuiTextureId() override { return reinterpret_cast<void*>(srvGpu.ptr); }
 };
 
 struct D3D12Sampler : GpuSampler {
@@ -90,6 +92,7 @@ public:
     static constexpr uint32_t kDsvDescriptorCount = 32;
     static constexpr uint32_t kDefaultConstantBufferCapacity = 1024 * 1024;
     static constexpr uint32_t kDefaultSrvDescriptorCount      = 256;
+    static constexpr uint32_t kDefaultSamplerDescriptorCount  = 64;
     static constexpr DXGI_FORMAT kDepthFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
     static constexpr DXGI_FORMAT kDepthTypelessFormat = DXGI_FORMAT_R24G8_TYPELESS;
 
@@ -109,11 +112,7 @@ public:
         return m_BackBufferViews[m_RenderFrameIndex].get();
     }
     RHIBackend GetBackend() const override { return RHIBackend::D3D12; }
-    bool InitImGui(IWindow* window) override;
-    void ShutdownImGui() override;
-    void ProcessImGuiSDLEvent(const SDL_Event& event) override;
-    void BeginImGuiFrame() override;
-    void RenderImGuiDrawData(ImDrawData* drawData) override;
+    ImGuiBackendHandles GetImGuiBackendHandles() override;
 
     std::shared_ptr<GpuBuffer> CreateVertexBuffer(
         const void* data, uint32_t byteSize, uint32_t strideBytes) override;
@@ -165,7 +164,6 @@ public:
     std::shared_ptr<GpuTextureView> CreateTextureView(
         const std::shared_ptr<GpuTexture>& texture, const RHITextureViewDesc& desc) override;
     std::shared_ptr<GpuSampler> CreateSampler(const RHISamplerDesc& desc) override;
-    void* GetImGuiTextureId(GpuTextureView* view) override;
     std::shared_ptr<GpuReadbackTicket> ReadbackBufferAsync(
         const std::shared_ptr<GpuBuffer>& buffer) override;
     void BindPSTexture(uint32_t slot, GpuTexture* tex);
@@ -206,6 +204,7 @@ public:
     ID3D12CommandQueue* GetCommandQueue() const { return m_CommandQueue.Get(); }
     ID3D12DescriptorHeap* GetSrvDescriptorHeap() const { return m_SrvHeap.Get(); }
     int GetNumFramesInFlight() const { return static_cast<int>(kFrameCount); }
+    DXGI_FORMAT GetRtvFormat() const { return m_RtvFormat; }
 
     D3D12_CPU_DESCRIPTOR_HANDLE GetFontSrvCpuHandle() const {
         return m_FontSrvCpuHandle;
@@ -246,6 +245,10 @@ private:
     bool CheckDeviceResult(HRESULT hr, const char* operation);
     void EnsureDefaultResources();
     void ApplyBoundPipelineState();
+    bool UploadBufferData(ID3D12Resource* destination,
+                          ID3D12Resource* uploadBuffer,
+                          uint64_t byteSize,
+                          D3D12_RESOURCE_STATES finalState);
 
     bool BuildShaderPipelines(D3D12Shader& shader,
                               const D3D12_SHADER_BYTECODE& vs,
@@ -259,7 +262,6 @@ private:
 
 private:
     bool m_IsRecording = false;
-    bool m_ImGuiInitialized = false;
     bool m_DeviceLost = false;
     bool m_DepthOnlyBound = false;
     bool m_CullNone = false;
@@ -297,7 +299,6 @@ private:
     D3D12_GPU_DESCRIPTOR_HANDLE      m_FontSrvGpuHandle = {};
     uint32_t                         m_NextSrvSlot = 1;
 
-    static constexpr uint32_t kDefaultSamplerDescriptorCount = 64;
     ComPtr<ID3D12DescriptorHeap>     m_SamplerHeap;
     uint32_t                         m_SamplerDescriptorSize = 0;
     uint32_t                         m_NextSampSlot = 0;

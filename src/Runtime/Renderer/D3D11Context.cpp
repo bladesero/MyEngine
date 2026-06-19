@@ -12,13 +12,6 @@
 #pragma comment(lib, "dxgi.lib")
 #pragma comment(lib, "d3dcompiler.lib")
 
-#if defined(MYENGINE_ENABLE_IMGUI)
-#include <SDL3/SDL.h>
-#include <imgui.h>
-#include <backends/imgui_impl_dx11.h>
-#include <backends/imgui_impl_sdl3.h>
-#endif
-
 // --------------------------------------------------------------------------
 // Factory
 // --------------------------------------------------------------------------
@@ -374,7 +367,6 @@ bool D3D11Context::Init(IWindow* window) {
 }
 
 void D3D11Context::Shutdown() {
-    ShutdownImGui();
     if (m_Context) { m_Context->ClearState(); }
     m_RasterWireCullNone.Reset();
     m_RasterWireCullBack.Reset();
@@ -422,65 +414,14 @@ GpuCommandList* D3D11Context::GetGraphicsCommandList() {
     return m_GraphicsCommandList.get();
 }
 
-bool D3D11Context::InitImGui(IWindow* window) {
-#if defined(MYENGINE_ENABLE_IMGUI)
-    if (!window || !window->GetSDLWindow() || !m_Device || !m_Context) {
-        return false;
-    }
-    // imgui_impl_sdl3 calls strncmp on SDL_GetCurrentVideoDriver(); it must be non-null.
-    if (!SDL_GetCurrentVideoDriver()) {
-        Logger::Error("D3D11Context::InitImGui – SDL_GetCurrentVideoDriver() is null");
-        return false;
-    }
-    ShutdownImGui();
-    if (!ImGui_ImplSDL3_InitForD3D(window->GetSDLWindow())) {
-        return false;
-    }
-    if (!ImGui_ImplDX11_Init(m_Device.Get(), m_Context.Get())) {
-        ImGui_ImplSDL3_Shutdown();
-        return false;
-    }
-    m_ImGuiInitialized = true;
-    return true;
-#else
-    (void)window;
-    return false;
-#endif
-}
-
-void D3D11Context::ShutdownImGui() {
-#if defined(MYENGINE_ENABLE_IMGUI)
-    if (!m_ImGuiInitialized) return;
-    ImGui_ImplDX11_Shutdown();
-    ImGui_ImplSDL3_Shutdown();
-    m_ImGuiInitialized = false;
-#endif
-}
-
-void D3D11Context::ProcessImGuiSDLEvent(const SDL_Event& event) {
-#if defined(MYENGINE_ENABLE_IMGUI)
-    if (!m_ImGuiInitialized) return;
-    ImGui_ImplSDL3_ProcessEvent(&event);
-#else
-    (void)event;
-#endif
-}
-
-void D3D11Context::BeginImGuiFrame() {
-#if defined(MYENGINE_ENABLE_IMGUI)
-    if (!m_ImGuiInitialized) return;
-    ImGui_ImplDX11_NewFrame();
-    ImGui_ImplSDL3_NewFrame();
-#endif
-}
-
-void D3D11Context::RenderImGuiDrawData(ImDrawData* drawData) {
-#if defined(MYENGINE_ENABLE_IMGUI)
-    if (!m_ImGuiInitialized || !drawData) return;
-    ImGui_ImplDX11_RenderDrawData(drawData);
-#else
-    (void)drawData;
-#endif
+ImGuiBackendHandles D3D11Context::GetImGuiBackendHandles() {
+    ImGuiBackendHandles h;
+    h.backend = RHIBackend::D3D11;
+    h.device = m_Device.Get();
+    h.deviceContext = m_Context.Get();
+    h.backBufferRtvPtr = m_RTV.Get();
+    h.backBufferDsvPtr = m_DSV.Get();
+    return h;
 }
 
 void D3D11Context::PresentSwapChain(bool vsync) {
@@ -542,6 +483,7 @@ bool D3D11Context::ResizeSwapChain(uint32_t width, uint32_t height) {
 
     m_SwapChainWidth = width;
     m_SwapChainHeight = height;
+    if (m_ResizeCallback) m_ResizeCallback();
     return true;
 }
 
@@ -574,6 +516,9 @@ std::shared_ptr<GpuBuffer> D3D11Context::CreateVertexBuffer(
     sd.pSysMem = data;
 
     auto buf = std::make_shared<D3D11Buffer>();
+    buf->desc.size = byteSize;
+    buf->desc.stride = strideBytes;
+    buf->desc.usage = RHIResourceUsage::VertexBuffer;
     buf->stride = strideBytes;
     HRESULT hr = m_Device->CreateBuffer(&bd, &sd, &buf->buffer);
     if (FAILED(hr)) {
@@ -595,6 +540,8 @@ std::shared_ptr<GpuBuffer> D3D11Context::CreateIndexBuffer(
     sd.pSysMem = data;
 
     auto buf = std::make_shared<D3D11IndexBuffer>();
+    buf->desc.size = byteSize;
+    buf->desc.usage = RHIResourceUsage::IndexBuffer;
     buf->format = DXGI_FORMAT_R32_UINT;
     HRESULT hr = m_Device->CreateBuffer(&bd, &sd, &buf->buffer);
     if (FAILED(hr)) {
@@ -1101,11 +1048,6 @@ std::shared_ptr<GpuSampler> D3D11Context::CreateSampler(const RHISamplerDesc& de
     d.ComparisonFunc = D3D11_COMPARISON_LESS_EQUAL; d.MaxLOD = D3D11_FLOAT32_MAX;
     if (FAILED(m_Device->CreateSamplerState(&d, &result->sampler))) return nullptr;
     return result;
-}
-
-void* D3D11Context::GetImGuiTextureId(GpuTextureView* view) {
-    auto* native = dynamic_cast<D3D11TextureView*>(view);
-    return native ? native->srv.Get() : nullptr;
 }
 
 std::shared_ptr<GpuReadbackTicket> D3D11Context::ReadbackBufferAsync(

@@ -32,7 +32,7 @@ public:
     // (useful for editor overlays like ImGui).
     void RenderScene(const Scene& scene, const Camera& camera, bool present = true);
 
-    void SetEditorOffscreen(bool enabled);
+    void SetOutputOffscreen(bool enabled);
     GpuTextureView* GetSceneColorView() const;
 
 private:
@@ -42,6 +42,6 @@ private:
     std::unique_ptr<MainPass>   m_MainPass;
     std::unique_ptr<PostProcessPass> m_PostProcessPass;
     std::unique_ptr<RenderGraph> m_RenderGraph;
-    bool m_EditorOffscreen = false;
+    bool m_OutputOffscreen = false;
 };
 

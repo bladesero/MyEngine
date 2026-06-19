@@ -30,7 +30,7 @@ SceneRenderLayer::SceneRenderLayer(IRenderContext* context,
 void SceneRenderLayer::SetPresentEnabled(bool enabled)
 {
     m_PresentEnabled = enabled;
-    m_Renderer.SetEditorOffscreen(!enabled);
+    m_Renderer.SetOutputOffscreen(!enabled);
 }
 
 void SceneRenderLayer::OnAttach() {

@@ -7,6 +7,11 @@
 
 namespace {
 
+bool IsEmbeddedBuiltinMaterialPath(const std::string& path)
+{
+    return path.rfind("__builtin__/", 0) == 0 && path != "__builtin__/Default";
+}
+
 Mat4 MakeTransform(const Vec3& translation, const Quat& rotation, const Vec3& scale)
 {
     return Mat4::Scale(scale) * rotation.ToMat4() * Mat4::Translation(translation);
@@ -234,6 +239,13 @@ void SkinnedMeshRendererComponent::Serialize(nlohmann::json& data) const
         ? AssetManager::Get().MakeProjectRelativePath(m_SourceMesh->GetPath()) : "";
     data["material"] = m_Material
         ? AssetManager::Get().MakeProjectRelativePath(m_Material->GetPath()) : "";
+    if (m_Material) {
+        const std::string materialPath =
+            AssetManager::Get().MakeProjectRelativePath(m_Material->GetPath());
+        if (IsEmbeddedBuiltinMaterialPath(materialPath)) {
+            SerializeMaterialAssetForScene(*m_Material.Get(), data["materialData"]);
+        }
+    }
     data["playing"] = m_Playing;
     data["time"] = m_Time;
     data["clip"] = {
@@ -281,7 +293,25 @@ void SkinnedMeshRendererComponent::Deserialize(const nlohmann::json& data)
         SetSourceMesh(AssetManager::Get().ResolveMeshReference(meshPath));
     }
     if (!materialPath.empty()) {
-        SetMaterial(AssetManager::Get().ResolveMaterialReference(materialPath, meshPath));
+        const auto materialData = data.find("materialData");
+        const bool hasEmbeddedMaterial =
+            materialData != data.end() && materialData->is_object();
+        if (hasEmbeddedMaterial && IsEmbeddedBuiltinMaterialPath(materialPath)) {
+            auto material = LoadMaterialAssetFromScene(*materialData, materialPath);
+            if (material) {
+                SetMaterial(AssetManager::Get().Register(std::move(material)));
+            }
+        }
+        if (!m_Material.IsValid()) {
+            SetMaterial(AssetManager::Get().ResolveMaterialReference(materialPath, meshPath));
+        }
+        if (!m_Material.IsValid() && hasEmbeddedMaterial) {
+            auto material = LoadMaterialAssetFromScene(*materialData,
+                materialPath.empty() ? std::string("__builtin__/SceneMaterial") : materialPath);
+            if (material) {
+                SetMaterial(AssetManager::Get().Register(std::move(material)));
+            }
+        }
     }
 
     std::vector<Bone> bones;

@@ -10,6 +10,7 @@
 class EditorAssetRegistry;
 class EditorActionRegistry;
 class EditorCommandStack;
+class EditorImGuiBackend;
 class EditorProject;
 class EditorService;
 class Engine;
@@ -42,6 +43,8 @@ public:
     EditorProject* GetProject() const { return m_Project; }
     void SetActionRegistry(EditorActionRegistry* value) { m_ActionRegistry = value; }
     EditorActionRegistry* GetActionRegistry() const { return m_ActionRegistry; }
+    void SetImGuiBackend(EditorImGuiBackend* backend) { m_ImGuiBackend = backend; }
+    EditorImGuiBackend* GetImGuiBackend() const { return m_ImGuiBackend; }
     void SetProjectRoot(std::filesystem::path root);
     const std::filesystem::path& GetProjectRoot() const { return m_ProjectRoot; }
     const std::filesystem::path& GetContentRoot() const { return m_ContentRoot; }
@@ -65,6 +68,7 @@ private:
     EditorAssetRegistry* m_AssetRegistry = nullptr;
     EditorProject* m_Project = nullptr;
     EditorActionRegistry* m_ActionRegistry = nullptr;
+    EditorImGuiBackend* m_ImGuiBackend = nullptr;
     std::unordered_map<std::type_index, EditorService*> m_Services;
     std::filesystem::path m_ProjectRoot;
     std::filesystem::path m_ContentRoot;

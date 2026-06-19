@@ -6,6 +6,7 @@
 #include "Core/Logger.h"
 #include "Editor/EditorCommand.h"
 #include "Editor/EditorContext.h"
+#include "Editor/EditorImGuiBackend.h"
 #include "Editor/EditorLayout.h"
 #include "Editor/EditorPanelHelpers.h"
 #include "Editor/EditorUndoUtil.h"
@@ -116,7 +117,9 @@ void ViewportPanel::DrawContent()
     context->GetSceneLayer()->SetViewportInputEnabled(hovered);
 
     if (GpuTextureView* view = context->GetSceneLayer()->GetSceneColorView()) {
-        void* texture = context->GetRenderContext()->GetImGuiTextureId(view);
+        void* texture = nullptr;
+        if (auto* backend = context->GetImGuiBackend())
+            texture = backend->GetTextureId(view);
         if (texture) ImGui::Image(reinterpret_cast<ImTextureID>(texture), imageSize);
     }
 

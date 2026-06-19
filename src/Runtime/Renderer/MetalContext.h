@@ -33,11 +33,6 @@ public:
     GpuSwapChain* GetSwapChain() override;
     GpuCommandList* GetGraphicsCommandList() override;
     RHIBackend GetBackend() const override { return RHIBackend::Metal; }
-    bool InitImGui(IWindow* window) override;
-    void ShutdownImGui() override;
-    void ProcessImGuiSDLEvent(const SDL_Event& event) override;
-    void BeginImGuiFrame() override;
-    void RenderImGuiDrawData(ImDrawData* drawData) override;
 
     std::shared_ptr<GpuBuffer> CreateVertexBuffer(
         const void* data, uint32_t byteSize, uint32_t strideBytes) override;
@@ -69,7 +64,7 @@ public:
         const void* rgba8Data, int width, int height) override;
     void BindPSTexture(uint32_t slot, GpuTexture* tex);
 
-    // Metal-specific accessors used by the ImGui Metal back-end.
+    // Metal-specific accessors.
     // Returned as void* to keep ObjC types out of this header.
     void* GetDevice()              const;  // id<MTLDevice>
     void* GetCommandBuffer()       const;  // id<MTLCommandBuffer>
@@ -84,7 +79,6 @@ private:
 
     struct Impl;
     std::unique_ptr<Impl> m_Impl;
-    bool m_ImGuiInitialized = false;
     std::unique_ptr<GpuSwapChain> m_SwapChainInterface;
     std::unique_ptr<GpuCommandList> m_GraphicsCommandList;
 };

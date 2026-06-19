@@ -49,6 +49,80 @@ size_t EstimateAssetCpuBytes(const Asset& a) {
     }
 }
 
+bool IsBuiltinMaterialPath(const std::string& path)
+{
+    return path.rfind("__builtin__/", 0) == 0 || path.rfind("__builtin__\\", 0) == 0;
+}
+
+TextureHandle GetCheckerTexture()
+{
+    auto& assets = AssetManager::Get();
+    const std::string path = "__builtin__/Checker";
+    TextureHandle cached = assets.GetByPath<TextureAsset>(path);
+    if (cached.IsValid()) return cached;
+
+    constexpr int kTexSize = 16;
+    constexpr int kCellSize = 2;
+    std::vector<uint8_t> pixels(kTexSize * kTexSize * 4);
+    for (int y = 0; y < kTexSize; ++y) {
+        for (int x = 0; x < kTexSize; ++x) {
+            const bool light = ((x / kCellSize) + (y / kCellSize)) % 2 == 0;
+            const int idx = (y * kTexSize + x) * 4;
+            pixels[idx + 0] = light ? 230 : 50;
+            pixels[idx + 1] = light ? 130 : 50;
+            pixels[idx + 2] = light ? 30 : 50;
+            pixels[idx + 3] = 255;
+        }
+    }
+
+    auto checkerTex = std::make_shared<TextureAsset>(path);
+    checkerTex->SetName("Checker");
+    TextureDesc desc;
+    desc.width = kTexSize;
+    desc.height = kTexSize;
+    desc.sRGB = false;
+    checkerTex->SetPixelData(std::move(pixels), desc);
+    return assets.Register(std::move(checkerTex));
+}
+
+MaterialHandle CreateKnownBuiltinMaterial(const std::string& path)
+{
+    auto& assets = AssetManager::Get();
+    if (path == "__builtin__/CheckerMat") {
+        auto material = MaterialAsset::CreateDefault("CheckerMat");
+        material->SetTexture("BaseColorMap", GetCheckerTexture());
+        material->SetParam("Metallic", MaterialParam::FromFloat(0.15f));
+        material->SetParam("Roughness", MaterialParam::FromFloat(0.35f));
+        return assets.Register(std::move(material));
+    }
+    if (path == "__builtin__/DynamicPbrMat") {
+        auto material = MaterialAsset::CreateDefault("DynamicPbrMat");
+        material->SetTexture("BaseColorMap", assets.GetWhiteTexture());
+        material->SetParam("BaseColor", MaterialParam::FromColor({0.1f, 0.7f, 1.0f}));
+        material->SetParam("Metallic", MaterialParam::FromFloat(0.75f));
+        material->SetParam("Roughness", MaterialParam::FromFloat(0.2f));
+        return assets.Register(std::move(material));
+    }
+    if (path == "__builtin__/GroundMat") {
+        auto material = MaterialAsset::CreateDefault("GroundMat");
+        material->SetTexture("BaseColorMap", assets.GetWhiteTexture());
+        material->SetParam("BaseColor", MaterialParam::FromColor({0.55f, 0.55f, 0.52f}));
+        material->SetParam("Metallic", MaterialParam::FromFloat(0.0f));
+        material->SetParam("Roughness", MaterialParam::FromFloat(0.9f));
+        material->SetParam("AmbientOcclusion", MaterialParam::FromFloat(1.0f));
+        return assets.Register(std::move(material));
+    }
+    if (path == "__builtin__/SkinPbrMat") {
+        auto material = MaterialAsset::CreateDefault("SkinPbrMat");
+        material->SetTexture("BaseColorMap", assets.GetWhiteTexture());
+        material->SetParam("BaseColor", MaterialParam::FromColor({0.85f, 0.25f, 0.15f}));
+        material->SetParam("Metallic", MaterialParam::FromFloat(0.05f));
+        material->SetParam("Roughness", MaterialParam::FromFloat(0.5f));
+        return assets.Register(std::move(material));
+    }
+    return {};
+}
+
 } // namespace
 
 AssetManager& AssetManager::Get() {
@@ -129,6 +203,11 @@ MaterialHandle AssetManager::ResolveMaterialReference(
     if (path == "__builtin__/Default") return GetDefaultMaterial();
     MaterialHandle material = GetByPath<MaterialAsset>(path);
     if (material) return material;
+
+    if (IsBuiltinMaterialPath(path)) {
+        MaterialHandle builtin = CreateKnownBuiltinMaterial(path);
+        if (builtin) return builtin;
+    }
 
     // Older scenes stored imported model materials as __builtin__/Name. Once the
     // mesh has loaded its source model, recover the matching material by name.

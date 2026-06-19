@@ -156,6 +156,44 @@ bool TestSceneSerializationRegression() {
     return true;
 }
 
+bool TestBuiltinSceneMaterialRoundTrip() {
+    AssetManager::Get().Clear();
+
+    Scene scene("BuiltinMaterialScene");
+    Actor* actor = scene.CreateActor("BuiltinMaterialActor");
+    auto* renderer = actor->AddComponent<MeshRendererComponent>();
+    renderer->SetMesh(AssetManager::Get().GetCubeMesh());
+
+    auto material = MaterialAsset::CreateDefault("SceneOnlyTestMat");
+    material->SetTexture("BaseColorMap", AssetManager::Get().GetWhiteTexture());
+    material->SetParam("BaseColor", MaterialParam::FromColor({0.2f, 0.4f, 0.6f}));
+    material->SetParam("Metallic", MaterialParam::FromFloat(0.3f));
+    material->SetParam("Roughness", MaterialParam::FromFloat(0.7f));
+    renderer->SetMaterial(AssetManager::Get().Register(std::move(material)));
+
+    const std::string json = SceneSerializer::SaveToString(scene);
+    AssetManager::Get().Clear();
+
+    Scene loaded("LoadedBuiltinMaterialScene");
+    if (!Check(SceneSerializer::LoadFromString(loaded, json),
+               "builtin material scene deserialize failed")) return false;
+
+    Actor* loadedActor = loaded.FindByName("BuiltinMaterialActor");
+    if (!Check(loadedActor != nullptr, "builtin material actor missing after deserialize")) return false;
+    auto* loadedRenderer = loadedActor->GetComponent<MeshRendererComponent>();
+    if (!Check(loadedRenderer != nullptr, "builtin material renderer missing after deserialize")) return false;
+    if (!Check(loadedRenderer->GetMaterial().IsValid(), "builtin material handle invalid after deserialize")) return false;
+    if (!Check(loadedRenderer->GetMaterial()->GetPath() == "__builtin__/SceneOnlyTestMat",
+               "builtin material path mismatch after deserialize")) return false;
+    if (!Check(loadedRenderer->GetMaterial()->GetTexture("BaseColorMap").IsValid(),
+               "builtin material texture missing after deserialize")) return false;
+    if (!Check(NearlyEqual(loadedRenderer->GetMaterial()->GetFloat("Metallic", 0.0f), 0.3f) &&
+               NearlyEqual(loadedRenderer->GetMaterial()->GetFloat("Roughness", 0.0f), 0.7f) &&
+               NearlyEqual(loadedRenderer->GetMaterial()->GetColor("BaseColor").x, 0.2f),
+               "builtin material parameters mismatch after deserialize")) return false;
+    return true;
+}
+
 bool TestScriptRuntimeLifecycle() {
     Scene scene("ScriptCase");
     Actor* actor = scene.CreateActor("Scripted");
@@ -2427,6 +2465,7 @@ int main() {
     if (!TestWorkspaceCookAndPublish()) { ++failed; }
 
     if (!TestSceneSerializationRegression()) { ++failed; }
+    if (!TestBuiltinSceneMaterialRoundTrip()) { ++failed; }
     if (!TestScriptRuntimeLifecycle()) { ++failed; }
     if (!TestLuaScriptFilesErrorsAndPhysicsBindings()) { ++failed; }
     if (!TestPhysicsGroundCollision()) { ++failed; }
