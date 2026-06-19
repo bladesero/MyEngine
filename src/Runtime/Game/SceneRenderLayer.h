@@ -34,7 +34,7 @@ public:
     void SetViewportInputEnabled(bool enabled);
 
     IRenderContext* GetRenderContext() const { return m_RenderContext; }
-    void* GetSceneColorTextureHandle() const { return m_Renderer.GetSceneColorTextureHandle(); }
+    GpuTextureView* GetSceneColorView() const { return m_Renderer.GetSceneColorView(); }
 
     Camera&       GetCamera()       { return m_Camera; }
     const Camera& GetCamera() const { return m_Camera; }

@@ -5,12 +5,6 @@
 
 #include <memory>
 
-#ifdef MYENGINE_PLATFORM_WINDOWS
-#include <d3d11.h>
-#include <d3d12.h>
-#include <wrl/client.h>
-using Microsoft::WRL::ComPtr;
-#endif
 struct ShaderHandle;
 
 class ShadowPass final : public RenderPass {
@@ -40,10 +34,7 @@ private:
     void UpdateLightMatrices(const Scene& scene, const Camera& camera);
     void EnsureShadowShader();
 
-#ifdef MYENGINE_PLATFORM_WINDOWS
-    bool EnsureShadowResourcesD3D11();
-    bool EnsureShadowResourcesD3D12();
-#endif
+    bool EnsureShadowResources();
 
 private:
     static constexpr uint32_t kDefaultShadowMapSize = 2048;
@@ -70,24 +61,8 @@ private:
     std::shared_ptr<GpuTexture> m_SpotShadowMapTexture;
     std::shared_ptr<GpuTexture> m_PointShadowMapTexture;
 
-#ifdef MYENGINE_PLATFORM_WINDOWS
-    ComPtr<ID3D11Texture2D>          m_ShadowDepthTexture;
-    ComPtr<ID3D11DepthStencilView>   m_ShadowDSV[kMaxCascades];
-    ComPtr<ID3D11ShaderResourceView> m_ShadowSRV;
-    ComPtr<ID3D11Texture2D>          m_SpotShadowDepthTexture;
-    ComPtr<ID3D11DepthStencilView>   m_SpotShadowDSV;
-    ComPtr<ID3D11ShaderResourceView> m_SpotShadowSRV;
-    ComPtr<ID3D11Texture2D>          m_PointShadowDepthTexture;
-    ComPtr<ID3D11DepthStencilView>   m_PointShadowDSV[6];
-    ComPtr<ID3D11ShaderResourceView> m_PointShadowSRV;
-    ComPtr<ID3D11SamplerState>       m_ShadowSampler;
-    ComPtr<ID3D11RasterizerState>    m_ShadowRasterState;
-
-    ComPtr<ID3D12Resource>           m_ShadowDepthResourceD3D12;
-    ComPtr<ID3D12Resource>           m_SpotShadowDepthResourceD3D12;
-    ComPtr<ID3D12Resource>           m_PointShadowDepthResourceD3D12;
-    D3D12_CPU_DESCRIPTOR_HANDLE      m_ShadowCascadeDsvD3D12[kMaxCascades] = {};
-    D3D12_CPU_DESCRIPTOR_HANDLE      m_SpotShadowDsvD3D12 = {};
-    D3D12_CPU_DESCRIPTOR_HANDLE      m_PointShadowDsvD3D12[6] = {};
-#endif
+    std::shared_ptr<GpuTextureView> m_ShadowCascadeViews[kMaxCascades];
+    std::shared_ptr<GpuTextureView> m_SpotShadowView;
+    std::shared_ptr<GpuTextureView> m_PointShadowViews[6];
+    bool m_ShadowResourcesInShaderState = false;
 };

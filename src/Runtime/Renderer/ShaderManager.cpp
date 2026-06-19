@@ -3,8 +3,6 @@
 #include "Core/Logger.h"
 
 #ifdef MYENGINE_PLATFORM_WINDOWS
-#include "Renderer/D3D11Context.h"
-#include "Renderer/D3D12Context.h"
 #include "Renderer/ShaderCompilerD3D11.h"
 #include "Renderer/ShaderCompilerD3D12.h"
 #endif
@@ -58,7 +56,7 @@ std::shared_ptr<GpuShader> ShaderManager::CompileRecord(const ShaderRecord& rec)
     const std::string resolvedPathString = resolvedPath.string();
 
 #ifdef MYENGINE_PLATFORM_WINDOWS
-    if (dynamic_cast<D3D11Context*>(m_Context) != nullptr) {
+    if (m_Context->GetBackend() == RHIBackend::D3D11) {
         D3D11CompiledShaderProgram program{};
         if (!ShaderCompilerD3D11::CompileProgramFromFile(
                 resolvedPathString, rec.vsEntry, rec.psEntry, program)) {
@@ -69,7 +67,7 @@ std::shared_ptr<GpuShader> ShaderManager::CompileRecord(const ShaderRecord& rec)
             program.psBytecode.data(), program.psBytecode.size(),
             rec.layout, rec.layoutCount);
     }
-    if (dynamic_cast<D3D12Context*>(m_Context) != nullptr) {
+    if (m_Context->GetBackend() == RHIBackend::D3D12) {
         D3D12CompiledShaderProgram program{};
         if (!ShaderCompilerD3D12::CompileProgramFromFile(
                 resolvedPathString, rec.vsEntry, rec.psEntry, program)) {

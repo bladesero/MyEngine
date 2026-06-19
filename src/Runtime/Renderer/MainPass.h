@@ -35,7 +35,8 @@ public:
                         const float* cascadeSplits);
     void SetCascadeShadowInput(const Mat4* cascadeViewProj, uint32_t cascadeCount,
                                const float* cascadeSplits);
-    void SetEnvironmentInput(GpuTexture* environmentCubemap, GpuTexture* sh2Buffer,
+    void SetEnvironmentInput(GpuTexture* environmentCubemap,
+                             std::shared_ptr<GpuBufferView> sh2Buffer,
                              const float* sh2Coefficients);
 
 private:
@@ -47,6 +48,8 @@ private:
 
     void EnsureMeshUploaded(MeshAsset* mesh);
     void EnsureTextureUploaded(TextureAsset* tex);
+    std::shared_ptr<GpuTextureView> GetTextureView(GpuTexture* texture);
+    void EnsureNamedBindingDefaults();
     GpuShader* GetOrCreateShader();
     GpuShader* GetOrCreateSkyShader();
     void RenderSky(const Camera& camera, GpuCommandList& cmd);
@@ -60,11 +63,16 @@ private:
     std::shared_ptr<ShaderHandle> m_SkyShaderHandle;
     uint64_t m_MainShaderVersion = 0;
     std::unordered_map<TextureAsset*, std::shared_ptr<GpuTexture>> m_TexCache;
+    std::unordered_map<GpuTexture*, std::shared_ptr<GpuTextureView>> m_TextureViews;
+    std::shared_ptr<GpuTexture> m_DefaultTexture;
+    std::shared_ptr<GpuTextureView> m_DefaultTextureView;
+    std::shared_ptr<GpuSampler> m_LinearSampler;
+    std::shared_ptr<GpuSampler> m_ShadowSampler;
     GpuTexture* m_ShadowMap = nullptr;
     GpuTexture* m_SpotShadowMap = nullptr;
     GpuTexture* m_PointShadowMap = nullptr;
     GpuTexture* m_EnvironmentCubemap = nullptr;
-    GpuTexture* m_EnvironmentSH2Buffer = nullptr;
+    std::shared_ptr<GpuBufferView> m_EnvironmentSH2Buffer;
     float m_EnvironmentSH2[9][4] = {};
     Mat4 m_LightViewProj = Mat4::Identity();
     Mat4 m_LightViewProjCascade[3] = { Mat4::Identity(), Mat4::Identity(), Mat4::Identity() };

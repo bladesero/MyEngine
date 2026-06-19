@@ -1,12 +1,8 @@
-﻿#include "Renderer/PostProcessPass.h"
+#include "Renderer/PostProcessPass.h"
 
-#include "Assets/MeshAsset.h"
 #include "Camera/Camera.h"
 #include "Core/Logger.h"
 #include "Math/Mat4Inverse.h"
-#include "Renderer/D3D11Context.h"
-#include "Renderer/D3D12Context.h"
-#include "Renderer/MeshShader.h"
 #include "Renderer/PostProcessComponent.h"
 #include "Renderer/ShaderManager.h"
 #include "Scene/Actor.h"
@@ -14,974 +10,279 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <random>
 
 namespace {
-
-// --------------------------------------------------------------------------
-// PostProcess constants (FXAA compositing pass)
-// --------------------------------------------------------------------------
 struct PostProcessConstants {
-    float params[4];      // exposure, gamma, toneMapping, vignette
-    float params2[4];     // saturation, contrast, fxaaEnabled, fxaaQuality
-    float screenSize[4];  // 1/w, 1/h, w, h
+    float params[4];
+    float params2[4];
+    float screenSize[4];
 };
-
-PostProcessConstants CollectPostProcessParams(const Scene& scene, uint32_t width, uint32_t height)
-{
-    PostProcessConstants out{};
-    out.params[0]  = 1.0f;
-    out.params[1]  = 2.2f;
-    out.params[2]  = 1.0f;
-    out.params[3]  = 0.0f;
-    out.params2[0] = 1.0f;
-    out.params2[1] = 1.0f;
-    out.params2[2] = 1.0f;   // FXAA on by default
-    out.params2[3] = 1.0f;
-    out.screenSize[0] = 1.0f / static_cast<float>(width);
-    out.screenSize[1] = 1.0f / static_cast<float>(height);
-    out.screenSize[2] = static_cast<float>(width);
-    out.screenSize[3] = static_cast<float>(height);
-
-    bool found = false;
-    scene.ForEach([&](Actor& actor) {
-        if (found || !actor.IsActive()) return;
-        auto* post = actor.GetComponent<PostProcessComponent>();
-        if (!post || !post->IsEnabled()) return;
-        out.params[0]  = post->GetExposure();
-        out.params[1]  = post->GetGamma();
-        out.params[2]  = post->IsToneMappingEnabled() ? 1.0f : 0.0f;
-        out.params[3]  = post->GetVignette();
-        out.params2[0] = post->GetSaturation();
-        out.params2[1] = post->GetContrast();
-        out.params2[2] = post->GetAntiAliasingStrength() > 0.0f ? 1.0f : 0.0f;
-        out.params2[3] = post->GetAntiAliasingStrength();
-        found = true;
-    });
-    return out;
-}
-
-// --------------------------------------------------------------------------
-// SSAO constants
-// --------------------------------------------------------------------------
 struct SSAOConstants {
-    float projection[16];     // row-major projection
-    float invProjection[16];  // row-major inverse projection
-    float screenSize[4];      // (1/w, 1/h, w, h)
-    float ssaoParams[4];      // (radius, bias, power, intensity)
-    float samples[64][4];     // hemisphere kernel (xyz, 0)
+    float projection[16];
+    float invProjection[16];
+    float screenSize[4];
+    float ssaoParams[4];
+    float samples[64][4];
 };
+struct SSAOBlurConstants { float texelSize[4]; };
 
-static constexpr int kSSAOKernelSize = 16;
-
-SSAOConstants BuildSSAOConstants(
-    const Scene& scene, const Camera& camera, uint32_t width, uint32_t height)
-{
-    SSAOConstants out{};
-
-    // Row-major: Mat4::Data() = float[4][4] stored row-major in memory,
-    // which maps 1:1 to HLSL row_major float4x4.
-    std::memcpy(out.projection, camera.GetProj().Data(), sizeof(out.projection));
-
-    Mat4 invProj;
-    Mat4Invert(camera.GetProj(), invProj);
-    std::memcpy(out.invProjection, invProj.Data(), sizeof(out.invProjection));
-
-    out.screenSize[0] = 1.0f / static_cast<float>(width);
-    out.screenSize[1] = 1.0f / static_cast<float>(height);
-    out.screenSize[2] = static_cast<float>(width);
-    out.screenSize[3] = static_cast<float>(height);
-
-    out.ssaoParams[0] = 1.2f;   // radius
-    out.ssaoParams[1] = 0.025f; // bias
-    out.ssaoParams[2] = 1.5f;   // power
-    out.ssaoParams[3] = 0.0f;   // intensity
-
+PostProcessConstants CollectPostProcessParams(const Scene& scene, uint32_t width, uint32_t height) {
+    PostProcessConstants out{};
+    out.params[0] = 1.0f; out.params[1] = 2.2f; out.params[2] = 1.0f;
+    out.params2[0] = 1.0f; out.params2[1] = 1.0f;
+    out.params2[2] = 1.0f; out.params2[3] = 1.0f;
+    out.screenSize[0] = 1.0f / width; out.screenSize[1] = 1.0f / height;
+    out.screenSize[2] = static_cast<float>(width); out.screenSize[3] = static_cast<float>(height);
     bool found = false;
     scene.ForEach([&](Actor& actor) {
         if (found || !actor.IsActive()) return;
         auto* post = actor.GetComponent<PostProcessComponent>();
         if (!post || !post->IsEnabled()) return;
-        out.ssaoParams[0] = post->GetSSAORadius();
-        out.ssaoParams[1] = post->GetSSAOBias();
-        out.ssaoParams[2] = post->GetSSAOPower();
-        out.ssaoParams[3] = post->GetSSAOIntensity();
-        found = true;
+        out.params[0] = post->GetExposure(); out.params[1] = post->GetGamma();
+        out.params[2] = post->IsToneMappingEnabled() ? 1.0f : 0.0f;
+        out.params[3] = post->GetVignette();
+        out.params2[0] = post->GetSaturation(); out.params2[1] = post->GetContrast();
+        out.params2[2] = post->GetAntiAliasingStrength() > 0.0f ? 1.0f : 0.0f;
+        out.params2[3] = post->GetAntiAliasingStrength(); found = true;
     });
-
-    // Generate hemisphere sample kernel.
-    // Orient samples in the hemisphere around +Z (tangent-space normal direction).
-    // Use stratified Hammersley-like distribution: more samples near centre.
-    std::mt19937 rng(42);
-    std::uniform_real_distribution<float> dist(0.0f, 1.0f);
-    for (int i = 0; i < kSSAOKernelSize; ++i) {
-        // Cosine-weighted hemisphere sampling
-        float u1 = dist(rng);
-        float u2 = dist(rng);
-        float r  = std::sqrt(u1);
-        float theta = 2.0f * 3.14159265f * u2;
-
-        float x = r * std::cos(theta);
-        float y = r * std::sin(theta);
-        float z = std::sqrt((std::max)(0.0f, 1.0f - u1));
-
-        // Scale: more samples near centre, fewer at edge
-        float t   = static_cast<float>(i) / static_cast<float>(kSSAOKernelSize);
-        float scl = 0.1f + t * t * 0.9f;
-
-        out.samples[i][0] = x * scl;
-        out.samples[i][1] = y * scl;
-        out.samples[i][2] = z * scl;
-        out.samples[i][3] = 0.0f;
-    }
-
     return out;
 }
 
-// --------------------------------------------------------------------------
-// SSAO blur constants
-// --------------------------------------------------------------------------
-struct SSAOBlurConstants {
-    float texelSize[4];   // (1/w, isVertical, 1/h, 0)
-};
-
-} // namespace
-
-// ==========================================================================
-// PostProcessPass
-// ==========================================================================
-
-PostProcessPass::PostProcessPass(IRenderContext* context)
-    : RenderPass(context)
-{}
-
-PostProcessPass::~PostProcessPass()
-{
-    ReleaseOffscreenRT();
-}
-
-void PostProcessPass::ReleaseOffscreenRT()
-{
-    m_CompositeSRV.Reset();
-    m_CompositeRTV.Reset();
-    m_CompositeTex.Reset();
-
-    m_OffscreenSRV.Reset();
-    m_OffscreenRTV.Reset();
-    m_OffscreenTex.Reset();
-
-    m_OffscreenDepthSRV.Reset();
-    m_OffscreenDSV.Reset();
-    m_OffscreenDepthTex.Reset();
-
-    m_SSAOBlurSRV.Reset();
-    m_SSAOBlurRTV.Reset();
-    m_SSAOBlurTex.Reset();
-
-    m_SSAOSRV.Reset();
-    m_SSAORTV.Reset();
-    m_SSAOTex.Reset();
-
-    m_NoiseSRV.Reset();
-    m_NoiseTex.Reset();
-
-    m_ComposeSampler.Reset();
-    m_PointClampSampler.Reset();
-    m_NoiseSampler.Reset();
-
-    m_D3D12OffscreenTex.Reset();
-    m_D3D12OffscreenRTV = {};
-    m_D3D12OffscreenSRV = {};
-    m_D3D12OffscreenSRVGpu = {};
-    m_D3D12OffscreenSampler = {};
-    m_D3D12OffscreenSamplerGpu = {};
-    m_D3D12OffscreenDepth.reset();
-    m_D3D12OffscreenState = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
-    m_D3D12CompositeTex.Reset();
-    m_D3D12CompositeRTV = {};
-    m_D3D12CompositeSRV = {};
-    m_D3D12CompositeSRVGpu = {};
-    m_D3D12CompositeState = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
-    m_D3D12WhiteTex.Reset();
-    m_D3D12WhiteSRV = {};
-    m_D3D12WhiteSRVGpu = {};
-    m_D3D12WhiteTexture.reset();
-
-    m_OffscreenWidth  = 0;
-    m_OffscreenHeight = 0;
-}
-
-void PostProcessPass::EnsureOffscreenRT(uint32_t w, uint32_t h)
-{
-    auto* d3d11 = dynamic_cast<D3D11Context*>(Context());
-    auto* d3d12 = dynamic_cast<D3D12Context*>(Context());
-    if (!d3d11 && !d3d12) return;
-
-    if (m_OffscreenWidth == w && m_OffscreenHeight == h &&
-        ((d3d11 && m_OffscreenTex) || (d3d12 && m_D3D12OffscreenTex))) {
-        return;
-    }
-
-    if (d3d12 && m_D3D12OffscreenTex) {
-        d3d12->WaitForGpuIdle();
-    }
-
-    ReleaseOffscreenRT();
-
-    if (d3d12) {
-        ID3D12Device* device = d3d12->GetDevice();
-        if (!device) return;
-
-        D3D12_HEAP_PROPERTIES heapProps = {};
-        heapProps.Type = D3D12_HEAP_TYPE_DEFAULT;
-
-        D3D12_RESOURCE_DESC texDesc = {};
-        texDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-        texDesc.Width = w;
-        texDesc.Height = h;
-        texDesc.DepthOrArraySize = 1;
-        texDesc.MipLevels = 1;
-        texDesc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
-        texDesc.SampleDesc.Count = 1;
-        texDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-        texDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
-
-        D3D12_CLEAR_VALUE clearValue = {};
-        clearValue.Format = texDesc.Format;
-        clearValue.Color[0] = 0.0f;
-        clearValue.Color[1] = 0.0f;
-        clearValue.Color[2] = 0.0f;
-        clearValue.Color[3] = 1.0f;
-
-        HRESULT hr = device->CreateCommittedResource(
-            &heapProps, D3D12_HEAP_FLAG_NONE, &texDesc,
-            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, &clearValue,
-            IID_PPV_ARGS(&m_D3D12OffscreenTex));
-        if (FAILED(hr)) {
-            Logger::Error("[PostProcessPass] D3D12 CreateCommittedResource for offscreen RT failed");
-            ReleaseOffscreenRT();
-            return;
-        }
-
-        m_D3D12OffscreenRTV = d3d12->AllocRtvSlot();
-        device->CreateRenderTargetView(m_D3D12OffscreenTex.Get(), nullptr, m_D3D12OffscreenRTV);
-
-        m_D3D12OffscreenSRV = d3d12->AllocSrvSlot(m_D3D12OffscreenSRVGpu);
-        D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
-        srvDesc.Format = texDesc.Format;
-        srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-        srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-        srvDesc.Texture2D.MipLevels = 1;
-        device->CreateShaderResourceView(m_D3D12OffscreenTex.Get(), &srvDesc, m_D3D12OffscreenSRV);
-
-        hr = device->CreateCommittedResource(
-            &heapProps, D3D12_HEAP_FLAG_NONE, &texDesc,
-            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, &clearValue,
-            IID_PPV_ARGS(&m_D3D12CompositeTex));
-        if (FAILED(hr)) {
-            Logger::Error("[PostProcessPass] D3D12 CreateCommittedResource for composite RT failed");
-            ReleaseOffscreenRT();
-            return;
-        }
-        m_D3D12CompositeRTV = d3d12->AllocRtvSlot();
-        device->CreateRenderTargetView(m_D3D12CompositeTex.Get(), nullptr, m_D3D12CompositeRTV);
-        m_D3D12CompositeSRV = d3d12->AllocSrvSlot(m_D3D12CompositeSRVGpu);
-        device->CreateShaderResourceView(m_D3D12CompositeTex.Get(), &srvDesc, m_D3D12CompositeSRV);
-
-        m_D3D12OffscreenSampler = d3d12->AllocSampSlot(m_D3D12OffscreenSamplerGpu);
-        D3D12_SAMPLER_DESC samplerDesc = {};
-        samplerDesc.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
-        samplerDesc.AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
-        samplerDesc.AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
-        samplerDesc.AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
-        samplerDesc.MaxAnisotropy = 1;
-        samplerDesc.ComparisonFunc = D3D12_COMPARISON_FUNC_ALWAYS;
-        samplerDesc.MaxLOD = D3D12_FLOAT32_MAX;
-        device->CreateSampler(&samplerDesc, m_D3D12OffscreenSampler);
-
-        const uint8_t whitePixel[4] = { 255, 255, 255, 255 };
-        m_D3D12WhiteTexture = d3d12->UploadTexture2D(whitePixel, 1, 1);
-        if (!m_D3D12WhiteTexture) {
-            Logger::Error("[PostProcessPass] D3D12 white SSAO texture upload failed");
-            ReleaseOffscreenRT();
-            return;
-        }
-        if (auto* whiteTex = static_cast<D3D12Texture*>(m_D3D12WhiteTexture.get())) {
-            m_D3D12WhiteSRVGpu = whiteTex->srvGpu;
-        }
-
-        m_D3D12OffscreenDepth = d3d12->CreateDepthTexture(
-            static_cast<int>(w), static_cast<int>(h), false);
-        if (!m_D3D12OffscreenDepth) {
-            Logger::Error("[PostProcessPass] D3D12 offscreen depth creation failed");
-            ReleaseOffscreenRT();
-            return;
-        }
-
-        m_D3D12OffscreenState = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
-        m_D3D12CompositeState = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
-        m_OffscreenWidth = w;
-        m_OffscreenHeight = h;
-        Logger::Info("[PostProcessPass] D3D12 offscreen RT + depth created: ", w, "x", h);
-        return;
-    }
-
-    ID3D11Device* device = d3d11->GetDevice();
-    if (!device) return;
-
-    // ---- Offscreen color RT (R16G16B16A16_FLOAT) ----
-    D3D11_TEXTURE2D_DESC texDesc = {};
-    texDesc.Width              = w;
-    texDesc.Height             = h;
-    texDesc.MipLevels          = 1;
-    texDesc.ArraySize          = 1;
-    texDesc.Format             = DXGI_FORMAT_R16G16B16A16_FLOAT;
-    texDesc.SampleDesc.Count   = 1;
-    texDesc.Usage              = D3D11_USAGE_DEFAULT;
-    texDesc.BindFlags          = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
-
-    HRESULT hr = device->CreateTexture2D(&texDesc, nullptr, &m_OffscreenTex);
-    if (FAILED(hr)) {
-        Logger::Error("[PostProcessPass] CreateTexture2D for offscreen RT failed");
-        ReleaseOffscreenRT();
-        return;
-    }
-
-    hr = device->CreateRenderTargetView(m_OffscreenTex.Get(), nullptr, &m_OffscreenRTV);
-    if (FAILED(hr)) {
-        Logger::Error("[PostProcessPass] CreateRenderTargetView failed");
-        ReleaseOffscreenRT();
-        return;
-    }
-
-    hr = device->CreateShaderResourceView(m_OffscreenTex.Get(), nullptr, &m_OffscreenSRV);
-    if (FAILED(hr)) {
-        Logger::Error("[PostProcessPass] CreateShaderResourceView failed");
-        ReleaseOffscreenRT();
-        return;
-    }
-
-    hr = device->CreateTexture2D(&texDesc, nullptr, &m_CompositeTex);
-    if (FAILED(hr)) {
-        Logger::Error("[PostProcessPass] CreateTexture2D for composite RT failed");
-        ReleaseOffscreenRT();
-        return;
-    }
-
-    hr = device->CreateRenderTargetView(m_CompositeTex.Get(), nullptr, &m_CompositeRTV);
-    if (FAILED(hr)) {
-        Logger::Error("[PostProcessPass] CreateRenderTargetView for composite RT failed");
-        ReleaseOffscreenRT();
-        return;
-    }
-
-    hr = device->CreateShaderResourceView(m_CompositeTex.Get(), nullptr, &m_CompositeSRV);
-    if (FAILED(hr)) {
-        Logger::Error("[PostProcessPass] CreateShaderResourceView for composite RT failed");
-        ReleaseOffscreenRT();
-        return;
-    }
-
-    // ---- Offscreen depth (R24G8_TYPELESS, readable as SRV for SSAO) ----
-    D3D11_TEXTURE2D_DESC depthDesc = {};
-    depthDesc.Width              = w;
-    depthDesc.Height             = h;
-    depthDesc.MipLevels          = 1;
-    depthDesc.ArraySize          = 1;
-    depthDesc.Format             = DXGI_FORMAT_R24G8_TYPELESS;
-    depthDesc.SampleDesc.Count   = 1;
-    depthDesc.Usage              = D3D11_USAGE_DEFAULT;
-    depthDesc.BindFlags          = D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE;
-
-    hr = device->CreateTexture2D(&depthDesc, nullptr, &m_OffscreenDepthTex);
-    if (FAILED(hr)) {
-        Logger::Error("[PostProcessPass] CreateTexture2D for offscreen depth failed");
-        ReleaseOffscreenRT();
-        return;
-    }
-
-    D3D11_DEPTH_STENCIL_VIEW_DESC dsvDesc = {};
-    dsvDesc.Format             = DXGI_FORMAT_D24_UNORM_S8_UINT;
-    dsvDesc.ViewDimension      = D3D11_DSV_DIMENSION_TEXTURE2D;
-    dsvDesc.Texture2D.MipSlice = 0;
-    hr = device->CreateDepthStencilView(m_OffscreenDepthTex.Get(), &dsvDesc, &m_OffscreenDSV);
-    if (FAILED(hr)) {
-        Logger::Error("[PostProcessPass] CreateDepthStencilView failed");
-        ReleaseOffscreenRT();
-        return;
-    }
-
-    D3D11_SHADER_RESOURCE_VIEW_DESC depthSrvDesc = {};
-    depthSrvDesc.Format                    = DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
-    depthSrvDesc.ViewDimension             = D3D11_SRV_DIMENSION_TEXTURE2D;
-    depthSrvDesc.Texture2D.MipLevels       = 1;
-    depthSrvDesc.Texture2D.MostDetailedMip = 0;
-    hr = device->CreateShaderResourceView(m_OffscreenDepthTex.Get(), &depthSrvDesc, &m_OffscreenDepthSRV);
-    if (FAILED(hr)) {
-        Logger::Error("[PostProcessPass] CreateShaderResourceView for depth failed");
-        ReleaseOffscreenRT();
-        return;
-    }
-
-    // ---- Samplers ----
-    D3D11_SAMPLER_DESC sampDesc = {};
-    sampDesc.Filter         = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
-    sampDesc.AddressU       = D3D11_TEXTURE_ADDRESS_CLAMP;
-    sampDesc.AddressV       = D3D11_TEXTURE_ADDRESS_CLAMP;
-    sampDesc.AddressW       = D3D11_TEXTURE_ADDRESS_CLAMP;
-    sampDesc.MaxAnisotropy  = 1;
-    sampDesc.ComparisonFunc = D3D11_COMPARISON_ALWAYS;
-    sampDesc.MaxLOD         = 0.0f;
-    device->CreateSamplerState(&sampDesc, &m_ComposeSampler);
-
-    D3D11_SAMPLER_DESC pointDesc = {};
-    pointDesc.Filter         = D3D11_FILTER_MIN_MAG_MIP_POINT;
-    pointDesc.AddressU       = D3D11_TEXTURE_ADDRESS_CLAMP;
-    pointDesc.AddressV       = D3D11_TEXTURE_ADDRESS_CLAMP;
-    pointDesc.AddressW       = D3D11_TEXTURE_ADDRESS_CLAMP;
-    pointDesc.MaxAnisotropy  = 1;
-    pointDesc.ComparisonFunc = D3D11_COMPARISON_ALWAYS;
-    pointDesc.MaxLOD         = 0.0f;
-    device->CreateSamplerState(&pointDesc, &m_PointClampSampler);
-
-    m_OffscreenWidth  = w;
-    m_OffscreenHeight = h;
-
-    EnsureSSAOResources(w, h);
-    CreateNoiseTexture();
-
-    Logger::Info("[PostProcessPass] Offscreen RT + depth created: ", w, "x", h);
-}
-
-void PostProcessPass::EnsureSSAOResources(uint32_t w, uint32_t h)
-{
-    auto* d3d11 = dynamic_cast<D3D11Context*>(Context());
-    if (!d3d11) return;
-    ID3D11Device* device = d3d11->GetDevice();
-    if (!device) return;
-
-    // SSAO RT (R8_UNORM)
-    if (!m_SSAOTex || !m_SSAORTV || !m_SSAOSRV) {
-        D3D11_TEXTURE2D_DESC desc = {};
-        desc.Width            = w;
-        desc.Height           = h;
-        desc.MipLevels        = 1;
-        desc.ArraySize        = 1;
-        desc.Format           = DXGI_FORMAT_R8_UNORM;
-        desc.SampleDesc.Count = 1;
-        desc.Usage            = D3D11_USAGE_DEFAULT;
-        desc.BindFlags        = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
-
-        HRESULT hr = device->CreateTexture2D(&desc, nullptr, &m_SSAOTex);
-        if (SUCCEEDED(hr)) {
-            device->CreateRenderTargetView(m_SSAOTex.Get(), nullptr, &m_SSAORTV);
-            device->CreateShaderResourceView(m_SSAOTex.Get(), nullptr, &m_SSAOSRV);
-        }
-    }
-
-    // SSAO blur RT (R8_UNORM)
-    if (!m_SSAOBlurTex || !m_SSAOBlurRTV || !m_SSAOBlurSRV) {
-        D3D11_TEXTURE2D_DESC desc = {};
-        desc.Width            = w;
-        desc.Height           = h;
-        desc.MipLevels        = 1;
-        desc.ArraySize        = 1;
-        desc.Format           = DXGI_FORMAT_R8_UNORM;
-        desc.SampleDesc.Count = 1;
-        desc.Usage            = D3D11_USAGE_DEFAULT;
-        desc.BindFlags        = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
-
-        HRESULT hr = device->CreateTexture2D(&desc, nullptr, &m_SSAOBlurTex);
-        if (SUCCEEDED(hr)) {
-            device->CreateRenderTargetView(m_SSAOBlurTex.Get(), nullptr, &m_SSAOBlurRTV);
-            device->CreateShaderResourceView(m_SSAOBlurTex.Get(), nullptr, &m_SSAOBlurSRV);
-        }
-    }
-}
-
-void PostProcessPass::CreateNoiseTexture()
-{
-    auto* d3d11 = dynamic_cast<D3D11Context*>(Context());
-    if (!d3d11 || m_NoiseTex) return;
-    ID3D11Device* device = d3d11->GetDevice();
-    if (!device) return;
-
-    // 4x4 noise texture: random vec3 in [0,1], shader remaps to [-1,1]
-    constexpr int kNoiseSize = 4;
-    float noiseData[kNoiseSize * kNoiseSize * 4] = {};
-
-    std::mt19937 rng(1337);
-    std::uniform_real_distribution<float> dist(0.0f, 1.0f);
-    for (int i = 0; i < kNoiseSize * kNoiseSize; ++i) {
-        noiseData[i * 4 + 0] = dist(rng);
-        noiseData[i * 4 + 1] = dist(rng);
-        noiseData[i * 4 + 2] = dist(rng);
-        noiseData[i * 4 + 3] = 1.0f;
-    }
-
-    D3D11_TEXTURE2D_DESC desc = {};
-    desc.Width            = kNoiseSize;
-    desc.Height           = kNoiseSize;
-    desc.MipLevels        = 1;
-    desc.ArraySize        = 1;
-    desc.Format           = DXGI_FORMAT_R32G32B32A32_FLOAT;
-    desc.SampleDesc.Count = 1;
-    desc.Usage            = D3D11_USAGE_IMMUTABLE;
-    desc.BindFlags        = D3D11_BIND_SHADER_RESOURCE;
-
-    D3D11_SUBRESOURCE_DATA sd = {};
-    sd.pSysMem     = noiseData;
-    sd.SysMemPitch = kNoiseSize * 16; // 4 floats * 4 bytes
-
-    HRESULT hr = device->CreateTexture2D(&desc, &sd, &m_NoiseTex);
-    if (SUCCEEDED(hr)) {
-        device->CreateShaderResourceView(m_NoiseTex.Get(), nullptr, &m_NoiseSRV);
-
-        D3D11_SAMPLER_DESC sampDesc = {};
-        sampDesc.Filter         = D3D11_FILTER_MIN_MAG_MIP_POINT;
-        sampDesc.AddressU       = D3D11_TEXTURE_ADDRESS_WRAP;
-        sampDesc.AddressV       = D3D11_TEXTURE_ADDRESS_WRAP;
-        sampDesc.AddressW       = D3D11_TEXTURE_ADDRESS_WRAP;
-        sampDesc.MaxAnisotropy  = 1;
-        sampDesc.ComparisonFunc = D3D11_COMPARISON_ALWAYS;
-        sampDesc.MaxLOD         = 0.0f;
-        device->CreateSamplerState(&sampDesc, &m_NoiseSampler);
-    }
-}
-
-// --------------------------------------------------------------------------
-// Shader creation helpers
-// --------------------------------------------------------------------------
-
-GpuShader* PostProcessPass::GetOrCreateFXAAShader()
-{
-    auto handle = ShaderManager::Get().GetOrCreate(
-        "src/Runtime/Renderer/Shaders/PostProcessFXAA.hlsl",
-        "VSMain", "PSMain",
-        nullptr, 0);
-    m_FXAAHandle = handle;
-    return handle ? handle->shader.get() : nullptr;
-}
-
-GpuShader* PostProcessPass::GetOrCreateSSAOShader()
-{
-    auto handle = ShaderManager::Get().GetOrCreate(
-        "src/Runtime/Renderer/Shaders/PostProcessSSAO.hlsl",
-        "VSMain", "PSMain",
-        nullptr, 0);
-    m_SSAOHandle = handle;
-    return handle ? handle->shader.get() : nullptr;
-}
-
-GpuShader* PostProcessPass::GetOrCreateSSAOBlurShader()
-{
-    auto handle = ShaderManager::Get().GetOrCreate(
-        "src/Runtime/Renderer/Shaders/PostProcessSSAOBlur.hlsl",
-        "VSMain", "PSMain",
-        nullptr, 0);
-    m_SSAOBlurHandle = handle;
-    return handle ? handle->shader.get() : nullptr;
-}
-
-// --------------------------------------------------------------------------
-// Offscreen begin
-// --------------------------------------------------------------------------
-
-void PostProcessPass::BeginOffscreen()
-{
-    auto* d3d11 = dynamic_cast<D3D11Context*>(Context());
-    auto* d3d12 = dynamic_cast<D3D12Context*>(Context());
-    if (!d3d11 && !d3d12) return;
-
-    if (d3d12) {
-        EnsureOffscreenRT(m_OffscreenWidth, m_OffscreenHeight);
-        if (!m_D3D12OffscreenTex || !m_D3D12OffscreenDepth) return;
-
-        ID3D12GraphicsCommandList* cmd = d3d12->GetCommandList();
-        if (!cmd) return;
-
-        if (m_D3D12OffscreenState != D3D12_RESOURCE_STATE_RENDER_TARGET) {
-            D3D12_RESOURCE_BARRIER barrier = {};
-            barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-            barrier.Transition.pResource = m_D3D12OffscreenTex.Get();
-            barrier.Transition.StateBefore = m_D3D12OffscreenState;
-            barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
-            barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-            cmd->ResourceBarrier(1, &barrier);
-            m_D3D12OffscreenState = D3D12_RESOURCE_STATE_RENDER_TARGET;
-        }
-
-        auto* depth = static_cast<D3D12Texture*>(m_D3D12OffscreenDepth.get());
-        const D3D12_CPU_DESCRIPTOR_HANDLE dsv = depth ? depth->dsvCpu : D3D12_CPU_DESCRIPTOR_HANDLE{};
-        d3d12->PushRenderTarget(&m_D3D12OffscreenRTV, dsv);
-        d3d12->SetViewport(0.0f, 0.0f,
-                           static_cast<float>(m_OffscreenWidth),
-                           static_cast<float>(m_OffscreenHeight));
-
-        const float clearColor[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
-        cmd->ClearRenderTargetView(m_D3D12OffscreenRTV, clearColor, 0, nullptr);
-        if (dsv.ptr != 0) {
-            cmd->ClearDepthStencilView(
-                dsv, D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
-        }
-        return;
-    }
-
-    ID3D11DeviceContext* dc = d3d11->GetDeviceContext();
-    if (!dc) return;
-
-    // Save backbuffer render target state
-    m_SavedRTV.Reset();
-    m_SavedDSV.Reset();
-    dc->OMGetRenderTargets(1, m_SavedRTV.GetAddressOf(), m_SavedDSV.GetAddressOf());
-
-    // Save viewport
-    UINT vpCount = 1;
-    dc->RSGetViewports(&vpCount, &m_SavedViewport);
-    m_ViewportSaved = (vpCount > 0);
-
-    // Set offscreen viewport
-    D3D11_VIEWPORT offscreenVP = {};
-    offscreenVP.TopLeftX = 0.0f;
-    offscreenVP.TopLeftY = 0.0f;
-    offscreenVP.Width    = static_cast<float>(m_OffscreenWidth);
-    offscreenVP.Height   = static_cast<float>(m_OffscreenHeight);
-    offscreenVP.MinDepth = 0.0f;
-    offscreenVP.MaxDepth = 1.0f;
-    dc->RSSetViewports(1, &offscreenVP);
-
-    // Bind offscreen RT with own depth DSV
-    ID3D11RenderTargetView* rtv = m_OffscreenRTV.Get();
-    dc->OMSetRenderTargets(1, &rtv, m_OffscreenDSV.Get());
-
-    // Clear offscreen RT and depth
-    const float clearColor[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
-    dc->ClearRenderTargetView(rtv, clearColor);
-    dc->ClearDepthStencilView(m_OffscreenDSV.Get(), D3D11_CLEAR_DEPTH, 1.0f, 0);
-}
-
-// --------------------------------------------------------------------------
-// SSAO
-// --------------------------------------------------------------------------
-
-void PostProcessPass::RenderSSAO(const Scene& scene, const Camera& camera)
-{
-    auto* d3d11 = dynamic_cast<D3D11Context*>(Context());
-    if (!d3d11) return;
-
-    ID3D11DeviceContext* dc = d3d11->GetDeviceContext();
-    if (!dc) return;
-
-    // Bind SSAO RT
-    ID3D11RenderTargetView* rtv = m_SSAORTV.Get();
-    if (!rtv) return;
-    dc->OMSetRenderTargets(1, &rtv, nullptr);
-
-    const float aoClear[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
-    dc->ClearRenderTargetView(rtv, aoClear);
-
-    GpuShader* ssaoShader = GetOrCreateSSAOShader();
-    if (!ssaoShader || !m_OffscreenDepthSRV || !m_NoiseSRV ||
-        !m_PointClampSampler || !m_NoiseSampler) {
-        if (!ssaoShader) {
-            Logger::Error("[PostProcessPass] SSAO shader not available");
-        }
-        return;
-    }
-
-    // Build SSAO constants
-    SSAOConstants ssaoConsts = BuildSSAOConstants(
-        scene, camera, m_OffscreenWidth, m_OffscreenHeight);
-
-    // Keep viewport from BeginOffscreen (0, 0, offscreenW, offscreenH)
-
-    d3d11->BindShader(ssaoShader);
-
-    // Bind depth SRV + noise SRV
-    ID3D11ShaderResourceView* srvs[2] = {
-        m_OffscreenDepthSRV.Get(),
-        m_NoiseSRV.Get()
-    };
-    dc->PSSetShaderResources(0, 2, srvs);
-
-    ID3D11SamplerState* samplers[2] = {
-        m_PointClampSampler.Get(),
-        m_NoiseSampler.Get()
-    };
-    dc->PSSetSamplers(0, 2, samplers);
-
-    d3d11->SetVSConstants(&ssaoConsts, sizeof(ssaoConsts));
-
-    // Fullscreen triangle
-    dc->IASetVertexBuffers(0, 0, nullptr, nullptr, nullptr);
-    dc->IASetIndexBuffer(nullptr, DXGI_FORMAT_UNKNOWN, 0);
-    dc->IASetInputLayout(nullptr);
-    dc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    dc->Draw(3, 0);
-
-    // Unbind SRVs
-    ID3D11ShaderResourceView* nullSrvs[2] = { nullptr, nullptr };
-    dc->PSSetShaderResources(0, 2, nullSrvs);
-
-    // ---- SSAO blur pass (horizontal + vertical ping-pong) ----
-    GpuShader* blurShader = GetOrCreateSSAOBlurShader();
-    if (!blurShader) return;
-
-    // Horizontal blur: read SSAO RT, write blur RT
-    ID3D11RenderTargetView* blurRtv = m_SSAOBlurRTV.Get();
-    dc->OMSetRenderTargets(1, &blurRtv, nullptr);
-
-    d3d11->BindShader(blurShader);
-
-    ID3D11ShaderResourceView* blurSrvs[1] = { m_SSAOSRV.Get() };
-    dc->PSSetShaderResources(0, 1, blurSrvs);
-    dc->PSSetSamplers(0, 1, &samplers[0]); // point-clamp
-
-    SSAOBlurConstants blurConsts = {};
-    blurConsts.texelSize[0] = 1.0f / static_cast<float>(m_OffscreenWidth);
-    blurConsts.texelSize[2] = 1.0f / static_cast<float>(m_OffscreenHeight);
-    blurConsts.texelSize[1] = 0.0f; // horizontal
-    d3d11->SetVSConstants(&blurConsts, sizeof(blurConsts));
-
-    dc->Draw(3, 0);
-
-    ID3D11ShaderResourceView* nullSrv[1] = { nullptr };
-    dc->PSSetShaderResources(0, 1, nullSrv);
-
-    // Vertical blur: read blur RT, write back to SSAO RT
-    dc->OMSetRenderTargets(1, &rtv, nullptr);
-
-    ID3D11ShaderResourceView* blurSrvs2[1] = { m_SSAOBlurSRV.Get() };
-    dc->PSSetShaderResources(0, 1, blurSrvs2);
-
-    blurConsts.texelSize[1] = 1.0f; // vertical
-    d3d11->SetVSConstants(&blurConsts, sizeof(blurConsts));
-
-    dc->Draw(3, 0);
-
-    // Unbind SRV
-    dc->PSSetShaderResources(0, 1, nullSrv);
-}
-
-void PostProcessPass::RenderBloom(const Scene& scene)
-{
-    bool enabled = false;
+SSAOConstants BuildSSAOConstants(const Scene& scene, const Camera& camera,
+                                 uint32_t width, uint32_t height) {
+    SSAOConstants out{};
+    std::memcpy(out.projection, camera.GetProj().Data(), sizeof(out.projection));
+    Mat4 inverse; Mat4Invert(camera.GetProj(), inverse);
+    std::memcpy(out.invProjection, inverse.Data(), sizeof(out.invProjection));
+    out.screenSize[0] = 1.0f / width; out.screenSize[1] = 1.0f / height;
+    out.screenSize[2] = static_cast<float>(width); out.screenSize[3] = static_cast<float>(height);
+    out.ssaoParams[0] = 1.2f; out.ssaoParams[1] = 0.025f; out.ssaoParams[2] = 1.5f;
+    bool found = false;
     scene.ForEach([&](Actor& actor) {
-        if (enabled || !actor.IsActive()) return;
+        if (found || !actor.IsActive()) return;
         auto* post = actor.GetComponent<PostProcessComponent>();
         if (!post || !post->IsEnabled()) return;
-        enabled = post->IsBloomEnabled() && post->GetBloomIntensity() > 0.0f;
+        out.ssaoParams[0] = post->GetSSAORadius(); out.ssaoParams[1] = post->GetSSAOBias();
+        out.ssaoParams[2] = post->GetSSAOPower(); out.ssaoParams[3] = post->GetSSAOIntensity();
+        found = true;
     });
-
-    if (!enabled) return;
-
-    // Bloom settings are serialized and exposed on the component, but the
-    // render resources/shader pass are not present in this update yet.
+    std::mt19937 rng(42); std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+    for (uint32_t i = 0; i < 16; ++i) {
+        const float u1 = dist(rng), u2 = dist(rng), r = std::sqrt(u1);
+        const float theta = 6.2831853f * u2, scale = 0.1f + (i / 16.0f) * (i / 16.0f) * 0.9f;
+        out.samples[i][0] = r * std::cos(theta) * scale;
+        out.samples[i][1] = r * std::sin(theta) * scale;
+        out.samples[i][2] = std::sqrt((std::max)(0.0f, 1.0f - u1)) * scale;
+    }
+    return out;
+}
 }
 
-// --------------------------------------------------------------------------
-// Composite back to backbuffer
-// --------------------------------------------------------------------------
+PostProcessPass::PostProcessPass(IRenderContext* context) : RenderPass(context) {}
 
-void PostProcessPass::EndOffscreenAndComposite(const Scene& scene)
-{
-    auto* d3d11 = dynamic_cast<D3D11Context*>(Context());
-    auto* d3d12 = dynamic_cast<D3D12Context*>(Context());
-    if (!d3d11 && !d3d12) return;
+void PostProcessPass::Resize(uint32_t width, uint32_t height) {
+    width = (std::max)(1u, width); height = (std::max)(1u, height);
+    if (width == m_Width && height == m_Height) return;
+    m_Width = width; m_Height = height;
+    m_SceneColor.reset(); m_SceneDepth.reset(); m_SSAO.reset();
+    m_SSAOBlur.reset(); m_Composite.reset();
+    m_SceneColorRtv.reset(); m_SceneColorSrv.reset();
+    m_SceneDepthDsv.reset(); m_SceneDepthSrv.reset();
+    m_SSAORtv.reset(); m_SSAOSrv.reset(); m_SSAOBlurRtv.reset(); m_SSAOBlurSrv.reset();
+    m_CompositeRtv.reset(); m_CompositeSrv.reset();
+    m_SceneColorState = m_SceneDepthState = m_SSAOState =
+        m_SSAOBlurState = m_CompositeState = RHIResourceState::Undefined;
+}
 
-    if (d3d12) {
-        d3d12->PopRenderTarget();
-        ID3D12GraphicsCommandList* cmd = d3d12->GetCommandList();
-        if (!cmd || !m_D3D12OffscreenTex || !m_D3D12CompositeTex) return;
-
-        if (cmd && m_D3D12OffscreenTex &&
-            m_D3D12OffscreenState != D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE) {
-            D3D12_RESOURCE_BARRIER barrier = {};
-            barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-            barrier.Transition.pResource = m_D3D12OffscreenTex.Get();
-            barrier.Transition.StateBefore = m_D3D12OffscreenState;
-            barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
-            barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-            cmd->ResourceBarrier(1, &barrier);
-            m_D3D12OffscreenState = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+bool PostProcessPass::EnsureResources() {
+    auto* device = Context(); if (!device) return false;
+    if (m_SceneColor) {
+        const bool changed = (m_FXAAHandle && m_FXAAHandle->version != m_FXAAVersion) ||
+            (m_SSAOHandle && m_SSAOHandle->version != m_SSAOVersion) ||
+            (m_BlurHandle && m_BlurHandle->version != m_BlurVersion);
+        if (changed) {
+            m_FXAAShader = m_FXAAHandle->shader; m_SSAOShader = m_SSAOHandle->shader;
+            m_BlurShader = m_BlurHandle->shader;
+            GraphicsPipelineDesc pipeline; pipeline.depthTest = false; pipeline.depthWrite = false;
+            pipeline.shader = m_FXAAShader; pipeline.colorFormats = {RHIFormat::RGBA8UNorm};
+            m_FXAABackbufferPipeline = device->CreateGraphicsPipeline(pipeline);
+            pipeline.colorFormats = {RHIFormat::RGBA16Float};
+            m_FXAAEditorPipeline = device->CreateGraphicsPipeline(pipeline);
+            pipeline.shader = m_SSAOShader; pipeline.colorFormats = {RHIFormat::R8UNorm};
+            m_SSAOPipeline = device->CreateGraphicsPipeline(pipeline);
+            pipeline.shader = m_BlurShader; m_BlurPipeline = device->CreateGraphicsPipeline(pipeline);
+            m_FXAAVersion = m_FXAAHandle->version;
+            m_SSAOVersion = m_SSAOHandle->version;
+            m_BlurVersion = m_BlurHandle->version;
         }
+        return m_FXAABackbufferPipeline && m_FXAAEditorPipeline && m_SSAOPipeline && m_BlurPipeline;
+    }
+    auto makeTexture = [&](const char* name, RHIFormat format, RHIResourceUsage usage,
+                           std::shared_ptr<GpuTexture>& texture,
+                           std::shared_ptr<GpuTextureView>& output,
+                           std::shared_ptr<GpuTextureView>& input) {
+        RHITextureDesc desc; desc.width = m_Width; desc.height = m_Height;
+        desc.format = format; desc.usage = usage; desc.debugName = name;
+        texture = device->CreateTexture(desc);
+        RHITextureViewDesc outDesc;
+        outDesc.usage = HasUsage(usage, RHIResourceUsage::DepthStencil)
+            ? RHIResourceUsage::DepthStencil : RHIResourceUsage::RenderTarget;
+        output = device->CreateTextureView(texture, outDesc);
+        RHITextureViewDesc inDesc; inDesc.usage = RHIResourceUsage::ShaderResource;
+        input = device->CreateTextureView(texture, inDesc);
+        return texture && output && input;
+    };
+    if (!makeTexture("SceneColor", RHIFormat::RGBA16Float,
+            RHIResourceUsage::RenderTarget | RHIResourceUsage::ShaderResource,
+            m_SceneColor, m_SceneColorRtv, m_SceneColorSrv) ||
+        !makeTexture("SceneDepth", RHIFormat::D24S8,
+            RHIResourceUsage::DepthStencil | RHIResourceUsage::ShaderResource,
+            m_SceneDepth, m_SceneDepthDsv, m_SceneDepthSrv) ||
+        !makeTexture("SSAO", RHIFormat::R8UNorm,
+            RHIResourceUsage::RenderTarget | RHIResourceUsage::ShaderResource,
+            m_SSAO, m_SSAORtv, m_SSAOSrv) ||
+        !makeTexture("SSAOBlur", RHIFormat::R8UNorm,
+            RHIResourceUsage::RenderTarget | RHIResourceUsage::ShaderResource,
+            m_SSAOBlur, m_SSAOBlurRtv, m_SSAOBlurSrv) ||
+        !makeTexture("Composite", RHIFormat::RGBA16Float,
+            RHIResourceUsage::RenderTarget | RHIResourceUsage::ShaderResource,
+            m_Composite, m_CompositeRtv, m_CompositeSrv)) return false;
 
-        if (m_D3D12CompositeState != D3D12_RESOURCE_STATE_RENDER_TARGET) {
-            D3D12_RESOURCE_BARRIER barrier = {};
-            barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-            barrier.Transition.pResource = m_D3D12CompositeTex.Get();
-            barrier.Transition.StateBefore = m_D3D12CompositeState;
-            barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
-            barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-            cmd->ResourceBarrier(1, &barrier);
-            m_D3D12CompositeState = D3D12_RESOURCE_STATE_RENDER_TARGET;
-        }
+    RHISamplerDesc linear; linear.addressU = linear.addressV = linear.addressW = RHIAddressMode::Clamp;
+    m_LinearClamp = device->CreateSampler(linear);
+    RHISamplerDesc point = linear; point.filter = RHIFilter::Point;
+    m_PointClamp = device->CreateSampler(point);
+    RHISamplerDesc noise; noise.filter = RHIFilter::Point;
+    noise.addressU = noise.addressV = noise.addressW = RHIAddressMode::Repeat;
+    m_NoiseSampler = device->CreateSampler(noise);
+    uint8_t pixels[4 * 4 * 4]; std::mt19937 rng(17); std::uniform_int_distribution<int> d(0, 255);
+    for (size_t i = 0; i < sizeof(pixels); i += 4) {
+        pixels[i] = static_cast<uint8_t>(d(rng)); pixels[i + 1] = static_cast<uint8_t>(d(rng));
+        pixels[i + 2] = 128; pixels[i + 3] = 255;
+    }
+    m_Noise = device->UploadTexture2D(pixels, 4, 4);
+    RHITextureViewDesc noiseView; noiseView.usage = RHIResourceUsage::ShaderResource;
+    m_NoiseSrv = device->CreateTextureView(m_Noise, noiseView);
 
-        if (!m_D3D12FXAAShader) {
-            m_D3D12FXAAShader = d3d12->CreateFullscreenShaderFromBytecode(
-                k_PostProcessFXAAVsBytecode,
-                k_PostProcessFXAAVsBytecodeSize,
-                k_PostProcessFXAAPsBytecode,
-                k_PostProcessFXAAPsBytecodeSize,
-                DXGI_FORMAT_R16G16B16A16_FLOAT);
-        }
-        if (!m_D3D12FXAAShader) {
-            Logger::Error("[PostProcessPass] D3D12 FXAA shader not available");
-            return;
-        }
+    m_FXAAHandle = ShaderManager::Get().GetOrCreate(
+        "src/Runtime/Renderer/Shaders/PostProcessFXAA.hlsl", "VSMain", "PSMain", nullptr, 0);
+    m_SSAOHandle = ShaderManager::Get().GetOrCreate(
+        "src/Runtime/Renderer/Shaders/PostProcessSSAO.hlsl", "VSMain", "PSMain", nullptr, 0);
+    m_BlurHandle = ShaderManager::Get().GetOrCreate(
+        "src/Runtime/Renderer/Shaders/PostProcessSSAOBlur.hlsl", "VSMain", "PSMain", nullptr, 0);
+    m_FXAAShader = m_FXAAHandle ? m_FXAAHandle->shader : nullptr;
+    m_SSAOShader = m_SSAOHandle ? m_SSAOHandle->shader : nullptr;
+    m_BlurShader = m_BlurHandle ? m_BlurHandle->shader : nullptr;
+    m_FXAAVersion = m_FXAAHandle ? m_FXAAHandle->version : 0;
+    m_SSAOVersion = m_SSAOHandle ? m_SSAOHandle->version : 0;
+    m_BlurVersion = m_BlurHandle ? m_BlurHandle->version : 0;
+    GraphicsPipelineDesc pipeline; pipeline.depthTest = false; pipeline.depthWrite = false;
+    pipeline.shader = m_FXAAShader; pipeline.colorFormats = {RHIFormat::RGBA8UNorm};
+    m_FXAABackbufferPipeline = device->CreateGraphicsPipeline(pipeline);
+    pipeline.colorFormats = {RHIFormat::RGBA16Float};
+    m_FXAAEditorPipeline = device->CreateGraphicsPipeline(pipeline);
+    pipeline.shader = m_SSAOShader; pipeline.colorFormats = {RHIFormat::R8UNorm};
+    m_SSAOPipeline = device->CreateGraphicsPipeline(pipeline);
+    pipeline.shader = m_BlurShader;
+    m_BlurPipeline = device->CreateGraphicsPipeline(pipeline);
+    return m_LinearClamp && m_PointClamp && m_NoiseSampler && m_NoiseSrv &&
+           m_FXAABackbufferPipeline && m_FXAAEditorPipeline && m_SSAOPipeline && m_BlurPipeline;
+}
 
-        d3d12->PushRenderTarget(&m_D3D12CompositeRTV, {});
-        d3d12->SetViewport(0.0f, 0.0f,
-                           static_cast<float>(m_OffscreenWidth),
-                           static_cast<float>(m_OffscreenHeight));
-        const float clearColor[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
-        cmd->ClearRenderTargetView(m_D3D12CompositeRTV, clearColor, 0, nullptr);
-
-        d3d12->BindShader(m_D3D12FXAAShader.get());
-        d3d12->BindPSTextureDescriptors(
-            0, m_D3D12OffscreenSRVGpu, m_D3D12OffscreenSamplerGpu);
-        d3d12->BindPSTextureDescriptors(
-            1, m_D3D12WhiteSRVGpu, m_D3D12OffscreenSamplerGpu);
-
-        PostProcessConstants constants = CollectPostProcessParams(
-            scene, m_OffscreenWidth, m_OffscreenHeight);
-        d3d12->SetVSConstants(&constants, sizeof(constants));
-        cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-        cmd->DrawInstanced(3, 1, 0, 0);
-
-        d3d12->PopRenderTarget();
-
-        if (m_D3D12CompositeState != D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE) {
-            D3D12_RESOURCE_BARRIER barrier = {};
-            barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-            barrier.Transition.pResource = m_D3D12CompositeTex.Get();
-            barrier.Transition.StateBefore = m_D3D12CompositeState;
-            barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
-            barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-            cmd->ResourceBarrier(1, &barrier);
-            m_D3D12CompositeState = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
-        }
+void PostProcessPass::BeginOffscreen() {
+    if (!EnsureResources()) {
+        Logger::Error("[PostProcessPass] Failed to create backend-independent resources");
         return;
     }
+    auto* commands = Context()->GetGraphicsCommandList(); if (!commands) return;
+    commands->Transition(m_SceneColor.get(), m_SceneColorState, RHIResourceState::RenderTarget);
+    commands->Transition(m_SceneDepth.get(), m_SceneDepthState, RHIResourceState::DepthWrite);
+    m_SceneColorState = RHIResourceState::RenderTarget;
+    m_SceneDepthState = RHIResourceState::DepthWrite;
+    RenderingAttachment color; color.view = m_SceneColorRtv.get(); color.loadOp = RHILoadOp::Clear;
+    RenderingAttachment depth; depth.view = m_SceneDepthDsv.get(); depth.loadOp = RHILoadOp::Clear;
+    RenderingInfo info{&color, 1, &depth, m_Width, m_Height};
+    commands->BeginRendering(info); m_SceneRendering = true;
+}
 
-    ID3D11DeviceContext* dc = d3d11->GetDeviceContext();
-    if (!dc) return;
+void PostProcessPass::CloseSceneRendering() {
+    if (!m_SceneRendering) return;
+    auto* commands = Context()->GetGraphicsCommandList(); if (!commands) return;
+    commands->EndRendering(); m_SceneRendering = false;
+    commands->Transition(m_SceneColor.get(), m_SceneColorState, RHIResourceState::ShaderResource);
+    commands->Transition(m_SceneDepth.get(), m_SceneDepthState, RHIResourceState::ShaderResource);
+    m_SceneColorState = m_SceneDepthState = RHIResourceState::ShaderResource;
+}
 
-    auto restoreSavedViewport = [&]() {
-        if (m_ViewportSaved) {
-            dc->RSSetViewports(1, &m_SavedViewport);
-            m_ViewportSaved = false;
-        }
-    };
-    auto clearSavedTargets = [&]() {
-        m_SavedRTV.Reset();
-        m_SavedDSV.Reset();
-    };
+void PostProcessPass::DrawFullscreen(GpuCommandList& commands, GpuGraphicsPipeline& pipeline,
+                                     GpuBindGroup& bindings, GpuTextureView& target,
+                                     RHIResourceState& targetState, const ClearColor& clear) {
+    auto texture = target.texture;
+    commands.Transition(texture.get(), targetState, RHIResourceState::RenderTarget);
+    targetState = RHIResourceState::RenderTarget;
+    RenderingAttachment color; color.view = &target; color.loadOp = RHILoadOp::Clear; color.clearColor = clear;
+    RenderingInfo info{&color, 1, nullptr, m_Width, m_Height};
+    commands.BeginRendering(info); commands.SetGraphicsPipeline(&pipeline);
+    commands.SetBindGroup(0, &bindings); commands.Draw(3); commands.EndRendering();
+    commands.Transition(texture.get(), targetState, RHIResourceState::ShaderResource);
+    targetState = RHIResourceState::ShaderResource;
+}
 
+void PostProcessPass::RenderSSAO(const Scene& scene, const Camera& camera) {
+    CloseSceneRendering(); if (!m_SSAOPipeline) return;
+    auto* commands = Context()->GetGraphicsCommandList(); if (!commands) return;
+    auto ssaoBindings = Context()->CreateBindGroup(m_SSAOShader);
+    SSAOConstants constants = BuildSSAOConstants(scene, camera, m_Width, m_Height);
+    ssaoBindings->SetConstants("SSAOParams", &constants, sizeof(constants));
+    ssaoBindings->SetTexture("g_DepthTex", m_SceneDepthSrv);
+    ssaoBindings->SetSampler("g_DepthSampler", m_PointClamp);
+    ssaoBindings->SetTexture("g_NoiseTex", m_NoiseSrv);
+    ssaoBindings->SetSampler("g_NoiseSampler", m_NoiseSampler);
+    DrawFullscreen(*commands, *m_SSAOPipeline, *ssaoBindings, *m_SSAORtv,
+                   m_SSAOState, {1, 1, 1, 1});
+    SSAOBlurConstants blur{};
+    blur.texelSize[0] = 1.0f / m_Width; blur.texelSize[2] = 1.0f / m_Height;
+    auto horizontal = Context()->CreateBindGroup(m_BlurShader);
+    horizontal->SetConstants("BlurParams", &blur, sizeof(blur));
+    horizontal->SetTexture("g_SSAOInput", m_SSAOSrv);
+    horizontal->SetSampler("g_SSAOSampler", m_PointClamp);
+    DrawFullscreen(*commands, *m_BlurPipeline, *horizontal, *m_SSAOBlurRtv,
+                   m_SSAOBlurState, {1, 1, 1, 1});
+    blur.texelSize[1] = 1.0f;
+    auto vertical = Context()->CreateBindGroup(m_BlurShader);
+    vertical->SetConstants("BlurParams", &blur, sizeof(blur));
+    vertical->SetTexture("g_SSAOInput", m_SSAOBlurSrv);
+    vertical->SetSampler("g_SSAOSampler", m_PointClamp);
+    DrawFullscreen(*commands, *m_BlurPipeline, *vertical, *m_SSAORtv,
+                   m_SSAOState, {1, 1, 1, 1});
+}
+
+void PostProcessPass::RenderBloom(const Scene&) {}
+
+void PostProcessPass::EndOffscreenAndComposite(const Scene& scene) {
+    CloseSceneRendering(); if (!m_FXAAShader) return;
+    auto* commands = Context()->GetGraphicsCommandList(); if (!commands) return;
+    auto bindings = Context()->CreateBindGroup(m_FXAAShader);
+    PostProcessConstants constants = CollectPostProcessParams(scene, m_Width, m_Height);
+    bindings->SetConstants("PostProcessParams", &constants, sizeof(constants));
+    bindings->SetTexture("g_SceneColor", m_SceneColorSrv);
+    bindings->SetSampler("g_Sampler", m_LinearClamp);
+    bindings->SetTexture("g_SSAOMap", m_SSAOSrv ? m_SSAOSrv : m_SceneColorSrv);
+    bindings->SetSampler("g_SSAOSampler", m_PointClamp);
     if (m_CompositeToBackbuffer) {
-        // Restore backbuffer RT + DSV
-        if (m_SavedRTV) {
-            ID3D11RenderTargetView* rtv = m_SavedRTV.Get();
-            dc->OMSetRenderTargets(1, &rtv, m_SavedDSV.Get());
-        }
-
-        // Restore viewport (scene sub-rect or full window)
-        restoreSavedViewport();
+        auto* target = Context()->GetCurrentBackBufferView();
+        if (!target) return;
+        RenderingAttachment color; color.view = target; color.loadOp = RHILoadOp::Clear;
+        RenderingInfo info{&color, 1, nullptr, m_Width, m_Height};
+        commands->BeginRendering(info);
+        commands->SetGraphicsPipeline(m_FXAABackbufferPipeline.get());
+        commands->SetBindGroup(0, bindings.get()); commands->Draw(3); commands->EndRendering();
     } else {
-        if (!m_CompositeRTV) {
-            Logger::Error("[PostProcessPass] Composite RT not available");
-            restoreSavedViewport();
-            clearSavedTargets();
-            return;
-        }
-        D3D11_VIEWPORT compositeVP = {};
-        compositeVP.TopLeftX = 0.0f;
-        compositeVP.TopLeftY = 0.0f;
-        compositeVP.Width    = static_cast<float>(m_OffscreenWidth);
-        compositeVP.Height   = static_cast<float>(m_OffscreenHeight);
-        compositeVP.MinDepth = 0.0f;
-        compositeVP.MaxDepth = 1.0f;
-        dc->RSSetViewports(1, &compositeVP);
-        ID3D11RenderTargetView* rtv = m_CompositeRTV.Get();
-        dc->OMSetRenderTargets(1, &rtv, nullptr);
+        DrawFullscreen(*commands, *m_FXAAEditorPipeline, *bindings, *m_CompositeRtv,
+                       m_CompositeState, {0, 0, 0, 1});
     }
-
-    GpuShader* shader = GetOrCreateFXAAShader();
-    if (!shader) {
-        Logger::Error("[PostProcessPass] FXAA shader not available");
-        if (!m_CompositeToBackbuffer) {
-            restoreSavedViewport();
-        }
-        clearSavedTargets();
-        return;
-    }
-
-    d3d11->BindShader(shader);
-
-    // Bind offscreen color SRV (t0) + SSAO SRV (t1)
-    ID3D11ShaderResourceView* srvs[2] = {
-        m_OffscreenSRV.Get(),
-        m_SSAOSRV ? m_SSAOSRV.Get() : m_OffscreenSRV.Get()
-    };
-    dc->PSSetShaderResources(0, 2, srvs);
-
-    ID3D11SamplerState* samplers[2] = {
-        m_ComposeSampler.Get(),
-        m_PointClampSampler.Get()
-    };
-    dc->PSSetSamplers(0, 2, samplers);
-
-    // Build post-process constants
-    PostProcessConstants constants = CollectPostProcessParams(
-        scene, m_OffscreenWidth, m_OffscreenHeight);
-
-    d3d11->SetVSConstants(&constants, sizeof(constants));
-
-    // Fullscreen triangle
-    dc->IASetVertexBuffers(0, 0, nullptr, nullptr, nullptr);
-    dc->IASetIndexBuffer(nullptr, DXGI_FORMAT_UNKNOWN, 0);
-    dc->IASetInputLayout(nullptr);
-    dc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    dc->Draw(3, 0);
-
-    // Unbind SRVs
-    ID3D11ShaderResourceView* nullSrvs[2] = { nullptr, nullptr };
-    dc->PSSetShaderResources(0, 2, nullSrvs);
-
-    if (!m_CompositeToBackbuffer) {
-        if (m_SavedRTV) {
-            ID3D11RenderTargetView* rtv = m_SavedRTV.Get();
-            dc->OMSetRenderTargets(1, &rtv, m_SavedDSV.Get());
-        } else {
-            ID3D11RenderTargetView* nullRtv = nullptr;
-            dc->OMSetRenderTargets(1, &nullRtv, nullptr);
-        }
-        restoreSavedViewport();
-    }
-
-    clearSavedTargets();
 }
 
-void* PostProcessPass::GetSceneColorTextureHandle() const
-{
-    if (m_D3D12CompositeSRVGpu.ptr != 0) {
-        return reinterpret_cast<void*>(m_D3D12CompositeSRVGpu.ptr);
-    }
-    if (m_D3D12OffscreenSRVGpu.ptr != 0) {
-        return reinterpret_cast<void*>(m_D3D12OffscreenSRVGpu.ptr);
-    }
-    return GetSceneColorSrv();
-}
-
-void PostProcessPass::Execute(const Scene& scene, const Camera& camera)
-{
-    (void)scene;
-    (void)camera;
-    // PostProcessPass uses BeginOffscreen / RenderSSAO / EndOffscreenAndComposite
-    // directly from Renderer::RenderScene instead of the Execute() interface.
-}
-
-void PostProcessPass::Resize(uint32_t width, uint32_t height)
-{
-    EnsureOffscreenRT(width, height);
-}
+void PostProcessPass::Execute(const Scene&, const Camera&) {}

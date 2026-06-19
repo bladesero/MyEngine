@@ -18,3 +18,15 @@
 - `GetEstimatedAssetCpuBytesByType()`
 - `SetAssetCpuBudgetBytes()`
 - `LogAssetMemorySummary()`
+
+## Project and model sub-assets
+
+- Project-owned paths serialize relative to the project root, for example
+  `Content/Models/character.gltf`.
+- Imported mesh, material, and embedded texture identities append a stable
+  fragment such as `#mesh` or `#material-0`.
+- Resolving a fragment on a cold cache first loads the source model, then returns
+  the registered sub-asset. This allows scene mesh and material references to
+  survive an Editor restart.
+- Legacy imported material paths stored as `__builtin__/Name` are recovered by
+  matching the material name within the model referenced by the component mesh.

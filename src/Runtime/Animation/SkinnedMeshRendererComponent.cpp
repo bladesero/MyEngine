@@ -278,19 +278,10 @@ void SkinnedMeshRendererComponent::Deserialize(const nlohmann::json& data)
     const std::string meshPath = data.value("mesh", std::string{});
     const std::string materialPath = data.value("material", std::string{});
     if (!meshPath.empty()) {
-        MeshHandle mesh = AssetManager::Get().GetByPath<MeshAsset>(meshPath);
-        if (!mesh && meshPath.rfind("__builtin__/", 0) == 0) {
-            if (meshPath.find("Cube") != std::string::npos) mesh = AssetManager::Get().GetCubeMesh();
-            else if (meshPath.find("Quad") != std::string::npos) mesh = AssetManager::Get().GetQuadMesh();
-        }
-        SetSourceMesh(mesh);
+        SetSourceMesh(AssetManager::Get().ResolveMeshReference(meshPath));
     }
     if (!materialPath.empty()) {
-        MaterialHandle material = AssetManager::Get().GetByPath<MaterialAsset>(materialPath);
-        if (!material && materialPath.rfind("__builtin__/", 0) == 0) {
-            material = AssetManager::Get().GetDefaultMaterial();
-        }
-        SetMaterial(material);
+        SetMaterial(AssetManager::Get().ResolveMaterialReference(materialPath, meshPath));
     }
 
     std::vector<Bone> bones;

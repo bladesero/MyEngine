@@ -220,3 +220,10 @@ flowchart LR
 - **Actions and commands**：按钮通过 `EditorActionRegistry` 调度；会修改场景的操作进入 `EditorCommandStack`。事务按执行顺序 redo、逆序 undo，新命令会清空 redo。
 - **Viewport controllers**：`EditorPickingController` 负责 screen ray/AABB picking；`EditorGizmoController` 负责 ImGuizmo 适配和 transform transaction。父子局部矩阵遵守行向量关系 `world = local * parentWorld`，因此 `local = world * inverse(parentWorld)`。
 - **Dependency rule**：依赖方向只能是 `Editor -> Game/Scene/Assets/Renderer public APIs`。Runtime、Renderer 和 RHI 不允许反向包含 Editor 头文件。
+# RHI and frame graph boundary
+
+Runtime rendering follows `Render Pass -> RenderGraph -> IRHIDevice/GpuCommandList -> backend`.
+RenderGraph validates dependencies and owns attachment state transitions. DXBC reflection
+produces a shared named binding layout used by both Windows backends. Native D3D types are
+restricted to backend implementation files; `tools/check-rhi-boundaries.ps1` enforces
+the rule without a render-pass allowlist.

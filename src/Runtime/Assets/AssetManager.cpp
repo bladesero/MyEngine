@@ -75,11 +75,19 @@ std::string AssetManager::ResolvePath(const std::string& path) const {
     if (path.rfind("__builtin__/", 0) == 0 || path.rfind("__builtin__\\", 0) == 0) {
         return path;
     }
-    const std::filesystem::path input(path);
+    const size_t fragmentPosition = path.find('#');
+    const std::string sourcePath = fragmentPosition == std::string::npos
+        ? path : path.substr(0, fragmentPosition);
+    const std::string fragment = fragmentPosition == std::string::npos
+        ? std::string{} : path.substr(fragmentPosition);
+    const std::filesystem::path input(sourcePath);
+    std::filesystem::path resolved;
     if (input.is_absolute() || m_ProjectRoot.empty()) {
-        return std::filesystem::absolute(input).lexically_normal().string();
+        resolved = std::filesystem::absolute(input).lexically_normal();
+    } else {
+        resolved = std::filesystem::absolute(m_ProjectRoot / input).lexically_normal();
     }
-    return std::filesystem::absolute(m_ProjectRoot / input).lexically_normal().string();
+    return resolved.string() + fragment;
 }
 
 std::string AssetManager::MakeProjectRelativePath(const std::string& path) const {
@@ -87,7 +95,13 @@ std::string AssetManager::MakeProjectRelativePath(const std::string& path) const
         path.rfind("__builtin__\\", 0) == 0 || m_ProjectRoot.empty()) {
         return path;
     }
-    const std::filesystem::path absolutePath(ResolvePath(path));
+    const std::string resolvedPath = ResolvePath(path);
+    const size_t fragmentPosition = resolvedPath.find('#');
+    const std::string sourcePath = fragmentPosition == std::string::npos
+        ? resolvedPath : resolvedPath.substr(0, fragmentPosition);
+    const std::string fragment = fragmentPosition == std::string::npos
+        ? std::string{} : resolvedPath.substr(fragmentPosition);
+    const std::filesystem::path absolutePath(sourcePath);
     std::error_code error;
     const std::filesystem::path contentRoot = m_ProjectRoot / "Content";
     const std::filesystem::path contentRelative =
@@ -95,9 +109,46 @@ std::string AssetManager::MakeProjectRelativePath(const std::string& path) const
     if (error || contentRelative.empty() || contentRelative.is_absolute() ||
         (contentRelative.begin() != contentRelative.end() &&
          *contentRelative.begin() == "..")) {
-        return absolutePath.string();
+        return absolutePath.string() + fragment;
     }
-    return (std::filesystem::path("Content") / contentRelative).generic_string();
+    return (std::filesystem::path("Content") / contentRelative).generic_string() + fragment;
+}
+
+MeshHandle AssetManager::ResolveMeshReference(const std::string& path) {
+    if (path.empty()) return {};
+    if (path == "__builtin__/Triangle") return GetTriangleMesh();
+    if (path == "__builtin__/Quad") return GetQuadMesh();
+    if (path == "__builtin__/Cube") return GetCubeMesh();
+    MeshHandle mesh = GetByPath<MeshAsset>(path);
+    return mesh ? mesh : Load<MeshAsset>(path);
+}
+
+MaterialHandle AssetManager::ResolveMaterialReference(
+    const std::string& path, const std::string& meshPath) {
+    if (path.empty()) return {};
+    if (path == "__builtin__/Default") return GetDefaultMaterial();
+    MaterialHandle material = GetByPath<MaterialAsset>(path);
+    if (material) return material;
+
+    // Older scenes stored imported model materials as __builtin__/Name. Once the
+    // mesh has loaded its source model, recover the matching material by name.
+    if (path.rfind("__builtin__/", 0) == 0 && !meshPath.empty()) {
+        const size_t fragment = meshPath.find('#');
+        if (fragment != std::string::npos) {
+            const std::string modelPath = meshPath.substr(0, fragment);
+            ModelHandle model = GetByPath<ModelAsset>(modelPath);
+            if (!model) model = Load<ModelAsset>(modelPath);
+            const std::string legacyName = path.substr(std::string("__builtin__/").size());
+            if (model) {
+                for (const MaterialHandle& candidate : model->GetMaterials()) {
+                    if (candidate && candidate->GetName() == legacyName) return candidate;
+                }
+            }
+        }
+        Logger::Warn("[AssetManager] Could not resolve legacy model material: ", path);
+        return {};
+    }
+    return Load<MaterialAsset>(path);
 }
 
 void AssetManager::ApplyPersistentIdentity(Asset& asset)
@@ -127,6 +178,19 @@ std::shared_ptr<Asset> AssetManager::LoadAsset(const std::string& path)
     if (pathIt != m_PathToID.end()) {
         const auto cached = m_Cache.find(pathIt->second);
         if (cached != m_Cache.end()) return cached->second;
+    }
+
+    const size_t fragment = normalizedPath.find('#');
+    if (fragment != std::string::npos) {
+        const std::string sourcePath = normalizedPath.substr(0, fragment);
+        if (!LoadAsset(sourcePath)) return {};
+        const auto subAsset = m_PathToID.find(normalizedPath);
+        if (subAsset != m_PathToID.end()) {
+            const auto cached = m_Cache.find(subAsset->second);
+            if (cached != m_Cache.end()) return cached->second;
+        }
+        Logger::Error("[AssetManager] Source did not provide sub-asset: ", normalizedPath);
+        return {};
     }
 
     const std::string ext = GetExtension(normalizedPath);

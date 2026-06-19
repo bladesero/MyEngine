@@ -32,6 +32,7 @@ public:
     void EndFrame()  override;
     GpuSwapChain* GetSwapChain() override;
     GpuCommandList* GetGraphicsCommandList() override;
+    RHIBackend GetBackend() const override { return RHIBackend::Metal; }
     bool InitImGui(IWindow* window) override;
     void ShutdownImGui() override;
     void ProcessImGuiSDLEvent(const SDL_Event& event) override;
@@ -53,20 +54,20 @@ public:
         const VertexElement* layout,
         uint32_t            layoutCount) override;
 
-    void BindShader      (GpuShader* shader) override;
-    void BindVertexBuffer(GpuBuffer* buffer) override;
-    void BindIndexBuffer (GpuBuffer* buffer) override;
+    void BindShader      (GpuShader* shader);
+    void BindVertexBuffer(GpuBuffer* buffer);
+    void BindIndexBuffer (GpuBuffer* buffer);
 
-    void SetVSConstants(const void* data, uint32_t byteSize) override;
+    void SetVSConstants(const void* data, uint32_t byteSize);
 
-    void Draw       (uint32_t vertexCount, uint32_t startVertex = 0) override;
+    void Draw       (uint32_t vertexCount, uint32_t startVertex = 0);
     void DrawIndexed(uint32_t indexCount,  uint32_t startIndex  = 0,
-                     uint32_t baseVertex   = 0)                      override;
+                     uint32_t baseVertex   = 0);
 
-    void SetViewport(float x, float y, float w, float h) override;
+    void SetViewport(float x, float y, float w, float h);
     std::shared_ptr<GpuTexture> UploadTexture2D(
         const void* rgba8Data, int width, int height) override;
-    void BindPSTexture(uint32_t slot, GpuTexture* tex) override;
+    void BindPSTexture(uint32_t slot, GpuTexture* tex);
 
     // Metal-specific accessors used by the ImGui Metal back-end.
     // Returned as void* to keep ObjC types out of this header.

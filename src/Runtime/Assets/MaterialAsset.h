@@ -108,14 +108,18 @@ public:
     }
 
     // ---- 工厂：常用预设材质 -----------------------------------------------
-    static std::shared_ptr<MaterialAsset> CreateDefault(const std::string& name = "Default") {
-        auto mat = std::make_shared<MaterialAsset>("__builtin__/" + name);
+    static std::shared_ptr<MaterialAsset> CreateDefaultAtPath(
+        const std::string& path, const std::string& name) {
+        auto mat = std::make_shared<MaterialAsset>(path);
         mat->SetName(name);
         mat->SetParam("BaseColor",  MaterialParam::FromColor({1,1,1}));
         mat->SetParam("Metallic",   MaterialParam::FromFloat(0.f));
         mat->SetParam("Roughness",  MaterialParam::FromFloat(0.5f));
         mat->SetState(AssetState::Ready);
         return mat;
+    }
+    static std::shared_ptr<MaterialAsset> CreateDefault(const std::string& name = "Default") {
+        return CreateDefaultAtPath("__builtin__/" + name, name);
     }
 
 private:

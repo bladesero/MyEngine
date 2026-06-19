@@ -177,8 +177,10 @@ std::vector<MaterialHandle> ImportMaterials(
     std::vector<MaterialHandle> materials;
     for (cgltf_size i = 0; i < data.materials_count; ++i) {
         const cgltf_material& source = data.materials[i];
-        auto material = MaterialAsset::CreateDefault(
-            source.name ? source.name : "Material" + std::to_string(i));
+        const std::string materialName = source.name
+            ? source.name : "Material" + std::to_string(i);
+        auto material = MaterialAsset::CreateDefaultAtPath(
+            sourcePath.string() + "#material-" + std::to_string(i), materialName);
         if (source.has_pbr_metallic_roughness) {
             const cgltf_pbr_metallic_roughness& pbr = source.pbr_metallic_roughness;
             material->SetParam("BaseColor", MaterialParam::FromVec4(

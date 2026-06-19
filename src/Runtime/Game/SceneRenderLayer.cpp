@@ -44,9 +44,9 @@ void SceneRenderLayer::OnAttach() {
             static_cast<float>(m_VpW) / static_cast<float>(m_VpH),
             0.1f,
             1000.0f);
-        m_RenderContext->SetViewport(
-            static_cast<float>(m_VpX), static_cast<float>(m_VpY),
-            static_cast<float>(m_VpW), static_cast<float>(m_VpH));
+        if (auto* commands = m_RenderContext->GetGraphicsCommandList())
+            commands->SetViewport(static_cast<float>(m_VpX), static_cast<float>(m_VpY),
+                                  static_cast<float>(m_VpW), static_cast<float>(m_VpH));
     }
     if (m_VpW > 0 && m_VpH > 0) {
         m_Renderer.Resize(static_cast<uint32_t>(m_VpW), static_cast<uint32_t>(m_VpH));
@@ -136,9 +136,9 @@ void SceneRenderLayer::OnEvent(Event& event) {
                 swapChain->Resize(static_cast<uint32_t>(windowW),
                                   static_cast<uint32_t>(windowH));
             }
-            m_RenderContext->SetViewport(
-                static_cast<float>(m_VpX), static_cast<float>(m_VpY),
-                static_cast<float>(m_VpW), static_cast<float>(m_VpH));
+            if (auto* commands = m_RenderContext->GetGraphicsCommandList())
+                commands->SetViewport(static_cast<float>(m_VpX), static_cast<float>(m_VpY),
+                                      static_cast<float>(m_VpW), static_cast<float>(m_VpH));
         }
     }
 }
@@ -292,9 +292,9 @@ void SceneRenderLayer::OnRender() {
         m_RendererH = m_VpH;
     }
     if (m_VpW > 0 && m_VpH > 0) {
-        m_RenderContext->SetViewport(
-            static_cast<float>(m_VpX), static_cast<float>(m_VpY),
-            static_cast<float>(m_VpW), static_cast<float>(m_VpH));
+        if (auto* commands = m_RenderContext->GetGraphicsCommandList())
+            commands->SetViewport(static_cast<float>(m_VpX), static_cast<float>(m_VpY),
+                                  static_cast<float>(m_VpW), static_cast<float>(m_VpH));
     }
     m_Renderer.RenderScene(GetScene(), m_Camera, m_PresentEnabled);
 }
@@ -319,9 +319,9 @@ void SceneRenderLayer::SetEditorViewportRect(int x, int y, int width, int height
     m_Camera.SetAspect(static_cast<float>(m_VpW) / static_cast<float>(m_VpH));
 
     if (m_RenderContext) {
-        m_RenderContext->SetViewport(
-            static_cast<float>(m_VpX), static_cast<float>(m_VpY),
-            static_cast<float>(m_VpW), static_cast<float>(m_VpH));
+        if (auto* commands = m_RenderContext->GetGraphicsCommandList())
+            commands->SetViewport(static_cast<float>(m_VpX), static_cast<float>(m_VpY),
+                                  static_cast<float>(m_VpW), static_cast<float>(m_VpH));
     }
 }
 

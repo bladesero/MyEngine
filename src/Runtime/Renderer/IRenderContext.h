@@ -6,7 +6,11 @@
 #include "Renderer/RHI/GpuShader.h"
 #include "Renderer/RHI/GpuSwapChain.h"
 #include "Renderer/RHI/GpuTexture.h"
+#include "Renderer/RHI/GpuTextureView.h"
+#include "Renderer/RHI/GpuSampler.h"
 #include "Renderer/RHI/VertexLayout.h"
+#include "Renderer/RHI/IRHIDevice.h"
+#include "Renderer/RHI/GpuReadback.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -20,7 +24,7 @@ union SDL_Event;
 // --------------------------------------------------------------------------
 // IRHIContext - platform-agnostic rendering hardware interface
 // --------------------------------------------------------------------------
-class IRHIContext {
+class IRHIContext : public IRHIDevice {
 public:
     virtual ~IRHIContext() = default;
 
@@ -38,7 +42,11 @@ public:
     }
     // Optional swapchain abstraction (nullptr when backend keeps it internal).
     virtual GpuSwapChain* GetSwapChain() { return nullptr; }
+    virtual GpuTextureView* GetCurrentBackBufferView() { return nullptr; }
     virtual GpuCommandList* GetGraphicsCommandList() = 0;
+    RHIBackend GetBackend() const override { return RHIBackend::Unknown; }
+    virtual std::shared_ptr<GpuReadbackTicket> ReadbackBufferAsync(
+        const std::shared_ptr<GpuBuffer>&) { return nullptr; }
 
     // ImGui backend hooks -----------------------------------------------------
     // Editor/UI layers call these backend-agnostic hooks. Concrete contexts
@@ -90,57 +98,22 @@ public:
     virtual std::shared_ptr<GpuTexture> UploadTexture2D(
         const void* rgba8Data, int width, int height) = 0;
 
-    // Compatibility immediate wrappers ---------------------------------------
-    // Existing callers can keep using RenderContext-style calls, while new
-    // RHI code can operate through GpuCommandList directly.
-    virtual void BindShader(GpuShader* shader) {
-        if (auto* cmd = GetGraphicsCommandList()) {
-            cmd->BindShader(shader);
-        }
+    virtual std::shared_ptr<GpuTexture> CreateTexture(const RHITextureDesc&) {
+        return nullptr;
     }
+    virtual std::shared_ptr<GpuTextureView> CreateTextureView(
+        const std::shared_ptr<GpuTexture>&, const RHITextureViewDesc&) {
+        return nullptr;
+    }
+    virtual std::shared_ptr<GpuSampler> CreateSampler(const RHISamplerDesc&) {
+        return nullptr;
+    }
+    std::shared_ptr<GpuBindGroup> CreateBindGroup(
+        const std::shared_ptr<GpuShader>& shader) {
+        return shader ? std::make_shared<GpuBindGroup>(shader) : nullptr;
+    }
+    virtual void* GetImGuiTextureId(GpuTextureView*) { return nullptr; }
 
-    virtual void BindVertexBuffer(GpuBuffer* buffer) {
-        if (auto* cmd = GetGraphicsCommandList()) {
-            cmd->BindVertexBuffer(buffer);
-        }
-    }
-
-    virtual void BindIndexBuffer(GpuBuffer* buffer) {
-        if (auto* cmd = GetGraphicsCommandList()) {
-            cmd->BindIndexBuffer(buffer);
-        }
-    }
-
-    virtual void SetVSConstants(const void* data, uint32_t byteSize) {
-        if (auto* cmd = GetGraphicsCommandList()) {
-            cmd->SetVSConstants(data, byteSize);
-        }
-    }
-
-    virtual void Draw(uint32_t vertexCount, uint32_t startVertex = 0) {
-        if (auto* cmd = GetGraphicsCommandList()) {
-            cmd->Draw(vertexCount, startVertex);
-        }
-    }
-
-    virtual void DrawIndexed(uint32_t indexCount, uint32_t startIndex = 0,
-                             uint32_t baseVertex = 0) {
-        if (auto* cmd = GetGraphicsCommandList()) {
-            cmd->DrawIndexed(indexCount, startIndex, baseVertex);
-        }
-    }
-
-    virtual void SetViewport(float x, float y, float w, float h) {
-        if (auto* cmd = GetGraphicsCommandList()) {
-            cmd->SetViewport(x, y, w, h);
-        }
-    }
-
-    virtual void BindPSTexture(uint32_t slot, GpuTexture* tex) {
-        if (auto* cmd = GetGraphicsCommandList()) {
-            cmd->BindPSTexture(slot, tex);
-        }
-    }
 };
 
 // Backward-compatible name for existing code.

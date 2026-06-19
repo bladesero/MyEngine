@@ -21,6 +21,7 @@
 #include "Scene/ComponentRegistry.h"
 #include "Scripting/ScriptComponent.h"
 #include "Renderer/Renderer.h"
+#include "Renderer/RenderGraph.h"
 #include "Renderer/GpuUploadQueue.h"
 #include "Renderer/LightComponent.h"
 #include "Renderer/PostProcessComponent.h"
@@ -656,8 +657,27 @@ bool TestSceneRunStates() {
 }
 
 struct MockBuffer final : GpuBuffer {};
+struct MockBufferView final : GpuBufferView {};
 struct MockShader final : GpuShader {};
 struct MockTexture final : GpuTexture {};
+struct MockTextureView final : GpuTextureView {};
+struct MockSampler final : GpuSampler {};
+
+class MockReadbackTicket final : public GpuReadbackTicket {
+public:
+    explicit MockReadbackTicket(std::vector<uint8_t> bytes)
+        : m_Bytes(std::move(bytes)) {}
+    bool IsReady() const override { return ready; }
+    bool Read(std::vector<uint8_t>& data) override {
+        if (!ready) return false;
+        data = m_Bytes;
+        return true;
+    }
+    uint32_t GetSize() const override { return static_cast<uint32_t>(m_Bytes.size()); }
+    bool ready = false;
+private:
+    std::vector<uint8_t> m_Bytes;
+};
 
 class MockCommandList final : public GpuCommandList {
 public:
@@ -679,6 +699,19 @@ public:
     void SetViewport(float, float, float, float) override {}
     void BindPSTexture(uint32_t, GpuTexture*) override {}
     void SetBlendMode(GpuBlendMode mode) override { blendModes.push_back(mode); }
+    void Transition(GpuResource*, RHIResourceState before,
+                    RHIResourceState after) override {
+        transitions.emplace_back(before, after);
+    }
+    void BeginRendering(const RenderingInfo&) override { ++renderingScopes; }
+    void EndRendering() override { --renderingScopes; }
+    void SetGraphicsPipeline(GpuGraphicsPipeline*) override { ++pipelineBinds; }
+    void SetComputePipeline(GpuComputePipeline*) override { ++computePipelineBinds; }
+    void SetBindGroup(uint32_t, GpuBindGroup*) override { ++bindGroupBinds; }
+    void Dispatch(uint32_t x, uint32_t y, uint32_t z) override {
+        ++dispatches; dispatchGroups = {x, y, z};
+    }
+    void UAVBarrier(GpuResource*) override { ++uavBarriers; }
 
     int shaderBinds = 0;
     int vertexBinds = 0;
@@ -686,6 +719,14 @@ public:
     int drawCalls = 0;
     int submittedInstances = 0;
     std::vector<GpuBlendMode> blendModes;
+    std::vector<std::pair<RHIResourceState, RHIResourceState>> transitions;
+    int renderingScopes = 0;
+    int pipelineBinds = 0;
+    int computePipelineBinds = 0;
+    int bindGroupBinds = 0;
+    int dispatches = 0;
+    int uavBarriers = 0;
+    std::array<uint32_t, 3> dispatchGroups{};
 };
 
 class MockRenderContext final : public IRenderContext {
@@ -716,6 +757,45 @@ public:
         ++textureUploads;
         return std::make_shared<MockTexture>();
     }
+    std::shared_ptr<GpuTexture> CreateTexture(const RHITextureDesc& desc) override {
+        auto texture = std::make_shared<MockTexture>(); texture->desc = desc;
+        ++graphTextureCreates; return texture;
+    }
+    std::shared_ptr<GpuTextureView> CreateTextureView(
+        const std::shared_ptr<GpuTexture>& texture,
+        const RHITextureViewDesc& desc) override {
+        auto view = std::make_shared<MockTextureView>();
+        view->texture = texture; view->desc = desc; return view;
+    }
+    std::shared_ptr<GpuBuffer> CreateBuffer(
+        const RHIBufferDesc& desc, const void* initialData = nullptr) override {
+        auto buffer = std::make_shared<MockBuffer>(); buffer->desc = desc;
+        bufferBytes.resize(desc.size);
+        if (initialData && desc.size) std::memcpy(bufferBytes.data(), initialData, desc.size);
+        ++bufferCreates;
+        return buffer;
+    }
+    std::shared_ptr<GpuBufferView> CreateBufferView(
+        const std::shared_ptr<GpuBuffer>& buffer,
+        const RHIBufferViewDesc& desc) override {
+        if (!buffer || !desc.elementCount) return nullptr;
+        auto view = std::make_shared<MockBufferView>();
+        view->buffer = buffer; view->desc = desc;
+        return view;
+    }
+    std::shared_ptr<GpuShader> CreateComputeShaderFromBytecode(
+        const void*, size_t) override {
+        auto shader = std::make_shared<MockShader>();
+        ++computeShaderCreates;
+        return shader;
+    }
+    std::shared_ptr<GpuReadbackTicket> ReadbackBufferAsync(
+        const std::shared_ptr<GpuBuffer>& buffer) override {
+        if (!buffer) return nullptr;
+        auto ticket = std::make_shared<MockReadbackTicket>(bufferBytes);
+        lastReadback = ticket;
+        return ticket;
+    }
 
     MockCommandList commands;
     int beginFrames = 0;
@@ -724,7 +804,185 @@ public:
     int indexUploads = 0;
     int shaderCreates = 0;
     int textureUploads = 0;
+    int graphTextureCreates = 0;
+    int bufferCreates = 0;
+    int computeShaderCreates = 0;
+    std::vector<uint8_t> bufferBytes;
+    std::shared_ptr<MockReadbackTicket> lastReadback;
 };
+
+bool TestRenderGraphValidationAndExecution() {
+    MockRenderContext context;
+    RenderGraph graph(context);
+    RHITextureDesc desc;
+    desc.width = 128; desc.height = 64;
+    desc.usage = RHIResourceUsage::RenderTarget | RHIResourceUsage::ShaderResource;
+    const RGTextureHandle sceneColor = graph.CreateTexture("SceneColor", desc);
+    std::vector<std::string> executed;
+    graph.AddPass("Main", [&](RenderGraphBuilder& builder) {
+        builder.WriteColor(sceneColor, RHILoadOp::Clear, RHIStoreOp::Store,
+                           {0.1f, 0.2f, 0.3f, 1.0f});
+    }, [&](GpuCommandList&, const RenderGraphResources& resources) {
+        if (resources.GetTexture(sceneColor)) executed.push_back("Main");
+    });
+    graph.AddPass("Composite", [&](RenderGraphBuilder& builder) {
+        builder.ReadTexture(sceneColor);
+    }, [&](GpuCommandList&, const RenderGraphResources& resources) {
+        if (resources.GetView(sceneColor)) executed.push_back("Composite");
+    });
+    if (!Check(graph.Compile(), "RenderGraph compile failed: " + graph.GetLastError())) return false;
+    if (!Check(graph.GetExecutionOrder() == std::vector<std::string>({"Main", "Composite"}),
+               "RenderGraph execution order mismatch")) return false;
+    if (!Check(graph.Execute(), "RenderGraph execute failed: " + graph.GetLastError())) return false;
+    if (!Check(executed == std::vector<std::string>({"Main", "Composite"}) &&
+               context.graphTextureCreates == 1 && context.commands.renderingScopes == 0,
+               "RenderGraph did not execute through the RHI resource path")) return false;
+    if (!Check(context.commands.transitions.size() == 2 &&
+               context.commands.transitions[0].second == RHIResourceState::RenderTarget &&
+               context.commands.transitions[1].second == RHIResourceState::ShaderResource,
+               "RenderGraph state transitions mismatch")) return false;
+
+    graph.Reset();
+    const RGTextureHandle reused = graph.CreateTexture("SceneColor", desc);
+    graph.AddPass("Rewrite", [&](RenderGraphBuilder& builder) {
+        builder.WriteColor(reused, RHILoadOp::Clear);
+    }, {});
+    if (!Check(graph.Execute() && context.graphTextureCreates == 1,
+               "RenderGraph did not reuse a descriptor-compatible transient texture")) return false;
+
+    RenderGraph invalid(context);
+    const RGTextureHandle unread = invalid.CreateTexture("Unread", desc);
+    invalid.AddPass("InvalidRead", [&](RenderGraphBuilder& builder) {
+        builder.ReadTexture(unread);
+    }, {});
+    return Check(!invalid.Compile() &&
+                 invalid.GetLastError().find("uninitialized") != std::string::npos,
+                 "RenderGraph accepted an uninitialized texture read");
+}
+
+bool TestNamedShaderBindings() {
+    auto shader = std::make_shared<MockShader>();
+    shader->reflection.bindings = {
+        {"FrameConstants", ShaderBindingType::ConstantBuffer, 0, 1, 16, ShaderStageVertex},
+        {"SceneColor", ShaderBindingType::Texture, 0, 1, 0, ShaderStagePixel},
+        {"LinearClamp", ShaderBindingType::Sampler, 0, 1, 0, ShaderStagePixel}};
+    GpuBindGroup bindings(shader);
+    float constants[4] = {};
+    if (!Check(!bindings.SetConstants("FrameConstants", constants, 12),
+               "named binding accepted an invalid constant-buffer size")) return false;
+    if (!Check(bindings.SetConstants("FrameConstants", constants, sizeof(constants)),
+               "named constant binding failed")) return false;
+    std::string error;
+    if (!Check(!bindings.Validate(&error) && error.find("SceneColor") != std::string::npos,
+               "bind group did not report a missing reflected binding")) return false;
+    auto texture = std::make_shared<MockTexture>();
+    auto view = std::make_shared<MockTextureView>(); view->texture = texture;
+    auto sampler = std::make_shared<MockSampler>();
+    return Check(bindings.SetTexture("SceneColor", view) &&
+                 bindings.SetSampler("LinearClamp", sampler) && bindings.Validate(&error),
+                 "complete named bind group failed validation: " + error);
+}
+
+bool TestBackendIndependentPassRecording() {
+    MockRenderContext context;
+    auto shader = std::make_shared<MockShader>();
+    GraphicsPipelineDesc pipelineDesc; pipelineDesc.shader = shader;
+    auto pipeline = context.CreateGraphicsPipeline(pipelineDesc);
+    auto bindings = context.CreateBindGroup(shader);
+    RHITextureDesc targetDesc;
+    targetDesc.width = 32; targetDesc.height = 32;
+    targetDesc.usage = RHIResourceUsage::RenderTarget | RHIResourceUsage::ShaderResource;
+    RenderGraph graph(context);
+    const auto target = graph.CreateTexture("ValidationTarget", targetDesc);
+    graph.AddPass("RHIValidationPass", [&](RenderGraphBuilder& builder) {
+        builder.WriteColor(target, RHILoadOp::Clear);
+    }, [&](GpuCommandList& commands, const RenderGraphResources&) {
+        commands.SetGraphicsPipeline(pipeline.get());
+        commands.SetBindGroup(0, bindings.get());
+        commands.Draw(3);
+    });
+    return Check(graph.Execute() && context.commands.pipelineBinds == 1 &&
+                 context.commands.bindGroupBinds == 1 && context.commands.drawCalls == 1,
+                 "backend-independent validation pass did not record the expected RHI commands");
+}
+
+bool TestComputeStorageBufferAndAsyncReadback() {
+    MockRenderContext context;
+    const std::array<uint32_t, 4> initial = {1, 2, 3, 4};
+    RHIBufferDesc bufferDesc;
+    bufferDesc.size = sizeof(initial); bufferDesc.stride = sizeof(uint32_t);
+    bufferDesc.usage = RHIResourceUsage::UnorderedAccess |
+                       RHIResourceUsage::ShaderResource |
+                       RHIResourceUsage::CopySource;
+    auto buffer = context.CreateBuffer(bufferDesc, initial.data());
+    RHIBufferViewDesc viewDesc;
+    viewDesc.elementCount = static_cast<uint32_t>(initial.size());
+    viewDesc.usage = RHIResourceUsage::UnorderedAccess;
+    auto view = context.CreateBufferView(buffer, viewDesc);
+    auto shader = std::make_shared<MockShader>();
+    shader->reflection.bindings = {
+        {"SHOutput", ShaderBindingType::StorageBuffer, 0, 1, 0, ShaderStageCompute}};
+    auto bindings = context.CreateBindGroup(shader);
+    if (!Check(view && bindings->SetStorageBuffer("SHOutput", view),
+               "compute storage-buffer named binding failed")) return false;
+    std::string error;
+    if (!Check(bindings->Validate(&error), "compute bind group validation failed: " + error)) return false;
+    ComputePipelineDesc pipelineDesc; pipelineDesc.shader = shader;
+    auto pipeline = context.CreateComputePipeline(pipelineDesc);
+    auto* commands = context.GetGraphicsCommandList();
+    commands->SetComputePipeline(pipeline.get());
+    commands->SetBindGroup(0, bindings.get());
+    commands->Dispatch(2, 3, 4);
+    commands->UAVBarrier(buffer.get());
+    if (!Check(context.commands.computePipelineBinds == 1 &&
+               context.commands.dispatches == 1 && context.commands.uavBarriers == 1 &&
+               context.commands.dispatchGroups == std::array<uint32_t, 3>{2, 3, 4},
+               "compute pass did not record the expected RHI commands")) return false;
+    auto ticket = context.ReadbackBufferAsync(buffer);
+    std::vector<uint8_t> bytes;
+    if (!Check(ticket && !ticket->IsReady() && !ticket->Read(bytes),
+               "async readback completed synchronously")) return false;
+    context.lastReadback->ready = true;
+    return Check(ticket->IsReady() && ticket->Read(bytes) && bytes.size() == sizeof(initial) &&
+                 std::memcmp(bytes.data(), initial.data(), sizeof(initial)) == 0,
+                 "async readback returned incorrect buffer contents");
+}
+
+bool TestRenderGraphComputeBufferDependencies() {
+    MockRenderContext context;
+    RenderGraph graph(context);
+    RHIBufferDesc desc;
+    desc.size = 9 * 16; desc.stride = 16;
+    desc.usage = RHIResourceUsage::UnorderedAccess |
+                 RHIResourceUsage::ShaderResource |
+                 RHIResourceUsage::CopySource;
+    const auto output = graph.CreateBuffer("SHOutput", desc);
+    std::vector<std::string> executed;
+    graph.AddPass("ProjectSH", [&](RenderGraphBuilder& builder) {
+        builder.ReadWriteUAV(output);
+    }, [&](GpuCommandList& commands, const RenderGraphResources& resources) {
+        if (resources.GetBuffer(output) && resources.GetBufferView(output)) {
+            commands.Dispatch(1, 1, 1); executed.push_back("ProjectSH");
+        }
+    });
+    graph.AddPass("ConsumeSH", [&](RenderGraphBuilder& builder) {
+        builder.ReadBuffer(output);
+    }, [&](GpuCommandList&, const RenderGraphResources& resources) {
+        if (resources.GetBuffer(output)) executed.push_back("ConsumeSH");
+    });
+    if (!Check(graph.Execute() &&
+               executed == std::vector<std::string>({"ProjectSH", "ConsumeSH"}) &&
+               context.bufferCreates == 1 && context.commands.dispatches == 1,
+               "RenderGraph compute-buffer dependency execution failed")) return false;
+    RenderGraph invalid(context);
+    const auto unread = invalid.CreateBuffer("UnreadBuffer", desc);
+    invalid.AddPass("InvalidBufferRead", [&](RenderGraphBuilder& builder) {
+        builder.ReadBuffer(unread);
+    }, {});
+    return Check(!invalid.Compile() &&
+                 invalid.GetLastError().find("uninitialized buffer") != std::string::npos,
+                 "RenderGraph accepted an uninitialized buffer read");
+}
 
 bool TestHeadlessRendering() {
     AssetManager::Get().Clear();
@@ -767,7 +1025,8 @@ bool TestHeadlessRendering() {
     if (!Check(context.shaderCreates >= 1, "headless shader was not created")) return false;
     if (!Check(context.vertexUploads == 1 && context.indexUploads == 1,
                "headless mesh upload mismatch")) return false;
-    if (!Check(context.textureUploads == 2, "headless texture uploads missing")) return false;
+    if (!Check(context.textureUploads == 3,
+               "headless texture uploads missing material or named-binding fallback")) return false;
     if (!Check(context.commands.drawCalls == 3,
                "frustum culling emitted an unexpected draw count")) return false;
     return Check(context.commands.blendModes.size() == 3 &&
@@ -1863,6 +2122,97 @@ bool TestProjectConfigAndPortableAssetPaths() {
     return true;
 }
 
+bool TestSceneColdLoadsModelSubAssetReferences() {
+    namespace fs = std::filesystem;
+    const auto root = fs::temp_directory_path() /
+        ("myengine_scene_subasset_test_" + std::to_string(
+            std::chrono::steady_clock::now().time_since_epoch().count()));
+    const auto models = root / "Content" / "Models";
+    fs::create_directories(models);
+    const auto objPath = models / "triangle.obj";
+    const auto mtlPath = models / "triangle.mtl";
+    std::ofstream(mtlPath)
+        << "newmtl TestMat\n"
+        << "Kd 0.2 0.6 0.9\n";
+    std::ofstream(objPath)
+        << "mtllib triangle.mtl\n"
+        << "v 0 0 0\n"
+        << "v 1 0 0\n"
+        << "v 0 1 0\n"
+        << "usemtl TestMat\n"
+        << "f 1 2 3\n";
+
+    AssetManager& assets = AssetManager::Get();
+    assets.Clear();
+    assets.SetProjectRoot(root);
+    const ModelHandle model = assets.Load<ModelAsset>(objPath.string());
+    if (!Check(model && model->GetMesh() && model->GetMaterial(0),
+               "model fixture failed to import")) return false;
+
+    Scene source("ColdSubAssets");
+    Actor* actor = source.CreateActor("ImportedModel");
+    auto* renderer = actor->AddComponent<MeshRendererComponent>();
+    renderer->SetMesh(model->GetMesh());
+    renderer->SetMaterial(model->GetMaterial(0));
+    const std::string serialized = SceneSerializer::SaveToString(source);
+    const nlohmann::json saved = nlohmann::json::parse(serialized);
+    const auto& savedData = saved["actors"][0]["components"][0]["data"];
+    if (!Check(savedData.value("mesh", std::string{}) ==
+                   "Content/Models/triangle.obj#mesh" &&
+               savedData.value("material", std::string{}) ==
+                   "Content/Models/triangle.obj#material-0",
+               "model sub-assets were not serialized as stable project-relative paths")) {
+        return false;
+    }
+
+    assets.Clear();
+    Scene loaded;
+    if (!Check(SceneSerializer::LoadFromString(loaded, serialized),
+               "cold scene sub-asset deserialize failed")) return false;
+    Actor* loadedActor = loaded.FindByName("ImportedModel");
+    auto* loadedRenderer = loadedActor
+        ? loadedActor->GetComponent<MeshRendererComponent>() : nullptr;
+    if (!Check(loadedRenderer && loadedRenderer->GetMesh().IsValid() &&
+               loadedRenderer->GetMaterial().IsValid(),
+               "cold scene load lost imported mesh or material reference")) return false;
+
+    SkinnedMeshRendererComponent skinned;
+    skinned.SetSourceMesh(loadedRenderer->GetMesh());
+    skinned.SetMaterial(loadedRenderer->GetMaterial());
+    nlohmann::json skinnedData;
+    skinned.Serialize(skinnedData);
+    assets.Clear();
+    SkinnedMeshRendererComponent coldSkinned;
+    coldSkinned.Deserialize(skinnedData);
+    if (!Check(coldSkinned.GetSourceMesh().IsValid() &&
+               coldSkinned.GetMaterial().IsValid(),
+               "cold skinned-mesh load lost imported sub-asset references")) return false;
+
+    nlohmann::json legacy = nlohmann::json::parse(serialized);
+    for (auto& component : legacy["actors"][0]["components"]) {
+        if (component.value("type", std::string{}) == "MeshRenderer") {
+            component["data"]["material"] = "__builtin__/TestMat";
+        }
+    }
+    assets.Clear();
+    Scene legacyLoaded;
+    if (!Check(SceneSerializer::LoadFromString(legacyLoaded, legacy.dump()),
+               "legacy imported material scene failed to deserialize")) return false;
+    Actor* legacyActor = legacyLoaded.FindByName("ImportedModel");
+    auto* legacyRenderer = legacyActor
+        ? legacyActor->GetComponent<MeshRendererComponent>() : nullptr;
+    const bool legacyResolved = legacyRenderer && legacyRenderer->GetMesh().IsValid() &&
+        legacyRenderer->GetMaterial().IsValid() &&
+        legacyRenderer->GetMaterial()->GetName() == "TestMat";
+
+    assets.Clear();
+    assets.SetProjectRoot({});
+    std::error_code cleanupError;
+    fs::remove_all(root, cleanupError);
+    return Check(legacyResolved,
+                 "legacy imported material reference was not recovered from its model");
+}
+
 bool TestWorkspaceCookAndPublish() {
     namespace fs = std::filesystem;
     const auto base = fs::temp_directory_path() /
@@ -2073,6 +2423,7 @@ int main() {
     if (!TestEditorServiceActionAndInspectorRegistries()) { ++failed; }
     if (!TestEditorProjectAndAssetRegistry()) { ++failed; }
     if (!TestProjectConfigAndPortableAssetPaths()) { ++failed; }
+    if (!TestSceneColdLoadsModelSubAssetReferences()) { ++failed; }
     if (!TestWorkspaceCookAndPublish()) { ++failed; }
 
     if (!TestSceneSerializationRegression()) { ++failed; }
@@ -2089,6 +2440,11 @@ int main() {
     if (!TestComponentRegistry()) { ++failed; }
     if (!TestSceneRunStates()) { ++failed; }
     if (!TestHeadlessRendering()) { ++failed; }
+    if (!TestRenderGraphValidationAndExecution()) { ++failed; }
+    if (!TestNamedShaderBindings()) { ++failed; }
+    if (!TestBackendIndependentPassRecording()) { ++failed; }
+    if (!TestComputeStorageBufferAndAsyncReadback()) { ++failed; }
+    if (!TestRenderGraphComputeBufferDependencies()) { ++failed; }
     if (!TestCrashReportWriting()) { ++failed; }
     if (!TestTransformHierarchyWorldPosition()) { ++failed; }
     if (!TestCameraViewportProjectionStability()) { ++failed; }

@@ -378,14 +378,16 @@ std::shared_ptr<ModelAsset> LoadModelAssetFromObj(const std::string& path) {
         if (materialOrder.empty()) {
             materials.push_back(AssetManager::Get().GetDefaultMaterial());
         } else {
-            for (const auto& name : materialOrder) {
+            for (size_t materialIndex = 0; materialIndex < materialOrder.size();
+                 ++materialIndex) {
+                const auto& name = materialOrder[materialIndex];
                 const auto it = materialsByName.find(name);
                 if (it == materialsByName.end()) {
                     continue;
                 }
 
-                auto mat = MaterialAsset::CreateDefault(name);
-                mat->SetName(name);
+                auto mat = MaterialAsset::CreateDefaultAtPath(
+                    path + "#material-" + std::to_string(materialIndex), name);
                 const auto& rec = it->second;
                 mat->SetParam("BaseColor",
                     MaterialParam::FromVec4(rec.diffuse.x, rec.diffuse.y, rec.diffuse.z, rec.alpha));

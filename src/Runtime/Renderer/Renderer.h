@@ -10,6 +10,7 @@ class ShadowPass;
 class PostProcessPass;
 class MainPass;
 class EnvironmentPass;
+class RenderGraph;
 
 // ============================================================================
 // Renderer  鈥? minimal scene renderer for MeshRendererComponent
@@ -32,7 +33,7 @@ public:
     void RenderScene(const Scene& scene, const Camera& camera, bool present = true);
 
     void SetEditorOffscreen(bool enabled);
-    void* GetSceneColorTextureHandle() const;
+    GpuTextureView* GetSceneColorView() const;
 
 private:
     IRenderContext*            m_Context = nullptr;
@@ -40,6 +41,7 @@ private:
     std::unique_ptr<EnvironmentPass> m_EnvironmentPass;
     std::unique_ptr<MainPass>   m_MainPass;
     std::unique_ptr<PostProcessPass> m_PostProcessPass;
+    std::unique_ptr<RenderGraph> m_RenderGraph;
     bool m_EditorOffscreen = false;
 };
 

@@ -3,12 +3,32 @@
 #include "Renderer/RHI/GpuBuffer.h"
 #include "Renderer/RHI/GpuShader.h"
 #include "Renderer/RHI/GpuTexture.h"
+#include "Renderer/RHI/GpuPipeline.h"
+#include "Renderer/RHI/GpuBindGroup.h"
+#include "Renderer/RHI/GpuTextureView.h"
 
 #include <cstdint>
 
 enum class GpuBlendMode : uint8_t {
     Opaque,
     Alpha,
+};
+
+struct RenderingAttachment {
+    GpuTextureView* view = nullptr;
+    RHILoadOp loadOp = RHILoadOp::Load;
+    RHIStoreOp storeOp = RHIStoreOp::Store;
+    ClearColor clearColor{};
+    float clearDepth = 1.0f;
+    uint8_t clearStencil = 0;
+};
+
+struct RenderingInfo {
+    const RenderingAttachment* colors = nullptr;
+    uint32_t colorCount = 0;
+    const RenderingAttachment* depth = nullptr;
+    uint32_t width = 0;
+    uint32_t height = 0;
 };
 
 // Draw command recording/dispatch abstraction.
@@ -42,6 +62,26 @@ public:
         (void)wireframe;
     }
 
-    // Optional native handle for backend interop.
-    virtual void* GetNativeHandle() const { return nullptr; }
+    // Backend-independent command surface used by RenderGraph passes.  Default
+    // implementations keep non-rendering test contexts source compatible while
+    // concrete GPU backends opt into each capability.
+    virtual void Transition(GpuResource*, RHIResourceState, RHIResourceState) {}
+    virtual void TransitionTexture(GpuTexture* texture, const RHITextureViewDesc&,
+                                   RHIResourceState before, RHIResourceState after) {
+        Transition(texture, before, after);
+    }
+    virtual void BeginRendering(const RenderingInfo&) {}
+    virtual void EndRendering() {}
+    virtual void SetGraphicsPipeline(GpuGraphicsPipeline*) {}
+    virtual void SetDepthOnlyShader(GpuShader* shader) { BindShader(shader); }
+    virtual void SetComputePipeline(GpuComputePipeline*) {}
+    virtual void SetBindGroup(uint32_t, GpuBindGroup*) {}
+    virtual void SetVertexBuffer(GpuBuffer* buffer) { BindVertexBuffer(buffer); }
+    virtual void SetIndexBuffer(GpuBuffer* buffer) { BindIndexBuffer(buffer); }
+    virtual void SetScissor(int32_t, int32_t, uint32_t, uint32_t) {}
+    virtual void Dispatch(uint32_t, uint32_t = 1, uint32_t = 1) {}
+    virtual void CopyBuffer(GpuBuffer*, uint32_t, GpuBuffer*, uint32_t, uint32_t) {}
+    virtual void CopyTexture(GpuTexture*, GpuTexture*) {}
+    virtual void UAVBarrier(GpuResource*) {}
+
 };

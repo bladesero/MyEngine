@@ -1,5 +1,10 @@
 # GpuCommandList
 
+The command surface includes rendering scopes, logical resource transitions, graphics
+and compute pipeline/bind-group binding, viewport/scissor, draw/dispatch and copy
+operations. RenderGraph owns attachment transitions and rendering scopes; pass callbacks
+normally issue only pipeline, resource and draw/dispatch commands.
+
 ## 角色
 
 RHI 命令列表抽象对象。

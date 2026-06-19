@@ -17,11 +17,6 @@
 #include <limits>
 #include <string>
 
-#ifdef MYENGINE_PLATFORM_WINDOWS
-#include "Renderer/D3D11Context.h"
-#include "Renderer/D3D12Context.h"
-#include "ShaderBytecodeWindows.h"
-#endif
 
 namespace {
 
@@ -96,35 +91,13 @@ void ShadowPass::Resize(uint32_t width, uint32_t height)
     if (target == m_ShadowMapSize) return;
 
     m_ShadowMapSize = target;
-#ifdef MYENGINE_PLATFORM_WINDOWS
-    m_ShadowDepthTexture.Reset();
-    for (auto& dsv : m_ShadowDSV) {
-        dsv.Reset();
-    }
-    m_ShadowSRV.Reset();
-    m_SpotShadowDepthTexture.Reset();
-    m_SpotShadowDSV.Reset();
-    m_SpotShadowSRV.Reset();
-    m_PointShadowDepthTexture.Reset();
-    for (auto& dsv : m_PointShadowDSV) {
-        dsv.Reset();
-    }
-    m_PointShadowSRV.Reset();
-    m_ShadowSampler.Reset();
     m_ShadowMapTexture.reset();
     m_SpotShadowMapTexture.reset();
     m_PointShadowMapTexture.reset();
-    m_ShadowDepthResourceD3D12.Reset();
-    m_SpotShadowDepthResourceD3D12.Reset();
-    m_PointShadowDepthResourceD3D12.Reset();
-    for (auto& handle : m_ShadowCascadeDsvD3D12) {
-        handle = {};
-    }
-    m_SpotShadowDsvD3D12 = {};
-    for (auto& handle : m_PointShadowDsvD3D12) {
-        handle = {};
-    }
-#endif
+    for (auto& view : m_ShadowCascadeViews) view.reset();
+    m_SpotShadowView.reset();
+    for (auto& view : m_PointShadowViews) view.reset();
+    m_ShadowResourcesInShaderState = false;
 }
 
 void ShadowPass::UpdateLightMatrices(const Scene& scene, const Camera& camera)
@@ -387,255 +360,60 @@ void ShadowPass::EnsureShadowShader()
 {
     if (!Context()) return;
 
-#ifdef MYENGINE_PLATFORM_WINDOWS
     ShaderManager::Get().SetContext(Context());
-
-    if (dynamic_cast<D3D11Context*>(Context()) != nullptr) {
-        if (!m_ShadowShaderHandle) {
-            m_ShadowShaderHandle = ShaderManager::Get().GetOrCreate(
-                "src/Runtime/Renderer/Shaders/ShadowDepth.hlsl",
-                "VSMain", "PSMain",
-                k_ShadowVertexLayout, 3);
-        }
-    } else {
-        if (!m_ShadowShaderHandle) {
-            m_ShadowShaderHandle = ShaderManager::Get().GetOrCreate(
-                "src/Runtime/Renderer/Shaders/ShadowDepth.hlsl",
-                "VSMain", "PSMain",
-                k_ShadowVertexLayout,
-                3);
-        }
-    }
+    if (!m_ShadowShaderHandle)
+        m_ShadowShaderHandle = ShaderManager::Get().GetOrCreate(
+            "src/Runtime/Renderer/Shaders/ShadowDepth.hlsl", "VSMain", "PSMain",
+            k_ShadowVertexLayout, 3);
     if (!m_ShadowShaderHandle || !m_ShadowShaderHandle->shader) {
         Logger::Error("[ShadowPass] Failed to create shadow shader");
     }
-#endif
 }
 
-#ifdef MYENGINE_PLATFORM_WINDOWS
-bool ShadowPass::EnsureShadowResourcesD3D11()
+
+bool ShadowPass::EnsureShadowResources()
 {
-    auto* d3d11 = dynamic_cast<D3D11Context*>(Context());
-    if (!d3d11) return false;
-    if (m_ShadowDepthTexture && m_ShadowDSV[0] && m_ShadowDSV[1] && m_ShadowDSV[2] && m_ShadowSRV &&
-        m_SpotShadowDepthTexture && m_SpotShadowDSV && m_SpotShadowSRV &&
-        m_PointShadowDepthTexture && m_PointShadowSRV &&
-        m_PointShadowDSV[0] && m_PointShadowDSV[1] && m_PointShadowDSV[2] &&
-        m_PointShadowDSV[3] && m_PointShadowDSV[4] && m_PointShadowDSV[5] &&
-        m_ShadowSampler && m_ShadowRasterState &&
-        m_ShadowMapTexture && m_SpotShadowMapTexture && m_PointShadowMapTexture) {
+    if (m_ShadowMapTexture && m_SpotShadowMapTexture && m_PointShadowMapTexture)
         return true;
-    }
+    RHITextureDesc directional;
+    directional.width = directional.height = m_ShadowMapSize;
+    directional.arrayLayers = kMaxCascades;
+    directional.format = RHIFormat::D24S8;
+    directional.usage = RHIResourceUsage::DepthStencil | RHIResourceUsage::ShaderResource;
+    directional.debugName = "DirectionalShadow";
+    m_ShadowMapTexture = Context()->CreateTexture(directional);
 
-    ID3D11Device* device = d3d11->GetDevice();
-    if (!device) return false;
+    RHITextureDesc spot = directional;
+    spot.arrayLayers = 1; spot.debugName = "SpotShadow";
+    m_SpotShadowMapTexture = Context()->CreateTexture(spot);
 
-    D3D11_TEXTURE2D_DESC texDesc = {};
-    texDesc.Width              = m_ShadowMapSize;
-    texDesc.Height             = m_ShadowMapSize;
-    texDesc.MipLevels          = 1;
-    texDesc.ArraySize          = kMaxCascades;
-    texDesc.Format             = DXGI_FORMAT_R24G8_TYPELESS;
-    texDesc.SampleDesc.Count   = 1;
-    texDesc.Usage              = D3D11_USAGE_DEFAULT;
-    texDesc.BindFlags          = D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE;
-
-    HRESULT hr = device->CreateTexture2D(&texDesc, nullptr, &m_ShadowDepthTexture);
-    if (FAILED(hr)) {
-        Logger::Error("[ShadowPass] CreateTexture2D failed");
+    RHITextureDesc point = directional;
+    point.arrayLayers = 6; point.cube = true; point.debugName = "PointShadow";
+    m_PointShadowMapTexture = Context()->CreateTexture(point);
+    if (!m_ShadowMapTexture || !m_SpotShadowMapTexture || !m_PointShadowMapTexture) {
+        Logger::Error("[ShadowPass] RHI shadow texture creation failed");
         return false;
     }
-
-    D3D11_DEPTH_STENCIL_VIEW_DESC cascadeDsvDesc = {};
-    cascadeDsvDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
-    cascadeDsvDesc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2DARRAY;
-    cascadeDsvDesc.Texture2DArray.MipSlice = 0;
-    for (UINT slice = 0; slice < kMaxCascades; ++slice) {
-        cascadeDsvDesc.Texture2DArray.FirstArraySlice = slice;
-        cascadeDsvDesc.Texture2DArray.ArraySize = 1;
-        hr = device->CreateDepthStencilView(
-            m_ShadowDepthTexture.Get(), &cascadeDsvDesc, m_ShadowDSV[slice].GetAddressOf());
-        if (FAILED(hr)) {
-            Logger::Error("[ShadowPass] CreateDepthStencilView cascade failed");
-            return false;
-        }
-    }
-
-    D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
-    srvDesc.Format                    = DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
-    srvDesc.ViewDimension             = D3D11_SRV_DIMENSION_TEXTURE2DARRAY;
-    srvDesc.Texture2DArray.MipLevels = 1;
-    srvDesc.Texture2DArray.MostDetailedMip = 0;
-    srvDesc.Texture2DArray.ArraySize = kMaxCascades;
-    hr = device->CreateShaderResourceView(m_ShadowDepthTexture.Get(), &srvDesc, &m_ShadowSRV);
-    if (FAILED(hr)) {
-        Logger::Error("[ShadowPass] CreateShaderResourceView failed");
-        return false;
-    }
-
-    D3D11_SAMPLER_DESC sampDesc = {};
-    sampDesc.Filter         = D3D11_FILTER_COMPARISON_MIN_MAG_LINEAR_MIP_POINT;
-    sampDesc.AddressU       = D3D11_TEXTURE_ADDRESS_CLAMP;
-    sampDesc.AddressV       = D3D11_TEXTURE_ADDRESS_CLAMP;
-    sampDesc.AddressW       = D3D11_TEXTURE_ADDRESS_CLAMP;
-    sampDesc.MaxLOD         = D3D11_FLOAT32_MAX;
-    sampDesc.ComparisonFunc = D3D11_COMPARISON_LESS_EQUAL;
-    hr = device->CreateSamplerState(&sampDesc, &m_ShadowSampler);
-    if (FAILED(hr)) {
-        Logger::Error("[ShadowPass] CreateSamplerState failed");
-        return false;
-    }
-
-    D3D11_RASTERIZER_DESC rasterDesc = {};
-    rasterDesc.FillMode              = D3D11_FILL_SOLID;
-    rasterDesc.CullMode              = D3D11_CULL_NONE;
-    rasterDesc.FrontCounterClockwise = FALSE;
-    rasterDesc.DepthBias             = 1536;
-    rasterDesc.DepthBiasClamp        = 0.0f;
-    rasterDesc.SlopeScaledDepthBias  = 2.0f;
-    rasterDesc.DepthClipEnable       = TRUE;
-    hr = device->CreateRasterizerState(&rasterDesc, &m_ShadowRasterState);
-    if (FAILED(hr)) {
-        Logger::Error("[ShadowPass] CreateRasterizerState failed");
-        return false;
-    }
-
-    auto shadowTex = std::make_shared<D3D11Texture>();
-    shadowTex->texture = m_ShadowDepthTexture;
-    shadowTex->srv     = m_ShadowSRV;
-    shadowTex->sampler = m_ShadowSampler;
-    m_ShadowMapTexture = shadowTex;
-
-    D3D11_TEXTURE2D_DESC spotDesc = texDesc;
-    spotDesc.ArraySize = 1;
-    hr = device->CreateTexture2D(&spotDesc, nullptr, &m_SpotShadowDepthTexture);
-    if (FAILED(hr)) {
-        Logger::Error("[ShadowPass] CreateTexture2D for spot shadow failed");
-        return false;
-    }
-    D3D11_DEPTH_STENCIL_VIEW_DESC spotDsvDesc = {};
-    spotDsvDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
-    spotDsvDesc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
-    spotDsvDesc.Texture2D.MipSlice = 0;
-    hr = device->CreateDepthStencilView(
-        m_SpotShadowDepthTexture.Get(), &spotDsvDesc, &m_SpotShadowDSV);
-    if (FAILED(hr)) {
-        Logger::Error("[ShadowPass] CreateDepthStencilView for spot shadow failed");
-        return false;
-    }
-    D3D11_SHADER_RESOURCE_VIEW_DESC spotSrvDesc = {};
-    spotSrvDesc.Format = DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
-    spotSrvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
-    spotSrvDesc.Texture2D.MipLevels = 1;
-    spotSrvDesc.Texture2D.MostDetailedMip = 0;
-    hr = device->CreateShaderResourceView(
-        m_SpotShadowDepthTexture.Get(), &spotSrvDesc, &m_SpotShadowSRV);
-    if (FAILED(hr)) {
-        Logger::Error("[ShadowPass] CreateShaderResourceView for spot shadow failed");
-        return false;
-    }
-
-    auto spotShadowTex = std::make_shared<D3D11Texture>();
-    spotShadowTex->texture = m_SpotShadowDepthTexture;
-    spotShadowTex->srv     = m_SpotShadowSRV;
-    spotShadowTex->sampler = m_ShadowSampler;
-    m_SpotShadowMapTexture = spotShadowTex;
-
-    D3D11_TEXTURE2D_DESC cubeDesc = texDesc;
-    cubeDesc.ArraySize = 6;
-    cubeDesc.MiscFlags = D3D11_RESOURCE_MISC_TEXTURECUBE;
-    hr = device->CreateTexture2D(&cubeDesc, nullptr, &m_PointShadowDepthTexture);
-    if (FAILED(hr)) {
-        Logger::Error("[ShadowPass] CreateTexture2D for point shadow cube failed");
-        return false;
-    }
-
-    for (UINT face = 0; face < 6; ++face) {
-        D3D11_DEPTH_STENCIL_VIEW_DESC faceDsvDesc = {};
-        faceDsvDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
-        faceDsvDesc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2DARRAY;
-        faceDsvDesc.Texture2DArray.MipSlice = 0;
-        faceDsvDesc.Texture2DArray.FirstArraySlice = face;
-        faceDsvDesc.Texture2DArray.ArraySize = 1;
-        hr = device->CreateDepthStencilView(
-            m_PointShadowDepthTexture.Get(), &faceDsvDesc, m_PointShadowDSV[face].GetAddressOf());
-        if (FAILED(hr)) {
-            Logger::Error("[ShadowPass] CreateDepthStencilView for point shadow face failed");
-            return false;
-        }
-    }
-
-    D3D11_SHADER_RESOURCE_VIEW_DESC cubeSrvDesc = {};
-    cubeSrvDesc.Format = DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
-    cubeSrvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURECUBE;
-    cubeSrvDesc.TextureCube.MipLevels = 1;
-    cubeSrvDesc.TextureCube.MostDetailedMip = 0;
-    hr = device->CreateShaderResourceView(
-        m_PointShadowDepthTexture.Get(), &cubeSrvDesc, &m_PointShadowSRV);
-    if (FAILED(hr)) {
-        Logger::Error("[ShadowPass] CreateShaderResourceView for point shadow cube failed");
-        return false;
-    }
-
-    auto pointShadowTex = std::make_shared<D3D11Texture>();
-    pointShadowTex->texture = m_PointShadowDepthTexture;
-    pointShadowTex->srv     = m_PointShadowSRV;
-    pointShadowTex->sampler = m_ShadowSampler;
-    m_PointShadowMapTexture = pointShadowTex;
-
-    return true;
-}
-
-bool ShadowPass::EnsureShadowResourcesD3D12()
-{
-    auto* d3d12 = dynamic_cast<D3D12Context*>(Context());
-    if (!d3d12) return false;
-    if (m_ShadowMapTexture && m_SpotShadowMapTexture && m_PointShadowMapTexture &&
-        m_ShadowDepthResourceD3D12 && m_ShadowCascadeDsvD3D12[0].ptr != 0 &&
-        m_ShadowCascadeDsvD3D12[1].ptr != 0 && m_ShadowCascadeDsvD3D12[2].ptr != 0 && m_SpotShadowDsvD3D12.ptr != 0 &&
-        m_PointShadowDsvD3D12[0].ptr != 0) {
-        return true;
-    }
-
-    const int mapSize = static_cast<int>(m_ShadowMapSize);
-
-    auto directionalShadow = d3d12->CreateDepthTexture(mapSize, mapSize, false, kMaxCascades);
-    if (!directionalShadow) {
-        Logger::Error("[ShadowPass] D3D12 directional shadow texture failed");
-        return false;
-    }
-    auto* directionalTex = static_cast<D3D12Texture*>(directionalShadow.get());
-    m_ShadowDepthResourceD3D12 = directionalTex->resource;
     for (uint32_t cascade = 0; cascade < kMaxCascades; ++cascade) {
-        m_ShadowCascadeDsvD3D12[cascade] = directionalTex->dsvFaces[cascade];
+        RHITextureViewDesc view;
+        view.firstLayer = cascade; view.layerCount = 1;
+        view.usage = RHIResourceUsage::DepthStencil;
+        m_ShadowCascadeViews[cascade] = Context()->CreateTextureView(m_ShadowMapTexture, view);
     }
-    m_ShadowMapTexture = directionalShadow;
-
-    auto spotShadow = d3d12->CreateDepthTexture(mapSize, mapSize, false, 1);
-    if (!spotShadow) {
-        Logger::Error("[ShadowPass] D3D12 spot shadow texture failed");
-        return false;
-    }
-    auto* spotTex = static_cast<D3D12Texture*>(spotShadow.get());
-    m_SpotShadowDepthResourceD3D12 = spotTex->resource;
-    m_SpotShadowDsvD3D12 = spotTex->dsvCpu;
-    m_SpotShadowMapTexture = spotShadow;
-
-    auto pointShadow = d3d12->CreateDepthTexture(mapSize, mapSize, true, 1);
-    if (!pointShadow) {
-        Logger::Error("[ShadowPass] D3D12 point shadow texture failed");
-        return false;
-    }
-    auto* pointTex = static_cast<D3D12Texture*>(pointShadow.get());
-    m_PointShadowDepthResourceD3D12 = pointTex->resource;
+    RHITextureViewDesc spotView; spotView.usage = RHIResourceUsage::DepthStencil;
+    m_SpotShadowView = Context()->CreateTextureView(m_SpotShadowMapTexture, spotView);
     for (uint32_t face = 0; face < 6; ++face) {
-        m_PointShadowDsvD3D12[face] = pointTex->dsvFaces[face];
+        RHITextureViewDesc view;
+        view.firstLayer = face; view.layerCount = 1;
+        view.usage = RHIResourceUsage::DepthStencil;
+        m_PointShadowViews[face] = Context()->CreateTextureView(m_PointShadowMapTexture, view);
     }
-    m_PointShadowMapTexture = pointShadow;
-
-    return true;
+    bool valid = m_SpotShadowView != nullptr;
+    for (const auto& view : m_ShadowCascadeViews) valid = valid && view != nullptr;
+    for (const auto& view : m_PointShadowViews) valid = valid && view != nullptr;
+    if (!valid) Logger::Error("[ShadowPass] RHI shadow view creation failed");
+    return valid;
 }
-#endif
 
 void ShadowPass::Execute(const Scene& scene, const Camera& camera)
 {
@@ -646,15 +424,13 @@ void ShadowPass::Execute(const Scene& scene, const Camera& camera)
 
     UpdateLightMatrices(scene, camera);
 
-#ifdef MYENGINE_PLATFORM_WINDOWS
-    auto* d3d11 = dynamic_cast<D3D11Context*>(Context());
-    auto* d3d12 = dynamic_cast<D3D12Context*>(Context());
-    if (!d3d11 && !d3d12) return;
-
+    if (!EnsureShadowResources()) return;
     GpuCommandList* cmd = Context()->GetGraphicsCommandList();
     if (!cmd) return;
-
-    const float shadowMapSize = static_cast<float>(m_ShadowMapSize);
+    cmd->SetDepthOnlyShader(m_ShadowShaderHandle->shader.get());
+    cmd->SetRasterState(true, false);
+    cmd->SetViewport(0.0f, 0.0f, static_cast<float>(m_ShadowMapSize),
+                     static_cast<float>(m_ShadowMapSize));
 
     auto drawShadowScene = [&](const Mat4& lightViewProj) {
         scene.ForEach([&](Actor& actor) {
@@ -662,160 +438,61 @@ void ShadowPass::Execute(const Scene& scene, const Camera& camera)
             SkinnedMeshRendererComponent* skin = nullptr;
             MaterialAsset* material = nullptr;
             MeshAsset* mesh = GetRenderMesh(actor, &skin, &material);
-            if (!mesh) return;
-            if (material && material->GetBlendMode() == BlendMode::Transparent) return;
+            if (!mesh || (material && material->GetBlendMode() == BlendMode::Transparent)) return;
             EnsureMeshUploaded(Context(), mesh);
             if (!mesh->GetVertexBuffer()) return;
-
-            const Mat4 world = actor.GetWorldMatrix();
-            const Mat4 lightMvp = world * lightViewProj;
-
             ShadowPerDrawConstants constants{};
+            const Mat4 lightMvp = actor.GetWorldMatrix() * lightViewProj;
             std::memcpy(constants.lightMvp, lightMvp.Data(), sizeof(constants.lightMvp));
             if (skin && skin->UsesGpuSkinning()) {
                 const auto& matrices = skin->GetSkinMatrices();
-                const size_t boneCount = (std::min)(matrices.size(), size_t{128});
-                constants.skinInfo[0] = static_cast<float>(boneCount);
-                for (size_t bone = 0; bone < boneCount; ++bone) {
+                const size_t count = (std::min)(matrices.size(), size_t{128});
+                constants.skinInfo[0] = static_cast<float>(count);
+                for (size_t bone = 0; bone < count; ++bone)
                     std::memcpy(constants.boneMatrices[bone], matrices[bone].Data(),
                                 sizeof(constants.boneMatrices[bone]));
-                }
             }
-
-            cmd->BindShader(m_ShadowShaderHandle->shader.get());
-            cmd->BindVertexBuffer(mesh->GetVertexBuffer());
-
-            if (mesh->GetIndexBuffer()) {
-                cmd->BindIndexBuffer(mesh->GetIndexBuffer());
-                for (const auto& sm : mesh->GetSubMeshes()) {
-                    cmd->SetVSConstants(&constants, sizeof(constants));
-                    cmd->DrawIndexed(sm.indexCount, sm.indexOffset,
-                                     static_cast<uint32_t>(sm.vertexOffset));
-                }
-            } else {
-                cmd->BindIndexBuffer(nullptr);
-                for (const auto& sm : mesh->GetSubMeshes()) {
-                    cmd->SetVSConstants(&constants, sizeof(constants));
+            cmd->SetVertexBuffer(mesh->GetVertexBuffer());
+            cmd->SetIndexBuffer(mesh->GetIndexBuffer());
+            auto bindings = Context()->CreateBindGroup(m_ShadowShaderHandle->shader);
+            if (bindings && bindings->SetConstants(
+                    "ShadowPerDraw", &constants, sizeof(constants)))
+                cmd->SetBindGroup(0, bindings.get());
+            for (const auto& sm : mesh->GetSubMeshes()) {
+                if (mesh->GetIndexBuffer())
+                    cmd->DrawIndexed(sm.indexCount, sm.indexOffset, static_cast<uint32_t>(sm.vertexOffset));
+                else
                     cmd->Draw(sm.indexCount, sm.vertexOffset);
-                }
             }
         });
     };
-
-    if (d3d11) {
-        if (!EnsureShadowResourcesD3D11()) return;
-
-        ID3D11DeviceContext* dc = d3d11->GetDeviceContext();
-        if (!dc) return;
-
-        ID3D11RenderTargetView* prevRTVRaw = nullptr;
-    ID3D11DepthStencilView* prevDSVRaw = nullptr;
-        dc->OMGetRenderTargets(1, &prevRTVRaw, &prevDSVRaw);
-        ComPtr<ID3D11RenderTargetView> prevRTV;
-    ComPtr<ID3D11DepthStencilView> prevDSV;
-    prevRTV.Attach(prevRTVRaw);
-    prevDSV.Attach(prevDSVRaw);
-
-        D3D11_VIEWPORT prevVP = {};
-    UINT vpCount = 1;
-        dc->RSGetViewports(&vpCount, &prevVP);
-
-        ID3D11RasterizerState* prevRasterStateRaw = nullptr;
-        dc->RSGetState(&prevRasterStateRaw);
-        ComPtr<ID3D11RasterizerState> prevRasterState;
-    prevRasterState.Attach(prevRasterStateRaw);
-
-        D3D11_VIEWPORT shadowVP = {};
-        shadowVP.TopLeftX = 0.0f;
-        shadowVP.TopLeftY = 0.0f;
-        shadowVP.Width    = static_cast<float>(m_ShadowMapSize);
-        shadowVP.Height   = static_cast<float>(m_ShadowMapSize);
-        shadowVP.MinDepth = 0.0f;
-        shadowVP.MaxDepth = 1.0f;
-
-        dc->RSSetState(m_ShadowRasterState.Get());
-        dc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
-        ID3D11ShaderResourceView* nullSrvs[8] = {};
-        dc->PSSetShaderResources(0, 8, nullSrvs);
-
-        if (m_DirectionalShadowEnabled) {
-            const uint32_t cascadeCount = (std::max)(1u, m_CascadeCount);
-            for (uint32_t cascade = 0; cascade < cascadeCount && cascade < kMaxCascades; ++cascade) {
-                dc->OMSetRenderTargets(0, nullptr, m_ShadowDSV[cascade].Get());
-                dc->ClearDepthStencilView(
-                    m_ShadowDSV[cascade].Get(), D3D11_CLEAR_DEPTH, 1.0f, 0);
-                dc->RSSetViewports(1, &shadowVP);
-                drawShadowScene(m_LightViewProjCascade[cascade]);
-            }
-        }
-        if (m_SpotShadowIndex >= 0) {
-            dc->OMSetRenderTargets(0, nullptr, m_SpotShadowDSV.Get());
-            dc->ClearDepthStencilView(m_SpotShadowDSV.Get(), D3D11_CLEAR_DEPTH, 1.0f, 0);
-            dc->RSSetViewports(1, &shadowVP);
-            drawShadowScene(m_SpotLightViewProj);
-        }
-        if (m_PointShadowIndex >= 0) {
-            for (int face = 0; face < 6; ++face) {
-                dc->OMSetRenderTargets(0, nullptr, m_PointShadowDSV[face].Get());
-                dc->ClearDepthStencilView(
-                    m_PointShadowDSV[face].Get(), D3D11_CLEAR_DEPTH, 1.0f, 0);
-                dc->RSSetViewports(1, &shadowVP);
-                drawShadowScene(m_PointLightViewProj[face]);
-            }
-        }
-
-        ID3D11RenderTargetView* prevRTVPtr = prevRTV.Get();
-    if (prevRTVPtr) {
-        dc->OMSetRenderTargets(1, &prevRTVPtr, prevDSV.Get());
-    } else {
-        dc->OMSetRenderTargets(0, nullptr, prevDSV.Get());
-    }
-    if (vpCount > 0) {
-        dc->RSSetViewports(1, &prevVP);
-    }
-        dc->RSSetState(prevRasterState.Get());
-        return;
-    }
-
-    if (!EnsureShadowResourcesD3D12()) return;
-
-    d3d12->BindDepthOnlyShader(m_ShadowShaderHandle->shader.get());
-    d3d12->SetRasterState(true, false);
-    cmd->SetViewport(0.0f, 0.0f, shadowMapSize, shadowMapSize);
-
+    auto renderDepth = [&](GpuTextureView* view, const Mat4& matrix) {
+        RenderingAttachment depth; depth.view = view; depth.loadOp = RHILoadOp::Clear;
+        depth.storeOp = RHIStoreOp::Store; depth.clearDepth = 1.0f;
+        RenderingInfo info; info.depth = &depth; info.width = m_ShadowMapSize; info.height = m_ShadowMapSize;
+        cmd->BeginRendering(info); drawShadowScene(matrix); cmd->EndRendering();
+    };
+    const RHIResourceState before = m_ShadowResourcesInShaderState
+        ? RHIResourceState::ShaderResource : RHIResourceState::Undefined;
     if (m_DirectionalShadowEnabled) {
-        for (uint32_t cascade = 0; cascade < m_CascadeCount; ++cascade) {
-            d3d12->PushRenderTarget(nullptr, m_ShadowCascadeDsvD3D12[cascade]);
-            d3d12->GetCommandList()->ClearDepthStencilView(
-                m_ShadowCascadeDsvD3D12[cascade],
-                D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
-            drawShadowScene(m_LightViewProjCascade[cascade]);
-            d3d12->PopRenderTarget();
-        }
+        cmd->Transition(m_ShadowMapTexture.get(), before, RHIResourceState::DepthWrite);
+        for (uint32_t cascade = 0; cascade < m_CascadeCount; ++cascade)
+            renderDepth(m_ShadowCascadeViews[cascade].get(), m_LightViewProjCascade[cascade]);
+        cmd->Transition(m_ShadowMapTexture.get(), RHIResourceState::DepthWrite, RHIResourceState::ShaderResource);
     }
     if (m_SpotShadowIndex >= 0) {
-        d3d12->PushRenderTarget(nullptr, m_SpotShadowDsvD3D12);
-        d3d12->GetCommandList()->ClearDepthStencilView(
-            m_SpotShadowDsvD3D12, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
-        drawShadowScene(m_SpotLightViewProj);
-        d3d12->PopRenderTarget();
+        cmd->Transition(m_SpotShadowMapTexture.get(), before, RHIResourceState::DepthWrite);
+        renderDepth(m_SpotShadowView.get(), m_SpotLightViewProj);
+        cmd->Transition(m_SpotShadowMapTexture.get(), RHIResourceState::DepthWrite, RHIResourceState::ShaderResource);
     }
     if (m_PointShadowIndex >= 0) {
-        for (int face = 0; face < 6; ++face) {
-            d3d12->PushRenderTarget(nullptr, m_PointShadowDsvD3D12[face]);
-            d3d12->GetCommandList()->ClearDepthStencilView(
-                m_PointShadowDsvD3D12[face],
-                D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
-            drawShadowScene(m_PointLightViewProj[face]);
-            d3d12->PopRenderTarget();
-        }
+        cmd->Transition(m_PointShadowMapTexture.get(), before, RHIResourceState::DepthWrite);
+        for (uint32_t face = 0; face < 6; ++face)
+            renderDepth(m_PointShadowViews[face].get(), m_PointLightViewProj[face]);
+        cmd->Transition(m_PointShadowMapTexture.get(), RHIResourceState::DepthWrite, RHIResourceState::ShaderResource);
     }
+    m_ShadowResourcesInShaderState = true;
+    cmd->SetRasterState(false, false);
+    return;
 
-    d3d12->BindShader(m_ShadowShaderHandle->shader.get());
-    d3d12->SetRasterState(false, false);
-#else
-    (void)scene;
-    (void)camera;
-#endif
 }

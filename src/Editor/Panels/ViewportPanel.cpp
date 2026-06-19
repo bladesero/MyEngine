@@ -115,8 +115,9 @@ void ViewportPanel::DrawContent()
         static_cast<int>(imageSize.x), static_cast<int>(imageSize.y));
     context->GetSceneLayer()->SetViewportInputEnabled(hovered);
 
-    if (void* texture = context->GetSceneLayer()->GetSceneColorTextureHandle()) {
-        ImGui::Image(reinterpret_cast<ImTextureID>(texture), imageSize);
+    if (GpuTextureView* view = context->GetSceneLayer()->GetSceneColorView()) {
+        void* texture = context->GetRenderContext()->GetImGuiTextureId(view);
+        if (texture) ImGui::Image(reinterpret_cast<ImTextureID>(texture), imageSize);
     }
 
     if (context->IsEditing() && ImGui::BeginDragDropTarget()) {

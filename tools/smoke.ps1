@@ -58,6 +58,14 @@ Fix the local xmake install/cache, then retry:
     $output | ForEach-Object { Write-Host $_ }
 }
 
+Invoke-Step "Check RHI boundaries" {
+    & powershell -NoProfile -ExecutionPolicy Bypass -File `
+        (Join-Path $PSScriptRoot "check-rhi-boundaries.ps1")
+    if ($LASTEXITCODE -ne 0) {
+        Fail-Smoke "RHI boundary check failed."
+    }
+}
+
 if (-not $SkipBuild) {
     Invoke-Step "Configure ($Mode)" {
         & $xmake.Source f -m $Mode

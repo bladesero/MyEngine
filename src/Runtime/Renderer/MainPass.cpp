@@ -19,8 +19,6 @@
 #include <vector>
 
 #ifdef MYENGINE_PLATFORM_WINDOWS
-#include "Renderer/D3D11Context.h"
-#include "Renderer/D3D12Context.h"
 #include "ShaderBytecodeWindows.h"
 #endif
 
@@ -277,7 +275,8 @@ void MainPass::SetCascadeShadowInput(const Mat4* cascadeViewProj, uint32_t casca
     }
 }
 
-void MainPass::SetEnvironmentInput(GpuTexture* environmentCubemap, GpuTexture* sh2Buffer,
+void MainPass::SetEnvironmentInput(GpuTexture* environmentCubemap,
+                                   std::shared_ptr<GpuBufferView> sh2Buffer,
                                    const float* sh2Coefficients)
 {
     m_EnvironmentCubemap = environmentCubemap;
@@ -323,6 +322,36 @@ void MainPass::EnsureTextureUploaded(TextureAsset* tex)
     }
 }
 
+void MainPass::EnsureNamedBindingDefaults()
+{
+    if (!Context() || m_DefaultTextureView) return;
+    const uint8_t white[4] = {255, 255, 255, 255};
+    m_DefaultTexture = Context()->UploadTexture2D(white, 1, 1);
+    RHITextureViewDesc viewDesc; viewDesc.usage = RHIResourceUsage::ShaderResource;
+    m_DefaultTextureView = Context()->CreateTextureView(m_DefaultTexture, viewDesc);
+    RHISamplerDesc linear;
+    linear.addressU = linear.addressV = linear.addressW = RHIAddressMode::Clamp;
+    m_LinearSampler = Context()->CreateSampler(linear);
+    RHISamplerDesc shadow = linear; shadow.filter = RHIFilter::ComparisonLinear;
+    m_ShadowSampler = Context()->CreateSampler(shadow);
+}
+
+std::shared_ptr<GpuTextureView> MainPass::GetTextureView(GpuTexture* texture)
+{
+    EnsureNamedBindingDefaults();
+    if (!texture) return m_DefaultTextureView;
+    auto found = m_TextureViews.find(texture);
+    if (found != m_TextureViews.end()) return found->second;
+    RHITextureViewDesc desc;
+    desc.mipCount = texture->desc.mipLevels;
+    desc.layerCount = texture->desc.arrayLayers;
+    desc.usage = RHIResourceUsage::ShaderResource;
+    auto view = Context()->CreateTextureView(
+        std::shared_ptr<GpuTexture>(texture, [](GpuTexture*) {}), desc);
+    if (view) m_TextureViews[texture] = view;
+    return view ? view : m_DefaultTextureView;
+}
+
 GpuShader* MainPass::GetOrCreateShader()
 {
     if (!Context()) return nullptr;
@@ -330,9 +359,8 @@ GpuShader* MainPass::GetOrCreateShader()
 #ifdef MYENGINE_PLATFORM_WINDOWS
     ShaderManager::Get().SetContext(Context());
 
-    const bool supportsWindowsPbr =
-        dynamic_cast<D3D11Context*>(Context()) != nullptr ||
-        dynamic_cast<D3D12Context*>(Context()) != nullptr;
+    const bool supportsWindowsPbr = Context()->GetBackend() == RHIBackend::D3D11 ||
+                                    Context()->GetBackend() == RHIBackend::D3D12;
     if (supportsWindowsPbr) {
         if (!m_MainShaderHandle) {
             m_MainShaderHandle = ShaderManager::Get().GetOrCreate(
@@ -416,7 +444,10 @@ void MainPass::RenderSky(const Camera& camera, GpuCommandList& cmd)
     cmd.SetBlendMode(GpuBlendMode::Opaque);
     cmd.BindVertexBuffer(nullptr);
     cmd.BindIndexBuffer(nullptr);
-    cmd.SetVSConstants(&constants, sizeof(constants));
+    auto bindings = Context()->CreateBindGroup(
+        m_SkyShaderHandle ? m_SkyShaderHandle->shader : nullptr);
+    if (bindings && bindings->SetConstants("SkyConstants", &constants, sizeof(constants)))
+        cmd.SetBindGroup(0, bindings.get());
     cmd.Draw(3);
 }
 
@@ -518,6 +549,7 @@ void MainPass::Execute(const Scene& scene, const Camera& camera)
             cmd->BindVertexBuffer(mesh->GetVertexBuffer());
 
         GpuTexture* baseColorTexture = nullptr;
+        GpuTexture* namedTextures[9] = {};
         if (mat->HasTexture("BaseColorMap")) {
             TextureAsset* texAsset = mat->GetTexture("BaseColorMap").Get();
             if (texAsset) {
@@ -525,11 +557,11 @@ void MainPass::Execute(const Scene& scene, const Camera& camera)
                 baseColorTexture = static_cast<GpuTexture*>(texAsset->GetGpuHandle());
             }
         }
-        cmd->BindPSTexture(0, baseColorTexture);
+        namedTextures[0] = baseColorTexture;
 
         if (m_ShaderMode == ShaderMode::ShadowedPbr) {
             GpuTexture* shadowTexture = m_ShadowMap ? m_ShadowMap : baseColorTexture;
-            cmd->BindPSTexture(1, shadowTexture);
+            namedTextures[1] = shadowTexture;
 
             const char* mapSlots[] = {
                 "NormalMap", "MetallicRoughnessMap", "OcclusionMap", "EmissiveMap"
@@ -545,10 +577,10 @@ void MainPass::Execute(const Scene& scene, const Camera& camera)
                         mapFlags[mapIndex] = gpuTexture ? 1.0f : 0.0f;
                     }
                 }
-                cmd->BindPSTexture(2 + mapIndex, gpuTexture);
+                namedTextures[2 + mapIndex] = gpuTexture;
             }
-            cmd->BindPSTexture(6, m_SpotShadowMap);
-            cmd->BindPSTexture(7, m_PointShadowMap);
+            namedTextures[6] = m_SpotShadowMap;
+            namedTextures[7] = m_PointShadowMap;
 
             GpuTexture* iblTexture = nullptr;
             float iblEnabled = 0.0f;
@@ -563,8 +595,7 @@ void MainPass::Execute(const Scene& scene, const Camera& camera)
                     iblEnabled = (iblTexture && iblTexture->IsCube()) ? 1.0f : 0.0f;
                 }
             }
-            cmd->BindPSTexture(8, iblEnabled > 0.5f ? iblTexture : nullptr);
-            cmd->BindPSTexture(9, m_EnvironmentSH2Buffer);
+            namedTextures[8] = iblEnabled > 0.5f ? iblTexture : nullptr;
 
             ShadowedPerDrawConstants constants{};
             std::memcpy(constants.viewProj, viewProj.Data(), sizeof(constants.viewProj));
@@ -691,10 +722,29 @@ void MainPass::Execute(const Scene& scene, const Camera& camera)
             std::memcpy(constants.normalMatrix, normalMatrix.Data(),
                         sizeof(constants.normalMatrix));
 
+            EnsureNamedBindingDefaults();
+            auto bindings = Context()->CreateBindGroup(
+                m_MainShaderHandle ? m_MainShaderHandle->shader : nullptr);
+            if (bindings) {
+                bindings->SetConstants("PerDraw", &constants, sizeof(constants));
+                const char* textureNames[9] = {"g_BaseColorMap", "g_ShadowMap", "g_NormalMap",
+                    "g_MetallicRoughnessMap", "g_OcclusionMap", "g_EmissiveMap",
+                    "g_SpotShadowMap", "g_PointShadowMap", "g_IBLCubemap"};
+                const char* samplerNames[9] = {"g_Sampler", "g_ShadowSampler", "g_NormalSampler",
+                    "g_MetallicRoughnessSampler", "g_OcclusionSampler", "g_EmissiveSampler",
+                    "g_SpotShadowSampler", "g_PointShadowSampler", "g_IBLSampler"};
+                for (uint32_t slot = 0; slot < 9; ++slot) {
+                    bindings->SetTexture(textureNames[slot], GetTextureView(namedTextures[slot]));
+                    bindings->SetSampler(samplerNames[slot], slot == 1 ? m_ShadowSampler : m_LinearSampler);
+                }
+                if (m_EnvironmentSH2Buffer)
+                    bindings->SetStorageBuffer("g_EnvironmentSH2", m_EnvironmentSH2Buffer);
+                cmd->SetBindGroup(0, bindings.get());
+            }
+
             if (mesh->GetIndexBuffer()) {
                 cmd->BindIndexBuffer(mesh->GetIndexBuffer());
                 for (const auto& sm : mesh->GetSubMeshes()) {
-                    cmd->SetVSConstants(&constants, sizeof(constants));
                     cmd->DrawIndexedInstanced(
                         sm.indexCount, static_cast<uint32_t>(instanceCount),
                         sm.indexOffset, static_cast<uint32_t>(sm.vertexOffset));
@@ -702,7 +752,6 @@ void MainPass::Execute(const Scene& scene, const Camera& camera)
             } else {
                 cmd->BindIndexBuffer(nullptr);
                 for (const auto& sm : mesh->GetSubMeshes()) {
-                    cmd->SetVSConstants(&constants, sizeof(constants));
                     cmd->DrawInstanced(
                         sm.indexCount, static_cast<uint32_t>(instanceCount),
                         sm.vertexOffset);
@@ -712,18 +761,25 @@ void MainPass::Execute(const Scene& scene, const Camera& camera)
             LegacyPerDrawConstants constants{};
             std::memcpy(constants.mvp, mvp.Data(), sizeof(constants.mvp));
             FillColorConstants(constants.baseColor, *mat, "BaseColor", Vec3::One());
+            EnsureNamedBindingDefaults();
+            auto bindings = Context()->CreateBindGroup(
+                m_MainShaderHandle ? m_MainShaderHandle->shader : nullptr);
+            if (bindings) {
+                bindings->SetConstants("PerDraw", &constants, sizeof(constants));
+                bindings->SetTexture("g_BaseColorMap", GetTextureView(baseColorTexture));
+                bindings->SetSampler("g_Sampler", m_LinearSampler);
+                cmd->SetBindGroup(0, bindings.get());
+            }
 
             if (mesh->GetIndexBuffer()) {
                 cmd->BindIndexBuffer(mesh->GetIndexBuffer());
                 for (const auto& sm : mesh->GetSubMeshes()) {
-                    cmd->SetVSConstants(&constants, sizeof(constants));
                     cmd->DrawIndexed(sm.indexCount, sm.indexOffset,
                                      static_cast<uint32_t>(sm.vertexOffset));
                 }
             } else {
                 cmd->BindIndexBuffer(nullptr);
                 for (const auto& sm : mesh->GetSubMeshes()) {
-                    cmd->SetVSConstants(&constants, sizeof(constants));
                     cmd->Draw(sm.indexCount, sm.vertexOffset);
                 }
             }

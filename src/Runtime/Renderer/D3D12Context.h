@@ -36,6 +36,19 @@ struct D3D12Shader : GpuShader {
     ComPtr<ID3D12PipelineState> depthOnlyPipelineState;
     ComPtr<ID3D12PipelineState> wireframePipelineState;
     ComPtr<ID3D12PipelineState> twoSidedPipelineState;
+    ComPtr<ID3D12RootSignature> computeRootSignature;
+    ComPtr<ID3D12PipelineState> computePipelineState;
+};
+
+struct D3D12GraphicsPipeline : GpuGraphicsPipeline {
+    ComPtr<ID3D12PipelineState> pipelineState;
+};
+
+struct D3D12BufferView : GpuBufferView {
+    D3D12_CPU_DESCRIPTOR_HANDLE srvCpu = {};
+    D3D12_GPU_DESCRIPTOR_HANDLE srvGpu = {};
+    D3D12_CPU_DESCRIPTOR_HANDLE uavCpu = {};
+    D3D12_GPU_DESCRIPTOR_HANDLE uavGpu = {};
 };
 
 struct D3D12Texture : GpuTexture {
@@ -50,6 +63,20 @@ struct D3D12Texture : GpuTexture {
     bool isCube = false;
 
     bool IsCube() const override { return isCube; }
+};
+
+struct D3D12TextureView : GpuTextureView {
+    D3D12_CPU_DESCRIPTOR_HANDLE srvCpu = {};
+    D3D12_GPU_DESCRIPTOR_HANDLE srvGpu = {};
+    D3D12_CPU_DESCRIPTOR_HANDLE rtvCpu = {};
+    D3D12_CPU_DESCRIPTOR_HANDLE dsvCpu = {};
+    D3D12_CPU_DESCRIPTOR_HANDLE uavCpu = {};
+    D3D12_GPU_DESCRIPTOR_HANDLE uavGpu = {};
+};
+
+struct D3D12Sampler : GpuSampler {
+    D3D12_CPU_DESCRIPTOR_HANDLE cpu = {};
+    D3D12_GPU_DESCRIPTOR_HANDLE gpu = {};
 };
 
 // ============================================================================
@@ -78,6 +105,10 @@ public:
     const std::string& GetLastDeviceError() const override { return m_LastDeviceError; }
     GpuSwapChain* GetSwapChain() override;
     GpuCommandList* GetGraphicsCommandList() override;
+    GpuTextureView* GetCurrentBackBufferView() override {
+        return m_BackBufferViews[m_RenderFrameIndex].get();
+    }
+    RHIBackend GetBackend() const override { return RHIBackend::D3D12; }
     bool InitImGui(IWindow* window) override;
     void ShutdownImGui() override;
     void ProcessImGuiSDLEvent(const SDL_Event& event) override;
@@ -89,6 +120,10 @@ public:
 
     std::shared_ptr<GpuBuffer> CreateIndexBuffer(
         const void* data, uint32_t byteSize) override;
+    std::shared_ptr<GpuBuffer> CreateBuffer(
+        const RHIBufferDesc& desc, const void* initialData = nullptr) override;
+    std::shared_ptr<GpuBufferView> CreateBufferView(
+        const std::shared_ptr<GpuBuffer>& buffer, const RHIBufferViewDesc& desc) override;
 
     std::shared_ptr<GpuShader> CreateShader(
         const std::string& hlslSource,
@@ -104,25 +139,36 @@ public:
         size_t psSize,
         const VertexElement* layout,
         uint32_t layoutCount) override;
+    std::shared_ptr<GpuShader> CreateComputeShaderFromBytecode(
+        const void* bytecode, size_t byteSize) override;
+    std::shared_ptr<GpuGraphicsPipeline> CreateGraphicsPipeline(
+        const GraphicsPipelineDesc& desc) override;
 
-    void BindShader(GpuShader* shader) override;
-    void BindVertexBuffer(GpuBuffer* buffer) override;
-    void BindIndexBuffer(GpuBuffer* buffer) override;
-    void SetVSConstants(const void* data, uint32_t byteSize) override;
+    void BindShader(GpuShader* shader);
+    void BindVertexBuffer(GpuBuffer* buffer);
+    void BindIndexBuffer(GpuBuffer* buffer);
+    void SetVSConstants(const void* data, uint32_t byteSize);
 
-    void Draw(uint32_t vertexCount, uint32_t startVertex = 0) override;
+    void Draw(uint32_t vertexCount, uint32_t startVertex = 0);
     void DrawIndexed(uint32_t indexCount, uint32_t startIndex = 0,
-                     uint32_t baseVertex = 0) override;
+                     uint32_t baseVertex = 0);
     void DrawInstanced(uint32_t vertexCount, uint32_t instanceCount,
                        uint32_t startVertex = 0);
     void DrawIndexedInstanced(uint32_t indexCount, uint32_t instanceCount,
                               uint32_t startIndex = 0, uint32_t baseVertex = 0);
 
-    void SetViewport(float x, float y, float w, float h) override;
+    void SetViewport(float x, float y, float w, float h);
 
     std::shared_ptr<GpuTexture> UploadTexture2D(
         const void* rgba8Data, int width, int height) override;
-    void BindPSTexture(uint32_t slot, GpuTexture* tex) override;
+    std::shared_ptr<GpuTexture> CreateTexture(const RHITextureDesc& desc) override;
+    std::shared_ptr<GpuTextureView> CreateTextureView(
+        const std::shared_ptr<GpuTexture>& texture, const RHITextureViewDesc& desc) override;
+    std::shared_ptr<GpuSampler> CreateSampler(const RHISamplerDesc& desc) override;
+    void* GetImGuiTextureId(GpuTextureView* view) override;
+    std::shared_ptr<GpuReadbackTicket> ReadbackBufferAsync(
+        const std::shared_ptr<GpuBuffer>& buffer) override;
+    void BindPSTexture(uint32_t slot, GpuTexture* tex);
     void SetBlendMode(GpuBlendMode mode);
 
     std::shared_ptr<GpuTexture> CreateDepthTexture(int width, int height, bool cube,
@@ -231,6 +277,7 @@ private:
     ComPtr<ID3D12DescriptorHeap>     m_RtvHeap;
     ComPtr<ID3D12DescriptorHeap>     m_OffscreenRtvHeap;
     ComPtr<ID3D12Resource>          m_BackBuffers[kFrameCount];
+    std::shared_ptr<D3D12TextureView> m_BackBufferViews[kFrameCount];
     D3D12_CPU_DESCRIPTOR_HANDLE      m_RtvHandles[kFrameCount] = {};
     uint32_t                         m_RtvDescriptorSize = 0;
     uint32_t                         m_OffscreenRtvDescriptorSize = 0;

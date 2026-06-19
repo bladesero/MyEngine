@@ -121,6 +121,9 @@ public:
     const std::filesystem::path& GetProjectRoot() const { return m_ProjectRoot; }
     std::string ResolvePath(const std::string& path) const;
     std::string MakeProjectRelativePath(const std::string& path) const;
+    MeshHandle ResolveMeshReference(const std::string& path);
+    MaterialHandle ResolveMaterialReference(const std::string& path,
+                                             const std::string& meshPath = {});
 
     TextureHandle  GetWhiteTexture();
     TextureHandle  GetBlackTexture();

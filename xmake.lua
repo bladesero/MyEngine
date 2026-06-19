@@ -153,6 +153,8 @@ target("MyEngineRuntime")
         "src/Runtime/Scene/SceneSerializer.cpp",
         "src/Runtime/Camera/Camera.cpp",
         "src/Runtime/Renderer/Renderer.cpp",
+        "src/Runtime/Renderer/RenderGraph.cpp",
+        "src/Runtime/Renderer/RHI/ShaderReflection.cpp",
         "src/Runtime/Renderer/GpuUploadQueue.cpp",
         "src/Runtime/Renderer/LightComponent.cpp",
         "src/Runtime/Renderer/PostProcessComponent.cpp",

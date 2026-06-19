@@ -6,7 +6,6 @@
 #include "../Renderer/ShaderManager.h"
 
 #ifdef MYENGINE_PLATFORM_WINDOWS
-#include "Renderer/D3D11Context.h"
 #include "ShaderBytecodeWindows.h"
 #endif
 
@@ -48,17 +47,9 @@ void TriangleLayer::OnAttach() {
     // ---- Shader ------------------------------------------------------------
 #ifdef MYENGINE_PLATFORM_WINDOWS
     ShaderManager::Get().SetContext(m_Renderer);
-    if (dynamic_cast<D3D11Context*>(m_Renderer) != nullptr) {
-        m_ShaderHandle = ShaderManager::Get().GetOrCreate(
-            "src/Runtime/Renderer/Shaders/Triangle.hlsl",
-            "VSMain", "PSMain",
-            k_Layout, 2);
-    } else {
-        m_ShaderHandle = ShaderManager::Get().GetOrCreate(
-            "src/Runtime/Renderer/Shaders/Triangle.hlsl",
-            "VSMain", "PSMain",
-            k_Layout, 2);
-    }
+    m_ShaderHandle = ShaderManager::Get().GetOrCreate(
+        "src/Runtime/Renderer/Shaders/Triangle.hlsl",
+        "VSMain", "PSMain", k_Layout, 2);
 #else
     m_ShaderHandle = std::make_shared<ShaderHandle>();
     m_ShaderHandle->shader = m_Renderer->CreateShader(
@@ -91,8 +82,8 @@ void TriangleLayer::OnEvent(Event& event) {
                 swapChain->Resize(static_cast<uint32_t>(m_VpW),
                                   static_cast<uint32_t>(m_VpH));
             }
-            m_Renderer->SetViewport(0, 0,
-                static_cast<float>(m_VpW), static_cast<float>(m_VpH));
+            if (auto* commands = m_Renderer->GetGraphicsCommandList())
+                commands->SetViewport(0, 0, static_cast<float>(m_VpW), static_cast<float>(m_VpH));
         }
     }
 }
