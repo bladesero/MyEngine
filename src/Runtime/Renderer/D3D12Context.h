@@ -16,8 +16,14 @@
 
 using Microsoft::WRL::ComPtr;
 
+class D3D12DeferredReleaseQueue;
+class D3D12DescriptorPool;
+class D3D12DescriptorLease;
+
 struct D3D12Buffer : GpuBuffer {
+    ~D3D12Buffer() override;
     ComPtr<ID3D12Resource> resource;
+    std::shared_ptr<D3D12DeferredReleaseQueue> deferredReleaseQueue;
     uint32_t byteSize = 0;
 };
 
@@ -30,6 +36,7 @@ struct D3D12IndexBuffer : D3D12Buffer {
 };
 
 struct D3D12Shader : GpuShader {
+    ~D3D12Shader() override;
     ComPtr<ID3D12RootSignature> rootSignature;
     ComPtr<ID3D12PipelineState> pipelineState;
     ComPtr<ID3D12PipelineState> alphaPipelineState;
@@ -38,10 +45,13 @@ struct D3D12Shader : GpuShader {
     ComPtr<ID3D12PipelineState> twoSidedPipelineState;
     ComPtr<ID3D12RootSignature> computeRootSignature;
     ComPtr<ID3D12PipelineState> computePipelineState;
+    std::shared_ptr<D3D12DeferredReleaseQueue> deferredReleaseQueue;
 };
 
 struct D3D12GraphicsPipeline : GpuGraphicsPipeline {
+    ~D3D12GraphicsPipeline() override;
     ComPtr<ID3D12PipelineState> pipelineState;
+    std::shared_ptr<D3D12DeferredReleaseQueue> deferredReleaseQueue;
 };
 
 struct D3D12BufferView : GpuBufferView {
@@ -49,16 +59,24 @@ struct D3D12BufferView : GpuBufferView {
     D3D12_GPU_DESCRIPTOR_HANDLE srvGpu = {};
     D3D12_CPU_DESCRIPTOR_HANDLE uavCpu = {};
     D3D12_GPU_DESCRIPTOR_HANDLE uavGpu = {};
+    std::shared_ptr<D3D12DescriptorLease> srvLease;
+    std::shared_ptr<D3D12DescriptorLease> uavLease;
 };
 
 struct D3D12Texture : GpuTexture {
+    ~D3D12Texture() override;
     ComPtr<ID3D12Resource> resource;
+    std::shared_ptr<D3D12DeferredReleaseQueue> deferredReleaseQueue;
     D3D12_CPU_DESCRIPTOR_HANDLE srvCpu = {};
     D3D12_GPU_DESCRIPTOR_HANDLE srvGpu = {};
     D3D12_CPU_DESCRIPTOR_HANDLE sampCpu = {};
     D3D12_GPU_DESCRIPTOR_HANDLE sampGpu = {};
     D3D12_CPU_DESCRIPTOR_HANDLE dsvCpu = {};
+    std::shared_ptr<D3D12DescriptorLease> srvLease;
+    std::shared_ptr<D3D12DescriptorLease> sampLease;
+    std::shared_ptr<D3D12DescriptorLease> dsvLease;
     std::vector<D3D12_CPU_DESCRIPTOR_HANDLE> dsvFaces;
+    std::vector<std::shared_ptr<D3D12DescriptorLease>> dsvFaceLeases;
     uint32_t arraySize = 1;
     bool isCube = false;
 
@@ -72,6 +90,10 @@ struct D3D12TextureView : GpuTextureView {
     D3D12_CPU_DESCRIPTOR_HANDLE dsvCpu = {};
     D3D12_CPU_DESCRIPTOR_HANDLE uavCpu = {};
     D3D12_GPU_DESCRIPTOR_HANDLE uavGpu = {};
+    std::shared_ptr<D3D12DescriptorLease> srvLease;
+    std::shared_ptr<D3D12DescriptorLease> rtvLease;
+    std::shared_ptr<D3D12DescriptorLease> dsvLease;
+    std::shared_ptr<D3D12DescriptorLease> uavLease;
 
     void* GetImGuiTextureId() override { return reinterpret_cast<void*>(srvGpu.ptr); }
 };
@@ -79,6 +101,7 @@ struct D3D12TextureView : GpuTextureView {
 struct D3D12Sampler : GpuSampler {
     D3D12_CPU_DESCRIPTOR_HANDLE cpu = {};
     D3D12_GPU_DESCRIPTOR_HANDLE gpu = {};
+    std::shared_ptr<D3D12DescriptorLease> lease;
 };
 
 // ============================================================================
@@ -180,14 +203,20 @@ public:
     void SetRasterState(bool cullNone, bool wireframe);
 
     bool CreateMainDepthBuffer();
-    D3D12_CPU_DESCRIPTOR_HANDLE AllocDsvSlot();
-    D3D12_CPU_DESCRIPTOR_HANDLE AllocRtvSlot();
+    D3D12_CPU_DESCRIPTOR_HANDLE AllocDsvSlot(
+        std::shared_ptr<D3D12DescriptorLease>* lease = nullptr);
+    D3D12_CPU_DESCRIPTOR_HANDLE AllocRtvSlot(
+        std::shared_ptr<D3D12DescriptorLease>* lease = nullptr);
     D3D12_CPU_DESCRIPTOR_HANDLE GetMainColorRtv() const;
     D3D12_CPU_DESCRIPTOR_HANDLE GetBackBufferRtvCpu() const { return GetMainColorRtv(); }
     D3D12_CPU_DESCRIPTOR_HANDLE GetMainDsvHandle() const;
 
-    D3D12_CPU_DESCRIPTOR_HANDLE AllocSrvSlot(D3D12_GPU_DESCRIPTOR_HANDLE& outGpu);
-    D3D12_CPU_DESCRIPTOR_HANDLE AllocSampSlot(D3D12_GPU_DESCRIPTOR_HANDLE& outGpu);
+    D3D12_CPU_DESCRIPTOR_HANDLE AllocSrvSlot(
+        D3D12_GPU_DESCRIPTOR_HANDLE& outGpu,
+        std::shared_ptr<D3D12DescriptorLease>* lease = nullptr);
+    D3D12_CPU_DESCRIPTOR_HANDLE AllocSampSlot(
+        D3D12_GPU_DESCRIPTOR_HANDLE& outGpu,
+        std::shared_ptr<D3D12DescriptorLease>* lease = nullptr);
 
     void ResetPostProcessDescriptorAllocators();
     void BindPSTextureDescriptors(uint32_t slot,
@@ -243,6 +272,9 @@ private:
     void PresentSwapChain(bool vsync);
     bool ResizeSwapChain(uint32_t width, uint32_t height);
     bool CheckDeviceResult(HRESULT hr, const char* operation);
+    void ReportDeviceRemovedReason(const char* operation);
+    void DumpDredDiagnostics();
+    bool CanUseDevice(const char* operation);
     void EnsureDefaultResources();
     void ApplyBoundPipelineState();
     bool UploadBufferData(ID3D12Resource* destination,
@@ -263,6 +295,8 @@ private:
 private:
     bool m_IsRecording = false;
     bool m_DeviceLost = false;
+    bool m_DredDumped = false;
+    bool m_DeviceLossSuppressionLogged = false;
     bool m_DepthOnlyBound = false;
     bool m_CullNone = false;
     bool m_Wireframe = false;
@@ -270,6 +304,12 @@ private:
     uint32_t m_SwapChainWidth = 0;
     uint32_t m_SwapChainHeight = 0;
     std::string m_LastDeviceError;
+
+    std::shared_ptr<D3D12DeferredReleaseQueue> m_DeferredReleaseQueue;
+    std::shared_ptr<D3D12DescriptorPool> m_SrvDescriptorPool;
+    std::shared_ptr<D3D12DescriptorPool> m_SamplerDescriptorPool;
+    std::shared_ptr<D3D12DescriptorPool> m_RtvDescriptorPool;
+    std::shared_ptr<D3D12DescriptorPool> m_DsvDescriptorPool;
 
     ComPtr<ID3D12Device>              m_Device;
     ComPtr<ID3D12CommandQueue>       m_CommandQueue;
@@ -290,6 +330,7 @@ private:
     ComPtr<ID3D12DescriptorHeap>     m_DsvHeap;
     ComPtr<ID3D12Resource>           m_MainDepthBuffer;
     D3D12_CPU_DESCRIPTOR_HANDLE      m_MainDsvHandle = {};
+    std::shared_ptr<D3D12DescriptorLease> m_MainDsvLease;
     uint32_t                         m_DsvDescriptorSize = 0;
     uint32_t                         m_NextDsvSlot = 0;
 

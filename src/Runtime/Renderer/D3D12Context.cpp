@@ -12,6 +12,10 @@
 #include <windows.h>
 
 #include <cstring>
+#include <deque>
+#include <functional>
+#include <iomanip>
+#include <mutex>
 #include <sstream>
 #include <vector>
 
@@ -290,9 +294,12 @@ private:
 class D3D12ReadbackTicket final : public GpuReadbackTicket {
 public:
     D3D12ReadbackTicket(ComPtr<ID3D12Resource> resource, ComPtr<ID3D12Fence> fence,
-                        uint64_t fenceValue, uint32_t size)
+                        uint64_t fenceValue, uint32_t size,
+                        std::shared_ptr<D3D12DeferredReleaseQueue> deferredReleaseQueue)
         : m_Resource(std::move(resource)), m_Fence(std::move(fence)),
+          m_DeferredReleaseQueue(std::move(deferredReleaseQueue)),
           m_FenceValue(fenceValue), m_Size(size) {}
+    ~D3D12ReadbackTicket() override;
     bool IsReady() const override {
         return m_Fence && m_Fence->GetCompletedValue() >= m_FenceValue;
     }
@@ -307,6 +314,7 @@ public:
 private:
     ComPtr<ID3D12Resource> m_Resource;
     ComPtr<ID3D12Fence> m_Fence;
+    std::shared_ptr<D3D12DeferredReleaseQueue> m_DeferredReleaseQueue;
     uint64_t m_FenceValue = 0;
     uint32_t m_Size = 0;
 };
@@ -340,17 +348,349 @@ private:
 // D3D12Context
 // --------------------------------------------------------------------------
 D3D12Context::D3D12Context()
-    : m_SwapChainInterface(std::make_unique<D3D12SwapChain>(*this))
+    : m_DeferredReleaseQueue(std::make_shared<D3D12DeferredReleaseQueue>())
+    , m_SwapChainInterface(std::make_unique<D3D12SwapChain>(*this))
     , m_GraphicsCommandList(std::make_unique<D3D12ImmediateCommandList>(*this)) {}
 
 D3D12Context::~D3D12Context() { Shutdown(); }
 
-static HRESULT CheckHR(HRESULT hr) {
-    return hr;
+static std::string FormatHRESULT(HRESULT hr) {
+    std::ostringstream stream;
+    stream << "0x" << std::hex << std::uppercase << std::setw(8)
+           << std::setfill('0') << static_cast<uint32_t>(hr);
+    return stream.str();
+}
+
+class D3D12DeferredReleaseQueue {
+public:
+    void BeginFrame(uint64_t completedFenceValue) {
+        Collect(completedFenceValue);
+        std::lock_guard<std::mutex> lock(m_Mutex);
+        if (!m_Shutdown) m_RecordingFrame = true;
+    }
+
+    void EndFrame(uint64_t submittedFenceValue) {
+        std::lock_guard<std::mutex> lock(m_Mutex);
+        if (m_Shutdown) return;
+        m_RecordingFrame = false;
+        m_LastSubmittedFenceValue = submittedFenceValue;
+        if (!m_CurrentFrame.empty() || !m_CurrentFrameActions.empty()) {
+            Batch batch;
+            batch.fenceValue = submittedFenceValue;
+            batch.objects = std::move(m_CurrentFrame);
+            batch.actions = std::move(m_CurrentFrameActions);
+            m_Batches.push_back(std::move(batch));
+            m_CurrentFrame.clear();
+            m_CurrentFrameActions.clear();
+        }
+    }
+
+    void AbortUnsubmittedFrame() {
+        std::lock_guard<std::mutex> lock(m_Mutex);
+        if (m_Shutdown) return;
+        m_RecordingFrame = false;
+        if (m_CurrentFrame.empty() && m_CurrentFrameActions.empty()) return;
+        if (m_LastSubmittedFenceValue == 0) {
+            m_CurrentFrame.clear();
+            for (auto& action : m_CurrentFrameActions) action();
+            m_CurrentFrameActions.clear();
+        } else {
+            Batch batch;
+            batch.fenceValue = m_LastSubmittedFenceValue;
+            batch.objects = std::move(m_CurrentFrame);
+            batch.actions = std::move(m_CurrentFrameActions);
+            m_Batches.push_back(std::move(batch));
+            m_CurrentFrame.clear();
+            m_CurrentFrameActions.clear();
+        }
+    }
+
+    void AbandonSubmittedFrame() {
+        std::lock_guard<std::mutex> lock(m_Mutex);
+        if (m_Shutdown) return;
+        m_RecordingFrame = false;
+        for (auto& object : m_CurrentFrame) m_Abandoned.push_back(std::move(object));
+        for (auto& action : m_CurrentFrameActions)
+            m_AbandonedActions.push_back(std::move(action));
+        m_CurrentFrame.clear();
+        m_CurrentFrameActions.clear();
+    }
+
+    void Retire(ComPtr<IUnknown> object) {
+        if (!object) return;
+        std::lock_guard<std::mutex> lock(m_Mutex);
+        if (m_Shutdown) return;
+        if (m_RecordingFrame) {
+            m_CurrentFrame.push_back(std::move(object));
+        } else if (m_LastSubmittedFenceValue != 0) {
+            if (!m_Batches.empty() &&
+                m_Batches.back().fenceValue == m_LastSubmittedFenceValue) {
+                m_Batches.back().objects.push_back(std::move(object));
+            } else {
+                Batch batch;
+                batch.fenceValue = m_LastSubmittedFenceValue;
+                batch.objects.push_back(std::move(object));
+                m_Batches.push_back(std::move(batch));
+            }
+        }
+    }
+
+    void RetireAction(std::function<void()> action) {
+        if (!action) return;
+        bool executeNow = false;
+        {
+            std::lock_guard<std::mutex> lock(m_Mutex);
+            if (m_Shutdown || (!m_RecordingFrame && m_LastSubmittedFenceValue == 0)) {
+                executeNow = true;
+            } else if (m_RecordingFrame) {
+                m_CurrentFrameActions.push_back(std::move(action));
+            } else if (!m_Batches.empty() &&
+                       m_Batches.back().fenceValue == m_LastSubmittedFenceValue) {
+                m_Batches.back().actions.push_back(std::move(action));
+            } else {
+                Batch batch;
+                batch.fenceValue = m_LastSubmittedFenceValue;
+                batch.actions.push_back(std::move(action));
+                m_Batches.push_back(std::move(batch));
+            }
+        }
+        if (executeNow) action();
+    }
+
+    void Collect(uint64_t completedFenceValue) {
+        std::deque<Batch> completed;
+        {
+            std::lock_guard<std::mutex> lock(m_Mutex);
+            while (!m_Batches.empty() &&
+                   m_Batches.front().fenceValue <= completedFenceValue) {
+                completed.push_back(std::move(m_Batches.front()));
+                m_Batches.pop_front();
+            }
+        }
+        for (auto& batch : completed)
+            for (auto& action : batch.actions) action();
+    }
+
+    void ShutdownAndRelease() {
+        std::vector<std::function<void()>> actions;
+        {
+            std::lock_guard<std::mutex> lock(m_Mutex);
+            m_Shutdown = true;
+            m_RecordingFrame = false;
+            actions = std::move(m_CurrentFrameActions);
+            for (auto& batch : m_Batches)
+                for (auto& action : batch.actions) actions.push_back(std::move(action));
+            for (auto& action : m_AbandonedActions) actions.push_back(std::move(action));
+            m_CurrentFrame.clear();
+            m_CurrentFrameActions.clear();
+            m_Batches.clear();
+            m_Abandoned.clear();
+            m_AbandonedActions.clear();
+        }
+        for (auto& action : actions) action();
+    }
+
+private:
+    struct Batch {
+        uint64_t fenceValue = 0;
+        std::vector<ComPtr<IUnknown>> objects;
+        std::vector<std::function<void()>> actions;
+    };
+
+    std::mutex m_Mutex;
+    std::deque<Batch> m_Batches;
+    std::vector<ComPtr<IUnknown>> m_CurrentFrame;
+    std::vector<std::function<void()>> m_CurrentFrameActions;
+    std::vector<ComPtr<IUnknown>> m_Abandoned;
+    std::vector<std::function<void()>> m_AbandonedActions;
+    uint64_t m_LastSubmittedFenceValue = 0;
+    bool m_RecordingFrame = false;
+    bool m_Shutdown = false;
+};
+
+class D3D12DescriptorPool : public std::enable_shared_from_this<D3D12DescriptorPool> {
+public:
+    D3D12DescriptorPool(D3D12_CPU_DESCRIPTOR_HANDLE cpuBase,
+                        D3D12_GPU_DESCRIPTOR_HANDLE gpuBase,
+                        uint32_t increment, uint32_t capacity, uint32_t firstIndex)
+        : m_CpuBase(cpuBase), m_GpuBase(gpuBase), m_Increment(increment),
+          m_Capacity(capacity), m_NextIndex(firstIndex) {}
+
+    bool Allocate(const std::shared_ptr<D3D12DeferredReleaseQueue>& queue,
+                  D3D12_CPU_DESCRIPTOR_HANDLE& cpu,
+                  D3D12_GPU_DESCRIPTOR_HANDLE& gpu,
+                  std::shared_ptr<D3D12DescriptorLease>* lease);
+
+    void Release(uint32_t index) {
+        std::lock_guard<std::mutex> lock(m_Mutex);
+        m_FreeIndices.push_back(index);
+    }
+
+private:
+    std::mutex m_Mutex;
+    D3D12_CPU_DESCRIPTOR_HANDLE m_CpuBase{};
+    D3D12_GPU_DESCRIPTOR_HANDLE m_GpuBase{};
+    uint32_t m_Increment = 0;
+    uint32_t m_Capacity = 0;
+    uint32_t m_NextIndex = 0;
+    std::vector<uint32_t> m_FreeIndices;
+};
+
+class D3D12DescriptorLease {
+public:
+    D3D12DescriptorLease(std::shared_ptr<D3D12DescriptorPool> pool,
+                         std::shared_ptr<D3D12DeferredReleaseQueue> queue,
+                         uint32_t index)
+        : m_Pool(std::move(pool)), m_Queue(std::move(queue)), m_Index(index) {}
+
+    ~D3D12DescriptorLease() {
+        auto pool = std::move(m_Pool);
+        if (!pool) return;
+        const uint32_t index = m_Index;
+        if (m_Queue) {
+            m_Queue->RetireAction([pool = std::move(pool), index]() {
+                pool->Release(index);
+            });
+        } else {
+            pool->Release(index);
+        }
+    }
+
+private:
+    std::shared_ptr<D3D12DescriptorPool> m_Pool;
+    std::shared_ptr<D3D12DeferredReleaseQueue> m_Queue;
+    uint32_t m_Index = 0;
+};
+
+bool D3D12DescriptorPool::Allocate(
+    const std::shared_ptr<D3D12DeferredReleaseQueue>& queue,
+    D3D12_CPU_DESCRIPTOR_HANDLE& cpu,
+    D3D12_GPU_DESCRIPTOR_HANDLE& gpu,
+    std::shared_ptr<D3D12DescriptorLease>* lease) {
+    uint32_t index = 0;
+    {
+        std::lock_guard<std::mutex> lock(m_Mutex);
+        if (!m_FreeIndices.empty()) {
+            index = m_FreeIndices.back();
+            m_FreeIndices.pop_back();
+        } else {
+            if (m_NextIndex >= m_Capacity) return false;
+            index = m_NextIndex++;
+        }
+    }
+    cpu = m_CpuBase;
+    cpu.ptr += static_cast<SIZE_T>(index) * m_Increment;
+    gpu = m_GpuBase;
+    if (gpu.ptr != 0) gpu.ptr += static_cast<UINT64>(index) * m_Increment;
+    if (lease) {
+        *lease = std::make_shared<D3D12DescriptorLease>(
+            shared_from_this(), queue, index);
+    }
+    return true;
+}
+
+template <typename T>
+static void RetireD3D12Object(const std::shared_ptr<D3D12DeferredReleaseQueue>& queue,
+                              ComPtr<T>& object) {
+    if (!object) return;
+    if (!queue) {
+        object.Reset();
+        return;
+    }
+    ComPtr<IUnknown> unknown;
+    unknown.Attach(object.Detach());
+    queue->Retire(std::move(unknown));
+}
+
+D3D12Buffer::~D3D12Buffer() {
+    RetireD3D12Object(deferredReleaseQueue, resource);
+}
+
+D3D12Shader::~D3D12Shader() {
+    RetireD3D12Object(deferredReleaseQueue, rootSignature);
+    RetireD3D12Object(deferredReleaseQueue, pipelineState);
+    RetireD3D12Object(deferredReleaseQueue, alphaPipelineState);
+    RetireD3D12Object(deferredReleaseQueue, depthOnlyPipelineState);
+    RetireD3D12Object(deferredReleaseQueue, wireframePipelineState);
+    RetireD3D12Object(deferredReleaseQueue, twoSidedPipelineState);
+    RetireD3D12Object(deferredReleaseQueue, computeRootSignature);
+    RetireD3D12Object(deferredReleaseQueue, computePipelineState);
+}
+
+D3D12GraphicsPipeline::~D3D12GraphicsPipeline() {
+    RetireD3D12Object(deferredReleaseQueue, pipelineState);
+}
+
+D3D12Texture::~D3D12Texture() {
+    RetireD3D12Object(deferredReleaseQueue, resource);
+}
+
+D3D12ReadbackTicket::~D3D12ReadbackTicket() {
+    RetireD3D12Object(m_DeferredReleaseQueue, m_Resource);
+}
+
+static std::string WideToUtf8(const wchar_t* value) {
+    if (!value || !*value) return {};
+    const int size = WideCharToMultiByte(CP_UTF8, 0, value, -1, nullptr, 0, nullptr, nullptr);
+    if (size <= 1) return {};
+    std::string result(static_cast<size_t>(size), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, value, -1, result.data(), size, nullptr, nullptr);
+    result.pop_back();
+    return result;
+}
+
+static bool IsEnvironmentFlagEnabled(const char* name) {
+    char value[8] = {};
+    return GetEnvironmentVariableA(name, value, static_cast<DWORD>(sizeof(value))) > 0 &&
+        std::strcmp(value, "0") != 0;
+}
+
+static void EnableD3D12Diagnostics() {
+#if !defined(NDEBUG)
+    const bool enableGpuValidation =
+        IsEnvironmentFlagEnabled("MYENGINE_D3D12_GPU_VALIDATION");
+    const bool enableDebugLayer = enableGpuValidation ||
+        IsEnvironmentFlagEnabled("MYENGINE_D3D12_DEBUG_LAYER");
+    if (enableDebugLayer) {
+        ComPtr<ID3D12Debug> debug;
+        if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debug)))) {
+            debug->EnableDebugLayer();
+            ComPtr<ID3D12Debug1> debug1;
+            if (enableGpuValidation && SUCCEEDED(debug.As(&debug1))) {
+                debug1->SetEnableGPUBasedValidation(TRUE);
+                Logger::Info("D3D12 Debug Layer and GPU-based validation enabled");
+            } else if (enableGpuValidation) {
+                Logger::Warn("D3D12 Debug Layer enabled, but GPU-based validation is unavailable");
+            } else {
+                Logger::Info("D3D12 Debug Layer enabled");
+            }
+        } else {
+            Logger::Warn("D3D12 Debug Layer unavailable; install Windows Graphics Tools for validation output");
+        }
+    } else {
+        Logger::Info("D3D12 validation layer disabled; set MYENGINE_D3D12_DEBUG_LAYER=1 "
+                     "or MYENGINE_D3D12_GPU_VALIDATION=1 to enable it");
+    }
+#endif
+
+    ComPtr<ID3D12DeviceRemovedExtendedDataSettings> dredSettings;
+    if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&dredSettings)))) {
+        dredSettings->SetAutoBreadcrumbsEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
+        dredSettings->SetPageFaultEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
+        ComPtr<ID3D12DeviceRemovedExtendedDataSettings1> dredSettings1;
+        if (SUCCEEDED(dredSettings.As(&dredSettings1))) {
+            dredSettings1->SetBreadcrumbContextEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
+        }
+        Logger::Info("D3D12 DRED breadcrumbs and page-fault reporting enabled");
+    } else {
+        Logger::Warn("D3D12 DRED settings interface unavailable");
+    }
 }
 
 bool D3D12Context::Init(IWindow* window) {
     if (!window) return false;
+
+    m_DeferredReleaseQueue = std::make_shared<D3D12DeferredReleaseQueue>();
 
     HWND hwnd = static_cast<HWND>(window->GetNativeHandle());
     if (!hwnd) {
@@ -362,6 +702,9 @@ bool D3D12Context::Init(IWindow* window) {
     const uint32_t h = static_cast<uint32_t>(window->GetHeight());
     m_SwapChainWidth = w;
     m_SwapChainHeight = h;
+
+    // Diagnostics must be enabled before device creation.
+    EnableD3D12Diagnostics();
 
     // ---- Device / Queue ----------------------------------------------------
     HRESULT hr = D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_11_0,
@@ -381,6 +724,7 @@ bool D3D12Context::Init(IWindow* window) {
                       reinterpret_cast<void*>(static_cast<uintptr_t>(hr)));
         return false;
     }
+    m_CommandQueue->SetName(L"MyEngine D3D12 Direct Queue");
 
     // ---- SwapChain ---------------------------------------------------------
     ComPtr<IDXGIFactory4> factory;
@@ -476,6 +820,10 @@ bool D3D12Context::Init(IWindow* window) {
         }
         m_OffscreenRtvDescriptorSize = m_Device->GetDescriptorHandleIncrementSize(
             D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+        m_RtvDescriptorPool = std::make_shared<D3D12DescriptorPool>(
+            m_OffscreenRtvHeap->GetCPUDescriptorHandleForHeapStart(),
+            D3D12_GPU_DESCRIPTOR_HANDLE{}, m_OffscreenRtvDescriptorSize,
+            kOffscreenRtvCount, 0);
     }
 
     // DSV heap (PostProcessPass depth)
@@ -492,6 +840,10 @@ bool D3D12Context::Init(IWindow* window) {
         }
         m_DsvDescriptorSize = m_Device->GetDescriptorHandleIncrementSize(
             D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
+        m_DsvDescriptorPool = std::make_shared<D3D12DescriptorPool>(
+            m_DsvHeap->GetCPUDescriptorHandleForHeapStart(),
+            D3D12_GPU_DESCRIPTOR_HANDLE{}, m_DsvDescriptorSize,
+            kDsvDescriptorCount, 0);
     }
 
     // SRV heap (shader-visible, required by ImGui dx12 backend for fonts)
@@ -513,6 +865,10 @@ bool D3D12Context::Init(IWindow* window) {
 
     m_SrvDescriptorSize = m_Device->GetDescriptorHandleIncrementSize(
         D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    m_SrvDescriptorPool = std::make_shared<D3D12DescriptorPool>(
+        m_SrvHeap->GetCPUDescriptorHandleForHeapStart(),
+        m_SrvHeap->GetGPUDescriptorHandleForHeapStart(), m_SrvDescriptorSize,
+        kDefaultSrvDescriptorCount, 1);
 
     // Sampler heap (samplers must be in a separate heap type in D3D12)
     {
@@ -528,6 +884,10 @@ bool D3D12Context::Init(IWindow* window) {
         }
         m_SamplerDescriptorSize = m_Device->GetDescriptorHandleIncrementSize(
             D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
+        m_SamplerDescriptorPool = std::make_shared<D3D12DescriptorPool>(
+            m_SamplerHeap->GetCPUDescriptorHandleForHeapStart(),
+            m_SamplerHeap->GetGPUDescriptorHandleForHeapStart(), m_SamplerDescriptorSize,
+            kDefaultSamplerDescriptorCount, 0);
     }
 
     // Upload command allocator + list (one-shot copies for texture uploads)
@@ -539,6 +899,7 @@ bool D3D12Context::Init(IWindow* window) {
                           reinterpret_cast<void*>(static_cast<uintptr_t>(hr)));
             return false;
         }
+        m_UploadCommandAllocator->SetName(L"MyEngine D3D12 Upload Allocator");
         hr = m_Device->CreateCommandList(
             0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_UploadCommandAllocator.Get(),
             nullptr, IID_PPV_ARGS(&m_UploadCommandList));
@@ -547,7 +908,9 @@ bool D3D12Context::Init(IWindow* window) {
                           reinterpret_cast<void*>(static_cast<uintptr_t>(hr)));
             return false;
         }
-        m_UploadCommandList->Close();
+        m_UploadCommandList->SetName(L"MyEngine D3D12 Upload Command List");
+        if (!CheckDeviceResult(m_UploadCommandList->Close(), "Close(upload command list during init)"))
+            return false;
     }
 
     // ---- Command allocators & list (per-frame) ----------------------------
@@ -559,6 +922,9 @@ bool D3D12Context::Init(IWindow* window) {
                           reinterpret_cast<void*>(static_cast<uintptr_t>(hr)));
             return false;
         }
+        const std::wstring allocatorName = L"MyEngine D3D12 Frame Allocator " +
+            std::to_wstring(i);
+        m_Frames[i].commandAllocator->SetName(allocatorName.c_str());
     }
 
     hr = m_Device->CreateCommandList(
@@ -569,7 +935,9 @@ bool D3D12Context::Init(IWindow* window) {
                       reinterpret_cast<void*>(static_cast<uintptr_t>(hr)));
         return false;
     }
-    m_CommandList->Close();
+    m_CommandList->SetName(L"MyEngine D3D12 Frame Command List");
+    if (!CheckDeviceResult(m_CommandList->Close(), "Close(frame command list during init)"))
+        return false;
 
     // ---- Constant buffers (per-frame) ------------------------------------
     for (uint32_t i = 0; i < kFrameCount; ++i) {
@@ -651,9 +1019,12 @@ void D3D12Context::Shutdown() {
     }
 
     if (m_IsRecording && m_CommandList) {
-        m_CommandList->Close();
+        CheckDeviceResult(m_CommandList->Close(), "Close(frame command list during shutdown)");
+        if (m_DeferredReleaseQueue) m_DeferredReleaseQueue->AbortUnsubmittedFrame();
         m_IsRecording = false;
     }
+
+    if (m_DeferredReleaseQueue) m_DeferredReleaseQueue->ShutdownAndRelease();
 
     m_DefaultTexture.Reset();
     m_MainDepthBuffer.Reset();
@@ -702,6 +1073,8 @@ void D3D12Context::Shutdown() {
     m_NextSampSlot = 0;
     m_BoundShader = nullptr;
     m_DeviceLost = false;
+    m_DredDumped = false;
+    m_DeviceLossSuppressionLogged = false;
     m_LastDeviceError.clear();
 }
 
@@ -711,7 +1084,8 @@ void D3D12Context::WaitForFrame(uint32_t frameIndex) {
 
     if (m_Fence->GetCompletedValue() < fenceValue) {
         if (m_FenceEvent) {
-            m_Fence->SetEventOnCompletion(fenceValue, m_FenceEvent);
+            if (!CheckDeviceResult(m_Fence->SetEventOnCompletion(fenceValue, m_FenceEvent),
+                                   "SetEventOnCompletion(frame)")) return;
             WaitForSingleObject(m_FenceEvent, INFINITE);
         }
     }
@@ -721,14 +1095,18 @@ void D3D12Context::WaitForGpuIdle()
 {
     if (!m_CommandQueue || !m_Fence || !m_FenceEvent) return;
     const uint64_t fenceValue = m_NextFenceValue++;
-    if (FAILED(m_CommandQueue->Signal(m_Fence.Get(), fenceValue))) return;
+    if (!CheckDeviceResult(m_CommandQueue->Signal(m_Fence.Get(), fenceValue),
+                           "Signal(wait for GPU idle)")) return;
     if (m_Fence->GetCompletedValue() < fenceValue) {
-        if (SUCCEEDED(m_Fence->SetEventOnCompletion(fenceValue, m_FenceEvent))) {
-            WaitForSingleObject(m_FenceEvent, INFINITE);
-        }
+        if (!CheckDeviceResult(m_Fence->SetEventOnCompletion(fenceValue, m_FenceEvent),
+                               "SetEventOnCompletion(wait for GPU idle)")) return;
+        WaitForSingleObject(m_FenceEvent, INFINITE);
     }
     for (auto& frame : m_Frames) {
         frame.fenceValue = fenceValue;
+    }
+    if (m_DeferredReleaseQueue) {
+        m_DeferredReleaseQueue->Collect(m_Fence->GetCompletedValue());
     }
 }
 
@@ -741,8 +1119,11 @@ bool D3D12Context::UploadBufferData(ID3D12Resource* destination,
         return false;
     }
 
-    if (FAILED(m_UploadCommandAllocator->Reset())) return false;
-    if (FAILED(m_UploadCommandList->Reset(m_UploadCommandAllocator.Get(), nullptr))) return false;
+    if (!CanUseDevice("UploadBufferData")) return false;
+    if (!CheckDeviceResult(m_UploadCommandAllocator->Reset(), "Reset(upload command allocator)"))
+        return false;
+    if (!CheckDeviceResult(m_UploadCommandList->Reset(m_UploadCommandAllocator.Get(), nullptr),
+                           "Reset(upload command list)")) return false;
 
     m_UploadCommandList->CopyBufferRegion(destination, 0, uploadBuffer, 0, byteSize);
 
@@ -756,15 +1137,18 @@ bool D3D12Context::UploadBufferData(ID3D12Resource* destination,
         m_UploadCommandList->ResourceBarrier(1, &barrier);
     }
 
-    if (FAILED(m_UploadCommandList->Close())) return false;
+    if (!CheckDeviceResult(m_UploadCommandList->Close(), "Close(upload command list)"))
+        return false;
 
     ID3D12CommandList* cmdLists[] = { m_UploadCommandList.Get() };
     m_CommandQueue->ExecuteCommandLists(1, cmdLists);
 
     const uint64_t fenceValue = m_NextFenceValue++;
-    if (FAILED(m_CommandQueue->Signal(m_Fence.Get(), fenceValue))) return false;
+    if (!CheckDeviceResult(m_CommandQueue->Signal(m_Fence.Get(), fenceValue),
+                           "Signal(buffer upload)")) return false;
     if (m_Fence->GetCompletedValue() < fenceValue) {
-        if (FAILED(m_Fence->SetEventOnCompletion(fenceValue, m_FenceEvent))) return false;
+        if (!CheckDeviceResult(m_Fence->SetEventOnCompletion(fenceValue, m_FenceEvent),
+                               "SetEventOnCompletion(buffer upload)")) return false;
         WaitForSingleObject(m_FenceEvent, INFINITE);
     }
     return true;
@@ -801,7 +1185,7 @@ void D3D12Context::BeginFrame(float r, float g, float b, float a) {
         // Avoid nested BeginFrame calls.
         return;
     }
-    if (!m_Device || !m_SwapChain) return;
+    if (!CanUseDevice("BeginFrame") || !m_SwapChain) return;
 
     m_RenderFrameIndex = m_SwapChain->GetCurrentBackBufferIndex();
     WaitForFrame(m_RenderFrameIndex);
@@ -809,13 +1193,24 @@ void D3D12Context::BeginFrame(float r, float g, float b, float a) {
     auto& fr = m_Frames[m_RenderFrameIndex];
     fr.constantBufferOffset = 0;
 
-    HRESULT hr = fr.commandAllocator->Reset();
-    (void)hr;
-    m_CommandList->Reset(fr.commandAllocator.Get(), nullptr);
+    if (!CheckDeviceResult(fr.commandAllocator->Reset(), "Reset(frame command allocator)")) return;
+    if (!CheckDeviceResult(m_CommandList->Reset(fr.commandAllocator.Get(), nullptr),
+                           "Reset(frame command list)")) return;
+    if (m_DeferredReleaseQueue) {
+        const uint64_t completedFenceValue = m_Fence ? m_Fence->GetCompletedValue() : 0;
+        m_DeferredReleaseQueue->BeginFrame(completedFenceValue);
+    }
     m_IsRecording = true;
 
     // Set descriptors for ImGui (fonts SRV) + engine textures.
     EnsureDefaultResources();
+    if (m_DeviceLost) {
+        CheckDeviceResult(m_CommandList->Close(),
+                          "Close(frame command list after device removal)");
+        if (m_DeferredReleaseQueue) m_DeferredReleaseQueue->AbortUnsubmittedFrame();
+        m_IsRecording = false;
+        return;
+    }
     ID3D12DescriptorHeap* heaps[] = { m_SrvHeap.Get(), m_SamplerHeap.Get() };
     m_CommandList->SetDescriptorHeaps(2, heaps);
 
@@ -855,16 +1250,31 @@ void D3D12Context::EndFrame() {
     const uint32_t frameIndex = m_RenderFrameIndex;
     TransitionToPresent(m_CommandList.Get(), frameIndex);
 
-    m_CommandList->Close();
+    if (!CheckDeviceResult(m_CommandList->Close(), "Close(frame command list)")) {
+        if (m_DeferredReleaseQueue) m_DeferredReleaseQueue->AbortUnsubmittedFrame();
+        m_IsRecording = false;
+        return;
+    }
 
     ID3D12CommandList* cmdLists[] = { m_CommandList.Get() };
     m_CommandQueue->ExecuteCommandLists(1, cmdLists);
 
     PresentSwapChain(true);
+    if (m_DeviceLost) {
+        if (m_DeferredReleaseQueue) m_DeferredReleaseQueue->AbandonSubmittedFrame();
+        m_IsRecording = false;
+        return;
+    }
 
     const uint64_t fenceValue = m_NextFenceValue++;
-    m_CommandQueue->Signal(m_Fence.Get(), fenceValue);
+    if (!CheckDeviceResult(m_CommandQueue->Signal(m_Fence.Get(), fenceValue),
+                           "Signal(frame)")) {
+        if (m_DeferredReleaseQueue) m_DeferredReleaseQueue->AbandonSubmittedFrame();
+        m_IsRecording = false;
+        return;
+    }
     m_Frames[frameIndex].fenceValue = fenceValue;
+    if (m_DeferredReleaseQueue) m_DeferredReleaseQueue->EndFrame(fenceValue);
 
     m_IsRecording = false;
 }
@@ -956,25 +1366,126 @@ bool D3D12Context::ResizeSwapChain(uint32_t width, uint32_t height) {
 
 bool D3D12Context::CheckDeviceResult(HRESULT hr, const char* operation) {
     if (SUCCEEDED(hr)) return true;
-    std::ostringstream stream;
-    stream << operation << " failed: 0x" << std::hex << static_cast<unsigned long>(hr);
-    m_LastDeviceError = stream.str();
-    if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET ||
-        hr == DXGI_ERROR_DEVICE_HUNG) {
+    const std::string error = std::string(operation) + " failed: " + FormatHRESULT(hr);
+    Logger::Error(error);
+    if (!m_DeviceLost) m_LastDeviceError = error;
+    ReportDeviceRemovedReason(operation);
+    if (!m_DeviceLost && (hr == DXGI_ERROR_DEVICE_REMOVED ||
+                          hr == DXGI_ERROR_DEVICE_RESET ||
+                          hr == DXGI_ERROR_DEVICE_HUNG)) {
         m_DeviceLost = true;
+        DumpDredDiagnostics();
     }
-    Logger::Error(m_LastDeviceError);
     return false;
+}
+
+bool D3D12Context::CanUseDevice(const char* operation) {
+    if (m_Device && !m_DeviceLost) return true;
+    if (m_DeviceLost && !m_DeviceLossSuppressionLogged) {
+        Logger::Warn("D3D12: skipping ", operation,
+                     " because the device was already removed; first error: ",
+                     m_LastDeviceError);
+        m_DeviceLossSuppressionLogged = true;
+    }
+    return false;
+}
+
+void D3D12Context::ReportDeviceRemovedReason(const char* operation) {
+    if (!m_Device) return;
+    const HRESULT reason = m_Device->GetDeviceRemovedReason();
+    if (SUCCEEDED(reason)) return;
+
+    if (!m_DeviceLost) {
+        m_DeviceLost = true;
+        m_LastDeviceError = std::string(operation) +
+            " detected device removal: " + FormatHRESULT(reason);
+        Logger::Error(m_LastDeviceError);
+    } else {
+        Logger::Error("D3D12 device removed reason after ", operation,
+                      ": ", FormatHRESULT(reason));
+    }
+    DumpDredDiagnostics();
+}
+
+void D3D12Context::DumpDredDiagnostics() {
+    if (m_DredDumped || !m_Device) return;
+    m_DredDumped = true;
+
+    ComPtr<ID3D12DeviceRemovedExtendedData1> dred;
+    if (FAILED(m_Device.As(&dred))) {
+        Logger::Error("D3D12 DRED 1.1 interface unavailable");
+        return;
+    }
+
+    D3D12_DRED_AUTO_BREADCRUMBS_OUTPUT1 breadcrumbs{};
+    const HRESULT breadcrumbsHr = dred->GetAutoBreadcrumbsOutput1(&breadcrumbs);
+    if (SUCCEEDED(breadcrumbsHr)) {
+        uint32_t nodeIndex = 0;
+        for (const D3D12_AUTO_BREADCRUMB_NODE1* node = breadcrumbs.pHeadAutoBreadcrumbNode;
+             node; node = node->pNext, ++nodeIndex) {
+            const UINT completed = node->pLastBreadcrumbValue
+                ? *node->pLastBreadcrumbValue : 0;
+            const std::string queueName = node->pCommandQueueDebugNameA
+                ? node->pCommandQueueDebugNameA : WideToUtf8(node->pCommandQueueDebugNameW);
+            const std::string listName = node->pCommandListDebugNameA
+                ? node->pCommandListDebugNameA : WideToUtf8(node->pCommandListDebugNameW);
+            Logger::Error("DRED breadcrumb node #", nodeIndex,
+                          " queue=", queueName.empty() ? "<unnamed>" : queueName,
+                          " list=", listName.empty() ? "<unnamed>" : listName,
+                          " completed=", completed, "/", node->BreadcrumbCount);
+            if (node->pCommandHistory && completed > 0 && completed <= node->BreadcrumbCount) {
+                Logger::Error("DRED last completed op=",
+                              static_cast<uint32_t>(node->pCommandHistory[completed - 1]));
+            }
+            if (node->pCommandHistory && completed < node->BreadcrumbCount) {
+                Logger::Error("DRED next pending op=",
+                              static_cast<uint32_t>(node->pCommandHistory[completed]));
+            }
+            for (UINT i = 0; i < node->BreadcrumbContextsCount; ++i) {
+                const auto& context = node->pBreadcrumbContexts[i];
+                const std::string contextText = WideToUtf8(context.pContextString);
+                Logger::Error("DRED context breadcrumb=", context.BreadcrumbIndex,
+                              " text=", contextText.empty() ? "<none>" : contextText);
+            }
+        }
+        if (!breadcrumbs.pHeadAutoBreadcrumbNode)
+            Logger::Error("DRED breadcrumbs: no command history reported");
+    } else {
+        Logger::Error("DRED GetAutoBreadcrumbsOutput1 failed: ", FormatHRESULT(breadcrumbsHr));
+    }
+
+    D3D12_DRED_PAGE_FAULT_OUTPUT1 pageFault{};
+    const HRESULT pageFaultHr = dred->GetPageFaultAllocationOutput1(&pageFault);
+    if (SUCCEEDED(pageFaultHr)) {
+        Logger::Error("DRED page-fault VA=0x", std::hex, pageFault.PageFaultVA, std::dec);
+        auto logAllocations = [](const char* label, const D3D12_DRED_ALLOCATION_NODE1* head) {
+            uint32_t count = 0;
+            for (auto* node = head; node && count < 64; node = node->pNext, ++count) {
+                const std::string objectName = node->ObjectNameA
+                    ? node->ObjectNameA : WideToUtf8(node->ObjectNameW);
+                Logger::Error("DRED ", label, " allocation #", count,
+                              " name=", objectName.empty() ? "<unnamed>" : objectName,
+                              " type=", static_cast<uint32_t>(node->AllocationType));
+            }
+            if (!head) Logger::Error("DRED ", label, " allocations: none reported");
+        };
+        logAllocations("existing", pageFault.pHeadExistingAllocationNode);
+        logAllocations("recently-freed", pageFault.pHeadRecentFreedAllocationNode);
+    } else {
+        Logger::Error("DRED GetPageFaultAllocationOutput1 failed: ", FormatHRESULT(pageFaultHr));
+    }
 }
 
 std::shared_ptr<GpuBuffer> D3D12Context::CreateVertexBuffer(
     const void* data, uint32_t byteSize, uint32_t strideBytes) {
+    if (!CanUseDevice("CreateVertexBuffer")) return nullptr;
     if (!data || byteSize == 0 || byteSize % 4 != 0) {
         // Accept any size, but log in case something is clearly wrong.
         // We keep this minimal to avoid over-rejecting.
     }
 
     auto buf = std::make_shared<D3D12VertexBuffer>();
+    buf->deferredReleaseQueue = m_DeferredReleaseQueue;
     buf->desc.size = byteSize;
     buf->desc.stride = strideBytes;
     buf->desc.usage = RHIResourceUsage::VertexBuffer;
@@ -1000,11 +1511,7 @@ std::shared_ptr<GpuBuffer> D3D12Context::CreateVertexBuffer(
     HRESULT hr = m_Device->CreateCommittedResource(
         &props, D3D12_HEAP_FLAG_NONE, &desc,
         D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&buf->resource));
-    if (FAILED(hr)) {
-        Logger::Error("CreateVertexBuffer failed: 0x",
-                      reinterpret_cast<void*>(static_cast<uintptr_t>(hr)));
-        return nullptr;
-    }
+    if (!CheckDeviceResult(hr, "CreateCommittedResource(vertex buffer)")) return nullptr;
 
     ComPtr<ID3D12Resource> uploadBuffer;
     D3D12_HEAP_PROPERTIES uploadProps = {};
@@ -1012,17 +1519,12 @@ std::shared_ptr<GpuBuffer> D3D12Context::CreateVertexBuffer(
     hr = m_Device->CreateCommittedResource(
         &uploadProps, D3D12_HEAP_FLAG_NONE, &desc,
         D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&uploadBuffer));
-    if (FAILED(hr)) {
-        Logger::Error("CreateVertexBuffer upload buffer failed: 0x",
-                      reinterpret_cast<void*>(static_cast<uintptr_t>(hr)));
-        return nullptr;
-    }
+    if (!CheckDeviceResult(hr, "CreateCommittedResource(vertex upload buffer)")) return nullptr;
 
     void* mapped = nullptr;
     hr = uploadBuffer->Map(0, nullptr, &mapped);
-    if (FAILED(hr) || !mapped) {
-        Logger::Error("VertexBuffer upload Map failed: 0x",
-                      reinterpret_cast<void*>(static_cast<uintptr_t>(hr)));
+    if (!CheckDeviceResult(hr, "Map(vertex upload buffer)") || !mapped) {
+        if (!mapped) ReportDeviceRemovedReason("Map(vertex upload buffer) returned null");
         return nullptr;
     }
     std::memcpy(mapped, data, byteSize);
@@ -1031,6 +1533,7 @@ std::shared_ptr<GpuBuffer> D3D12Context::CreateVertexBuffer(
     if (!UploadBufferData(buf->resource.Get(), uploadBuffer.Get(), byteSize,
                           D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER)) {
         Logger::Error("CreateVertexBuffer upload submission failed");
+        ReportDeviceRemovedReason("CreateVertexBuffer upload submission");
         return nullptr;
     }
 
@@ -1039,9 +1542,11 @@ std::shared_ptr<GpuBuffer> D3D12Context::CreateVertexBuffer(
 
 std::shared_ptr<GpuBuffer> D3D12Context::CreateIndexBuffer(
     const void* data, uint32_t byteSize) {
+    if (!CanUseDevice("CreateIndexBuffer")) return nullptr;
     if (!data || byteSize == 0) return nullptr;
 
     auto buf = std::make_shared<D3D12IndexBuffer>();
+    buf->deferredReleaseQueue = m_DeferredReleaseQueue;
     buf->desc.size = byteSize;
     buf->desc.usage = RHIResourceUsage::IndexBuffer;
     buf->byteSize = byteSize;
@@ -1066,11 +1571,7 @@ std::shared_ptr<GpuBuffer> D3D12Context::CreateIndexBuffer(
     HRESULT hr = m_Device->CreateCommittedResource(
         &props, D3D12_HEAP_FLAG_NONE, &desc,
         D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&buf->resource));
-    if (FAILED(hr)) {
-        Logger::Error("CreateIndexBuffer failed: 0x",
-                      reinterpret_cast<void*>(static_cast<uintptr_t>(hr)));
-        return nullptr;
-    }
+    if (!CheckDeviceResult(hr, "CreateCommittedResource(index buffer)")) return nullptr;
 
     ComPtr<ID3D12Resource> uploadBuffer;
     D3D12_HEAP_PROPERTIES uploadProps = {};
@@ -1078,17 +1579,12 @@ std::shared_ptr<GpuBuffer> D3D12Context::CreateIndexBuffer(
     hr = m_Device->CreateCommittedResource(
         &uploadProps, D3D12_HEAP_FLAG_NONE, &desc,
         D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&uploadBuffer));
-    if (FAILED(hr)) {
-        Logger::Error("CreateIndexBuffer upload buffer failed: 0x",
-                      reinterpret_cast<void*>(static_cast<uintptr_t>(hr)));
-        return nullptr;
-    }
+    if (!CheckDeviceResult(hr, "CreateCommittedResource(index upload buffer)")) return nullptr;
 
     void* mapped = nullptr;
     hr = uploadBuffer->Map(0, nullptr, &mapped);
-    if (FAILED(hr) || !mapped) {
-        Logger::Error("IndexBuffer upload Map failed: 0x",
-                      reinterpret_cast<void*>(static_cast<uintptr_t>(hr)));
+    if (!CheckDeviceResult(hr, "Map(index upload buffer)") || !mapped) {
+        if (!mapped) ReportDeviceRemovedReason("Map(index upload buffer) returned null");
         return nullptr;
     }
     std::memcpy(mapped, data, byteSize);
@@ -1097,6 +1593,7 @@ std::shared_ptr<GpuBuffer> D3D12Context::CreateIndexBuffer(
     if (!UploadBufferData(buf->resource.Get(), uploadBuffer.Get(), byteSize,
                           D3D12_RESOURCE_STATE_INDEX_BUFFER)) {
         Logger::Error("CreateIndexBuffer upload submission failed");
+        ReportDeviceRemovedReason("CreateIndexBuffer upload submission");
         return nullptr;
     }
 
@@ -1105,7 +1602,7 @@ std::shared_ptr<GpuBuffer> D3D12Context::CreateIndexBuffer(
 
 std::shared_ptr<GpuBuffer> D3D12Context::CreateBuffer(
     const RHIBufferDesc& desc, const void* initialData) {
-    if (!m_Device || desc.size == 0) return nullptr;
+    if (!CanUseDevice("CreateBuffer") || desc.size == 0) return nullptr;
     const bool readback = HasUsage(desc.usage, RHIResourceUsage::Readback);
     if (readback && initialData) {
         Logger::Error("[RHI] Initial data for a readback buffer is unsupported");
@@ -1113,6 +1610,7 @@ std::shared_ptr<GpuBuffer> D3D12Context::CreateBuffer(
     }
 
     auto buffer = std::make_shared<D3D12Buffer>();
+    buffer->deferredReleaseQueue = m_DeferredReleaseQueue;
     buffer->desc = desc;
     buffer->byteSize = desc.size;
 
@@ -1140,25 +1638,30 @@ std::shared_ptr<GpuBuffer> D3D12Context::CreateBuffer(
     const D3D12_RESOURCE_STATES initialState = initialData && !readback ?
         D3D12_RESOURCE_STATE_COPY_DEST : finalState;
 
-    if (FAILED(m_Device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &native,
-        initialState, nullptr, IID_PPV_ARGS(&buffer->resource)))) return nullptr;
+    HRESULT hr = m_Device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &native,
+        initialState, nullptr, IID_PPV_ARGS(&buffer->resource));
+    if (!CheckDeviceResult(hr, "CreateCommittedResource(generic buffer)")) return nullptr;
 
     if (initialData && !readback) {
         ComPtr<ID3D12Resource> uploadBuffer;
         D3D12_HEAP_PROPERTIES uploadHeap{};
         uploadHeap.Type = D3D12_HEAP_TYPE_UPLOAD;
-        if (FAILED(m_Device->CreateCommittedResource(&uploadHeap, D3D12_HEAP_FLAG_NONE, &native,
-            D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&uploadBuffer)))) {
-            return nullptr;
-        }
+        hr = m_Device->CreateCommittedResource(&uploadHeap, D3D12_HEAP_FLAG_NONE, &native,
+            D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&uploadBuffer));
+        if (!CheckDeviceResult(hr, "CreateCommittedResource(generic upload buffer)")) return nullptr;
 
         void* mapped = nullptr;
-        if (FAILED(uploadBuffer->Map(0, nullptr, &mapped)) || !mapped) return nullptr;
+        hr = uploadBuffer->Map(0, nullptr, &mapped);
+        if (!CheckDeviceResult(hr, "Map(generic upload buffer)") || !mapped) {
+            if (!mapped) ReportDeviceRemovedReason("Map(generic upload buffer) returned null");
+            return nullptr;
+        }
         std::memcpy(mapped, initialData, desc.size);
         uploadBuffer->Unmap(0, nullptr);
 
         if (!UploadBufferData(buffer->resource.Get(), uploadBuffer.Get(), desc.size, finalState)) {
             Logger::Error("[RHI] Generic buffer upload submission failed");
+            ReportDeviceRemovedReason("Generic buffer upload submission");
             return nullptr;
         }
     }
@@ -1168,13 +1671,14 @@ std::shared_ptr<GpuBuffer> D3D12Context::CreateBuffer(
 
 std::shared_ptr<GpuBufferView> D3D12Context::CreateBufferView(
     const std::shared_ptr<GpuBuffer>& buffer, const RHIBufferViewDesc& desc) {
+    if (!CanUseDevice("CreateBufferView")) return nullptr;
     auto nativeBuffer = std::dynamic_pointer_cast<D3D12Buffer>(buffer);
     if (!nativeBuffer || !nativeBuffer->resource || nativeBuffer->desc.stride == 0) return nullptr;
     auto view = std::make_shared<D3D12BufferView>(); view->buffer = buffer; view->desc = desc;
     const uint32_t count = desc.elementCount ? desc.elementCount :
         nativeBuffer->desc.size / nativeBuffer->desc.stride;
     if (HasUsage(desc.usage, RHIResourceUsage::ShaderResource)) {
-        view->srvCpu = AllocSrvSlot(view->srvGpu);
+        view->srvCpu = AllocSrvSlot(view->srvGpu, &view->srvLease);
         D3D12_SHADER_RESOURCE_VIEW_DESC d{}; d.Format = DXGI_FORMAT_UNKNOWN;
         d.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
         d.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
@@ -1183,7 +1687,7 @@ std::shared_ptr<GpuBufferView> D3D12Context::CreateBufferView(
         m_Device->CreateShaderResourceView(nativeBuffer->resource.Get(), &d, view->srvCpu);
     }
     if (HasUsage(desc.usage, RHIResourceUsage::UnorderedAccess)) {
-        view->uavCpu = AllocSrvSlot(view->uavGpu);
+        view->uavCpu = AllocSrvSlot(view->uavGpu, &view->uavLease);
         D3D12_UNORDERED_ACCESS_VIEW_DESC d{}; d.Format = DXGI_FORMAT_UNKNOWN;
         d.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
         d.Buffer.FirstElement = desc.firstElement; d.Buffer.NumElements = count;
@@ -1267,12 +1771,14 @@ D3D12_CPU_DESCRIPTOR_HANDLE D3D12Context::GetMainDsvHandle() const
 
 bool D3D12Context::CreateMainDepthBuffer()
 {
-    if (!m_Device || m_SwapChainWidth == 0 || m_SwapChainHeight == 0) {
+    if (!CanUseDevice("CreateMainDepthBuffer") ||
+        m_SwapChainWidth == 0 || m_SwapChainHeight == 0) {
         return false;
     }
 
     m_MainDepthBuffer.Reset();
     m_MainDsvHandle = {};
+    m_MainDsvLease.reset();
 
     D3D12_HEAP_PROPERTIES heapProps = {};
     heapProps.Type = D3D12_HEAP_TYPE_DEFAULT;
@@ -1297,13 +1803,9 @@ bool D3D12Context::CreateMainDepthBuffer()
         &heapProps, D3D12_HEAP_FLAG_NONE, &desc,
         D3D12_RESOURCE_STATE_DEPTH_WRITE, &clearValue,
         IID_PPV_ARGS(&m_MainDepthBuffer));
-    if (FAILED(hr)) {
-        Logger::Error("CreateMainDepthBuffer failed: 0x",
-                      reinterpret_cast<void*>(static_cast<uintptr_t>(hr)));
-        return false;
-    }
+    if (!CheckDeviceResult(hr, "CreateCommittedResource(main depth buffer)")) return false;
 
-    m_MainDsvHandle = AllocDsvSlot();
+    m_MainDsvHandle = AllocDsvSlot(&m_MainDsvLease);
     D3D12_DEPTH_STENCIL_VIEW_DESC dsvDesc = {};
     dsvDesc.Format = kDepthFormat;
     dsvDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
@@ -1368,9 +1870,10 @@ void D3D12Context::BindDepthOnlyShader(GpuShader* shader)
 std::shared_ptr<GpuTexture> D3D12Context::CreateDepthTexture(
     int width, int height, bool cube, uint32_t arraySize)
 {
-    if (!m_Device || width <= 0 || height <= 0) return nullptr;
+    if (!CanUseDevice("CreateDepthTexture") || width <= 0 || height <= 0) return nullptr;
 
     EnsureDefaultResources();
+    if (m_DeviceLost) return nullptr;
 
     if (cube) {
         arraySize = 6;
@@ -1379,6 +1882,7 @@ std::shared_ptr<GpuTexture> D3D12Context::CreateDepthTexture(
     }
 
     auto tex = std::make_shared<D3D12Texture>();
+    tex->deferredReleaseQueue = m_DeferredReleaseQueue;
     tex->isCube = cube;
     tex->arraySize = arraySize;
 
@@ -1405,13 +1909,9 @@ std::shared_ptr<GpuTexture> D3D12Context::CreateDepthTexture(
         &heapProps, D3D12_HEAP_FLAG_NONE, &desc,
         D3D12_RESOURCE_STATE_DEPTH_WRITE, &clearValue,
         IID_PPV_ARGS(&tex->resource));
-    if (FAILED(hr)) {
-        Logger::Error("CreateDepthTexture failed: 0x",
-                      reinterpret_cast<void*>(static_cast<uintptr_t>(hr)));
-        return nullptr;
-    }
+    if (!CheckDeviceResult(hr, "CreateCommittedResource(depth texture)")) return nullptr;
 
-    tex->srvCpu = AllocSrvSlot(tex->srvGpu);
+    tex->srvCpu = AllocSrvSlot(tex->srvGpu, &tex->srvLease);
     D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
     srvDesc.Format = DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
     srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
@@ -1428,7 +1928,7 @@ std::shared_ptr<GpuTexture> D3D12Context::CreateDepthTexture(
     }
     m_Device->CreateShaderResourceView(tex->resource.Get(), &srvDesc, tex->srvCpu);
 
-    tex->sampCpu = AllocSampSlot(tex->sampGpu);
+    tex->sampCpu = AllocSampSlot(tex->sampGpu, &tex->sampLease);
     D3D12_SAMPLER_DESC sampDesc = {};
     sampDesc.Filter = D3D12_FILTER_COMPARISON_MIN_MAG_LINEAR_MIP_POINT;
     sampDesc.AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
@@ -1440,8 +1940,9 @@ std::shared_ptr<GpuTexture> D3D12Context::CreateDepthTexture(
 
     if (cube) {
         tex->dsvFaces.resize(6);
+        tex->dsvFaceLeases.resize(6);
         for (uint32_t face = 0; face < 6; ++face) {
-            tex->dsvFaces[face] = AllocDsvSlot();
+            tex->dsvFaces[face] = AllocDsvSlot(&tex->dsvFaceLeases[face]);
             D3D12_DEPTH_STENCIL_VIEW_DESC dsvDesc = {};
             dsvDesc.Format = kDepthFormat;
             dsvDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2DARRAY;
@@ -1454,8 +1955,9 @@ std::shared_ptr<GpuTexture> D3D12Context::CreateDepthTexture(
         tex->dsvCpu = tex->dsvFaces[0];
     } else if (arraySize > 1) {
         tex->dsvFaces.resize(arraySize);
+        tex->dsvFaceLeases.resize(arraySize);
         for (uint32_t slice = 0; slice < arraySize; ++slice) {
-            tex->dsvFaces[slice] = AllocDsvSlot();
+            tex->dsvFaces[slice] = AllocDsvSlot(&tex->dsvFaceLeases[slice]);
             D3D12_DEPTH_STENCIL_VIEW_DESC dsvDesc = {};
             dsvDesc.Format = kDepthFormat;
             dsvDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2DARRAY;
@@ -1467,7 +1969,7 @@ std::shared_ptr<GpuTexture> D3D12Context::CreateDepthTexture(
         }
         tex->dsvCpu = tex->dsvFaces[0];
     } else {
-        tex->dsvCpu = AllocDsvSlot();
+        tex->dsvCpu = AllocDsvSlot(&tex->dsvLease);
         D3D12_DEPTH_STENCIL_VIEW_DESC dsvDesc = {};
         dsvDesc.Format = kDepthFormat;
         dsvDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
@@ -1542,11 +2044,7 @@ bool D3D12Context::BuildShaderPipelines(D3D12Shader& shader,
 
     HRESULT hr = m_Device->CreateGraphicsPipelineState(
         &psoDesc, IID_PPV_ARGS(&shader.pipelineState));
-    if (FAILED(hr)) {
-        Logger::Error("CreateGraphicsPipelineState failed: 0x",
-                      reinterpret_cast<void*>(static_cast<uintptr_t>(hr)));
-        return false;
-    }
+    if (!CheckDeviceResult(hr, "CreateGraphicsPipelineState(opaque)")) return false;
 
     auto& blendTarget = psoDesc.BlendState.RenderTarget[0];
     blendTarget.BlendEnable = TRUE;
@@ -1558,19 +2056,19 @@ bool D3D12Context::BuildShaderPipelines(D3D12Shader& shader,
     blendTarget.BlendOpAlpha = D3D12_BLEND_OP_ADD;
     hr = m_Device->CreateGraphicsPipelineState(
         &psoDesc, IID_PPV_ARGS(&shader.alphaPipelineState));
-    if (FAILED(hr)) return false;
+    if (!CheckDeviceResult(hr, "CreateGraphicsPipelineState(alpha)")) return false;
 
     psoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
     blendTarget.BlendEnable = FALSE;
     hr = m_Device->CreateGraphicsPipelineState(
         &psoDesc, IID_PPV_ARGS(&shader.twoSidedPipelineState));
-    if (FAILED(hr)) return false;
+    if (!CheckDeviceResult(hr, "CreateGraphicsPipelineState(two-sided)")) return false;
 
     psoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_BACK;
     psoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
     hr = m_Device->CreateGraphicsPipelineState(
         &psoDesc, IID_PPV_ARGS(&shader.wireframePipelineState));
-    if (FAILED(hr)) return false;
+    if (!CheckDeviceResult(hr, "CreateGraphicsPipelineState(wireframe)")) return false;
 
     psoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
     psoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
@@ -1580,7 +2078,7 @@ bool D3D12Context::BuildShaderPipelines(D3D12Shader& shader,
     psoDesc.RTVFormats[0] = DXGI_FORMAT_UNKNOWN;
     hr = m_Device->CreateGraphicsPipelineState(
         &psoDesc, IID_PPV_ARGS(&shader.depthOnlyPipelineState));
-    return SUCCEEDED(hr);
+    return CheckDeviceResult(hr, "CreateGraphicsPipelineState(depth-only)");
 }
 
 std::shared_ptr<GpuShader> D3D12Context::CreateShader(
@@ -1589,9 +2087,11 @@ std::shared_ptr<GpuShader> D3D12Context::CreateShader(
     const std::string& psEntry,
     const VertexElement* layout,
     uint32_t layoutCount) {
+    if (!CanUseDevice("CreateShader")) return nullptr;
     if (layoutCount > 0 && !layout) return nullptr;
 
     auto sh = std::make_shared<D3D12Shader>();
+    sh->deferredReleaseQueue = m_DeferredReleaseQueue;
 
     auto compileShader = [&](const std::string& entry,
                              const std::string& target,
@@ -1625,6 +2125,7 @@ std::shared_ptr<GpuShader> D3D12Context::CreateShader(
         static_cast<const uint8_t*>(psBlob->GetBufferPointer()) + psBlob->GetBufferSize());
 
     if (!CreateTextureRootSignature(m_Device.Get(), &sh->rootSignature)) {
+        ReportDeviceRemovedReason("CreateRootSignature(shader)");
         return nullptr;
     }
 
@@ -1648,18 +2149,21 @@ std::shared_ptr<GpuShader> D3D12Context::CreateShaderFromBytecode(
     size_t psSize,
     const VertexElement* layout,
     uint32_t layoutCount) {
+    if (!CanUseDevice("CreateShaderFromBytecode")) return nullptr;
     if (!vsBytecode || vsSize == 0 || !psBytecode || psSize == 0 ||
         (layoutCount > 0 && !layout)) {
         return nullptr;
     }
 
     auto sh = std::make_shared<D3D12Shader>();
+    sh->deferredReleaseQueue = m_DeferredReleaseQueue;
     sh->vertexBytecode.assign(static_cast<const uint8_t*>(vsBytecode),
                               static_cast<const uint8_t*>(vsBytecode) + vsSize);
     sh->pixelBytecode.assign(static_cast<const uint8_t*>(psBytecode),
                              static_cast<const uint8_t*>(psBytecode) + psSize);
 
     if (!CreateTextureRootSignature(m_Device.Get(), &sh->rootSignature)) {
+        ReportDeviceRemovedReason("CreateRootSignature(bytecode shader)");
         return nullptr;
     }
 
@@ -1675,16 +2179,22 @@ std::shared_ptr<GpuShader> D3D12Context::CreateShaderFromBytecode(
 
 std::shared_ptr<GpuShader> D3D12Context::CreateComputeShaderFromBytecode(
     const void* bytecode, size_t byteSize) {
-    if (!m_Device || !bytecode || byteSize == 0) return nullptr;
+    if (!CanUseDevice("CreateComputeShaderFromBytecode") || !bytecode || byteSize == 0)
+        return nullptr;
     auto shader = std::make_shared<D3D12Shader>();
+    shader->deferredReleaseQueue = m_DeferredReleaseQueue;
     shader->computeBytecode.assign(static_cast<const uint8_t*>(bytecode),
                                    static_cast<const uint8_t*>(bytecode) + byteSize);
-    if (!CreateComputeRootSignature(m_Device.Get(), &shader->computeRootSignature)) return nullptr;
+    if (!CreateComputeRootSignature(m_Device.Get(), &shader->computeRootSignature)) {
+        ReportDeviceRemovedReason("CreateRootSignature(compute shader)");
+        return nullptr;
+    }
     D3D12_COMPUTE_PIPELINE_STATE_DESC desc{};
     desc.pRootSignature = shader->computeRootSignature.Get();
     desc.CS = {bytecode, byteSize};
-    if (FAILED(m_Device->CreateComputePipelineState(
-        &desc, IID_PPV_ARGS(&shader->computePipelineState)))) return nullptr;
+    const HRESULT pipelineHr = m_Device->CreateComputePipelineState(
+        &desc, IID_PPV_ARGS(&shader->computePipelineState));
+    if (!CheckDeviceResult(pipelineHr, "CreateComputePipelineState")) return nullptr;
     std::string error;
     if (!ReflectDxbcStage(bytecode, byteSize, ShaderStageCompute, shader->reflection, &error))
         Logger::Warn("[RHI] D3D12 compute reflection failed: ", error);
@@ -1693,10 +2203,12 @@ std::shared_ptr<GpuShader> D3D12Context::CreateComputeShaderFromBytecode(
 
 std::shared_ptr<GpuGraphicsPipeline> D3D12Context::CreateGraphicsPipeline(
     const GraphicsPipelineDesc& desc) {
+    if (!CanUseDevice("CreateGraphicsPipeline")) return nullptr;
     auto shader = std::dynamic_pointer_cast<D3D12Shader>(desc.shader);
     if (!m_Device || !shader || !shader->rootSignature ||
         shader->vertexBytecode.empty() || shader->pixelBytecode.empty()) return nullptr;
     auto pipeline = std::make_shared<D3D12GraphicsPipeline>();
+    pipeline->deferredReleaseQueue = m_DeferredReleaseQueue;
     pipeline->desc = desc;
     D3D12_GRAPHICS_PIPELINE_STATE_DESC native{};
     native.pRootSignature = shader->rootSignature.Get();
@@ -1728,8 +2240,9 @@ std::shared_ptr<GpuGraphicsPipeline> D3D12Context::CreateGraphicsPipeline(
     native.DSVFormat = desc.depthFormat == RHIFormat::Unknown
         ? DXGI_FORMAT_UNKNOWN : ToDxgiRHIFormat(desc.depthFormat);
     native.SampleDesc.Count = 1;
-    if (FAILED(m_Device->CreateGraphicsPipelineState(
-            &native, IID_PPV_ARGS(&pipeline->pipelineState)))) return nullptr;
+    const HRESULT pipelineHr = m_Device->CreateGraphicsPipelineState(
+        &native, IID_PPV_ARGS(&pipeline->pipelineState));
+    if (!CheckDeviceResult(pipelineHr, "CreateGraphicsPipelineState(RHI pipeline)")) return nullptr;
     return pipeline;
 }
 
@@ -1826,20 +2339,19 @@ void D3D12Context::SetVSConstants(const void* data, uint32_t byteSize) {
         HRESULT hr = m_Device->CreateCommittedResource(
             &props, D3D12_HEAP_FLAG_NONE, &desc,
             D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&newRes));
-        if (FAILED(hr) || !newRes) {
-            Logger::Error("Grow constant buffer failed: 0x",
-                          reinterpret_cast<void*>(static_cast<uintptr_t>(hr)));
+        if (!CheckDeviceResult(hr, "CreateCommittedResource(grow constant buffer)") || !newRes) {
+            if (!newRes) ReportDeviceRemovedReason("Grow constant buffer returned null");
             return;
         }
 
         uint8_t* mapped = nullptr;
         hr = newRes->Map(0, nullptr, reinterpret_cast<void**>(&mapped));
-        if (FAILED(hr) || !mapped) {
-            Logger::Error("Grow constant buffer Map failed: 0x",
-                          reinterpret_cast<void*>(static_cast<uintptr_t>(hr)));
+        if (!CheckDeviceResult(hr, "Map(grown constant buffer)") || !mapped) {
+            if (!mapped) ReportDeviceRemovedReason("Map(grown constant buffer) returned null");
             return;
         }
 
+        RetireD3D12Object(m_DeferredReleaseQueue, fr.constantBufferUpload);
         fr.constantBufferUpload = newRes;
         fr.constantBufferMapped = mapped;
         fr.constantBufferCapacity = newCap;
@@ -1905,7 +2417,7 @@ void D3D12Context::SetViewport(float x, float y, float w, float h) {
 
 void D3D12Context::EnsureDefaultResources()
 {
-    if (m_DefaultTexture) return;
+    if (m_DefaultTexture || !CanUseDevice("EnsureDefaultResources")) return;
 
     // --- Default 1x1 black texture ---
     {
@@ -1927,10 +2439,7 @@ void D3D12Context::EnsureDefaultResources()
             &hp, D3D12_HEAP_FLAG_NONE, &desc,
             D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, nullptr,
             IID_PPV_ARGS(&m_DefaultTexture));
-        if (FAILED(hr)) {
-            Logger::Error("D3D12: EnsureDefaultResources – CreateCommittedResource failed");
-            return;
-        }
+        if (!CheckDeviceResult(hr, "CreateCommittedResource(default texture)")) return;
     }
 
     // Default SRV
@@ -1960,58 +2469,51 @@ void D3D12Context::EnsureDefaultResources()
     }
 }
 
-D3D12_CPU_DESCRIPTOR_HANDLE D3D12Context::AllocSrvSlot(D3D12_GPU_DESCRIPTOR_HANDLE& outGpu)
+D3D12_CPU_DESCRIPTOR_HANDLE D3D12Context::AllocSrvSlot(
+    D3D12_GPU_DESCRIPTOR_HANDLE& outGpu,
+    std::shared_ptr<D3D12DescriptorLease>* lease)
 {
-    if (!m_SrvHeap || m_NextSrvSlot >= kDefaultSrvDescriptorCount) {
+    D3D12_CPU_DESCRIPTOR_HANDLE cpu{};
+    if (!m_SrvDescriptorPool ||
+        !m_SrvDescriptorPool->Allocate(m_DeferredReleaseQueue, cpu, outGpu, lease)) {
         Logger::Error("[RHI] D3D12 SRV/UAV descriptor heap exhausted");
         outGpu = {};
         return {};
     }
-    D3D12_CPU_DESCRIPTOR_HANDLE cpu = OffsetHandle(
-        m_SrvHeap->GetCPUDescriptorHandleForHeapStart(), m_NextSrvSlot, m_SrvDescriptorSize);
-    D3D12_GPU_DESCRIPTOR_HANDLE gpu = OffsetHandle(
-        m_SrvHeap->GetGPUDescriptorHandleForHeapStart(), m_NextSrvSlot, m_SrvDescriptorSize);
-    ++m_NextSrvSlot;
-    outGpu = gpu;
     return cpu;
 }
 
-D3D12_CPU_DESCRIPTOR_HANDLE D3D12Context::AllocRtvSlot()
+D3D12_CPU_DESCRIPTOR_HANDLE D3D12Context::AllocRtvSlot(
+    std::shared_ptr<D3D12DescriptorLease>* lease)
 {
-    if (!m_OffscreenRtvHeap) return {};
-    if (m_NextOffscreenRtvSlot >= kOffscreenRtvCount) {
+    D3D12_CPU_DESCRIPTOR_HANDLE cpu{};
+    D3D12_GPU_DESCRIPTOR_HANDLE gpu{};
+    if (!m_RtvDescriptorPool ||
+        !m_RtvDescriptorPool->Allocate(m_DeferredReleaseQueue, cpu, gpu, lease)) {
         Logger::Error("[RHI] D3D12 RTV descriptor heap exhausted");
         return {};
     }
-    D3D12_CPU_DESCRIPTOR_HANDLE cpu = OffsetHandle(
-        m_OffscreenRtvHeap->GetCPUDescriptorHandleForHeapStart(),
-        m_NextOffscreenRtvSlot,
-        m_OffscreenRtvDescriptorSize);
-    ++m_NextOffscreenRtvSlot;
     return cpu;
 }
 
-D3D12_CPU_DESCRIPTOR_HANDLE D3D12Context::AllocDsvSlot()
+D3D12_CPU_DESCRIPTOR_HANDLE D3D12Context::AllocDsvSlot(
+    std::shared_ptr<D3D12DescriptorLease>* lease)
 {
-    if (!m_DsvHeap) return {};
-    if (m_NextDsvSlot >= kDsvDescriptorCount) {
+    D3D12_CPU_DESCRIPTOR_HANDLE cpu{};
+    D3D12_GPU_DESCRIPTOR_HANDLE gpu{};
+    if (!m_DsvDescriptorPool ||
+        !m_DsvDescriptorPool->Allocate(m_DeferredReleaseQueue, cpu, gpu, lease)) {
         Logger::Error("[RHI] D3D12 DSV descriptor heap exhausted");
         return {};
     }
-    D3D12_CPU_DESCRIPTOR_HANDLE cpu = OffsetHandle(
-        m_DsvHeap->GetCPUDescriptorHandleForHeapStart(),
-        m_NextDsvSlot,
-        m_DsvDescriptorSize);
-    ++m_NextDsvSlot;
     return cpu;
 }
 
 void D3D12Context::ResetPostProcessDescriptorAllocators()
 {
-    m_NextOffscreenRtvSlot = 0;
-    m_NextDsvSlot = 0;
-    m_NextSrvSlot = 1; // slot 0 reserved for ImGui font
-    m_NextSampSlot = 0;
+    if (m_DeferredReleaseQueue && m_Fence) {
+        m_DeferredReleaseQueue->Collect(m_Fence->GetCompletedValue());
+    }
 }
 
 void D3D12Context::BindPSTextureDescriptors(
@@ -2021,6 +2523,7 @@ void D3D12Context::BindPSTextureDescriptors(
 {
     if (!m_IsRecording || !m_CommandList) return;
     EnsureDefaultResources();
+    if (m_DeviceLost) return;
 
     const D3D12_GPU_DESCRIPTOR_HANDLE srv =
         srvGpu.ptr ? srvGpu : m_DefaultTexSrvGpu;
@@ -2040,6 +2543,7 @@ std::shared_ptr<GpuShader> D3D12Context::CreateFullscreenShaderFromBytecode(
     size_t psSize,
     DXGI_FORMAT rtvFormat)
 {
+    if (!CanUseDevice("CreateFullscreenShaderFromBytecode")) return nullptr;
     if (!vsBytecode || vsSize == 0 || !psBytecode || psSize == 0) {
         return nullptr;
     }
@@ -2048,6 +2552,7 @@ std::shared_ptr<GpuShader> D3D12Context::CreateFullscreenShaderFromBytecode(
     }
 
     auto sh = std::make_shared<D3D12Shader>();
+    sh->deferredReleaseQueue = m_DeferredReleaseQueue;
 
     static constexpr uint32_t kTextureSlotCount = D3D12Context::kTextureSlotCount;
     D3D12_DESCRIPTOR_RANGE ranges[kTextureSlotCount * 2] = {};
@@ -2095,9 +2600,7 @@ std::shared_ptr<GpuShader> D3D12Context::CreateFullscreenShaderFromBytecode(
     hr = m_Device->CreateRootSignature(
         0, serializedRootSig->GetBufferPointer(),
         serializedRootSig->GetBufferSize(), IID_PPV_ARGS(&sh->rootSignature));
-    if (FAILED(hr)) {
-        return nullptr;
-    }
+    if (!CheckDeviceResult(hr, "CreateRootSignature(fullscreen shader)")) return nullptr;
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
     psoDesc.pRootSignature = sh->rootSignature.Get();
@@ -2123,35 +2626,33 @@ std::shared_ptr<GpuShader> D3D12Context::CreateFullscreenShaderFromBytecode(
     psoDesc.SampleDesc.Count = 1;
 
     hr = m_Device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&sh->pipelineState));
-    if (FAILED(hr)) {
-        return nullptr;
-    }
+    if (!CheckDeviceResult(hr, "CreateGraphicsPipelineState(fullscreen shader)")) return nullptr;
     sh->alphaPipelineState = sh->pipelineState;
     return sh;
 }
 
-D3D12_CPU_DESCRIPTOR_HANDLE D3D12Context::AllocSampSlot(D3D12_GPU_DESCRIPTOR_HANDLE& outGpu)
+D3D12_CPU_DESCRIPTOR_HANDLE D3D12Context::AllocSampSlot(
+    D3D12_GPU_DESCRIPTOR_HANDLE& outGpu,
+    std::shared_ptr<D3D12DescriptorLease>* lease)
 {
-    if (!m_SamplerHeap || m_NextSampSlot >= kDefaultSamplerDescriptorCount) {
+    D3D12_CPU_DESCRIPTOR_HANDLE cpu{};
+    if (!m_SamplerDescriptorPool ||
+        !m_SamplerDescriptorPool->Allocate(m_DeferredReleaseQueue, cpu, outGpu, lease)) {
         Logger::Error("[RHI] D3D12 sampler descriptor heap exhausted");
         outGpu = {};
         return {};
     }
-    D3D12_CPU_DESCRIPTOR_HANDLE cpu = OffsetHandle(
-        m_SamplerHeap->GetCPUDescriptorHandleForHeapStart(), m_NextSampSlot, m_SamplerDescriptorSize);
-    D3D12_GPU_DESCRIPTOR_HANDLE gpu = OffsetHandle(
-        m_SamplerHeap->GetGPUDescriptorHandleForHeapStart(), m_NextSampSlot, m_SamplerDescriptorSize);
-    ++m_NextSampSlot;
-    outGpu = gpu;
     return cpu;
 }
 
 std::shared_ptr<GpuTexture> D3D12Context::UploadTexture2D(
     const void* rgba8Data, int width, int height)
 {
-    if (!rgba8Data || width <= 0 || height <= 0 || !m_Device) return nullptr;
+    if (!CanUseDevice("UploadTexture2D") || !rgba8Data || width <= 0 || height <= 0)
+        return nullptr;
 
     EnsureDefaultResources();
+    if (m_DeviceLost) return nullptr;
 
     // 1. Create default-heap texture (destination)
     ComPtr<ID3D12Resource> texResource;
@@ -2174,10 +2675,8 @@ std::shared_ptr<GpuTexture> D3D12Context::UploadTexture2D(
             &hp, D3D12_HEAP_FLAG_NONE, &desc,
             D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
             IID_PPV_ARGS(&texResource));
-        if (FAILED(hr)) {
-            Logger::Error("D3D12: UploadTexture2D – CreateCommittedResource (default) failed");
+        if (!CheckDeviceResult(hr, "CreateCommittedResource(texture upload destination)"))
             return nullptr;
-        }
     }
 
     // 2. Query required upload buffer size and layout
@@ -2206,17 +2705,15 @@ std::shared_ptr<GpuTexture> D3D12Context::UploadTexture2D(
             &hp, D3D12_HEAP_FLAG_NONE, &desc,
             D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
             IID_PPV_ARGS(&uploadBuffer));
-        if (FAILED(hr)) {
-            Logger::Error("D3D12: UploadTexture2D – CreateCommittedResource (upload) failed");
+        if (!CheckDeviceResult(hr, "CreateCommittedResource(texture upload buffer)"))
             return nullptr;
-        }
     }
 
     {
         void* mapped = nullptr;
-        uploadBuffer->Map(0, nullptr, &mapped);
-        if (!mapped) {
-            Logger::Error("D3D12: UploadTexture2D – Map failed");
+        const HRESULT mapHr = uploadBuffer->Map(0, nullptr, &mapped);
+        if (!CheckDeviceResult(mapHr, "Map(texture upload buffer)") || !mapped) {
+            if (!mapped) ReportDeviceRemovedReason("Map(texture upload buffer) returned null");
             return nullptr;
         }
         const uint8_t* src = static_cast<const uint8_t*>(rgba8Data);
@@ -2232,8 +2729,10 @@ std::shared_ptr<GpuTexture> D3D12Context::UploadTexture2D(
 
     // 4. GPU copy: upload buffer → default texture
     {
-        m_UploadCommandAllocator->Reset();
-        m_UploadCommandList->Reset(m_UploadCommandAllocator.Get(), nullptr);
+        if (!CheckDeviceResult(m_UploadCommandAllocator->Reset(),
+                               "Reset(texture upload command allocator)")) return nullptr;
+        if (!CheckDeviceResult(m_UploadCommandList->Reset(m_UploadCommandAllocator.Get(), nullptr),
+                               "Reset(texture upload command list)")) return nullptr;
 
         D3D12_TEXTURE_COPY_LOCATION dstLoc = {};
         dstLoc.pResource = texResource.Get();
@@ -2256,29 +2755,33 @@ std::shared_ptr<GpuTexture> D3D12Context::UploadTexture2D(
         barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
         m_UploadCommandList->ResourceBarrier(1, &barrier);
 
-        m_UploadCommandList->Close();
+        if (!CheckDeviceResult(m_UploadCommandList->Close(),
+                               "Close(texture upload command list)")) return nullptr;
 
         ID3D12CommandList* cmdLists[] = { m_UploadCommandList.Get() };
         m_CommandQueue->ExecuteCommandLists(1, cmdLists);
 
         // Wait for copy to finish before we let the upload buffer go
         const uint64_t fenceVal = m_NextFenceValue++;
-        m_CommandQueue->Signal(m_Fence.Get(), fenceVal);
+        if (!CheckDeviceResult(m_CommandQueue->Signal(m_Fence.Get(), fenceVal),
+                               "Signal(texture upload)")) return nullptr;
         if (m_Fence->GetCompletedValue() < fenceVal) {
-            m_Fence->SetEventOnCompletion(fenceVal, m_FenceEvent);
+            if (!CheckDeviceResult(m_Fence->SetEventOnCompletion(fenceVal, m_FenceEvent),
+                                   "SetEventOnCompletion(texture upload)")) return nullptr;
             WaitForSingleObject(m_FenceEvent, INFINITE);
         }
     }
 
     // 5. Create SRV and sampler in descriptor heaps
     auto tex = std::make_shared<D3D12Texture>();
+    tex->deferredReleaseQueue = m_DeferredReleaseQueue;
     tex->resource = texResource;
     tex->desc.width = static_cast<uint32_t>(width);
     tex->desc.height = static_cast<uint32_t>(height);
     tex->desc.format = RHIFormat::RGBA8UNorm;
     tex->desc.usage = RHIResourceUsage::ShaderResource;
 
-    tex->srvCpu = AllocSrvSlot(tex->srvGpu);
+    tex->srvCpu = AllocSrvSlot(tex->srvGpu, &tex->srvLease);
     {
         D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
         srvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -2289,7 +2792,7 @@ std::shared_ptr<GpuTexture> D3D12Context::UploadTexture2D(
         m_Device->CreateShaderResourceView(tex->resource.Get(), &srvDesc, tex->srvCpu);
     }
 
-    tex->sampCpu = AllocSampSlot(tex->sampGpu);
+    tex->sampCpu = AllocSampSlot(tex->sampGpu, &tex->sampLease);
     {
         D3D12_SAMPLER_DESC sampDesc = {};
         sampDesc.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
@@ -2309,6 +2812,7 @@ void D3D12Context::BindPSTexture(uint32_t slot, GpuTexture* tex)
 {
     if (!m_IsRecording || !m_CommandList) return;
     EnsureDefaultResources();
+    if (m_DeviceLost) return;
 
     auto* d3dTex = static_cast<D3D12Texture*>(tex);
     const D3D12_GPU_DESCRIPTOR_HANDLE srvGpu = d3dTex ? d3dTex->srvGpu : m_DefaultTexSrvGpu;
@@ -2356,7 +2860,7 @@ bool CreateComputeRootSignature(ID3D12Device* device, ID3D12RootSignature** outR
 }
 
 std::shared_ptr<GpuTexture> D3D12Context::CreateTexture(const RHITextureDesc& desc) {
-    if (!m_Device || desc.width == 0 || desc.height == 0) return nullptr;
+    if (!CanUseDevice("CreateTexture") || desc.width == 0 || desc.height == 0) return nullptr;
     D3D12_HEAP_PROPERTIES heap{}; heap.Type = D3D12_HEAP_TYPE_DEFAULT;
     D3D12_RESOURCE_DESC native{};
     native.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
@@ -2371,16 +2875,20 @@ std::shared_ptr<GpuTexture> D3D12Context::CreateTexture(const RHITextureDesc& de
     D3D12_CLEAR_VALUE clear{}; clear.Format = ToDxgiRHIFormat(desc.format);
     if (HasUsage(desc.usage, RHIResourceUsage::DepthStencil)) clear.DepthStencil.Depth = 1.0f;
     auto result = std::make_shared<D3D12Texture>(); result->desc = desc;
+    result->deferredReleaseQueue = m_DeferredReleaseQueue;
     result->arraySize = desc.arrayLayers; result->isCube = desc.cube;
     const D3D12_CLEAR_VALUE* clearPtr = (native.Flags & (D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL)) ? &clear : nullptr;
-    if (FAILED(m_Device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &native,
-        D3D12_RESOURCE_STATE_COMMON, clearPtr, IID_PPV_ARGS(&result->resource)))) return nullptr;
+    const HRESULT textureHr = m_Device->CreateCommittedResource(
+        &heap, D3D12_HEAP_FLAG_NONE, &native, D3D12_RESOURCE_STATE_COMMON,
+        clearPtr, IID_PPV_ARGS(&result->resource));
+    if (!CheckDeviceResult(textureHr, "CreateCommittedResource(texture)")) return nullptr;
     if (HasUsage(desc.usage, RHIResourceUsage::ShaderResource)) {
         RHITextureViewDesc viewDesc; viewDesc.mipCount = desc.mipLevels;
         viewDesc.layerCount = desc.arrayLayers; viewDesc.usage = RHIResourceUsage::ShaderResource;
         auto view = std::dynamic_pointer_cast<D3D12TextureView>(CreateTextureView(result, viewDesc));
         if (!view) return nullptr;
         result->srvCpu = view->srvCpu; result->srvGpu = view->srvGpu;
+        result->srvLease = std::move(view->srvLease);
         RHISamplerDesc samplerDesc;
         samplerDesc.filter = HasUsage(desc.usage, RHIResourceUsage::DepthStencil)
             ? RHIFilter::ComparisonLinear : RHIFilter::Linear;
@@ -2388,18 +2896,20 @@ std::shared_ptr<GpuTexture> D3D12Context::CreateTexture(const RHITextureDesc& de
         auto sampler = std::dynamic_pointer_cast<D3D12Sampler>(CreateSampler(samplerDesc));
         if (!sampler) return nullptr;
         result->sampCpu = sampler->cpu; result->sampGpu = sampler->gpu;
+        result->sampLease = std::move(sampler->lease);
     }
     return result;
 }
 
 std::shared_ptr<GpuTextureView> D3D12Context::CreateTextureView(
     const std::shared_ptr<GpuTexture>& texture, const RHITextureViewDesc& desc) {
+    if (!CanUseDevice("CreateTextureView")) return nullptr;
     auto nativeTexture = std::dynamic_pointer_cast<D3D12Texture>(texture);
     if (!nativeTexture || !nativeTexture->resource) return nullptr;
     auto view = std::make_shared<D3D12TextureView>(); view->texture = texture; view->desc = desc;
     const RHITextureDesc& td = nativeTexture->desc;
     if (HasUsage(desc.usage, RHIResourceUsage::ShaderResource)) {
-        view->srvCpu = AllocSrvSlot(view->srvGpu);
+        view->srvCpu = AllocSrvSlot(view->srvGpu, &view->srvLease);
         D3D12_SHADER_RESOURCE_VIEW_DESC d{};
         d.Format = td.format == RHIFormat::D24S8 ? DXGI_FORMAT_R24_UNORM_X8_TYPELESS : td.format == RHIFormat::D32Float ? DXGI_FORMAT_R32_FLOAT : ToDxgiRHIFormat(td.format);
         d.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
@@ -2409,21 +2919,21 @@ std::shared_ptr<GpuTextureView> D3D12Context::CreateTextureView(
         m_Device->CreateShaderResourceView(nativeTexture->resource.Get(), &d, view->srvCpu);
     }
     if (HasUsage(desc.usage, RHIResourceUsage::RenderTarget)) {
-        view->rtvCpu = AllocRtvSlot();
+        view->rtvCpu = AllocRtvSlot(&view->rtvLease);
         D3D12_RENDER_TARGET_VIEW_DESC d{}; d.Format = ToDxgiRHIFormat(td.format);
         if (td.arrayLayers > 1) { d.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DARRAY; d.Texture2DArray.MipSlice = desc.firstMip; d.Texture2DArray.FirstArraySlice = desc.firstLayer; d.Texture2DArray.ArraySize = desc.layerCount; }
         else { d.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D; d.Texture2D.MipSlice = desc.firstMip; }
         m_Device->CreateRenderTargetView(nativeTexture->resource.Get(), &d, view->rtvCpu);
     }
     if (HasUsage(desc.usage, RHIResourceUsage::DepthStencil)) {
-        view->dsvCpu = AllocDsvSlot();
+        view->dsvCpu = AllocDsvSlot(&view->dsvLease);
         D3D12_DEPTH_STENCIL_VIEW_DESC d{}; d.Format = ToDxgiRHIFormat(td.format);
         if (td.arrayLayers > 1) { d.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2DARRAY; d.Texture2DArray.MipSlice = desc.firstMip; d.Texture2DArray.FirstArraySlice = desc.firstLayer; d.Texture2DArray.ArraySize = desc.layerCount; }
         else { d.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D; d.Texture2D.MipSlice = desc.firstMip; }
         m_Device->CreateDepthStencilView(nativeTexture->resource.Get(), &d, view->dsvCpu);
     }
     if (HasUsage(desc.usage, RHIResourceUsage::UnorderedAccess)) {
-        view->uavCpu = AllocSrvSlot(view->uavGpu);
+        view->uavCpu = AllocSrvSlot(view->uavGpu, &view->uavLease);
         D3D12_UNORDERED_ACCESS_VIEW_DESC d{}; d.Format = ToDxgiRHIFormat(td.format); d.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D; d.Texture2D.MipSlice = desc.firstMip;
         m_Device->CreateUnorderedAccessView(nativeTexture->resource.Get(), nullptr, &d, view->uavCpu);
     }
@@ -2431,8 +2941,9 @@ std::shared_ptr<GpuTextureView> D3D12Context::CreateTextureView(
 }
 
 std::shared_ptr<GpuSampler> D3D12Context::CreateSampler(const RHISamplerDesc& desc) {
+    if (!CanUseDevice("CreateSampler")) return nullptr;
     auto result = std::make_shared<D3D12Sampler>(); result->desc = desc;
-    result->cpu = AllocSampSlot(result->gpu);
+    result->cpu = AllocSampSlot(result->gpu, &result->lease);
     D3D12_SAMPLER_DESC d{};
     d.Filter = desc.filter == RHIFilter::Point ? D3D12_FILTER_MIN_MAG_MIP_POINT : desc.filter == RHIFilter::ComparisonLinear ? D3D12_FILTER_COMPARISON_MIN_MAG_LINEAR_MIP_POINT : D3D12_FILTER_MIN_MAG_MIP_LINEAR;
     auto address = [](RHIAddressMode m) { return m == RHIAddressMode::Clamp ? D3D12_TEXTURE_ADDRESS_MODE_CLAMP : m == RHIAddressMode::Border ? D3D12_TEXTURE_ADDRESS_MODE_BORDER : D3D12_TEXTURE_ADDRESS_MODE_WRAP; };
@@ -2443,6 +2954,7 @@ std::shared_ptr<GpuSampler> D3D12Context::CreateSampler(const RHISamplerDesc& de
 
 std::shared_ptr<GpuReadbackTicket> D3D12Context::ReadbackBufferAsync(
     const std::shared_ptr<GpuBuffer>& buffer) {
+    if (!CanUseDevice("ReadbackBufferAsync")) return nullptr;
     auto source = std::dynamic_pointer_cast<D3D12Buffer>(buffer);
     if (!source || !source->resource || source->desc.size == 0 || !m_IsRecording) return nullptr;
     D3D12_HEAP_PROPERTIES heap{}; heap.Type = D3D12_HEAP_TYPE_READBACK;
@@ -2451,9 +2963,12 @@ std::shared_ptr<GpuReadbackTicket> D3D12Context::ReadbackBufferAsync(
     desc.Height = 1; desc.DepthOrArraySize = 1; desc.MipLevels = 1;
     desc.SampleDesc.Count = 1; desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
     ComPtr<ID3D12Resource> readback;
-    if (FAILED(m_Device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc,
-        D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&readback)))) return nullptr;
+    const HRESULT readbackHr = m_Device->CreateCommittedResource(
+        &heap, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_COPY_DEST,
+        nullptr, IID_PPV_ARGS(&readback));
+    if (!CheckDeviceResult(readbackHr, "CreateCommittedResource(readback buffer)")) return nullptr;
     m_CommandList->CopyBufferRegion(readback.Get(), 0, source->resource.Get(), 0, source->desc.size);
     return std::make_shared<D3D12ReadbackTicket>(
-        std::move(readback), m_Fence, m_NextFenceValue, source->desc.size);
+        std::move(readback), m_Fence, m_NextFenceValue, source->desc.size,
+        m_DeferredReleaseQueue);
 }
