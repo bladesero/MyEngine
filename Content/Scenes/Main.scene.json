@@ -923,19 +923,42 @@
         },
         {
             "active": true,
-            "components": [
-                {
-                    "data": {
-                        "material": "__builtin__/Default",
-                        "mesh": "Content/Mesh/monkey.obj#mesh"
-                    },
-                    "enabled": true,
-                    "type": "MeshRenderer"
-                }
-            ],
             "id": 7,
             "name": "monkey",
             "parentID": 0,
+            "prefabInstance": {
+                "asset": "Content/Prefabs/monkey.prefab.json",
+                "overrides": [],
+                "uuid": "280b4505-c69a-420b-85b7-922352de8c86"
+            },
+            "transform": {
+                "position": [
+                    -0.07559654116630554,
+                    -2.384185791015625e-07,
+                    -2.635707139968872
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    -0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            }
+        },
+        {
+            "active": true,
+            "id": 8,
+            "name": "monkey",
+            "parentID": 0,
+            "prefabInstance": {
+                "asset": "Content/Prefabs/monkey.prefab.json",
+                "overrides": [],
+                "uuid": "280b4505-c69a-420b-85b7-922352de8c86"
+            },
             "transform": {
                 "position": [
                     -0.07559654116630554,
@@ -956,5 +979,5 @@
         }
     ],
     "name": "Untitled",
-    "nextID": 8
+    "nextID": 9
 }

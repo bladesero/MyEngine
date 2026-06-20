@@ -1,0 +1,40 @@
+{
+  "nodes": [
+    {
+      "active": true,
+      "components": [
+        {
+          "data": {
+            "material": "__builtin__/Default",
+            "mesh": "Content/Mesh/monkey.obj#mesh"
+          },
+          "enabled": true,
+          "type": "MeshRenderer"
+        }
+      ],
+      "localId": "a5fdc444effe3190f625ed3a6b1de14d",
+      "name": "monkey",
+      "parentLocalId": "",
+      "transform": {
+        "position": [
+          -0.07559654116630554,
+          -2.384185791015625e-07,
+          -2.635707139968872
+        ],
+        "rotation": [
+          0.0,
+          -0.0,
+          -0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    }
+  ],
+  "rootLocalId": "a5fdc444effe3190f625ed3a6b1de14d",
+  "uuid": "280b4505-c69a-420b-85b7-922352de8c86",
+  "version": 1
+}

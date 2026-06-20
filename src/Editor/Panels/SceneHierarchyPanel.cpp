@@ -6,7 +6,7 @@
 #include "Editor/EditorImportService.h"
 #include "Editor/EditorLayout.h"
 #include "Editor/EditorUndoUtil.h"
-#include "Editor/EditorContextMenu.h"
+#include "Editor/EditorDragDrop.h"
 #include "Scene/Actor.h"
 #include "Scene/Scene.h"
 #include "Scene/SceneSerializer.h"
@@ -14,6 +14,7 @@
 #include "Core/Logger.h"
 
 #include <filesystem>
+#include <vector>
 
 #if defined(MYENGINE_ENABLE_IMGUI)
 #include <imgui.h>
@@ -21,6 +22,15 @@
 
 namespace {
 constexpr const char kActorPayload[] = "MYENGINE_ACTOR_ID";
+constexpr const char kPrefabPayload[] = "MYENGINE_PREFAB_PATH";
+
+#if defined(MYENGINE_ENABLE_IMGUI)
+void DrawDropHighlight(ImVec2 min, ImVec2 max, ImU32 color, float thickness = 2.0f)
+{
+    auto* dl = ImGui::GetWindowDrawList();
+    dl->AddRect(min, max, color, 0.0f, 0, thickness);
+}
+#endif
 }
 
 SceneHierarchyPanel::SceneHierarchyPanel():EditorPanel("sceneHierarchy","Scene Outliner"){
@@ -165,18 +175,17 @@ void SceneHierarchyPanel::DrawActor(Actor* actor){
     }
 
     // Drag source
-    if(ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)){
-        m_DraggedActor=actor->GetHandle();
-        ImGui::SetDragDropPayload(kActorPayload,&actorId,sizeof(actorId));
-        ImGui::TextUnformatted(actor->GetName().c_str());
-        ImGui::EndDragDropSource();
+    ActorDragDropSource dragSource(actorId, actor->GetName());
+    if(dragSource.Draw()){
+        m_DraggedActor = actor->GetHandle();
     }
 
     // Drag target
     HandleDragDropTarget(actor);
 
     if(open){
-        for(Actor* child:actor->GetChildren())DrawActor(child);
+        std::vector<Actor*> children = actor->GetChildren(); // snapshot before any FlushCommands mutates it
+        for(Actor* child:children){if(child->GetParent()==actor)DrawActor(child);}
         ImGui::TreePop();
     }
 #endif
@@ -190,26 +199,46 @@ void SceneHierarchyPanel::HandleDragDropTarget(Actor* targetParent) {
 
     if(!ImGui::BeginDragDropTarget())return;
 
+    // Highlight when a compatible payload is hovering over this target
+    const ImGuiPayload* previewPayload = ImGui::GetDragDropPayload();
+    if(previewPayload && previewPayload->IsDataType(kActorPayload) &&
+       previewPayload->IsDelivery())
+    {
+        DrawDropHighlight(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(),
+                          IM_COL32(80, 160, 255, 180), 2.5f);
+    }
+
     if(const ImGuiPayload* payload=ImGui::AcceptDragDropPayload(kActorPayload)){
         if(payload->DataSize>=sizeof(uint64_t)){
             uint64_t sourceId=0;
             std::memcpy(&sourceId,payload->Data,sizeof(sourceId));
             Actor* source=scene->FindByID(sourceId);
-            if(source && source!=targetParent){
-                bool valid=true;
-                for(Actor* parent=targetParent;parent;parent=parent->GetParent())
-                    if(parent==source){valid=false;break;}
-                if(valid){
-                    const std::string before=SceneSerializer::SaveToString(*scene);
-                    const uint64_t old=context->GetSelection().GetActorID();
-                    scene->QueueSetParent(source->GetHandle(),targetParent->GetHandle());
-                    scene->FlushCommands();
-                    const std::string after=SceneSerializer::SaveToString(*scene);
-                    SceneSerializer::LoadFromString(*scene,before);
-                    context->GetCommandStack()->ExecuteCommand(
-                        EditorUndoUtil::MakeSceneSnapshotCommand("Re-parent Actor",before,after,old,sourceId),*context);
-                }
+            if(!source || source==targetParent){
+                ImGui::EndDragDropTarget();
+                return;
             }
+            // Prevent dropping on own descendant (would create a cycle)
+            bool valid=true;
+            for(Actor* parent=targetParent;parent;parent=parent->GetParent())
+                if(parent==source){valid=false;break;}
+            if(!valid){
+                ImGui::EndDragDropTarget();
+                return;
+            }
+
+            const std::string before=SceneSerializer::SaveToString(*scene);
+            const uint64_t old=context->GetSelection().GetActorID();
+            scene->QueueSetParent(source->GetHandle(),targetParent->GetHandle());
+            if(!scene->FlushCommands()){
+                Logger::Warn("[Editor] Reparent failed: scene is busy");
+                ImGui::EndDragDropTarget();
+                return;
+            }
+            const std::string after=SceneSerializer::SaveToString(*scene);
+            SceneSerializer::LoadFromString(*scene,before);
+            context->GetCommandStack()->ExecuteCommand(
+                EditorUndoUtil::MakeSceneSnapshotCommand("Re-parent Actor",before,after,old,sourceId),*context);
+            context->GetSelection().SelectActorID(sourceId);
         }
     }
     ImGui::EndDragDropTarget();
@@ -233,7 +262,8 @@ void SceneHierarchyPanel::DrawContent(){
 
     m_DraggedActor={};
     m_ActorRightClicked=false;
-    for(Actor* actor:scene->GetRootActors())DrawActor(actor);
+    std::vector<Actor*> rootActors = scene->GetRootActors(); // snapshot
+    for(Actor* actor:rootActors){if(!actor->GetParent())DrawActor(actor);}
 
     // Right-click on empty area: built from registered handlers.
     // Scoped so ~EditorContextMenu calls EndPopup before drag-drop targets.
@@ -248,9 +278,29 @@ void SceneHierarchyPanel::DrawContent(){
         }
     }
 
-    // Prefab & actor drag-drop targets on empty area
+    // Fill remaining space with an invisible drop-target widget.
+    // Accepts actor payloads (un-parent) and prefab payloads (instantiate).
+    {
+        const float availY = ImGui::GetContentRegionAvail().y;
+        if(availY > 2.0f) ImGui::Dummy({ImGui::GetContentRegionAvail().x, availY - 2.0f});
+    }
     if(ImGui::BeginDragDropTarget()){
-        if(const ImGuiPayload* payload=ImGui::AcceptDragDropPayload("MYENGINE_PREFAB_PATH")){
+        // Visual highlight on hover (not just delivery) for the empty area
+        const ImGuiPayload* previewPayload = ImGui::GetDragDropPayload();
+        if(previewPayload)
+        {
+            const ImVec2 areaMin(ImGui::GetItemRectMin());
+            const ImVec2 areaMax(ImGui::GetItemRectMax());
+            if(previewPayload->IsDataType(kActorPayload))
+                DrawDropHighlight(areaMin, areaMax, IM_COL32(80, 200, 120, 120),
+                                  previewPayload->IsDelivery() ? 3.0f : 2.0f);
+            else if(previewPayload->IsDataType(kPrefabPayload))
+                DrawDropHighlight(areaMin, areaMax, IM_COL32(200, 160, 80, 120),
+                                  previewPayload->IsDelivery() ? 3.0f : 2.0f);
+        }
+
+        // Prefab drop: instantiate prefab as root actor
+        if(const ImGuiPayload* payload=ImGui::AcceptDragDropPayload(kPrefabPayload)){
             const std::string before=SceneSerializer::SaveToString(*scene);
             const uint64_t old=context->GetSelection().GetActorID();
             std::string error;
@@ -261,8 +311,11 @@ void SceneHierarchyPanel::DrawContent(){
                 SceneSerializer::LoadFromString(*scene,before);
                 context->GetCommandStack()->ExecuteCommand(
                     EditorUndoUtil::MakeSceneSnapshotCommand("Instantiate Prefab",before,after,old,id),*context);
+                context->GetSelection().SelectActorID(id);
             }else Logger::Warn("[Editor] Prefab instance creation failed: ",error);
         }
+
+        // Actor drop: un-parent (make root actor)
         if(const ImGuiPayload* payload=ImGui::AcceptDragDropPayload(kActorPayload)){
             if(payload->DataSize>=sizeof(uint64_t)){
                 uint64_t sourceId=0;
@@ -272,11 +325,16 @@ void SceneHierarchyPanel::DrawContent(){
                     const std::string before=SceneSerializer::SaveToString(*scene);
                     const uint64_t old=context->GetSelection().GetActorID();
                     scene->QueueSetParent(source->GetHandle(),ActorHandle{});
-                    scene->FlushCommands();
+                    if(!scene->FlushCommands()){
+                        Logger::Warn("[Editor] Un-parent failed: scene is busy");
+                        ImGui::EndDragDropTarget();
+                        return;
+                    }
                     const std::string after=SceneSerializer::SaveToString(*scene);
                     SceneSerializer::LoadFromString(*scene,before);
                     context->GetCommandStack()->ExecuteCommand(
                         EditorUndoUtil::MakeSceneSnapshotCommand("Un-parent Actor",before,after,old,sourceId),*context);
+                    context->GetSelection().SelectActorID(sourceId);
                 }
             }
         }

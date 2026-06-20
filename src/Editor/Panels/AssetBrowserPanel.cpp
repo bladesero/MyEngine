@@ -8,11 +8,11 @@
 #include "Editor/EditorAssetRegistry.h"
 #include "Editor/EditorContext.h"
 #include "Editor/EditorDialogService.h"
+#include "Editor/EditorDragDrop.h"
 #include "Editor/EditorImportService.h"
 #include "Editor/EditorLayout.h"
 #include "Editor/EditorPanelHelpers.h"
 #include "Editor/EditorProject.h"
-
 #if defined(MYENGINE_ENABLE_IMGUI)
 #include <imgui.h>
 #endif
@@ -29,9 +29,9 @@ void AssetBrowserPanel::DrawContent(){
     if(ImGui::Button("Create Material")){const auto directory=context->GetContentRoot()/"Materials";const auto path=EditorImportService::MakeUniqueContentPath(directory,"NewMaterial",".mat");auto material=MaterialAsset::CreateDefault(path.stem().string());if(SaveMaterialAssetToFile(*material,path.string())){AssetManager::Get().Load<MaterialAsset>(path.string());registry->Refresh();}}
     ImGui::InputTextWithHint("##Filter","Filter...",m_Filter,sizeof(m_Filter));ImGui::Separator();
     for(const auto& asset:registry->GetAssets()){if(m_Filter[0]&&asset.relativePath.find(m_Filter)==std::string::npos)continue;const bool selected=context->GetSelection().GetAssetPath()==asset.absolutePath.string();if(ImGui::Selectable(asset.relativePath.c_str(),selected)){context->GetSelection().SelectAssetPath(asset.absolutePath.string());if(context->GetProject())context->GetProject()->GetState().selectedAssetPath=asset.absolutePath.string();}
-        if(asset.type==EditorAssetType::Model&&ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)){const std::string path=asset.absolutePath.string();ImGui::SetDragDropPayload(kModelPayload,path.c_str(),path.size()+1);ImGui::TextUnformatted(asset.relativePath.c_str());ImGui::EndDragDropSource();}
-        if(asset.type==EditorAssetType::Texture&&ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)){const std::string path=asset.absolutePath.string();ImGui::SetDragDropPayload(kTexturePayload,path.c_str(),path.size()+1);ImGui::TextUnformatted(asset.relativePath.c_str());ImGui::EndDragDropSource();}
-        if(asset.type==EditorAssetType::Prefab&&ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)){const std::string path=asset.absolutePath.string();ImGui::SetDragDropPayload(kPrefabPayload,path.c_str(),path.size()+1);ImGui::TextUnformatted(asset.relativePath.c_str());ImGui::EndDragDropSource();}}
+        if(asset.type==EditorAssetType::Model){AssetDragDropSource(kModelPayload,asset.absolutePath.string(),asset.relativePath).Draw();}
+        if(asset.type==EditorAssetType::Texture){AssetDragDropSource(kTexturePayload,asset.absolutePath.string(),asset.relativePath).Draw();}
+        if(asset.type==EditorAssetType::Prefab){AssetDragDropSource(kPrefabPayload,asset.absolutePath.string(),asset.relativePath).Draw();}}
     ImGui::End();
 #endif
 }
