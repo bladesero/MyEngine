@@ -2,107 +2,117 @@
 
 #include "Scene/Actor.h"
 #include "Physics/PhysicsWorld.h"
-#include <string>
-#include <vector>
-#include <memory>
-#include <unordered_map>
-#include <functional>
 
-// ==========================================================================
-// Scene  –  Actor 集合管理
-//
-//  - 创建 / 销毁 Actor
-//  - 按 ID / 名字查找
-//  - 遍历所有 Actor（Update）
-//  - 延迟销毁：标记 → 帧末批量清除
-// ==========================================================================
+#include <nlohmann/json.hpp>
+#include <functional>
+#include <memory>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
+struct ComponentCreateDesc {
+    ComponentTypeID type;
+    bool enabled = true;
+    nlohmann::json data = nlohmann::json::object();
+};
+
+struct ActorCreateDesc {
+    std::string name = "Actor";
+    ActorHandle parent;
+    Transform transform;
+    bool activeSelf = true;
+    uint64_t persistentID = 0;
+    std::vector<ComponentCreateDesc> components;
+    std::string prefabAssetPath;
+    std::string prefabAssetUuid;
+    std::string prefabLocalId;
+    ActorHandle prefabInstanceRoot;
+    bool prefabRoot = false;
+    nlohmann::json prefabOverrides = nlohmann::json::array();
+};
 
 class Scene {
 public:
     explicit Scene(std::string name = "Scene");
     ~Scene();
-
-    // 禁止拷贝
-    Scene(const Scene&)            = delete;
+    Scene(const Scene&) = delete;
     Scene& operator=(const Scene&) = delete;
 
-    // -----------------------------------------------------------------------
-    // 基础属性
-    // -----------------------------------------------------------------------
     const std::string& GetName() const { return m_Name; }
-    void               SetName(const std::string& name) { m_Name = name; }
+    void SetName(const std::string& name) { m_Name = name; }
 
-    // -----------------------------------------------------------------------
-    // Actor 创建
-    // -----------------------------------------------------------------------
+    ActorHandle QueueCreateActor(const ActorCreateDesc& desc = {});
+    void QueueDestroyActor(ActorHandle actor);
+    void QueueSetParent(ActorHandle child, ActorHandle parent);
+    void QueueSetActive(ActorHandle actor, bool active);
+    ComponentHandle QueueAddComponent(ActorHandle actor, const ComponentTypeID& type,
+                                      const nlohmann::json& initialData = nlohmann::json::object());
+    void QueueRemoveComponent(const ComponentHandle& component);
+    void QueueSetComponentEnabled(const ComponentHandle& component, bool enabled);
+    bool FlushCommands();
 
-    // 创建 Actor 并加入场景，返回裸指针（所有权由 Scene 持有）
+    Actor* TryGetActor(ActorHandle handle);
+    const Actor* TryGetActor(ActorHandle handle) const;
+    ActorHandle GetHandle(uint64_t persistentID) const;
+
+    // Compatibility wrappers. Structural changes made while traversing are queued.
     Actor* CreateActor(const std::string& name = "Actor");
-
-    // 创建 Actor 并立即设置父节点
     Actor* CreateActor(const std::string& name, Actor* parent);
-
-    // 反序列化专用：以指定 ID 创建 Actor（保持原始 ID）
     Actor* CreateActorWithID(const std::string& name, uint64_t id);
-
-    // 反序列化专用：重置 ID 计数器
+    void DestroyActor(Actor* actor);
+    void DestroyActorDeferred(Actor* actor);
+    void FlushPendingDestroy() { FlushCommands(); }
     void SetNextID(uint64_t nextID) { m_NextID = nextID; }
-
-    // 清除场景所有内容
     void Clear();
 
-    // -----------------------------------------------------------------------
-    // Actor 销毁
-    // -----------------------------------------------------------------------
-
-    // 立即销毁（从场景移除，并递归销毁所有子节点）
-    void DestroyActor(Actor* actor);
-
-    // 延迟销毁：帧末在 FlushPendingDestroy() 调用时批量清除
-    void DestroyActorDeferred(Actor* actor);
-
-    // 处理所有延迟销毁队列（通常在帧末调用）
-    void FlushPendingDestroy();
-
-    // -----------------------------------------------------------------------
-    // 查找
-    // -----------------------------------------------------------------------
     Actor* FindByID(uint64_t id) const;
     Actor* FindByName(const std::string& name) const;
-
-    // 返回所有根节点 Actor（无父节点）
     std::vector<Actor*> GetRootActors() const;
-
-    // 返回场景所有 Actor（扁平列表）
     const std::vector<std::unique_ptr<Actor>>& GetAllActors() const { return m_Actors; }
-
-    // 获取 Actor 数量
     size_t ActorCount() const { return m_Actors.size(); }
-
-    // -----------------------------------------------------------------------
-    // 遍历
-    // -----------------------------------------------------------------------
     void ForEach(const std::function<void(Actor&)>& fn) const;
 
-    // -----------------------------------------------------------------------
-    // 生命周期（由外部驱动，如 Layer）
-    // -----------------------------------------------------------------------
+    void BeginPlay();
+    void EndPlay();
+    void Pause() { if (m_State == SceneState::Playing) m_State = SceneState::Paused; }
+    void Resume() { if (m_State == SceneState::Paused) m_State = SceneState::Playing; }
     void OnUpdate(float deltaSeconds);
+    SceneState GetState() const { return m_State; }
+    bool IsPlaying() const { return m_State == SceneState::Playing; }
+    bool IsTraversing() const { return m_Traversing; }
 
     PhysicsWorld& GetPhysicsWorld() { return m_PhysicsWorld; }
     const PhysicsWorld& GetPhysicsWorld() const { return m_PhysicsWorld; }
 
 private:
-    // 真正销毁 Actor 及其全部子树
+    struct Slot { Actor* actor = nullptr; uint32_t generation = 1; bool reserved = false; };
+    struct PendingCreate { ActorHandle handle; ActorCreateDesc desc; bool cancelled = false; };
+    enum class CommandKind { Destroy, SetParent, SetActive, AddComponent, RemoveComponent, SetComponentEnabled };
+    struct Command {
+        CommandKind kind;
+        ActorHandle actor;
+        ActorHandle other;
+        ComponentTypeID componentType;
+        nlohmann::json data;
+        bool flag = false;
+    };
+
+    ActorHandle ReserveHandle();
+    void ReleaseReserved(ActorHandle handle);
     void DestroyActorInternal(Actor* actor);
+    std::vector<Actor*> OrderedActors(bool reverse = false) const;
+    void FinalizeCreated(const std::vector<Actor*>& actors);
 
     std::string m_Name;
-    uint64_t    m_NextID = 1;
-
-    std::vector<std::unique_ptr<Actor>>         m_Actors;
-    std::unordered_map<uint64_t, Actor*>        m_IDMap;
-
-    // 待销毁队列（延迟删除）
-    std::vector<Actor*> m_PendingDestroy;
+    uint64_t m_NextID = 1;
+    std::vector<std::unique_ptr<Actor>> m_Actors;
+    std::unordered_map<uint64_t, Actor*> m_IDMap;
+    std::unordered_map<uint64_t, ActorHandle> m_IDHandles;
+    std::vector<Slot> m_Slots;
+    std::vector<PendingCreate> m_PendingCreates;
+    std::vector<Command> m_Commands;
     PhysicsWorld m_PhysicsWorld;
+    SceneState m_State = SceneState::Edit;
+    bool m_Traversing = false;
+    bool m_Flushing = false;
 };

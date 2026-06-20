@@ -28,7 +28,9 @@ void SceneLayer::OnDetach()
 void SceneLayer::OnUpdate(float dt)
 {
     if (m_RunState == SceneRunState::Play || m_StepRequested) {
+        if (m_StepRequested) m_Scene->Resume();
         m_Scene->OnUpdate(dt);
+        if (m_StepRequested) m_Scene->Pause();
         m_StepRequested = false;
     }
 }
@@ -126,6 +128,7 @@ bool SceneLayer::BeginPlay()
         return false;
     }
     m_RunState = SceneRunState::Play;
+    m_Scene->BeginPlay();
     m_StepRequested = false;
     Logger::Info("[SceneLayer] Enter Play mode");
     return true;
@@ -134,6 +137,7 @@ bool SceneLayer::BeginPlay()
 void SceneLayer::StopPlay()
 {
     if (m_RunState == SceneRunState::Edit) return;
+    m_Scene->EndPlay();
     const std::string snapshot = std::move(m_EditSceneSnapshot);
     m_EditSceneSnapshot.clear();
     if (!snapshot.empty() && !CloneSceneFromJson(snapshot)) {
@@ -149,6 +153,7 @@ void SceneLayer::PausePlay()
 {
     if (m_RunState == SceneRunState::Play) {
         m_RunState = SceneRunState::Pause;
+        m_Scene->Pause();
         Logger::Info("[SceneLayer] Play mode paused");
     }
 }
@@ -157,6 +162,7 @@ void SceneLayer::ResumePlay()
 {
     if (m_RunState == SceneRunState::Pause) {
         m_RunState = SceneRunState::Play;
+        m_Scene->Resume();
         Logger::Info("[SceneLayer] Play mode resumed");
     }
 }
@@ -165,6 +171,7 @@ bool SceneLayer::StepPlay()
 {
     if (m_RunState == SceneRunState::Edit && !BeginPlay()) return false;
     m_RunState = SceneRunState::Pause;
+    m_Scene->Pause();
     m_StepRequested = true;
     return true;
 }

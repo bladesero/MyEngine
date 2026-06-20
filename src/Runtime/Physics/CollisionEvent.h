@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Core/EngineMath.h"
+#include "Scene/ActorHandle.h"
 
 class Actor;
 
@@ -11,6 +12,8 @@ enum class CollisionEventPhase {
 };
 
 struct CollisionEvent {
+    ActorHandle otherHandle;
+    // Frame-local compatibility pointer. Persist otherHandle instead.
     Actor* other = nullptr;
     Vec3 point = Vec3::Zero();
     Vec3 normal = Vec3::Up();

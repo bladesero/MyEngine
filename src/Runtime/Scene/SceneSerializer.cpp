@@ -2,6 +2,7 @@
 #include "Scene/Actor.h"
 #include "Scene/Component.h"
 #include "Scene/ComponentRegistry.h"
+#include "Scene/PrefabSystem.h"
 #include "Core/Logger.h"
 
 #include <nlohmann/json.hpp>
@@ -59,12 +60,28 @@ static Json SceneToJson(const Scene& scene)
     Json actorsArr = Json::array();
 
     scene.ForEach([&](Actor& actor) {
+        for (Actor* parent=actor.GetParent();parent;parent=parent->GetParent())
+            if (parent->IsPrefabRoot()) return;
+        if (actor.IsPrefabInstance() && !actor.IsPrefabRoot()) return;
         Json a;
         a["id"]       = actor.GetID();
         a["name"]     = actor.GetName();
-        a["active"]   = actor.IsActive();
+        a["active"]   = actor.IsActiveSelf();
         a["parentID"] = actor.GetParent() ? actor.GetParent()->GetID() : uint64_t(0);
         a["transform"] = TransformToJson(actor.GetTransform());
+
+        if (actor.IsPrefabRoot()) {
+            std::string error;
+            if (!PrefabSystem::CaptureOverrides(actor, &error))
+                throw std::runtime_error("failed to capture prefab overrides: " + error);
+            a["prefabInstance"] = {
+                {"asset", actor.GetPrefabAssetPath()},
+                {"uuid", actor.GetPrefabAssetUuid()},
+                {"overrides", actor.GetPrefabOverrides()}
+            };
+            actorsArr.push_back(std::move(a));
+            return;
+        }
 
         // Components
         Json comps = Json::array();
@@ -113,7 +130,9 @@ static bool JsonToScene(const Json& root, Scene& scene)
             return true;
         }
 
-        // --- Pass 1: create all actors with their IDs ---
+        std::unordered_map<uint64_t, ActorHandle> handles;
+
+        // Pass 1: reserve every handle and deserialize component payloads before lifecycle.
         for (const Json& a : actorsArr) {
             if (!a.is_object()) {
                 Logger::Warn("SceneSerializer: skipping malformed actor entry");
@@ -124,12 +143,37 @@ static bool JsonToScene(const Json& root, Scene& scene)
             std::string name   = a.value("name",   std::string("Actor"));
             bool        active = a.value("active", true);
 
-            Actor* actor = scene.CreateActorWithID(name, id);
-            actor->SetActive(active);
-
-            if (a.contains("transform")) {
-                actor->GetTransform() = TransformFromJson(a["transform"]);
+            if (a.contains("prefabInstance")) {
+                const Json& prefab = a["prefabInstance"];
+                if (!prefab.is_object()) throw std::runtime_error("prefabInstance must be an object");
+                PrefabInstantiateOptions options;
+                options.persistentRootID = id;
+                options.rootTransform = a.contains("transform") ? TransformFromJson(a["transform"]) : Transform{};
+                options.expectedUuid = prefab.value("uuid", std::string{});
+                options.overrides = prefab.value("overrides", Json::array());
+                std::string error;
+                ActorHandle handle = PrefabSystem::QueueInstantiate(scene, prefab.value("asset", std::string{}), options, &error);
+                if (!handle) throw std::runtime_error("failed to instantiate prefab: " + error);
+                handles[id] = handle;
+                continue;
             }
+
+            ActorCreateDesc desc;
+            desc.name = std::move(name);
+            desc.persistentID = id;
+            desc.activeSelf = active;
+            if (a.contains("transform")) desc.transform = TransformFromJson(a["transform"]);
+            if (a.contains("components") && a["components"].is_array()) {
+                for (const Json& c : a["components"]) {
+                    if (!c.is_object()) continue;
+                    ComponentCreateDesc component;
+                    component.type = c.value("type", std::string{});
+                    component.enabled = c.value("enabled", true);
+                    component.data = c.contains("data") ? c["data"] : Json::object();
+                    if (!component.type.empty()) desc.components.push_back(std::move(component));
+                }
+            }
+            handles[id] = scene.QueueCreateActor(desc);
         }
 
         // Restore nextID
@@ -137,67 +181,27 @@ static bool JsonToScene(const Json& root, Scene& scene)
             scene.SetNextID(static_cast<uint64_t>(root["nextID"]));
         }
 
-        // --- Pass 2: wire up parent-child relationships ---
+        // Pass 2: queue relationships after every handle has been reserved.
         for (const Json& a : actorsArr) {
             if (!a.is_object()) continue;
             uint64_t id       = a.value("id",       uint64_t(0));
             uint64_t parentID = a.value("parentID", uint64_t(0));
             if (parentID != 0) {
-                Actor* actor  = scene.FindByID(id);
-                Actor* parent = scene.FindByID(parentID);
-                if (actor && parent) {
-                    actor->SetParent(parent);
-                }
+                const auto actor = handles.find(id);
+                const auto parent = handles.find(parentID);
+                if (actor != handles.end() && parent != handles.end())
+                    scene.QueueSetParent(actor->second, parent->second);
             }
         }
-
-        // --- Pass 3: deserialize components ---
-        for (const Json& a : actorsArr) {
-            if (!a.is_object()) continue;
-            uint64_t id    = a.value("id", uint64_t(0));
-            Actor*   actor = scene.FindByID(id);
-            if (!actor || !a.contains("components")) continue;
-            if (!a["components"].is_array()) {
-                Logger::Warn("SceneSerializer: components for actor '",
-                             actor->GetName(), "' is not an array");
-                continue;
-            }
-
-            for (const Json& c : a["components"]) {
-                if (!c.is_object()) {
-                    Logger::Warn("SceneSerializer: skipping malformed component on actor '",
-                                 actor->GetName(), "'");
-                    continue;
-                }
-                std::string typeName = c.value("type", "");
-                bool        enabled  = c.value("enabled", true);
-                Json emptyObj = Json::object();
-                const Json& data = c.contains("data") ? c["data"] : emptyObj;
-
-                Component* compPtr = ComponentRegistry::Get().Create(typeName, *actor);
-
-                if (compPtr) {
-                    try {
-                        compPtr->SetEnabled(enabled);
-                        compPtr->Deserialize(data);
-                    }
-                    catch (const std::exception& e) {
-                        Logger::Error("SceneSerializer: component '", typeName,
-                                      "' on actor '", actor->GetName(),
-                                      "' failed to deserialize: ", e.what());
-                        actor->RemoveComponentByTypeName(typeName);
-                    }
-                } else {
-                    Logger::Warn("SceneSerializer: unregistered component type '",
-                                 typeName, "'");
-                }
-            }
+        if (!scene.FlushCommands()) {
+            scene.Clear();
+            return false;
         }
-
         return true;
     }
     catch (const std::exception& e) {
         Logger::Error("SceneSerializer: parse error: ", e.what());
+        scene.Clear();
         return false;
     }
 }

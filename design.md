@@ -150,7 +150,7 @@ Application::Run()
 ## 6. 资源与场景数据流
 
 - **AssetManager**：按扩展名加载纹理/模型；内置白/黑/法线贴图、立方体等；`GetByPath` / `Load` / `Register`。
-- **SceneSerializer**：场景 JSON 序列化；`MeshRendererComponent` 持久化 mesh/material **路径**，加载时通过 **AssetManager** 解析。
+- **SceneSerializer**：场景 JSON 序列化；`MeshRendererComponent` 持久化 mesh/material **路径**，加载时通过 **AssetManager** 解析。Prefab 实例只保存源资源引用、UUID、根放置和覆盖数据，实例子树由 `PrefabSystem` 批量重建；格式与限制见 [`docs/classes/scene/PrefabSystem.md`](docs/classes/scene/PrefabSystem.md)。
 - **构建产物**：`copy_game_content` 将仓库根目录 **Content** 复制到目标输出目录，便于相对路径资源与测试。
 
 ---
@@ -193,6 +193,10 @@ Application::Run()
 ---
 
 ## 10. Editor 架构
+
+> Actor runtime lifecycle, generation-checked handles, batch construction, and
+> safe-point structural mutation are documented in
+> [`docs/classes/scene/ActorLifecycle.md`](docs/classes/scene/ActorLifecycle.md).
 
 `EditorLayer` 只负责 ImGui 生命周期、顶层对象装配、panel 调度和文件对话框结果转发。Editor 业务按以下边界拆分：
 

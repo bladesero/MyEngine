@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -10,12 +11,13 @@ class Component;
 
 class ComponentRegistry {
 public:
-    using Factory = std::function<Component*(Actor&)>;
+    using Factory = std::function<std::unique_ptr<Component>()>;
 
     static ComponentRegistry& Get();
 
     bool Register(const std::string& typeName, Factory factory);
     Component* Create(const std::string& typeName, Actor& actor) const;
+    std::unique_ptr<Component> CreateDetached(const std::string& typeName) const;
     bool IsRegistered(const std::string& typeName) const;
     std::vector<std::string> GetRegisteredTypes() const;
 

@@ -2,6 +2,7 @@
 
 #include "Transform.h"
 #include "Component.h"
+#include "ActorHandle.h"
 #include <string>
 #include <vector>
 #include <memory>
@@ -25,7 +26,7 @@ public:
     // -----------------------------------------------------------------------
     // 构造 / 析构
     // -----------------------------------------------------------------------
-    explicit Actor(std::string name, uint64_t id);
+    explicit Actor(std::string name, uint64_t id, ActorHandle handle = {});
     ~Actor();
 
     // 禁止拷贝，允许移动
@@ -38,11 +39,23 @@ public:
     // 基础属性
     // -----------------------------------------------------------------------
     uint64_t           GetID()   const { return m_ID; }
+    ActorHandle        GetHandle() const { return m_Handle; }
     const std::string& GetName() const { return m_Name; }
     void               SetName(const std::string& name) { m_Name = name; }
 
-    bool IsActive() const { return m_Active; }
-    void SetActive(bool active) { m_Active = active; }
+    bool IsActive() const { return m_ActiveInHierarchy && m_State != ActorState::PendingDestroy; }
+    bool IsActiveSelf() const { return m_ActiveSelf; }
+    bool IsActiveInHierarchy() const { return IsActive(); }
+    void SetActive(bool active);
+    ActorState GetState() const { return m_State; }
+    bool IsPendingDestroy() const { return m_State == ActorState::PendingDestroy; }
+    bool IsPrefabInstance() const { return !m_PrefabAssetPath.empty(); }
+    bool IsPrefabRoot() const { return IsPrefabInstance() && m_PrefabInstanceRoot == m_Handle; }
+    const std::string& GetPrefabAssetPath() const { return m_PrefabAssetPath; }
+    const std::string& GetPrefabAssetUuid() const { return m_PrefabAssetUuid; }
+    const std::string& GetPrefabLocalId() const { return m_PrefabLocalId; }
+    ActorHandle GetPrefabInstanceRoot() const { return m_PrefabInstanceRoot; }
+    const nlohmann::json& GetPrefabOverrides() const { return m_PrefabOverrides; }
     Scene* GetScene() const { return m_Scene; }
 
     // -----------------------------------------------------------------------
@@ -77,15 +90,17 @@ public:
     template<typename T, typename... Args>
     T* AddComponent(Args&&... args) {
         auto key = std::type_index(typeid(T));
-        auto it  = m_Components.find(key);
-        if (it != m_Components.end()) {
-            return static_cast<T*>(it->second.get());
-        }
+        auto found = m_ComponentLookup.find(key);
+        if (found != m_ComponentLookup.end()) return static_cast<T*>(m_Components[found->second].component.get());
         auto comp = std::make_unique<T>(std::forward<Args>(args)...);
+        if (ShouldDeferStructuralMutation()) {
+            nlohmann::json data = nlohmann::json::object();
+            comp->Serialize(data);
+            QueueComponentAdd(comp->GetTypeName(), data);
+            return nullptr;
+        }
         T* raw    = comp.get();
-        raw->m_Owner = this;
-        raw->OnAttach();
-        m_Components.emplace(key, std::move(comp));
+        AddComponentObject(key, std::move(comp), true);
         return raw;
     }
 
@@ -93,17 +108,15 @@ public:
     template<typename T>
     T* GetComponent() const {
         auto key = std::type_index(typeid(T));
-        auto it  = m_Components.find(key);
-        if (it != m_Components.end()) {
-            return static_cast<T*>(it->second.get());
-        }
+        auto it = m_ComponentLookup.find(key);
+        if (it != m_ComponentLookup.end()) return static_cast<T*>(m_Components[it->second].component.get());
         return nullptr;
     }
 
     // 是否持有某组件
     template<typename T>
     bool HasComponent() const {
-        return m_Components.count(std::type_index(typeid(T))) > 0;
+        return m_ComponentLookup.count(std::type_index(typeid(T))) > 0;
     }
 
     // 移除组件
@@ -116,18 +129,13 @@ public:
     template<typename T>
     bool RemoveComponent() {
         auto key = std::type_index(typeid(T));
-        auto it  = m_Components.find(key);
-        if (it == m_Components.end()) return false;
-        it->second->OnDetach();
-        m_Components.erase(it);
-        return true;
+        auto it = m_ComponentLookup.find(key);
+        return it != m_ComponentLookup.end() && RemoveComponentAt(it->second);
     }
 
     // 遍历所有组件（用于序列化）
     void ForEachComponent(const std::function<void(Component&)>& fn) const {
-        for (const auto& [key, comp] : m_Components) {
-            fn(*comp);
-        }
+        for (const auto& entry : m_Components) fn(*entry.component);
     }
 
     // -----------------------------------------------------------------------
@@ -135,22 +143,58 @@ public:
     // -----------------------------------------------------------------------
     void Update(float deltaSeconds);
     void FixedUpdate(float deltaSeconds);
+    void LateUpdate(float deltaSeconds);
 
 private:
     void AddChild(Actor* child);
     void RemoveChild(Actor* child);
+    Component* AddComponentObject(std::type_index type, std::unique_ptr<Component> component,
+                                  bool finalizeNow);
+    bool RemoveComponentAt(size_t index);
+    void RebuildComponentLookup();
+    std::vector<Component*> OrderedComponents(bool reverse = false) const;
+    void FinalizeConstruction(bool playing);
+    void BeginPlay();
+    void BeginPlayPhase();
+    void EnablePlayPhase();
+    void StartPlayPhase();
+    void EndPlay();
+    void RefreshActiveInHierarchy(bool parentActive, bool playing);
+    void MarkPendingDestroy();
+    void OnComponentEnabledChanged(Component& component, bool enabled);
+    bool ShouldDeferStructuralMutation() const;
+    void QueueComponentAdd(const std::string& type, const nlohmann::json& data);
 
     uint64_t    m_ID;
+    ActorHandle m_Handle;
     std::string m_Name;
-    bool        m_Active = true;
+    bool        m_ActiveSelf = true;
+    bool        m_ActiveInHierarchy = true;
+    ActorState  m_State = ActorState::Constructed;
 
     Transform   m_Transform;
 
     Actor*              m_Parent   = nullptr;
     std::vector<Actor*> m_Children;
 
-    std::unordered_map<std::type_index, std::unique_ptr<Component>> m_Components;
+    struct ComponentEntry {
+        std::type_index type{typeid(void)};
+        std::unique_ptr<Component> component;
+        uint64_t insertionOrder = 0;
+    };
+    std::vector<ComponentEntry> m_Components;
+    std::unordered_map<std::type_index, size_t> m_ComponentLookup;
+    uint64_t m_NextComponentOrder = 1;
     Scene* m_Scene = nullptr;
+    std::string m_PrefabAssetPath;
+    std::string m_PrefabAssetUuid;
+    std::string m_PrefabLocalId;
+    ActorHandle m_PrefabInstanceRoot;
+    nlohmann::json m_PrefabOverrides = nlohmann::json::array();
 
     friend class Scene;
+    friend class SceneSerializer;
+    friend class ComponentRegistry;
+    friend class Component;
+    friend class PrefabSystem;
 };

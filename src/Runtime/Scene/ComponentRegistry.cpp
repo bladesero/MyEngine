@@ -22,36 +22,16 @@ ComponentRegistry& ComponentRegistry::Get()
 
 ComponentRegistry::ComponentRegistry()
 {
-    Register("MeshRenderer", [](Actor& actor) {
-        return actor.AddComponent<MeshRendererComponent>();
-    });
-    Register("SkinnedMeshRenderer", [](Actor& actor) {
-        return actor.AddComponent<SkinnedMeshRendererComponent>();
-    });
-    Register("Script", [](Actor& actor) {
-        return actor.AddComponent<ScriptComponent>();
-    });
-    Register("RigidBody", [](Actor& actor) {
-        return actor.AddComponent<RigidBodyComponent>();
-    });
-    Register("BoxCollider", [](Actor& actor) {
-        return actor.AddComponent<BoxColliderComponent>();
-    });
-    Register("SphereCollider", [](Actor& actor) {
-        return actor.AddComponent<SphereColliderComponent>();
-    });
-    Register("CapsuleCollider", [](Actor& actor) {
-        return actor.AddComponent<CapsuleColliderComponent>();
-    });
-    Register("CharacterController", [](Actor& actor) {
-        return actor.AddComponent<CharacterControllerComponent>();
-    });
-    Register("Light", [](Actor& actor) {
-        return actor.AddComponent<LightComponent>();
-    });
-    Register("PostProcess", [](Actor& actor) {
-        return actor.AddComponent<PostProcessComponent>();
-    });
+    Register("MeshRenderer", [] { return std::make_unique<MeshRendererComponent>(); });
+    Register("SkinnedMeshRenderer", [] { return std::make_unique<SkinnedMeshRendererComponent>(); });
+    Register("Script", [] { return std::make_unique<ScriptComponent>(); });
+    Register("RigidBody", [] { return std::make_unique<RigidBodyComponent>(); });
+    Register("BoxCollider", [] { return std::make_unique<BoxColliderComponent>(); });
+    Register("SphereCollider", [] { return std::make_unique<SphereColliderComponent>(); });
+    Register("CapsuleCollider", [] { return std::make_unique<CapsuleColliderComponent>(); });
+    Register("CharacterController", [] { return std::make_unique<CharacterControllerComponent>(); });
+    Register("Light", [] { return std::make_unique<LightComponent>(); });
+    Register("PostProcess", [] { return std::make_unique<PostProcessComponent>(); });
 }
 
 bool ComponentRegistry::Register(const std::string& typeName, Factory factory)
@@ -62,8 +42,16 @@ bool ComponentRegistry::Register(const std::string& typeName, Factory factory)
 
 Component* ComponentRegistry::Create(const std::string& typeName, Actor& actor) const
 {
+    auto component = CreateDetached(typeName);
+    if (!component) return nullptr;
+    const std::type_index componentType(typeid(*component));
+    return actor.AddComponentObject(componentType, std::move(component), true);
+}
+
+std::unique_ptr<Component> ComponentRegistry::CreateDetached(const std::string& typeName) const
+{
     const auto it = m_Factories.find(typeName);
-    return it != m_Factories.end() ? it->second(actor) : nullptr;
+    return it != m_Factories.end() ? it->second() : nullptr;
 }
 
 bool ComponentRegistry::IsRegistered(const std::string& typeName) const

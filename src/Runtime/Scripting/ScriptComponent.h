@@ -13,9 +13,15 @@ public:
     ~ScriptComponent() override;
 
     void OnAttach() override;
+    void OnBeginPlay() override;
+    void OnEnable() override;
+    void OnStart() override;
     void OnDetach() override;
     void OnUpdate(float deltaSeconds) override;
     void OnFixedUpdate(float deltaSeconds) override;
+    void OnLateUpdate(float deltaSeconds) override;
+    void OnDisable() override;
+    void OnEndPlay() override;
     void OnCollisionEvent(const CollisionEvent& event) override;
 
     const char* GetTypeName() const override { return "Script"; }

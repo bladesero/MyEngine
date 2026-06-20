@@ -17,7 +17,7 @@
 #include <imgui.h>
 #endif
 
-namespace {constexpr const char kModelPayload[]="MYENGINE_MODEL_PATH";constexpr const char kTexturePayload[]="MYENGINE_TEXTURE_PATH";}
+namespace {constexpr const char kModelPayload[]="MYENGINE_MODEL_PATH";constexpr const char kTexturePayload[]="MYENGINE_TEXTURE_PATH";constexpr const char kPrefabPayload[]="MYENGINE_PREFAB_PATH";}
 AssetBrowserPanel::AssetBrowserPanel():EditorPanel("assetBrowser","Asset Browser"){}
 void AssetBrowserPanel::OnAttach(EditorContext& context){EditorPanel::OnAttach(context);if(context.GetAssetRegistry())context.GetAssetRegistry()->Refresh();}
 void AssetBrowserPanel::OnUpdate(float dt){(void)dt;auto* registry=GetContext()?GetContext()->GetAssetRegistry():nullptr;if(registry)registry->WatchForChanges();}
@@ -30,7 +30,8 @@ void AssetBrowserPanel::DrawContent(){
     ImGui::InputTextWithHint("##Filter","Filter...",m_Filter,sizeof(m_Filter));ImGui::Separator();
     for(const auto& asset:registry->GetAssets()){if(m_Filter[0]&&asset.relativePath.find(m_Filter)==std::string::npos)continue;const bool selected=context->GetSelection().GetAssetPath()==asset.absolutePath.string();if(ImGui::Selectable(asset.relativePath.c_str(),selected)){context->GetSelection().SelectAssetPath(asset.absolutePath.string());if(context->GetProject())context->GetProject()->GetState().selectedAssetPath=asset.absolutePath.string();}
         if(asset.type==EditorAssetType::Model&&ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)){const std::string path=asset.absolutePath.string();ImGui::SetDragDropPayload(kModelPayload,path.c_str(),path.size()+1);ImGui::TextUnformatted(asset.relativePath.c_str());ImGui::EndDragDropSource();}
-        if(asset.type==EditorAssetType::Texture&&ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)){const std::string path=asset.absolutePath.string();ImGui::SetDragDropPayload(kTexturePayload,path.c_str(),path.size()+1);ImGui::TextUnformatted(asset.relativePath.c_str());ImGui::EndDragDropSource();}}
+        if(asset.type==EditorAssetType::Texture&&ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)){const std::string path=asset.absolutePath.string();ImGui::SetDragDropPayload(kTexturePayload,path.c_str(),path.size()+1);ImGui::TextUnformatted(asset.relativePath.c_str());ImGui::EndDragDropSource();}
+        if(asset.type==EditorAssetType::Prefab&&ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)){const std::string path=asset.absolutePath.string();ImGui::SetDragDropPayload(kPrefabPayload,path.c_str(),path.size()+1);ImGui::TextUnformatted(asset.relativePath.c_str());ImGui::EndDragDropSource();}}
     ImGui::End();
 #endif
 }

@@ -13,6 +13,7 @@
 #include "Game/SceneRenderLayer.h"
 #include "Scene/Actor.h"
 #include "Scene/MeshRendererComponent.h"
+#include "Scene/PrefabSystem.h"
 #include "Scene/Scene.h"
 #include "Scene/SceneSerializer.h"
 
@@ -25,6 +26,20 @@
 
 namespace {
 constexpr const char kModelPayload[] = "MYENGINE_MODEL_PATH";
+constexpr const char kPrefabPayload[] = "MYENGINE_PREFAB_PATH";
+}
+
+void ViewportPanel::DropPrefab(const std::string& path, float screenX, float screenY)
+{
+    EditorContext* context=GetContext();if(!context||!context->IsEditing())return;
+    Scene* scene=context->GetScene();const std::string before=SceneSerializer::SaveToString(*scene);const uint64_t old=context->GetSelection().GetActorID();
+    Transform placement;Math::Ray ray{};float distance=0.0f;
+    if(context->GetSceneLayer()->BuildRayFromScreen(screenX,screenY,ray)&&std::fabs(ray.direction.y)>1e-5f&&(distance=-ray.origin.y/ray.direction.y)>0.0f)placement.position=ray.At(distance);
+    else {Camera& camera=context->GetSceneLayer()->GetCamera();placement.position=camera.GetPosition()+camera.GetForward()*8.0f;}
+    PrefabInstantiateOptions options;options.rootTransform=placement;std::string error;Actor* actor=PrefabSystem::Instantiate(*scene,path,options,&error);
+    if(!actor){Logger::Warn("[Editor] Failed to instantiate prefab: ",error);return;}
+    const uint64_t id=actor->GetID();const std::string after=SceneSerializer::SaveToString(*scene);SceneSerializer::LoadFromString(*scene,before);
+    context->GetCommandStack()->ExecuteCommand(EditorUndoUtil::MakeSceneSnapshotCommand("Drop Prefab",before,after,old,id),*context);
 }
 
 ViewportPanel::ViewportPanel(std::shared_ptr<EditorGizmoState> state)
@@ -127,6 +142,9 @@ void ViewportPanel::DrawContent()
         if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kModelPayload)) {
             const ImVec2 mouse = ImGui::GetIO().MousePos;
             DropModel(static_cast<const char*>(payload->Data), mouse.x, mouse.y);
+        }
+        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kPrefabPayload)) {
+            const ImVec2 mouse=ImGui::GetIO().MousePos;DropPrefab(static_cast<const char*>(payload->Data),mouse.x,mouse.y);
         }
         ImGui::EndDragDropTarget();
     }

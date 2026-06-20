@@ -1,6 +1,7 @@
 ﻿#include "Assets/AssetManager.h"
 #include "Core/Memory/LinearAllocator.h"
 #include "Assets/ShaderAsset.h"
+#include "Assets/PrefabAsset.h"
 #include "Animation/SkinnedMeshRendererComponent.h"
 #include "Core/Memory/MemoryService.h"
 #include "Core/Memory/PoolAllocator.h"
@@ -20,6 +21,7 @@
 #include "Scene/MeshRendererComponent.h"
 #include "Scene/Scene.h"
 #include "Scene/SceneSerializer.h"
+#include "Scene/PrefabSystem.h"
 #include "Scene/ComponentRegistry.h"
 #include "Scripting/ScriptComponent.h"
 #include "Renderer/Renderer.h"
@@ -49,6 +51,7 @@
 #include "Project/RuntimeDependencies.h"
 #include "TestHarness.h"
 
+#include <algorithm>
 #include <cmath>
 #include <chrono>
 #include <cstdint>
@@ -1831,8 +1834,8 @@ bool TestAssetManagerFailureRollback() {
 }
 
 bool TestSceneSerializerMalformedDataIsolation() {
-    ComponentRegistry::Get().Register("ThrowingDeserialize", [](Actor& actor) {
-        return actor.AddComponent<ThrowingDeserializeComponent>();
+    ComponentRegistry::Get().Register("ThrowingDeserialize", [] {
+        return std::make_unique<ThrowingDeserializeComponent>();
     });
 
     const std::string json = R"json(
@@ -2678,6 +2681,171 @@ bool TestWorkspaceCookAndPublish() {
     return true;
 }
 
+struct LifecycleProbeComponent : Component {
+    static std::vector<std::string>* events;
+    std::string label;
+    const char* GetTypeName() const override { return "LifecycleProbe"; }
+    void Deserialize(const nlohmann::json& data) override { label = data.value("label", std::string{}); }
+    void Push(const char* event) { if (events) events->push_back(label + ":" + event); }
+    void OnAttach() override { Push("attach"); }
+    void OnInitialize() override { Push("initialize"); }
+    void OnBeginPlay() override { Push("begin"); }
+    void OnEnable() override { Push("enable"); }
+    void OnStart() override { Push("start"); }
+    void OnDisable() override { Push("disable"); }
+    void OnEndPlay() override { Push("end"); }
+    void OnDetach() override { Push("detach"); }
+};
+std::vector<std::string>* LifecycleProbeComponent::events = nullptr;
+
+struct PriorityLifecycleProbeComponent final : LifecycleProbeComponent {
+    const char* GetTypeName() const override { return "PriorityLifecycleProbe"; }
+    int GetExecutionOrder() const override { return -100; }
+};
+
+struct DeferredMutationProbe final : Component {
+    bool ran = false;
+    const char* GetTypeName() const override { return "DeferredMutationProbe"; }
+    void OnUpdate(float) override {
+        if (ran) return;
+        ran = true;
+        Scene* scene = GetOwner()->GetScene();
+        scene->QueueCreateActor(ActorCreateDesc{"SpawnedDuringUpdate"});
+        scene->QueueDestroyActor(GetOwner()->GetHandle());
+    }
+};
+
+bool TestActorHandleLifecycleAndDeferredMutation()
+{
+    ComponentRegistry::Get().Register("LifecycleProbe", [] {
+        return std::make_unique<LifecycleProbeComponent>();
+    });
+    ComponentRegistry::Get().Register("PriorityLifecycleProbe", [] {
+        return std::make_unique<PriorityLifecycleProbeComponent>();
+    });
+    std::vector<std::string> events;
+    LifecycleProbeComponent::events = &events;
+
+    {
+        Scene ordering("Ordering");
+        ActorCreateDesc desc;
+        desc.components.push_back({"LifecycleProbe", true, {{"label", "normal"}}});
+        desc.components.push_back({"PriorityLifecycleProbe", true, {{"label", "priority"}}});
+        ordering.QueueCreateActor(desc);
+        ordering.FlushCommands();
+        const std::vector<std::string> expected = {
+            "priority:attach", "normal:attach", "priority:initialize", "normal:initialize"
+        };
+        if (!Check(events == expected, "component priority and stable ordering mismatch")) return false;
+    }
+    events.clear();
+    Scene scene("Lifecycle");
+
+    ActorCreateDesc parentDesc;
+    parentDesc.name = "Parent";
+    parentDesc.components.push_back({"LifecycleProbe", true, {{"label", "parent"}}});
+    const ActorHandle parent = scene.QueueCreateActor(parentDesc);
+    ActorCreateDesc childDesc;
+    childDesc.name = "Child";
+    childDesc.parent = parent;
+    childDesc.components.push_back({"LifecycleProbe", true, {{"label", "child"}}});
+    const ActorHandle child = scene.QueueCreateActor(childDesc);
+    if (!Check(!scene.TryGetActor(parent) && scene.FlushCommands(),
+               "queued actor became visible before command flush")) return false;
+    const std::vector<std::string> constructExpected = {
+        "parent:attach", "parent:initialize", "child:attach", "child:initialize"
+    };
+    if (!Check(events == constructExpected, "batch construction lifecycle order mismatch")) return false;
+
+    scene.BeginPlay();
+    const std::vector<std::string> playTail = {
+        "parent:begin", "child:begin", "parent:enable", "child:enable",
+        "parent:start", "child:start"
+    };
+    if (!Check(std::equal(playTail.begin(), playTail.end(), events.end() - playTail.size()),
+               "global begin/enable/start lifecycle order mismatch")) return false;
+
+    scene.QueueSetActive(parent, false);
+    scene.FlushCommands();
+    if (!Check(events[events.size() - 2] == "child:disable" &&
+               events.back() == "parent:disable", "hierarchy disable was not child-to-parent")) return false;
+    scene.QueueSetActive(parent, true);
+    scene.FlushCommands();
+    if (!Check(events[events.size() - 2] == "parent:enable" &&
+               events.back() == "child:enable", "hierarchy enable was not parent-to-child")) return false;
+
+    const ActorHandle oldChild = child;
+    scene.QueueDestroyActor(child);
+    if (!Check(scene.TryGetActor(child) && scene.TryGetActor(child)->IsPendingDestroy(),
+               "destroy did not mark actor pending immediately")) return false;
+    scene.FlushCommands();
+    const ActorHandle replacement = scene.QueueCreateActor(ActorCreateDesc{"Replacement"});
+    scene.FlushCommands();
+    if (!Check(!scene.TryGetActor(oldChild) && scene.TryGetActor(replacement) &&
+               replacement != oldChild, "generation did not invalidate stale actor handle")) return false;
+
+    Actor* mutator = scene.CreateActor("Mutator");
+    const ActorHandle mutatorHandle = mutator->GetHandle();
+    mutator->AddComponent<DeferredMutationProbe>();
+    scene.OnUpdate(1.0f / 60.0f);
+    if (!Check(!scene.TryGetActor(mutatorHandle) && scene.FindByName("SpawnedDuringUpdate"),
+               "update-time structural commands were not safely deferred")) return false;
+    LifecycleProbeComponent::events = nullptr;
+    return true;
+}
+
+bool TestPrefabRoundTripOverridesAndValidation()
+{
+    namespace fs=std::filesystem;const fs::path project=fs::temp_directory_path()/"myengine_prefab_test";std::error_code ec;fs::remove_all(project,ec);fs::create_directories(project/"Content/Prefabs");AssetManager::Get().SetProjectRoot(project);
+    Scene source("Source");Actor* sourceRoot=source.CreateActor("Vehicle");sourceRoot->AddComponent<MeshRendererComponent>();Actor* sourceChild=source.CreateActor("Wheel");sourceChild->SetParent(sourceRoot);sourceChild->GetTransform().position.x=2.0f;
+    const fs::path path=project/"Content/Prefabs/Vehicle.prefab.json";std::string error;
+    if(!Check(PrefabSystem::SaveSubtree(*sourceRoot,path,&error),"prefab save failed: "+error))return false;
+    PrefabAsset asset;if(!Check(PrefabAsset::Load(path,asset,&error)&&asset.nodes.size()==2,"prefab round-trip failed: "+error))return false;
+
+    Scene scene("Instances");Actor* first=PrefabSystem::Instantiate(scene,path,{},&error);Actor* second=PrefabSystem::Instantiate(scene,path,{},&error);
+    if(!Check(first&&second&&first->GetID()!=second->GetID()&&scene.ActorCount()==4,"prefab instances did not receive independent actor identities"))return false;
+    Actor* firstChild=first->GetChildren().front();firstChild->SetName("CustomWheel");first->RemoveComponentByTypeName("MeshRenderer");firstChild->AddComponent<LightComponent>();
+    if(!Check(PrefabSystem::CaptureOverrides(*first,&error)&&!first->GetPrefabOverrides().empty(),"prefab override capture failed: "+error))return false;
+    const uint64_t firstId=first->GetID(),secondId=second->GetID();
+    for(auto& node:asset.nodes)if(node.localId!=asset.rootLocalId)node.name="SourceWheel";
+    if(!Check(asset.Save(path,&error)&&PrefabSystem::RefreshInstances(scene,asset.uuid,&error),"prefab source refresh failed: "+error))return false;
+    first=scene.FindByID(firstId);second=scene.FindByID(secondId);
+    if(!Check(first&&second&&first->GetChildren().front()->GetName()=="CustomWheel"&&second->GetChildren().front()->GetName()=="SourceWheel","source propagation overwrote an override or missed an unoverridden instance"))return false;
+    if(!Check(!first->GetComponent<MeshRendererComponent>()&&first->GetChildren().front()->GetComponent<LightComponent>()&&second->GetComponent<MeshRendererComponent>()&&!second->GetChildren().front()->GetComponent<LightComponent>(),"component add/remove overrides were not isolated per instance"))return false;
+
+    if(!Check(PrefabSystem::RevertAll(*first,&error),"prefab revert failed: "+error))return false;first=scene.FindByID(firstId);second=scene.FindByID(secondId);
+    if(!Check(first&&first->GetChildren().front()->GetName()=="SourceWheel"&&first->GetComponent<MeshRendererComponent>()&&!first->GetChildren().front()->GetComponent<LightComponent>(),"prefab revert did not restore source state"))return false;
+    first->GetChildren().front()->SetName("AppliedWheel");if(!Check(PrefabSystem::ApplyAll(*first,&error),"prefab apply failed: "+error))return false;first=scene.FindByID(firstId);second=scene.FindByID(secondId);
+    if(!Check(first&&second&&first->GetChildren().front()->GetName()=="AppliedWheel"&&second->GetChildren().front()->GetName()=="AppliedWheel"&&first->GetPrefabOverrides().empty(),"prefab apply did not update all instances"))return false;
+
+    Actor* added=scene.CreateActor("AddedChild");added->SetParent(first);
+    const std::string serialized=SceneSerializer::SaveToString(scene);const auto json=nlohmann::json::parse(serialized);
+    if(!Check(json["actors"].size()==2&&json["actors"][0].contains("prefabInstance"),"scene duplicated prefab instance nodes"))return false;
+    Scene loaded("Loaded");if(!Check(SceneSerializer::LoadFromString(loaded,serialized)&&loaded.ActorCount()==5,"prefab scene reload failed"))return false;
+    Actor* loadedFirst=loaded.FindByID(first->GetID());if(!Check(loadedFirst&&loadedFirst->GetChildren().size()==2,"added prefab child override was not restored"))return false;
+    if(!Check(PrefabSystem::Unpack(*loadedFirst,&error)&&!loadedFirst->IsPrefabInstance(),"prefab unpack failed: "+error))return false;
+
+    auto mismatch=json;mismatch["actors"][0]["prefabInstance"]["uuid"]="wrong";Scene rejected;
+    if(!Check(!SceneSerializer::LoadFromString(rejected,mismatch.dump())&&rejected.ActorCount()==0,"prefab UUID mismatch was accepted"))return false;
+    Actor* container=source.CreateActor("Container");Actor* nested=PrefabSystem::Instantiate(source,path,{},&error);nested->SetParent(container);
+    if(!Check(!PrefabSystem::SaveSubtree(*container,project/"Content/Prefabs/Nested.prefab.json",&error),"nested prefab was accepted"))return false;
+    AssetManager::Get().SetProjectRoot({});fs::remove_all(project,ec);return true;
+}
+
+bool TestPrefabCookDependencyValidation()
+{
+    namespace fs=std::filesystem;const fs::path root=fs::temp_directory_path()/"myengine_prefab_cook_test";std::error_code ec;fs::remove_all(root,ec);fs::create_directories(root/"Content/Scenes");fs::create_directories(root/"Content/Prefabs");
+    const std::string uuid="11111111-2222-4333-8444-555555555555";
+    std::ofstream(root/"Content/Prefabs/Unit.prefab.json")<<nlohmann::json{{"version",1},{"uuid",uuid},{"rootLocalId","root"},{"nodes",nlohmann::json::array({{{"localId","root"},{"parentLocalId",""},{"name","Unit"},{"active",true},{"components",nlohmann::json::array()}}})}}.dump();
+    std::ofstream(root/"Content/Prefabs/Unit.prefab.json.meta")<<nlohmann::json{{"uuid",uuid}}.dump();
+    const nlohmann::json scene={{"actors",nlohmann::json::array({{{"id",1},{"prefabInstance",{{"asset","Content/Prefabs/Unit.prefab.json"},{"uuid",uuid},{"overrides",nlohmann::json::array()}}}}})}};
+    std::ofstream(root/"Content/Scenes/Main.scene.json")<<scene.dump();PublishPreflightReport report;
+    if(!Check(CookDependencyGraph::Validate(root,report)&&std::find(report.visitedAssets.begin(),report.visitedAssets.end(),"Content/Prefabs/Unit.prefab.json")!=report.visitedAssets.end(),"cook did not traverse prefab dependency: "+report.Summary()))return false;
+    auto mismatch=scene;mismatch["actors"][0]["prefabInstance"]["uuid"]="wrong";std::ofstream(root/"Content/Scenes/Main.scene.json",std::ios::trunc)<<mismatch.dump();
+    if(!Check(!CookDependencyGraph::Validate(root,report),"cook accepted a prefab UUID mismatch"))return false;
+    fs::remove_all(root,ec);return true;
+}
+
 MYENGINE_REGISTER_TEST("Scene", "TestSceneSerializationRegression", TestSceneSerializationRegression);
 MYENGINE_REGISTER_TEST("Scene", "TestBuiltinSceneMaterialRoundTrip", TestBuiltinSceneMaterialRoundTrip);
 MYENGINE_REGISTER_TEST("Scripting", "TestScriptRuntimeLifecycle", TestScriptRuntimeLifecycle);
@@ -2697,5 +2865,8 @@ MYENGINE_REGISTER_TEST("Core", "TestMemoryPoolAllocator", TestMemoryPoolAllocato
 MYENGINE_REGISTER_TEST("Core", "TestMemoryServiceHeapRoundTrip", TestMemoryServiceHeapRoundTrip);
 MYENGINE_REGISTER_TEST("Core", "TestSceneAndAssetMemoryCounters", TestSceneAndAssetMemoryCounters);
 MYENGINE_REGISTER_TEST("Scene", "TestSceneColdLoadsModelSubAssetReferences", TestSceneColdLoadsModelSubAssetReferences);
+MYENGINE_REGISTER_TEST("Scene", "TestActorHandleLifecycleAndDeferredMutation", TestActorHandleLifecycleAndDeferredMutation);
+MYENGINE_REGISTER_TEST("Scene", "TestPrefabRoundTripOverridesAndValidation", TestPrefabRoundTripOverridesAndValidation);
+MYENGINE_REGISTER_TEST("Project", "TestPrefabCookDependencyValidation", TestPrefabCookDependencyValidation);
 
 } // namespace

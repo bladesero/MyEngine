@@ -250,8 +250,8 @@ int PhysicsRaycast(lua_State* state)
         return 1;
     }
     lua_createtable(state, 0, 5);
-    lua_pushinteger(state, static_cast<lua_Integer>(hit.actor->GetID()));
-    lua_setfield(state, -2, "actorId");
+    lua_pushinteger(state, static_cast<lua_Integer>(hit.actor->GetHandle().ToUInt64()));
+    lua_setfield(state, -2, "actorHandle");
     lua_pushlstring(state, hit.actor->GetName().data(), hit.actor->GetName().size());
     lua_setfield(state, -2, "actorName");
     lua_pushnumber(state, hit.distance); lua_setfield(state, -2, "distance");
@@ -382,8 +382,8 @@ bool ScriptRuntime::CallCollision(const CollisionEvent& event, std::string& erro
     }
     lua_createtable(m_Impl->state, 0, 7);
     if (event.other) {
-        lua_pushinteger(m_Impl->state, static_cast<lua_Integer>(event.other->GetID()));
-        lua_setfield(m_Impl->state, -2, "otherId");
+        lua_pushinteger(m_Impl->state, static_cast<lua_Integer>(event.otherHandle.ToUInt64()));
+        lua_setfield(m_Impl->state, -2, "otherHandle");
         lua_pushlstring(m_Impl->state, event.other->GetName().data(), event.other->GetName().size());
         lua_setfield(m_Impl->state, -2, "otherName");
     }

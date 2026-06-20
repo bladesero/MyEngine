@@ -4,6 +4,13 @@
 #include <cctype>
 
 EditorAssetType EditorAssetRegistry::Classify(const std::filesystem::path& path) {
+    std::string filename = path.filename().string();
+    std::transform(filename.begin(), filename.end(), filename.begin(),
+        [](unsigned char value) { return static_cast<char>(std::tolower(value)); });
+    if (filename.size() >= 12 && filename.compare(filename.size() - 12, 12, ".prefab.json") == 0)
+        return EditorAssetType::Prefab;
+    if (filename.size() >= 11 && filename.compare(filename.size() - 11, 11, ".scene.json") == 0)
+        return EditorAssetType::Scene;
     std::string extension = path.extension().string();
     std::transform(extension.begin(), extension.end(), extension.begin(),
         [](unsigned char value) { return static_cast<char>(std::tolower(value)); });

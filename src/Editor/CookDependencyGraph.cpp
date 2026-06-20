@@ -43,6 +43,23 @@ struct Scanner {
         chain.push_back(value);
         if (Resolve(value, from, resolved, chain)) Scan(resolved, std::move(chain));
     }
+    static bool IsPrefab(const fs::path& path) {
+        const std::string name=path.filename().generic_string();
+        return name.size()>=12&&name.rfind(".prefab.json")==name.size()-12;
+    }
+    void ScanPrefabReference(const nlohmann::json& reference,const fs::path& from,
+                             std::vector<std::string> chain) {
+        if(!reference.is_object()){Error(PublishIssueCode::InvalidAsset,from,from,chain,"prefab reference is not an object");return;}
+        if(IsPrefab(from)){Error(PublishIssueCode::UnsupportedReference,from,from,chain,"nested prefabs are not supported");return;}
+        const std::string value=reference.value("asset",std::string{}), expected=reference.value("uuid",std::string{});fs::path resolved;chain.push_back(value);
+        if(!Resolve(value,from,resolved,chain))return;
+        try {std::ifstream assetInput(resolved),metaInput(resolved.string()+".meta");nlohmann::json assetJson,metaJson;assetInput>>assetJson;
+            if(!metaInput){Error(PublishIssueCode::MissingDependency,resolved.string()+".meta",from,chain,"prefab metadata is missing");return;}metaInput>>metaJson;
+            const std::string assetUuid=assetJson.value("uuid",std::string{}),metaUuid=metaJson.value("uuid",std::string{});
+            if(expected.empty()||expected!=assetUuid||assetUuid!=metaUuid){Error(PublishIssueCode::Compatibility,resolved,from,chain,"prefab UUID mismatch");return;}
+        }catch(const std::exception& e){Error(PublishIssueCode::InvalidAsset,resolved,from,chain,e.what());return;}
+        Scan(resolved,std::move(chain));
+    }
     void VisitJson(const nlohmann::json& node, const fs::path& from,
                    const std::vector<std::string>& chain, const std::string& key = {}) {
         static const std::unordered_set<std::string> direct = {
@@ -52,7 +69,8 @@ struct Scanner {
         }
         if (node.is_object()) {
             for (auto it=node.begin();it!=node.end();++it) {
-                if (it.key()=="textures" && it.value().is_object()) {
+                if(it.key()=="prefabInstance") ScanPrefabReference(it.value(),from,chain);
+                else if (it.key()=="textures" && it.value().is_object()) {
                     for (auto texture=it.value().begin();texture!=it.value().end();++texture)
                         if (texture.value().is_string()) ScanReference(texture.value().get<std::string>(),from,chain);
                 } else VisitJson(it.value(),from,chain,it.key());
@@ -77,6 +95,11 @@ struct Scanner {
         try {
             if (ext==".json" || ext==".mat" || ext==".shader" || ext==".gltf") {
                 std::ifstream input(path); nlohmann::json json; input>>json;
+                if(IsPrefab(path)){
+                    if(json.value("version",0u)!=1u||!json.contains("nodes")||!json["nodes"].is_array())throw std::runtime_error("invalid prefab asset header");
+                    std::ifstream meta(path.string()+".meta");nlohmann::json metaJson;if(!meta)throw std::runtime_error("prefab metadata is missing");meta>>metaJson;
+                    if(json.value("uuid",std::string{})!=metaJson.value("uuid",std::string{}))throw std::runtime_error("prefab UUID does not match metadata");
+                }
                 VisitJson(json,path,chain);
             } else if(ext==".obj" || ext==".mtl") ScanTextDependencies(path,std::move(chain));
         } catch(const std::exception& e) { Error(PublishIssueCode::InvalidAsset,path,{},chain,e.what()); }

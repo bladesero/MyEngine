@@ -3,6 +3,7 @@
 #include "Editor/EditorPanel.h"
 #include "Editor/EditorInspectorSection.h"
 #include "Editor/EditorUndoUtil.h"
+#include "Scene/ActorHandle.h"
 #include "Editor/EditorViewportControllers.h"
 
 #include <memory>
@@ -17,12 +18,17 @@ protected:void DrawContent() override;
 class SceneHierarchyPanel final:public EditorPanel {
 public:SceneHierarchyPanel();void OnImGui() override;
 protected:void DrawContent() override;
-private:void DrawActor(Actor* actor);
+private:
+    void DrawToolbar();
+    void DrawActor(Actor* actor);
+    void HandleDragDropTarget(Actor* targetParent);
+    ActorHandle m_DraggedActor;
+    bool m_ActorRightClicked = false;
 };
 class ViewportPanel final:public EditorPanel {
 public:explicit ViewportPanel(std::shared_ptr<EditorGizmoState> state);void OnImGui() override;
 protected:void DrawContent() override;
-private:void DropModel(const std::string& path,float x,float y);std::shared_ptr<EditorGizmoState> m_State;EditorPickingController m_PickingController;EditorGizmoController m_GizmoController;
+private:void DropModel(const std::string& path,float x,float y);void DropPrefab(const std::string& path,float x,float y);std::shared_ptr<EditorGizmoState> m_State;EditorPickingController m_PickingController;EditorGizmoController m_GizmoController;
 };
 class InspectorPanel final:public EditorPanel {
 public:explicit InspectorPanel(std::shared_ptr<EditorGizmoState> state);~InspectorPanel() override;void OnImGui() override;

@@ -160,6 +160,7 @@ void DispatchEvent(Actor& actor, Actor& other, const ContactManifold& contact,
                    bool trigger, CollisionEventPhase phase, bool reverseNormal)
 {
     CollisionEvent event;
+    event.otherHandle = other.GetHandle();
     event.other = &other;
     event.point = contact.point;
     event.normal = reverseNormal ? contact.normal * -1.0f : contact.normal;

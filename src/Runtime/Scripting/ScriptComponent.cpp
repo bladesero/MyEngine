@@ -18,24 +18,46 @@ void ScriptComponent::OnDetach()
     m_Runtime.reset();
 }
 
+void ScriptComponent::OnBeginPlay()
+{
+    if (m_Compiled && !m_Awake) { Call("Awake", 0.0f); m_Awake = true; }
+}
+
+void ScriptComponent::OnEnable()
+{
+    if (m_Compiled && m_Awake) Call("OnEnable", 0.0f);
+}
+
+void ScriptComponent::OnStart()
+{
+    if (m_Compiled && !m_Started) { Call("Start", 0.0f); m_Started = true; }
+}
+
 void ScriptComponent::OnUpdate(float deltaSeconds)
 {
     PollHotReload();
     if (!m_Compiled) return;
-    if (!m_Awake) {
-        Call("Awake", 0.0f);
-        m_Awake = true;
-    }
-    if (!m_Started) {
-        Call("Start", 0.0f);
-        m_Started = true;
-    }
     Call("Update", deltaSeconds);
 }
 
 void ScriptComponent::OnFixedUpdate(float deltaSeconds)
 {
     if (m_Compiled && m_Started) Call("FixedUpdate", deltaSeconds);
+}
+
+void ScriptComponent::OnLateUpdate(float deltaSeconds)
+{
+    if (m_Compiled && m_Started) Call("LateUpdate", deltaSeconds);
+}
+
+void ScriptComponent::OnDisable()
+{
+    if (m_Compiled && m_Awake) Call("OnDisable", 0.0f);
+}
+
+void ScriptComponent::OnEndPlay()
+{
+    if (m_Compiled && m_Awake) Call("OnDestroy", 0.0f);
 }
 
 void ScriptComponent::OnCollisionEvent(const CollisionEvent& event)
@@ -97,7 +119,6 @@ void ScriptComponent::Deserialize(const nlohmann::json& data)
     m_Inspector = data.value("inspector", nlohmann::json::object());
     m_State = data.value("state", nlohmann::json::object());
     if (!m_ScriptPath.empty()) LoadFileSource();
-    Compile();
 }
 
 void ScriptComponent::Compile(bool preserveRuntimeState)

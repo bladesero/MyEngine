@@ -17,3 +17,13 @@ void EditorPanel::OnImGui()
     m_Visible = open;
 #endif
 }
+
+void EditorPanel::RegisterContextMenuHandler(ContextMenuHandler handler) {
+    if (handler) m_ContextMenuHandlers.push_back(std::move(handler));
+}
+
+void EditorPanel::ShowContextMenu(const ContextMenuContext& ctx,
+                                  EditorContextMenu& menu) {
+    for (auto& handler : m_ContextMenuHandlers)
+        handler(ctx, menu);
+}
