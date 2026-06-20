@@ -152,37 +152,8 @@ target("MyEngineRuntime")
         "src/Runtime/Game/TriangleLayer.cpp",
         "src/Runtime/Game/SceneLayer.cpp",
         "src/Runtime/Game/SceneRenderLayer.cpp",
-        "src/Runtime/Math/Mat4Inverse.cpp",
-        "src/Editor/EditorAssetRegistry.cpp",
-        "src/Editor/EditorAction.cpp",
-        "src/Editor/EditorCommand.cpp",
-        "src/Editor/EditorContext.cpp",
-        "src/Editor/EditorDialogService.cpp",
-        "src/Editor/EditorImportService.cpp",
-        "src/Editor/EditorLayer.cpp",
-        "src/Editor/EditorLayout.cpp",
-        "src/Editor/EditorLogService.cpp",
-        "src/Editor/EditorPanel.cpp",
-        "src/Editor/EditorProject.cpp",
-        "src/Editor/EditorSelection.cpp",
-        "src/Editor/EditorService.cpp",
-        "src/Editor/EditorShaderWatchService.cpp",
-        "src/Editor/EditorUndoUtil.cpp",
-        "src/Editor/EditorViewportControllers.cpp",
-        "src/Editor/EditorWorkspace.cpp",
-        "src/Editor/ProjectPublisher.cpp",
-        "src/Editor/CookDependencyGraph.cpp",
-        "src/Editor/InspectorSections.cpp",
-        "src/Editor/Panels/ToolbarPanel.cpp",
-        "src/Editor/Panels/SceneHierarchyPanel.cpp",
-        "src/Editor/Panels/ViewportPanel.cpp",
-        "src/Editor/Panels/InspectorPanel.cpp",
-        "src/Editor/Panels/AssetBrowserPanel.cpp",
-        "src/Editor/Panels/LogPanel.cpp",
-        "thirdparty/ImGuizmo/ImGuizmo.cpp", { warnings = "none" }
+        "src/Runtime/Math/Mat4Inverse.cpp"
     )
-
-    add_files("src/Editor/EditorImGuiBackend.cpp")
 
     if is_plat("windows") then
         add_files("src/Runtime/Renderer/D3D11Context.cpp", "src/Runtime/Renderer/D3D12Context.cpp")
@@ -192,7 +163,6 @@ target("MyEngineRuntime")
 
     -- IDE / vsxmake: headers only appear in the project if listed (they are not compiled).
     add_headerfiles("src/Runtime/(**.h)", { public = true })
-    add_headerfiles("src/Editor/(**.h)")
 
     if is_plat("windows") then
         add_rules("utils.symbols.export_all")
@@ -205,8 +175,6 @@ target("MyEngineRuntime")
 
     add_includedirs("src/Runtime", { public = true })
     add_includedirs("src")
-    add_includedirs("src/Editor")
-    add_includedirs("thirdparty/ImGuizmo", { public = true })
     add_packages("libsdl3", { public = true })
     add_packages("nlohmann_json", { public = true })
     add_packages("stb", { public = true })
@@ -263,10 +231,46 @@ target("MyEngineEditor")
     set_kind("binary")
     add_rules("copy_game_content")
     add_files("main.cpp")
-    add_includedirs("src", "src/Editor")
+    add_files(
+        "src/Editor/EditorAssetRegistry.cpp",
+        "src/Editor/EditorAction.cpp",
+        "src/Editor/EditorCommand.cpp",
+        "src/Editor/EditorContext.cpp",
+        "src/Editor/EditorDialogService.cpp",
+        "src/Editor/EditorImportService.cpp",
+        "src/Editor/EditorLayer.cpp",
+        "src/Editor/EditorLayout.cpp",
+        "src/Editor/EditorLogService.cpp",
+        "src/Editor/EditorPanel.cpp",
+        "src/Editor/EditorProject.cpp",
+        "src/Editor/EditorSelection.cpp",
+        "src/Editor/EditorService.cpp",
+        "src/Editor/EditorShaderWatchService.cpp",
+        "src/Editor/EditorUndoUtil.cpp",
+        "src/Editor/EditorViewportControllers.cpp",
+        "src/Editor/EditorWorkspace.cpp",
+        "src/Editor/ProjectPublisher.cpp",
+        "src/Editor/CookDependencyGraph.cpp",
+        "src/Editor/InspectorSections.cpp",
+        "src/Editor/Panels/ToolbarPanel.cpp",
+        "src/Editor/Panels/SceneHierarchyPanel.cpp",
+        "src/Editor/Panels/ViewportPanel.cpp",
+        "src/Editor/Panels/InspectorPanel.cpp",
+        "src/Editor/Panels/AssetBrowserPanel.cpp",
+        "src/Editor/Panels/LogPanel.cpp",
+        "src/Editor/EditorImGuiBackend.cpp",
+        "thirdparty/ImGuizmo/ImGuizmo.cpp", { warnings = "none" }
+    )
+    add_includedirs("src", "src/Editor", "thirdparty/ImGuizmo")
     add_deps("MyEngineRuntime")
-    add_packages("libsdl3")
+    add_packages("tinyobjloader")
     add_defines("MYENGINE_ENABLE_IMGUI")
+    add_defines("MYENGINE_BUILD_ID=dev_0_1_0")
+    if is_mode("release") then
+        add_defines("MYENGINE_BUILD_CONFIGURATION=release")
+    else
+        add_defines("MYENGINE_BUILD_CONFIGURATION=debug")
+    end
     if is_plat("windows") then
         add_cxflags("/utf-8", { toolset = "msvc" })
     end
@@ -303,7 +307,7 @@ target("MyEnginePlayer")
     set_kind("binary")
     add_rules("copy_game_content")
     add_files("player_main.cpp")
-    add_includedirs("src", "src/Editor")
+    add_includedirs("src")
     add_deps("MyEngineRuntime")
     add_packages("libsdl3")
     add_defines("MYENGINE_ENABLE_IMGUI")
@@ -340,10 +344,20 @@ target_end()
 
 target("MyEngineCooker")
     set_kind("binary")
-    add_files("cooker_main.cpp")
+    add_files(
+        "cooker_main.cpp",
+        "src/Editor/ProjectPublisher.cpp",
+        "src/Editor/CookDependencyGraph.cpp"
+    )
     add_includedirs("src", "src/Editor")
     add_deps("MyEngineRuntime")
     add_packages("nlohmann_json")
+    add_defines("MYENGINE_BUILD_ID=dev_0_1_0")
+    if is_mode("release") then
+        add_defines("MYENGINE_BUILD_CONFIGURATION=release")
+    else
+        add_defines("MYENGINE_BUILD_CONFIGURATION=debug")
+    end
     if is_plat("windows") then
         add_cxflags("/utf-8", { toolset = "msvc" })
     end
@@ -353,7 +367,7 @@ target_end()
 target("MyEngineEditorPackager")
     set_kind("binary")
     add_files("editor_packager_main.cpp")
-    add_includedirs("src", "src/Editor")
+    add_includedirs("src")
     add_deps("MyEngineRuntime")
     if is_plat("windows") then
         add_cxflags("/utf-8", { toolset = "msvc" })
@@ -364,11 +378,55 @@ target_end()
 target("MyEngineTests")
     set_kind("binary")
     add_rules("copy_game_content")
-    add_files("tests/AssetsTests.cpp", "tests/EditorTests.cpp", "tests/EngineTests.cpp", "tests/PhysicsTests.cpp", "tests/ProjectTests.cpp", "tests/RendererTests.cpp", "tests/TestHarness.cpp", "tests/TestMain.cpp")
-    add_includedirs("src", "src/Runtime", "src/Editor")
+    add_files(
+        "tests/AssetsTests.cpp",
+        "tests/EditorTests.cpp",
+        "tests/EngineTests.cpp",
+        "tests/PhysicsTests.cpp",
+        "tests/ProjectTests.cpp",
+        "tests/RendererTests.cpp",
+        "tests/TestHarness.cpp",
+        "tests/TestMain.cpp",
+        "src/Editor/EditorAssetRegistry.cpp",
+        "src/Editor/EditorAction.cpp",
+        "src/Editor/EditorCommand.cpp",
+        "src/Editor/EditorContext.cpp",
+        "src/Editor/EditorDialogService.cpp",
+        "src/Editor/EditorImportService.cpp",
+        "src/Editor/EditorLayer.cpp",
+        "src/Editor/EditorLayout.cpp",
+        "src/Editor/EditorLogService.cpp",
+        "src/Editor/EditorPanel.cpp",
+        "src/Editor/EditorProject.cpp",
+        "src/Editor/EditorSelection.cpp",
+        "src/Editor/EditorService.cpp",
+        "src/Editor/EditorShaderWatchService.cpp",
+        "src/Editor/EditorUndoUtil.cpp",
+        "src/Editor/EditorViewportControllers.cpp",
+        "src/Editor/EditorWorkspace.cpp",
+        "src/Editor/ProjectPublisher.cpp",
+        "src/Editor/CookDependencyGraph.cpp",
+        "src/Editor/InspectorSections.cpp",
+        "src/Editor/Panels/ToolbarPanel.cpp",
+        "src/Editor/Panels/SceneHierarchyPanel.cpp",
+        "src/Editor/Panels/ViewportPanel.cpp",
+        "src/Editor/Panels/InspectorPanel.cpp",
+        "src/Editor/Panels/AssetBrowserPanel.cpp",
+        "src/Editor/Panels/LogPanel.cpp",
+        "src/Editor/EditorImGuiBackend.cpp",
+        "thirdparty/ImGuizmo/ImGuizmo.cpp", { warnings = "none" }
+    )
+    add_includedirs("src", "src/Runtime", "src/Editor", "thirdparty/ImGuizmo")
     add_deps("MyEngineRuntime")
     add_options("mem_stats", "mem_tracking", "mem_guard")
-    add_packages("libsdl3", "nlohmann_json")
+    add_packages("tinyobjloader")
+    add_defines("MYENGINE_ENABLE_IMGUI")
+    add_defines("MYENGINE_BUILD_ID=dev_0_1_0")
+    if is_mode("release") then
+        add_defines("MYENGINE_BUILD_CONFIGURATION=release")
+    else
+        add_defines("MYENGINE_BUILD_CONFIGURATION=debug")
+    end
     if is_plat("windows") then
         add_cxflags("/utf-8", { toolset = "msvc" })
     end
