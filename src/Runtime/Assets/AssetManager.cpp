@@ -1,5 +1,6 @@
 #include "Assets/AssetManager.h"
 #include "Assets/AssetMeta.h"
+#include "Core/Sha256.h"
 
 #include <algorithm>
 #include <filesystem>
@@ -154,6 +155,13 @@ void AssetManager::SetProjectRoot(std::filesystem::path root) {
     if (error) m_ProjectRoot.clear();
 }
 
+void AssetManager::RegisterPersistentIdentity(const std::string& path,
+                                              const std::string& uuid) {
+    if (uuid.empty()) return;
+    std::lock_guard<std::recursive_mutex> lock(m_Mutex);
+    m_RegisteredIdentities[NormalizePath(path)] = uuid;
+}
+
 std::string AssetManager::ResolvePath(const std::string& path) const {
     if (path.rfind("__builtin__/", 0) == 0 || path.rfind("__builtin__\\", 0) == 0) {
         return path;
@@ -262,12 +270,20 @@ void AssetManager::ApplyPersistentIdentity(Asset& asset)
     const size_t fragment = path.find('#');
     const std::string sourcePath =
         fragment == std::string::npos ? path : path.substr(0, fragment);
+    const auto registered = m_RegisteredIdentities.find(NormalizePath(sourcePath));
+    if (registered != m_RegisteredIdentities.end()) {
+        const std::string uuid = fragment == std::string::npos
+            ? registered->second : registered->second + path.substr(fragment);
+        asset.SetPersistentIdentity(MakeAssetID(uuid), uuid);
+        return;
+    }
     if (!std::filesystem::exists(sourcePath)) return;
 
-    const AssetMeta meta = AssetMeta::LoadOrCreate(sourcePath);
+    const auto meta = AssetMeta::Load(sourcePath);
+    if (!meta) return;
     const std::string uuid = fragment == std::string::npos
-        ? meta.uuid
-        : meta.uuid + path.substr(fragment);
+        ? meta->uuid
+        : meta->uuid + path.substr(fragment);
     asset.SetPersistentIdentity(MakeAssetID(uuid), uuid);
 }
 
@@ -317,6 +333,7 @@ std::shared_ptr<Asset> AssetManager::LoadAsset(const std::string& path)
     CaptureSourceWriteTime(id, normalizedPath);
     Logger::Info("[AssetManager] Loaded [", AssetTypeToString(asset->GetType()),
                  "] '", asset->GetName(), "' uuid=", asset->GetUuid());
+    PublishAssetChanged({AssetChangeType::Imported, normalizedPath, id, {}});
     return asset;
 }
 
@@ -343,6 +360,8 @@ bool AssetManager::Reload(const std::string& path)
     std::shared_ptr<Asset> replacement = InvokeLoader(normalizedPath, loaderIt->second);
     if (!replacement || replacement->GetType() != cachedIt->second->GetType()) {
         Logger::Error("[AssetManager] Reload failed for: ", normalizedPath);
+        PublishAssetChanged({AssetChangeType::Failed, normalizedPath,
+                             cachedIt->second->GetID(), "reload failed"});
         return false;
     }
 
@@ -361,7 +380,28 @@ bool AssetManager::Reload(const std::string& path)
     CaptureSourceWriteTime(existing.GetID(), normalizedPath);
     Logger::Info("[AssetManager] Reloaded '", existing.GetName(),
                  "' version=", existing.GetVersion());
+    PublishAssetChanged({AssetChangeType::Reloaded, normalizedPath,
+                         existing.GetID(), {}});
     return true;
+}
+
+AssetManager::ListenerID AssetManager::SubscribeAssetChanged(
+    AssetChangedCallback callback) {
+    std::lock_guard<std::recursive_mutex> lock(m_Mutex);
+    const ListenerID id = m_NextAssetChangedListenerID++;
+    m_AssetChangedListeners.emplace(id, std::move(callback));
+    return id;
+}
+
+void AssetManager::UnsubscribeAssetChanged(ListenerID listenerID) {
+    std::lock_guard<std::recursive_mutex> lock(m_Mutex);
+    m_AssetChangedListeners.erase(listenerID);
+}
+
+void AssetManager::PublishAssetChanged(AssetChangedEvent event) {
+    std::vector<AssetChangedCallback> callbacks;
+    for (const auto& [id, callback] : m_AssetChangedListeners) callbacks.push_back(callback);
+    for (const auto& callback : callbacks) if (callback) callback(event);
 }
 
 size_t AssetManager::PollHotReload()
@@ -377,7 +417,14 @@ size_t AssetManager::PollHotReload()
         const auto currentWriteTime = std::filesystem::last_write_time(path, error);
         if (error) continue;
         if (currentWriteTime != previousWriteTime) {
-            changedPaths.push_back(path);
+            std::string hashError;
+            const std::string currentHash = Sha256::HashFile(path, &hashError);
+            if (hashError.empty() && m_SourceHashes[id] != currentHash) {
+                PublishAssetChanged({AssetChangeType::SourceChanged, path, id, {}});
+                changedPaths.push_back(path);
+            } else {
+                m_SourceWriteTimes[id] = currentWriteTime;
+            }
         }
     }
 
@@ -416,6 +463,9 @@ bool AssetManager::CaptureSourceWriteTime(AssetID id, const std::string& normali
         return false;
     }
     m_SourceWriteTimes[id] = writeTime;
+    std::string hashError;
+    const std::string hash = Sha256::HashFile(normalizedPath, &hashError);
+    if (hashError.empty()) m_SourceHashes[id] = hash;
     return true;
 }
 
@@ -574,11 +624,13 @@ void AssetManager::Unload(AssetID id) {
     std::lock_guard<std::recursive_mutex> lock(m_Mutex);
     auto it = m_Cache.find(id);
     if (it != m_Cache.end()) {
+        const std::string path = it->second->GetPath();
         Logger::Info("[AssetManager] Unload '", it->second->GetName(), "'");
         ReleaseAssetMemoryFor(*it->second);
         m_PathToID.erase(NormalizePath(it->second->GetPath()));
         m_SourceWriteTimes.erase(id);
         m_Cache.erase(it);
+        PublishAssetChanged({AssetChangeType::Removed, path, id, {}});
     }
 }
 
@@ -607,6 +659,8 @@ void AssetManager::Clear() {
     m_Cache.clear();
     m_PathToID.clear();
     m_SourceWriteTimes.clear();
+    m_SourceHashes.clear();
+    m_RegisteredIdentities.clear();
 }
 
 void AssetManager::PrintStats() const {

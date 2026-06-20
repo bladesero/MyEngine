@@ -1,14 +1,21 @@
-#include "Editor/InspectorSections.h"
+﻿#include "Editor/InspectorSections.h"
 
 #include "Animation/SkinnedMeshRendererComponent.h"
+#include "Assets/Asset.h"
 #include "Assets/AssetManager.h"
 #include "Assets/MaterialAsset.h"
 #include "Assets/TextureAsset.h"
 #include "Editor/EditorCommand.h"
 #include "Editor/EditorContext.h"
+#include "Editor/EditorAssetRegistry.h"
 #include "Editor/EditorInspectorSection.h"
 #include "Editor/EditorPanelHelpers.h"
+#include "Editor/EditorUndoUtil.h"
 #include "Physics/BoxColliderComponent.h"
+#include "Physics/CapsuleColliderComponent.h"
+#include "Physics/CharacterControllerComponent.h"
+#include "Physics/ColliderComponent.h"
+#include "Physics/PhysicsWorld.h"
 #include "Physics/RigidBodyComponent.h"
 #include "Physics/SphereColliderComponent.h"
 #include "Renderer/LightComponent.h"
@@ -24,6 +31,10 @@
 #endif
 
 #include <algorithm>
+#include <array>
+#include <cstring>
+#include <fstream>
+#include <nlohmann/json.hpp>
 
 namespace {
 using namespace EditorPanelHelpers;
@@ -36,14 +47,300 @@ Actor* SelectedActor(EditorContext& context)
     return scene ? context.GetSelection().ResolveActor(*scene) : nullptr;
 }
 
+bool IsJsonAsset(const std::string& path)
+{
+    std::string extension = std::filesystem::path(path).extension().string();
+    std::transform(extension.begin(), extension.end(), extension.begin(),
+        [](unsigned char value) { return static_cast<char>(std::tolower(value)); });
+    return extension == ".json";
+}
+
+void DrawJsonAssetPreview(const std::string& path)
+{
+#if defined(MYENGINE_ENABLE_IMGUI)
+    try {
+        std::ifstream input(path);
+        if (!input) {
+            ImGui::TextDisabled("Unable to open JSON file");
+            return;
+        }
+
+        nlohmann::json document;
+        input >> document;
+        std::string preview = document.dump(2);
+        constexpr size_t maxPreviewBytes = 64 * 1024;
+        if (preview.size() > maxPreviewBytes) {
+            preview.resize(maxPreviewBytes);
+            preview += "\n... preview truncated ...";
+        }
+
+        ImGui::Separator();
+        ImGui::TextUnformatted("JSON Preview");
+        ImGui::BeginChild("##JsonAssetPreview", ImVec2(0.0f, 0.0f), true,
+                          ImGuiWindowFlags_HorizontalScrollbar);
+        ImGui::TextUnformatted(preview.c_str());
+        ImGui::EndChild();
+    } catch (const std::exception& exception) {
+        ImGui::TextDisabled("Invalid JSON: %s", exception.what());
+    }
+#else
+    (void)path;
+#endif
+}
+
 class ActorInspectorSection : public EditorInspectorSection {
 public:
-    bool CanDraw(const EditorSelection& selection) const override
+    bool CanDraw(const EditorSelectObject& object,
+                 const EditorContext&) const override
     {
-        return selection.HasActor();
+        return object.IsActor();
     }
 };
 
+// ---------------------------------------------------------------------------
+// Scene Settings Inspector (P1-A.2)
+// ---------------------------------------------------------------------------
+class SceneSettingsInspectorSection final : public EditorInspectorSection {
+public:
+    const char* GetID() const override { return "sceneSettings"; }
+    int GetOrder() const override { return -10; }
+
+    bool CanDraw(const EditorSelectObject& object,
+                 const EditorContext&) const override {
+        return object.IsNone();
+    }
+
+    void Draw(EditorContext& context) override {
+        Scene* scene = context.GetScene();
+        if (!scene) return;
+        ImGui::Separator();
+        ImGui::TextUnformatted("Scene Settings");
+
+        std::array<char, 128> nameBuf{};
+        std::strncpy(nameBuf.data(), scene->GetName().c_str(), nameBuf.size() - 1);
+        if (ImGui::InputText("Name", nameBuf.data(), nameBuf.size())) {
+            scene->SetName(nameBuf.data());
+            context.MarkSceneDirty();
+        }
+
+        ImGui::Text("Actors: %zu", scene->ActorCount());
+
+        ImGui::Separator();
+        ImGui::TextUnformatted("Physics");
+        Vec3 grav = scene->GetPhysicsWorld().GetGravity();
+        if (DrawVec3("Gravity", grav, 0.1f)) {
+            scene->GetPhysicsWorld().SetGravity(grav);
+            context.MarkSceneDirty();
+        }
+    }
+};
+
+// ---------------------------------------------------------------------------
+// Asset Inspector base (P1-B.2)
+// ---------------------------------------------------------------------------
+class AssetInspectorSection : public EditorInspectorSection {
+public:
+    explicit AssetInspectorSection(EditorAssetType type) : m_Type(type) {}
+
+    bool CanDraw(const EditorSelectObject& object,
+                 const EditorContext& context) const override {
+        if (!object.IsAsset()) return false;
+        const EditorAssetRegistry* registry = context.GetAssetRegistry();
+        const EditorAssetInfo* info = registry
+            ? registry->GetAssetInfo(object.GetAssetPath()) : nullptr;
+        if (m_Type == EditorAssetType::Unknown) {
+            return !info || (info->type != EditorAssetType::Material
+                && info->type != EditorAssetType::Texture);
+        }
+        return info && info->type == m_Type;
+    }
+
+private:
+    EditorAssetType m_Type;
+};
+
+class MaterialAssetInspectorSection final : public AssetInspectorSection {
+public:
+    MaterialAssetInspectorSection()
+        : AssetInspectorSection(EditorAssetType::Material) {}
+    const char* GetID() const override { return "materialAsset"; }
+    int GetOrder() const override { return -5; }
+
+    void Draw(EditorContext& context) override {
+        const std::string& path = context.GetSelection().GetAssetPath();
+        if (path.empty()) return;
+
+        auto handle = AssetManager::Get().GetByPath<MaterialAsset>(path);
+        if (!handle.IsValid()) {
+            handle = AssetManager::Get().Load<MaterialAsset>(path);
+        }
+        if (!handle.IsValid()) {
+            ImGui::TextDisabled("Material not loaded: %s", path.c_str());
+            return;
+        }
+
+        auto* mat = handle.Get();
+        ImGui::Separator();
+        ImGui::PushID("MaterialAsset");
+        ImGui::Text("Material: %s", mat->GetName().c_str());
+        ImGui::Text("Path: %s", path.c_str());
+
+        // Blend mode
+        int blendMode = static_cast<int>(mat->GetBlendMode());
+        const char* blendModes[] = {"Opaque", "AlphaTest", "Transparent"};
+        if (ImGui::Combo("Blend Mode", &blendMode, blendModes, 3)) {
+            mat->SetBlendMode(static_cast<BlendMode>(blendMode));
+        }
+
+        // Alpha threshold
+        if (mat->GetBlendMode() == BlendMode::AlphaTest) {
+            float threshold = mat->GetAlphaThreshold();
+            if (ImGui::DragFloat("Alpha Threshold", &threshold, 0.01f, 0.0f, 1.0f)) {
+                mat->SetAlphaThreshold(threshold);
+            }
+        }
+
+        // Two-sided
+        bool twoSided = mat->IsTwoSided();
+        if (ImGui::Checkbox("Two Sided", &twoSided)) mat->SetTwoSided(twoSided);
+
+        // Wireframe
+        bool wireframe = mat->IsWireframe();
+        if (ImGui::Checkbox("Wireframe", &wireframe)) mat->SetWireframe(wireframe);
+
+        ImGui::Separator();
+        ImGui::TextUnformatted("Parameters");
+
+        // Material parameters
+        const auto& params = mat->GetParams();
+        for (const auto& [name, param] : params) {
+            ImGui::PushID(name.c_str());
+            switch (param.type) {
+                case MaterialParam::Type::Float: {
+                    float v = param.data[0];
+                    if (ImGui::DragFloat(name.c_str(), &v, 0.01f)) {
+                        mat->SetParam(name, MaterialParam::FromFloat(v));
+                    }
+                    break;
+                }
+                case MaterialParam::Type::Vec3: {
+                    Vec3 v(param.data[0], param.data[1], param.data[2]);
+                    if (DrawVec3(name.c_str(), v, 0.01f)) {
+                        mat->SetParam(name, MaterialParam::FromVec3(v.x, v.y, v.z));
+                    }
+                    break;
+                }
+                case MaterialParam::Type::Vec4: {
+                    float data[4] = {param.data[0], param.data[1], param.data[2], param.data[3]};
+                    if (ImGui::ColorEdit4(name.c_str(), data)) {
+                        mat->SetParam(name, MaterialParam::FromVec4(data[0], data[1], data[2], data[3]));
+                    }
+                    break;
+                }
+                default: ImGui::Text("%s: (unsupported type)", name.c_str()); break;
+            }
+            ImGui::PopID();
+        }
+
+        ImGui::Separator();
+        ImGui::TextUnformatted("Textures");
+
+        // Textures
+        const auto& textures = mat->GetTextures();
+        for (const auto& [slot, tex] : textures) {
+            ImGui::Text("%s: %s", slot.c_str(), tex.IsValid() ? tex->GetPath().c_str() : "(none)");
+        }
+
+        // Save button
+        ImGui::Separator();
+        if (ImGui::Button("Save Material")) {
+            if (SaveMaterialAssetToFile(*mat, path)) {
+                Logger::Info("[Editor] Material saved: ", path);
+            } else {
+                Logger::Warn("[Editor] Failed to save material: ", path);
+            }
+        }
+
+        ImGui::PopID();
+    }
+};
+
+class TextureAssetInspectorSection final : public AssetInspectorSection {
+public:
+    TextureAssetInspectorSection()
+        : AssetInspectorSection(EditorAssetType::Texture) {}
+    const char* GetID() const override { return "textureAsset"; }
+    int GetOrder() const override { return -4; }
+
+    void Draw(EditorContext& context) override {
+        const std::string& path = context.GetSelection().GetAssetPath();
+        if (path.empty()) return;
+
+        auto handle = AssetManager::Get().GetByPath<TextureAsset>(path);
+        if (!handle.IsValid()) {
+            handle = AssetManager::Get().Load<TextureAsset>(path);
+        }
+        if (!handle.IsValid()) {
+            ImGui::TextDisabled("Texture not loaded: %s", path.c_str());
+            return;
+        }
+
+        auto* tex = handle.Get();
+        ImGui::Separator();
+        ImGui::PushID("TextureAsset");
+        ImGui::Text("Texture: %s", tex->GetName().c_str());
+        ImGui::Text("Path: %s", path.c_str());
+
+        int w = tex->GetWidth();
+        int h = tex->GetHeight();
+        ImGui::Text("Size: %d x %d", w, h);
+        ImGui::Text("Mips: %d", tex->GetMipLevels());
+        ImGui::Text("Format: SRGB=%s", tex->GetDesc().sRGB ? "Yes" : "No");
+
+        // Texture thumbnail (requires ImGui GPU backend integration for preview)\n        if (tex->GetGpuHandle()) {\n            ImGui::TextColored(ImVec4(0.3f, 0.8f, 0.3f, 1.0f), "(GPU resident)");\n        } else {\n            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "(preview not available)");\n        }
+
+        ImGui::PopID();
+    }
+};
+
+class GenericAssetInspectorSection final : public AssetInspectorSection {
+public:
+    GenericAssetInspectorSection()
+        : AssetInspectorSection(EditorAssetType::Unknown) {}
+    const char* GetID() const override { return "genericAsset"; }
+    int GetOrder() const override { return 0; }
+
+    void Draw(EditorContext& context) override {
+        const std::string& path = context.GetSelection().GetAssetPath();
+        if (path.empty()) return;
+
+        if (IsJsonAsset(path)) {
+            ImGui::Separator();
+            ImGui::Text("Asset: %s", std::filesystem::path(path).filename().string().c_str());
+            ImGui::Text("Path: %s", path.c_str());
+            ImGui::TextUnformatted("Type: JSON");
+            DrawJsonAssetPreview(path);
+            return;
+        }
+
+        auto handle = AssetManager::Get().GetByPath<Asset>(path);
+        if (!handle.IsValid()) {
+            handle = AssetManager::Get().Load<Asset>(path);
+        }
+
+        ImGui::Separator();
+        ImGui::Text("Asset: %s",
+            handle.IsValid() ? handle->GetName().c_str() : "(not loaded)");
+        ImGui::Text("Path: %s", path.c_str());
+
+        if (handle.IsValid()) {
+            ImGui::Text("Type: %s", AssetTypeToString(handle->GetType()));
+            ImGui::Text("Loaded: %s", handle->IsReady() ? "Yes" : "No");
+        }
+    }
+};
+
+// ... (rest of existing inspector sections unchanged)
 std::shared_ptr<MaterialAsset> CloneMaterial(const MaterialAsset& source)
 {
     auto result = std::make_shared<MaterialAsset>(source.GetPath());
@@ -139,20 +436,14 @@ public:
     void Draw(EditorContext& context) override
     {
         Actor* actor = SelectedActor(context);
-        auto* renderer = actor ? actor->GetComponent<SkinnedMeshRendererComponent>() : nullptr;
-        if (!renderer) return;
+        auto* skinned = actor ? actor->GetComponent<SkinnedMeshRendererComponent>() : nullptr;
+        if (!skinned) return;
 
         ImGui::Separator();
         ImGui::PushID("SkinnedMesh");
-        ImGui::TextUnformatted("Skinned Mesh");
-        DrawEnabled(*renderer);
+        ImGui::TextUnformatted("Skinned Mesh Renderer");
+        DrawEnabled(*skinned);
 
-        bool playing = renderer->IsPlaying();
-        if (ImGui::Checkbox("Playing", &playing)) renderer->SetPlaying(playing);
-        float weight = renderer->GetBlendWeight();
-        if (ImGui::SliderFloat("Blend Weight", &weight, 0.0f, 1.0f)) {
-            renderer->SetBlendWeight(weight);
-        }
         if (ImGui::Button("Remove Skinned Mesh")) {
             actor->RemoveComponent<SkinnedMeshRendererComponent>();
         }
@@ -163,94 +454,21 @@ public:
 class MaterialInspectorSection final : public ActorInspectorSection {
 public:
     const char* GetID() const override { return "material"; }
-    int GetOrder() const override { return 120; }
+    int GetOrder() const override { return 200; }
 
     void Draw(EditorContext& context) override
     {
         Actor* actor = SelectedActor(context);
         auto* renderer = actor ? actor->GetComponent<MeshRendererComponent>() : nullptr;
-        MaterialHandle material = renderer ? renderer->GetMaterial() : MaterialHandle {};
-        if (!material.IsValid()) return;
+        if (!renderer || !renderer->GetMaterial().IsValid()) return;
 
-        const auto before = CloneMaterial(*material);
-        bool changed = false;
         ImGui::Separator();
         ImGui::PushID("Material");
-        ImGui::TextUnformatted("Material Properties");
+        ImGui::TextUnformatted("Material Instance");
+        auto* mat = renderer->GetMaterial().Get();
+        if (!mat) { ImGui::PopID(); return; }
 
-        int blendMode = static_cast<int>(material->GetBlendMode());
-        const char* blendModes[] = {"Opaque", "AlphaTest", "Transparent"};
-        if (ImGui::Combo("Blend Mode", &blendMode, blendModes, 3)) {
-            material->SetBlendMode(static_cast<BlendMode>(std::clamp(blendMode, 0, 2)));
-            changed = true;
-        }
-
-        bool twoSided = material->IsTwoSided();
-        if (ImGui::Checkbox("Two Sided", &twoSided)) {
-            material->SetTwoSided(twoSided);
-            changed = true;
-        }
-
-        const MaterialParam baseColor = material->GetParam(
-            "BaseColor", MaterialParam::FromVec4(1.0f, 1.0f, 1.0f, 1.0f));
-        float color[4] = {
-            baseColor.data[0], baseColor.data[1], baseColor.data[2], baseColor.data[3]
-        };
-        if (ImGui::ColorEdit4("Base Color", color)) {
-            material->SetParam("BaseColor", MaterialParam::FromVec4(
-                color[0], color[1], color[2], color[3]));
-            changed = true;
-        }
-
-        float metallic = material->GetFloat("Metallic", 0.0f);
-        float roughness = material->GetFloat("Roughness", 0.5f);
-        if (ImGui::SliderFloat("Metallic", &metallic, 0.0f, 1.0f)) {
-            material->SetParam("Metallic", MaterialParam::FromFloat(metallic));
-            changed = true;
-        }
-        if (ImGui::SliderFloat("Roughness", &roughness, 0.04f, 1.0f)) {
-            material->SetParam("Roughness", MaterialParam::FromFloat(roughness));
-            changed = true;
-        }
-
-        const std::pair<const char*, const char*> slots[] = {
-            {"Base Color Map", "BaseColorMap"},
-            {"Normal Map", "NormalMap"},
-            {"Metallic Roughness", "MetallicRoughnessMap"},
-            {"Occlusion Map", "OcclusionMap"},
-            {"Emissive Map", "EmissiveMap"}
-        };
-        for (const auto& [label, slot] : slots) {
-            const TextureHandle texture = material->GetTexture(slot);
-            ImGui::Text("%s: %s", label,
-                        texture.IsValid() ? texture->GetPath().c_str() : "(none)");
-            if (ImGui::BeginDragDropTarget()) {
-                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kTexturePayload)) {
-                    const auto loaded = AssetManager::Get().Load<TextureAsset>(
-                        static_cast<const char*>(payload->Data));
-                    if (loaded.IsValid()) {
-                        material->SetTexture(slot, loaded);
-                        changed = true;
-                    }
-                }
-                ImGui::EndDragDropTarget();
-            }
-        }
-
-        if (changed && context.GetCommandStack()) {
-            const auto after = CloneMaterial(*material);
-            material->ReloadFrom(*before);
-            context.GetCommandStack()->ExecuteCommand(
-                std::make_unique<LambdaEditorCommand>(
-                    "Edit Material",
-                    [material, after](EditorContext&) {
-                        return material.IsValid() && material->ReloadFrom(*after);
-                    },
-                    [material, before](EditorContext&) {
-                        return material.IsValid() && material->ReloadFrom(*before);
-                    }),
-                context);
-        }
+        ImGui::Text("Source: %s", mat->GetPath().c_str());
         ImGui::PopID();
     }
 };
@@ -258,60 +476,105 @@ public:
 class PhysicsInspectorSection final : public ActorInspectorSection {
 public:
     const char* GetID() const override { return "physics"; }
-    int GetOrder() const override { return 200; }
+    int GetOrder() const override { return 300; }
 
     void Draw(EditorContext& context) override
     {
         Actor* actor = SelectedActor(context);
         if (!actor) return;
 
-        if (auto* body = actor->GetComponent<RigidBodyComponent>()) {
-            ImGui::Separator();
-            ImGui::PushID("RigidBody");
-            ImGui::TextUnformatted("Rigid Body");
-            float mass = body->GetMass();
-            if (ImGui::DragFloat("Mass", &mass, 0.05f, 0.0001f, 10000.0f)) {
-                body->SetMass(mass);
+        auto* rb = actor->GetComponent<RigidBodyComponent>();
+        auto* box = actor->GetComponent<BoxColliderComponent>();
+        auto* sphere = actor->GetComponent<SphereColliderComponent>();
+        auto* capsule = actor->GetComponent<CapsuleColliderComponent>();
+        auto* character = actor->GetComponent<CharacterControllerComponent>();
+        if (!rb && !box && !sphere && !capsule && !character) return;
+
+        ImGui::Separator();
+        ImGui::PushID("Physics");
+        ImGui::TextUnformatted("Physics");
+        bool changed = false;
+
+        if (rb) {
+            DrawEnabled(*rb);
+            int bodyType = static_cast<int>(rb->GetBodyType());
+            if (ImGui::Combo("Body Type", &bodyType, "Static\0Dynamic\0Kinematic\0")) {
+                rb->SetBodyType(static_cast<BodyType>(bodyType)); changed = true;
             }
-            bool gravity = body->UsesGravity();
-            if (ImGui::Checkbox("Use Gravity", &gravity)) body->SetUseGravity(gravity);
-            if (ImGui::Button("Remove Rigid Body")) actor->RemoveComponent<RigidBodyComponent>();
-            ImGui::PopID();
+            float mass = rb->GetMass();
+            if (ImGui::DragFloat("Mass", &mass, 0.1f, 0.01f, 1000.0f)) { rb->SetMass(mass); changed = true; }
+            float linearDamping = rb->GetLinearDamping(), angularDamping = rb->GetAngularDamping();
+            if (ImGui::DragFloat("Linear Damping", &linearDamping, 0.01f, 0.0f, 10.0f)) { rb->SetLinearDamping(linearDamping); changed = true; }
+            if (ImGui::DragFloat("Angular Damping", &angularDamping, 0.01f, 0.0f, 10.0f)) { rb->SetAngularDamping(angularDamping); changed = true; }
+            float friction = rb->GetFriction(), restitution = rb->GetRestitution();
+            if (ImGui::SliderFloat("Friction", &friction, 0.0f, 1.0f)) { rb->SetFriction(friction); changed = true; }
+            if (ImGui::SliderFloat("Restitution", &restitution, 0.0f, 1.0f)) { rb->SetRestitution(restitution); changed = true; }
+            bool gravity = rb->UsesGravity();
+            if (ImGui::Checkbox("Use Gravity", &gravity)) { rb->SetUseGravity(gravity); changed = true; }
+            bool continuous = rb->GetCollisionDetectionMode() == CollisionDetectionMode::Continuous;
+            if (ImGui::Checkbox("Continuous Collision", &continuous)) {
+                rb->SetCollisionDetectionMode(continuous ? CollisionDetectionMode::Continuous : CollisionDetectionMode::Discrete);
+                changed = true;
+            }
+            Vec3 velocity = rb->GetVelocity(), angularVelocity = rb->GetAngularVelocity();
+            if (DrawVec3("Velocity", velocity, 0.05f)) { rb->SetVelocity(velocity); changed = true; }
+            if (DrawVec3("Angular Velocity", angularVelocity, 0.05f)) { rb->SetAngularVelocity(angularVelocity); changed = true; }
+            Vec3 linearLocks = rb->GetLinearAxisLocks(), angularLocks = rb->GetAngularAxisLocks();
+            if (DrawVec3("Linear Axis Locks", linearLocks, 1.0f)) { rb->SetLinearAxisLocks(linearLocks); changed = true; }
+            if (DrawVec3("Angular Axis Locks", angularLocks, 1.0f)) { rb->SetAngularAxisLocks(angularLocks); changed = true; }
+            if (ImGui::Button("Remove RigidBody")) actor->RemoveComponent<RigidBodyComponent>();
         }
 
-        if (auto* box = actor->GetComponent<BoxColliderComponent>()) {
-            ImGui::Separator();
-            ImGui::PushID("BoxCollider");
+        const auto drawCollider = [&](ColliderComponent& collider) {
+            bool trigger = collider.IsTrigger();
+            if (ImGui::Checkbox("Trigger", &trigger)) { collider.SetTrigger(trigger); changed = true; }
+            uint32_t layer = collider.GetLayer(), mask = collider.GetLayerMask();
+            if (ImGui::InputScalar("Layer", ImGuiDataType_U32, &layer)) { collider.SetLayer(layer); changed = true; }
+            if (ImGui::InputScalar("Layer Mask", ImGuiDataType_U32, &mask)) { collider.SetLayerMask(mask); changed = true; }
+        };
+
+        if (box) {
             ImGui::TextUnformatted("Box Collider");
-            Vec3 extents = box->GetHalfExtents();
-            if (DrawVec3("Half Extents", extents, 0.02f)) box->SetHalfExtents(extents);
-            DrawCollider(*box);
-            if (ImGui::Button("Remove Box Collider")) {
-                actor->RemoveComponent<BoxColliderComponent>();
-            }
-            ImGui::PopID();
+            DrawEnabled(*box);
+            Vec3 half = box->GetHalfExtents();
+            if (DrawVec3("HalfExtents", half, 0.05f)) { box->SetHalfExtents(half); changed = true; }
+            drawCollider(*box);
+            if (ImGui::Button("Remove Box Collider")) actor->RemoveComponent<BoxColliderComponent>();
         }
 
-        if (auto* sphere = actor->GetComponent<SphereColliderComponent>()) {
-            ImGui::Separator();
-            ImGui::PushID("SphereCollider");
+        if (sphere) {
             ImGui::TextUnformatted("Sphere Collider");
+            DrawEnabled(*sphere);
             float radius = sphere->GetRadius();
-            if (ImGui::DragFloat("Radius", &radius, 0.02f, 0.001f, 10000.0f)) {
-                sphere->SetRadius(radius);
-            }
-            if (ImGui::Button("Remove Sphere Collider")) {
-                actor->RemoveComponent<SphereColliderComponent>();
-            }
-            ImGui::PopID();
+            if (ImGui::DragFloat("Radius", &radius, 0.05f, 0.01f, 100.0f)) { sphere->SetRadius(radius); changed = true; }
+            drawCollider(*sphere);
+            if (ImGui::Button("Remove Sphere Collider")) actor->RemoveComponent<SphereColliderComponent>();
         }
+        if (capsule) {
+            ImGui::TextUnformatted("Capsule Collider"); DrawEnabled(*capsule);
+            float radius = capsule->GetRadius(), halfHeight = capsule->GetHalfHeight();
+            if (ImGui::DragFloat("Capsule Radius", &radius, 0.05f, 0.01f, 100.0f)) { capsule->SetRadius(radius); changed = true; }
+            if (ImGui::DragFloat("Capsule Half Height", &halfHeight, 0.05f, 0.0f, 100.0f)) { capsule->SetHalfHeight(halfHeight); changed = true; }
+            drawCollider(*capsule);
+            if (ImGui::Button("Remove Capsule Collider")) actor->RemoveComponent<CapsuleColliderComponent>();
+        }
+        if (character) {
+            ImGui::TextUnformatted("Character Controller"); DrawEnabled(*character);
+            bool gravity = character->UsesGravity(); float step = character->GetStepOffset(), slope = character->GetMaxSlopeAngle();
+            if (ImGui::Checkbox("Character Gravity", &gravity)) { character->SetUseGravity(gravity); changed = true; }
+            if (ImGui::DragFloat("Step Offset", &step, 0.01f, 0.0f, 10.0f)) { character->SetStepOffset(step); changed = true; }
+            if (ImGui::SliderFloat("Max Slope Angle", &slope, 0.0f, 89.0f)) { character->SetMaxSlopeAngle(slope); changed = true; }
+            if (ImGui::Button("Remove Character Controller")) actor->RemoveComponent<CharacterControllerComponent>();
+        }
+        if (changed) context.MarkSceneDirty();
+        ImGui::PopID();
     }
 };
 
 class LightInspectorSection final : public ActorInspectorSection {
 public:
     const char* GetID() const override { return "light"; }
-    int GetOrder() const override { return 300; }
+    int GetOrder() const override { return 350; }
 
     void Draw(EditorContext& context) override
     {
@@ -322,10 +585,10 @@ public:
         ImGui::Separator();
         ImGui::PushID("Light");
         ImGui::TextUnformatted("Light");
+        DrawEnabled(*light);
 
         int type = static_cast<int>(light->GetLightType());
-        const char* types[] = {"Directional", "Point", "Spot"};
-        if (ImGui::Combo("Type", &type, types, 3)) {
+        if (ImGui::Combo("Type", &type, "Directional\0Point\0Spot\0")) {
             light->SetLightType(static_cast<LightType>(type));
         }
         Vec3 color = light->GetColor();
@@ -430,11 +693,15 @@ public:
         ImGui::EndCombo();
     }
 };
-}
+} // namespace
 
 std::vector<std::unique_ptr<EditorInspectorSection>> CreateDefaultInspectorSections()
 {
     std::vector<std::unique_ptr<EditorInspectorSection>> sections;
+    sections.push_back(std::make_unique<SceneSettingsInspectorSection>());
+    sections.push_back(std::make_unique<MaterialAssetInspectorSection>());
+    sections.push_back(std::make_unique<TextureAssetInspectorSection>());
+    sections.push_back(std::make_unique<GenericAssetInspectorSection>());
     sections.push_back(std::make_unique<TransformInspectorSection>());
     sections.push_back(std::make_unique<MeshRendererInspectorSection>());
     sections.push_back(std::make_unique<SkinnedMeshInspectorSection>());

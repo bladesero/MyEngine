@@ -20,6 +20,14 @@
 #include <mutex>
 #include <filesystem>
 
+enum class AssetChangeType { SourceChanged, Imported, Reloaded, Failed, Removed, Moved };
+struct AssetChangedEvent {
+    AssetChangeType type = AssetChangeType::SourceChanged;
+    std::string path;
+    AssetID id = kInvalidAssetID;
+    std::string message;
+};
+
 using AssetLoaderFn = std::function<std::shared_ptr<Asset>(const std::string& path)>;
 
 std::shared_ptr<TextureAsset> LoadTextureAssetFromFile(const std::string& path);
@@ -28,6 +36,8 @@ std::shared_ptr<ModelAsset>   LoadModelAssetFromGltf(const std::string& path);
 
 class AssetManager {
 public:
+    using AssetChangedCallback = std::function<void(const AssetChangedEvent&)>;
+    using ListenerID = uint64_t;
     // Defined in AssetManager.cpp so every EXE/DLL caller reaches the same
     // instance owned by MyEngineRuntime.
     static AssetManager& Get();
@@ -55,6 +65,8 @@ public:
     std::future<std::shared_ptr<Asset>> LoadAsync(const std::string& path);
     bool Reload(const std::string& path);
     size_t PollHotReload();
+    ListenerID SubscribeAssetChanged(AssetChangedCallback callback);
+    void UnsubscribeAssetChanged(ListenerID listenerID);
 
     template<typename T>
     AssetHandle<T> Register(std::shared_ptr<T> asset) {
@@ -119,6 +131,7 @@ public:
     void Clear();
 
     void SetProjectRoot(std::filesystem::path root);
+    void RegisterPersistentIdentity(const std::string& path, const std::string& uuid);
     void SetEngineContentRoot(std::filesystem::path root) { m_EngineContentRoot = std::move(root); }
     const std::filesystem::path& GetProjectRoot() const { return m_ProjectRoot; }
     std::string ResolvePath(const std::string& path) const;
@@ -184,6 +197,7 @@ private:
     std::shared_ptr<Asset> InvokeLoader(const std::string& normalizedPath,
                                         const AssetLoaderFn& loader) const;
     bool CaptureSourceWriteTime(AssetID id, const std::string& normalizedPath);
+    void PublishAssetChanged(AssetChangedEvent event);
 
     void RegisterAssetMemoryFor(const Asset& asset);
     void ReleaseAssetMemoryFor(const Asset& asset);
@@ -192,11 +206,15 @@ private:
     std::unordered_map<AssetID,     std::shared_ptr<Asset>> m_Cache;
     std::unordered_map<std::string, AssetID>                m_PathToID;
     std::unordered_map<std::string, AssetLoaderFn>          m_Loaders;
+    std::unordered_map<std::string, std::string>            m_RegisteredIdentities;
 
     size_t              m_AssetCpuBudgetBytes = 0; // 0 = no budget / no warn
     size_t              m_AssetCpuTotalBytes = 0;
     std::array<size_t, 7> m_AssetCpuBytesByType{};
     std::unordered_map<AssetID, std::filesystem::file_time_type> m_SourceWriteTimes;
+    std::unordered_map<AssetID, std::string> m_SourceHashes;
+    std::unordered_map<ListenerID, AssetChangedCallback> m_AssetChangedListeners;
+    ListenerID m_NextAssetChangedListenerID = 1;
     mutable std::recursive_mutex m_Mutex;
     std::filesystem::path m_ProjectRoot;
     std::filesystem::path m_EngineContentRoot;

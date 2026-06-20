@@ -1,4 +1,5 @@
 ﻿#include "Assets/AssetManager.h"
+#include "Assets/AssetMeta.h"
 #include "Core/Memory/LinearAllocator.h"
 #include "Assets/ShaderAsset.h"
 #include "Assets/PrefabAsset.h"
@@ -1675,6 +1676,8 @@ bool TestGltfImportAndStableMeta() {
 
     AssetManager& manager = AssetManager::Get();
     manager.Clear();
+    AssetMeta meta = AssetMeta::Create(gltfPath.string());
+    if (!Check(AssetMeta::Save(meta), "failed to author glTF metadata")) return false;
     ModelHandle model = manager.Load<ModelAsset>(gltfPath.string());
     if (!Check(model.IsValid(), "glTF model import failed")) return false;
     if (!Check(model->GetMesh()->VertexCount() == 3 && model->GetMesh()->IndexCount() == 3,
@@ -2177,8 +2180,9 @@ bool TestEditorServiceActionAndInspectorRegistries() {
         TestSection(const char* id, int order) : m_ID(id), m_Order(order) {}
         const char* GetID() const override { return m_ID.c_str(); }
         int GetOrder() const override { return m_Order; }
-        bool CanDraw(const EditorSelection& selection) const override {
-            return selection.HasActor();
+        bool CanDraw(const EditorSelectObject& object,
+                     const EditorContext&) const override {
+            return object.IsActor();
         }
         void Draw(EditorContext&) override {}
     private:
@@ -2192,11 +2196,13 @@ bool TestEditorServiceActionAndInspectorRegistries() {
     if (!Check(std::string(sections.GetSections()[0]->GetID()) == "early",
                "inspector section order mismatch")) return false;
     EditorSelection selection;
-    if (!Check(!sections.GetSections()[0]->CanDraw(selection),
+    if (!Check(!sections.GetSections()[0]->CanDraw(
+                   selection.GetPrimaryObject(), context),
                "inspector section filtering mismatch")) return false;
     Actor* selected = scene.CreateActor("SectionSelection");
     selection.SelectActorID(selected->GetID());
-    return Check(sections.GetSections()[0]->CanDraw(selection),
+    return Check(sections.GetSections()[0]->CanDraw(
+                     selection.GetPrimaryObject(), context),
                  "inspector section did not accept actor selection");
 }
 

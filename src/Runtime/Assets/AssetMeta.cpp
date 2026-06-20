@@ -39,6 +39,15 @@ std::string AssetMeta::MetaPathFor(const std::string& sourcePath)
 
 AssetMeta AssetMeta::LoadOrCreate(const std::string& sourcePath)
 {
+    if (auto existing = Load(sourcePath)) return *existing;
+    AssetMeta meta = Create(sourcePath);
+    Save(meta);
+    return meta;
+}
+
+std::optional<AssetMeta> AssetMeta::Load(const std::string& sourcePath,
+                                         std::string* error)
+{
     const std::filesystem::path normalized =
         std::filesystem::absolute(sourcePath).lexically_normal();
     const std::string metaPath = MetaPathFor(normalized.string());
@@ -54,14 +63,21 @@ AssetMeta AssetMeta::LoadOrCreate(const std::string& sourcePath)
             if (!meta.uuid.empty()) return meta;
         }
     } catch (const std::exception& e) {
-        Logger::Warn("[AssetMeta] Invalid metadata '", metaPath, "': ", e.what());
+        if (error) *error = e.what();
+        return std::nullopt;
     }
+    if (error) *error = "metadata is missing or invalid: " + metaPath;
+    return std::nullopt;
+}
 
+AssetMeta AssetMeta::Create(const std::string& sourcePath)
+{
+    const std::filesystem::path normalized =
+        std::filesystem::absolute(sourcePath).lexically_normal();
     AssetMeta meta;
     meta.uuid = GenerateUuid();
     meta.sourcePath = normalized.string();
     meta.importerVersion = 1;
-    Save(meta);
     return meta;
 }
 
@@ -73,9 +89,19 @@ bool AssetMeta::Save(const AssetMeta& meta)
         json["uuid"] = meta.uuid;
         json["source"] = std::filesystem::path(meta.sourcePath).filename().string();
         json["importerVersion"] = meta.importerVersion;
-        std::ofstream output(MetaPathFor(meta.sourcePath), std::ios::trunc);
-        output << json.dump(2);
-        return output.good();
+        const std::string path = MetaPathFor(meta.sourcePath);
+        const std::string temporary = path + ".tmp";
+        {
+            std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
+            output << json.dump(2);
+            output.flush();
+            if (!output.good()) return false;
+        }
+        std::error_code error;
+        std::filesystem::remove(path, error);
+        error.clear();
+        std::filesystem::rename(temporary, path, error);
+        return !error;
     } catch (const std::exception& e) {
         Logger::Error("[AssetMeta] Failed to save metadata: ", e.what());
         return false;

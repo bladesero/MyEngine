@@ -231,3 +231,12 @@ RenderGraph validates dependencies and owns attachment state transitions. DXBC r
 produces a shared named binding layout used by both Windows backends. Native D3D types are
 restricted to backend implementation files; `tools/check-rhi-boundaries.ps1` enforces
 the rule without a render-pass allowlist.
+
+## 11. Physics backend boundary
+
+Runtime physics is implemented by Jolt Physics 5.5.0 behind `PhysicsWorld`'s PImpl.
+Jolt headers and runtime handles remain inside `src/Runtime/Physics`; Scene, components,
+serialization, Lua, and Editor code use MyEngine types only. Each Scene owns one
+PhysicsWorld. The fixed-step order is component `FixedUpdate`, body reconciliation, Jolt
+update, Transform write-back, then main-thread collision-event dispatch. Detailed rules
+are in [`docs/classes/physics/PhysicsWorld.md`](docs/classes/physics/PhysicsWorld.md).

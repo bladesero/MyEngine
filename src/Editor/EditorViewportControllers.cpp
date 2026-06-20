@@ -43,7 +43,10 @@ void EditorPickingController::Pick(EditorContext& context, float screenX, float 
         }
     });
 
-    if (closestActor) context.GetSelection().SelectActorID(closestActor->GetID());
+    if (closestActor) {
+        context.GetSelection().Select(EditorSelectObject::MakeActor(
+            closestActor->GetHandle(), closestActor->GetID()));
+    }
     else context.GetSelection().Clear();
 }
 

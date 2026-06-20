@@ -205,6 +205,32 @@ int BodyAddForce(lua_State* state)
     return 0;
 }
 
+RigidBodyComponent* GetRigidBody(lua_State* state)
+{
+    Actor* actor = GetActor(state);
+    return actor ? actor->GetComponent<RigidBodyComponent>() : nullptr;
+}
+
+Vec3 ReadVec3(lua_State* state, int first)
+{
+    return {static_cast<float>(luaL_checknumber(state, first)),
+            static_cast<float>(luaL_checknumber(state, first + 1)),
+            static_cast<float>(luaL_checknumber(state, first + 2))};
+}
+
+int BodySetAngularVelocity(lua_State* state) { if (auto* body = GetRigidBody(state)) body->SetAngularVelocity(ReadVec3(state, 1)); return 0; }
+int BodyAddTorque(lua_State* state) { if (auto* body = GetRigidBody(state)) body->AddTorque(ReadVec3(state, 1)); return 0; }
+int BodyAddImpulse(lua_State* state) { if (auto* body = GetRigidBody(state)) body->AddImpulse(ReadVec3(state, 1)); return 0; }
+int BodyAddAngularImpulse(lua_State* state) { if (auto* body = GetRigidBody(state)) body->AddAngularImpulse(ReadVec3(state, 1)); return 0; }
+int BodyTeleport(lua_State* state) {
+    if (auto* body = GetRigidBody(state)) body->Teleport(ReadVec3(state, 1), ReadVec3(state, 4));
+    return 0;
+}
+int BodySetKinematicTarget(lua_State* state) {
+    if (auto* body = GetRigidBody(state)) body->SetKinematicTarget(ReadVec3(state, 1), ReadVec3(state, 4));
+    return 0;
+}
+
 int InputKeyDown(lua_State* state)
 {
     lua_pushboolean(state, Input::IsKeyDown(static_cast<int>(luaL_checkinteger(state, 1))));
@@ -270,9 +296,15 @@ void CreateBindings(lua_State* state, ScriptComponent& component)
     SetBoundFunction(state, component, "get_name", ActorGetName);
     lua_setglobal(state, "Actor");
 
-    lua_createtable(state, 0, 2);
+    lua_createtable(state, 0, 8);
     SetBoundFunction(state, component, "set_velocity", BodySetVelocity);
     SetBoundFunction(state, component, "add_force", BodyAddForce);
+    SetBoundFunction(state, component, "set_angular_velocity", BodySetAngularVelocity);
+    SetBoundFunction(state, component, "add_torque", BodyAddTorque);
+    SetBoundFunction(state, component, "add_impulse", BodyAddImpulse);
+    SetBoundFunction(state, component, "add_angular_impulse", BodyAddAngularImpulse);
+    SetBoundFunction(state, component, "teleport", BodyTeleport);
+    SetBoundFunction(state, component, "set_kinematic_target", BodySetKinematicTarget);
     lua_setglobal(state, "RigidBody");
 
     lua_createtable(state, 0, 3);

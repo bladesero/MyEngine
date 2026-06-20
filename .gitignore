@@ -18,6 +18,9 @@ vs2022/
 xcuserdata/
 *.xcworkspace/
 DerivedData/
+Library/
+.myengine/AssetDatabase.json
+.myengine/AssetDatabase.json.tmp
 
 # macOS
 .DS_Store

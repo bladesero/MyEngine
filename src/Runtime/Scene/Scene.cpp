@@ -270,6 +270,7 @@ void Scene::DestroyActorInternal(Actor* actor)
 
 void Scene::Clear()
 {
+    m_PhysicsWorld.Clear();
     m_PendingCreates.clear(); m_Commands.clear();
     if (IsPlaying()) EndPlay();
     m_IDMap.clear(); m_IDHandles.clear();

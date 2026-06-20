@@ -14,13 +14,13 @@
     },
     "Metallic": {
       "data": [
-        0.0
+        0.9399999976158142
       ],
       "type": "Float"
     },
     "Roughness": {
       "data": [
-        0.5
+        0.7900000214576721
       ],
       "type": "Float"
     }

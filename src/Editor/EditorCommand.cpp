@@ -1,11 +1,22 @@
-#include "Editor/EditorCommand.h"
+﻿#include "Editor/EditorCommand.h"
 
 #include "Editor/EditorContext.h"
+#include "Assets/AssetMeta.h"
 #include "Scene/Actor.h"
+#include "Scene/ActorSubtreeSerializer.h"
+#include "Scene/Component.h"
+#include "Scene/ComponentRegistry.h"
 #include "Scene/Scene.h"
 #include "Scene/SceneSerializer.h"
+#include "Scene/PrefabSystem.h"
+#include "Core/Logger.h"
+
+#include <nlohmann/json.hpp>
+#include <filesystem>
+#include <fstream>
 
 namespace {
+
 class CompositeEditorCommand final : public IEditorCommand {
 public:
     CompositeEditorCommand(std::string name,
@@ -48,7 +59,77 @@ private:
     std::string m_Name;
     std::vector<std::unique_ptr<IEditorCommand>> m_Commands;
 };
+
+// Helper: serialize a single actor''s subtree as a JSON array of descriptors.
+// Each descriptor: {id, name, active, parentID_relative, transform, components[]}
+// The root''s parentID_relative will be 0 (caller stores real parent separately).
+nlohmann::json SerializeSubtreeActors(const Actor& root) {
+    nlohmann::json arr = nlohmann::json::array();
+    std::function<void(const Actor&)> collect = [&](const Actor& actor) {
+        nlohmann::json a;
+        a["id"] = actor.GetID();
+        a["name"] = actor.GetName();
+        a["active"] = actor.IsActiveSelf();
+        a["parentID"] = actor.GetParent() ? actor.GetParent()->GetID() : uint64_t(0);
+
+        nlohmann::json t;
+        t["position"] = nlohmann::json::array(
+            {actor.GetTransform().position.x,
+             actor.GetTransform().position.y,
+             actor.GetTransform().position.z});
+        t["rotation"] = nlohmann::json::array(
+            {actor.GetTransform().rotation.x,
+             actor.GetTransform().rotation.y,
+             actor.GetTransform().rotation.z});
+        t["scale"] = nlohmann::json::array(
+            {actor.GetTransform().scale.x,
+             actor.GetTransform().scale.y,
+             actor.GetTransform().scale.z});
+        a["transform"] = t;
+
+        nlohmann::json comps = nlohmann::json::array();
+        actor.ForEachComponent([&](Component& comp) {
+            nlohmann::json c;
+            c["type"] = comp.GetTypeName();
+            c["enabled"] = comp.IsEnabled();
+            nlohmann::json data = nlohmann::json::object();
+            comp.Serialize(data);
+            c["data"] = data;
+            comps.push_back(c);
+        });
+        a["components"] = comps;
+        arr.push_back(a);
+
+        for (const auto* child : actor.GetChildren()) collect(*child);
+    };
+    collect(root);
+    return arr;
 }
+
+// Helper: convert Vec3 from JSON array
+Vec3 Vec3FromJsonArray(const nlohmann::json& j) {
+    Vec3 out;
+    if (!j.is_array() || j.size() < 3) return out;
+    out.x = j[0].get<float>();
+    out.y = j[1].get<float>();
+    out.z = j[2].get<float>();
+    return out;
+}
+
+// Helper: find the next available persistent ID by scanning the scene
+uint64_t FindNextID(const Scene& scene) {
+    uint64_t maxID = 0;
+    scene.ForEach([&](const Actor& actor) {
+        if (actor.GetID() > maxID) maxID = actor.GetID();
+    });
+    return maxID + 1;
+}
+
+} // namespace
+
+// ==========================================================================
+// EditorCommandStack
+// ==========================================================================
 
 bool EditorCommandStack::ExecuteCommand(std::unique_ptr<IEditorCommand> command, EditorContext& context)
 {
@@ -108,10 +189,18 @@ void EditorCommandStack::CancelTransaction() {
 const char* EditorCommandStack::GetUndoName() const { return CanUndo() ? m_Undo.back()->GetName() : ""; }
 const char* EditorCommandStack::GetRedoName() const { return CanRedo() ? m_Redo.back()->GetName() : ""; }
 
+// ==========================================================================
+// LambdaEditorCommand
+// ==========================================================================
+
 LambdaEditorCommand::LambdaEditorCommand(std::string name, Function execute, Function undo)
     : m_Name(std::move(name)), m_Execute(std::move(execute)), m_Undo(std::move(undo)) {}
 bool LambdaEditorCommand::Execute(EditorContext& context) { return m_Execute && m_Execute(context); }
 bool LambdaEditorCommand::Undo(EditorContext& context) { return m_Undo && m_Undo(context); }
+
+// ==========================================================================
+// SceneSnapshotCommand
+// ==========================================================================
 
 SceneSnapshotCommand::SceneSnapshotCommand(std::string name, std::string beforeJson,
     std::string afterJson, uint64_t beforeSelection, uint64_t afterSelection)
@@ -128,6 +217,10 @@ bool SceneSnapshotCommand::Apply(EditorContext& context, const std::string& json
     return true;
 }
 
+// ==========================================================================
+// SetActorTransformCommand
+// ==========================================================================
+
 SetActorTransformCommand::SetActorTransformCommand(uint64_t actorID, Transform before, Transform after)
     : m_ActorID(actorID), m_Before(before), m_After(after) {}
 bool SetActorTransformCommand::Execute(EditorContext& context) { return Apply(context, m_After); }
@@ -135,5 +228,404 @@ bool SetActorTransformCommand::Undo(EditorContext& context) { return Apply(conte
 bool SetActorTransformCommand::Apply(EditorContext& context, const Transform& transform) {
     Scene* scene = context.GetScene(); Actor* actor = scene ? scene->FindByID(m_ActorID) : nullptr;
     if (!actor) return false;
-    actor->GetTransform() = transform; context.GetSelection().SelectActorID(m_ActorID); return true;
+    actor->GetTransform() = transform; return true;
+}
+
+// ==========================================================================
+// CreateActorCommand
+// ==========================================================================
+
+CreateActorCommand::CreateActorCommand(const ActorCreateDesc& desc, uint64_t newID)
+    : m_Desc(desc), m_ActorID(newID) {}
+bool CreateActorCommand::Execute(EditorContext& context) {
+    Scene* scene = context.GetScene();
+    if (!scene) return false;
+    auto desc = m_Desc;
+    desc.persistentID = m_ActorID;
+    ActorHandle handle = scene->QueueCreateActor(desc);
+    if (!handle || !scene->FlushCommands()) return false;
+    m_WasCreated = true;
+    context.GetSelection().SelectActorID(m_ActorID);
+    return true;
+}
+bool CreateActorCommand::Undo(EditorContext& context) {
+    if (!m_WasCreated) return false;
+    Scene* scene = context.GetScene();
+    if (!scene) return false;
+    Actor* actor = scene->FindByID(m_ActorID);
+    if (!actor) return false;
+    scene->QueueDestroyActor(actor->GetHandle());
+    scene->FlushCommands();
+    m_WasCreated = false;
+    return true;
+}
+
+// ==========================================================================
+// DestroyActorCommand
+// ==========================================================================
+
+DestroyActorCommand::DestroyActorCommand(uint64_t actorID, const std::string& subtreeJson,
+                                         uint64_t parentID)
+    : m_ActorID(actorID), m_SubtreeJson(subtreeJson), m_ParentID(parentID) {}
+bool DestroyActorCommand::Execute(EditorContext& context) {
+    Scene* scene = context.GetScene();
+    if (!scene) return false;
+    Actor* actor = scene->FindByID(m_ActorID);
+    if (!actor) return false;
+    scene->QueueDestroyActor(actor->GetHandle());
+    if (!scene->FlushCommands()) return false;
+    m_WasDestroyed = true;
+    context.GetSelection().Clear();
+    return true;
+}
+bool DestroyActorCommand::Undo(EditorContext& context) {
+    if (!m_WasDestroyed) return false;
+    Scene* scene = context.GetScene();
+    if (!scene) return false;
+    if (!ReconstructSubtree(*scene)) return false;
+    m_WasDestroyed = false;
+    context.GetSelection().SelectActorID(m_ActorID);
+    return true;
+}
+bool DestroyActorCommand::ReconstructSubtree(Scene& scene) {
+    try {
+        nlohmann::json arr = nlohmann::json::parse(m_SubtreeJson);
+        if (!arr.is_array() || arr.empty()) return false;
+        // Map original ID -> reserved Handle
+        std::unordered_map<uint64_t, ActorHandle> handles;
+        // Pass 1: reserve handles for every actor
+        for (const auto& a : arr) {
+            uint64_t id = a.value("id", uint64_t(0));
+            std::string name = a.value("name", std::string("Actor"));
+            bool active = a.value("active", true);
+            ActorCreateDesc desc;
+            desc.name = name;
+            desc.persistentID = id;
+            desc.activeSelf = active;
+            if (a.contains("transform")) {
+                const auto& t = a["transform"];
+                desc.transform.position = Vec3FromJsonArray(t["position"]);
+                desc.transform.rotation = Vec3FromJsonArray(t["rotation"]);
+                desc.transform.scale = Vec3FromJsonArray(t["scale"]);
+            }
+            if (a.contains("components") && a["components"].is_array()) {
+                for (const auto& c : a["components"]) {
+                    ComponentCreateDesc cd;
+                    cd.type = c.value("type", std::string{});
+                    cd.enabled = c.value("enabled", true);
+                    cd.data = c.contains("data") ? c["data"] : nlohmann::json::object();
+                    if (!cd.type.empty()) desc.components.push_back(cd);
+                }
+            }
+            handles[id] = scene.QueueCreateActor(desc);
+        }
+        // Pass 2: restore parenting
+        for (const auto& a : arr) {
+            uint64_t id = a.value("id", uint64_t(0));
+            uint64_t pid = a.value("parentID", uint64_t(0));
+            if (pid != 0) {
+                auto childIt = handles.find(id);
+                auto parentIt = handles.find(pid);
+                if (childIt != handles.end() && parentIt != handles.end())
+                    scene.QueueSetParent(childIt->second, parentIt->second);
+            }
+        }
+        // Reparent root to its original parent
+        if (m_ParentID != 0) {
+            Actor* parent = scene.FindByID(m_ParentID);
+            auto rootIt = handles.find(m_ActorID);
+            if (parent && rootIt != handles.end())
+                scene.QueueSetParent(rootIt->second, parent->GetHandle());
+        }
+        return scene.FlushCommands();
+    } catch (const std::exception& e) {
+        Logger::Error("[DestroyActorCommand] Reconstruction failed: ", e.what());
+        return false;
+    }
+}
+
+// ==========================================================================
+// SetParentCommand
+// ==========================================================================
+
+SetParentCommand::SetParentCommand(uint64_t childID, uint64_t beforeParentID, uint64_t afterParentID)
+    : m_ChildID(childID), m_BeforeParentID(beforeParentID), m_AfterParentID(afterParentID) {}
+bool SetParentCommand::Execute(EditorContext& context) {
+    Scene* scene = context.GetScene();
+    Actor* child = scene ? scene->FindByID(m_ChildID) : nullptr;
+    if (!child) return false;
+    Actor* parent = m_AfterParentID ? scene->FindByID(m_AfterParentID) : nullptr;
+    scene->QueueSetParent(child->GetHandle(), parent ? parent->GetHandle() : ActorHandle{});
+    scene->FlushCommands();
+    context.GetSelection().SelectActorID(m_ChildID);
+    return true;
+}
+bool SetParentCommand::Undo(EditorContext& context) {
+    Scene* scene = context.GetScene();
+    Actor* child = scene ? scene->FindByID(m_ChildID) : nullptr;
+    if (!child) return false;
+    Actor* parent = m_BeforeParentID ? scene->FindByID(m_BeforeParentID) : nullptr;
+    scene->QueueSetParent(child->GetHandle(), parent ? parent->GetHandle() : ActorHandle{});
+    scene->FlushCommands();
+    context.GetSelection().SelectActorID(m_ChildID);
+    return true;
+}
+
+// ==========================================================================
+// SetActorActiveCommand
+// ==========================================================================
+
+SetActorActiveCommand::SetActorActiveCommand(uint64_t actorID, bool beforeActive, bool afterActive)
+    : m_ActorID(actorID), m_BeforeActive(beforeActive), m_AfterActive(afterActive) {}
+bool SetActorActiveCommand::Execute(EditorContext& context) {
+    Scene* scene = context.GetScene();
+    Actor* actor = scene ? scene->FindByID(m_ActorID) : nullptr;
+    if (!actor) return false;
+    actor->SetActive(m_AfterActive);
+    return true;
+}
+bool SetActorActiveCommand::Undo(EditorContext& context) {
+    Scene* scene = context.GetScene();
+    Actor* actor = scene ? scene->FindByID(m_ActorID) : nullptr;
+    if (!actor) return false;
+    actor->SetActive(m_BeforeActive);
+    return true;
+}
+
+// ==========================================================================
+// SetActorNameCommand
+// ==========================================================================
+
+SetActorNameCommand::SetActorNameCommand(uint64_t actorID, std::string beforeName, std::string afterName)
+    : m_ActorID(actorID), m_BeforeName(std::move(beforeName)), m_AfterName(std::move(afterName)) {}
+bool SetActorNameCommand::Execute(EditorContext& context) {
+    Scene* scene = context.GetScene();
+    Actor* actor = scene ? scene->FindByID(m_ActorID) : nullptr;
+    if (!actor) return false;
+    actor->SetName(m_AfterName);
+    return true;
+}
+bool SetActorNameCommand::Undo(EditorContext& context) {
+    Scene* scene = context.GetScene();
+    Actor* actor = scene ? scene->FindByID(m_ActorID) : nullptr;
+    if (!actor) return false;
+    actor->SetName(m_BeforeName);
+    return true;
+}
+
+// ==========================================================================
+// AddComponentCommand
+// ==========================================================================
+
+AddComponentCommand::AddComponentCommand(uint64_t actorID, std::string typeName,
+                                         const nlohmann::json& initialData)
+    : m_ActorID(actorID), m_TypeName(std::move(typeName)), m_InitialData(initialData) {}
+bool AddComponentCommand::Execute(EditorContext& context) {
+    Scene* scene = context.GetScene();
+    Actor* actor = scene ? scene->FindByID(m_ActorID) : nullptr;
+    if (!actor) return false;
+    Component* comp = ComponentRegistry::Get().Create(m_TypeName, *actor);
+    if (!comp) return false;
+    if (!m_InitialData.is_null() && !m_InitialData.empty())
+        comp->Deserialize(m_InitialData);
+    m_WasAdded = true;
+    return true;
+}
+bool AddComponentCommand::Undo(EditorContext& context) {
+    if (!m_WasAdded) return false;
+    Scene* scene = context.GetScene();
+    Actor* actor = scene ? scene->FindByID(m_ActorID) : nullptr;
+    if (!actor) return false;
+    actor->RemoveComponentByTypeName(m_TypeName);
+    m_WasAdded = false;
+    return true;
+}
+
+// ==========================================================================
+// RemoveComponentCommand
+// ==========================================================================
+
+RemoveComponentCommand::RemoveComponentCommand(uint64_t actorID, std::string typeName,
+                                               const nlohmann::json& serializedData)
+    : m_ActorID(actorID), m_TypeName(std::move(typeName)), m_SerializedData(serializedData) {}
+bool RemoveComponentCommand::Execute(EditorContext& context) {
+    Scene* scene = context.GetScene();
+    Actor* actor = scene ? scene->FindByID(m_ActorID) : nullptr;
+    if (!actor) return false;
+    actor->RemoveComponentByTypeName(m_TypeName);
+    m_WasRemoved = true;
+    return true;
+}
+bool RemoveComponentCommand::Undo(EditorContext& context) {
+    if (!m_WasRemoved) return false;
+    Scene* scene = context.GetScene();
+    Actor* actor = scene ? scene->FindByID(m_ActorID) : nullptr;
+    if (!actor) return false;
+    Component* comp = ComponentRegistry::Get().Create(m_TypeName, *actor);
+    if (!comp) return false;
+    if (!m_SerializedData.is_null() && !m_SerializedData.empty())
+        comp->Deserialize(m_SerializedData);
+    m_WasRemoved = false;
+    return true;
+}
+
+// ==========================================================================
+// SetComponentPropertyCommand
+// ==========================================================================
+
+SetComponentPropertyCommand::SetComponentPropertyCommand(
+    uint64_t actorID, std::string componentType, std::string propertyName,
+    nlohmann::json beforeJson, nlohmann::json afterJson)
+    : m_ActorID(actorID), m_ComponentType(std::move(componentType)),
+      m_PropertyName(std::move(propertyName)),
+      m_BeforeJson(std::move(beforeJson)), m_AfterJson(std::move(afterJson)) {}
+bool SetComponentPropertyCommand::Execute(EditorContext& context) {
+    return ApplyJson(context, m_AfterJson);
+}
+bool SetComponentPropertyCommand::Undo(EditorContext& context) {
+    return ApplyJson(context, m_BeforeJson);
+}
+const char* SetComponentPropertyCommand::GetName() const {
+    if (!m_PropertyName.empty()) {
+        static thread_local std::string s_Name;
+        s_Name = "Set " + m_PropertyName;
+        return s_Name.c_str();
+    }
+    return "Set Property";
+}
+bool SetComponentPropertyCommand::ApplyJson(EditorContext& context, const nlohmann::json& json) {
+    Scene* scene = context.GetScene();
+    Actor* actor = scene ? scene->FindByID(m_ActorID) : nullptr;
+    Component* comp = actor ? actor->GetComponentByTypeName(m_ComponentType) : nullptr;
+    if (!comp) return false;
+    comp->Deserialize(json);
+    return true;
+}
+
+ModifyAssetCommand::ModifyAssetCommand(std::string assetPath,
+                                       std::string beforeContent,
+                                       std::string afterContent)
+    : m_AssetPath(std::move(assetPath)),
+      m_BeforeContent(std::move(beforeContent)),
+      m_AfterContent(std::move(afterContent)) {}
+
+bool ModifyAssetCommand::Execute(EditorContext& context) {
+    (void)context;
+    std::ofstream output(m_AssetPath, std::ios::binary | std::ios::trunc);
+    output.write(m_AfterContent.data(), static_cast<std::streamsize>(m_AfterContent.size()));
+    return output.good();
+}
+
+bool ModifyAssetCommand::Undo(EditorContext& context) {
+    (void)context;
+    std::ofstream output(m_AssetPath, std::ios::binary | std::ios::trunc);
+    output.write(m_BeforeContent.data(), static_cast<std::streamsize>(m_BeforeContent.size()));
+    return output.good();
+}
+
+CreateAssetCommand::CreateAssetCommand(std::string assetPath, std::string content)
+    : m_AssetPath(std::move(assetPath)), m_Content(std::move(content)) {}
+
+bool CreateAssetCommand::Execute(EditorContext& context) {
+    (void)context;
+    std::error_code error;
+    std::filesystem::create_directories(
+        std::filesystem::path(m_AssetPath).parent_path(), error);
+    if (error) return false;
+    std::ofstream output(m_AssetPath, std::ios::binary | std::ios::trunc);
+    output.write(m_Content.data(), static_cast<std::streamsize>(m_Content.size()));
+    m_Created = output.good();
+    output.close();
+    if (m_Created && !std::filesystem::exists(AssetMeta::MetaPathFor(m_AssetPath))) {
+        AssetMeta meta = AssetMeta::Create(m_AssetPath);
+        m_Created = AssetMeta::Save(meta);
+        if (!m_Created) std::filesystem::remove(m_AssetPath, error);
+    }
+    return m_Created;
+}
+
+bool CreateAssetCommand::Undo(EditorContext& context) {
+    (void)context;
+    if (!m_Created) return false;
+    std::error_code error;
+    const bool removed = std::filesystem::remove(m_AssetPath, error);
+    if (error || !removed) return false;
+    std::filesystem::remove(AssetMeta::MetaPathFor(m_AssetPath), error);
+    m_Created = false;
+    return true;
+}
+
+DeleteAssetCommand::DeleteAssetCommand(std::string assetPath, std::string content)
+    : m_AssetPath(std::move(assetPath)), m_Content(std::move(content)) {}
+
+bool DeleteAssetCommand::Execute(EditorContext& context) {
+    (void)context;
+    std::error_code error;
+    const std::string metaPath = AssetMeta::MetaPathFor(m_AssetPath);
+    m_HadMeta = std::filesystem::is_regular_file(metaPath, error);
+    if (m_HadMeta) {
+        std::ifstream input(metaPath, std::ios::binary);
+        m_MetaContent.assign(std::istreambuf_iterator<char>(input),
+                             std::istreambuf_iterator<char>());
+    }
+    const bool removed = std::filesystem::remove(m_AssetPath, error);
+    m_Deleted = removed && !error;
+    if (m_Deleted && m_HadMeta) {
+        std::filesystem::remove(metaPath, error);
+        if (error) return false;
+    }
+    return m_Deleted;
+}
+
+bool DeleteAssetCommand::Undo(EditorContext& context) {
+    (void)context;
+    if (!m_Deleted) return false;
+    std::error_code error;
+    std::filesystem::create_directories(
+        std::filesystem::path(m_AssetPath).parent_path(), error);
+    if (error) return false;
+    std::ofstream output(m_AssetPath, std::ios::binary | std::ios::trunc);
+    output.write(m_Content.data(), static_cast<std::streamsize>(m_Content.size()));
+    if (!output.good()) return false;
+    output.close();
+    if (m_HadMeta) {
+        std::ofstream metaOutput(AssetMeta::MetaPathFor(m_AssetPath),
+                                 std::ios::binary | std::ios::trunc);
+        metaOutput.write(m_MetaContent.data(),
+                         static_cast<std::streamsize>(m_MetaContent.size()));
+        if (!metaOutput.good()) return false;
+    }
+    m_Deleted = false;
+    return true;
+}
+
+RenameAssetCommand::RenameAssetCommand(std::string oldPath, std::string newPath)
+    : m_OldPath(std::move(oldPath)), m_NewPath(std::move(newPath)) {}
+
+bool RenameAssetCommand::Execute(EditorContext& context) {
+    (void)context;
+    std::error_code error;
+    std::filesystem::rename(m_OldPath, m_NewPath, error);
+    if (!error) {
+        const std::string oldMeta = AssetMeta::MetaPathFor(m_OldPath);
+        if (std::filesystem::exists(oldMeta))
+            std::filesystem::rename(oldMeta, AssetMeta::MetaPathFor(m_NewPath), error);
+    }
+    m_Renamed = !error;
+    return m_Renamed;
+}
+
+bool RenameAssetCommand::Undo(EditorContext& context) {
+    (void)context;
+    if (!m_Renamed) return false;
+    std::error_code error;
+    std::filesystem::rename(m_NewPath, m_OldPath, error);
+    if (!error) {
+        const std::string newMeta = AssetMeta::MetaPathFor(m_NewPath);
+        if (std::filesystem::exists(newMeta))
+            std::filesystem::rename(newMeta, AssetMeta::MetaPathFor(m_OldPath), error);
+    }
+    if (error) return false;
+    m_Renamed = false;
+    return true;
 }

@@ -1,4 +1,4 @@
-set_project("MyEngine")
+﻿set_project("MyEngine")
 set_version("0.1.0")
 set_xmakever("2.8.0")
 
@@ -42,6 +42,15 @@ add_requireconfs("**.libsdl3", { version = "3.2.14", configs = { shared = true }
 add_requires("nlohmann_json 3.11.3")
 add_requires("stb")
 add_requires("tinyobjloader")
+add_requires("joltphysics v5.5.0", { configs = {
+    shared = false,
+    object_layer_bits = "32",
+    object_stream = false,
+    -- xmake-repo's Jolt 5.5.0 Windows binary exposes the debug-renderer ABI.
+    -- Keep the ABI define consistent; MyEngine does not instantiate a debug renderer.
+    debug_renderer = true,
+    cross_platform_deterministic = false
+} })
 
 -- Must live in rule after_build: root xmake.lua locals use project-scope `os` (no os.cp).
 rule("copy_game_content")
@@ -112,6 +121,8 @@ target("MyEngineRuntime")
         "src/Runtime/Core/Memory/LinearAllocator.cpp",
         "src/Runtime/Core/Memory/MemoryService.cpp",
         "src/Runtime/Assets/AssetManager.cpp",
+        "src/Runtime/Assets/AssetDatabase.cpp",
+        "src/Runtime/Assets/AssetImporter.cpp",
         "src/Runtime/Assets/AssetMeta.cpp",
         "src/Runtime/Assets/PrefabAsset.cpp",
         "src/Runtime/Assets/AssetImporters.cpp",
@@ -182,6 +193,7 @@ target("MyEngineRuntime")
     add_packages("nlohmann_json", { public = true })
     add_packages("stb", { public = true })
     add_packages("tinyobjloader")
+    add_packages("joltphysics", { public = true })
     add_deps("Lua")
     add_includedirs("thirdparty")
     add_packages("imgui", { public = true })
@@ -243,6 +255,7 @@ target("MyEngineEditor")
         "src/Editor/EditorContext.cpp",
         "src/Editor/EditorDialogService.cpp",
         "src/Editor/EditorImportService.cpp",
+        "src/Editor/AssetImportService.cpp",
         "src/Editor/EditorLayer.cpp",
         "src/Editor/EditorLayout.cpp",
         "src/Editor/EditorLogService.cpp",
@@ -264,6 +277,7 @@ target("MyEngineEditor")
         "src/Editor/Panels/AssetBrowserPanel.cpp",
         "src/Editor/Panels/LogPanel.cpp",
         "src/Editor/EditorImGuiBackend.cpp",
+        "src/Editor/EditorResourceOperator.cpp",
         "thirdparty/ImGuizmo/ImGuizmo.cpp", { warnings = "none" }
     )
     add_includedirs("src", "src/Editor", "thirdparty/ImGuizmo")
@@ -400,6 +414,7 @@ target("MyEngineTests")
         "src/Editor/EditorContext.cpp",
         "src/Editor/EditorDialogService.cpp",
         "src/Editor/EditorImportService.cpp",
+        "src/Editor/AssetImportService.cpp",
         "src/Editor/EditorLayer.cpp",
         "src/Editor/EditorLayout.cpp",
         "src/Editor/EditorLogService.cpp",
@@ -421,6 +436,7 @@ target("MyEngineTests")
         "src/Editor/Panels/AssetBrowserPanel.cpp",
         "src/Editor/Panels/LogPanel.cpp",
         "src/Editor/EditorImGuiBackend.cpp",
+        "src/Editor/EditorResourceOperator.cpp",
         "thirdparty/ImGuizmo/ImGuizmo.cpp", { warnings = "none" }
     )
     add_includedirs("src", "src/Runtime", "src/Editor", "thirdparty/ImGuizmo")

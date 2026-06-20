@@ -5,14 +5,15 @@
 #include <vector>
 
 class EditorContext;
-class EditorSelection;
+class EditorSelectObject;
 
 class EditorInspectorSection {
 public:
     virtual ~EditorInspectorSection() = default;
     virtual const char* GetID() const = 0;
     virtual int GetOrder() const { return 0; }
-    virtual bool CanDraw(const EditorSelection& selection) const = 0;
+    virtual bool CanDraw(const EditorSelectObject& object,
+                         const EditorContext& context) const = 0;
     virtual void Draw(EditorContext& context) = 0;
 };
 

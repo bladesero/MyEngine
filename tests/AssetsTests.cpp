@@ -1,6 +1,7 @@
 #include "TestHarness.h"
 
 #include "Assets/AssetManager.h"
+#include "Assets/AssetMeta.h"
 #include "Assets/ShaderAsset.h"
 #include "Animation/SkinnedMeshRendererComponent.h"
 #include "Project/ProjectConfig.h"
@@ -351,6 +352,8 @@ bool TestGltfImportAndStableMeta() {
 
     AssetManager& manager = AssetManager::Get();
     manager.Clear();
+    AssetMeta meta = AssetMeta::Create(gltfPath.string());
+    if (!Check(AssetMeta::Save(meta), "failed to author glTF metadata")) return false;
     ModelHandle model = manager.Load<ModelAsset>(gltfPath.string());
     if (!Check(model.IsValid(), "glTF model import failed")) return false;
     if (!Check(model->GetMesh()->VertexCount() == 3 && model->GetMesh()->IndexCount() == 3,

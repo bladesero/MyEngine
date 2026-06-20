@@ -1,6 +1,7 @@
 #include "TestHarness.h"
 
 #include "Editor/EditorAction.h"
+#include "Editor/AssetImportService.h"
 #include "Editor/EditorAssetRegistry.h"
 #include "Editor/EditorCommand.h"
 #include "Editor/EditorContext.h"
@@ -10,10 +11,12 @@
 #include "Editor/EditorSelection.h"
 #include "Editor/EditorService.h"
 #include "Editor/EditorViewportControllers.h"
+#include "Editor/InspectorSections.h"
 #include "Physics/BoxColliderComponent.h"
 #include "Scene/Scene.h"
 #include "Scene/SceneSerializer.h"
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -80,6 +83,68 @@ bool TestEditorCommandStackAndSelection() {
     return Check(!context.GetSelection().HasActor() &&
                  context.GetSelection().ResolveActor(scene) == nullptr,
                  "selection did not invalidate after actor deletion");
+}
+
+bool TestEditorSelectObjectEvents() {
+    Scene scene("EditorSelectionEvents");
+    Actor* first = scene.CreateActor("First");
+    Actor* second = scene.CreateActor("Second");
+
+    EditorSelection selection;
+    std::vector<EditorSelectionChangedEvent> events;
+    const EditorSelection::ListenerID listenerID =
+        selection.SubscribeSelectionChanged(
+            [&events](const EditorSelectionChangedEvent& event) {
+                events.push_back(event);
+            });
+
+    selection.Select(EditorSelectObject::MakeActor(
+        first->GetHandle(), first->GetID()));
+    if (!Check(events.size() == 1 && events.back().current.IsActor()
+            && events.back().current.GetActorID() == first->GetID(),
+            "actor selection event mismatch")) return false;
+
+    selection.Select(EditorSelectObject::MakeActor(
+        first->GetHandle(), first->GetID()));
+    if (!Check(events.size() == 1,
+               "repeated selection emitted a duplicate event")) return false;
+
+    selection.Select(EditorSelectObject::MakeAsset("Content/Textures/../Materials/Test.mat"));
+    if (!Check(events.size() == 2 && events.back().current.IsAsset()
+            && events.back().current.GetAssetPath()
+                == std::filesystem::path("Content/Materials/Test.mat").generic_string(),
+            "asset selection was not normalized or notified")) return false;
+
+    selection.Select(EditorSelectObject::MakeActor(
+        first->GetHandle(), first->GetID()));
+    selection.Select(EditorSelectObject::MakeActor(
+        second->GetHandle(), second->GetID()), EditorSelectionMode::Add);
+    if (!Check(events.size() == 4 && selection.IsMultiSelect()
+            && events.back().actorIDs.size() == 2
+            && selection.GetPrimaryObject().GetActorID() == second->GetID(),
+            "actor multi-selection event mismatch")) return false;
+
+    selection.Select(EditorSelectObject::MakeActor(
+        second->GetHandle(), second->GetID()), EditorSelectionMode::Toggle);
+    if (!Check(events.size() == 5 && !selection.IsMultiSelect()
+            && selection.GetPrimaryObject().GetActorID() == first->GetID(),
+            "actor toggle did not restore the previous primary selection")) return false;
+
+    selection.Clear();
+    selection.Clear();
+    if (!Check(events.size() == 6 && events.back().current.IsNone(),
+               "clear selection event mismatch")) return false;
+
+    selection.SelectActorID(first->GetID());
+    scene.DestroyActor(first);
+    selection.Validate(scene);
+    if (!Check(events.size() == 8 && events.back().current.IsNone(),
+               "invalid actor validation did not emit a clear event")) return false;
+
+    selection.UnsubscribeSelectionChanged(listenerID);
+    selection.SelectAssetPath("Content/Materials/AfterUnsubscribe.mat");
+    return Check(events.size() == 8,
+                 "unsubscribed selection listener was still invoked");
 }
 
 bool TestEditorSceneSnapshotCommands() {
@@ -202,8 +267,9 @@ bool TestEditorServiceActionAndInspectorRegistries() {
         TestSection(const char* id, int order) : m_ID(id), m_Order(order) {}
         const char* GetID() const override { return m_ID.c_str(); }
         int GetOrder() const override { return m_Order; }
-        bool CanDraw(const EditorSelection& selection) const override {
-            return selection.HasActor();
+        bool CanDraw(const EditorSelectObject& object,
+                     const EditorContext&) const override {
+            return object.IsActor();
         }
         void Draw(EditorContext&) override {}
     private:
@@ -217,12 +283,85 @@ bool TestEditorServiceActionAndInspectorRegistries() {
     if (!Check(std::string(sections.GetSections()[0]->GetID()) == "early",
                "inspector section order mismatch")) return false;
     EditorSelection selection;
-    if (!Check(!sections.GetSections()[0]->CanDraw(selection),
+    if (!Check(!sections.GetSections()[0]->CanDraw(
+                   selection.GetPrimaryObject(), context),
                "inspector section filtering mismatch")) return false;
     Actor* selected = scene.CreateActor("SectionSelection");
     selection.SelectActorID(selected->GetID());
-    return Check(sections.GetSections()[0]->CanDraw(selection),
+    return Check(sections.GetSections()[0]->CanDraw(
+                     selection.GetPrimaryObject(), context),
                  "inspector section did not accept actor selection");
+}
+
+bool TestEditorInspectorSelectionRouting() {
+    const auto root = std::filesystem::temp_directory_path()
+        / "myengine_inspector_selection_routing";
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+    std::filesystem::create_directories(root);
+    const auto materialPath = root / "Selected.mat";
+    const auto texturePath = root / "Selected.png";
+    const auto modelPath = root / "Selected.obj";
+    const auto jsonPath = root / "Selected.json";
+    std::ofstream(materialPath) << "{}";
+    std::ofstream(texturePath) << "png";
+    std::ofstream(modelPath) << "obj";
+    std::ofstream(jsonPath) << R"({"name":"Selected"})";
+
+    EditorAssetRegistry registry;
+    registry.SetRoot(root);
+    registry.Refresh();
+    Scene scene("InspectorRouting");
+    EditorContext context(&scene);
+    context.SetAssetRegistry(&registry);
+    auto sections = CreateDefaultInspectorSections();
+
+    const auto accepts = [&](const char* id, const EditorSelectObject& object) {
+        const auto found = std::find_if(sections.begin(), sections.end(),
+            [id](const auto& section) {
+                return std::string(section->GetID()) == id;
+            });
+        return found != sections.end() && (*found)->CanDraw(object, context);
+    };
+
+    if (!Check(accepts("sceneSettings", {})
+            && !accepts("transform", {}),
+            "empty selection did not route to scene settings")) return false;
+
+    Actor* actor = scene.CreateActor("SelectedActor");
+    const EditorSelectObject actorObject = EditorSelectObject::MakeActor(
+        actor->GetHandle(), actor->GetID());
+    if (!Check(accepts("transform", actorObject)
+            && !accepts("materialAsset", actorObject),
+            "actor selection routed to the wrong inspector sections")) return false;
+
+    const EditorSelectObject materialObject =
+        EditorSelectObject::MakeAsset(materialPath.string());
+    if (!Check(accepts("materialAsset", materialObject)
+            && !accepts("textureAsset", materialObject)
+            && !accepts("genericAsset", materialObject),
+            "material selection routing mismatch")) return false;
+
+    const EditorSelectObject textureObject =
+        EditorSelectObject::MakeAsset(texturePath.string());
+    if (!Check(accepts("textureAsset", textureObject)
+            && !accepts("materialAsset", textureObject)
+            && !accepts("genericAsset", textureObject),
+            "texture selection routing mismatch")) return false;
+
+    const EditorSelectObject modelObject =
+        EditorSelectObject::MakeAsset(modelPath.string());
+    const bool modelRouted = accepts("genericAsset", modelObject)
+        && !accepts("materialAsset", modelObject)
+        && !accepts("textureAsset", modelObject);
+    const EditorSelectObject jsonObject =
+        EditorSelectObject::MakeAsset(jsonPath.string());
+    const bool jsonRouted = accepts("genericAsset", jsonObject)
+        && !accepts("materialAsset", jsonObject)
+        && !accepts("textureAsset", jsonObject);
+    std::filesystem::remove_all(root, error);
+    return Check(modelRouted && jsonRouted,
+                 "generic asset selection routing mismatch");
 }
 
 bool TestEditorProjectAndAssetRegistry() {
@@ -236,6 +375,7 @@ bool TestEditorProjectAndAssetRegistry() {
     std::ofstream(content / "Models" / "test.gltf") << "{}";
     std::ofstream(content / "Textures" / "test.png") << "png";
     std::ofstream(content / "Materials" / "test.mat") << "{}";
+    std::ofstream(content / "Models" / "test.gltf.meta") << "{}";
 
     EditorAssetRegistry registry;
     registry.SetRoot(content);
@@ -246,6 +386,8 @@ bool TestEditorProjectAndAssetRegistry() {
                "asset registry texture classification failed")) return false;
     if (!Check(registry.GetAssets(EditorAssetType::Material).size() == 1,
                "asset registry material classification failed")) return false;
+    if (!Check(registry.GetAssets().size() == 3,
+               "asset registry exposed metadata files")) return false;
 
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
     std::ofstream(content / "Models" / "test.gltf", std::ios::app) << " ";
@@ -268,8 +410,8 @@ bool TestEditorProjectAndAssetRegistry() {
     if (!Check(importService.Import(importSource.string()),
                "editor import service failed unique copy")) return false;
     importService.OnDetach();
-    if (!Check(std::filesystem::exists(content / "Models" / "source.obj") &&
-               std::filesystem::exists(content / "Models" / "source_1.obj"),
+    if (!Check(std::filesystem::exists(root / "SourceAssets" / "source.obj") &&
+               std::filesystem::exists(root / "SourceAssets" / "source_1.obj"),
                "editor import service overwrote existing asset")) return false;
 
     EditorProject project;
@@ -290,10 +432,59 @@ bool TestEditorProjectAndAssetRegistry() {
     return Check(stateMatches, "editor project state persistence mismatch");
 }
 
+bool TestProductionAssetDatabaseAndImportPipeline() {
+    namespace fs = std::filesystem;
+    const auto root = fs::temp_directory_path() / "myengine_production_asset_pipeline";
+    std::error_code ec;
+    fs::remove_all(root, ec);
+    fs::create_directories(root);
+    const auto source = root / "external.png";
+    std::ofstream(source, std::ios::binary) << "stable texture source";
+
+    AssetImportService imports;
+    std::string error;
+    if (!Check(imports.OpenProject(root / "Project", &error),
+               "asset import project open failed: " + error)) return false;
+    const AssetImportReport first = imports.Import(source, "{\"srgb\":true}", &error);
+    if (!Check(first.succeeded && !first.cacheHit && !first.record.uuid.empty(),
+               "initial asset import failed: " + error)) return false;
+    if (!Check(fs::is_regular_file(first.record.sourcePath + ".meta") &&
+               fs::is_regular_file(first.record.artifactPath),
+               "import did not create metadata and artifact")) return false;
+
+    const AssetImportReport cached = imports.Reimport(first.record.uuid, &error);
+    if (!Check(cached.succeeded && cached.cacheHit &&
+               cached.record.uuid == first.record.uuid,
+               "reimport did not preserve uuid or hit DDC")) return false;
+
+    AssetRecord material;
+    material.uuid = "material-uuid";
+    material.sourcePath = (root / "Project/Content/Test.mat").generic_string();
+    material.type = "material";
+    material.dependencies = {first.record.uuid};
+    if (!Check(imports.GetDatabase().Upsert(material, &error) &&
+               imports.GetDatabase().Save(&error),
+               "asset database dependency update failed: " + error)) return false;
+    if (!Check(imports.GetDatabase().GetReferencers(first.record.uuid).size() == 1,
+               "asset database reverse dependency lookup failed")) return false;
+
+    AssetDatabase reopened;
+    if (!Check(reopened.Open(root / "Project/.myengine/AssetDatabase.json", &error),
+               "asset database reload failed: " + error)) return false;
+    const AssetRecord* restored = reopened.FindByUuid(first.record.uuid);
+    const bool valid = restored && restored->artifactHash == first.record.artifactHash &&
+        reopened.GetReferencers(first.record.uuid).size() == 1;
+    fs::remove_all(root, ec);
+    return Check(valid, "asset database round trip lost identity or dependencies");
+}
+
 MYENGINE_REGISTER_TEST("Editor", "TestEditorCommandStackAndSelection", TestEditorCommandStackAndSelection);
+MYENGINE_REGISTER_TEST("Editor", "TestEditorSelectObjectEvents", TestEditorSelectObjectEvents);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorSceneSnapshotCommands", TestEditorSceneSnapshotCommands);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorGizmoRowVectorLocalConversion", TestEditorGizmoRowVectorLocalConversion);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorServiceActionAndInspectorRegistries", TestEditorServiceActionAndInspectorRegistries);
+MYENGINE_REGISTER_TEST("Editor", "TestEditorInspectorSelectionRouting", TestEditorInspectorSelectionRouting);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorProjectAndAssetRegistry", TestEditorProjectAndAssetRegistry);
+MYENGINE_REGISTER_TEST("Editor", "TestProductionAssetDatabaseAndImportPipeline", TestProductionAssetDatabaseAndImportPipeline);
 
 } // namespace

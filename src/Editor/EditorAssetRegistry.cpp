@@ -27,12 +27,24 @@ void EditorAssetRegistry::Refresh() {
     m_Assets.clear();
     std::error_code error;
     if (m_Root.empty() || !std::filesystem::is_directory(m_Root, error)) return;
-    for (const auto& entry : std::filesystem::recursive_directory_iterator(m_Root, error)) {
+    std::vector<std::filesystem::path> roots = {m_Root};
+    const auto sourceRoot = m_Root.parent_path() / "SourceAssets";
+    if (std::filesystem::is_directory(sourceRoot, error)) roots.push_back(sourceRoot);
+    for (const auto& scanRoot : roots) {
+    for (const auto& entry : std::filesystem::recursive_directory_iterator(scanRoot, error)) {
         if (error) break; if (!entry.is_regular_file()) continue;
+        std::string extension = entry.path().extension().string();
+        std::transform(extension.begin(), extension.end(), extension.begin(),
+            [](unsigned char value) { return static_cast<char>(std::tolower(value)); });
+        if (extension == ".meta") continue;
         EditorAssetInfo info; info.absolutePath = entry.path();
-        info.relativePath = std::filesystem::relative(entry.path(), m_Root, error).generic_string();
+        info.relativePath = scanRoot == m_Root
+            ? std::filesystem::relative(entry.path(), m_Root, error).generic_string()
+            : (std::filesystem::path("SourceAssets") /
+               std::filesystem::relative(entry.path(), scanRoot, error)).generic_string();
         info.type = Classify(entry.path()); info.modifiedTime = entry.last_write_time(error);
         m_Assets.push_back(std::move(info));
+    }
     }
     std::sort(m_Assets.begin(), m_Assets.end(), [](const auto& a, const auto& b) { return a.relativePath < b.relativePath; });
 }

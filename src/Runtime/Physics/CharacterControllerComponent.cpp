@@ -7,30 +7,9 @@ void CharacterControllerComponent::SetStepOffset(float value)
     m_StepOffset = (std::max)(0.0f, value);
 }
 
-Vec3 CharacterControllerComponent::Integrate(
-    float deltaSeconds, const Vec3& gravity)
+void CharacterControllerComponent::SetMaxSlopeAngle(float degrees)
 {
-    if (m_UseGravity) {
-        if (m_Grounded && m_VerticalVelocity < 0.0f) m_VerticalVelocity = 0.0f;
-        m_VerticalVelocity += gravity.y * deltaSeconds;
-    } else {
-        m_VerticalVelocity = m_DesiredVelocity.y;
-    }
-    m_Grounded = false;
-    Vec3 velocity = m_DesiredVelocity;
-    velocity.y = m_VerticalVelocity;
-    return velocity * deltaSeconds;
-}
-
-void CharacterControllerComponent::ClipVelocity(const Vec3& normal)
-{
-    Vec3 velocity = m_DesiredVelocity;
-    velocity.y = m_VerticalVelocity;
-    const float intoSurface = velocity.Dot(normal);
-    if (intoSurface < 0.0f) velocity -= normal * intoSurface;
-    m_DesiredVelocity.x = velocity.x;
-    m_DesiredVelocity.z = velocity.z;
-    m_VerticalVelocity = velocity.y;
+    m_MaxSlopeAngle = std::clamp(degrees, 0.0f, 89.0f);
 }
 
 void CharacterControllerComponent::Serialize(nlohmann::json& data) const
@@ -40,6 +19,7 @@ void CharacterControllerComponent::Serialize(nlohmann::json& data) const
     });
     data["useGravity"] = m_UseGravity;
     data["stepOffset"] = m_StepOffset;
+    data["maxSlopeAngle"] = m_MaxSlopeAngle;
 }
 
 void CharacterControllerComponent::Deserialize(const nlohmann::json& data)
@@ -54,4 +34,5 @@ void CharacterControllerComponent::Deserialize(const nlohmann::json& data)
     }
     SetUseGravity(data.value("useGravity", true));
     SetStepOffset(data.value("stepOffset", 0.3f));
+    SetMaxSlopeAngle(data.value("maxSlopeAngle", 50.0f));
 }

@@ -37,6 +37,33 @@ InspectorPanel::InspectorPanel(std::shared_ptr<EditorGizmoState> state)
 
 InspectorPanel::~InspectorPanel() = default;
 
+void InspectorPanel::OnAttach(EditorContext& context)
+{
+    EditorPanel::OnAttach(context);
+    m_SelectedObject = context.GetSelection().GetPrimaryObject();
+    m_SelectionListenerID = context.GetSelection().SubscribeSelectionChanged(
+        [this](const EditorSelectionChangedEvent& event) {
+            OnSelectionChanged(event);
+        });
+}
+
+void InspectorPanel::OnDetach()
+{
+    if (EditorContext* context = GetContext()) {
+        context->GetSelection().UnsubscribeSelectionChanged(m_SelectionListenerID);
+    }
+    m_SelectionListenerID = 0;
+    m_SelectedObject = {};
+    m_Transaction.Cancel();
+    EditorPanel::OnDetach();
+}
+
+void InspectorPanel::OnSelectionChanged(const EditorSelectionChangedEvent& event)
+{
+    m_SelectedObject = event.current;
+    m_Transaction.Cancel();
+}
+
 void InspectorPanel::OnImGui()
 {
     if (IsVisible()) DrawContent();
@@ -57,20 +84,14 @@ void InspectorPanel::DrawContent()
     ImGui::SetNextWindowSize({rect.width, rect.height});
     ImGui::Begin("Inspector");
 
-    Actor* actor = context->GetSelection().ResolveActor(*scene);
-    if (!actor) {
-        m_Transaction.Cancel();
-        ImGui::TextDisabled("Select an actor.");
-        ImGui::End();
-        return;
-    }
-
-    const uint64_t selection = actor->GetID();
-    const std::string before = SceneSerializer::SaveToString(*scene);
+    Actor* actor = m_SelectedObject.IsActor()
+        ? context->GetSelection().ResolveActor(*scene) : nullptr;
+    const uint64_t selection = actor ? actor->GetID() : 0;
+    const std::string before = actor ? SceneSerializer::SaveToString(*scene) : std::string{};
     bool directCommand=false;
 
     ImGui::BeginDisabled(!context->IsEditing());
-    if(actor->IsPrefabRoot()){
+    if(actor && actor->IsPrefabRoot()){
         ImGui::Text("Prefab: %s",actor->GetPrefabAssetPath().c_str());
         std::string error;bool refreshed=false;
         if(ImGui::Button("Apply All")){
@@ -89,38 +110,42 @@ void InspectorPanel::DrawContent()
         if(refreshed){context->MarkSceneDirty();actor=context->GetSelection().ResolveActor(*scene);if(!actor){ImGui::EndDisabled();ImGui::End();return;}}
         ImGui::Separator();
     }
-    std::array<char, 256> actorName {};
-    std::strncpy(actorName.data(), actor->GetName().c_str(), actorName.size() - 1);
-    if (ImGui::InputText("Name", actorName.data(), actorName.size())) {
-        actor->SetName(actorName.data());
-    }
-    ImGui::Text("ID: %llu", static_cast<unsigned long long>(actor->GetID()));
+    if (actor) {
+        std::array<char, 256> actorName {};
+        std::strncpy(actorName.data(), actor->GetName().c_str(), actorName.size() - 1);
+        if (ImGui::InputText("Name", actorName.data(), actorName.size())) {
+            actor->SetName(actorName.data());
+        }
+        ImGui::Text("ID: %llu", static_cast<unsigned long long>(actor->GetID()));
 
-    ImGui::Separator();
-    ImGui::TextUnformatted("Gizmo");
-    if (ImGui::RadioButton("Translate", m_State->operation == ImGuizmo::TRANSLATE)) {
-        m_State->operation = ImGuizmo::TRANSLATE;
-    }
-    ImGui::SameLine();
-    if (ImGui::RadioButton("Rotate", m_State->operation == ImGuizmo::ROTATE)) {
-        m_State->operation = ImGuizmo::ROTATE;
-    }
-    ImGui::SameLine();
-    if (ImGui::RadioButton("Scale", m_State->operation == ImGuizmo::SCALE)) {
-        m_State->operation = ImGuizmo::SCALE;
+        ImGui::Separator();
+        ImGui::TextUnformatted("Gizmo");
+        if (ImGui::RadioButton("Translate", m_State->operation == ImGuizmo::TRANSLATE)) {
+            m_State->operation = ImGuizmo::TRANSLATE;
+        }
+        ImGui::SameLine();
+        if (ImGui::RadioButton("Rotate", m_State->operation == ImGuizmo::ROTATE)) {
+            m_State->operation = ImGuizmo::ROTATE;
+        }
+        ImGui::SameLine();
+        if (ImGui::RadioButton("Scale", m_State->operation == ImGuizmo::SCALE)) {
+            m_State->operation = ImGuizmo::SCALE;
+        }
     }
 
     for (const auto& section : m_SectionRegistry.GetSections()) {
-        if (section->CanDraw(context->GetSelection())) section->Draw(*context);
+        if (section->CanDraw(m_SelectedObject, *context)) section->Draw(*context);
     }
     ImGui::EndDisabled();
 
-    const std::string after = SceneSerializer::SaveToString(*scene);
-    if (!directCommand && before != after && !m_Transaction.IsActive()) {
-        m_Transaction.Begin("Inspector Edit", before, selection);
-    }
-    if (m_Transaction.IsActive() && !ImGui::IsAnyItemActive()) {
-        m_Transaction.Commit(*context);
+    if (actor) {
+        const std::string after = SceneSerializer::SaveToString(*scene);
+        if (!directCommand && before != after && !m_Transaction.IsActive()) {
+            m_Transaction.Begin("Inspector Edit", before, selection);
+        }
+        if (m_Transaction.IsActive() && !ImGui::IsAnyItemActive()) {
+            m_Transaction.Commit(*context);
+        }
     }
 
     ImGui::End();

@@ -1,7 +1,8 @@
-#pragma once
+﻿#pragma once
 
 #include "Editor/EditorPanel.h"
 #include "Editor/EditorInspectorSection.h"
+#include "Editor/EditorSelection.h"
 #include "Editor/EditorUndoUtil.h"
 #include "Scene/ActorHandle.h"
 #include "Editor/EditorViewportControllers.h"
@@ -24,6 +25,9 @@ private:
     void HandleDragDropTarget(Actor* targetParent);
     ActorHandle m_DraggedActor;
     bool m_ActorRightClicked = false;
+    char m_SearchFilter[128] = {};
+    char m_RenameBuffer[256] = {};
+    uint64_t m_PendingRenameID = 0;
 };
 class ViewportPanel final:public EditorPanel {
 public:explicit ViewportPanel(std::shared_ptr<EditorGizmoState> state);void OnImGui() override;
@@ -31,14 +35,33 @@ protected:void DrawContent() override;
 private:void DropModel(const std::string& path,float x,float y);void DropPrefab(const std::string& path,float x,float y);std::shared_ptr<EditorGizmoState> m_State;EditorPickingController m_PickingController;EditorGizmoController m_GizmoController;
 };
 class InspectorPanel final:public EditorPanel {
-public:explicit InspectorPanel(std::shared_ptr<EditorGizmoState> state);~InspectorPanel() override;void OnImGui() override;
-protected:void DrawContent() override;
-private:std::shared_ptr<EditorGizmoState> m_State;EditorInspectorRegistry m_SectionRegistry;EditorSceneTransaction m_Transaction;
+public:
+    explicit InspectorPanel(std::shared_ptr<EditorGizmoState> state);
+    ~InspectorPanel() override;
+    void OnAttach(EditorContext& context) override;
+    void OnDetach() override;
+    void OnImGui() override;
+protected:
+    void DrawContent() override;
+private:
+    void OnSelectionChanged(const EditorSelectionChangedEvent& event);
+    std::shared_ptr<EditorGizmoState> m_State;
+    EditorInspectorRegistry m_SectionRegistry;
+    EditorSceneTransaction m_Transaction;
+    EditorSelectObject m_SelectedObject;
+    EditorSelection::ListenerID m_SelectionListenerID = 0;
 };
 class AssetBrowserPanel final:public EditorPanel {
 public:AssetBrowserPanel();void OnAttach(EditorContext& context) override;void OnUpdate(float dt) override;void OnImGui() override;
 protected:void DrawContent() override;
-private:char m_Filter[128]={};
+private:
+    void DeleteSelectedAsset();
+    void DuplicateSelectedAsset();
+    void RenameSelectedAsset();
+    char m_Filter[128]={};
+    char m_RenameBuffer[256]={};
+    bool m_PendingRename = false;
+    bool m_PendingDelete = false;
 };
 class LogPanel final:public EditorPanel {
 public:LogPanel();void OnImGui() override;
