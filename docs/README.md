@@ -9,3 +9,10 @@
 
 - [架构总览](./architecture.md)
 - [类文档索引](./classes/INDEX.md)
+
+## 测试运行
+
+- `xmake run MyEngineTests --help`：查看测试参数说明
+- `xmake run MyEngineTests --list`：列出全部注册测试，格式为 `Module::Test`
+- `xmake run MyEngineTests --module Project`：只运行 `Project` 模块测试
+- `xmake run MyEngineTests --test TestWorkspaceCookAndPublish`：只运行单条测试

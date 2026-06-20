@@ -47,6 +47,7 @@
 #include "Project/ContentPathPolicy.h"
 #include "Project/RuntimeCompatibility.h"
 #include "Project/RuntimeDependencies.h"
+#include "TestHarness.h"
 
 #include <cmath>
 #include <chrono>
@@ -62,20 +63,6 @@
 #include <nlohmann/json.hpp>
 
 namespace {
-
-std::filesystem::path gExecutableDirectory;
-
-bool NearlyEqual(float a, float b, float eps = 1e-4f) {
-    return std::fabs(a - b) <= eps;
-}
-
-bool Check(bool cond, const std::string& msg) {
-    if (!cond) {
-        std::cerr << "[FAIL] " << msg << '\n';
-        return false;
-    }
-    return true;
-}
 
 bool TestPublishHardeningPrimitives() {
     Sha256 sha;
@@ -2691,75 +2678,24 @@ bool TestWorkspaceCookAndPublish() {
     return true;
 }
 
+MYENGINE_REGISTER_TEST("Scene", "TestSceneSerializationRegression", TestSceneSerializationRegression);
+MYENGINE_REGISTER_TEST("Scene", "TestBuiltinSceneMaterialRoundTrip", TestBuiltinSceneMaterialRoundTrip);
+MYENGINE_REGISTER_TEST("Scripting", "TestScriptRuntimeLifecycle", TestScriptRuntimeLifecycle);
+MYENGINE_REGISTER_TEST("Scripting", "TestLuaScriptFilesErrorsAndPhysicsBindings", TestLuaScriptFilesErrorsAndPhysicsBindings);
+MYENGINE_REGISTER_TEST("Animation", "TestGpuSkinningAnimationBlend", TestGpuSkinningAnimationBlend);
+MYENGINE_REGISTER_TEST("Scene", "TestComponentRegistry", TestComponentRegistry);
+MYENGINE_REGISTER_TEST("Scene", "TestSceneRunStates", TestSceneRunStates);
+MYENGINE_REGISTER_TEST("Core", "TestCrashReportWriting", TestCrashReportWriting);
+MYENGINE_REGISTER_TEST("Scene", "TestTransformHierarchyWorldPosition", TestTransformHierarchyWorldPosition);
+MYENGINE_REGISTER_TEST("Camera", "TestCameraViewportProjectionStability", TestCameraViewportProjectionStability);
+MYENGINE_REGISTER_TEST("Input", "TestInputBoundaries", TestInputBoundaries);
+MYENGINE_REGISTER_TEST("Input", "TestGamepadStateTransitions", TestGamepadStateTransitions);
+MYENGINE_REGISTER_TEST("Scene", "TestSceneSerializerMalformedDataIsolation", TestSceneSerializerMalformedDataIsolation);
+MYENGINE_REGISTER_TEST("Scripting", "TestScriptHotReloadFailureRollback", TestScriptHotReloadFailureRollback);
+MYENGINE_REGISTER_TEST("Core", "TestMemoryLinearAllocator", TestMemoryLinearAllocator);
+MYENGINE_REGISTER_TEST("Core", "TestMemoryPoolAllocator", TestMemoryPoolAllocator);
+MYENGINE_REGISTER_TEST("Core", "TestMemoryServiceHeapRoundTrip", TestMemoryServiceHeapRoundTrip);
+MYENGINE_REGISTER_TEST("Core", "TestSceneAndAssetMemoryCounters", TestSceneAndAssetMemoryCounters);
+MYENGINE_REGISTER_TEST("Scene", "TestSceneColdLoadsModelSubAssetReferences", TestSceneColdLoadsModelSubAssetReferences);
+
 } // namespace
-
-int main(int argc, char** argv) {
-    if (argc > 0) {
-        gExecutableDirectory = std::filesystem::absolute(argv[0]).parent_path();
-    }
-    MemoryService::Get().Init();
-
-    int failed = 0;
-
-    if (!TestPublishHardeningPrimitives()) { ++failed; }
-    if (!TestShaderAssetFormats()) { ++failed; }
-    if (!TestMemoryLinearAllocator()) { ++failed; }
-    if (!TestMemoryPoolAllocator()) { ++failed; }
-    if (!TestMemoryServiceHeapRoundTrip()) { ++failed; }
-    if (!TestSceneAndAssetMemoryCounters()) { ++failed; }
-    if (!TestEditorCommandStackAndSelection()) { ++failed; }
-    if (!TestEditorSceneSnapshotCommands()) { ++failed; }
-    if (!TestEditorGizmoRowVectorLocalConversion()) { ++failed; }
-    if (!TestEditorServiceActionAndInspectorRegistries()) { ++failed; }
-    if (!TestEditorProjectAndAssetRegistry()) { ++failed; }
-    if (!TestProjectConfigAndPortableAssetPaths()) { ++failed; }
-    if (!TestSceneColdLoadsModelSubAssetReferences()) { ++failed; }
-    if (!TestWorkspaceCookAndPublish()) { ++failed; }
-
-    if (!TestSceneSerializationRegression()) { ++failed; }
-    if (!TestBuiltinSceneMaterialRoundTrip()) { ++failed; }
-    if (!TestScriptRuntimeLifecycle()) { ++failed; }
-    if (!TestLuaScriptFilesErrorsAndPhysicsBindings()) { ++failed; }
-    if (!TestPhysicsGroundCollision()) { ++failed; }
-    if (!TestExtendedCollisionShapes()) { ++failed; }
-    if (!TestPhysicsBroadPhaseTriggersAndSleep()) { ++failed; }
-    if (!TestRaycastAndCharacterController()) { ++failed; }
-    if (!TestGpuSkinningAnimationBlend()) { ++failed; }
-    if (!TestPbrMaterialParameters()) { ++failed; }
-    if (!TestMaterialAssetFileRoundTrip()) { ++failed; }
-    if (!TestAssetManagerSharedAcrossRuntimeBoundary()) { ++failed; }
-    if (!TestComponentRegistry()) { ++failed; }
-    if (!TestSceneRunStates()) { ++failed; }
-    if (!TestHeadlessRendering()) { ++failed; }
-    if (!TestExtendedRHIContracts()) { ++failed; }
-    if (!TestRenderGraphValidationAndExecution()) { ++failed; }
-    if (!TestNamedShaderBindings()) { ++failed; }
-    if (!TestBackendIndependentPassRecording()) { ++failed; }
-    if (!TestComputeStorageBufferAndAsyncReadback()) { ++failed; }
-    if (!TestRenderGraphComputeBufferDependencies()) { ++failed; }
-    if (!TestCrashReportWriting()) { ++failed; }
-    if (!TestTransformHierarchyWorldPosition()) { ++failed; }
-    if (!TestCameraViewportProjectionStability()) { ++failed; }
-    if (!TestInputBoundaries()) { ++failed; }
-    if (!TestGamepadStateTransitions()) { ++failed; }
-    if (!TestAssetFileImporters()) { ++failed; }
-    if (!TestGltfImportAndStableMeta()) { ++failed; }
-    if (!TestAssetAsyncLoadingAndHotReload()) { ++failed; }
-    if (!TestAssetManagerFailureRollback()) { ++failed; }
-    if (!TestSceneSerializerMalformedDataIsolation()) { ++failed; }
-    if (!TestScriptHotReloadFailureRollback()) { ++failed; }
-    if (!TestMeshDerivedData()) { ++failed; }
-    if (!TestTextureDerivedData()) { ++failed; }
-
-    Input::Shutdown();
-
-    MemoryService::Get().Shutdown();
-
-    if (failed == 0) {
-        std::cout << "[PASS] All tests passed\n";
-        return 0;
-    }
-
-    std::cerr << "[FAIL] Total failed suites: " << failed << '\n';
-    return 1;
-}

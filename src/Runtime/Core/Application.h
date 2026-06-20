@@ -18,7 +18,7 @@ enum class RenderBackend : uint8_t {
 #ifdef MYENGINE_PLATFORM_MACOS
 inline constexpr RenderBackend kDefaultRenderBackend = RenderBackend::Metal;
 #else
-inline constexpr RenderBackend kDefaultRenderBackend = RenderBackend::D3D12;
+inline constexpr RenderBackend kDefaultRenderBackend = RenderBackend::D3D11;
 #endif
 
 struct ApplicationConfig {

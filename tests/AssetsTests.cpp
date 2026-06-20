@@ -1,0 +1,554 @@
+#include "TestHarness.h"
+
+#include "Assets/AssetManager.h"
+#include "Assets/ShaderAsset.h"
+#include "Animation/SkinnedMeshRendererComponent.h"
+#include "Project/ProjectConfig.h"
+#include "Scene/MeshRendererComponent.h"
+#include "Scene/Scene.h"
+#include "Scene/SceneSerializer.h"
+#include "Scripting/ScriptComponent.h"
+
+#include <chrono>
+#include <filesystem>
+#include <fstream>
+#include <vector>
+
+#include <nlohmann/json.hpp>
+
+namespace {
+
+bool TestShaderAssetFormats() {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "myengine_shader_asset_test";
+    std::error_code ec; fs::remove_all(root, ec); fs::create_directories(root);
+    auto write = [&](const char* name, const char* json) {
+        const fs::path path = root / name; std::ofstream(path) << json; return path;
+    };
+    const auto graphics = write("Mesh.shader",
+        R"({"type":"Shader","version":1,"stages":{"vertex":{"source":"Mesh.hlsl","entry":"VSMain"},"pixel":{"source":"Mesh.hlsl","entry":"PSMain"}},"defines":[]})");
+    auto asset = LoadShaderAssetFromFile(graphics.string());
+    if (!Check(asset && !asset->IsCooked() && !asset->IsCompute(),
+               "valid graphics shader description was rejected")) return false;
+    const auto compute = write("Compute.shader",
+        R"({"type":"Shader","version":1,"stages":{"compute":{"source":"Compute.hlsl","entry":"CSMain"}},"defines":[]})");
+    if (!Check(LoadShaderAssetFromFile(compute.string())->IsCompute(),
+               "valid compute shader description was rejected")) return false;
+    const char* invalid[] = {
+        R"({"type":"Shader","version":2,"stages":{"compute":{"source":"A.hlsl","entry":"CSMain"}}})",
+        R"({"type":"Shader","version":1,"stages":{"vertex":{"source":"A.hlsl","entry":"VSMain"}}})",
+        R"({"type":"Shader","version":1,"stages":{"compute":{"source":"../A.hlsl","entry":"CSMain"}}})",
+        R"({"type":"Shader","version":1,"stages":{"compute":{"source":"C:/A.hlsl","entry":"CSMain"},"pixel":{"source":"A.hlsl","entry":"PSMain"}}})",
+        R"({"type":"Shader","version":1,"stages":{"compute":{"source":"A.hlsl","entry":"CSMain"},"compute":{"source":"B.hlsl","entry":"CSMain"}}})",
+        R"({"type":"Shader","version":1,"stages":{"geometry":{"source":"A.hlsl","entry":"GSMain"}}})"
+    };
+    for (size_t i = 0; i < std::size(invalid); ++i)
+        if (!Check(!LoadShaderAssetFromFile(write(("Invalid" + std::to_string(i) + ".shader").c_str(), invalid[i]).string()),
+                   "invalid shader description was accepted")) return false;
+    std::array<std::array<std::vector<uint8_t>, 3>, 2> blobs{};
+    for (auto& backend : blobs) { backend[0] = {1,2,3}; backend[1] = {4,5}; }
+    ShaderAsset cooked(graphics.string());
+    cooked.SetCooked(ShaderAsset::kVertexMask | ShaderAsset::kPixelMask, 42, std::move(blobs));
+    const fs::path cookedPath = root / "Cooked.shader"; std::string error;
+    if (!Check(SaveCookedShaderAsset(cooked, cookedPath, &error), error)) return false;
+    auto loaded = LoadShaderAssetFromFile(cookedPath.string());
+    if (!Check(loaded && loaded->IsCooked() &&
+               loaded->GetBytecode(ShaderBackend::D3D12, ShaderStage::Pixel).size() == 2,
+               "cooked shader container round-trip failed")) return false;
+    { std::ofstream append(cookedPath, std::ios::binary | std::ios::app); append.put('x'); }
+    if (!Check(!LoadShaderAssetFromFile(cookedPath.string()),
+               "corrupt shader container was accepted")) return false;
+    fs::remove_all(root, ec); return true;
+}
+
+bool TestPbrMaterialParameters() {
+    auto material = MaterialAsset::CreateDefault("PbrTest");
+    material->SetParam("Metallic", MaterialParam::FromFloat(0.8f));
+    material->SetParam("Roughness", MaterialParam::FromFloat(0.25f));
+    if (!Check(NearlyEqual(material->GetFloat("Metallic", 0.0f), 0.8f),
+               "PBR metallic parameter mismatch")) return false;
+    if (!Check(NearlyEqual(material->GetFloat("Roughness", 1.0f), 0.25f),
+               "PBR roughness parameter mismatch")) return false;
+    return Check(NearlyEqual(material->GetFloat("AmbientOcclusion", 0.7f), 0.7f),
+                 "material default parameter fallback mismatch");
+}
+
+bool TestMaterialAssetFileRoundTrip() {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "myengine_material_asset_test";
+    fs::remove_all(root);
+    fs::create_directories(root);
+
+    const fs::path texPath = root / "base.ppm";
+    {
+        std::ofstream output(texPath, std::ios::binary);
+        output << "P6\n1 1\n255\n";
+        const char pixel[3] = {
+            static_cast<char>(255),
+            static_cast<char>(64),
+            static_cast<char>(32)
+        };
+        output.write(pixel, sizeof(pixel));
+    }
+
+    AssetManager& manager = AssetManager::Get();
+    manager.Clear();
+    TextureHandle texture = manager.Load<TextureAsset>(texPath.string());
+    if (!Check(texture.IsValid(), "material test texture load failed")) return false;
+    const fs::path shaderPath = root / "material.shader";
+    std::ofstream(shaderPath) << R"({"type":"Shader","version":1,"stages":{"vertex":{"source":"material.hlsl","entry":"VSMain"},"pixel":{"source":"material.hlsl","entry":"PSMain"}},"defines":[]})";
+    ShaderAssetHandle shaderAsset = manager.Load<ShaderAsset>(shaderPath.string());
+    if (!Check(shaderAsset.IsValid(), "material test shader load failed")) return false;
+
+    const fs::path matPath = root / "test.mat";
+    auto material = std::make_shared<MaterialAsset>(matPath.string());
+    material->SetName("RoundTrip");
+    material->SetBlendMode(BlendMode::Transparent);
+    material->SetTwoSided(true);
+    material->SetAlphaThreshold(0.33f);
+    material->SetParam("BaseColor", MaterialParam::FromVec4(0.2f, 0.3f, 0.4f, 0.5f));
+    material->SetParam("Metallic", MaterialParam::FromFloat(0.9f));
+    material->SetParam("Roughness", MaterialParam::FromFloat(0.21f));
+    material->SetParam("AmbientOcclusion", MaterialParam::FromFloat(0.8f));
+    material->SetTexture("BaseColorMap", texture);
+    material->SetShaderAsset(shaderAsset);
+    if (!Check(SaveMaterialAssetToFile(*material, matPath.string()),
+               "material save failed")) return false;
+
+    manager.Clear();
+    MaterialHandle loaded = manager.Load<MaterialAsset>(matPath.string());
+    if (!Check(loaded.IsValid(), "material load failed")) return false;
+    if (!Check(loaded->GetBlendMode() == BlendMode::Transparent && loaded->IsTwoSided(),
+               "material render state roundtrip failed")) return false;
+    if (!Check(NearlyEqual(loaded->GetAlphaThreshold(), 0.33f) &&
+               NearlyEqual(loaded->GetFloat("Metallic"), 0.9f) &&
+               NearlyEqual(loaded->GetFloat("Roughness"), 0.21f) &&
+               NearlyEqual(loaded->GetFloat("AmbientOcclusion"), 0.8f),
+               "material scalar roundtrip failed")) return false;
+    if (!Check(loaded->GetTexture("BaseColorMap").IsValid(),
+               "material texture slot roundtrip failed")) return false;
+    if (!Check(loaded->GetShaderAsset().IsValid(),
+               "material shader asset reference roundtrip failed")) return false;
+
+    manager.Clear();
+    fs::remove_all(root);
+    return true;
+}
+
+bool TestAssetManagerSharedAcrossRuntimeBoundary() {
+    auto mesh = MeshAsset::CreateTriangle("__dll_shared_mesh");
+    const std::string path = mesh->GetPath();
+    MeshHandle registered = AssetManager::Get().Register(mesh);
+
+    Scene source("DllBoundary");
+    Actor* actor = source.CreateActor("SharedMesh");
+    auto* renderer = actor->AddComponent<MeshRendererComponent>();
+    renderer->SetMesh(registered);
+    renderer->SetMaterial(AssetManager::Get().GetDefaultMaterial());
+
+    Scene loaded("Loaded");
+    if (!Check(SceneSerializer::LoadFromString(
+            loaded, SceneSerializer::SaveToString(source)),
+            "DLL boundary scene load failed")) return false;
+
+    auto* loadedRenderer =
+        loaded.FindByName("SharedMesh")->GetComponent<MeshRendererComponent>();
+    if (!Check(loadedRenderer && loadedRenderer->GetMesh().IsValid(),
+               "runtime DLL could not see executable-registered asset")) return false;
+    return Check(loadedRenderer->GetMesh()->GetPath() == path,
+                 "shared asset path changed across DLL boundary");
+}
+
+bool TestAssetFileImporters() {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "myengine_asset_import_test";
+    fs::create_directories(root);
+
+    const fs::path texPath = root / "albedo.ppm";
+    const fs::path mtlPath = root / "tri.mtl";
+    const fs::path objPath = root / "tri.obj";
+
+    {
+        std::ofstream tex(texPath, std::ios::binary);
+        tex << "P6\n2 2\n255\n";
+        const unsigned char pixels[] = {
+            255, 0,   0,
+            0,   255, 0,
+            0,   0,   255,
+            255, 255, 255,
+        };
+        tex.write(reinterpret_cast<const char*>(pixels), sizeof(pixels));
+    }
+
+    {
+        std::ofstream mtl(mtlPath, std::ios::binary);
+        mtl << "newmtl Material0\n";
+        mtl << "Kd 1 1 1\n";
+        mtl << "map_Kd albedo.ppm\n";
+    }
+
+    {
+        std::ofstream obj(objPath, std::ios::binary);
+        obj << "mtllib tri.mtl\n";
+        obj << "o Tri\n";
+        obj << "usemtl Material0\n";
+        obj << "v 0 0 0\n";
+        obj << "v 1 0 0\n";
+        obj << "v 0 1 0\n";
+        obj << "vt 0 0\n";
+        obj << "vt 1 0\n";
+        obj << "vt 0 1\n";
+        obj << "vn 0 0 1\n";
+        obj << "vn 0 0 1\n";
+        obj << "vn 0 0 1\n";
+        obj << "f 1/1/1 2/2/2 3/3/3\n";
+    }
+
+    AssetManager& am = AssetManager::Get();
+    auto tex = am.Load<TextureAsset>(texPath.string());
+    if (!Check(tex.IsValid(), "texture import should succeed")) return false;
+    if (!Check(tex->GetWidth() == 2 && tex->GetHeight() == 2, "texture dimensions mismatch")) return false;
+    if (!Check(tex->GetPixelData().size() == 16, "texture pixel data size mismatch")) return false;
+
+    auto model = am.Load<ModelAsset>(objPath.string());
+    if (!Check(model.IsValid(), "model import should succeed")) return false;
+    if (!Check(model->GetMesh() && model->GetMesh()->VertexCount() == 3, "model vertex count mismatch")) return false;
+    if (!Check(model->MaterialCount() == 1, "model material count mismatch")) return false;
+    if (!Check(model->GetMaterial(0).IsValid(), "model material should be valid")) return false;
+    if (!Check(model->GetMaterial(0)->HasTexture("BaseColorMap"), "material should keep imported texture")) return false;
+
+    am.Clear();
+    fs::remove_all(root);
+    return true;
+}
+
+template<typename T>
+void AppendBinary(std::vector<uint8_t>& output, const std::vector<T>& values) {
+    const uint8_t* bytes = reinterpret_cast<const uint8_t*>(values.data());
+    output.insert(output.end(), bytes, bytes + values.size() * sizeof(T));
+}
+
+bool TestGltfImportAndStableMeta() {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "myengine_gltf_import_test";
+    fs::remove_all(root);
+    fs::create_directories(root);
+    const fs::path gltfPath = root / "skinned_triangle.gltf";
+    const fs::path binPath = root / "skinned_triangle.bin";
+
+    std::vector<uint8_t> binary;
+    AppendBinary(binary, std::vector<float>{
+        0,0,0, 1,0,0, 0,1,0
+    });
+    AppendBinary(binary, std::vector<float>{
+        0,0,1, 0,0,1, 0,0,1
+    });
+    AppendBinary(binary, std::vector<float>{
+        0,0, 1,0, 0,1
+    });
+    AppendBinary(binary, std::vector<uint16_t>{
+        0,0,0,0, 0,0,0,0, 0,0,0,0
+    });
+    AppendBinary(binary, std::vector<float>{
+        1,0,0,0, 1,0,0,0, 1,0,0,0
+    });
+    AppendBinary(binary, std::vector<uint16_t>{ 0,1,2 });
+    binary.resize(176, 0);
+    AppendBinary(binary, std::vector<float>{
+        1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1
+    });
+    AppendBinary(binary, std::vector<float>{ 0,1 });
+    AppendBinary(binary, std::vector<float>{
+        0,0,0, 1,0,0
+    });
+
+    {
+        std::ofstream output(binPath, std::ios::binary);
+        output.write(reinterpret_cast<const char*>(binary.data()),
+                     static_cast<std::streamsize>(binary.size()));
+    }
+
+    nlohmann::json gltf;
+    gltf["asset"] = { { "version", "2.0" }, { "generator", "MyEngineTests" } };
+    gltf["buffers"] = nlohmann::json::array({
+        { { "uri", "skinned_triangle.bin" }, { "byteLength", binary.size() } }
+    });
+    gltf["bufferViews"] = nlohmann::json::array({
+        { { "buffer",0 }, { "byteOffset",0 },   { "byteLength",36 } },
+        { { "buffer",0 }, { "byteOffset",36 },  { "byteLength",36 } },
+        { { "buffer",0 }, { "byteOffset",72 },  { "byteLength",24 } },
+        { { "buffer",0 }, { "byteOffset",96 },  { "byteLength",24 } },
+        { { "buffer",0 }, { "byteOffset",120 }, { "byteLength",48 } },
+        { { "buffer",0 }, { "byteOffset",168 }, { "byteLength",6 } },
+        { { "buffer",0 }, { "byteOffset",176 }, { "byteLength",64 } },
+        { { "buffer",0 }, { "byteOffset",240 }, { "byteLength",8 } },
+        { { "buffer",0 }, { "byteOffset",248 }, { "byteLength",24 } },
+    });
+    gltf["accessors"] = nlohmann::json::array({
+        { { "bufferView",0 }, { "componentType",5126 }, { "count",3 }, { "type","VEC3" },
+          { "min", nlohmann::json::array({0,0,0}) }, { "max", nlohmann::json::array({1,1,0}) } },
+        { { "bufferView",1 }, { "componentType",5126 }, { "count",3 }, { "type","VEC3" } },
+        { { "bufferView",2 }, { "componentType",5126 }, { "count",3 }, { "type","VEC2" } },
+        { { "bufferView",3 }, { "componentType",5123 }, { "count",3 }, { "type","VEC4" } },
+        { { "bufferView",4 }, { "componentType",5126 }, { "count",3 }, { "type","VEC4" } },
+        { { "bufferView",5 }, { "componentType",5123 }, { "count",3 }, { "type","SCALAR" } },
+        { { "bufferView",6 }, { "componentType",5126 }, { "count",1 }, { "type","MAT4" } },
+        { { "bufferView",7 }, { "componentType",5126 }, { "count",2 }, { "type","SCALAR" },
+          { "min", nlohmann::json::array({0}) }, { "max", nlohmann::json::array({1}) } },
+        { { "bufferView",8 }, { "componentType",5126 }, { "count",2 }, { "type","VEC3" } },
+    });
+    gltf["materials"] = nlohmann::json::array({
+        {
+            { "name","RedMetal" },
+            { "pbrMetallicRoughness", {
+                { "baseColorFactor", nlohmann::json::array({0.8,0.1,0.05,1.0}) },
+                { "metallicFactor",0.7 },
+                { "roughnessFactor",0.25 }
+            }}
+        }
+    });
+    gltf["meshes"] = nlohmann::json::array({
+        {
+            { "name","Triangle" },
+            { "primitives", nlohmann::json::array({
+                {
+                    { "attributes", {
+                        { "POSITION",0 }, { "NORMAL",1 }, { "TEXCOORD_0",2 },
+                        { "JOINTS_0",3 }, { "WEIGHTS_0",4 }
+                    }},
+                    { "indices",5 }, { "material",0 }
+                }
+            })}
+        }
+    });
+    gltf["nodes"] = nlohmann::json::array({
+        { { "name","RootBone" } },
+        { { "name","MeshNode" }, { "mesh",0 }, { "skin",0 } }
+    });
+    gltf["skins"] = nlohmann::json::array({
+        { { "name","Skin" }, { "joints",nlohmann::json::array({0}) },
+          { "inverseBindMatrices",6 } }
+    });
+    gltf["animations"] = nlohmann::json::array({
+        {
+            { "name","Move" },
+            { "samplers", nlohmann::json::array({
+                { { "input",7 }, { "output",8 }, { "interpolation","LINEAR" } }
+            })},
+            { "channels", nlohmann::json::array({
+                { { "sampler",0 }, { "target", { { "node",0 }, { "path","translation" } } } }
+            })}
+        }
+    });
+    gltf["scenes"] = nlohmann::json::array({
+        { { "nodes",nlohmann::json::array({0,1}) } }
+    });
+    gltf["scene"] = 0;
+    {
+        std::ofstream output(gltfPath);
+        output << gltf.dump(2);
+    }
+
+    AssetManager& manager = AssetManager::Get();
+    manager.Clear();
+    ModelHandle model = manager.Load<ModelAsset>(gltfPath.string());
+    if (!Check(model.IsValid(), "glTF model import failed")) return false;
+    if (!Check(model->GetMesh()->VertexCount() == 3 && model->GetMesh()->IndexCount() == 3,
+               "glTF geometry mismatch")) return false;
+    if (!Check(model->MaterialCount() == 1 &&
+               NearlyEqual(model->GetMaterial(0)->GetFloat("Metallic"), 0.7f),
+               "glTF PBR material mismatch")) return false;
+    if (!Check(model->HasSkin() && model->GetBones().size() == 1 &&
+               model->GetSkinWeights().size() == 3,
+               "glTF skin import mismatch")) return false;
+    if (!Check(model->GetAnimations().size() == 1 &&
+               model->GetAnimations()[0].tracks.size() == 1,
+               "glTF animation import mismatch")) return false;
+    if (!Check(model->GetMesh()->GetVertices()[0].tangent.LengthSq() > 0.5f,
+               "glTF tangent generation failed")) return false;
+    if (!Check(model->GetDependencies().size() >= 2,
+               "glTF model dependencies were not tracked")) return false;
+    if (!Check(!model->GetUuid().empty() &&
+               fs::exists(gltfPath.string() + ".meta"),
+               "glTF stable metadata was not generated")) return false;
+
+    const AssetID firstID = model->GetID();
+    const std::string firstUuid = model->GetUuid();
+    manager.Clear();
+    model = manager.Load<ModelAsset>(gltfPath.string());
+    if (!Check(model.IsValid() && model->GetID() == firstID &&
+               model->GetUuid() == firstUuid,
+               "asset UUID changed after reload")) return false;
+
+    manager.Clear();
+    fs::remove_all(root);
+    return true;
+}
+
+bool TestAssetAsyncLoadingAndHotReload() {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "myengine_asset_reload_test";
+    fs::remove_all(root);
+    fs::create_directories(root);
+    const fs::path texturePath = root / "reload.ppm";
+
+    auto writeTexture = [&texturePath](uint8_t red, uint8_t green, uint8_t blue) {
+        std::ofstream output(texturePath, std::ios::binary);
+        output << "P6\n1 1\n255\n";
+        const char pixel[3] = {
+            static_cast<char>(red),
+            static_cast<char>(green),
+            static_cast<char>(blue)
+        };
+        output.write(pixel, sizeof(pixel));
+    };
+
+    writeTexture(255, 0, 0);
+    AssetManager& manager = AssetManager::Get();
+    manager.Clear();
+    std::shared_ptr<Asset> loaded = manager.LoadAsync(texturePath.string()).get();
+    auto texture = std::dynamic_pointer_cast<TextureAsset>(loaded);
+    if (!Check(texture && texture->IsReady(), "async texture load failed")) return false;
+    if (!Check(texture->GetVersion() == 1 && texture->GetPixelData()[0] == 255,
+               "async texture contents mismatch")) return false;
+
+    TextureAsset* originalAddress = texture.get();
+    const auto previousWriteTime = fs::last_write_time(texturePath);
+    writeTexture(0, 255, 0);
+    fs::last_write_time(texturePath, previousWriteTime + std::chrono::seconds(2));
+
+    if (!Check(manager.PollHotReload() == 1, "hot reload did not detect source change")) return false;
+    auto reloaded = manager.GetByPath<TextureAsset>(texturePath.string());
+    if (!Check(reloaded.Get() == originalAddress,
+               "hot reload invalidated an existing asset handle")) return false;
+    if (!Check(reloaded->GetVersion() == 2 && reloaded->GetPixelData()[0] == 0 &&
+               reloaded->GetPixelData()[1] == 255,
+               "hot reload did not update texture contents or version")) return false;
+
+    manager.Unload(texturePath.string());
+    if (!Check(!manager.IsLoaded(texturePath.string()),
+               "path-based unload failed for UUID-backed asset")) return false;
+    manager.Clear();
+    fs::remove_all(root);
+    return true;
+}
+
+bool TestAssetManagerFailureRollback() {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "myengine_asset_failure_test";
+    fs::remove_all(root);
+    fs::create_directories(root);
+    const fs::path assetPath = root / "rollback.robustasset";
+    {
+        std::ofstream output(assetPath, std::ios::binary);
+        output << "version 1";
+    }
+
+    AssetManager& manager = AssetManager::Get();
+    manager.Clear();
+    int loaderMode = 0;
+    manager.RegisterLoader("robustasset", [&loaderMode](const std::string& path) -> std::shared_ptr<Asset> {
+        if (loaderMode == 1) {
+            return std::static_pointer_cast<Asset>(MeshAsset::CreateTriangle("WrongType"));
+        }
+        if (loaderMode == 2) {
+            throw std::runtime_error("loader failed intentionally");
+        }
+        auto texture = std::make_shared<TextureAsset>(path);
+        TextureDesc desc;
+        desc.width = 1;
+        desc.height = 1;
+        texture->SetPixelData({ 17, 0, 0, 255 }, desc);
+        return std::static_pointer_cast<Asset>(texture);
+    });
+    manager.RegisterLoader("throwasset", [](const std::string& path) -> std::shared_ptr<Asset> {
+        (void)path;
+        throw std::runtime_error("async loader failed intentionally");
+    });
+
+    TextureHandle texture = manager.Load<TextureAsset>(assetPath.string());
+    if (!Check(texture.IsValid(), "initial robust asset load failed")) return false;
+    TextureAsset* original = texture.Get();
+    const uint64_t version = texture->GetVersion();
+    if (!Check(texture->GetPixelData()[0] == 17, "initial robust asset contents mismatch")) return false;
+
+    const auto previousWriteTime = fs::last_write_time(assetPath);
+    {
+        std::ofstream output(assetPath, std::ios::binary | std::ios::trunc);
+        output << "wrong type";
+    }
+    fs::last_write_time(assetPath, previousWriteTime + std::chrono::seconds(2));
+    loaderMode = 1;
+    if (!Check(manager.PollHotReload() == 0, "wrong-type reload should fail")) return false;
+    if (!Check(texture.Get() == original && texture->GetVersion() == version &&
+               texture->GetPixelData()[0] == 17,
+               "wrong-type reload mutated existing asset")) return false;
+
+    {
+        std::ofstream output(assetPath, std::ios::binary | std::ios::trunc);
+        output << "throw";
+    }
+    fs::last_write_time(assetPath, previousWriteTime + std::chrono::seconds(4));
+    loaderMode = 2;
+    if (!Check(manager.PollHotReload() == 0, "throwing reload should fail")) return false;
+    if (!Check(texture.Get() == original && texture->GetVersion() == version &&
+               texture->GetPixelData()[0] == 17,
+               "throwing reload mutated existing asset")) return false;
+
+    const fs::path throwPath = root / "async.throwasset";
+    {
+        std::ofstream output(throwPath, std::ios::binary);
+        output << "throw";
+    }
+    std::shared_ptr<Asset> asyncResult = manager.LoadAsync(throwPath.string()).get();
+    if (!Check(!asyncResult && !manager.IsLoaded(throwPath.string()),
+               "async loader exception should not cache an asset")) return false;
+
+    manager.Clear();
+    fs::remove_all(root);
+    return true;
+}
+
+bool TestMeshDerivedData() {
+    auto mesh = MeshAsset::CreateCube("DerivedDataCube");
+    if (!Check(mesh->GetLods().size() >= 2,
+               "mesh LOD chain was not generated")) return false;
+    if (!Check(mesh->GetLod(0).indices.size() == mesh->GetIndices().size() &&
+               mesh->GetLod(1).indices.size() < mesh->GetLod(0).indices.size(),
+               "mesh LOD index counts are invalid")) return false;
+    const MeshColliderData& collider = mesh->GetColliderData();
+    if (!Check(collider.vertices.size() == 8 && collider.indices.size() == 36,
+               "automatic box collider data was not generated")) return false;
+    return Check(NearlyEqual(collider.bounds.min.x, -0.5f) &&
+                 NearlyEqual(collider.bounds.max.x, 0.5f),
+                 "automatic collider bounds mismatch");
+}
+
+bool TestTextureDerivedData() {
+    TextureDesc desc;
+    desc.width = 4;
+    desc.height = 4;
+    std::vector<uint8_t> pixels(4 * 4 * 4, 255);
+    auto texture = std::make_shared<TextureAsset>("__builtin__/DerivedTexture");
+    texture->SetPixelData(std::move(pixels), desc);
+    if (!Check(texture->GetMipLevels() == 3 && texture->GetMips().size() == 3,
+               "texture mip chain was not generated")) return false;
+    if (!Check(texture->GetMips()[1].width == 2 && texture->GetMips()[2].width == 1,
+               "texture mip dimensions are invalid")) return false;
+    return Check(texture->GetCompressedMip(0).size() == 8 &&
+                 texture->GetCompressedMip(2).size() == 8,
+                 "BC1 texture compression output size mismatch");
+}
+
+MYENGINE_REGISTER_TEST("Assets", "TestShaderAssetFormats", TestShaderAssetFormats);
+MYENGINE_REGISTER_TEST("Assets", "TestPbrMaterialParameters", TestPbrMaterialParameters);
+MYENGINE_REGISTER_TEST("Assets", "TestMaterialAssetFileRoundTrip", TestMaterialAssetFileRoundTrip);
+MYENGINE_REGISTER_TEST("Assets", "TestAssetManagerSharedAcrossRuntimeBoundary", TestAssetManagerSharedAcrossRuntimeBoundary);
+MYENGINE_REGISTER_TEST("Assets", "TestAssetFileImporters", TestAssetFileImporters);
+MYENGINE_REGISTER_TEST("Assets", "TestGltfImportAndStableMeta", TestGltfImportAndStableMeta);
+MYENGINE_REGISTER_TEST("Assets", "TestAssetAsyncLoadingAndHotReload", TestAssetAsyncLoadingAndHotReload);
+MYENGINE_REGISTER_TEST("Assets", "TestAssetManagerFailureRollback", TestAssetManagerFailureRollback);
+MYENGINE_REGISTER_TEST("Assets", "TestMeshDerivedData", TestMeshDerivedData);
+MYENGINE_REGISTER_TEST("Assets", "TestTextureDerivedData", TestTextureDerivedData);
+
+} // namespace
