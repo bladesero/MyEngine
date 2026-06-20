@@ -3,13 +3,23 @@
 #include <fstream>
 #include <nlohmann/json.hpp>
 
+namespace {
+void SetError(std::string* error, std::string message) {
+    if (error) *error = std::move(message);
+}
+}
+
 bool EditorProject::Open(std::filesystem::path root, bool allowMissingManifest) {
     m_Root = std::filesystem::absolute(std::move(root)).lexically_normal();
     m_ContentRoot = m_Root / "Content";
     m_StatePath = m_Root / ".myengine_editor_state.json";
     m_LastError.clear();
+    m_LastWarning.clear();
     const bool configLoaded = m_Config.Open(m_Root, allowMissingManifest, &m_LastError);
-    return LoadState() && configLoaded;
+    if (!LoadState(&m_LastWarning) && m_LastError.empty()) {
+        m_LastError = m_LastWarning;
+    }
+    return configLoaded;
 }
 bool EditorProject::SaveState() const {
     nlohmann::json json;
@@ -21,11 +31,22 @@ bool EditorProject::SaveState() const {
         {"assetBrowser",m_State.showAssetBrowser},{"log",m_State.showLog}};
     std::ofstream output(m_StatePath); if (!output) return false; output << json.dump(2); return true;
 }
-bool EditorProject::LoadState() {
+bool EditorProject::LoadState(std::string* error) {
+    if (error) error->clear();
     m_State = {};
     if (!std::filesystem::exists(m_StatePath)) return true;
-    std::ifstream input(m_StatePath); if (!input) return false;
-    nlohmann::json json; try { input >> json; } catch (...) { return false; }
+    std::ifstream input(m_StatePath);
+    if (!input) {
+        SetError(error, "failed to open editor state: " + m_StatePath.string());
+        return false;
+    }
+    nlohmann::json json;
+    try {
+        input >> json;
+    } catch (const std::exception& exception) {
+        SetError(error, "failed to parse editor state: " + std::string(exception.what()));
+        return false;
+    }
     m_State.lastScenePath = json.value("lastScenePath", std::string{});
     m_State.selectedAssetPath = json.value("selectedAssetPath", std::string{});
     m_State.lastOpenDirectory = json.value("lastOpenDirectory", std::string{});

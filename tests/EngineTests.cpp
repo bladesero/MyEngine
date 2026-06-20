@@ -1,5 +1,6 @@
 ﻿#include "Assets/AssetManager.h"
 #include "Core/Memory/LinearAllocator.h"
+#include "Assets/ShaderAsset.h"
 #include "Animation/SkinnedMeshRendererComponent.h"
 #include "Core/Memory/MemoryService.h"
 #include "Core/Memory/PoolAllocator.h"
@@ -14,6 +15,7 @@
 #include "Physics/CollisionShapes.h"
 #include "Physics/RigidBodyComponent.h"
 #include "Physics/SphereColliderComponent.h"
+#include "Project/PublishTargets.h"
 #include "Project/ProjectConfig.h"
 #include "Scene/MeshRendererComponent.h"
 #include "Scene/Scene.h"
@@ -37,9 +39,14 @@
 #include "Editor/EditorViewportControllers.h"
 #include "Editor/EditorWorkspace.h"
 #include "Editor/ProjectPublisher.h"
+#include "Editor/CookDependencyGraph.h"
+#include "Core/Sha256.h"
 #include "Project/CookedProjectCache.h"
 #include "Project/CookManifest.h"
 #include "Project/ContentArchive.h"
+#include "Project/ContentPathPolicy.h"
+#include "Project/RuntimeCompatibility.h"
+#include "Project/RuntimeDependencies.h"
 
 #include <cmath>
 #include <chrono>
@@ -56,6 +63,8 @@
 
 namespace {
 
+std::filesystem::path gExecutableDirectory;
+
 bool NearlyEqual(float a, float b, float eps = 1e-4f) {
     return std::fabs(a - b) <= eps;
 }
@@ -66,6 +75,112 @@ bool Check(bool cond, const std::string& msg) {
         return false;
     }
     return true;
+}
+
+bool TestPublishHardeningPrimitives() {
+    Sha256 sha;
+    sha.Update("abc", 3);
+    if (!Check(Sha256::ToHex(sha.Final()) ==
+               "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+               "SHA-256 known vector mismatch")) return false;
+
+    namespace fs = std::filesystem;
+    const auto root = fs::temp_directory_path() / "myengine_publish_hardening_test";
+    std::error_code ec;
+    fs::remove_all(root, ec);
+    fs::create_directories(root / "Content/Scenes");
+    std::ofstream(root / "outside.bin") << "outside";
+    fs::path resolved;
+    std::string error;
+    if (!Check(!ContentPathPolicy::ResolveContained(root / "Content", "../outside.bin",
+                                                    resolved, &error),
+               "Content path traversal was accepted")) return false;
+
+    std::ofstream(root / "Content/Scenes/Main.scene.json")
+        << R"({"actors":[{"components":[{"data":{"scriptPath":"Content/Scripts/missing.lua"}}]}]})";
+    PublishPreflightReport preflight;
+    if (!Check(!CookDependencyGraph::Validate(root, preflight) &&
+               !preflight.errors.empty() &&
+               preflight.errors.front().code == PublishIssueCode::MissingDependency,
+               "publish preflight accepted a missing script dependency")) return false;
+
+    CookManifest manifest;
+    manifest.project = "ContractTest";
+    manifest.projectId = "project-id";
+    manifest.engineVersion = RuntimeCompatibility::kEngineVersion;
+    manifest.buildId = RuntimeCompatibility::kBuildId;
+    manifest.contentSchemaVersion = RuntimeCompatibility::kContentSchemaVersion;
+    manifest.archiveFormatVersion = RuntimeCompatibility::kArchiveFormatVersion;
+    manifest.configuration = RuntimeCompatibility::kConfiguration;
+    manifest.requiredBackends = {"d3d11", "d3d12"};
+    manifest.runtimeDependenciesHash = std::string(64, '0');
+    manifest.archiveHash = std::string(64, '1');
+    manifest.startupScene = "Content/Scenes/Main.scene.json";
+    manifest.files = {{manifest.startupScene, 0, std::string(64, '2')}};
+    if (!Check(manifest.Validate(&error), "valid Manifest v2 was rejected: " + error)) return false;
+    manifest.version = 1;
+    if (!Check(!manifest.Validate(&error) && error.find("unsupported") != std::string::npos,
+               "legacy Manifest v1 was not rejected explicitly")) return false;
+    manifest.version = CookManifest::kCurrentVersion;
+    manifest.requiredBackends = {"d3d11"};
+    if (!Check(!manifest.Validate(&error), "manifest with missing D3D12 backend was accepted")) return false;
+
+    fs::create_directories(root / "Runtime");
+    const auto dependency = root / "Runtime/test.dll";
+    std::ofstream(dependency, std::ios::binary) << "dependency";
+    RuntimeDependencyManifest dependencies;
+    dependencies.files.push_back({"test.dll", "x64", fs::file_size(dependency),
+                                  Sha256::HashFile(dependency, &error)});
+    if (!Check(dependencies.ValidateFiles(root / "Runtime", &error),
+               "valid runtime dependency was rejected: " + error)) return false;
+    std::ofstream(dependency, std::ios::binary | std::ios::app) << "tampered";
+    if (!Check(!dependencies.ValidateFiles(root / "Runtime", &error),
+               "tampered runtime dependency was accepted")) return false;
+    fs::remove_all(root, ec);
+    return true;
+}
+
+bool TestShaderAssetFormats() {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "myengine_shader_asset_test";
+    std::error_code ec; fs::remove_all(root, ec); fs::create_directories(root);
+    auto write = [&](const char* name, const char* json) {
+        const fs::path path = root / name; std::ofstream(path) << json; return path;
+    };
+    const auto graphics = write("Mesh.shader",
+        R"({"type":"Shader","version":1,"stages":{"vertex":{"source":"Mesh.hlsl","entry":"VSMain"},"pixel":{"source":"Mesh.hlsl","entry":"PSMain"}},"defines":[]})");
+    auto asset = LoadShaderAssetFromFile(graphics.string());
+    if (!Check(asset && !asset->IsCooked() && !asset->IsCompute(),
+               "valid graphics shader description was rejected")) return false;
+    const auto compute = write("Compute.shader",
+        R"({"type":"Shader","version":1,"stages":{"compute":{"source":"Compute.hlsl","entry":"CSMain"}},"defines":[]})");
+    if (!Check(LoadShaderAssetFromFile(compute.string())->IsCompute(),
+               "valid compute shader description was rejected")) return false;
+    const char* invalid[] = {
+        R"({"type":"Shader","version":2,"stages":{"compute":{"source":"A.hlsl","entry":"CSMain"}}})",
+        R"({"type":"Shader","version":1,"stages":{"vertex":{"source":"A.hlsl","entry":"VSMain"}}})",
+        R"({"type":"Shader","version":1,"stages":{"compute":{"source":"../A.hlsl","entry":"CSMain"}}})",
+        R"({"type":"Shader","version":1,"stages":{"compute":{"source":"C:/A.hlsl","entry":"CSMain"},"pixel":{"source":"A.hlsl","entry":"PSMain"}}})",
+        R"({"type":"Shader","version":1,"stages":{"compute":{"source":"A.hlsl","entry":"CSMain"},"compute":{"source":"B.hlsl","entry":"CSMain"}}})",
+        R"({"type":"Shader","version":1,"stages":{"geometry":{"source":"A.hlsl","entry":"GSMain"}}})"
+    };
+    for (size_t i = 0; i < std::size(invalid); ++i)
+        if (!Check(!LoadShaderAssetFromFile(write(("Invalid" + std::to_string(i) + ".shader").c_str(), invalid[i]).string()),
+                   "invalid shader description was accepted")) return false;
+    std::array<std::array<std::vector<uint8_t>, 3>, 2> blobs{};
+    for (auto& backend : blobs) { backend[0] = {1,2,3}; backend[1] = {4,5}; }
+    ShaderAsset cooked(graphics.string());
+    cooked.SetCooked(ShaderAsset::kVertexMask | ShaderAsset::kPixelMask, 42, std::move(blobs));
+    const fs::path cookedPath = root / "Cooked.shader"; std::string error;
+    if (!Check(SaveCookedShaderAsset(cooked, cookedPath, &error), error)) return false;
+    auto loaded = LoadShaderAssetFromFile(cookedPath.string());
+    if (!Check(loaded && loaded->IsCooked() &&
+               loaded->GetBytecode(ShaderBackend::D3D12, ShaderStage::Pixel).size() == 2,
+               "cooked shader container round-trip failed")) return false;
+    { std::ofstream append(cookedPath, std::ios::binary | std::ios::app); append.put('x'); }
+    if (!Check(!LoadShaderAssetFromFile(cookedPath.string()),
+               "corrupt shader container was accepted")) return false;
+    fs::remove_all(root, ec); return true;
 }
 
 bool TestSceneSerializationRegression() {
@@ -566,6 +681,10 @@ bool TestMaterialAssetFileRoundTrip() {
     manager.Clear();
     TextureHandle texture = manager.Load<TextureAsset>(texPath.string());
     if (!Check(texture.IsValid(), "material test texture load failed")) return false;
+    const fs::path shaderPath = root / "material.shader";
+    std::ofstream(shaderPath) << R"({"type":"Shader","version":1,"stages":{"vertex":{"source":"material.hlsl","entry":"VSMain"},"pixel":{"source":"material.hlsl","entry":"PSMain"}},"defines":[]})";
+    ShaderAssetHandle shaderAsset = manager.Load<ShaderAsset>(shaderPath.string());
+    if (!Check(shaderAsset.IsValid(), "material test shader load failed")) return false;
 
     const fs::path matPath = root / "test.mat";
     auto material = std::make_shared<MaterialAsset>(matPath.string());
@@ -578,6 +697,7 @@ bool TestMaterialAssetFileRoundTrip() {
     material->SetParam("Roughness", MaterialParam::FromFloat(0.21f));
     material->SetParam("AmbientOcclusion", MaterialParam::FromFloat(0.8f));
     material->SetTexture("BaseColorMap", texture);
+    material->SetShaderAsset(shaderAsset);
     if (!Check(SaveMaterialAssetToFile(*material, matPath.string()),
                "material save failed")) return false;
 
@@ -593,6 +713,8 @@ bool TestMaterialAssetFileRoundTrip() {
                "material scalar roundtrip failed")) return false;
     if (!Check(loaded->GetTexture("BaseColorMap").IsValid(),
                "material texture slot roundtrip failed")) return false;
+    if (!Check(loaded->GetShaderAsset().IsValid(),
+               "material shader asset reference roundtrip failed")) return false;
 
     manager.Clear();
     fs::remove_all(root);
@@ -700,6 +822,16 @@ struct MockShader final : GpuShader {};
 struct MockTexture final : GpuTexture {};
 struct MockTextureView final : GpuTextureView {};
 struct MockSampler final : GpuSampler {};
+class MockTimestampPool final : public GpuTimestampQueryPool {
+public:
+    uint32_t GetCount() const override { return 4; }
+    uint64_t GetFrequency() const override { return 1000000; }
+    bool ReadResults(uint32_t first, uint32_t count, std::vector<uint64_t>& ticks) override {
+        if (first + count > 4) return false;
+        ticks.resize(count); for (uint32_t i = 0; i < count; ++i) ticks[i] = first + i;
+        return true;
+    }
+};
 
 class MockReadbackTicket final : public GpuReadbackTicket {
 public:
@@ -743,13 +875,25 @@ public:
     }
     void BeginRendering(const RenderingInfo&) override { ++renderingScopes; }
     void EndRendering() override { --renderingScopes; }
-    void SetGraphicsPipeline(GpuGraphicsPipeline*) override { ++pipelineBinds; }
+    void SetGraphicsPipeline(GpuGraphicsPipeline* pipeline) override {
+        ++pipelineBinds;
+        pipelineBlendEnabled.push_back(pipeline && !pipeline->desc.blend.attachments.empty() &&
+                                       pipeline->desc.blend.attachments[0].blendEnable);
+    }
     void SetComputePipeline(GpuComputePipeline*) override { ++computePipelineBinds; }
     void SetBindGroup(uint32_t, GpuBindGroup*) override { ++bindGroupBinds; }
     void Dispatch(uint32_t x, uint32_t y, uint32_t z) override {
         ++dispatches; dispatchGroups = {x, y, z};
     }
     void UAVBarrier(GpuResource*) override { ++uavBarriers; }
+    void CopyTexture(GpuTexture*, const RHITextureRegion& dst,
+                     GpuTexture*, const RHITextureRegion& src) override {
+        copiedDst = dst; copiedSrc = src; ++textureRegionCopies;
+    }
+    void DrawIndirect(GpuBuffer*, uint64_t) override { ++indirectDraws; }
+    void DrawIndexedIndirect(GpuBuffer*, uint64_t) override { ++indirectDraws; }
+    void WriteTimestamp(GpuTimestampQueryPool*, uint32_t) override { ++timestamps; }
+    void ResolveTimestamps(GpuTimestampQueryPool*, uint32_t, uint32_t) override { ++timestampResolves; }
 
     int shaderBinds = 0;
     int vertexBinds = 0;
@@ -760,10 +904,16 @@ public:
     std::vector<std::pair<RHIResourceState, RHIResourceState>> transitions;
     int renderingScopes = 0;
     int pipelineBinds = 0;
+    std::vector<bool> pipelineBlendEnabled;
     int computePipelineBinds = 0;
     int bindGroupBinds = 0;
     int dispatches = 0;
     int uavBarriers = 0;
+    int textureRegionCopies = 0;
+    int indirectDraws = 0;
+    int timestamps = 0;
+    int timestampResolves = 0;
+    RHITextureRegion copiedDst{}, copiedSrc{};
     std::array<uint32_t, 3> dispatchGroups{};
 };
 
@@ -794,6 +944,23 @@ public:
         const void*, int, int) override {
         ++textureUploads;
         return std::make_shared<MockTexture>();
+    }
+    bool UpdateBuffer(const std::shared_ptr<GpuBuffer>& buffer, uint64_t offset,
+                      const void* data, uint64_t size) override {
+        if (!buffer || !data || offset + size > bufferBytes.size()) return false;
+        std::memcpy(bufferBytes.data() + offset, data, static_cast<size_t>(size)); return true;
+    }
+    std::shared_ptr<GpuTexture> UploadTexture(
+        const RHITextureDesc& desc, const RHITextureSubresourceData*, uint32_t count) override {
+        if (!count) return nullptr;
+        auto texture = std::make_shared<MockTexture>(); texture->desc = desc; return texture;
+    }
+    RHIDeviceCapabilities GetCapabilities() const override {
+        RHIDeviceCapabilities caps; caps.maxColorAttachments = 8;
+        caps.timestampQueries = caps.indirectDraw = true; return caps;
+    }
+    std::shared_ptr<GpuTimestampQueryPool> CreateTimestampQueryPool(uint32_t count) override {
+        return count <= 4 ? std::make_shared<MockTimestampPool>() : nullptr;
     }
     std::shared_ptr<GpuTexture> CreateTexture(const RHITextureDesc& desc) override {
         auto texture = std::make_shared<MockTexture>(); texture->desc = desc;
@@ -848,6 +1015,38 @@ public:
     std::vector<uint8_t> bufferBytes;
     std::shared_ptr<MockReadbackTicket> lastReadback;
 };
+
+bool TestExtendedRHIContracts() {
+    MockRenderContext context;
+    RHIBufferDesc bufferDesc; bufferDesc.size = 16;
+    auto buffer = context.CreateBuffer(bufferDesc);
+    const uint32_t value = 0x12345678u;
+    if (!Check(context.UpdateBuffer(buffer, 4, &value, sizeof(value)) &&
+               std::memcmp(context.bufferBytes.data() + 4, &value, sizeof(value)) == 0,
+               "RHI partial buffer update failed")) return false;
+    RHITextureDesc textureDesc; textureDesc.width = 8; textureDesc.height = 8;
+    uint32_t pixels[64]{};
+    RHITextureSubresourceData upload{pixels, 8u * 4u, 8u * 8u * 4u, 0, 0};
+    auto source = context.UploadTexture(textureDesc, &upload, 1);
+    auto destination = context.CreateTexture(textureDesc);
+    RHITextureRegion srcRegion{1, 2, 0, 3, 4, 1, 0, 0};
+    RHITextureRegion dstRegion{4, 1, 0, 3, 4, 1, 0, 0};
+    context.commands.CopyTexture(destination.get(), dstRegion, source.get(), srcRegion);
+    context.commands.DrawIndirect(buffer.get(), 0);
+    context.commands.DrawIndexedIndirect(buffer.get(), 0);
+    auto timestamps = context.CreateTimestampQueryPool(4);
+    context.commands.WriteTimestamp(timestamps.get(), 0);
+    context.commands.ResolveTimestamps(timestamps.get(), 0, 1);
+    std::vector<uint64_t> ticks;
+    const auto caps = context.GetCapabilities();
+    return Check(source && context.commands.textureRegionCopies == 1 &&
+                 context.commands.copiedSrc.x == 1 && context.commands.copiedDst.x == 4 &&
+                 context.commands.indirectDraws == 2 && context.commands.timestamps == 1 &&
+                 context.commands.timestampResolves == 1 && timestamps &&
+                 timestamps->ReadResults(0, 1, ticks) && ticks.size() == 1 &&
+                 caps.maxColorAttachments == 8 && caps.indirectDraw && caps.timestampQueries,
+                 "extended RHI transfer/query/indirect contracts were not preserved");
+}
 
 bool TestRenderGraphValidationAndExecution() {
     MockRenderContext context;
@@ -925,7 +1124,29 @@ bool TestBackendIndependentPassRecording() {
     MockRenderContext context;
     auto shader = std::make_shared<MockShader>();
     GraphicsPipelineDesc pipelineDesc; pipelineDesc.shader = shader;
+    pipelineDesc.topology = RHIPrimitiveTopology::TriangleStrip;
+    pipelineDesc.depthStencil.depthCompareOp = RHICompareOp::GreaterEqual;
+    pipelineDesc.depthStencil.stencilEnable = true;
+    pipelineDesc.depthStencil.frontFace.passOp = RHIStencilOp::Replace;
+    pipelineDesc.depthStencil.stencilReference = 7;
+    pipelineDesc.rasterizer.cullMode = RHICullMode::Front;
+    pipelineDesc.rasterizer.frontFace = RHIFrontFace::CounterClockwise;
+    pipelineDesc.rasterizer.depthBias = 8;
+    pipelineDesc.blend.attachments[0].blendEnable = true;
+    pipelineDesc.blend.attachments[0].srcColorFactor = RHIBlendFactor::One;
+    pipelineDesc.blend.attachments[0].dstColorFactor = RHIBlendFactor::OneMinusSrcAlpha;
+    pipelineDesc.multisample.sampleCount = 4;
     auto pipeline = context.CreateGraphicsPipeline(pipelineDesc);
+    if (!Check(pipeline &&
+               pipeline->desc.topology == RHIPrimitiveTopology::TriangleStrip &&
+               pipeline->desc.depthStencil.depthCompareOp == RHICompareOp::GreaterEqual &&
+               pipeline->desc.depthStencil.frontFace.passOp == RHIStencilOp::Replace &&
+               pipeline->desc.depthStencil.stencilReference == 7 &&
+               pipeline->desc.rasterizer.cullMode == RHICullMode::Front &&
+               pipeline->desc.rasterizer.depthBias == 8 &&
+               pipeline->desc.blend.attachments[0].blendEnable &&
+               pipeline->desc.multisample.sampleCount == 4,
+               "graphics pipeline state was not preserved by the RHI")) return false;
     auto bindings = context.CreateBindGroup(shader);
     RHITextureDesc targetDesc;
     targetDesc.width = 32; targetDesc.height = 32;
@@ -1067,10 +1288,13 @@ bool TestHeadlessRendering() {
                "headless texture uploads missing material or named-binding fallback")) return false;
     if (!Check(context.commands.drawCalls == 3,
                "frustum culling emitted an unexpected draw count")) return false;
-    return Check(context.commands.blendModes.size() == 3 &&
-                 context.commands.blendModes[0] == GpuBlendMode::Opaque &&
-                 context.commands.blendModes[1] == GpuBlendMode::Opaque &&
-                 context.commands.blendModes[2] == GpuBlendMode::Alpha,
+    const auto transparentPipeline = std::find(
+        context.commands.pipelineBlendEnabled.begin(),
+        context.commands.pipelineBlendEnabled.end(), true);
+    return Check(transparentPipeline != context.commands.pipelineBlendEnabled.end() &&
+                 transparentPipeline != context.commands.pipelineBlendEnabled.begin() &&
+                 std::count(context.commands.pipelineBlendEnabled.begin(),
+                            context.commands.pipelineBlendEnabled.end(), true) == 1,
                  "opaque/transparent render ordering or blend state mismatch");
 }
 
@@ -2282,11 +2506,11 @@ bool TestWorkspaceCookAndPublish() {
     if (!Check(project.Open(projectRoot, false, &error),
                "created project failed to reopen: " + error)) return false;
     project.GetPublishSettings().outputDirectory = (base / "Published").string();
-    project.GetPublishSettings().target = "windows-x64";
+    project.GetPublishSettings().target = PublishTargets::kDefaultTargetId;
     if (!Check(project.Save(&error), "publish settings save failed: " + error)) return false;
     project.GetPublishSettings().target = "unsupported-target";
     if (!Check(!project.Save(&error), "unsupported publish target was accepted")) return false;
-    project.GetPublishSettings().target = "windows-x64";
+    project.GetPublishSettings().target = PublishTargets::kDefaultTargetId;
     if (!Check(project.Save(&error), "failed to restore Windows publish target")) return false;
 
     const auto binaries = base / "Binaries";
@@ -2298,11 +2522,17 @@ bool TestWorkspaceCookAndPublish() {
 #else
     const char* runtimeFiles[] = {"MyEnginePlayer", "libruntime.so", "libSDL3.so"};
 #endif
-    for (const char* file : runtimeFiles) std::ofstream(binaries / file) << file;
+    const auto builtBinaries = gExecutableDirectory;
+    const auto engineContent = std::filesystem::current_path() / "EngineContent";
+    for (const char* file : runtimeFiles) {
+        fs::copy_file(builtBinaries / file, binaries / file,
+                      fs::copy_options::overwrite_existing);
+    }
 
     PublishReport report;
-    if (!Check(ProjectPublisher::Publish(project, binaries, report, &error),
-               "project publish failed: " + error)) return false;
+    const bool publishSucceeded = ProjectPublisher::Publish(
+        project, binaries, engineContent, report, &error);
+    if (!Check(publishSucceeded, "project publish failed: " + error)) return false;
     if (!Check(fs::is_regular_file(report.contentArchive) &&
                fs::is_regular_file(report.outputDirectory / "CookManifest.json") &&
                !fs::exists(report.outputDirectory / "Content") &&
@@ -2319,7 +2549,7 @@ bool TestWorkspaceCookAndPublish() {
                "published Cook manifest failed to load: " + error)) return false;
     if (!Check(manifest.project == project.GetName() &&
                manifest.startupScene == project.GetStartupScene() &&
-               manifest.target == "windows-x64" &&
+               manifest.target == PublishTargets::kDefaultTargetId &&
                manifest.files.size() == report.cookedFiles.size(),
                "published Cook manifest fields mismatch")) return false;
 
@@ -2382,14 +2612,15 @@ bool TestWorkspaceCookAndPublish() {
     std::ofstream(oldPackageMarker) << "keep";
     fs::remove(binaries / runtimeFiles[0]);
     PublishReport failedReport;
-    if (!Check(!ProjectPublisher::Publish(project, binaries, failedReport, &error) &&
+    if (!Check(!ProjectPublisher::Publish(project, binaries, engineContent, failedReport, &error) &&
                fs::is_regular_file(oldPackageMarker) &&
                !fs::exists(report.outputDirectory.string() + ".staging") &&
                !fs::exists(report.outputDirectory.string() + ".backup"),
                "failed publish damaged the previous package or left temporary output")) return false;
-    std::ofstream(binaries / runtimeFiles[0]) << runtimeFiles[0];
+    fs::copy_file(builtBinaries / runtimeFiles[0], binaries / runtimeFiles[0],
+                  fs::copy_options::overwrite_existing);
     PublishReport replacementReport;
-    if (!Check(ProjectPublisher::Publish(project, binaries, replacementReport, &error) &&
+    if (!Check(ProjectPublisher::Publish(project, binaries, engineContent, replacementReport, &error) &&
                !fs::exists(oldPackageMarker) &&
                !fs::exists(replacementReport.outputDirectory.string() + ".backup"),
                "transactional publish replacement failed: " + error)) return false;
@@ -2397,19 +2628,28 @@ bool TestWorkspaceCookAndPublish() {
     const fs::path interruptedBackup = replacementReport.outputDirectory.string() + ".backup";
     fs::rename(replacementReport.outputDirectory, interruptedBackup);
     fs::remove(binaries / runtimeFiles[0]);
-    if (!Check(!ProjectPublisher::Publish(project, binaries, failedReport, &error) &&
+    if (!Check(!ProjectPublisher::Publish(project, binaries, engineContent, failedReport, &error) &&
                fs::is_directory(replacementReport.outputDirectory) &&
                !fs::exists(interruptedBackup),
                "interrupted publish backup was not restored before preflight")) return false;
-    std::ofstream(binaries / runtimeFiles[0]) << runtimeFiles[0];
+    fs::copy_file(builtBinaries / runtimeFiles[0], binaries / runtimeFiles[0],
+                  fs::copy_options::overwrite_existing);
 
     const auto extracted = base / "Extracted";
     if (!Check(ContentArchive::Extract(report.contentArchive, extracted, &error),
                "Content archive extraction failed: " + error)) return false;
     if (!Check(fs::is_regular_file(extracted / "Content/Scenes/Main.scene.json") &&
                fs::is_regular_file(extracted / "Content/Data/payload.bin") &&
-               fs::is_regular_file(extracted / "Content/Scripts/main.lua"),
+               fs::is_regular_file(extracted / "Content/Scripts/main.lua") &&
+               fs::is_regular_file(extracted / "Content/Engine/Shaders/Mesh.shader") &&
+               !fs::exists(extracted / "Content/Engine/Shaders/Mesh.hlsl"),
                "cooked Content files were not restored")) return false;
+    auto cookedShader = LoadShaderAssetFromFile(
+        (extracted / "Content/Engine/Shaders/Mesh.shader").string());
+    if (!Check(cookedShader && cookedShader->IsCooked() &&
+               !cookedShader->GetBytecode(ShaderBackend::D3D11, ShaderStage::Vertex).empty() &&
+               !cookedShader->GetBytecode(ShaderBackend::D3D12, ShaderStage::Pixel).empty(),
+               "published shader does not contain both D3D backends")) return false;
     std::ifstream payload(extracted / "Content/Data/payload.bin", std::ios::binary);
     std::string payloadText((std::istreambuf_iterator<char>(payload)),
                             std::istreambuf_iterator<char>());
@@ -2429,6 +2669,13 @@ bool TestWorkspaceCookAndPublish() {
     if (!Check(!ContentArchive::Extract(corrupt, base / "CorruptExtract", &error),
                "corrupt Content archive was accepted")) return false;
 
+    const auto trailing = base / "Trailing.pak";
+    fs::copy_file(report.contentArchive, trailing);
+    std::ofstream(trailing, std::ios::binary | std::ios::app) << "trailing";
+    if (!Check(!ContentArchive::Extract(trailing, base / "TrailingExtract", &error) &&
+               error.find("trailing") != std::string::npos,
+               "Content archive trailing data was accepted")) return false;
+
     const auto corruptPackage = base / "CorruptPackage";
     fs::copy(replacementReport.outputDirectory, corruptPackage,
              fs::copy_options::recursive);
@@ -2446,11 +2693,16 @@ bool TestWorkspaceCookAndPublish() {
 
 } // namespace
 
-int main() {
+int main(int argc, char** argv) {
+    if (argc > 0) {
+        gExecutableDirectory = std::filesystem::absolute(argv[0]).parent_path();
+    }
     MemoryService::Get().Init();
 
     int failed = 0;
 
+    if (!TestPublishHardeningPrimitives()) { ++failed; }
+    if (!TestShaderAssetFormats()) { ++failed; }
     if (!TestMemoryLinearAllocator()) { ++failed; }
     if (!TestMemoryPoolAllocator()) { ++failed; }
     if (!TestMemoryServiceHeapRoundTrip()) { ++failed; }
@@ -2479,6 +2731,7 @@ int main() {
     if (!TestComponentRegistry()) { ++failed; }
     if (!TestSceneRunStates()) { ++failed; }
     if (!TestHeadlessRendering()) { ++failed; }
+    if (!TestExtendedRHIContracts()) { ++failed; }
     if (!TestRenderGraphValidationAndExecution()) { ++failed; }
     if (!TestNamedShaderBindings()) { ++failed; }
     if (!TestBackendIndependentPassRecording()) { ++failed; }

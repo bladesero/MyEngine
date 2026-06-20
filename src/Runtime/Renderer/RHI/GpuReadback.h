@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Renderer/RHI/RHITypes.h"
+
 #include <cstdint>
 #include <vector>
 
@@ -11,3 +13,10 @@ public:
     virtual uint32_t GetSize() const = 0;
 };
 
+class GpuTextureReadbackTicket : public GpuReadbackTicket {
+public:
+    virtual uint32_t GetRowPitch() const = 0;
+    virtual uint32_t GetWidth() const = 0;
+    virtual uint32_t GetHeight() const = 0;
+    virtual RHIFormat GetFormat() const = 0;
+};

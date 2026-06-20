@@ -89,10 +89,13 @@ try {
     }
 
     Write-Output "==> Validate package layout"
+    $runtimeManifestPath = Join-Path $package "RuntimeDependencies.json"
+    $runtimeManifest = Get-Content -Raw $runtimeManifestPath | ConvertFrom-Json
+    $runtimeFiles = @($runtimeManifest.files | ForEach-Object { $_.file })
     $allowed = @(
-        "Content.pak", "CookManifest.json", "MyEngine.project.json",
-        "MyEnginePlayer.exe", "runtime.dll", "SDL3.dll"
-    )
+        "Content.pak", "CookManifest.json", "RuntimeDependencies.json",
+        "MyEngine.project.json"
+    ) + $runtimeFiles
     $actual = @(Get-ChildItem -LiteralPath $package -Force | ForEach-Object Name)
     $unexpected = @($actual | Where-Object { $_ -notin $allowed })
     $missing = @($allowed | Where-Object { $_ -notin $actual })
@@ -101,6 +104,26 @@ try {
     }
     if (Test-Path -LiteralPath (Join-Path $package "Content")) {
         throw "published package contains loose Content"
+    }
+    $cookManifest = Get-Content -Raw (Join-Path $package "CookManifest.json") |
+        ConvertFrom-Json
+    if ($cookManifest.version -ne 2 -or $cookManifest.hashAlgorithm -ne "sha256" -or
+        (@($cookManifest.requiredBackends) -join ",") -ne "d3d11,d3d12") {
+        throw "CookManifest v2 compatibility contract is incomplete"
+    }
+    foreach ($dependency in $runtimeManifest.files) {
+        $actualHash = (Get-FileHash -Algorithm SHA256 `
+            -LiteralPath (Join-Path $package $dependency.file)).Hash.ToLowerInvariant()
+        if ($actualHash -ne $dependency.hash) {
+            throw "runtime dependency hash mismatch: $($dependency.file)"
+        }
+    }
+    $cookedPaths = @($cookManifest.files | ForEach-Object { $_.path })
+    if (-not ($cookedPaths -contains "Content/Engine/Shaders/Mesh.shader")) {
+        throw "CookManifest is missing cooked engine shaders"
+    }
+    if (@($cookedPaths | Where-Object { $_ -match '\.hlsl(i)?$' }).Count -ne 0) {
+        throw "CookManifest contains shader source files"
     }
 
     Write-Output "==> Launch D3D11 and D3D12"
@@ -130,6 +153,20 @@ try {
     $missingDll = Copy-Package $package "MissingRuntime"
     Remove-Item -LiteralPath (Join-Path $missingDll "runtime.dll")
     Assert-PlayerFailure $missingDll "missing runtime.dll"
+
+    $transitiveName = @($runtimeFiles | Where-Object {
+        $_ -notin @("MyEnginePlayer.exe", "runtime.dll", "SDL3.dll")
+    } | Select-Object -First 1)
+    if ($transitiveName.Count -gt 0) {
+        $missingTransitive = Copy-Package $package "MissingTransitiveRuntime"
+        Remove-Item -LiteralPath (Join-Path $missingTransitive $transitiveName[0])
+        Assert-PlayerFailure $missingTransitive "missing transitive DLL"
+    }
+
+    $tamperedDependencies = Copy-Package $package "TamperedDependencies"
+    Add-Content -LiteralPath (Join-Path $tamperedDependencies "RuntimeDependencies.json") `
+        -Value " " -NoNewline
+    Assert-PlayerFailure $tamperedDependencies "tampered runtime dependency manifest"
 
     $invalidConfig = Copy-Package $package "InvalidConfig"
     [IO.File]::WriteAllText((Join-Path $invalidConfig "MyEngine.project.json"), "{ invalid", $utf8)

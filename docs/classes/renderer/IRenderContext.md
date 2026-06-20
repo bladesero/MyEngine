@@ -12,6 +12,12 @@ The device creates backend-opaque buffers, textures, subresource views, samplers
 pipelines and reflected named bind groups. `GetBackend()` is permitted for capability
 selection only; pass implementations must not branch into native API code.
 
+`IRHIDevice` additionally exposes partial buffer updates, multi-subresource texture
+uploads, format/device capability queries, fences, timestamp query pools and bindless
+texture-view indices. `IRHIContext` exposes the graphics queue and asynchronous buffer
+and texture readback tickets. D3D12 bindless SRVs use register space 1; D3D11 reports
+bindless as unsupported while retaining indirect draw and timestamp support.
+
 ## 角色
 
 渲染后端抽象接口，屏蔽 API 差异（D3D11/D3D12/Metal）。

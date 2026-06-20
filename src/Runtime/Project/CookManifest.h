@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Project/ContentArchive.h"
+#include "Project/PublishTargets.h"
 
 #include <cstdint>
 #include <filesystem>
@@ -8,15 +9,24 @@
 #include <vector>
 
 struct CookManifest {
-    static constexpr int kCurrentVersion = 1;
+    static constexpr int kCurrentVersion = 2;
     static constexpr const char* kFileName = "CookManifest.json";
 
     int version = kCurrentVersion;
     std::string project;
-    std::string target = "windows-x64";
+    std::string projectId;
+    std::string engineVersion;
+    std::string buildId;
+    int contentSchemaVersion = 0;
+    int archiveFormatVersion = 0;
+    std::string hashAlgorithm = "sha256";
+    std::string configuration;
+    std::vector<std::string> requiredBackends;
+    std::string runtimeDependenciesHash;
+    std::string target = PublishTargets::kDefaultTargetId;
     std::string startupScene;
     std::string archive = ContentArchive::kFileName;
-    uint64_t archiveHash = 0;
+    std::string archiveHash;
     uint64_t contentBytes = 0;
     std::vector<CookedContentEntry> files;
 

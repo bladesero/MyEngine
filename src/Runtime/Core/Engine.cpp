@@ -22,6 +22,7 @@ void Engine::Init() {
     Logger::Info("Init Engine: ", m_Config.appName);
     Time::Reset();
     m_Running = true;
+    m_ExitCode = 0;
 }
 
 void Engine::Shutdown() {

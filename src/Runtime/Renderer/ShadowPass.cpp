@@ -363,10 +363,27 @@ void ShadowPass::EnsureShadowShader()
     ShaderManager::Get().SetContext(Context());
     if (!m_ShadowShaderHandle)
         m_ShadowShaderHandle = ShaderManager::Get().GetOrCreate(
-            "src/Runtime/Renderer/Shaders/ShadowDepth.hlsl", "VSMain", "PSMain",
-            k_ShadowVertexLayout, 3);
+            "Content/Engine/Shaders/ShadowDepth.shader", k_ShadowVertexLayout, 3);
     if (!m_ShadowShaderHandle || !m_ShadowShaderHandle->shader) {
         Logger::Error("[ShadowPass] Failed to create shadow shader");
+        m_ShadowPipeline.reset();
+        return;
+    }
+    if (!m_ShadowPipeline || m_ShadowShaderVersion != m_ShadowShaderHandle->version) {
+        GraphicsPipelineDesc desc;
+        desc.shader = m_ShadowShaderHandle->shader;
+        desc.colorFormats.clear();
+        desc.depthFormat = RHIFormat::D24S8;
+        desc.rasterizer.cullMode = RHICullMode::None;
+        desc.rasterizer.depthBias = 1536;
+        desc.rasterizer.slopeScaledDepthBias = 2.0f;
+        desc.depthStencil.depthTestEnable = true;
+        desc.depthStencil.depthWriteEnable = true;
+        desc.depthStencil.depthCompareOp = RHICompareOp::Less;
+        m_ShadowPipeline = Context()->CreateGraphicsPipeline(desc);
+        m_ShadowShaderVersion = m_ShadowShaderHandle->version;
+        if (!m_ShadowPipeline)
+            Logger::Error("[ShadowPass] Failed to create shadow pipeline");
     }
 }
 
@@ -419,16 +436,14 @@ void ShadowPass::Execute(const Scene& scene, const Camera& camera)
 {
     if (!Context()) return;
     EnsureShadowShader();
-    if (!m_ShadowShaderHandle || !m_ShadowShaderHandle->shader) return;
-    m_ShadowShaderVersion = m_ShadowShaderHandle->version;
+    if (!m_ShadowShaderHandle || !m_ShadowShaderHandle->shader || !m_ShadowPipeline) return;
 
     UpdateLightMatrices(scene, camera);
 
     if (!EnsureShadowResources()) return;
     GpuCommandList* cmd = Context()->GetGraphicsCommandList();
     if (!cmd) return;
-    cmd->SetDepthOnlyShader(m_ShadowShaderHandle->shader.get());
-    cmd->SetRasterState(true, false);
+    cmd->SetGraphicsPipeline(m_ShadowPipeline.get());
     cmd->SetViewport(0.0f, 0.0f, static_cast<float>(m_ShadowMapSize),
                      static_cast<float>(m_ShadowMapSize));
 
@@ -492,7 +507,6 @@ void ShadowPass::Execute(const Scene& scene, const Camera& camera)
         cmd->Transition(m_PointShadowMapTexture.get(), RHIResourceState::DepthWrite, RHIResourceState::ShaderResource);
     }
     m_ShadowResourcesInShaderState = true;
-    cmd->SetRasterState(false, false);
     return;
 
 }

@@ -8,6 +8,7 @@
 #include "Renderer/RHI/GpuShader.h"
 #include "Renderer/RHI/GpuTexture.h"
 #include "Renderer/RHI/GpuTextureView.h"
+#include "Renderer/RHI/GpuSync.h"
 #include "Renderer/RHI/VertexLayout.h"
 
 #include <cstddef>
@@ -38,6 +39,19 @@ public:
         const void*, size_t) { return nullptr; }
     virtual std::shared_ptr<GpuTexture> UploadTexture2D(
         const void* rgba8Data, int width, int height) = 0;
+    virtual bool UpdateBuffer(const std::shared_ptr<GpuBuffer>&, uint64_t,
+                              const void*, uint64_t) { return false; }
+    virtual std::shared_ptr<GpuTexture> UploadTexture(
+        const RHITextureDesc&, const RHITextureSubresourceData*, uint32_t) { return nullptr; }
+    virtual RHIDeviceCapabilities GetCapabilities() const { return {}; }
+    virtual bool IsFormatSupported(RHIFormat, RHIResourceUsage) const { return false; }
+    virtual std::shared_ptr<GpuFence> CreateFence(uint64_t = 0) { return nullptr; }
+    virtual std::shared_ptr<GpuTimestampQueryPool> CreateTimestampQueryPool(uint32_t) {
+        return nullptr;
+    }
+    virtual uint32_t GetBindlessIndex(const std::shared_ptr<GpuTextureView>& view) const {
+        return view ? view->bindlessIndex : UINT32_MAX;
+    }
     virtual std::shared_ptr<GpuTexture> CreateTexture(const RHITextureDesc&) { return nullptr; }
     virtual std::shared_ptr<GpuTextureView> CreateTextureView(
         const std::shared_ptr<GpuTexture>&, const RHITextureViewDesc&) { return nullptr; }

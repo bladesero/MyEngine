@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Renderer/RHI/GpuResource.h"
+#include "Renderer/RHI/VertexLayout.h"
 
 #include <cstdint>
 #include <string>
@@ -37,5 +38,6 @@ struct GpuShader : GpuResource {
     std::vector<uint8_t> vertexBytecode;
     std::vector<uint8_t> pixelBytecode;
     std::vector<uint8_t> computeBytecode;
+    std::vector<VertexElement> vertexLayout;
     virtual ~GpuShader() = default;
 };

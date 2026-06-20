@@ -10,6 +10,7 @@
 #include "Editor/EditorPanels.h"
 #include "Editor/ProjectPublisher.h"
 #include "Game/SceneRenderLayer.h"
+#include "Project/PublishTargets.h"
 
 #include <SDL3/SDL.h>
 
@@ -37,12 +38,14 @@ private:
 
 
 EditorLayer::EditorLayer(SceneRenderLayer* sceneLayer, IWindow* window, Engine* engine,
-                         std::filesystem::path initialProject)
+                         std::filesystem::path initialProject,
+                         EditorAutomationConfig automation)
     : Layer("EditorLayer")
     , m_SceneLayer(sceneLayer)
     , m_Window(window)
     , m_Engine(engine)
-    , m_InitialProject(std::move(initialProject)) {
+    , m_InitialProject(std::move(initialProject))
+    , m_Automation(std::move(automation)) {
     std::strncpy(m_ProjectName.data(), "NewProject", m_ProjectName.size() - 1);
 }
 
@@ -74,10 +77,18 @@ void EditorLayer::OnAttach() {
     m_Context.SetProject(&m_Project);
     std::string workspaceError;
     if (!m_Workspace.Load(&workspaceError)) Logger::Warn("[Editor] ", workspaceError);
+    if (const char* basePath = SDL_GetBasePath()) {
+        m_Workspace.SetTemplateRoot(std::filesystem::path(basePath) / "ProjectTemplates" / "Default");
+    }
     m_ImGuiReady = true;
 
-    if (!m_InitialProject.empty() && !OpenProject(m_InitialProject)) {
+    if (m_Automation.createProjectRoot.empty() &&
+        !m_InitialProject.empty() && !OpenProject(m_InitialProject)) {
         Logger::Error("[Editor] ", m_ProjectError);
+    }
+    m_AutomationPending = m_Automation.Enabled();
+    if (m_AutomationPending && m_Engine) {
+        m_Engine->SetExitCode(3);
     }
 #endif
 }
@@ -98,6 +109,10 @@ bool EditorLayer::OpenProject(const std::filesystem::path& root) {
     RegisterPanels();
     m_ProjectOpen = true;
     m_ProjectError.clear();
+    if (!m_Project.GetLastWarning().empty()) {
+        Logger::Warn("[Editor] ", m_Project.GetLastWarning());
+        ShowProjectResult("Project opened with warning: " + m_Project.GetLastWarning(), true);
+    }
     m_Workspace.AddRecentProject(m_Project.GetRoot());
     std::string workspaceError;
     if (!m_Workspace.Save(&workspaceError)) Logger::Warn("[Editor] ", workspaceError);
@@ -225,6 +240,7 @@ void EditorLayer::OnUpdate(float deltaSeconds) {
     if (m_ServicesRegistered) m_ServiceCollection.UpdateAll(deltaSeconds);
     for (auto& panel : m_Panels) panel->OnUpdate(deltaSeconds);
     ProcessDialogResults();
+    if (m_AutomationPending) RunAutomation();
     if (m_ProjectOpen) {
         if (Scene* scene = m_Context.GetScene()) m_Context.GetSelection().Validate(*scene);
     }
@@ -303,7 +319,7 @@ void EditorLayer::DrawProjectSettings() {
     const auto& config = m_Project.GetConfig();
     ImGui::InputText("Project name", m_ProjectName.data(), m_ProjectName.size());
     ImGui::InputText("Output directory", m_PublishOutput.data(), m_PublishOutput.size());
-    ImGui::LabelText("Target", "%s", "windows-x64");
+    ImGui::LabelText("Target", "%s", PublishTargets::kDefaultTargetLabel);
     ImGui::LabelText("Startup scene", "%s",
                      config.GetStartupScene().empty()
                          ? "<not set>" : config.GetStartupScene().c_str());
@@ -314,7 +330,7 @@ void EditorLayer::DrawProjectSettings() {
         const ProjectConfig previous = editable;
         editable.SetName(m_ProjectName.data());
         editable.GetPublishSettings().outputDirectory = m_PublishOutput.data();
-        editable.GetPublishSettings().target = "windows-x64";
+        editable.GetPublishSettings().target = PublishTargets::kDefaultTargetId;
         std::string error;
         if (editable.Save(&error)) {
             Logger::Info("[Editor] Project settings saved");
@@ -429,27 +445,90 @@ void EditorLayer::SetStartupScene() {
 }
 
 void EditorLayer::PublishProject() {
-    if (!m_ProjectOpen) return;
+    PublishProjectInternal();
+}
+
+bool EditorLayer::PublishProjectInternal(PublishReport* report, std::string* error,
+                                         bool showResult) {
+    if (error) error->clear();
+    if (!m_ProjectOpen) {
+        if (error) *error = "project is not open";
+        return false;
+    }
     if (m_SceneLayer && m_SceneLayer->IsDirty()) {
         const std::string message = "Publish rejected: save the current scene before publishing.";
         Logger::Error("[Editor] ", message);
-        ShowProjectResult(message, true);
-        return;
+        if (showResult) ShowProjectResult(message, true);
+        if (error) *error = message;
+        return false;
     }
-    PublishReport report;
-    std::string error;
+    PublishReport localReport;
+    std::string localError;
     const char* basePath = SDL_GetBasePath();
-    if (!basePath || !ProjectPublisher::Publish(
-            m_Project.GetConfig(), basePath ? basePath : "", report, &error)) {
-        Logger::Error("[Editor] Publish failed: ", error);
-        ShowProjectResult("Publish failed: " + error, true);
-        return;
+    const std::filesystem::path binaryDirectory = basePath ? basePath : "";
+    const std::filesystem::path engineContentDirectory = binaryDirectory / "EngineContent";
+    const bool succeeded = basePath && ProjectPublisher::Publish(
+        m_Project.GetConfig(), binaryDirectory, engineContentDirectory,
+        localReport, &localError);
+    if (!succeeded) {
+        Logger::Error("[Editor] Publish failed: ", localError);
+        if (showResult) ShowProjectResult("Publish failed: " + localError, true);
+        if (error) *error = std::move(localError);
+        return false;
     }
-    Logger::Info("[Editor] Published ", report.cookedFiles.size(),
-                 " assets (", report.contentBytes, " bytes) to ",
-                 report.outputDirectory.string());
-    ShowProjectResult(
-        "Published " + std::to_string(report.cookedFiles.size()) +
-        " files (" + std::to_string(report.contentBytes) + " bytes) to:\n" +
-        report.outputDirectory.string(), false);
+    Logger::Info("[Editor] Published ", localReport.cookedFiles.size(),
+                 " assets (", localReport.contentBytes, " bytes) to ",
+                 localReport.outputDirectory.string());
+    if (showResult) {
+        ShowProjectResult(
+            "Published " + std::to_string(localReport.cookedFiles.size()) +
+            " files (" + std::to_string(localReport.contentBytes) + " bytes) to:\n" +
+            localReport.outputDirectory.string(), false);
+    }
+    if (report) *report = std::move(localReport);
+    return true;
+}
+
+void EditorLayer::FailAutomation(const std::string& message) {
+    Logger::Error("[EditorAutomation] ", message);
+    m_AutomationPending = false;
+    if (m_Engine) {
+        m_Engine->SetExitCode(2);
+        m_Engine->RequestQuit();
+    }
+}
+
+void EditorLayer::RunAutomation() {
+    m_AutomationPending = false;
+    if (!m_Automation.createProjectRoot.empty() && !m_ProjectOpen) {
+        const std::string projectName = m_Automation.projectName.empty()
+            ? m_Automation.createProjectRoot.filename().string()
+            : m_Automation.projectName;
+        std::string createError;
+        if (!m_Workspace.CreateProject(m_Automation.createProjectRoot, projectName, &createError)) {
+            FailAutomation("create project failed: " + createError);
+            return;
+        }
+        if (!OpenProject(m_Automation.createProjectRoot)) {
+            FailAutomation("open created project failed: " + m_ProjectError);
+            return;
+        }
+    }
+    if (!m_ProjectOpen && !m_InitialProject.empty()) {
+        if (!OpenProject(m_InitialProject)) {
+            FailAutomation("open project failed: " + m_ProjectError);
+            return;
+        }
+    }
+    if (m_Automation.publishProject) {
+        std::string publishError;
+        if (!PublishProjectInternal(nullptr, &publishError, false)) {
+            FailAutomation("publish project failed: " + publishError);
+            return;
+        }
+    }
+    if (m_Engine) {
+        m_Engine->SetExitCode(0);
+        m_Engine->RequestQuit();
+    }
 }

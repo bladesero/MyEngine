@@ -6,7 +6,6 @@
 #include "Renderer/PostProcessComponent.h"
 #include "Renderer/ShaderManager.h"
 #include "Scene/Actor.h"
-#include "ShaderBytecodeWindows.h"
 
 #include <algorithm>
 #include <cmath>
@@ -105,13 +104,16 @@ bool PostProcessPass::EnsureResources() {
         if (changed) {
             m_FXAAShader = m_FXAAHandle->shader; m_SSAOShader = m_SSAOHandle->shader;
             m_BlurShader = m_BlurHandle->shader;
-            GraphicsPipelineDesc pipeline; pipeline.depthTest = false; pipeline.depthWrite = false; pipeline.twoSided = true;
+            GraphicsPipelineDesc pipeline;
+            pipeline.depthStencil.depthTestEnable = false;
+            pipeline.depthStencil.depthWriteEnable = false;
+            pipeline.rasterizer.cullMode = RHICullMode::None;
             pipeline.shader = m_FXAAShader; pipeline.colorFormats = {RHIFormat::RGBA8UNorm};
             m_FXAAOffscreenPipeline = device->CreateGraphicsPipeline(pipeline);
             pipeline.colorFormats = {RHIFormat::RGBA16Float};
             m_FXAAOffscreenPipeline = device->CreateGraphicsPipeline(pipeline);
             pipeline.shader = m_SSAOShader; pipeline.colorFormats = {RHIFormat::R8UNorm};
-            pipeline.twoSided = true;
+            pipeline.rasterizer.cullMode = RHICullMode::None;
             m_SSAOPipeline = device->CreateGraphicsPipeline(pipeline);
             pipeline.shader = m_BlurShader; m_BlurPipeline = device->CreateGraphicsPipeline(pipeline);
             m_FXAAVersion = m_FXAAHandle->version;
@@ -168,27 +170,30 @@ bool PostProcessPass::EnsureResources() {
     m_NoiseSrv = device->CreateTextureView(m_Noise, noiseView);
 
     m_FXAAHandle = ShaderManager::Get().GetOrCreate(
-        "src/Runtime/Renderer/Shaders/PostProcessFXAA.hlsl", "VSMain", "PSMain", nullptr, 0);
+        "Content/Engine/Shaders/PostProcessFXAA.shader", nullptr, 0);
     m_SSAOHandle = ShaderManager::Get().GetOrCreate(
-        "src/Runtime/Renderer/Shaders/PostProcessSSAO.hlsl", "VSMain", "PSMain", nullptr, 0);
+        "Content/Engine/Shaders/PostProcessSSAO.shader", nullptr, 0);
     m_BlurHandle = ShaderManager::Get().GetOrCreate(
-        "src/Runtime/Renderer/Shaders/PostProcessSSAOBlur.hlsl", "VSMain", "PSMain", nullptr, 0);
+        "Content/Engine/Shaders/PostProcessSSAOBlur.shader", nullptr, 0);
     m_FXAAShader = m_FXAAHandle ? m_FXAAHandle->shader : nullptr;
     m_SSAOShader = m_SSAOHandle ? m_SSAOHandle->shader : nullptr;
     m_BlurShader = m_BlurHandle ? m_BlurHandle->shader : nullptr;
     m_FXAAVersion = m_FXAAHandle ? m_FXAAHandle->version : 0;
     m_SSAOVersion = m_SSAOHandle ? m_SSAOHandle->version : 0;
     m_BlurVersion = m_BlurHandle ? m_BlurHandle->version : 0;
-    GraphicsPipelineDesc pipeline; pipeline.depthTest = false; pipeline.depthWrite = false; pipeline.twoSided = true;
+    GraphicsPipelineDesc pipeline;
+    pipeline.depthStencil.depthTestEnable = false;
+    pipeline.depthStencil.depthWriteEnable = false;
+    pipeline.rasterizer.cullMode = RHICullMode::None;
     pipeline.shader = m_FXAAShader; pipeline.colorFormats = {RHIFormat::RGBA8UNorm};
     m_FXAABackbufferPipeline = device->CreateGraphicsPipeline(pipeline);
     pipeline.colorFormats = {RHIFormat::RGBA16Float};
     m_FXAAOffscreenPipeline = device->CreateGraphicsPipeline(pipeline);
     pipeline.shader = m_SSAOShader; pipeline.colorFormats = {RHIFormat::R8UNorm};
-    pipeline.twoSided = true;
+    pipeline.rasterizer.cullMode = RHICullMode::None;
     m_SSAOPipeline = device->CreateGraphicsPipeline(pipeline);
     pipeline.shader = m_BlurShader;
-    pipeline.twoSided = true;
+    pipeline.rasterizer.cullMode = RHICullMode::None;
     m_BlurPipeline = device->CreateGraphicsPipeline(pipeline);
     return m_LinearClamp && m_PointClamp && m_NoiseSampler && m_NoiseSrv &&
            m_FXAABackbufferPipeline && m_FXAAOffscreenPipeline && m_SSAOPipeline && m_BlurPipeline;

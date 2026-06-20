@@ -5,6 +5,7 @@
 #include "Assets/MeshAsset.h"
 #include "Assets/MaterialAsset.h"
 #include "Assets/ModelAsset.h"
+#include "Assets/ShaderAsset.h"
 #include "Core/Logger.h"
 
 #include <array>
@@ -118,6 +119,7 @@ public:
     void Clear();
 
     void SetProjectRoot(std::filesystem::path root);
+    void SetEngineContentRoot(std::filesystem::path root) { m_EngineContentRoot = std::move(root); }
     const std::filesystem::path& GetProjectRoot() const { return m_ProjectRoot; }
     std::string ResolvePath(const std::string& path) const;
     std::string MakeProjectRelativePath(const std::string& path) const;
@@ -193,8 +195,9 @@ private:
 
     size_t              m_AssetCpuBudgetBytes = 0; // 0 = no budget / no warn
     size_t              m_AssetCpuTotalBytes = 0;
-    std::array<size_t, 6> m_AssetCpuBytesByType{};
+    std::array<size_t, 7> m_AssetCpuBytesByType{};
     std::unordered_map<AssetID, std::filesystem::file_time_type> m_SourceWriteTimes;
     mutable std::recursive_mutex m_Mutex;
     std::filesystem::path m_ProjectRoot;
+    std::filesystem::path m_EngineContentRoot;
 };

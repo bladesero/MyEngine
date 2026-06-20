@@ -13,7 +13,7 @@ EditorAssetType EditorAssetRegistry::Classify(const std::filesystem::path& path)
     if (extension == ".mat") return EditorAssetType::Material;
     if (extension == ".json") return EditorAssetType::Scene;
     if (extension == ".lua") return EditorAssetType::Script;
-    if (extension == ".hlsl" || extension == ".hlsli") return EditorAssetType::Shader;
+    if (extension == ".shader" || extension == ".hlsl" || extension == ".hlsli") return EditorAssetType::Shader;
     return EditorAssetType::Unknown;
 }
 void EditorAssetRegistry::Refresh() {

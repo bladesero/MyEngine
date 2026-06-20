@@ -94,7 +94,7 @@ runtime cache. Publishing currently supports Windows x64 only.
 
 ## Windows: HLSL → embedded bytecode
 
-- On **Windows**, `MyEngineRuntime` uses `on_load(setup_hlsl_windows_bytecode)` in `xmake.lua`, which runs **`tools/embed_hlsl.ps1`** via PowerShell.
+- Shader sources live under `EngineContent/Shaders` or project `Content/Shaders`. Windows publishing cooks every `.shader` descriptor to D3D11/D3D12 bytecode in `Content.pak`; HLSL/HLSLI files are excluded.
 - That script invokes **dxc** to compile `.hlsl` sources and generates **`build/hlsl_generated/`** (e.g. `ShaderBytecodeWindows.cpp` + headers). Editing HLSL or the embed script may require a **clean rebuild** of the runtime target.
 - If build fails with missing generated files, ensure PowerShell can run and **DirectX Shader Compiler (dxc)** is on `PATH` (typical with Windows SDK).
 

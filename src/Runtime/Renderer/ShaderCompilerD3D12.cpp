@@ -30,13 +30,24 @@ static bool CompileOneStageFromFile(
     const std::string& filePath,
     const std::string& entry,
     const char* target,
-    std::vector<unsigned char>& outBytecode) {
+    std::vector<unsigned char>& outBytecode,
+    const std::vector<std::string>& defines = {}) {
+    std::vector<std::string> names, values;
+    std::vector<D3D_SHADER_MACRO> macros;
+    names.reserve(defines.size()); values.reserve(defines.size()); macros.reserve(defines.size() + 1);
+    for (const auto& define : defines) {
+        const size_t equals = define.find('=');
+        names.push_back(define.substr(0, equals));
+        values.push_back(equals == std::string::npos ? "1" : define.substr(equals + 1));
+    }
+    for (size_t i = 0; i < names.size(); ++i) macros.push_back({names[i].c_str(), values[i].c_str()});
+    macros.push_back({nullptr, nullptr});
     ComPtr<ID3DBlob> shaderBlob;
     ComPtr<ID3DBlob> errBlob;
     const UINT flags = D3DCOMPILE_ENABLE_STRICTNESS;
     const HRESULT hr = D3DCompileFromFile(
         widePath.c_str(),
-        nullptr,
+        defines.empty() ? nullptr : macros.data(),
         D3D_COMPILE_STANDARD_FILE_INCLUDE,
         entry.c_str(),
         target,
@@ -82,5 +93,13 @@ bool ShaderCompilerD3D12::CompileProgramFromFile(
     return true;
 }
 
-#endif
+bool ShaderCompilerD3D12::CompileStageFromFile(
+    const std::string& filePath, const std::string& entry, const char* profile,
+    std::vector<unsigned char>& outBytecode,
+    const std::vector<std::string>& defines) {
+    const std::wstring widePath = Utf8ToWide(filePath);
+    return !widePath.empty() && CompileOneStageFromFile(
+        widePath, filePath, entry, profile, outBytecode, defines);
+}
 
+#endif

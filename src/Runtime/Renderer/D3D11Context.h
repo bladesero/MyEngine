@@ -56,6 +56,12 @@ struct D3D11Sampler : GpuSampler {
     ComPtr<ID3D11SamplerState> sampler;
 };
 
+struct D3D11GraphicsPipeline : GpuGraphicsPipeline {
+    ComPtr<ID3D11BlendState> blendState;
+    ComPtr<ID3D11RasterizerState> rasterizerState;
+    ComPtr<ID3D11DepthStencilState> depthStencilState;
+};
+
 // --------------------------------------------------------------------------
 // D3D11Context
 // --------------------------------------------------------------------------
@@ -73,6 +79,7 @@ public:
     const std::string& GetLastDeviceError() const override { return m_LastDeviceError; }
     GpuSwapChain* GetSwapChain() override;
     GpuCommandList* GetGraphicsCommandList() override;
+    GpuQueue* GetGraphicsQueue() override { return m_GraphicsQueue.get(); }
     GpuTextureView* GetCurrentBackBufferView() override { return m_BackBufferView.get(); }
     RHIBackend GetBackend() const override { return RHIBackend::D3D11; }
     ImGuiBackendHandles GetImGuiBackendHandles() override;
@@ -119,12 +126,24 @@ public:
 
     std::shared_ptr<GpuTexture> UploadTexture2D(
         const void* rgba8Data, int width, int height) override;
+    bool UpdateBuffer(const std::shared_ptr<GpuBuffer>&, uint64_t,
+                      const void*, uint64_t) override;
+    std::shared_ptr<GpuTexture> UploadTexture(
+        const RHITextureDesc&, const RHITextureSubresourceData*, uint32_t) override;
+    RHIDeviceCapabilities GetCapabilities() const override;
+    bool IsFormatSupported(RHIFormat, RHIResourceUsage) const override;
+    std::shared_ptr<GpuFence> CreateFence(uint64_t initialValue = 0) override;
+    std::shared_ptr<GpuTimestampQueryPool> CreateTimestampQueryPool(uint32_t count) override;
     std::shared_ptr<GpuTexture> CreateTexture(const RHITextureDesc& desc) override;
     std::shared_ptr<GpuTextureView> CreateTextureView(
         const std::shared_ptr<GpuTexture>& texture, const RHITextureViewDesc& desc) override;
     std::shared_ptr<GpuSampler> CreateSampler(const RHISamplerDesc& desc) override;
+    std::shared_ptr<GpuGraphicsPipeline> CreateGraphicsPipeline(
+        const GraphicsPipelineDesc& desc) override;
     std::shared_ptr<GpuReadbackTicket> ReadbackBufferAsync(
         const std::shared_ptr<GpuBuffer>& buffer) override;
+    std::shared_ptr<GpuTextureReadbackTicket> ReadbackTextureAsync(
+        const std::shared_ptr<GpuTexture>&, const RHITextureRegion&) override;
     void BindPSTexture(uint32_t slot, GpuTexture* tex);
     void SetBlendMode(GpuBlendMode mode);
     void SetRasterState(bool twoSided, bool wireframe);
@@ -168,4 +187,5 @@ private:
     SwapChainResizeCallback        m_ResizeCallback = nullptr;
     std::unique_ptr<GpuSwapChain>  m_SwapChainInterface;
     std::unique_ptr<GpuCommandList> m_GraphicsCommandList;
+    std::shared_ptr<GpuQueue> m_GraphicsQueue;
 };

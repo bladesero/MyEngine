@@ -5,6 +5,12 @@ and compute pipeline/bind-group binding, viewport/scissor, draw/dispatch and cop
 operations. RenderGraph owns attachment transitions and rendering scopes; pass callbacks
 normally issue only pipeline, resource and draw/dispatch commands.
 
+Graphics state is immutable and supplied through `GraphicsPipelineDesc`; passes must not
+assemble blend, rasterizer or depth state through legacy immediate setters. The command
+surface also supports buffer and texture region copies, indirect draws, UAV barriers,
+and timestamp writes/resolution. `BeginRendering` accepts up to eight color attachments
+and honors `Load`, `Clear`, `Discard`, `Store` and store-discard operations.
+
 ## 角色
 
 RHI 命令列表抽象对象。

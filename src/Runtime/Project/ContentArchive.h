@@ -8,7 +8,7 @@
 struct CookedContentEntry {
     std::string path;
     uint64_t size = 0;
-    uint64_t hash = 0;
+    std::string hash;
 };
 
 class ContentArchive {
@@ -22,6 +22,6 @@ public:
     static bool Extract(const std::filesystem::path& archivePath,
                         const std::filesystem::path& projectRoot,
                         std::string* error = nullptr);
-    static uint64_t HashFile(const std::filesystem::path& path,
-                             std::string* error = nullptr);
+    static std::string HashFile(const std::filesystem::path& path,
+                                std::string* error = nullptr);
 };

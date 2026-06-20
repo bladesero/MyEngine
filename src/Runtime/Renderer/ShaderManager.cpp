@@ -1,147 +1,117 @@
 #include "Renderer/ShaderManager.h"
 
+#include "Assets/AssetManager.h"
 #include "Core/Logger.h"
-
 #ifdef MYENGINE_PLATFORM_WINDOWS
 #include "Renderer/ShaderCompilerD3D11.h"
 #include "Renderer/ShaderCompilerD3D12.h"
 #endif
-
-#include <sstream>
 #include <fstream>
-#include <filesystem>
+#include <sstream>
 
-namespace {
+ShaderManager& ShaderManager::Get() { static ShaderManager instance; return instance; }
 
-std::filesystem::path ResolveShaderPath(const std::string& path)
-{
-    namespace fs = std::filesystem;
-    fs::path requested(path);
-    if (requested.is_absolute() || fs::exists(requested)) return requested;
-
-    fs::path cursor = fs::current_path();
-    while (!cursor.empty()) {
-        const fs::path candidate = cursor / requested;
-        if (fs::exists(candidate)) return candidate;
-        const fs::path parent = cursor.parent_path();
-        if (parent == cursor) break;
-        cursor = parent;
+std::string ShaderManager::MakeKey(const ShaderAsset& asset, const VertexElement* layout,
+                                   uint32_t count, bool compute) const {
+    std::ostringstream out;
+    out << asset.GetID() << ':' << asset.GetVersion() << ':'
+        << static_cast<int>(m_Context ? m_Context->GetBackend() : RHIBackend::Unknown)
+        << ':' << compute;
+    for (uint32_t i = 0; i < count; ++i) {
+        out << '|' << layout[i].semantic << ':' << layout[i].index << ':'
+            << static_cast<int>(layout[i].format) << ':' << layout[i].offset;
     }
-    return requested;
-}
-
-} // namespace
-
-ShaderManager& ShaderManager::Get() {
-    static ShaderManager g_Instance;
-    return g_Instance;
-}
-
-std::string ShaderManager::MakeKey(
-    const std::string& shaderPath,
-    const std::string& vsEntry,
-    const std::string& psEntry,
-    const VertexElement* layout,
-    uint32_t layoutCount) {
-    std::ostringstream oss;
-    oss << shaderPath << "|" << vsEntry << "|" << psEntry
-        << "|layout=" << reinterpret_cast<uintptr_t>(layout)
-        << "|count=" << layoutCount;
-    return oss.str();
+    return out.str();
 }
 
 std::shared_ptr<GpuShader> ShaderManager::CompileRecord(const ShaderRecord& rec) {
-    if (!m_Context) return nullptr;
-    const std::filesystem::path resolvedPath = ResolveShaderPath(rec.path);
-    const std::string resolvedPathString = resolvedPath.string();
-
+    if (!m_Context || !rec.asset.IsValid()) return {};
+    const ShaderAsset& asset = *rec.asset;
+    const RHIBackend activeBackend = m_Context->GetBackend();
+    const ShaderBackend backend = activeBackend == RHIBackend::D3D12
+        ? ShaderBackend::D3D12 : ShaderBackend::D3D11;
+    if (asset.IsCooked()) {
+        if (rec.compute) {
+            const auto& cs = asset.GetBytecode(backend, ShaderStage::Compute);
+            return cs.empty() ? nullptr : m_Context->CreateComputeShaderFromBytecode(cs.data(), cs.size());
+        }
+        const auto& vs = asset.GetBytecode(backend, ShaderStage::Vertex);
+        const auto& ps = asset.GetBytecode(backend, ShaderStage::Pixel);
+        if (vs.empty() || ps.empty()) return {};
+        return m_Context->CreateShaderFromBytecode(vs.data(), vs.size(), ps.data(), ps.size(),
+            rec.layout.data(), static_cast<uint32_t>(rec.layout.size()));
+    }
+    if (activeBackend != RHIBackend::D3D11 && activeBackend != RHIBackend::D3D12) {
+        if (rec.compute) return {};
+        std::ifstream input(asset.ResolveSource(ShaderStage::Vertex), std::ios::binary);
+        std::ostringstream source; source << input.rdbuf();
+        return input ? m_Context->CreateShader(source.str(), asset.GetStage(ShaderStage::Vertex).entry,
+            asset.GetStage(ShaderStage::Pixel).entry, rec.layout.data(), static_cast<uint32_t>(rec.layout.size())) : nullptr;
+    }
 #ifdef MYENGINE_PLATFORM_WINDOWS
-    if (m_Context->GetBackend() == RHIBackend::D3D11) {
-        D3D11CompiledShaderProgram program{};
-        if (!ShaderCompilerD3D11::CompileProgramFromFile(
-                resolvedPathString, rec.vsEntry, rec.psEntry, program)) {
-            return nullptr;
-        }
-        return m_Context->CreateShaderFromBytecode(
-            program.vsBytecode.data(), program.vsBytecode.size(),
-            program.psBytecode.data(), program.psBytecode.size(),
-            rec.layout, rec.layoutCount);
+    if (rec.compute) {
+        std::vector<unsigned char> cs;
+        const auto& stage = asset.GetStage(ShaderStage::Compute);
+        const char* profile = backend == ShaderBackend::D3D12 ? "cs_5_1" : "cs_5_0";
+        const bool ok = backend == ShaderBackend::D3D12
+            ? ShaderCompilerD3D12::CompileStageFromFile(asset.ResolveSource(ShaderStage::Compute).string(), stage.entry, profile, cs, asset.GetDefines())
+            : ShaderCompilerD3D11::CompileStageFromFile(asset.ResolveSource(ShaderStage::Compute).string(), stage.entry, profile, cs, asset.GetDefines());
+        return ok ? m_Context->CreateComputeShaderFromBytecode(cs.data(), cs.size()) : nullptr;
     }
-    if (m_Context->GetBackend() == RHIBackend::D3D12) {
-        D3D12CompiledShaderProgram program{};
-        if (!ShaderCompilerD3D12::CompileProgramFromFile(
-                resolvedPathString, rec.vsEntry, rec.psEntry, program)) {
-            return nullptr;
-        }
-        return m_Context->CreateShaderFromBytecode(
-            program.vsBytecode.data(), program.vsBytecode.size(),
-            program.psBytecode.data(), program.psBytecode.size(),
-            rec.layout, rec.layoutCount);
-    }
+    const auto& vsStage = asset.GetStage(ShaderStage::Vertex);
+    const auto& psStage = asset.GetStage(ShaderStage::Pixel);
+    std::vector<unsigned char> vs, ps;
+    const bool ok = backend == ShaderBackend::D3D12
+        ? ShaderCompilerD3D12::CompileStageFromFile(asset.ResolveSource(ShaderStage::Vertex).string(), vsStage.entry, "vs_5_1", vs, asset.GetDefines()) &&
+          ShaderCompilerD3D12::CompileStageFromFile(asset.ResolveSource(ShaderStage::Pixel).string(), psStage.entry, "ps_5_1", ps, asset.GetDefines())
+        : ShaderCompilerD3D11::CompileStageFromFile(asset.ResolveSource(ShaderStage::Vertex).string(), vsStage.entry, "vs_5_0", vs, asset.GetDefines()) &&
+          ShaderCompilerD3D11::CompileStageFromFile(asset.ResolveSource(ShaderStage::Pixel).string(), psStage.entry, "ps_5_0", ps, asset.GetDefines());
+    return ok ? m_Context->CreateShaderFromBytecode(vs.data(), vs.size(), ps.data(), ps.size(),
+        rec.layout.data(), static_cast<uint32_t>(rec.layout.size())) : nullptr;
+#else
+    if (rec.compute) return {};
+    std::ifstream input(asset.ResolveSource(ShaderStage::Vertex), std::ios::binary);
+    std::ostringstream source; source << input.rdbuf();
+    return input ? m_Context->CreateShader(source.str(), asset.GetStage(ShaderStage::Vertex).entry,
+        asset.GetStage(ShaderStage::Pixel).entry, rec.layout.data(), static_cast<uint32_t>(rec.layout.size())) : nullptr;
 #endif
-    std::ifstream input(resolvedPath, std::ios::binary);
-    if (!input.is_open()) return nullptr;
-    std::ostringstream source;
-    source << input.rdbuf();
-    return m_Context->CreateShader(
-        source.str(), rec.vsEntry, rec.psEntry, rec.layout, rec.layoutCount);
+}
+
+std::shared_ptr<ShaderHandle> ShaderManager::GetOrCreateInternal(
+    const std::string& path, const VertexElement* layout, uint32_t count, bool compute) {
+    auto asset = AssetManager::Get().Load<ShaderAsset>(path);
+    if (!asset.IsValid() || asset->IsCompute() != compute) {
+        Logger::Error("[ShaderManager] Invalid shader asset/type: ", path); return {};
+    }
+    const std::string key = MakeKey(*asset, layout, count, compute);
+    if (auto it = m_KeyToIndex.find(key); it != m_KeyToIndex.end()) return m_Records[it->second].handle;
+    ShaderRecord rec; rec.key = key; rec.path = path; rec.asset = asset; rec.compute = compute;
+    if (layout && count) rec.layout.assign(layout, layout + count);
+    rec.handle = std::make_shared<ShaderHandle>(); rec.handle->shader = CompileRecord(rec);
+    if (rec.handle->shader) ++rec.handle->version;
+    else Logger::Error("[ShaderManager] Initial compile failed: ", path);
+    const size_t index = m_Records.size(); m_Records.push_back(std::move(rec)); m_KeyToIndex[key] = index;
+    return m_Records.back().handle;
 }
 
 std::shared_ptr<ShaderHandle> ShaderManager::GetOrCreate(
-    const std::string& shaderPath,
-    const std::string& vsEntry,
-    const std::string& psEntry,
-    const VertexElement* layout,
-    uint32_t layoutCount) {
-    const std::string key = MakeKey(shaderPath, vsEntry, psEntry, layout, layoutCount);
-    auto it = m_KeyToIndex.find(key);
-    if (it != m_KeyToIndex.end()) {
-        return m_Records[it->second].handle;
-    }
-
-    ShaderRecord rec{};
-    rec.key = key;
-    rec.path = shaderPath;
-    rec.vsEntry = vsEntry;
-    rec.psEntry = psEntry;
-    rec.layout = layout;
-    rec.layoutCount = layoutCount;
-    rec.handle = std::make_shared<ShaderHandle>();
-
-    rec.handle->shader = CompileRecord(rec);
-    if (rec.handle->shader) {
-        rec.handle->version++;
-    } else {
-        Logger::Error("[ShaderCompileError] file=", shaderPath,
-            " entry=(vs:", vsEntry, " ps:", psEntry, ") message=initial compile failed");
-    }
-
-    const size_t idx = m_Records.size();
-    m_Records.push_back(rec);
-    m_KeyToIndex.emplace(key, idx);
-    return rec.handle;
+    const std::string& path, const VertexElement* layout, uint32_t count) {
+    return GetOrCreateInternal(path, layout, count, false);
+}
+std::shared_ptr<ShaderHandle> ShaderManager::GetOrCreateCompute(const std::string& path) {
+    return GetOrCreateInternal(path, nullptr, 0, true);
 }
 
-void ShaderManager::Recompile(const std::string& shaderPath) {
+void ShaderManager::Recompile(const std::string& path) {
+    if (!path.empty()) AssetManager::Get().Reload(path);
     for (auto& rec : m_Records) {
-        if (!shaderPath.empty() && rec.path != shaderPath) {
-            continue;
-        }
-        const auto newShader = CompileRecord(rec);
-        if (!newShader) {
-            Logger::Error("[ShaderCompileError] file=", rec.path,
-                " entry=(vs:", rec.vsEntry, " ps:", rec.psEntry,
-                ") message=recompile failed, kept previous GPU shader");
-            continue;
-        }
-        rec.handle->shader = newShader;
-        rec.handle->version++;
-        Logger::Info("[ShaderManager] Recompiled: ", rec.path);
+        if (!path.empty() && rec.path != path) continue;
+        if (path.empty()) AssetManager::Get().Reload(rec.path);
+        auto refreshed = AssetManager::Get().Load<ShaderAsset>(rec.path);
+        if (refreshed.IsValid()) rec.asset = refreshed;
+        auto shader = CompileRecord(rec);
+        if (!shader) { Logger::Error("[ShaderManager] Recompile failed; retained old shader: ", rec.path); continue; }
+        rec.handle->shader = std::move(shader); ++rec.handle->version;
     }
 }
-
-void ShaderManager::Clear() {
-    m_Records.clear();
-    m_KeyToIndex.clear();
-    m_Context = nullptr;
-}
+void ShaderManager::Clear() { m_Records.clear(); m_KeyToIndex.clear(); m_Context = nullptr; }

@@ -1,16 +1,17 @@
 #include "Project/ContentArchive.h"
+#include "Project/ContentPathPolicy.h"
+#include "Core/Sha256.h"
 
 #include <algorithm>
 #include <array>
 #include <fstream>
 #include <limits>
+#include <unordered_set>
 
 namespace fs = std::filesystem;
 
 namespace {
-constexpr std::array<char, 8> kMagic = {'M','E','P','A','K','0','1','\0'};
-constexpr uint64_t kFnvOffset = 14695981039346656037ull;
-constexpr uint64_t kFnvPrime = 1099511628211ull;
+constexpr std::array<char, 8> kMagic = {'M','E','P','A','K','0','2','\0'};
 
 void SetError(std::string* error, std::string message) {
     if (error) *error = std::move(message);
@@ -37,34 +38,10 @@ bool SafeRelativePath(const fs::path& path) {
     return true;
 }
 
-uint64_t HashBytes(const char* data, size_t size, uint64_t hash) {
-    for (size_t index = 0; index < size; ++index) {
-        hash ^= static_cast<unsigned char>(data[index]);
-        hash *= kFnvPrime;
-    }
-    return hash;
-}
 }
 
-uint64_t ContentArchive::HashFile(const fs::path& path, std::string* error) {
-    if (error) error->clear();
-    std::ifstream input(path, std::ios::binary);
-    if (!input) {
-        SetError(error, "failed to open file for hashing: " + path.string());
-        return 0;
-    }
-    std::array<char, 64 * 1024> buffer{};
-    uint64_t hash = kFnvOffset;
-    while (input) {
-        input.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
-        const auto count = static_cast<size_t>(input.gcount());
-        hash = HashBytes(buffer.data(), count, hash);
-    }
-    if (!input.eof()) {
-        SetError(error, "failed while hashing: " + path.string());
-        return 0;
-    }
-    return hash;
+std::string ContentArchive::HashFile(const fs::path& path, std::string* error) {
+    return Sha256::HashFile(path, error);
 }
 
 bool ContentArchive::Create(const fs::path& contentRoot, const fs::path& archivePath,
@@ -77,23 +54,10 @@ bool ContentArchive::Create(const fs::path& contentRoot, const fs::path& archive
         return false;
     }
 
+    std::vector<ContentFileInfo> contentFiles; uint64_t ignoredTotal=0;
+    if(!ContentPathPolicy::Enumerate(contentRoot,contentFiles,ignoredTotal,error)) return false;
     std::vector<std::pair<fs::path, fs::path>> files;
-    for (fs::recursive_directory_iterator it(contentRoot, ec), end; it != end && !ec; it.increment(ec)) {
-        if (!it->is_regular_file(ec) || ec) continue;
-        const fs::path relative = fs::relative(it->path(), contentRoot, ec);
-        if (ec || !SafeRelativePath(relative)) {
-            SetError(error, "invalid Content path: " + it->path().string());
-            return false;
-        }
-        files.emplace_back(relative, it->path());
-    }
-    if (ec) {
-        SetError(error, "failed to enumerate Content: " + ec.message());
-        return false;
-    }
-    std::sort(files.begin(), files.end(), [](const auto& left, const auto& right) {
-        return left.first.generic_string() < right.first.generic_string();
-    });
+    for(const auto& file:contentFiles) files.emplace_back(file.relative,file.absolute);
     if (files.size() > std::numeric_limits<uint32_t>::max()) {
         SetError(error, "too many files to cook");
         return false;
@@ -129,16 +93,18 @@ bool ContentArchive::Create(const fs::path& contentRoot, const fs::path& archive
             return false;
         }
         std::string hashError;
-        const uint64_t hash = HashFile(source, &hashError);
+        const std::string hash = HashFile(source, &hashError);
+        Sha256::Digest digest{};
         if (!hashError.empty()) {
             SetError(error, hashError);
             return false;
         }
-        if (!WriteValue(output, pathLength) || !WriteValue(output, size) ||
-            !WriteValue(output, hash)) {
+        if (!hashError.empty() || !Sha256::FromHex(hash,digest) ||
+            !WriteValue(output, pathLength) || !WriteValue(output, size)) {
             SetError(error, "failed to write archive entry header");
             return false;
         }
+        output.write(reinterpret_cast<const char*>(digest.data()),digest.size());
         output.write(storedPath.data(), static_cast<std::streamsize>(storedPath.size()));
         std::ifstream input(source, std::ios::binary);
         uint64_t remaining = size;
@@ -197,19 +163,24 @@ bool ContentArchive::Extract(const fs::path& archivePath, const fs::path& projec
         return false;
     }
     std::array<char, 64 * 1024> buffer{};
+    std::unordered_set<std::string> paths;
+    uint64_t totalBytes=0;
     for (uint32_t index = 0; index < fileCount; ++index) {
         uint32_t pathLength = 0;
         uint64_t size = 0;
-        uint64_t expectedHash = 0;
+        Sha256::Digest expectedHash{};
         if (!ReadValue(input, pathLength) || !ReadValue(input, size) ||
-            !ReadValue(input, expectedHash) || pathLength == 0 || pathLength > 1024 * 1024) {
+            !input.read(reinterpret_cast<char*>(expectedHash.data()),expectedHash.size()) ||
+            pathLength == 0 || pathLength > 1024 * 1024 ||
+            size > 4ull*1024*1024*1024 || size > 64ull*1024*1024*1024-totalBytes) {
             SetError(error, "invalid Content archive entry header");
             return false;
         }
         std::string storedPath(pathLength, '\0');
         input.read(storedPath.data(), static_cast<std::streamsize>(pathLength));
         const fs::path relative = fs::path(storedPath).lexically_normal();
-        if (!input.good() || !SafeRelativePath(relative)) {
+        if (!input.good() || !SafeRelativePath(relative) ||
+            !paths.insert(relative.generic_string()).second) {
             SetError(error, "unsafe Content archive entry path");
             return false;
         }
@@ -225,7 +196,7 @@ bool ContentArchive::Extract(const fs::path& archivePath, const fs::path& projec
             return false;
         }
         uint64_t remaining = size;
-        uint64_t actualHash = kFnvOffset;
+        Sha256 actualHash;
         while (remaining > 0) {
             const size_t request = static_cast<size_t>((std::min)(
                 remaining, static_cast<uint64_t>(buffer.size())));
@@ -233,13 +204,15 @@ bool ContentArchive::Extract(const fs::path& archivePath, const fs::path& projec
             const auto count = static_cast<size_t>(input.gcount());
             if (count == 0) break;
             output.write(buffer.data(), static_cast<std::streamsize>(count));
-            actualHash = HashBytes(buffer.data(), count, actualHash);
+            actualHash.Update(buffer.data(), count);
             remaining -= count;
         }
-        if (remaining != 0 || !output.good() || actualHash != expectedHash) {
+        if (remaining != 0 || !output.good() || actualHash.Final() != expectedHash) {
             SetError(error, "Content archive entry is truncated or corrupt: " + storedPath);
             return false;
         }
+        totalBytes += size;
     }
+    if(input.peek()!=std::char_traits<char>::eof()) { SetError(error,"Content archive contains trailing data"); return false; }
     return true;
 }

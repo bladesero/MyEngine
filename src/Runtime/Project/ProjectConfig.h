@@ -1,11 +1,13 @@
 #pragma once
 
+#include "Project/PublishTargets.h"
+
 #include <filesystem>
 #include <string>
 
 struct ProjectPublishSettings {
     std::string outputDirectory = "Builds";
-    std::string target = "windows-x64";
+    std::string target = PublishTargets::kDefaultTargetId;
 };
 
 class ProjectConfig {
@@ -28,6 +30,7 @@ public:
 
     int GetVersion() const { return m_Version; }
     const std::string& GetName() const { return m_Name; }
+    const std::string& GetProjectId() const { return m_ProjectId; }
     const std::string& GetStartupScene() const { return m_StartupScene; }
     const std::filesystem::path& GetRoot() const { return m_Root; }
     const std::filesystem::path& GetManifestPath() const { return m_ManifestPath; }
@@ -46,6 +49,7 @@ private:
     std::filesystem::path m_ManifestPath;
     int m_Version = kCurrentVersion;
     std::string m_Name = "MyEngine";
+    std::string m_ProjectId;
     std::string m_StartupScene;
     ProjectPublishSettings m_PublishSettings;
     bool m_HasManifest = false;

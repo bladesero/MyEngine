@@ -13,6 +13,10 @@ struct D3D11CompiledShaderProgram {
 
 class ShaderCompilerD3D11 {
 public:
+    static bool CompileStageFromFile(const std::string& filePath,
+        const std::string& entry, const char* profile,
+        std::vector<unsigned char>& outBytecode,
+        const std::vector<std::string>& defines = {});
     // Compile a shader file using D3DCompileFromFile (+ standard include handler).
     static bool CompileProgramFromFile(
         const std::string& filePath,
@@ -22,4 +26,3 @@ public:
 };
 
 #endif
-

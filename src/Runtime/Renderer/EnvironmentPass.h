@@ -40,8 +40,10 @@ private:
     std::shared_ptr<GpuShader> m_SHShader;
     std::shared_ptr<ShaderHandle> m_AtmosphereHandle;
     std::shared_ptr<ShaderHandle> m_MipmapHandle;
+    std::shared_ptr<ShaderHandle> m_SHHandle;
     uint64_t m_AtmosphereVersion = 0;
     uint64_t m_MipmapVersion = 0;
+    uint64_t m_SHVersion = 0;
     std::shared_ptr<GpuGraphicsPipeline> m_AtmospherePipeline;
     std::shared_ptr<GpuGraphicsPipeline> m_MipmapPipeline;
     std::shared_ptr<GpuComputePipeline> m_SHPipeline;

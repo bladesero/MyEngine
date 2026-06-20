@@ -2,6 +2,7 @@
 
 #include "Assets/Asset.h"
 #include "Assets/TextureAsset.h"
+#include "Assets/ShaderAsset.h"
 #include "Core/EngineMath.h"
 #include "Renderer/IRenderContext.h"
 #include <nlohmann/json.hpp>
@@ -92,7 +93,10 @@ public:
     // ---- GPU 着色器句柄（由渲染后端填写）----------------------------------
     void       SetShader(std::shared_ptr<GpuShader> shader) { m_Shader = std::move(shader); SetState(AssetState::Ready); }
     GpuShader* GetShader() const { return m_Shader.get(); }
+    const std::shared_ptr<GpuShader>& GetShaderHandle() const { return m_Shader; }
     bool       HasShader() const { return m_Shader != nullptr; }
+    void SetShaderAsset(ShaderAssetHandle shader) { m_ShaderAsset = std::move(shader); }
+    const ShaderAssetHandle& GetShaderAsset() const { return m_ShaderAsset; }
     void       MarkReady() { SetState(AssetState::Ready); }
 
     bool ReloadFrom(const Asset& source) override {
@@ -104,6 +108,8 @@ public:
         m_AlphaThreshold = material->m_AlphaThreshold;
         m_Textures = material->m_Textures;
         m_Params = material->m_Params;
+        m_ShaderAsset = material->m_ShaderAsset;
+        m_Shader = material->m_Shader;
         SetState(AssetState::Ready);
         return true;
     }
@@ -132,6 +138,7 @@ private:
     std::unordered_map<std::string, TextureHandle>   m_Textures;
     std::unordered_map<std::string, MaterialParam>   m_Params;
     std::shared_ptr<GpuShader>                       m_Shader;
+    ShaderAssetHandle                                m_ShaderAsset;
 };
 
 using MaterialHandle = AssetHandle<MaterialAsset>;

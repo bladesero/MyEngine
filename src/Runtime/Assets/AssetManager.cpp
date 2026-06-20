@@ -10,7 +10,7 @@ namespace {
 
 size_t TypeIndex(AssetType t) {
     const size_t i = static_cast<size_t>(t);
-    return i < 6 ? i : 0;
+    return i < 7 ? i : 0;
 }
 
 size_t EstimateAssetCpuBytes(const Asset& a) {
@@ -43,6 +43,15 @@ size_t EstimateAssetCpuBytes(const Asset& a) {
             size_t n = 2048 + mod.GetNodes().size() * 128;
             n += static_cast<size_t>(std::max(0, mod.MaterialCount())) * 512;
             return n;
+        }
+        case AssetType::Shader: {
+            const auto& shader = static_cast<const ShaderAsset&>(a);
+            size_t bytes = 512;
+            for (size_t backend = 0; backend < 2; ++backend)
+                for (size_t stage = 0; stage < 3; ++stage)
+                    bytes += shader.GetBytecode(static_cast<ShaderBackend>(backend),
+                                                static_cast<ShaderStage>(stage)).size();
+            return bytes;
         }
         default:
             return 256;
@@ -156,7 +165,11 @@ std::string AssetManager::ResolvePath(const std::string& path) const {
         ? std::string{} : path.substr(fragmentPosition);
     const std::filesystem::path input(sourcePath);
     std::filesystem::path resolved;
-    if (input.is_absolute() || m_ProjectRoot.empty()) {
+    const std::string generic = input.generic_string();
+    if (!m_EngineContentRoot.empty() && generic.rfind("Content/Engine/", 0) == 0) {
+        resolved = std::filesystem::absolute(
+            m_EngineContentRoot / std::filesystem::path(generic.substr(15))).lexically_normal();
+    } else if (input.is_absolute() || m_ProjectRoot.empty()) {
         resolved = std::filesystem::absolute(input).lexically_normal();
     } else {
         resolved = std::filesystem::absolute(m_ProjectRoot / input).lexically_normal();
@@ -177,6 +190,15 @@ std::string AssetManager::MakeProjectRelativePath(const std::string& path) const
         ? std::string{} : resolvedPath.substr(fragmentPosition);
     const std::filesystem::path absolutePath(sourcePath);
     std::error_code error;
+    if (!m_EngineContentRoot.empty()) {
+        const auto engineRelative = std::filesystem::relative(
+            absolutePath, m_EngineContentRoot, error);
+        if (!error && !engineRelative.empty() && !engineRelative.is_absolute() &&
+            *engineRelative.begin() != "..") {
+            return (std::filesystem::path("Content/Engine") / engineRelative).generic_string() + fragment;
+        }
+        error.clear();
+    }
     const std::filesystem::path contentRoot = m_ProjectRoot / "Content";
     const std::filesystem::path contentRelative =
         std::filesystem::relative(absolutePath, contentRoot, error);
@@ -406,6 +428,7 @@ void AssetManager::RefreshDependencies(Asset& asset)
             (void)slot;
             if (texture) dependencies.push_back(texture->GetID());
         }
+        if (material.GetShaderAsset()) dependencies.push_back(material.GetShaderAsset()->GetID());
     } else if (asset.GetType() == AssetType::Model) {
         const auto& model = static_cast<const ModelAsset&>(asset);
         if (model.GetMesh()) dependencies.push_back(model.GetMesh()->GetID());
@@ -421,6 +444,18 @@ void AssetManager::RefreshDependencies(Asset& asset)
 }
 
 AssetManager::AssetManager() {
+    std::filesystem::path cursor = std::filesystem::current_path();
+    while (!cursor.empty()) {
+        const auto candidate = cursor / "EngineContent";
+        std::error_code ec;
+        if (std::filesystem::is_directory(candidate, ec) && !ec) {
+            m_EngineContentRoot = std::filesystem::absolute(candidate).lexically_normal();
+            break;
+        }
+        const auto parent = cursor.parent_path();
+        if (parent == cursor) break;
+        cursor = parent;
+    }
     RegisterDefaultLoaders();
 }
 
@@ -454,6 +489,9 @@ void AssetManager::RegisterDefaultLoaders() {
     RegisterLoader("glb", gltfLoader);
     RegisterLoader("mat", [](const std::string& path) -> std::shared_ptr<Asset> {
         return std::static_pointer_cast<Asset>(LoadMaterialAssetFromFile(path));
+    });
+    RegisterLoader("shader", [](const std::string& path) -> std::shared_ptr<Asset> {
+        return std::static_pointer_cast<Asset>(LoadShaderAssetFromFile(path));
     });
 }
 

@@ -19,7 +19,6 @@
 #include <vector>
 
 #ifdef MYENGINE_PLATFORM_WINDOWS
-#include "ShaderBytecodeWindows.h"
 #endif
 
 namespace {
@@ -364,8 +363,7 @@ GpuShader* MainPass::GetOrCreateShader()
     if (supportsWindowsPbr) {
         if (!m_MainShaderHandle) {
             m_MainShaderHandle = ShaderManager::Get().GetOrCreate(
-                "src/Runtime/Renderer/Shaders/ShadowedMainPass.hlsl",
-                "VSMain", "PSMain",
+                "Content/Engine/Shaders/ShadowedMainPass.shader",
                 k_MeshVertexLayout, k_MeshVertexLayoutCount);
             m_ShaderMode = ShaderMode::ShadowedPbr;
         }
@@ -373,16 +371,14 @@ GpuShader* MainPass::GetOrCreateShader()
             m_ShaderMode == ShaderMode::ShadowedPbr) {
             Logger::Warn("[MainPass] PBR shader failed; fallback to legacy shader");
             m_MainShaderHandle = ShaderManager::Get().GetOrCreate(
-                "src/Runtime/Renderer/Shaders/Mesh.hlsl",
-                "VSMain", "PSMain",
+                "Content/Engine/Shaders/Mesh.shader",
                 k_MeshVertexLayout, k_MeshVertexLayoutCount);
             m_ShaderMode = ShaderMode::Legacy;
         }
     } else {
         if (!m_MainShaderHandle) {
             m_MainShaderHandle = ShaderManager::Get().GetOrCreate(
-                "src/Runtime/Renderer/Shaders/Mesh.hlsl",
-                "VSMain", "PSMain",
+                "Content/Engine/Shaders/Mesh.shader",
                 k_MeshVertexLayout, k_MeshVertexLayoutCount);
             m_ShaderMode = ShaderMode::Legacy;
         }
@@ -399,11 +395,89 @@ GpuShader* MainPass::GetOrCreateShader()
     if (!m_MainShaderHandle) return nullptr;
     if (m_MainShaderVersion != m_MainShaderHandle->version) {
         m_MainShaderVersion = m_MainShaderHandle->version;
+        for (auto& pipeline : m_MainPipelines) pipeline.reset();
     }
     if (m_MainShaderHandle->shader && m_ShaderMode == ShaderMode::Unknown) {
         m_ShaderMode = ShaderMode::Legacy;
     }
     return m_MainShaderHandle->shader.get();
+}
+
+void MainPass::SetHdrPassthrough(bool passthrough)
+{
+    if (m_HdrPassthrough == passthrough) return;
+    m_HdrPassthrough = passthrough;
+    for (auto& pipeline : m_MainPipelines) pipeline.reset();
+    m_SkyPipeline.reset();
+}
+
+GpuGraphicsPipeline* MainPass::GetOrCreateMainPipeline(
+    bool transparent, bool twoSided, bool wireframe)
+{
+    if (!Context() || !m_MainShaderHandle || !m_MainShaderHandle->shader) return nullptr;
+    const size_t index = (transparent ? 1u : 0u) |
+                         (twoSided ? 2u : 0u) |
+                         (wireframe ? 4u : 0u);
+    auto& pipeline = m_MainPipelines[index];
+    if (!pipeline) {
+        GraphicsPipelineDesc desc;
+        desc.shader = m_MainShaderHandle->shader;
+        desc.colorFormats = {m_HdrPassthrough ? RHIFormat::RGBA16Float
+                                               : RHIFormat::RGBA8UNorm};
+        desc.depthFormat = RHIFormat::D24S8;
+        desc.rasterizer.cullMode = twoSided ? RHICullMode::None : RHICullMode::Back;
+        desc.rasterizer.fillMode = wireframe ? RHIFillMode::Wireframe : RHIFillMode::Solid;
+        desc.blend.attachments[0].blendEnable = transparent;
+        pipeline = Context()->CreateGraphicsPipeline(desc);
+    }
+    return pipeline.get();
+}
+
+GpuGraphicsPipeline* MainPass::GetOrCreateMaterialPipeline(const MaterialAsset& material)
+{
+    if (!Context() || !material.GetShader()) return nullptr;
+    auto& pipeline = m_MaterialPipelines[&material];
+    const bool transparent = material.GetBlendMode() == BlendMode::Transparent;
+    const RHICullMode cull = material.IsTwoSided() ? RHICullMode::None : RHICullMode::Back;
+    const RHIFillMode fill = material.IsWireframe() ? RHIFillMode::Wireframe : RHIFillMode::Solid;
+    const RHIFormat colorFormat = m_HdrPassthrough ? RHIFormat::RGBA16Float
+                                                    : RHIFormat::RGBA8UNorm;
+    if (!pipeline || pipeline->desc.shader.get() != material.GetShader() ||
+        pipeline->desc.colorFormats.empty() || pipeline->desc.colorFormats[0] != colorFormat ||
+        pipeline->desc.rasterizer.cullMode != cull ||
+        pipeline->desc.rasterizer.fillMode != fill ||
+        pipeline->desc.blend.attachments[0].blendEnable != transparent) {
+        GraphicsPipelineDesc desc;
+        desc.shader = material.GetShaderHandle();
+        desc.colorFormats = {colorFormat};
+        desc.depthFormat = RHIFormat::D24S8;
+        desc.rasterizer.cullMode = cull;
+        desc.rasterizer.fillMode = fill;
+        desc.blend.attachments[0].blendEnable = transparent;
+        pipeline = Context()->CreateGraphicsPipeline(desc);
+    }
+    return pipeline.get();
+}
+
+GpuGraphicsPipeline* MainPass::GetOrCreateSkyPipeline()
+{
+    if (!Context() || !m_SkyShaderHandle || !m_SkyShaderHandle->shader) return nullptr;
+    if (m_SkyShaderVersion != m_SkyShaderHandle->version) {
+        m_SkyShaderVersion = m_SkyShaderHandle->version;
+        m_SkyPipeline.reset();
+    }
+    if (!m_SkyPipeline) {
+        GraphicsPipelineDesc desc;
+        desc.shader = m_SkyShaderHandle->shader;
+        desc.colorFormats = {m_HdrPassthrough ? RHIFormat::RGBA16Float
+                                               : RHIFormat::RGBA8UNorm};
+        desc.depthFormat = RHIFormat::D24S8;
+        desc.depthStencil.depthTestEnable = false;
+        desc.depthStencil.depthWriteEnable = false;
+        desc.rasterizer.cullMode = RHICullMode::None;
+        m_SkyPipeline = Context()->CreateGraphicsPipeline(desc);
+    }
+    return m_SkyPipeline.get();
 }
 
 GpuShader* MainPass::GetOrCreateSkyShader()
@@ -412,8 +486,7 @@ GpuShader* MainPass::GetOrCreateSkyShader()
     ShaderManager::Get().SetContext(Context());
     if (!m_SkyShaderHandle) {
         m_SkyShaderHandle = ShaderManager::Get().GetOrCreate(
-            "src/Runtime/Renderer/Shaders/ProceduralSky.hlsl",
-            "VSMain", "PSMain", nullptr, 0);
+            "Content/Engine/Shaders/ProceduralSky.shader", nullptr, 0);
     }
     return m_SkyShaderHandle ? m_SkyShaderHandle->shader.get() : nullptr;
 }
@@ -440,8 +513,9 @@ void MainPass::RenderSky(const Camera& camera, GpuCommandList& cmd)
     constants.parameters[2] = 1.0f;
     constants.parameters[3] = 1.0f;
 
-    cmd.BindShader(skyShader);
-    cmd.SetBlendMode(GpuBlendMode::Opaque);
+    GpuGraphicsPipeline* skyPipeline = GetOrCreateSkyPipeline();
+    if (!skyPipeline) return;
+    cmd.SetGraphicsPipeline(skyPipeline);
     cmd.BindVertexBuffer(nullptr);
     cmd.BindIndexBuffer(nullptr);
     auto bindings = Context()->CreateBindGroup(
@@ -466,7 +540,6 @@ void MainPass::Execute(const Scene& scene, const Camera& camera)
     const SceneLightData sceneLights = CollectSceneLights(scene);
     const ScenePostProcessData postProcess = CollectPostProcess(scene);
     RenderSky(camera, *cmd);
-    cmd->BindShader(shader);
 
     std::vector<RenderItem> opaqueItems;
     std::vector<RenderItem> transparentItems;
@@ -524,19 +597,30 @@ void MainPass::Execute(const Scene& scene, const Camera& camera)
         Actor& actor = *item.actor;
         MeshAsset* mesh = item.mesh;
         MaterialAsset* mat = item.material;
-        cmd->SetBlendMode(mat->GetBlendMode() == BlendMode::Transparent
-            ? GpuBlendMode::Alpha : GpuBlendMode::Opaque);
-        cmd->SetRasterState(mat->IsTwoSided(), mat->IsWireframe());
-
+        if (mat->GetShaderAsset().IsValid()) {
+            auto custom = ShaderManager::Get().GetOrCreate(
+                mat->GetShaderAsset()->GetPath(), k_MeshVertexLayout, k_MeshVertexLayoutCount);
+            if (custom && custom->shader) mat->SetShader(custom->shader);
+        }
         EnsureMeshUploaded(mesh);
-        if (!mesh->GetVertexBuffer()) continue;
+        if (!mesh->GetVertexBuffer()) { itemIndex += instanceCount; continue; }
 
         GpuShader* drawShader = shader;
         if (mat->HasShader()) {
             drawShader = mat->GetShader();
         }
         if (drawShader) {
-            cmd->BindShader(drawShader);
+            if (drawShader == shader) {
+                auto* pipeline = GetOrCreateMainPipeline(
+                    mat->GetBlendMode() == BlendMode::Transparent,
+                    mat->IsTwoSided(), mat->IsWireframe());
+                if (!pipeline) { itemIndex += instanceCount; continue; }
+                cmd->SetGraphicsPipeline(pipeline);
+            } else {
+                auto* pipeline = GetOrCreateMaterialPipeline(*mat);
+                if (!pipeline) { itemIndex += instanceCount; continue; }
+                cmd->SetGraphicsPipeline(pipeline);
+            }
         }
 
             const Mat4 world = actor.GetWorldMatrix();

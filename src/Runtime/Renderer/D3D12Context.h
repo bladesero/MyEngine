@@ -46,6 +46,7 @@ struct D3D12Shader : GpuShader {
     ComPtr<ID3D12RootSignature> computeRootSignature;
     ComPtr<ID3D12PipelineState> computePipelineState;
     std::shared_ptr<D3D12DeferredReleaseQueue> deferredReleaseQueue;
+    bool hasBindlessTable = false;
 };
 
 struct D3D12GraphicsPipeline : GpuGraphicsPipeline {
@@ -131,6 +132,7 @@ public:
     const std::string& GetLastDeviceError() const override { return m_LastDeviceError; }
     GpuSwapChain* GetSwapChain() override;
     GpuCommandList* GetGraphicsCommandList() override;
+    GpuQueue* GetGraphicsQueue() override { return m_GraphicsQueue.get(); }
     GpuTextureView* GetCurrentBackBufferView() override {
         return m_BackBufferViews[m_RenderFrameIndex].get();
     }
@@ -178,17 +180,28 @@ public:
                        uint32_t startVertex = 0);
     void DrawIndexedInstanced(uint32_t indexCount, uint32_t instanceCount,
                               uint32_t startIndex = 0, uint32_t baseVertex = 0);
+    void DrawIndirect(GpuBuffer* arguments, uint64_t offset, bool indexed);
 
     void SetViewport(float x, float y, float w, float h);
 
     std::shared_ptr<GpuTexture> UploadTexture2D(
         const void* rgba8Data, int width, int height) override;
+    bool UpdateBuffer(const std::shared_ptr<GpuBuffer>&, uint64_t,
+                      const void*, uint64_t) override;
+    std::shared_ptr<GpuTexture> UploadTexture(
+        const RHITextureDesc&, const RHITextureSubresourceData*, uint32_t) override;
+    RHIDeviceCapabilities GetCapabilities() const override;
+    bool IsFormatSupported(RHIFormat, RHIResourceUsage) const override;
+    std::shared_ptr<GpuFence> CreateFence(uint64_t initialValue = 0) override;
+    std::shared_ptr<GpuTimestampQueryPool> CreateTimestampQueryPool(uint32_t count) override;
     std::shared_ptr<GpuTexture> CreateTexture(const RHITextureDesc& desc) override;
     std::shared_ptr<GpuTextureView> CreateTextureView(
         const std::shared_ptr<GpuTexture>& texture, const RHITextureViewDesc& desc) override;
     std::shared_ptr<GpuSampler> CreateSampler(const RHISamplerDesc& desc) override;
     std::shared_ptr<GpuReadbackTicket> ReadbackBufferAsync(
         const std::shared_ptr<GpuBuffer>& buffer) override;
+    std::shared_ptr<GpuTextureReadbackTicket> ReadbackTextureAsync(
+        const std::shared_ptr<GpuTexture>&, const RHITextureRegion&) override;
     void BindPSTexture(uint32_t slot, GpuTexture* tex);
     void SetBlendMode(GpuBlendMode mode);
 
@@ -197,6 +210,8 @@ public:
 
     void PushRenderTarget(const D3D12_CPU_DESCRIPTOR_HANDLE* colorRtv,
                           D3D12_CPU_DESCRIPTOR_HANDLE depthDsv);
+    void PushRenderTargets(uint32_t colorCount, const D3D12_CPU_DESCRIPTOR_HANDLE* colorRtvs,
+                           D3D12_CPU_DESCRIPTOR_HANDLE depthDsv);
     void PopRenderTarget();
 
     void BindDepthOnlyShader(GpuShader* shader);
@@ -313,6 +328,8 @@ private:
 
     ComPtr<ID3D12Device>              m_Device;
     ComPtr<ID3D12CommandQueue>       m_CommandQueue;
+    ComPtr<ID3D12CommandSignature>   m_DrawIndirectSignature;
+    ComPtr<ID3D12CommandSignature>   m_DrawIndexedIndirectSignature;
     ComPtr<IDXGISwapChain3>          m_SwapChain;
     ComPtr<ID3D12GraphicsCommandList> m_CommandList;
 
@@ -364,6 +381,7 @@ private:
     bool                             m_HasViewport = false;
     std::unique_ptr<GpuSwapChain>    m_SwapChainInterface;
     std::unique_ptr<GpuCommandList>  m_GraphicsCommandList;
+    std::shared_ptr<GpuQueue>        m_GraphicsQueue;
     D3D12Shader*                     m_BoundShader = nullptr;
     GpuBlendMode                     m_BlendMode = GpuBlendMode::Opaque;
     RenderTargetBinding              m_CurrentRenderTarget;

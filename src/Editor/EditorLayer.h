@@ -25,11 +25,23 @@ class EditorPanel;
 class Engine;
 class IWindow;
 class SceneRenderLayer;
+struct PublishReport;
+
+struct EditorAutomationConfig {
+    std::filesystem::path createProjectRoot;
+    std::string projectName;
+    bool publishProject = false;
+
+    bool Enabled() const {
+        return !createProjectRoot.empty() || publishProject;
+    }
+};
 
 class EditorLayer final : public Layer {
 public:
     EditorLayer(SceneRenderLayer* sceneLayer, IWindow* window, Engine* engine,
-                std::filesystem::path initialProject = {});
+                std::filesystem::path initialProject = {},
+                EditorAutomationConfig automation = {});
     void OnAttach() override;
     void OnDetach() override;
     void OnUpdate(float deltaSeconds) override;
@@ -52,6 +64,11 @@ private:
     void ImportAssetDialog();
     void SetStartupScene();
     void PublishProject();
+    bool PublishProjectInternal(PublishReport* report = nullptr,
+                                std::string* error = nullptr,
+                                bool showResult = true);
+    void RunAutomation();
+    void FailAutomation(const std::string& message);
 
     SceneRenderLayer* m_SceneLayer = nullptr;
     IWindow* m_Window = nullptr;
@@ -72,6 +89,7 @@ private:
     std::unique_ptr<EditorImGuiBackend> m_ImGuiBackend;
     std::unique_ptr<IPlatformEventBridge> m_ImGuiEventBridge;
     std::filesystem::path m_InitialProject;
+    EditorAutomationConfig m_Automation;
     std::array<char, 1024> m_ProjectPath{};
     std::array<char, 128> m_ProjectName{};
     std::array<char, 1024> m_PublishOutput{};
@@ -81,6 +99,7 @@ private:
     bool m_ProjectResultRequested = false;
     bool m_ProjectResultIsError = false;
     bool m_ProjectOpen = false;
+    bool m_AutomationPending = false;
     bool m_ServicesRegistered = false;
     bool m_ImGuiReady = false;
 };

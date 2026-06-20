@@ -4,10 +4,12 @@
 #include "Core/EngineMath.h"
 
 #include <memory>
+#include <array>
 #include <unordered_map>
 
 class TextureAsset;
 class MeshAsset;
+class MaterialAsset;
 struct ShaderHandle;
 
 class MainPass final : public RenderPass {
@@ -18,7 +20,7 @@ public:
     void Resize(uint32_t width, uint32_t height) override;
 
 
-    void SetHdrPassthrough(bool passthrough) { m_HdrPassthrough = passthrough; }
+    void SetHdrPassthrough(bool passthrough);
     void SetShadowInput(const Mat4& lightViewProj,
                         const Vec3& lightDirection,
                         bool directionalShadowEnabled,
@@ -52,6 +54,11 @@ private:
     void EnsureNamedBindingDefaults();
     GpuShader* GetOrCreateShader();
     GpuShader* GetOrCreateSkyShader();
+    GpuGraphicsPipeline* GetOrCreateMainPipeline(bool transparent,
+                                                 bool twoSided,
+                                                 bool wireframe);
+    GpuGraphicsPipeline* GetOrCreateMaterialPipeline(const MaterialAsset& material);
+    GpuGraphicsPipeline* GetOrCreateSkyPipeline();
     void RenderSky(const Camera& camera, GpuCommandList& cmd);
 
 private:
@@ -61,7 +68,11 @@ private:
     std::shared_ptr<ShaderHandle> m_MainShaderHandle;
     bool m_HdrPassthrough = true;
     std::shared_ptr<ShaderHandle> m_SkyShaderHandle;
+    std::array<std::shared_ptr<GpuGraphicsPipeline>, 8> m_MainPipelines;
+    std::unordered_map<const MaterialAsset*, std::shared_ptr<GpuGraphicsPipeline>> m_MaterialPipelines;
+    std::shared_ptr<GpuGraphicsPipeline> m_SkyPipeline;
     uint64_t m_MainShaderVersion = 0;
+    uint64_t m_SkyShaderVersion = 0;
     std::unordered_map<TextureAsset*, std::shared_ptr<GpuTexture>> m_TexCache;
     std::unordered_map<GpuTexture*, std::shared_ptr<GpuTextureView>> m_TextureViews;
     std::shared_ptr<GpuTexture> m_DefaultTexture;

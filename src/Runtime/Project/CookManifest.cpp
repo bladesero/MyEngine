@@ -1,4 +1,6 @@
 #include "Project/CookManifest.h"
+#include "Project/RuntimeCompatibility.h"
+#include "Core/Sha256.h"
 
 #include <fstream>
 #include <limits>
@@ -35,7 +37,18 @@ bool CookManifest::Validate(std::string* error) const {
         SetError(error, "Cook manifest project must not be empty");
         return false;
     }
-    if (target != "windows-x64") {
+    Sha256::Digest digest{};
+    if(projectId.empty() || engineVersion.empty() || buildId.empty() || configuration.empty() ||
+       contentSchemaVersion!=RuntimeCompatibility::kContentSchemaVersion ||
+       archiveFormatVersion!=RuntimeCompatibility::kArchiveFormatVersion ||
+       hashAlgorithm!="sha256" || !Sha256::FromHex(archiveHash,digest) ||
+       !Sha256::FromHex(runtimeDependenciesHash,digest)) {
+        SetError(error,"Cook manifest compatibility contract is invalid"); return false;
+    }
+    if(requiredBackends != std::vector<std::string>{"d3d11","d3d12"}) {
+        SetError(error,"Cook manifest requiredBackends must be d3d11,d3d12"); return false;
+    }
+    if (!PublishTargets::IsSupported(target)) {
         SetError(error, "unsupported Cook target: " + target);
         return false;
     }
@@ -56,7 +69,9 @@ bool CookManifest::Validate(std::string* error) const {
     bool hasStartupScene = false;
     std::unordered_set<std::string> paths;
     for (const auto& file : files) {
-        if (!SafeContentPath(file.path) || !paths.insert(file.path).second) {
+        Sha256::Digest fileDigest{};
+        if (!SafeContentPath(file.path) || !paths.insert(file.path).second ||
+            !Sha256::FromHex(file.hash,fileDigest)) {
             SetError(error, "Cook manifest contains an unsafe or duplicate path: " + file.path);
             return false;
         }
@@ -91,6 +106,10 @@ bool CookManifest::Save(const fs::path& path, std::string* error) const {
         const nlohmann::json json = {
             {"version", version},
             {"project", project},
+            {"projectId",projectId},{"engineVersion",engineVersion},{"buildId",buildId},
+            {"contentSchemaVersion",contentSchemaVersion},{"archiveFormatVersion",archiveFormatVersion},
+            {"hashAlgorithm",hashAlgorithm},{"configuration",configuration},
+            {"requiredBackends",requiredBackends},{"runtimeDependenciesHash",runtimeDependenciesHash},
             {"target", target},
             {"startupScene", startupScene},
             {"archive", archive},
@@ -134,10 +153,19 @@ bool CookManifest::Load(const fs::path& path, CookManifest& manifest,
         CookManifest loaded;
         loaded.version = json.value("version", 0);
         loaded.project = json.value("project", std::string{});
+        loaded.projectId=json.value("projectId",std::string{});
+        loaded.engineVersion=json.value("engineVersion",std::string{});
+        loaded.buildId=json.value("buildId",std::string{});
+        loaded.contentSchemaVersion=json.value("contentSchemaVersion",0);
+        loaded.archiveFormatVersion=json.value("archiveFormatVersion",0);
+        loaded.hashAlgorithm=json.value("hashAlgorithm",std::string{});
+        loaded.configuration=json.value("configuration",std::string{});
+        loaded.requiredBackends=json.value("requiredBackends",std::vector<std::string>{});
+        loaded.runtimeDependenciesHash=json.value("runtimeDependenciesHash",std::string{});
         loaded.target = json.value("target", std::string{});
         loaded.startupScene = json.value("startupScene", std::string{});
         loaded.archive = json.value("archive", std::string{});
-        loaded.archiveHash = json.value("archiveHash", uint64_t{0});
+        loaded.archiveHash = json.value("archiveHash", std::string{});
         loaded.contentBytes = json.value("contentBytes", uint64_t{0});
         const auto files = json.find("files");
         if (files == json.end() || !files->is_array()) {
@@ -152,7 +180,7 @@ bool CookManifest::Load(const fs::path& path, CookManifest& manifest,
             loaded.files.push_back({
                 item.value("path", std::string{}),
                 item.value("size", uint64_t{0}),
-                item.value("hash", uint64_t{0}),
+                item.value("hash", std::string{}),
             });
         }
         if (!loaded.Validate(error)) return false;

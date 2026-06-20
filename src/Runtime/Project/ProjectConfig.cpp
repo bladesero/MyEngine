@@ -1,4 +1,5 @@
 #include "Project/ProjectConfig.h"
+#include "Core/Sha256.h"
 
 #include <fstream>
 #include <nlohmann/json.hpp>
@@ -37,6 +38,7 @@ bool ProjectConfig::Open(fs::path projectRoot, bool allowMissing, std::string* e
     m_ManifestPath = m_Root / kFileName;
     m_Version = kCurrentVersion;
     m_Name = m_Root.filename().string();
+    m_ProjectId.clear();
     if (m_Name.empty()) m_Name = "MyEngine";
     m_StartupScene.clear();
     m_PublishSettings = {};
@@ -62,12 +64,13 @@ bool ProjectConfig::Open(fs::path projectRoot, bool allowMissing, std::string* e
         m_Version = json.value("version", 0);
         m_Name = json.value("name", std::string{});
         m_StartupScene = json.value("startupScene", std::string{});
+        m_ProjectId = json.value("projectId", std::string{});
         if (const auto publish = json.find("publish");
             publish != json.end() && publish->is_object()) {
             m_PublishSettings.outputDirectory =
                 publish->value("outputDirectory", std::string{"Builds"});
             m_PublishSettings.target =
-                publish->value("target", std::string{"windows-x64"});
+                publish->value("target", std::string{PublishTargets::kDefaultTargetId});
         }
     }
     catch (const std::exception& exception) {
@@ -83,11 +86,15 @@ bool ProjectConfig::Open(fs::path projectRoot, bool allowMissing, std::string* e
         SetError(error, "project name must not be empty");
         return false;
     }
+    if (m_ProjectId.empty()) {
+        Sha256 hash; const std::string identity=m_Name+"|"+m_StartupScene;
+        hash.Update(identity.data(),identity.size()); m_ProjectId=Sha256::ToHex(hash.Final());
+    }
     if (m_PublishSettings.outputDirectory.empty()) {
         SetError(error, "publish outputDirectory must not be empty");
         return false;
     }
-    if (m_PublishSettings.target != "windows-x64") {
+    if (!PublishTargets::IsSupported(m_PublishSettings.target)) {
         SetError(error, "unsupported publish target: " + m_PublishSettings.target);
         return false;
     }
@@ -113,7 +120,7 @@ bool ProjectConfig::Save(std::string* error)
         SetError(error, "publish outputDirectory must not be empty");
         return false;
     }
-    if (m_PublishSettings.target != "windows-x64") {
+    if (!PublishTargets::IsSupported(m_PublishSettings.target)) {
         SetError(error, "unsupported publish target: " + m_PublishSettings.target);
         return false;
     }
@@ -126,6 +133,7 @@ bool ProjectConfig::Save(std::string* error)
         nlohmann::json json;
         json["version"] = kCurrentVersion;
         json["name"] = m_Name;
+        json["projectId"] = m_ProjectId;
         json["startupScene"] = m_StartupScene;
         json["publish"] = {
             {"outputDirectory", m_PublishSettings.outputDirectory},

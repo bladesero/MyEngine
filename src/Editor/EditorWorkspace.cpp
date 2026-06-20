@@ -1,6 +1,7 @@
 #include "Editor/EditorWorkspace.h"
 
 #include "Project/ProjectConfig.h"
+#include "Project/PublishTargets.h"
 
 #include <algorithm>
 #include <cstdlib>
@@ -12,6 +13,64 @@ namespace fs = std::filesystem;
 namespace {
 void SetError(std::string* error, std::string message) {
     if (error) *error = std::move(message);
+}
+
+fs::path FindTemplateRootFromCurrentPath() {
+    fs::path cursor = fs::current_path();
+    while (!cursor.empty()) {
+        const fs::path candidate = cursor / "ProjectTemplates" / "Default";
+        std::error_code ec;
+        if (fs::is_directory(candidate, ec) && !ec) {
+            return fs::absolute(candidate).lexically_normal();
+        }
+        const fs::path parent = cursor.parent_path();
+        if (parent == cursor) break;
+        cursor = parent;
+    }
+    return {};
+}
+
+bool CopyTemplateTree(const fs::path& source, const fs::path& destination,
+                      std::string* error) {
+    std::error_code ec;
+    if (!fs::is_directory(source, ec) || ec) {
+        SetError(error, "project template root is missing: " + source.string());
+        return false;
+    }
+    for (fs::recursive_directory_iterator it(source, fs::directory_options::skip_permission_denied, ec), end;
+         it != end && !ec; it.increment(ec)) {
+        const fs::path relative = fs::relative(it->path(), source, ec);
+        if (ec) {
+            SetError(error, "failed to enumerate project template: " + source.string());
+            return false;
+        }
+        const fs::path target = destination / relative;
+        if (it->is_directory(ec)) {
+            fs::create_directories(target, ec);
+            if (ec) {
+                SetError(error, "failed to create template directory: " + target.string());
+                return false;
+            }
+            continue;
+        }
+        if (ec || !it->is_regular_file(ec)) continue;
+        if (target.filename() == ProjectConfig::kFileName) continue;
+        fs::create_directories(target.parent_path(), ec);
+        if (ec) {
+            SetError(error, "failed to create template directory: " + target.parent_path().string());
+            return false;
+        }
+        fs::copy_file(it->path(), target, fs::copy_options::overwrite_existing, ec);
+        if (ec) {
+            SetError(error, "failed to copy template file: " + it->path().string());
+            return false;
+        }
+    }
+    if (ec) {
+        SetError(error, "failed to enumerate project template: " + source.string());
+        return false;
+    }
+    return true;
 }
 }
 
@@ -28,8 +87,11 @@ fs::path EditorWorkspace::DefaultSettingsPath() {
     return fs::temp_directory_path() / "MyEngine" / "workspace.json";
 }
 
-EditorWorkspace::EditorWorkspace(fs::path settingsPath)
-    : m_SettingsPath(settingsPath.empty() ? DefaultSettingsPath() : std::move(settingsPath)) {}
+EditorWorkspace::EditorWorkspace(fs::path settingsPath, fs::path templateRoot)
+    : m_SettingsPath(settingsPath.empty() ? DefaultSettingsPath() : std::move(settingsPath))
+    , m_TemplateRoot(templateRoot.empty()
+          ? FindTemplateRootFromCurrentPath()
+          : fs::absolute(std::move(templateRoot)).lexically_normal()) {}
 
 bool EditorWorkspace::Load(std::string* error) {
     if (error) error->clear();
@@ -96,6 +158,16 @@ void EditorWorkspace::AddRecentProject(const fs::path& projectRoot) {
     if (m_RecentProjects.size() > 10) m_RecentProjects.resize(10);
 }
 
+void EditorWorkspace::SetTemplateRoot(fs::path templateRoot) {
+    if (templateRoot.empty()) {
+        m_TemplateRoot.clear();
+        return;
+    }
+    std::error_code ec;
+    m_TemplateRoot = fs::absolute(std::move(templateRoot), ec).lexically_normal();
+    if (ec) m_TemplateRoot.clear();
+}
+
 bool EditorWorkspace::CreateProject(const fs::path& projectRoot,
                                     const std::string& projectName,
                                     std::string* error) {
@@ -114,32 +186,37 @@ bool EditorWorkspace::CreateProject(const fs::path& projectRoot,
         SetError(error, "a project manifest already exists in this directory");
         return false;
     }
-    const fs::path scenes = root / "Content" / "Scenes";
-    fs::create_directories(scenes, ec);
+    fs::create_directories(root, ec);
     if (ec) {
-        SetError(error, "failed to create project directories: " + ec.message());
+        SetError(error, "failed to create project root: " + ec.message());
         return false;
     }
-    const fs::path mainScene = scenes / "Main.scene.json";
-    if (fs::exists(mainScene, ec)) {
-        SetError(error, "default scene already exists: " + mainScene.string());
-        return false;
+    if (!m_TemplateRoot.empty()) {
+        if (!CopyTemplateTree(m_TemplateRoot, root, error)) return false;
+    } else {
+        const fs::path scenes = root / "Content" / "Scenes";
+        fs::create_directories(scenes, ec);
+        if (ec) {
+            SetError(error, "failed to create project directories: " + ec.message());
+            return false;
+        }
+        nlohmann::json scene = {
+            {"name", "Main"}, {"nextID", 1}, {"actors", nlohmann::json::array()}
+        };
+        std::ofstream sceneOutput(scenes / "Main.scene.json");
+        if (!sceneOutput) {
+            SetError(error, "failed to create default scene");
+            return false;
+        }
+        sceneOutput << scene.dump(2) << '\n';
     }
-    nlohmann::json scene = {
-        {"name", "Main"}, {"nextID", 1}, {"actors", nlohmann::json::array()}
-    };
-    std::ofstream sceneOutput(mainScene);
-    if (!sceneOutput) {
-        SetError(error, "failed to create default scene");
-        return false;
-    }
-    sceneOutput << scene.dump(2) << '\n';
-    sceneOutput.close();
 
     ProjectConfig config;
     if (!config.Open(root, true, error)) return false;
     config.SetName(projectName);
-    if (!config.SetStartupScene(mainScene, error) || !config.Save(error)) return false;
+    config.GetPublishSettings().target = PublishTargets::kDefaultTargetId;
+    const fs::path startupScene = root / "Content" / "Scenes" / "Main.scene.json";
+    if (!config.SetStartupScene(startupScene, error) || !config.Save(error)) return false;
     AddRecentProject(root);
     return Save(error);
 }

@@ -3,12 +3,16 @@
 #include "Project/ContentArchive.h"
 #include "Project/CookManifest.h"
 #include "Project/ProjectConfig.h"
+#include "Project/RuntimeCompatibility.h"
+#include "Project/RuntimeDependencies.h"
 
 #include <atomic>
+#include <algorithm>
 #include <chrono>
 #include <fstream>
 #include <sstream>
 #include <thread>
+#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -17,12 +21,6 @@ std::atomic_uint64_t g_UniqueCounter{0};
 
 void SetError(std::string* error, std::string message) {
     if (error) *error = std::move(message);
-}
-
-std::string HashText(uint64_t hash) {
-    std::ostringstream text;
-    text << std::hex << hash;
-    return text.str();
 }
 
 std::string UniqueSuffix() {
@@ -112,6 +110,21 @@ private:
     fs::path m_Path;
     bool m_Held = false;
 };
+
+void CleanupCache(const fs::path& base,const std::string& prefix,const fs::path& current) {
+    std::error_code ec; struct Item{fs::path path;fs::file_time_type time;uint64_t bytes=0;};std::vector<Item> items;
+    for(fs::directory_iterator it(base,ec),end;it!=end&&!ec;it.increment(ec)){
+        const std::string name=it->path().filename().string();
+        if((name.rfind(".staging-",0)==0||name.rfind(".stale-",0)==0)&&
+           fs::file_time_type::clock::now()-it->last_write_time(ec)>std::chrono::hours(1)){Cleanup(it->path());continue;}
+        if(!it->is_directory(ec)||name.rfind(prefix,0)!=0)continue;
+        uint64_t bytes=0;for(fs::recursive_directory_iterator f(it->path(),ec),fe;f!=fe&&!ec;f.increment(ec))if(f->is_regular_file(ec))bytes+=f->file_size(ec);
+        items.push_back({it->path(),it->last_write_time(ec),bytes});
+    }
+    std::sort(items.begin(),items.end(),[](const auto&a,const auto&b){return a.time>b.time;});
+    uint64_t used=0;size_t kept=0;constexpr uint64_t budget=20ull*1024*1024*1024;
+    for(auto& item:items){const bool keep=item.path==current||(kept<3&&used+item.bytes<=budget);if(keep){++kept;used+=item.bytes;}else Cleanup(item.path);}
+}
 }
 
 fs::path CookedProjectCache::DefaultRoot() {
@@ -141,6 +154,13 @@ bool CookedProjectCache::Prepare(const fs::path& packageRoot,
     if (!packageConfig.Open(packageRoot, false, error)) return false;
     CookManifest manifest;
     if (!CookManifest::Load(packageRoot / CookManifest::kFileName, manifest, error)) return false;
+    if(manifest.engineVersion!=RuntimeCompatibility::kEngineVersion ||
+       manifest.buildId!=RuntimeCompatibility::kBuildId ||
+       manifest.contentSchemaVersion!=RuntimeCompatibility::kContentSchemaVersion ||
+       manifest.archiveFormatVersion!=RuntimeCompatibility::kArchiveFormatVersion ||
+       manifest.configuration!=RuntimeCompatibility::kConfiguration) {
+        SetError(error,"package is incompatible with this Player build"); return false;
+    }
     if (manifest.project != packageConfig.GetName() ||
         manifest.startupScene != packageConfig.GetStartupScene()) {
         SetError(error, "project config does not match Cook manifest");
@@ -149,7 +169,7 @@ bool CookedProjectCache::Prepare(const fs::path& packageRoot,
 
     const fs::path archive = packageRoot / manifest.archive;
     std::string hashError;
-    const uint64_t actualArchiveHash = ContentArchive::HashFile(archive, &hashError);
+    const std::string actualArchiveHash = ContentArchive::HashFile(archive, &hashError);
     if (!hashError.empty()) {
         SetError(error, hashError);
         return false;
@@ -159,8 +179,18 @@ bool CookedProjectCache::Prepare(const fs::path& packageRoot,
         return false;
     }
 
-    const std::string hash = HashText(manifest.archiveHash);
-    const fs::path finalRoot = cacheBase / ("project-" + hash);
+    RuntimeDependencyManifest dependencies;
+    const fs::path dependencyPath=packageRoot/RuntimeDependencyManifest::kFileName;
+    const std::string dependencyManifestHash=ContentArchive::HashFile(dependencyPath,&hashError);
+    if(!hashError.empty()){SetError(error,hashError);return false;}
+    if(dependencyManifestHash!=manifest.runtimeDependenciesHash){
+        SetError(error,"RuntimeDependencies.json SHA-256 does not match Cook manifest");return false;
+    }
+    if(!RuntimeDependencyManifest::Load(dependencyPath,dependencies,error) ||
+       !dependencies.ValidateFiles(packageRoot,error)) return false;
+    const std::string hash = manifest.archiveHash;
+    const std::string projectPrefix="project-"+manifest.projectId.substr(0,16)+"-";
+    const fs::path finalRoot = cacheBase / (projectPrefix + hash);
     std::string validationError;
     if (ValidateCache(finalRoot, manifest, hash, &validationError)) {
         mount.projectRoot = finalRoot;
@@ -173,6 +203,12 @@ bool CookedProjectCache::Prepare(const fs::path& packageRoot,
         SetError(error, "failed to create cooked cache root: " + ec.message());
         return false;
     }
+    const auto space=fs::space(cacheBase,ec);
+    constexpr uint64_t reserve=64ull*1024*1024;
+    if(ec || manifest.contentBytes>space.available || reserve>space.available-manifest.contentBytes) {
+        SetError(error,"insufficient disk space for cooked Content cache"); return false;
+    }
+    CleanupCache(cacheBase,projectPrefix,finalRoot);
     CacheLock lock;
     if (!lock.Acquire(cacheBase / (".lock-" + hash), error)) return false;
 

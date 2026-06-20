@@ -35,6 +35,8 @@ public:
     void PushLayer(Layer* layer);
     void PushEvent(const Event& event);
     void RequestQuit();
+    void SetExitCode(int exitCode) { m_ExitCode = exitCode; }
+    int GetExitCode() const { return m_ExitCode; }
     const FrameStats& GetFrameStats() const { return m_FrameStats; }
 
     // Optional platform bridge for raw platform events.
@@ -59,5 +61,6 @@ private:
     FrameStats m_FrameStats;
     float m_StatsAccumulator = 0.0f;
     uint32_t m_StatsFrames = 0;
+    int m_ExitCode = 0;
     std::unordered_set<const Layer*> m_FaultedLayers;
 };

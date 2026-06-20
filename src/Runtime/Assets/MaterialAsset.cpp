@@ -136,6 +136,12 @@ TextureHandle ResolveSceneTextureReference(const std::string& texturePath)
     return texture;
 }
 
+ShaderAssetHandle ResolveShaderReference(const std::string& shaderPath)
+{
+    if (shaderPath.empty()) return {};
+    return AssetManager::Get().Load<ShaderAsset>(shaderPath);
+}
+
 } // namespace
 
 std::shared_ptr<MaterialAsset> LoadMaterialAssetFromFile(const std::string& path)
@@ -157,6 +163,7 @@ std::shared_ptr<MaterialAsset> LoadMaterialAssetFromFile(const std::string& path
         material->SetTwoSided(data.value("twoSided", false));
         material->SetWireframe(data.value("wireframe", false));
         material->SetAlphaThreshold(data.value("alphaThreshold", 0.5f));
+        material->SetShaderAsset(ResolveShaderReference(data.value("shader", std::string())));
 
         const auto params = data.find("params");
         if (params != data.end() && params->is_object()) {
@@ -221,6 +228,9 @@ bool SaveMaterialAssetToFile(const MaterialAsset& material, const std::string& p
         data["twoSided"] = material.IsTwoSided();
         data["wireframe"] = material.IsWireframe();
         data["alphaThreshold"] = material.GetAlphaThreshold();
+        if (material.GetShaderAsset().IsValid())
+            data["shader"] = AssetManager::Get().MakeProjectRelativePath(
+                material.GetShaderAsset()->GetPath());
 
         nlohmann::json params = nlohmann::json::object();
         for (const auto& [name, param] : material.GetParams()) {
@@ -263,6 +273,9 @@ void SerializeMaterialAssetForScene(const MaterialAsset& material, nlohmann::jso
     data["twoSided"] = material.IsTwoSided();
     data["wireframe"] = material.IsWireframe();
     data["alphaThreshold"] = material.GetAlphaThreshold();
+    if (material.GetShaderAsset().IsValid())
+        data["shader"] = AssetManager::Get().MakeProjectRelativePath(
+            material.GetShaderAsset()->GetPath());
 
     nlohmann::json params = nlohmann::json::object();
     for (const auto& [name, param] : material.GetParams()) {
@@ -295,6 +308,7 @@ std::shared_ptr<MaterialAsset> LoadMaterialAssetFromScene(
         material->SetTwoSided(data.value("twoSided", false));
         material->SetWireframe(data.value("wireframe", false));
         material->SetAlphaThreshold(data.value("alphaThreshold", 0.5f));
+        material->SetShaderAsset(ResolveShaderReference(data.value("shader", std::string())));
 
         const auto params = data.find("params");
         if (params != data.end() && params->is_object()) {

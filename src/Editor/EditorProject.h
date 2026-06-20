@@ -21,7 +21,7 @@ class EditorProject {
 public:
     bool Open(std::filesystem::path root, bool allowMissingManifest = true);
     bool SaveState() const;
-    bool LoadState();
+    bool LoadState(std::string* error = nullptr);
     const std::filesystem::path& GetRoot() const { return m_Root; }
     const std::filesystem::path& GetContentRoot() const { return m_ContentRoot; }
     EditorProjectState& GetState() { return m_State; }
@@ -31,9 +31,11 @@ public:
     ProjectConfig& GetConfig() { return m_Config; }
     const ProjectConfig& GetConfig() const { return m_Config; }
     const std::string& GetLastError() const { return m_LastError; }
+    const std::string& GetLastWarning() const { return m_LastWarning; }
 private:
     std::filesystem::path m_Root, m_ContentRoot, m_StatePath;
     EditorProjectState m_State;
     ProjectConfig m_Config;
     std::string m_LastError;
+    std::string m_LastWarning;
 };

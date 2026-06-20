@@ -49,7 +49,7 @@ int Application::Run() {
     // 8. Destroy window (also calls SDL_Quit).
     m_Window->Shutdown();
     CrashHandler::Uninstall();
-    return initialized ? 0 : 1;
+    return initialized ? m_Engine.GetExitCode() : 1;
 }
 
 void Application::PushLayer(Layer* layer) {

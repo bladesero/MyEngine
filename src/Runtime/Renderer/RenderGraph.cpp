@@ -58,6 +58,8 @@ RGTextureHandle RenderGraph::CreateTexture(const std::string& name, const RHITex
         const auto& old = pooled->second.desc;
         if (old.width == desc.width && old.height == desc.height &&
             old.mipLevels == desc.mipLevels && old.arrayLayers == desc.arrayLayers &&
+            old.sampleCount == desc.sampleCount &&
+            old.sampleQuality == desc.sampleQuality &&
             old.format == desc.format && old.usage == desc.usage && old.cube == desc.cube) {
             resource.texture = std::move(pooled->second.texture);
             resource.view = std::move(pooled->second.view);

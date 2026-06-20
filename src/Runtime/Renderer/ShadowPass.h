@@ -41,6 +41,7 @@ private:
     static constexpr uint32_t kMaxCascades = 3;
 
     std::shared_ptr<ShaderHandle> m_ShadowShaderHandle;
+    std::shared_ptr<GpuGraphicsPipeline> m_ShadowPipeline;
     uint64_t m_ShadowShaderVersion = 0;
     Mat4 m_LightViewProj = Mat4::Identity();
     Mat4 m_LightViewProjCascade[4] = {};

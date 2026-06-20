@@ -2,27 +2,6 @@ set_project("MyEngine")
 set_version("0.1.0")
 set_xmakever("2.8.0")
 
--- ---------------------------------------------------------------------------
--- Windows: HLSL -> dxc -> embedded DXBC (tools/embed_hlsl.ps1).
--- Lua sandbox has no reliable binary io.readfile; PowerShell reads bytes correctly.
--- ---------------------------------------------------------------------------
-function setup_hlsl_windows_bytecode(target)
-    if target:name() ~= "MyEngineRuntime" or not is_plat("windows") then
-        return
-    end
-    local script = path.join(os.projectdir(), "tools", "embed_hlsl.ps1")
-    if not os.isfile(script) then
-        raise("missing tools/embed_hlsl.ps1")
-    end
-    os.execv("powershell", {
-        "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script,
-        os.projectdir()
-    })
-    local gen = path.join(os.projectdir(), "build", "hlsl_generated")
-    target:add("files", path.join(gen, "ShaderBytecodeWindows.cpp"))
-    target:add("includedirs", gen)
-end
-
 add_rules("mode.debug", "mode.release")
 set_languages("c++17")
 set_warnings("all")
@@ -114,9 +93,12 @@ target("MyEngineRuntime")
         "src/Runtime/Project/ContentArchive.cpp",
         "src/Runtime/Project/CookManifest.cpp",
         "src/Runtime/Project/CookedProjectCache.cpp",
+        "src/Runtime/Project/ContentPathPolicy.cpp",
+        "src/Runtime/Project/RuntimeDependencies.cpp",
         "src/Runtime/Input/Input.cpp",
         "src/Runtime/Core/Event.cpp",
         "src/Runtime/Core/Logger.cpp",
+        "src/Runtime/Core/Sha256.cpp",
         "src/Runtime/Core/CrashHandler.cpp",
         "src/Runtime/Core/Layer.cpp",
         "src/Runtime/Core/LayerStack.cpp",
@@ -134,6 +116,7 @@ target("MyEngineRuntime")
         "src/Runtime/Assets/AssetImporters.cpp",
         "src/Runtime/Assets/GltfImporter.cpp",
         "src/Runtime/Assets/MaterialAsset.cpp",
+        "src/Runtime/Assets/ShaderAsset.cpp",
         "src/Runtime/Assets/MeshAsset.cpp",
         "src/Runtime/Assets/TextureAsset.cpp",
         "src/Runtime/Scripting/ScriptRuntime.cpp",
@@ -188,6 +171,7 @@ target("MyEngineRuntime")
         "src/Editor/EditorViewportControllers.cpp",
         "src/Editor/EditorWorkspace.cpp",
         "src/Editor/ProjectPublisher.cpp",
+        "src/Editor/CookDependencyGraph.cpp",
         "src/Editor/InspectorSections.cpp",
         "src/Editor/Panels/ToolbarPanel.cpp",
         "src/Editor/Panels/SceneHierarchyPanel.cpp",
@@ -201,7 +185,6 @@ target("MyEngineRuntime")
     add_files("src/Editor/EditorImGuiBackend.cpp")
 
     if is_plat("windows") then
-        on_load(setup_hlsl_windows_bytecode)
         add_files("src/Runtime/Renderer/D3D11Context.cpp", "src/Runtime/Renderer/D3D12Context.cpp")
     elseif is_plat("macosx") then
         add_files("src/Runtime/Renderer/MetalContext.mm")
@@ -235,6 +218,12 @@ target("MyEngineRuntime")
     add_options("mem_stats", "mem_tracking", "mem_guard")
 
     add_defines("MYENGINE_ENABLE_IMGUI")
+    add_defines("MYENGINE_BUILD_ID=dev_0_1_0")
+    if is_mode("release") then
+        add_defines("MYENGINE_BUILD_CONFIGURATION=release")
+    else
+        add_defines("MYENGINE_BUILD_CONFIGURATION=debug")
+    end
     -- ImGui comes from the static imgui package; do not set IMGUI_API=dllexport here (that only affects
     -- our .cpp files, not imgui.lib). utils.symbols.export_all re-exports symbols needed by the editor exe.
 
@@ -355,6 +344,17 @@ target("MyEngineCooker")
     add_includedirs("src", "src/Editor")
     add_deps("MyEngineRuntime")
     add_packages("nlohmann_json")
+    if is_plat("windows") then
+        add_cxflags("/utf-8", { toolset = "msvc" })
+    end
+    set_rundir("$(projectdir)")
+target_end()
+
+target("MyEngineEditorPackager")
+    set_kind("binary")
+    add_files("editor_packager_main.cpp")
+    add_includedirs("src", "src/Editor")
+    add_deps("MyEngineRuntime")
     if is_plat("windows") then
         add_cxflags("/utf-8", { toolset = "msvc" })
     end

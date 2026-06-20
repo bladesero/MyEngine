@@ -9,7 +9,7 @@ If this document conflicts with the implementation, the implementation wins. Ver
 - `src/Runtime/Camera/Camera.cpp`
 - `src/Runtime/Renderer/MainPass.cpp`
 - `src/Runtime/Renderer/ShadowPass.cpp`
-- `src/Runtime/Renderer/Shaders/*.hlsl`
+- `EngineContent/Shaders/*.hlsl`
 
 ## Non-Negotiable Rules
 

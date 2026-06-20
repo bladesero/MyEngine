@@ -60,12 +60,15 @@ public:
     virtual GpuSwapChain* GetSwapChain() { return nullptr; }
     virtual GpuTextureView* GetCurrentBackBufferView() { return nullptr; }
     virtual GpuCommandList* GetGraphicsCommandList() = 0;
+    virtual GpuQueue* GetGraphicsQueue() { return nullptr; }
     RHIBackend GetBackend() const override { return RHIBackend::Unknown; }
     virtual ImGuiBackendHandles GetImGuiBackendHandles() { return {}; }
     using SwapChainResizeCallback = void(*)();
     virtual void SetSwapChainResizeCallback(SwapChainResizeCallback) {}
     virtual std::shared_ptr<GpuReadbackTicket> ReadbackBufferAsync(
         const std::shared_ptr<GpuBuffer>&) { return nullptr; }
+    virtual std::shared_ptr<GpuTextureReadbackTicket> ReadbackTextureAsync(
+        const std::shared_ptr<GpuTexture>&, const RHITextureRegion&) { return nullptr; }
 
     // Resource creation -------------------------------------------------------
     virtual std::shared_ptr<GpuBuffer> CreateVertexBuffer(

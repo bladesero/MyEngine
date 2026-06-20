@@ -4,6 +4,7 @@
 #include "Renderer/RHI/ShaderReflection.h"
 
 #include <d3dcompiler.h>
+#include <d3d11_1.h>
 #include <dxgi.h>
 #include <sstream>
 #include <vector>
@@ -33,15 +34,177 @@ static DXGI_FORMAT ToDxgiFormat(VertexFormat fmt) {
 
 static DXGI_FORMAT ToDxgiFormat(RHIFormat fmt, bool resource = false) {
     switch (fmt) {
+    case RHIFormat::R8UInt: return DXGI_FORMAT_R8_UINT;
     case RHIFormat::RGBA8UNorm: return DXGI_FORMAT_R8G8B8A8_UNORM;
+    case RHIFormat::BGRA8UNorm: return DXGI_FORMAT_B8G8R8A8_UNORM;
+    case RHIFormat::RGBA8UNormSrgb: return DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+    case RHIFormat::RG16Float: return DXGI_FORMAT_R16G16_FLOAT;
     case RHIFormat::RGBA16Float: return DXGI_FORMAT_R16G16B16A16_FLOAT;
     case RHIFormat::R8UNorm: return DXGI_FORMAT_R8_UNORM;
+    case RHIFormat::R16UInt: return DXGI_FORMAT_R16_UINT;
+    case RHIFormat::R32UInt: return DXGI_FORMAT_R32_UINT;
     case RHIFormat::R32Float: return DXGI_FORMAT_R32_FLOAT;
+    case RHIFormat::RG32Float: return DXGI_FORMAT_R32G32_FLOAT;
+    case RHIFormat::RGB32Float: return DXGI_FORMAT_R32G32B32_FLOAT;
+    case RHIFormat::RGBA32Float: return DXGI_FORMAT_R32G32B32A32_FLOAT;
     case RHIFormat::D24S8: return resource ? DXGI_FORMAT_R24G8_TYPELESS : DXGI_FORMAT_D24_UNORM_S8_UINT;
     case RHIFormat::D32Float: return resource ? DXGI_FORMAT_R32_TYPELESS : DXGI_FORMAT_D32_FLOAT;
     default: return DXGI_FORMAT_UNKNOWN;
     }
 }
+
+static uint32_t RHIFormatByteSize(RHIFormat format) {
+    switch (format) {
+    case RHIFormat::R8UInt: case RHIFormat::R8UNorm: return 1;
+    case RHIFormat::R16UInt: return 2;
+    case RHIFormat::RG16Float: case RHIFormat::R32UInt: case RHIFormat::R32Float:
+    case RHIFormat::RGBA8UNorm: case RHIFormat::BGRA8UNorm:
+    case RHIFormat::RGBA8UNormSrgb: case RHIFormat::D24S8: case RHIFormat::D32Float: return 4;
+    case RHIFormat::RG32Float: case RHIFormat::RGBA16Float: return 8;
+    case RHIFormat::RGB32Float: return 12;
+    case RHIFormat::RGBA32Float: return 16;
+    default: return 0;
+    }
+}
+
+static D3D11_PRIMITIVE_TOPOLOGY ToD3D11Topology(RHIPrimitiveTopology topology) {
+    switch (topology) {
+    case RHIPrimitiveTopology::PointList: return D3D11_PRIMITIVE_TOPOLOGY_POINTLIST;
+    case RHIPrimitiveTopology::LineList: return D3D11_PRIMITIVE_TOPOLOGY_LINELIST;
+    case RHIPrimitiveTopology::LineStrip: return D3D11_PRIMITIVE_TOPOLOGY_LINESTRIP;
+    case RHIPrimitiveTopology::TriangleStrip: return D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP;
+    default: return D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    }
+}
+
+static D3D11_COMPARISON_FUNC ToD3D11Compare(RHICompareOp op) {
+    switch (op) {
+    case RHICompareOp::Never: return D3D11_COMPARISON_NEVER;
+    case RHICompareOp::Less: return D3D11_COMPARISON_LESS;
+    case RHICompareOp::Equal: return D3D11_COMPARISON_EQUAL;
+    case RHICompareOp::LessEqual: return D3D11_COMPARISON_LESS_EQUAL;
+    case RHICompareOp::Greater: return D3D11_COMPARISON_GREATER;
+    case RHICompareOp::NotEqual: return D3D11_COMPARISON_NOT_EQUAL;
+    case RHICompareOp::GreaterEqual: return D3D11_COMPARISON_GREATER_EQUAL;
+    default: return D3D11_COMPARISON_ALWAYS;
+    }
+}
+
+static D3D11_STENCIL_OP ToD3D11StencilOp(RHIStencilOp op) {
+    switch (op) {
+    case RHIStencilOp::Zero: return D3D11_STENCIL_OP_ZERO;
+    case RHIStencilOp::Replace: return D3D11_STENCIL_OP_REPLACE;
+    case RHIStencilOp::IncrementClamp: return D3D11_STENCIL_OP_INCR_SAT;
+    case RHIStencilOp::DecrementClamp: return D3D11_STENCIL_OP_DECR_SAT;
+    case RHIStencilOp::Invert: return D3D11_STENCIL_OP_INVERT;
+    case RHIStencilOp::IncrementWrap: return D3D11_STENCIL_OP_INCR;
+    case RHIStencilOp::DecrementWrap: return D3D11_STENCIL_OP_DECR;
+    default: return D3D11_STENCIL_OP_KEEP;
+    }
+}
+
+static D3D11_BLEND ToD3D11Blend(RHIBlendFactor factor) {
+    switch (factor) {
+    case RHIBlendFactor::Zero: return D3D11_BLEND_ZERO;
+    case RHIBlendFactor::One: return D3D11_BLEND_ONE;
+    case RHIBlendFactor::SrcColor: return D3D11_BLEND_SRC_COLOR;
+    case RHIBlendFactor::OneMinusSrcColor: return D3D11_BLEND_INV_SRC_COLOR;
+    case RHIBlendFactor::DstColor: return D3D11_BLEND_DEST_COLOR;
+    case RHIBlendFactor::OneMinusDstColor: return D3D11_BLEND_INV_DEST_COLOR;
+    case RHIBlendFactor::SrcAlpha: return D3D11_BLEND_SRC_ALPHA;
+    case RHIBlendFactor::OneMinusSrcAlpha: return D3D11_BLEND_INV_SRC_ALPHA;
+    case RHIBlendFactor::DstAlpha: return D3D11_BLEND_DEST_ALPHA;
+    case RHIBlendFactor::OneMinusDstAlpha: return D3D11_BLEND_INV_DEST_ALPHA;
+    case RHIBlendFactor::ConstantColor: return D3D11_BLEND_BLEND_FACTOR;
+    case RHIBlendFactor::OneMinusConstantColor: return D3D11_BLEND_INV_BLEND_FACTOR;
+    case RHIBlendFactor::SrcAlphaSaturate: return D3D11_BLEND_SRC_ALPHA_SAT;
+    default: return D3D11_BLEND_ONE;
+    }
+}
+
+static D3D11_BLEND_OP ToD3D11BlendOp(RHIBlendOp op) {
+    switch (op) {
+    case RHIBlendOp::Subtract: return D3D11_BLEND_OP_SUBTRACT;
+    case RHIBlendOp::ReverseSubtract: return D3D11_BLEND_OP_REV_SUBTRACT;
+    case RHIBlendOp::Min: return D3D11_BLEND_OP_MIN;
+    case RHIBlendOp::Max: return D3D11_BLEND_OP_MAX;
+    default: return D3D11_BLEND_OP_ADD;
+    }
+}
+
+static D3D11_DEPTH_STENCILOP_DESC ToD3D11StencilFace(const RHIStencilFaceState& face) {
+    D3D11_DEPTH_STENCILOP_DESC result{};
+    result.StencilFailOp = ToD3D11StencilOp(face.failOp);
+    result.StencilDepthFailOp = ToD3D11StencilOp(face.depthFailOp);
+    result.StencilPassOp = ToD3D11StencilOp(face.passOp);
+    result.StencilFunc = ToD3D11Compare(face.compareOp);
+    return result;
+}
+
+class D3D11FenceRHI final : public GpuFence {
+public:
+    D3D11FenceRHI(ID3D11Device* device, ID3D11DeviceContext* context, uint64_t initial)
+        : m_Device(device), m_Context(context), m_Completed(initial) {}
+    bool Signal(uint64_t value) {
+        if (!m_Device || !m_Context) return false;
+        D3D11_QUERY_DESC desc{}; desc.Query = D3D11_QUERY_EVENT;
+        ComPtr<ID3D11Query> query;
+        if (FAILED(m_Device->CreateQuery(&desc, &query))) return false;
+        m_Context->End(query.Get()); m_Context->Flush();
+        m_Query = std::move(query); m_Pending = value; return true;
+    }
+    uint64_t GetCompletedValue() const override {
+        if (m_Query && m_Context->GetData(m_Query.Get(), nullptr, 0,
+                                          D3D11_ASYNC_GETDATA_DONOTFLUSH) == S_OK) {
+            m_Completed = (std::max)(m_Completed, m_Pending); m_Query.Reset();
+        }
+        return m_Completed;
+    }
+    bool Wait(uint64_t value, uint32_t timeoutMs) override {
+        const ULONGLONG start = GetTickCount64();
+        while (GetCompletedValue() < value) {
+            if (timeoutMs != UINT32_MAX && GetTickCount64() - start >= timeoutMs) return false;
+            Sleep(0);
+        }
+        return true;
+    }
+private:
+    ID3D11Device* m_Device = nullptr; ID3D11DeviceContext* m_Context = nullptr;
+    mutable ComPtr<ID3D11Query> m_Query; mutable uint64_t m_Completed = 0, m_Pending = 0;
+};
+
+class D3D11QueueRHI final : public GpuQueue {
+public:
+    explicit D3D11QueueRHI(ID3D11DeviceContext* context) : m_Context(context) {}
+    bool Submit(GpuCommandList*, GpuFence* fence, uint64_t value) override {
+        auto* native = dynamic_cast<D3D11FenceRHI*>(fence);
+        return native && native->Signal(value);
+    }
+    bool Wait(GpuFence* fence, uint64_t value) override {
+        return fence && fence->Wait(value);
+    }
+private: ID3D11DeviceContext* m_Context = nullptr;
+};
+
+class D3D11TimestampPool final : public GpuTimestampQueryPool {
+public:
+    uint32_t GetCount() const override { return static_cast<uint32_t>(queries.size()); }
+    uint64_t GetFrequency() const override { return frequency; }
+    bool ReadResults(uint32_t first, uint32_t count, std::vector<uint64_t>& ticks) override {
+        if (!context || first + count > queries.size()) return false;
+        D3D11_QUERY_DATA_TIMESTAMP_DISJOINT timing{};
+        if (context->GetData(disjoint.Get(), &timing, sizeof(timing),
+                             D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK || timing.Disjoint) return false;
+        frequency = timing.Frequency; ticks.resize(count);
+        for (uint32_t i = 0; i < count; ++i)
+            if (context->GetData(queries[first + i].Get(), &ticks[i], sizeof(uint64_t),
+                                 D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK) return false;
+        return true;
+    }
+    ID3D11DeviceContext* context = nullptr; ComPtr<ID3D11Query> disjoint;
+    std::vector<ComPtr<ID3D11Query>> queries; mutable uint64_t frequency = 0;
+    bool active = false;
+};
 
 class D3D11ImmediateCommandList final : public GpuCommandList {
 public:
@@ -100,10 +263,16 @@ public:
         m_Owner.SetRasterState(twoSided, wireframe);
     }
     void SetGraphicsPipeline(GpuGraphicsPipeline* pipeline) override {
-        if (!pipeline) return;
-        m_Owner.BindShader(pipeline->desc.shader.get());
-        m_Owner.SetBlendMode(pipeline->desc.alphaBlend ? GpuBlendMode::Alpha : GpuBlendMode::Opaque);
-        m_Owner.SetRasterState(pipeline->desc.twoSided, pipeline->desc.wireframe);
+        auto* native = dynamic_cast<D3D11GraphicsPipeline*>(pipeline);
+        if (!native) return;
+        m_Owner.BindShader(native->desc.shader.get());
+        auto* context = m_Owner.GetDeviceContext();
+        context->IASetPrimitiveTopology(ToD3D11Topology(native->desc.topology));
+        context->OMSetBlendState(native->blendState.Get(), native->desc.blend.blendConstants,
+                                 native->desc.blend.sampleMask);
+        context->RSSetState(native->rasterizerState.Get());
+        context->OMSetDepthStencilState(native->depthStencilState.Get(),
+                                        native->desc.depthStencil.stencilReference);
     }
     void SetComputePipeline(GpuComputePipeline* pipeline) override {
         auto* shader = pipeline && pipeline->desc.shader
@@ -167,6 +336,46 @@ public:
         m_Owner.GetDeviceContext()->CopySubresourceRegion(
             d->buffer.Get(), 0, dstOffset, 0, 0, s->buffer.Get(), 0, &box);
     }
+    void CopyTexture(GpuTexture* dst, GpuTexture* src) override {
+        auto* d = dynamic_cast<D3D11Texture*>(dst); auto* s = dynamic_cast<D3D11Texture*>(src);
+        if (d && s) m_Owner.GetDeviceContext()->CopyResource(d->texture.Get(), s->texture.Get());
+    }
+    void CopyTexture(GpuTexture* dst, const RHITextureRegion& dr,
+                     GpuTexture* src, const RHITextureRegion& sr) override {
+        auto* d = dynamic_cast<D3D11Texture*>(dst); auto* s = dynamic_cast<D3D11Texture*>(src);
+        if (!d || !s) return;
+        const uint32_t width = sr.width ? sr.width : (std::max)(1u, s->desc.width >> sr.mipLevel) - sr.x;
+        const uint32_t height = sr.height ? sr.height : (std::max)(1u, s->desc.height >> sr.mipLevel) - sr.y;
+        D3D11_BOX box{sr.x, sr.y, sr.z, sr.x + width, sr.y + height, sr.z + (std::max)(1u, sr.depth)};
+        m_Owner.GetDeviceContext()->CopySubresourceRegion(
+            d->texture.Get(), D3D11CalcSubresource(dr.mipLevel, dr.arrayLayer, d->desc.mipLevels),
+            dr.x, dr.y, dr.z, s->texture.Get(),
+            D3D11CalcSubresource(sr.mipLevel, sr.arrayLayer, s->desc.mipLevels), &box);
+    }
+    void DrawIndirect(GpuBuffer* args, uint64_t offset) override {
+        auto* native = dynamic_cast<D3D11Buffer*>(args);
+        if (native && offset <= UINT32_MAX)
+            m_Owner.GetDeviceContext()->DrawInstancedIndirect(native->buffer.Get(), static_cast<UINT>(offset));
+    }
+    void DrawIndexedIndirect(GpuBuffer* args, uint64_t offset) override {
+        auto* native = dynamic_cast<D3D11Buffer*>(args);
+        if (native && offset <= UINT32_MAX)
+            m_Owner.GetDeviceContext()->DrawIndexedInstancedIndirect(native->buffer.Get(), static_cast<UINT>(offset));
+    }
+    void WriteTimestamp(GpuTimestampQueryPool* pool, uint32_t index) override {
+        auto* native = dynamic_cast<D3D11TimestampPool*>(pool);
+        if (!native || index >= native->queries.size()) return;
+        if (!native->active) {
+            m_Owner.GetDeviceContext()->Begin(native->disjoint.Get()); native->active = true;
+        }
+        m_Owner.GetDeviceContext()->End(native->queries[index].Get());
+    }
+    void ResolveTimestamps(GpuTimestampQueryPool* pool, uint32_t, uint32_t) override {
+        auto* native = dynamic_cast<D3D11TimestampPool*>(pool);
+        if (native && native->active) {
+            m_Owner.GetDeviceContext()->End(native->disjoint.Get()); native->active = false;
+        }
+    }
 
     void Transition(GpuResource*, RHIResourceState, RHIResourceState after) override {
         // D3D11 has implicit states, but resources must be unbound before they
@@ -187,11 +396,18 @@ public:
     }
 
     void BeginRendering(const RenderingInfo& info) override {
+        m_StoreDiscard.clear();
+        ComPtr<ID3D11DeviceContext1> context1;
+        m_Owner.GetDeviceContext()->QueryInterface(IID_PPV_ARGS(&context1));
         ID3D11RenderTargetView* rtvs[8] = {};
         const uint32_t count = info.colorCount > 8 ? 8 : info.colorCount;
         for (uint32_t i = 0; i < count; ++i) {
             auto* view = dynamic_cast<D3D11TextureView*>(info.colors[i].view);
             rtvs[i] = view ? view->rtv.Get() : nullptr;
+            if (context1 && rtvs[i] && info.colors[i].loadOp == RHILoadOp::Discard)
+                context1->DiscardView(rtvs[i]);
+            if (rtvs[i] && info.colors[i].storeOp == RHIStoreOp::Discard)
+                m_StoreDiscard.push_back(rtvs[i]);
             if (rtvs[i] && info.colors[i].loadOp == RHILoadOp::Clear) {
                 const auto& c = info.colors[i].clearColor;
                 const float clear[4] = {c.r, c.g, c.b, c.a};
@@ -202,8 +418,13 @@ public:
         if (info.depth) {
             auto* view = dynamic_cast<D3D11TextureView*>(info.depth->view);
             dsv = view ? view->dsv.Get() : nullptr;
+            if (context1 && dsv && info.depth->loadOp == RHILoadOp::Discard)
+                context1->DiscardView(dsv);
+            if (dsv && info.depth->storeOp == RHIStoreOp::Discard)
+                m_StoreDiscard.push_back(dsv);
             if (dsv && info.depth->loadOp == RHILoadOp::Clear)
-                m_Owner.GetDeviceContext()->ClearDepthStencilView(dsv, D3D11_CLEAR_DEPTH,
+                m_Owner.GetDeviceContext()->ClearDepthStencilView(dsv,
+                    D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL,
                     info.depth->clearDepth, info.depth->clearStencil);
         }
         m_Owner.GetDeviceContext()->OMSetRenderTargets(count, rtvs, dsv);
@@ -211,11 +432,16 @@ public:
     }
 
     void EndRendering() override {
+        ComPtr<ID3D11DeviceContext1> context1;
+        m_Owner.GetDeviceContext()->QueryInterface(IID_PPV_ARGS(&context1));
+        if (context1) for (auto* view : m_StoreDiscard) context1->DiscardView(view);
+        m_StoreDiscard.clear();
         m_Owner.GetDeviceContext()->OMSetRenderTargets(0, nullptr, nullptr);
     }
 
 private:
     D3D11Context& m_Owner;
+    std::vector<ID3D11View*> m_StoreDiscard;
 };
 
 class D3D11ReadbackTicket final : public GpuReadbackTicket {
@@ -240,6 +466,42 @@ private:
     ComPtr<ID3D11Buffer> m_Staging;
     ComPtr<ID3D11Query> m_Query;
     uint32_t m_Size = 0;
+};
+
+class D3D11TextureReadbackTicket final : public GpuTextureReadbackTicket {
+public:
+    D3D11TextureReadbackTicket(ID3D11DeviceContext* context, ComPtr<ID3D11Texture2D> staging,
+        ComPtr<ID3D11Query> query, uint32_t width, uint32_t height, uint32_t rowSize,
+        RHIFormat format)
+        : m_Context(context), m_Staging(std::move(staging)), m_Query(std::move(query)),
+          m_Width(width), m_Height(height), m_RowSize(rowSize), m_Format(format) {}
+    bool IsReady() const override {
+        return m_Context && m_Query &&
+            m_Context->GetData(m_Query.Get(), nullptr, 0, D3D11_ASYNC_GETDATA_DONOTFLUSH) == S_OK;
+    }
+    bool Read(std::vector<uint8_t>& data) override {
+        if (!IsReady()) return false;
+        D3D11_MAPPED_SUBRESOURCE mapped{};
+        if (FAILED(m_Context->Map(m_Staging.Get(), 0, D3D11_MAP_READ, 0, &mapped))) return false;
+        data.resize(static_cast<size_t>(m_RowSize) * m_Height);
+        for (uint32_t y = 0; y < m_Height; ++y)
+            std::memcpy(data.data() + static_cast<size_t>(y) * m_RowSize,
+                        static_cast<const uint8_t*>(mapped.pData) + static_cast<size_t>(y) * mapped.RowPitch,
+                        m_RowSize);
+        m_Context->Unmap(m_Staging.Get(), 0);
+        return true;
+    }
+    uint32_t GetSize() const override { return m_RowSize * m_Height; }
+    uint32_t GetRowPitch() const override { return m_RowSize; }
+    uint32_t GetWidth() const override { return m_Width; }
+    uint32_t GetHeight() const override { return m_Height; }
+    RHIFormat GetFormat() const override { return m_Format; }
+private:
+    ID3D11DeviceContext* m_Context = nullptr;
+    ComPtr<ID3D11Texture2D> m_Staging;
+    ComPtr<ID3D11Query> m_Query;
+    uint32_t m_Width = 0, m_Height = 0, m_RowSize = 0;
+    RHIFormat m_Format = RHIFormat::Unknown;
 };
 
 class D3D11SwapChain final : public GpuSwapChain {
@@ -361,6 +623,7 @@ bool D3D11Context::Init(IWindow* window) {
 
     // ---- Default viewport --------------------------------------------------
     SetViewport(0, 0, static_cast<float>(w), static_cast<float>(h));
+    m_GraphicsQueue = std::make_shared<D3D11QueueRHI>(m_Context.Get());
 
     Logger::Info("D3D11Context initialised (", w, "x", h, ")");
     return true;
@@ -379,6 +642,7 @@ void D3D11Context::Shutdown() {
     m_CBuffer.Reset();
     m_RTV.Reset();
     m_SwapChain.Reset();
+    m_GraphicsQueue.reset();
     m_Context.Reset();
     m_Device.Reset();
     m_SwapChainWidth = 0;
@@ -854,6 +1118,75 @@ std::shared_ptr<GpuTexture> D3D11Context::UploadTexture2D(
     return tex;
 }
 
+bool D3D11Context::UpdateBuffer(const std::shared_ptr<GpuBuffer>& buffer,
+                                uint64_t offset, const void* data, uint64_t size) {
+    auto native = std::dynamic_pointer_cast<D3D11Buffer>(buffer);
+    if (!native || !native->buffer || !data || size == 0 ||
+        offset + size > native->desc.size || offset + size > UINT32_MAX) return false;
+    D3D11_BOX box{static_cast<UINT>(offset), 0, 0,
+                  static_cast<UINT>(offset + size), 1, 1};
+    m_Context->UpdateSubresource(native->buffer.Get(), 0, &box, data, 0, 0);
+    return true;
+}
+
+std::shared_ptr<GpuTexture> D3D11Context::UploadTexture(
+    const RHITextureDesc& desc, const RHITextureSubresourceData* data, uint32_t count) {
+    if (!data || count == 0 || desc.sampleCount > 1) return nullptr;
+    auto texture = std::dynamic_pointer_cast<D3D11Texture>(CreateTexture(desc));
+    if (!texture) return nullptr;
+    for (uint32_t i = 0; i < count; ++i) {
+        const auto& src = data[i];
+        if (!src.data || src.mipLevel >= desc.mipLevels || src.arrayLayer >= desc.arrayLayers)
+            return nullptr;
+        const UINT subresource = D3D11CalcSubresource(src.mipLevel, src.arrayLayer, desc.mipLevels);
+        m_Context->UpdateSubresource(texture->texture.Get(), subresource, nullptr, src.data,
+                                     src.rowPitch, src.slicePitch);
+    }
+    return texture;
+}
+
+RHIDeviceCapabilities D3D11Context::GetCapabilities() const {
+    RHIDeviceCapabilities result;
+    result.maxTextureDimension2D = D3D11_REQ_TEXTURE2D_U_OR_V_DIMENSION;
+    result.maxTextureArrayLayers = D3D11_REQ_TEXTURE2D_ARRAY_AXIS_DIMENSION;
+    result.maxColorAttachments = D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT;
+    result.maxSamples = D3D11_MAX_MULTISAMPLE_SAMPLE_COUNT;
+    result.timestampQueries = true;
+    result.indirectDraw = true;
+    return result;
+}
+
+bool D3D11Context::IsFormatSupported(RHIFormat format, RHIResourceUsage usage) const {
+    if (!m_Device || format == RHIFormat::Unknown) return false;
+    UINT support = 0;
+    if (FAILED(m_Device->CheckFormatSupport(ToDxgiFormat(format), &support))) return false;
+    if (HasUsage(usage, RHIResourceUsage::ShaderResource) &&
+        !(support & D3D11_FORMAT_SUPPORT_SHADER_SAMPLE)) return false;
+    if (HasUsage(usage, RHIResourceUsage::RenderTarget) &&
+        !(support & D3D11_FORMAT_SUPPORT_RENDER_TARGET)) return false;
+    if (HasUsage(usage, RHIResourceUsage::DepthStencil) &&
+        !(support & D3D11_FORMAT_SUPPORT_DEPTH_STENCIL)) return false;
+    if (HasUsage(usage, RHIResourceUsage::UnorderedAccess) &&
+        !(support & D3D11_FORMAT_SUPPORT_TYPED_UNORDERED_ACCESS_VIEW)) return false;
+    return true;
+}
+
+std::shared_ptr<GpuFence> D3D11Context::CreateFence(uint64_t initialValue) {
+    if (!m_Device || !m_Context) return nullptr;
+    return std::make_shared<D3D11FenceRHI>(m_Device.Get(), m_Context.Get(), initialValue);
+}
+
+std::shared_ptr<GpuTimestampQueryPool> D3D11Context::CreateTimestampQueryPool(uint32_t count) {
+    if (!m_Device || !m_Context || count == 0) return nullptr;
+    auto pool = std::make_shared<D3D11TimestampPool>(); pool->context = m_Context.Get();
+    D3D11_QUERY_DESC desc{}; desc.Query = D3D11_QUERY_TIMESTAMP_DISJOINT;
+    if (FAILED(m_Device->CreateQuery(&desc, &pool->disjoint))) return nullptr;
+    desc.Query = D3D11_QUERY_TIMESTAMP; pool->queries.resize(count);
+    for (auto& query : pool->queries)
+        if (FAILED(m_Device->CreateQuery(&desc, &query))) return nullptr;
+    return pool;
+}
+
 void D3D11Context::BindPSTexture(uint32_t slot, GpuTexture* tex)
 {
     if (!tex) {
@@ -907,6 +1240,8 @@ std::shared_ptr<GpuBuffer> D3D11Context::CreateBuffer(
     if (HasUsage(desc.usage, RHIResourceUsage::ConstantBuffer)) native.BindFlags |= D3D11_BIND_CONSTANT_BUFFER;
     if (HasUsage(desc.usage, RHIResourceUsage::ShaderResource)) native.BindFlags |= D3D11_BIND_SHADER_RESOURCE;
     if (HasUsage(desc.usage, RHIResourceUsage::UnorderedAccess)) native.BindFlags |= D3D11_BIND_UNORDERED_ACCESS;
+    if (HasUsage(desc.usage, RHIResourceUsage::IndirectArguments))
+        native.MiscFlags |= D3D11_RESOURCE_MISC_DRAWINDIRECT_ARGS;
     if (desc.stride > 0 && (native.BindFlags & (D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS))) {
         native.MiscFlags |= D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
         native.StructureByteStride = desc.stride;
@@ -977,11 +1312,19 @@ void D3D11Context::SetRasterState(bool twoSided, bool wireframe)
 
 std::shared_ptr<GpuTexture> D3D11Context::CreateTexture(const RHITextureDesc& desc) {
     if (!m_Device || desc.width == 0 || desc.height == 0) return nullptr;
+    if (desc.sampleCount > 1 && desc.mipLevels != 1) return nullptr;
+    UINT qualityLevels = 0;
+    if (FAILED(m_Device->CheckMultisampleQualityLevels(
+            ToDxgiFormat(desc.format), (std::max)(desc.sampleCount, 1u),
+            &qualityLevels)) || qualityLevels == 0 || desc.sampleQuality >= qualityLevels)
+        return nullptr;
     D3D11_TEXTURE2D_DESC native{};
     native.Width = desc.width; native.Height = desc.height;
     native.MipLevels = desc.mipLevels; native.ArraySize = desc.arrayLayers;
     native.Format = ToDxgiFormat(desc.format, true);
-    native.SampleDesc.Count = 1; native.Usage = D3D11_USAGE_DEFAULT;
+    native.SampleDesc.Count = (std::max)(desc.sampleCount, 1u);
+    native.SampleDesc.Quality = desc.sampleQuality;
+    native.Usage = D3D11_USAGE_DEFAULT;
     if (HasUsage(desc.usage, RHIResourceUsage::ShaderResource)) native.BindFlags |= D3D11_BIND_SHADER_RESOURCE;
     if (HasUsage(desc.usage, RHIResourceUsage::RenderTarget)) native.BindFlags |= D3D11_BIND_RENDER_TARGET;
     if (HasUsage(desc.usage, RHIResourceUsage::DepthStencil)) native.BindFlags |= D3D11_BIND_DEPTH_STENCIL;
@@ -1015,24 +1358,31 @@ std::shared_ptr<GpuTextureView> D3D11Context::CreateTextureView(
     if (HasUsage(desc.usage, RHIResourceUsage::ShaderResource)) {
         D3D11_SHADER_RESOURCE_VIEW_DESC d{};
         d.Format = td.format == RHIFormat::D24S8 ? DXGI_FORMAT_R24_UNORM_X8_TYPELESS : td.format == RHIFormat::D32Float ? DXGI_FORMAT_R32_FLOAT : ToDxgiFormat(td.format);
-        if (td.cube) { d.ViewDimension = D3D11_SRV_DIMENSION_TEXTURECUBE; d.TextureCube.MostDetailedMip = desc.firstMip; d.TextureCube.MipLevels = desc.mipCount; }
+        if (td.sampleCount > 1 && td.arrayLayers > 1) { d.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DMSARRAY; d.Texture2DMSArray.FirstArraySlice = desc.firstLayer; d.Texture2DMSArray.ArraySize = desc.layerCount; }
+        else if (td.sampleCount > 1) { d.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DMS; }
+        else if (td.cube) { d.ViewDimension = D3D11_SRV_DIMENSION_TEXTURECUBE; d.TextureCube.MostDetailedMip = desc.firstMip; d.TextureCube.MipLevels = desc.mipCount; }
         else if (td.arrayLayers > 1) { d.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DARRAY; d.Texture2DArray.MostDetailedMip = desc.firstMip; d.Texture2DArray.MipLevels = desc.mipCount; d.Texture2DArray.FirstArraySlice = desc.firstLayer; d.Texture2DArray.ArraySize = desc.layerCount; }
         else { d.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D; d.Texture2D.MostDetailedMip = desc.firstMip; d.Texture2D.MipLevels = desc.mipCount; }
         if (FAILED(m_Device->CreateShaderResourceView(nativeTexture->texture.Get(), &d, &view->srv))) return nullptr;
     }
     if (HasUsage(desc.usage, RHIResourceUsage::RenderTarget)) {
         D3D11_RENDER_TARGET_VIEW_DESC d{}; d.Format = ToDxgiFormat(td.format);
-        if (td.arrayLayers > 1) { d.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2DARRAY; d.Texture2DArray.MipSlice = desc.firstMip; d.Texture2DArray.FirstArraySlice = desc.firstLayer; d.Texture2DArray.ArraySize = desc.layerCount; }
+        if (td.sampleCount > 1 && td.arrayLayers > 1) { d.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2DMSARRAY; d.Texture2DMSArray.FirstArraySlice = desc.firstLayer; d.Texture2DMSArray.ArraySize = desc.layerCount; }
+        else if (td.sampleCount > 1) { d.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2DMS; }
+        else if (td.arrayLayers > 1) { d.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2DARRAY; d.Texture2DArray.MipSlice = desc.firstMip; d.Texture2DArray.FirstArraySlice = desc.firstLayer; d.Texture2DArray.ArraySize = desc.layerCount; }
         else { d.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D; d.Texture2D.MipSlice = desc.firstMip; }
         if (FAILED(m_Device->CreateRenderTargetView(nativeTexture->texture.Get(), &d, &view->rtv))) return nullptr;
     }
     if (HasUsage(desc.usage, RHIResourceUsage::DepthStencil)) {
         D3D11_DEPTH_STENCIL_VIEW_DESC d{}; d.Format = ToDxgiFormat(td.format);
-        if (td.arrayLayers > 1) { d.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2DARRAY; d.Texture2DArray.MipSlice = desc.firstMip; d.Texture2DArray.FirstArraySlice = desc.firstLayer; d.Texture2DArray.ArraySize = desc.layerCount; }
+        if (td.sampleCount > 1 && td.arrayLayers > 1) { d.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2DMSARRAY; d.Texture2DMSArray.FirstArraySlice = desc.firstLayer; d.Texture2DMSArray.ArraySize = desc.layerCount; }
+        else if (td.sampleCount > 1) { d.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2DMS; }
+        else if (td.arrayLayers > 1) { d.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2DARRAY; d.Texture2DArray.MipSlice = desc.firstMip; d.Texture2DArray.FirstArraySlice = desc.firstLayer; d.Texture2DArray.ArraySize = desc.layerCount; }
         else { d.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D; d.Texture2D.MipSlice = desc.firstMip; }
         if (FAILED(m_Device->CreateDepthStencilView(nativeTexture->texture.Get(), &d, &view->dsv))) return nullptr;
     }
     if (HasUsage(desc.usage, RHIResourceUsage::UnorderedAccess)) {
+        if (td.sampleCount > 1) return nullptr;
         D3D11_UNORDERED_ACCESS_VIEW_DESC d{}; d.Format = ToDxgiFormat(td.format); d.ViewDimension = D3D11_UAV_DIMENSION_TEXTURE2D; d.Texture2D.MipSlice = desc.firstMip;
         if (FAILED(m_Device->CreateUnorderedAccessView(nativeTexture->texture.Get(), &d, &view->uav))) return nullptr;
     }
@@ -1048,6 +1398,63 @@ std::shared_ptr<GpuSampler> D3D11Context::CreateSampler(const RHISamplerDesc& de
     d.ComparisonFunc = D3D11_COMPARISON_LESS_EQUAL; d.MaxLOD = D3D11_FLOAT32_MAX;
     if (FAILED(m_Device->CreateSamplerState(&d, &result->sampler))) return nullptr;
     return result;
+}
+
+std::shared_ptr<GpuGraphicsPipeline> D3D11Context::CreateGraphicsPipeline(
+    const GraphicsPipelineDesc& desc) {
+    auto shader = std::dynamic_pointer_cast<D3D11Shader>(desc.shader);
+    if (!m_Device || !shader) return nullptr;
+
+    auto pipeline = std::make_shared<D3D11GraphicsPipeline>();
+    pipeline->desc = desc;
+
+    D3D11_BLEND_DESC blend{};
+    blend.AlphaToCoverageEnable = desc.blend.alphaToCoverageEnable;
+    blend.IndependentBlendEnable = desc.blend.independentBlendEnable;
+    const size_t attachmentCount = (std::min)(desc.blend.attachments.size(), size_t{8});
+    for (size_t i = 0; i < 8; ++i) {
+        const RHIBlendAttachmentState state = attachmentCount
+            ? desc.blend.attachments[(std::min)(i, attachmentCount - 1)]
+            : RHIBlendAttachmentState{};
+        auto& target = blend.RenderTarget[i];
+        target.BlendEnable = state.blendEnable;
+        target.SrcBlend = ToD3D11Blend(state.srcColorFactor);
+        target.DestBlend = ToD3D11Blend(state.dstColorFactor);
+        target.BlendOp = ToD3D11BlendOp(state.colorOp);
+        target.SrcBlendAlpha = ToD3D11Blend(state.srcAlphaFactor);
+        target.DestBlendAlpha = ToD3D11Blend(state.dstAlphaFactor);
+        target.BlendOpAlpha = ToD3D11BlendOp(state.alphaOp);
+        target.RenderTargetWriteMask = state.colorWriteMask;
+    }
+    if (FAILED(m_Device->CreateBlendState(&blend, &pipeline->blendState))) return nullptr;
+
+    D3D11_RASTERIZER_DESC raster{};
+    raster.FillMode = desc.rasterizer.fillMode == RHIFillMode::Wireframe
+        ? D3D11_FILL_WIREFRAME : D3D11_FILL_SOLID;
+    raster.CullMode = desc.rasterizer.cullMode == RHICullMode::None ? D3D11_CULL_NONE
+        : desc.rasterizer.cullMode == RHICullMode::Front ? D3D11_CULL_FRONT : D3D11_CULL_BACK;
+    raster.FrontCounterClockwise = desc.rasterizer.frontFace == RHIFrontFace::CounterClockwise;
+    raster.DepthBias = desc.rasterizer.depthBias;
+    raster.DepthBiasClamp = desc.rasterizer.depthBiasClamp;
+    raster.SlopeScaledDepthBias = desc.rasterizer.slopeScaledDepthBias;
+    raster.DepthClipEnable = desc.rasterizer.depthClipEnable;
+    raster.ScissorEnable = desc.rasterizer.scissorEnable;
+    raster.MultisampleEnable = desc.rasterizer.multisampleEnable || desc.multisample.sampleCount > 1;
+    raster.AntialiasedLineEnable = desc.rasterizer.antialiasedLineEnable;
+    if (FAILED(m_Device->CreateRasterizerState(&raster, &pipeline->rasterizerState))) return nullptr;
+
+    D3D11_DEPTH_STENCIL_DESC depth{};
+    depth.DepthEnable = desc.depthStencil.depthTestEnable;
+    depth.DepthWriteMask = desc.depthStencil.depthWriteEnable
+        ? D3D11_DEPTH_WRITE_MASK_ALL : D3D11_DEPTH_WRITE_MASK_ZERO;
+    depth.DepthFunc = ToD3D11Compare(desc.depthStencil.depthCompareOp);
+    depth.StencilEnable = desc.depthStencil.stencilEnable;
+    depth.StencilReadMask = desc.depthStencil.stencilReadMask;
+    depth.StencilWriteMask = desc.depthStencil.stencilWriteMask;
+    depth.FrontFace = ToD3D11StencilFace(desc.depthStencil.frontFace);
+    depth.BackFace = ToD3D11StencilFace(desc.depthStencil.backFace);
+    if (FAILED(m_Device->CreateDepthStencilState(&depth, &pipeline->depthStencilState))) return nullptr;
+    return pipeline;
 }
 
 std::shared_ptr<GpuReadbackTicket> D3D11Context::ReadbackBufferAsync(
@@ -1066,4 +1473,36 @@ std::shared_ptr<GpuReadbackTicket> D3D11Context::ReadbackBufferAsync(
     m_Context->End(query.Get());
     return std::make_shared<D3D11ReadbackTicket>(
         m_Context.Get(), std::move(staging), std::move(query), source->desc.size);
+}
+
+std::shared_ptr<GpuTextureReadbackTicket> D3D11Context::ReadbackTextureAsync(
+    const std::shared_ptr<GpuTexture>& texture, const RHITextureRegion& requested) {
+    auto source = std::dynamic_pointer_cast<D3D11Texture>(texture);
+    if (!source || !source->texture || source->desc.sampleCount > 1) return nullptr;
+    const uint32_t mipWidth = (std::max)(1u, source->desc.width >> requested.mipLevel);
+    const uint32_t mipHeight = (std::max)(1u, source->desc.height >> requested.mipLevel);
+    const uint32_t width = requested.width ? requested.width : mipWidth - requested.x;
+    const uint32_t height = requested.height ? requested.height : mipHeight - requested.y;
+    const uint32_t bytes = RHIFormatByteSize(source->desc.format);
+    if (!bytes || requested.x + width > mipWidth || requested.y + height > mipHeight ||
+        requested.mipLevel >= source->desc.mipLevels || requested.arrayLayer >= source->desc.arrayLayers)
+        return nullptr;
+    D3D11_TEXTURE2D_DESC desc{};
+    desc.Width = width; desc.Height = height; desc.MipLevels = 1; desc.ArraySize = 1;
+    desc.Format = ToDxgiFormat(source->desc.format); desc.SampleDesc.Count = 1;
+    desc.Usage = D3D11_USAGE_STAGING; desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    ComPtr<ID3D11Texture2D> staging;
+    if (FAILED(m_Device->CreateTexture2D(&desc, nullptr, &staging))) return nullptr;
+    D3D11_BOX box{requested.x, requested.y, requested.z,
+                  requested.x + width, requested.y + height, requested.z + 1};
+    const UINT subresource = D3D11CalcSubresource(
+        requested.mipLevel, requested.arrayLayer, source->desc.mipLevels);
+    m_Context->CopySubresourceRegion(staging.Get(), 0, 0, 0, 0,
+                                     source->texture.Get(), subresource, &box);
+    D3D11_QUERY_DESC queryDesc{}; queryDesc.Query = D3D11_QUERY_EVENT;
+    ComPtr<ID3D11Query> query;
+    if (FAILED(m_Device->CreateQuery(&queryDesc, &query))) return nullptr;
+    m_Context->End(query.Get());
+    return std::make_shared<D3D11TextureReadbackTicket>(m_Context.Get(), std::move(staging),
+        std::move(query), width, height, width * bytes, source->desc.format);
 }

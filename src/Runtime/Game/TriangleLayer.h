@@ -33,6 +33,7 @@ private:
 
     std::shared_ptr<GpuBuffer> m_VB;
     std::shared_ptr<ShaderHandle> m_ShaderHandle;
+    std::shared_ptr<GpuGraphicsPipeline> m_Pipeline;
 
     Camera m_Camera;
 

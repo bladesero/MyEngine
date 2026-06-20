@@ -7,10 +7,6 @@
 #include <cstring>
 #include <vector>
 
-#ifdef MYENGINE_PLATFORM_WINDOWS
-#include "ShaderBytecodeWindows.h"
-#endif
-
 namespace {
 struct AtmosphereFaceConstants { float faceInfo[4]; };
 }
@@ -31,15 +27,19 @@ bool EnvironmentPass::EnsureResources()
     if (!device) return false;
     if (m_Environment) {
         if ((m_AtmosphereHandle && m_AtmosphereHandle->version != m_AtmosphereVersion) ||
-            (m_MipmapHandle && m_MipmapHandle->version != m_MipmapVersion)) {
+            (m_MipmapHandle && m_MipmapHandle->version != m_MipmapVersion) ||
+            (m_SHHandle && m_SHHandle->version != m_SHVersion)) {
             m_AtmosphereShader = m_AtmosphereHandle->shader;
             m_MipmapShader = m_MipmapHandle->shader;
+            m_SHShader = m_SHHandle->shader;
             GraphicsPipelineDesc desc; desc.colorFormats = {RHIFormat::RGBA16Float};
-            desc.depthTest = false; desc.depthWrite = false;
+            desc.depthStencil.depthTestEnable = false;
+            desc.depthStencil.depthWriteEnable = false;
             desc.shader = m_AtmosphereShader; m_AtmospherePipeline = device->CreateGraphicsPipeline(desc);
             desc.shader = m_MipmapShader; m_MipmapPipeline = device->CreateGraphicsPipeline(desc);
             m_AtmosphereVersion = m_AtmosphereHandle->version;
             m_MipmapVersion = m_MipmapHandle->version;
+            m_SHVersion = m_SHHandle->version;
             m_Generated = false;
         }
         return m_AtmospherePipeline && m_MipmapPipeline;
@@ -80,21 +80,23 @@ bool EnvironmentPass::EnsureResources()
     m_LinearClamp = device->CreateSampler(samplerDesc);
 
     m_AtmosphereHandle = ShaderManager::Get().GetOrCreate(
-        "src/Runtime/Renderer/Shaders/AtmosphereCubemap.hlsl", "VSMain", "PSMain", nullptr, 0);
+        "Content/Engine/Shaders/AtmosphereCubemap.shader", nullptr, 0);
     m_MipmapHandle = ShaderManager::Get().GetOrCreate(
-        "src/Runtime/Renderer/Shaders/EnvironmentMipmap.hlsl", "VSMain", "PSMain", nullptr, 0);
+        "Content/Engine/Shaders/EnvironmentMipmap.shader", nullptr, 0);
+    m_SHHandle = ShaderManager::Get().GetOrCreateCompute(
+        "Content/Engine/Shaders/AtmosphereSH.shader");
     m_AtmosphereShader = m_AtmosphereHandle ? m_AtmosphereHandle->shader : nullptr;
     m_MipmapShader = m_MipmapHandle ? m_MipmapHandle->shader : nullptr;
     m_AtmosphereVersion = m_AtmosphereHandle ? m_AtmosphereHandle->version : 0;
     m_MipmapVersion = m_MipmapHandle ? m_MipmapHandle->version : 0;
-    m_SHShader = device->CreateComputeShaderFromBytecode(
-        k_AtmosphereSHCsBytecode, k_AtmosphereSHCsBytecodeSize);
+    m_SHShader = m_SHHandle ? m_SHHandle->shader : nullptr;
+    m_SHVersion = m_SHHandle ? m_SHHandle->version : 0;
     if (!m_LinearClamp || !m_AtmosphereShader || !m_MipmapShader || !m_SHShader) return false;
 
     GraphicsPipelineDesc graphicsDesc;
     graphicsDesc.colorFormats = {RHIFormat::RGBA16Float};
-    graphicsDesc.depthTest = false;
-    graphicsDesc.depthWrite = false;
+    graphicsDesc.depthStencil.depthTestEnable = false;
+    graphicsDesc.depthStencil.depthWriteEnable = false;
     graphicsDesc.shader = m_AtmosphereShader;
     m_AtmospherePipeline = device->CreateGraphicsPipeline(graphicsDesc);
     graphicsDesc.shader = m_MipmapShader;

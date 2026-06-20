@@ -6,6 +6,7 @@
 #include "Renderer/RHI/GpuPipeline.h"
 #include "Renderer/RHI/GpuBindGroup.h"
 #include "Renderer/RHI/GpuTextureView.h"
+#include "Renderer/RHI/GpuSync.h"
 
 #include <cstdint>
 
@@ -82,6 +83,12 @@ public:
     virtual void Dispatch(uint32_t, uint32_t = 1, uint32_t = 1) {}
     virtual void CopyBuffer(GpuBuffer*, uint32_t, GpuBuffer*, uint32_t, uint32_t) {}
     virtual void CopyTexture(GpuTexture*, GpuTexture*) {}
+    virtual void CopyTexture(GpuTexture*, const RHITextureRegion&,
+                             GpuTexture*, const RHITextureRegion&) {}
+    virtual void DrawIndirect(GpuBuffer*, uint64_t = 0) {}
+    virtual void DrawIndexedIndirect(GpuBuffer*, uint64_t = 0) {}
+    virtual void WriteTimestamp(GpuTimestampQueryPool*, uint32_t) {}
+    virtual void ResolveTimestamps(GpuTimestampQueryPool*, uint32_t, uint32_t) {}
     virtual void UAVBarrier(GpuResource*) {}
 
 };

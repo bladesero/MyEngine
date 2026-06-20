@@ -5,7 +5,7 @@
 #include "Assets/MeshAsset.h"
 
 // ============================================================================
-// Mesh shaders: Windows uses offline DXBC from src/Runtime/Renderer/Shaders/Mesh.hlsl
+// Legacy Metal source. Windows uses Content/Engine/Shaders/Mesh.shader.
 // (built with dxc via xmake). macOS uses MSL below. Linux has no GPU backend yet.
 //
 // Semantics:
@@ -65,7 +65,7 @@ fragment float4 PSMain(VSOut in [[stage_in]],
 
 )MSL";
 
-// Runtime MSL source (Metal). Windows uses CreateShaderFromBytecode + ShaderBytecodeWindows.h.
+// Runtime MSL source retained for the Metal backend.
 #ifdef MYENGINE_PLATFORM_MACOS
 inline constexpr const char* k_MeshShaderSource = k_MeshMSL;
 #elif !defined(MYENGINE_PLATFORM_WINDOWS)
