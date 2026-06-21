@@ -115,6 +115,7 @@ bool TestProjectConfigAndPortableAssetPaths() {
     std::string error;
     if (!Check(project.Open(root, true, &error), "missing project should open in editor mode")) return false;
     project.SetName("ProjectTest");
+    project.GetGraphicsSettings().backend = "d3d12";
     if (!Check(project.SetInputConfigPath("Content/Config/Input.input.json", &error),
                "project input config path save failed: " + error)) return false;
     if (!Check(project.SetStartupScene(startupPath, &error) && project.Save(&error),
@@ -125,7 +126,8 @@ bool TestProjectConfigAndPortableAssetPaths() {
     if (!Check(loaded.GetVersion() == ProjectConfig::kCurrentVersion &&
                loaded.GetName() == "ProjectTest" &&
                loaded.GetStartupScene() == "Content/Scenes/Main.scene.json" &&
-               loaded.GetInputSettings().config == "Content/Config/Input.input.json",
+               loaded.GetInputSettings().config == "Content/Config/Input.input.json" &&
+               loaded.GetGraphicsSettings().backend == "d3d12",
                "project manifest fields mismatch")) return false;
 
     fs::path resolved;
@@ -146,6 +148,11 @@ bool TestProjectConfigAndPortableAssetPaths() {
                "input config resolution failed")) return false;
     if (!Check(!loaded.SetInputConfigPath("../Outside.input.json", &error),
                "traversal input config path was accepted")) return false;
+    loaded.GetGraphicsSettings().backend = "vulkan";
+    if (!Check(!loaded.Save(&error),
+               "unsupported graphics backend was accepted")) return false;
+    loaded.GetGraphicsSettings().backend = "d3d11";
+    if (!Check(loaded.Save(&error), "failed to restore graphics backend")) return false;
     std::ofstream(root / ProjectConfig::kFileName)
         << R"({"version":999,"name":"Future","startupScene":"Content/Scenes/Main.scene.json"})";
     ProjectConfig unsupported;

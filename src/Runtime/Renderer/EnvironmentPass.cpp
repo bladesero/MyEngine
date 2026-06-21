@@ -64,6 +64,16 @@ bool EnvironmentPass::EnsureResources()
     srvDesc.layerCount = 6;
     srvDesc.usage = RHIResourceUsage::ShaderResource;
     m_EnvironmentSrv = device->CreateTextureView(m_Environment, srvDesc);
+    if (!m_EnvironmentSrv) return false;
+    for (uint32_t mip = 0; mip < kCubeMipLevels; ++mip) {
+        RHITextureViewDesc mipSrvDesc;
+        mipSrvDesc.firstMip = mip;
+        mipSrvDesc.mipCount = 1;
+        mipSrvDesc.layerCount = 6;
+        mipSrvDesc.usage = RHIResourceUsage::ShaderResource;
+        m_MipSrvs[mip] = device->CreateTextureView(m_Environment, mipSrvDesc);
+        if (!m_MipSrvs[mip]) return false;
+    }
     for (uint32_t mip = 0; mip < kCubeMipLevels; ++mip) {
         for (uint32_t face = 0; face < 6; ++face) {
             RHITextureViewDesc rtvDesc;
@@ -174,7 +184,7 @@ void EnvironmentPass::RenderCubemap(GpuCommandList& commands)
             AtmosphereFaceConstants constants{{static_cast<float>(face),
                                                 static_cast<float>(mip - 1), 0, 0}};
             bindings->SetConstants("EnvironmentMipmapConstants", &constants, sizeof(constants));
-            bindings->SetTexture("g_SourceCube", m_EnvironmentSrv);
+            bindings->SetTexture("g_SourceCube", m_MipSrvs[mip - 1]);
             bindings->SetSampler("g_SourceSampler", m_LinearClamp);
             commands.SetBindGroup(0, bindings.get());
             commands.Draw(3);

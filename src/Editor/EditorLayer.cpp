@@ -409,6 +409,8 @@ void EditorLayer::OpenProjectSettings() {
                  config.GetInputSettings().config.c_str(),
                  m_InputConfigPath.size() - 1);
     m_InputConfigPath.back() = '\0';
+    m_GraphicsBackendIndex =
+        config.GetGraphicsSettings().backend == "d3d12" ? 1 : 0;
     m_ProjectSettingsRequested = true;
 }
 
@@ -484,6 +486,10 @@ void EditorLayer::DrawProjectSettings() {
             DrawProjectSettingsTab();
             ImGui::EndTabItem();
         }
+        if (ImGui::BeginTabItem("Graphics")) {
+            DrawGraphicsSettingsTab();
+            ImGui::EndTabItem();
+        }
         if (ImGui::BeginTabItem("Gameplay Input")) {
             DrawGameplayInputSettingsTab();
             ImGui::EndTabItem();
@@ -530,6 +536,33 @@ void EditorLayer::DrawProjectSettingsTab() {
         } else {
             editable = previous;
             ShowProjectResult("Failed to save project settings: " + error, true);
+        }
+    }
+#endif
+}
+
+void EditorLayer::DrawGraphicsSettingsTab() {
+#if defined(MYENGINE_ENABLE_IMGUI)
+    static constexpr const char* kBackends[] = {"DirectX 11", "DirectX 12"};
+    ImGui::Combo("Backend", &m_GraphicsBackendIndex, kBackends,
+                 2);
+    const RHIBackend active = m_RenderContext ? m_RenderContext->GetBackend() : RHIBackend::Unknown;
+    const char* activeLabel = active == RHIBackend::D3D12 ? "DirectX 12" :
+                              active == RHIBackend::D3D11 ? "DirectX 11" : "Unknown";
+    ImGui::LabelText("Active backend", "%s", activeLabel);
+    ImGui::LabelText("Apply", "%s", "next launch");
+    if (ImGui::Button("Save Graphics")) {
+        auto& editable = m_Project.GetConfig();
+        const ProjectConfig previous = editable;
+        editable.GetGraphicsSettings().backend =
+            m_GraphicsBackendIndex == 1 ? "d3d12" : "d3d11";
+        std::string error;
+        if (editable.Save(&error)) {
+            Logger::Info("[Editor] Graphics settings saved");
+            ShowProjectResult("Graphics settings saved.", false);
+        } else {
+            editable = previous;
+            ShowProjectResult("Failed to save graphics settings: " + error, true);
         }
     }
 #endif

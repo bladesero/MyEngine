@@ -147,6 +147,24 @@ static bool ParseBackend(const std::string& value, ApplicationConfig& cfg) {
     return true;
 }
 
+static void ApplyProjectBackend(const std::filesystem::path& projectRoot,
+                                ApplicationConfig& cfg) {
+#ifdef MYENGINE_PLATFORM_WINDOWS
+    ProjectConfig project;
+    std::string error;
+    if (!project.Open(projectRoot, false, &error)) {
+        Logger::Warn("[Player] Failed to read project graphics settings: ", error);
+        return;
+    }
+    if (!ParseBackend(project.GetGraphicsSettings().backend, cfg)) {
+        cfg.backend = kDefaultRenderBackend;
+    }
+#else
+    (void)projectRoot;
+    (void)cfg;
+#endif
+}
+
 static int RunPlayer(int argc, char* argv[]) {
     ApplicationConfig cfg;
     cfg.window.title = "MyEngine Player";
@@ -158,6 +176,7 @@ static int RunPlayer(int argc, char* argv[]) {
 
     std::filesystem::path projectRoot = std::filesystem::current_path();
     std::string sceneOverride;
+    bool backendOverridden = false;
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
         if (arg == "--project" || arg == "--scene" || arg == "--backend") {
@@ -168,17 +187,25 @@ static int RunPlayer(int argc, char* argv[]) {
             const std::string value = argv[++i];
             if (arg == "--project") projectRoot = value;
             else if (arg == "--scene") sceneOverride = value;
-            else if (!ParseBackend(value, cfg)) return 2;
+            else {
+                if (!ParseBackend(value, cfg)) return 2;
+                backendOverridden = true;
+            }
         } else if (arg.rfind("--project=", 0) == 0) {
             projectRoot = arg.substr(std::string("--project=").size());
         } else if (arg.rfind("--scene=", 0) == 0) {
             sceneOverride = arg.substr(std::string("--scene=").size());
         } else if (arg.rfind("--backend=", 0) == 0) {
             if (!ParseBackend(arg.substr(std::string("--backend=").size()), cfg)) return 2;
+            backendOverridden = true;
         } else {
             Logger::Error("Unknown argument: ", arg);
             return 2;
         }
+    }
+
+    if (!backendOverridden) {
+        ApplyProjectBackend(projectRoot, cfg);
     }
 
     PlayerApp app(cfg, std::move(projectRoot), std::move(sceneOverride));

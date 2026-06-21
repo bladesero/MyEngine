@@ -48,6 +48,7 @@ private:
 
     std::shared_ptr<GpuTexture> m_Environment;
     std::shared_ptr<GpuTextureView> m_EnvironmentSrv;
+    std::array<std::shared_ptr<GpuTextureView>, kCubeMipLevels> m_MipSrvs;
     std::array<std::array<std::shared_ptr<GpuTextureView>, 6>, kCubeMipLevels> m_FaceRtvs;
     std::shared_ptr<GpuSampler> m_LinearClamp;
     std::shared_ptr<GpuShader> m_AtmosphereShader;

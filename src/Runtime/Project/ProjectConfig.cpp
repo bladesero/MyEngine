@@ -21,6 +21,11 @@ bool ProjectConfig::IsWithin(const fs::path& path, const fs::path& parent)
     return first != relative.end() && *first != "..";
 }
 
+bool ProjectConfig::IsSupportedGraphicsBackend(std::string_view backend)
+{
+    return backend == "d3d11" || backend == "d3d12";
+}
+
 bool ProjectConfig::Open(fs::path projectRoot, bool allowMissing, std::string* error)
 {
     if (error) error->clear();
@@ -43,6 +48,7 @@ bool ProjectConfig::Open(fs::path projectRoot, bool allowMissing, std::string* e
     m_StartupScene.clear();
     m_PublishSettings = {};
     m_InputSettings = {};
+    m_GraphicsSettings = {};
     m_HasManifest = fs::is_regular_file(m_ManifestPath, ec) && !ec;
     if (!m_HasManifest) {
         if (allowMissing) return true;
@@ -78,6 +84,11 @@ bool ProjectConfig::Open(fs::path projectRoot, bool allowMissing, std::string* e
             m_InputSettings.config =
                 input->value("config", std::string{ProjectInputSettings{}.config});
         }
+        if (const auto graphics = json.find("graphics");
+            graphics != json.end() && graphics->is_object()) {
+            m_GraphicsSettings.backend =
+                graphics->value("backend", std::string{ProjectGraphicsSettings{}.backend});
+        }
     }
     catch (const std::exception& exception) {
         SetError(error, "failed to parse project manifest: " + std::string(exception.what()));
@@ -112,6 +123,10 @@ bool ProjectConfig::Open(fs::path projectRoot, bool allowMissing, std::string* e
         fs::path ignored;
         if (!ResolveInputConfigPath(ignored, false, error)) return false;
     }
+    if (!IsSupportedGraphicsBackend(m_GraphicsSettings.backend)) {
+        SetError(error, "unsupported graphics backend: " + m_GraphicsSettings.backend);
+        return false;
+    }
     return true;
 }
 
@@ -142,6 +157,10 @@ bool ProjectConfig::Save(std::string* error)
         fs::path ignored;
         if (!ResolveInputConfigPath(ignored, false, error)) return false;
     }
+    if (!IsSupportedGraphicsBackend(m_GraphicsSettings.backend)) {
+        SetError(error, "unsupported graphics backend: " + m_GraphicsSettings.backend);
+        return false;
+    }
 
     try {
         nlohmann::json json;
@@ -155,6 +174,9 @@ bool ProjectConfig::Save(std::string* error)
         };
         json["input"] = {
             {"config", m_InputSettings.config},
+        };
+        json["graphics"] = {
+            {"backend", m_GraphicsSettings.backend},
         };
         std::ofstream output(m_ManifestPath);
         if (!output) {

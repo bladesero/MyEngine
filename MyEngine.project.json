@@ -1,12 +1,16 @@
 {
-  "version": 1,
+  "graphics": {
+    "backend": "d3d11"
+  },
+  "input": {
+    "config": "Content/Config/Input.input.json"
+  },
   "name": "MyEngine",
-  "startupScene": "Content/Scenes/Main.scene.json",
+  "projectId": "a29e010b0df24bbd4391819c4ebbc1741902106680018e86a8b3feda1ee83ae0",
   "publish": {
     "outputDirectory": "Builds",
     "target": "windows-x64"
   },
-  "input": {
-    "config": "Content/Config/Input.input.json"
-  }
+  "startupScene": "Content/Scenes/Main.scene.json",
+  "version": 1
 }

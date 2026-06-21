@@ -4,6 +4,7 @@
 
 #include <filesystem>
 #include <string>
+#include <string_view>
 
 struct ProjectPublishSettings {
     std::string outputDirectory = "Builds";
@@ -12,6 +13,10 @@ struct ProjectPublishSettings {
 
 struct ProjectInputSettings {
     std::string config = "Content/Config/Input.input.json";
+};
+
+struct ProjectGraphicsSettings {
+    std::string backend = "d3d11";
 };
 
 class ProjectConfig {
@@ -47,9 +52,12 @@ public:
     const ProjectPublishSettings& GetPublishSettings() const { return m_PublishSettings; }
     ProjectInputSettings& GetInputSettings() { return m_InputSettings; }
     const ProjectInputSettings& GetInputSettings() const { return m_InputSettings; }
+    ProjectGraphicsSettings& GetGraphicsSettings() { return m_GraphicsSettings; }
+    const ProjectGraphicsSettings& GetGraphicsSettings() const { return m_GraphicsSettings; }
     bool HasManifest() const { return m_HasManifest; }
 
     void SetName(std::string name) { m_Name = std::move(name); }
+    static bool IsSupportedGraphicsBackend(std::string_view backend);
 
 private:
     static void SetError(std::string* error, std::string message);
@@ -64,5 +72,6 @@ private:
     std::string m_StartupScene;
     ProjectPublishSettings m_PublishSettings;
     ProjectInputSettings m_InputSettings;
+    ProjectGraphicsSettings m_GraphicsSettings;
     bool m_HasManifest = false;
 };

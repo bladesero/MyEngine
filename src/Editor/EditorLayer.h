@@ -55,6 +55,7 @@ private:
     void DrawProjectSettings();
     void DrawProjectResult();
     void DrawProjectSettingsTab();
+    void DrawGraphicsSettingsTab();
     void DrawGameplayInputSettingsTab();
     void DrawShortcutSettingsTab();
     void OpenProjectSettings();
@@ -102,6 +103,7 @@ private:
     std::array<char, 128> m_ProjectName{};
     std::array<char, 1024> m_PublishOutput{};
     std::array<char, 1024> m_InputConfigPath{};
+    int m_GraphicsBackendIndex = 0;
     std::string m_ProjectError;
     std::string m_ProjectResult;
     std::string m_CapturingShortcutAction;

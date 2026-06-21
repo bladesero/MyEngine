@@ -8,7 +8,9 @@
 #include "Renderer/IRenderContext.h"
 #include "Game/SceneRenderLayer.h"
 #include "Editor/EditorLayer.h"
+#include "Editor/EditorWorkspace.h"
 #include "Core/Logger.h"
+#include "Project/ProjectConfig.h"
 
 #include <memory>
 #include <filesystem>
@@ -23,6 +25,59 @@ std::filesystem::path GetExecutableDirectory(const char* argv0) {
         return std::filesystem::absolute(argv0).parent_path().lexically_normal();
     }
     return std::filesystem::current_path();
+}
+
+bool ApplyBackendValue(const std::string& value, ApplicationConfig& cfg) {
+#ifdef MYENGINE_PLATFORM_WINDOWS
+    if (value == "d3d11" || value == "11") {
+        cfg.backend = RenderBackend::D3D11;
+        return true;
+    }
+    if (value == "d3d12" || value == "12") {
+        cfg.backend = RenderBackend::D3D12;
+        return true;
+    }
+    Logger::Warn("Unknown backend: ", value, " (use d3d11/d3d12)");
+#else
+    Logger::Warn("--backend flag ignored: not on Windows (got: ", value, ")");
+#endif
+    return false;
+}
+
+void ApplyProjectBackend(const std::filesystem::path& projectRoot,
+                         ApplicationConfig& cfg) {
+#ifdef MYENGINE_PLATFORM_WINDOWS
+    auto tryApply = [&cfg](const std::filesystem::path& root) {
+        ProjectConfig project;
+        std::string error;
+        if (!project.Open(root, false, &error)) {
+            Logger::Warn("[App] Failed to read project graphics settings: ", error);
+            return false;
+        }
+        ApplyBackendValue(project.GetGraphicsSettings().backend, cfg);
+        Logger::Info("[App] Using project graphics backend '",
+                     project.GetGraphicsSettings().backend, "' from ", root.string());
+        return true;
+    };
+
+    if (!projectRoot.empty()) {
+        tryApply(projectRoot);
+        return;
+    }
+
+    EditorWorkspace workspace;
+    std::string error;
+    if (!workspace.Load(&error)) {
+        Logger::Warn("[App] Failed to load editor workspace: ", error);
+        return;
+    }
+    for (const auto& recent : workspace.GetRecentProjects()) {
+        if (tryApply(recent)) return;
+    }
+#else
+    (void)projectRoot;
+    (void)cfg;
+#endif
 }
 }
 
@@ -98,6 +153,7 @@ static int RunEditor(int argc, char* argv[]) {
     cfg.engine.targetFps = 60;
     std::filesystem::path projectRoot;
     EditorAutomationConfig automation;
+    bool backendOverridden = false;
     const std::filesystem::path executableDirectory = GetExecutableDirectory(argv[0]);
     const std::filesystem::path bundledEngineContent =
         (executableDirectory / "EngineContent").lexically_normal();
@@ -134,24 +190,16 @@ static int RunEditor(int argc, char* argv[]) {
         }
         else if (arg == "--backend" && i + 1 < argc) {
             const std::string b = argv[++i];
-#ifdef MYENGINE_PLATFORM_WINDOWS
-            if      (b == "d3d11" || b == "11") cfg.backend = RenderBackend::D3D11;
-            else if (b == "d3d12" || b == "12") cfg.backend = RenderBackend::D3D12;
-            else Logger::Warn("Unknown backend: ", b, " (use d3d11/d3d12)");
-#else
-            Logger::Warn("--backend flag ignored: not on Windows (got: ", b, ")");
-#endif
+            backendOverridden = ApplyBackendValue(b, cfg);
         }
         else if (arg.rfind("--backend=", 0) == 0) {
             const std::string b = arg.substr(std::string("--backend=").size());
-#ifdef MYENGINE_PLATFORM_WINDOWS
-            if      (b == "d3d11" || b == "11") cfg.backend = RenderBackend::D3D11;
-            else if (b == "d3d12" || b == "12") cfg.backend = RenderBackend::D3D12;
-            else Logger::Warn("Unknown backend: ", b, " (use d3d11/d3d12)");
-#else
-            Logger::Warn("--backend flag ignored: not on Windows (got: ", b, ")");
-#endif
+            backendOverridden = ApplyBackendValue(b, cfg);
         }
+    }
+
+    if (!backendOverridden && automation.createProjectRoot.empty()) {
+        ApplyProjectBackend(projectRoot, cfg);
     }
 
     if (automation.Enabled()) {
