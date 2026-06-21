@@ -1091,7 +1091,9 @@ namespace IMGUIZMO_NAMESPACE
 
       matrix_t viewInverse;
       viewInverse.Inverse(gContext.mViewMat);
-      gContext.mCameraDir = viewInverse.v.dir;
+      // MyEngine uses a left-handed camera with +Z forward. ImGuizmo's
+      // rotation/screen-plane code expects this vector to point backward.
+      gContext.mCameraDir = -viewInverse.v.dir;
       gContext.mCameraEye = viewInverse.v.position;
       gContext.mCameraRight = viewInverse.v.right;
       gContext.mCameraUp = viewInverse.v.up;

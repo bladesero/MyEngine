@@ -214,8 +214,25 @@
                 },
                 {
                     "data": {
+                        "angularAxisLocks": [
+                            0.0,
+                            0.0,
+                            0.0
+                        ],
+                        "angularDamping": 0.05000000074505806,
+                        "angularVelocity": [
+                            0.0,
+                            0.0,
+                            0.0
+                        ],
                         "bodyType": "dynamic",
+                        "collisionDetection": "discrete",
                         "friction": 0.6000000238418579,
+                        "linearAxisLocks": [
+                            0.0,
+                            0.0,
+                            0.0
+                        ],
                         "linearDamping": 0.05000000074505806,
                         "mass": 1.0,
                         "restitution": 0.25,
@@ -250,13 +267,13 @@
             "transform": {
                 "position": [
                     2.0,
-                    0.5,
+                    4.366269111633301,
                     0.0
                 ],
                 "rotation": [
                     0.0,
-                    0.0,
-                    0.0
+                    -0.0,
+                    39.72600173950195
                 ],
                 "scale": [
                     1.0,
@@ -317,8 +334,25 @@
                 },
                 {
                     "data": {
+                        "angularAxisLocks": [
+                            0.0,
+                            0.0,
+                            0.0
+                        ],
+                        "angularDamping": 0.05000000074505806,
+                        "angularVelocity": [
+                            0.0,
+                            0.0,
+                            0.0
+                        ],
                         "bodyType": "static",
+                        "collisionDetection": "discrete",
                         "friction": 0.8999999761581421,
+                        "linearAxisLocks": [
+                            0.0,
+                            0.0,
+                            0.0
+                        ],
                         "linearDamping": 0.05000000074505806,
                         "mass": 1.0,
                         "restitution": 0.0,
