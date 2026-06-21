@@ -508,7 +508,7 @@ void MainPass::RenderSky(const Camera& camera, GpuCommandList& cmd)
     constants.parameters[0] = std::tan(camera.GetFovY() * kDeg2Rad * 0.5f);
     constants.parameters[1] = camera.GetAspect();
     constants.parameters[2] = 1.0f;
-    constants.parameters[3] = 1.0f;
+    constants.parameters[3] = m_HdrPassthrough ? 1.0f : 0.0f;
 
     GpuGraphicsPipeline* skyPipeline = GetOrCreateSkyPipeline();
     if (!skyPipeline) return;

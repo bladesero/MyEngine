@@ -39,6 +39,9 @@ float4 PSMain(VSOut input) : SV_TARGET
     float3 direction = normalize(
         g_Forward.xyz + g_Right.xyz * rayOffset.x + g_Up.xyz * rayOffset.y);
     float3 hdrColor = EnvironmentRadiance(direction) * g_Parameters.z;
-    float3 color = AcesToneMap(hdrColor * g_Parameters.w);
+    if (g_Parameters.w > 0.5f)
+        return float4(hdrColor, 1.0f);
+
+    float3 color = AcesToneMap(hdrColor);
     return float4(pow(color, 1.0f / 2.2f), 1.0f);
 }

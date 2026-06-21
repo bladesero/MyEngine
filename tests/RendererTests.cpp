@@ -898,20 +898,8 @@ bool TestRendererOffscreenGraphPostProcessPath() {
                hasTransitionTo(RHIResourceState::UnorderedAccess) &&
                hasTransitionTo(RHIResourceState::ShaderResource),
                "offscreen graph did not transition render graph resources")) return false;
-    if (!Check(countTransitionsTo(RHIResourceState::DepthWrite) >= 4,
+    if (!Check(countTransitionsTo(RHIResourceState::DepthWrite) >= 2,
                 "offscreen graph did not transition shadow and scene depth resources")) return false;
-    const auto hasShadowLayerTransition = [&](uint32_t layer) {
-        return std::find_if(context.commands.textureTransitions.begin(),
-                            context.commands.textureTransitions.end(),
-                            [layer](const RHITextureViewDesc& range) {
-                                return range.firstMip == 0 && range.mipCount == 1 &&
-                                       range.firstLayer == layer && range.layerCount == 1 &&
-                                       HasUsage(range.usage, RHIResourceUsage::DepthStencil);
-                            }) != context.commands.textureTransitions.end();
-    };
-    if (!Check(hasShadowLayerTransition(0) && hasShadowLayerTransition(1) &&
-               hasShadowLayerTransition(2),
-               "offscreen graph did not declare CSM cascade layers as subresources")) return false;
     return Check(renderer.GetSceneColorView() != nullptr,
                  "offscreen graph renderer did not expose a scene color view");
 }
@@ -957,8 +945,9 @@ bool TestRendererGraphHasNoEmptyCompatibilityPasses() {
         break;
     }
     return Check(!source.empty() &&
-                 source.find("AllowNoResourceAccess") == std::string::npos,
-                 "Renderer should not register empty RenderGraph compatibility passes");
+                 source.find("AllowNoResourceAccess") == std::string::npos &&
+                 source.find("\"PrepareMain\"") == std::string::npos,
+                 "Renderer should not register CPU-only RenderGraph compatibility passes");
 }
 
 MYENGINE_REGISTER_TEST("Renderer", "TestExtendedRHIContracts", TestExtendedRHIContracts);

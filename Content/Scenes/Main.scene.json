@@ -964,6 +964,13 @@
                 "asset": "Content/Prefabs/monkey.prefab.json",
                 "overrides": [
                     {
+                        "componentType": "MeshRenderer",
+                        "kind": "SetProperty",
+                        "localId": "a5fdc444effe3190f625ed3a6b1de14d",
+                        "path": "/material",
+                        "value": "Content/Materials/NewMaterial.mat"
+                    },
+                    {
                         "componentType": "CapsuleCollider",
                         "data": {
                             "halfHeight": 0.10000000149011612,

@@ -80,7 +80,8 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
         [this, &scene, &camera](GpuCommandList& commands, const RenderGraphResources&) {
             (void)camera;
             m_ShadowPass->ExecuteGraphManaged(commands, scene);
-        }, RenderGraph::PassFlags::ManualRenderingScope);
+        }, RenderGraph::PassFlags::ManualRenderingScope |
+           RenderGraph::PassFlags::ManualResourceTransitions);
     const bool environmentGraphReady = m_EnvironmentPass->PrepareGraphResources();
     RGTextureHandle environmentCube;
     RGBufferHandle environmentSH;
@@ -113,35 +114,22 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
     const bool useOffscreen = m_Device->GetBackend() == RHIBackend::D3D11 ||
                               m_Device->GetBackend() == RHIBackend::D3D12;
     m_MainPass->SetHdrPassthrough(useOffscreen);
-    m_RenderGraph->AddPass("PrepareMain",
-        [directionalShadow, spotShadow, pointShadow, environmentGraphReady, environmentCube, environmentSH](
-            RenderGraphBuilder& builder) {
-            builder.ReadTexture(directionalShadow);
-            builder.ReadTexture(spotShadow);
-            builder.ReadTexture(pointShadow);
-            if (environmentGraphReady) {
-                builder.ReadTexture(environmentCube);
-                builder.ReadBuffer(environmentSH);
-            }
-        },
-        [this](GpuCommandList&, const RenderGraphResources&) {
-            const uint32_t cascadeCount = m_ShadowPass->GetCascadeCount();
-            Mat4 cascades[3] = {
-                m_ShadowPass->GetCascadeViewProj(0),
-                cascadeCount > 1 ? m_ShadowPass->GetCascadeViewProj(1) : m_ShadowPass->GetCascadeViewProj(0),
-                cascadeCount > 2 ? m_ShadowPass->GetCascadeViewProj(2) : m_ShadowPass->GetCascadeViewProj(0)};
-            m_MainPass->SetShadowInput(
-                m_ShadowPass->GetLightViewProj(), m_ShadowPass->GetLightDirection(),
-                m_ShadowPass->IsDirectionalShadowEnabled(), m_ShadowPass->GetShadowMapTexture(),
-                m_ShadowPass->GetSpotLightViewProj(), m_ShadowPass->GetSpotShadowIndex(),
-                m_ShadowPass->GetSpotShadowMapTexture(), m_ShadowPass->GetPointShadowPosition(),
-                m_ShadowPass->GetPointShadowRange(), m_ShadowPass->GetPointShadowIndex(),
-                m_ShadowPass->GetPointShadowMapTexture(), cascadeCount > 0 ? cascades : nullptr,
-                cascadeCount, m_ShadowPass->GetCascadeSplits());
-            m_MainPass->SetEnvironmentInput(
-                m_EnvironmentPass->GetEnvironmentCubemap(), m_EnvironmentPass->GetSH2BufferView(),
-                m_EnvironmentPass->GetSH2Coefficients());
-        });
+    const uint32_t cascadeCount = m_ShadowPass->GetCascadeCount();
+    Mat4 cascades[3] = {
+        m_ShadowPass->GetCascadeViewProj(0),
+        cascadeCount > 1 ? m_ShadowPass->GetCascadeViewProj(1) : m_ShadowPass->GetCascadeViewProj(0),
+        cascadeCount > 2 ? m_ShadowPass->GetCascadeViewProj(2) : m_ShadowPass->GetCascadeViewProj(0)};
+    m_MainPass->SetShadowInput(
+        m_ShadowPass->GetLightViewProj(), m_ShadowPass->GetLightDirection(),
+        m_ShadowPass->IsDirectionalShadowEnabled(), m_ShadowPass->GetShadowMapTexture(),
+        m_ShadowPass->GetSpotLightViewProj(), m_ShadowPass->GetSpotShadowIndex(),
+        m_ShadowPass->GetSpotShadowMapTexture(), m_ShadowPass->GetPointShadowPosition(),
+        m_ShadowPass->GetPointShadowRange(), m_ShadowPass->GetPointShadowIndex(),
+        m_ShadowPass->GetPointShadowMapTexture(), cascadeCount > 0 ? cascades : nullptr,
+        cascadeCount, m_ShadowPass->GetCascadeSplits());
+    m_MainPass->SetEnvironmentInput(
+        m_EnvironmentPass->GetEnvironmentCubemap(), m_EnvironmentPass->GetSH2BufferView(),
+        m_EnvironmentPass->GetSH2Coefficients());
     if (useOffscreen) {
         if (!m_PostProcessPass->PrepareGraphResources()) {
             m_FrameContext->EndFrame();
@@ -182,7 +170,16 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
                 RHIResourceState::RenderTarget, RHIResourceState::RenderTarget);
         }
 
-        m_RenderGraph->AddPass("Main", [sceneColor, sceneDepth](RenderGraphBuilder& builder) {
+        m_RenderGraph->AddPass("Main",
+            [sceneColor, sceneDepth, directionalShadow, spotShadow, pointShadow,
+             environmentGraphReady, environmentCube, environmentSH](RenderGraphBuilder& builder) {
+                builder.ReadTexture(directionalShadow);
+                builder.ReadTexture(spotShadow);
+                builder.ReadTexture(pointShadow);
+                if (environmentGraphReady) {
+                    builder.ReadTexture(environmentCube);
+                    builder.ReadBuffer(environmentSH);
+                }
                 builder.WriteColor(sceneColor, RHILoadOp::Clear, RHIStoreOp::Store,
                                    {0.0f, 0.0f, 0.0f, 1.0f});
                 builder.WriteDepth(sceneDepth, RHILoadOp::Clear, RHIStoreOp::Store, 1.0f);
@@ -242,7 +239,16 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
         const auto backBuffer = m_RenderGraph->ImportTexture(
             "BackBuffer", backBufferView->texture, backBufferSharedView,
             RHIResourceState::RenderTarget, RHIResourceState::RenderTarget);
-        m_RenderGraph->AddPass("Main", [backBuffer](RenderGraphBuilder& builder) {
+        m_RenderGraph->AddPass("Main",
+            [backBuffer, directionalShadow, spotShadow, pointShadow,
+             environmentGraphReady, environmentCube, environmentSH](RenderGraphBuilder& builder) {
+                builder.ReadTexture(directionalShadow);
+                builder.ReadTexture(spotShadow);
+                builder.ReadTexture(pointShadow);
+                if (environmentGraphReady) {
+                    builder.ReadTexture(environmentCube);
+                    builder.ReadBuffer(environmentSH);
+                }
                 builder.WriteColor(backBuffer, RHILoadOp::Clear, RHIStoreOp::Store,
                                    {0.12f, 0.12f, 0.18f, 1.0f});
             },

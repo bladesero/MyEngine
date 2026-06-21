@@ -27,11 +27,10 @@ VSOut VSMain(uint vertexId : SV_VertexID)
 float3 DirectionFromCubeFace(uint face, float2 uv)
 {
     float2 p = uv * 2.0f - 1.0f;
-    p.y = -p.y;
     if (face == 0) return normalize(float3( 1.0f, p.y, -p.x));
     if (face == 1) return normalize(float3(-1.0f, p.y,  p.x));
-    if (face == 2) return normalize(float3( p.x, -1.0f, -p.y));
-    if (face == 3) return normalize(float3( p.x,  1.0f,  p.y));
+    if (face == 2) return normalize(float3( p.x,  1.0f, -p.y));
+    if (face == 3) return normalize(float3( p.x, -1.0f, p.y));
     if (face == 4) return normalize(float3( p.x, p.y,  1.0f));
     return normalize(float3(-p.x, p.y, -1.0f));
 }
