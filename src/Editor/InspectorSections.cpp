@@ -656,8 +656,13 @@ public:
         ImGui::Separator();
         ImGui::PushID("Script");
         ImGui::Text("Script: %s", script->IsCompiled() ? "Compiled" : "Error");
+        ImGui::Text("Language: %s", script->GetLanguage().c_str());
+        ImGui::Text("Class: %s", script->GetClassName().c_str());
         ImGui::TextWrapped("%s", script->GetScriptPath().empty()
             ? "(inline)" : script->GetScriptPath().c_str());
+        if (!script->GetLastError().empty()) {
+            ImGui::TextWrapped("Error: %s", script->GetLastError().c_str());
+        }
         if (ImGui::Button("Remove Script")) actor->RemoveComponent<ScriptComponent>();
         ImGui::PopID();
     }

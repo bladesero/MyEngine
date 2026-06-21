@@ -180,6 +180,10 @@ bool CookTree(const fs::path& sourceRoot, const fs::path& destinationRoot,
         const fs::path relative=file.relative;
         std::string extension = file.absolute.extension().string();
         for (char& c : extension) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        std::string relativeText = relative.generic_string();
+        std::transform(relativeText.begin(), relativeText.end(), relativeText.begin(),
+            [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (extension == ".lua" && relativeText.rfind("editor/scripts/", 0) == 0) continue;
         if (extension == ".hlsl" || extension == ".hlsli") continue;
         const fs::path destination = destinationRoot / relative;
         if (extension == ".shader") {

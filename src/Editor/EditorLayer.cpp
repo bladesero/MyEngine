@@ -178,6 +178,7 @@ void EditorLayer::RegisterServices() {
     m_ServiceCollection.Add(m_LogService);
     m_ServiceCollection.Add(m_DialogService);
     m_ServiceCollection.Add(m_ImportService);
+    m_ServiceCollection.Add(m_LuaScriptService);
     m_ServiceCollection.Add(m_ShaderWatchService);
     m_ServiceCollection.AttachAll(m_Context);
     m_ServicesRegistered = true;
@@ -209,6 +210,25 @@ void EditorLayer::RegisterPanels() {
         "project.publish", "Publish",
         [this](EditorContext&) { PublishProject(); },
         [](EditorContext& context) { return context.IsEditing(); }));
+    m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
+        "editor.runLua", "Run Lua",
+        [](EditorContext& context) {
+            auto* service = context.GetService<EditorLuaScriptService>();
+            const std::string& selected = context.GetSelection().GetAssetPath();
+            if (!service || selected.empty()) return;
+            std::filesystem::path path(selected);
+            if (!path.is_absolute()) path = context.GetContentRoot() / path;
+            std::string error;
+            if (!service->RunFile(path, &error)) {
+                Logger::Error("[Editor] Run Lua failed: ", error);
+            }
+        },
+        [](EditorContext& context) {
+            const std::string& selected = context.GetSelection().GetAssetPath();
+            if (!context.IsEditing() || selected.empty()) return false;
+            std::filesystem::path path(selected);
+            return path.extension() == ".lua" || path.extension() == ".LUA";
+        }));
     m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
         "edit.undo", "Undo",
         [](EditorContext& context) {

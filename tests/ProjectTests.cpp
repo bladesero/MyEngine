@@ -50,7 +50,7 @@ bool TestPublishHardeningPrimitives() {
                "Content path traversal was accepted")) return false;
 
     std::ofstream(root / "Content/Scenes/Main.scene.json")
-        << R"({"actors":[{"components":[{"data":{"scriptPath":"Content/Scripts/missing.lua"}}]}]})";
+        << R"({"actors":[{"components":[{"data":{"language":"angelscript","scriptPath":"Content/Scripts/missing.as"}}]}]})";
     PublishPreflightReport preflight;
     if (!Check(!CookDependencyGraph::Validate(root, preflight) &&
                !preflight.errors.empty() &&
@@ -189,14 +189,14 @@ bool TestProjectConfigAndPortableAssetPaths() {
 
     const auto scripts = root / "Content" / "Scripts";
     fs::create_directories(scripts);
-    const auto scriptPath = scripts / "Portable.lua";
-    std::ofstream(scriptPath) << "function Update(dt) end\n";
+    const auto scriptPath = scripts / "Portable.as";
+    std::ofstream(scriptPath) << "class Script { void Update(float dt) {} }\n";
     ScriptComponent script;
     script.SetScriptPath(scriptPath.string());
     nlohmann::json scriptData;
     script.Serialize(scriptData);
     if (!Check(scriptData.value("scriptPath", std::string{}) ==
-                   "Content/Scripts/Portable.lua",
+                   "Content/Scripts/Portable.as",
                "script path was not stored project-relative")) return false;
     ScriptComponent loadedScript;
     loadedScript.Deserialize(scriptData);
@@ -233,9 +233,12 @@ bool TestWorkspaceCookAndPublish() {
     const auto assetPath = projectRoot / "Content" / "Data" / "payload.bin";
     fs::create_directories(assetPath.parent_path());
     std::ofstream(assetPath, std::ios::binary) << "cooked payload";
-    const auto scriptPath = projectRoot / "Content" / "Scripts" / "main.lua";
+    const auto scriptPath = projectRoot / "Content" / "Scripts" / "main.as";
     fs::create_directories(scriptPath.parent_path());
-    std::ofstream(scriptPath) << "function Update(dt) end\n";
+    std::ofstream(scriptPath) << "class Script { void Update(float dt) {} }\n";
+    const auto editorScriptPath = projectRoot / "Content" / "Editor" / "Scripts" / "tool.lua";
+    fs::create_directories(editorScriptPath.parent_path());
+    std::ofstream(editorScriptPath) << "Editor.log('tool')\n";
 
     ProjectConfig project;
     if (!Check(project.Open(projectRoot, false, &error),
@@ -375,7 +378,8 @@ bool TestWorkspaceCookAndPublish() {
                "Content archive extraction failed: " + error)) return false;
     if (!Check(fs::is_regular_file(extracted / "Content/Scenes/Main.scene.json") &&
                fs::is_regular_file(extracted / "Content/Data/payload.bin") &&
-               fs::is_regular_file(extracted / "Content/Scripts/main.lua") &&
+               fs::is_regular_file(extracted / "Content/Scripts/main.as") &&
+               !fs::exists(extracted / "Content/Editor/Scripts/tool.lua") &&
                fs::is_regular_file(extracted / "Content/Engine/Shaders/Mesh.shader") &&
                !fs::exists(extracted / "Content/Engine/Shaders/Mesh.hlsl"),
                "cooked Content files were not restored")) return false;

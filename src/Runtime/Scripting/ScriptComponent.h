@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Scene/Component.h"
-#include "Scripting/ScriptRuntime.h"
+#include "Scripting/AngelScriptRuntime.h"
 
 #include <filesystem>
 #include <memory>
@@ -9,7 +9,7 @@
 
 class ScriptComponent final : public Component {
 public:
-    ScriptComponent() = default;
+    ScriptComponent();
     ~ScriptComponent() override;
 
     void OnAttach() override;
@@ -30,11 +30,17 @@ public:
     const std::string& GetSource() const { return m_Source; }
     void SetScriptPath(std::string path);
     const std::string& GetScriptPath() const { return m_ScriptPath; }
+    void SetClassName(std::string className);
+    const std::string& GetClassName() const { return m_ClassName; }
+    const std::string& GetLanguage() const { return m_Language; }
     const std::string& GetLastError() const { return m_LastError; }
     bool IsCompiled() const { return m_Compiled; }
+    bool IsLegacyLua() const { return m_LegacyLua; }
 
     const nlohmann::json& GetInspectorFields() const;
     void SetInspectorFields(nlohmann::json fields);
+    const nlohmann::json& GetProperties() const;
+    void SetProperties(nlohmann::json properties);
     const nlohmann::json& GetInstanceState() const;
 
     void Serialize(nlohmann::json& data) const override;
@@ -44,9 +50,10 @@ private:
     void Compile(bool preserveRuntimeState = false);
     bool TryCompileSource(const std::string& source,
                           const std::string& chunkName,
+                          const std::string& className,
                           nlohmann::json inspector,
                           nlohmann::json state,
-                          std::unique_ptr<ScriptRuntime>& outRuntime,
+                          std::unique_ptr<AngelScriptRuntime>& outRuntime,
                           nlohmann::json& outInspector,
                           nlohmann::json& outState,
                           std::string& outError);
@@ -55,16 +62,22 @@ private:
     bool LoadFileSource();
     bool LoadFileSource(std::string& outSource);
     void CaptureRuntimeTables();
+    void MarkLegacyLua();
 
+    std::string m_Language = "angelscript";
+    std::string m_ClassName = "Script";
     std::string m_Source;
     std::string m_ScriptPath;
     std::string m_LastError;
     nlohmann::json m_Inspector = nlohmann::json::object();
     nlohmann::json m_State = nlohmann::json::object();
-    std::unique_ptr<ScriptRuntime> m_Runtime;
+    nlohmann::json m_LegacyInspector = nlohmann::json::object();
+    nlohmann::json m_LegacyState = nlohmann::json::object();
+    std::unique_ptr<AngelScriptRuntime> m_Runtime;
     std::filesystem::file_time_type m_LastWriteTime{};
     bool m_HasWriteTime = false;
     bool m_Compiled = false;
+    bool m_LegacyLua = false;
     bool m_Awake = false;
     bool m_Started = false;
 };

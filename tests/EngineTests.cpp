@@ -35,6 +35,7 @@
 #include "Editor/EditorCommand.h"
 #include "Editor/EditorContext.h"
 #include "Editor/EditorInspectorSection.h"
+#include "Editor/EditorLuaScriptService.h"
 #include "Editor/EditorImportService.h"
 #include "Editor/EditorProject.h"
 #include "Editor/EditorSelection.h"
@@ -88,7 +89,7 @@ bool TestPublishHardeningPrimitives() {
                "Content path traversal was accepted")) return false;
 
     std::ofstream(root / "Content/Scenes/Main.scene.json")
-        << R"({"actors":[{"components":[{"data":{"scriptPath":"Content/Scripts/missing.lua"}}]}]})";
+        << R"({"actors":[{"components":[{"data":{"language":"angelscript","scriptPath":"Content/Scripts/missing.as"}}]}]})";
     PublishPreflightReport preflight;
     if (!Check(!CookDependencyGraph::Validate(root, preflight) &&
                !preflight.errors.empty() &&
@@ -188,7 +189,10 @@ bool TestSceneSerializationRegression() {
     mr->SetMesh(AssetManager::Get().GetCubeMesh());
     mr->SetMaterial(AssetManager::Get().GetDefaultMaterial());
     auto* script = parent->AddComponent<ScriptComponent>();
-    script->SetSource("function Update(dt) Actor.rotate(0, 90 * dt, 0) end\n");
+    script->SetSource(
+        "class Script {\n"
+        "  void Update(float dt) { Actor::Rotate(Vec3(0, 90 * dt, 0)); }\n"
+        "}\n");
     auto* body = parent->AddComponent<RigidBodyComponent>();
     body->SetVelocity({ 1.0f, 2.0f, 3.0f });
     parent->AddComponent<BoxColliderComponent>();
@@ -305,17 +309,14 @@ bool TestScriptRuntimeLifecycle() {
     Actor* actor = scene.CreateActor("Scripted");
     auto* script = actor->AddComponent<ScriptComponent>();
     script->SetSource(
-        "Inspector = { speed = 2.0 }\n"
-        "State = { updates = 0, fixed = 0 }\n"
-        "function Awake() State.awake = true end\n"
-        "function Start() Actor.set_position(1, 2, 3) end\n"
-        "function Update(dt)\n"
-        "  Actor.translate(Inspector.speed * dt, 0, 0)\n"
-        "  Actor.rotate(0, 90 * dt, 0)\n"
-        "  State.updates = State.updates + 1\n"
-        "end\n"
-        "function FixedUpdate(dt) State.fixed = State.fixed + 1 end\n");
-    if (!Check(script->IsCompiled(), "script should compile")) return false;
+        "class Script {\n"
+        "  void Start() { Actor::SetPosition(Vec3(1, 2, 3)); }\n"
+        "  void Update(float dt) {\n"
+        "    Actor::Translate(Vec3(2 * dt, 0, 0));\n"
+        "    Actor::Rotate(Vec3(0, 90 * dt, 0));\n"
+        "  }\n"
+        "}\n");
+    if (!Check(script->IsCompiled(), "script should compile: " + script->GetLastError())) return false;
 
     scene.OnUpdate(0.5f);
     const Transform& transform = actor->GetTransform();
@@ -324,15 +325,15 @@ bool TestScriptRuntimeLifecycle() {
                "script start/update position mismatch")) return false;
     if (!Check(NearlyEqual(transform.rotation.y, 45.0f),
                "script update rotation mismatch")) return false;
-    const auto state = script->GetInstanceState();
-    if (!Check(script->GetInspectorFields().value("speed", 0.0) == 2.0,
-               "Lua inspector field missing")) return false;
-    return Check(state.value("awake", false) && state.value("updates", 0) == 1,
-                 "Lua lifecycle state mismatch");
+    nlohmann::json serialized;
+    script->Serialize(serialized);
+    return Check(serialized.value("language", std::string{}) == "angelscript" &&
+                 serialized.value("className", std::string{}) == "Script",
+                 "AngelScript schema fields missing");
 }
 
-bool TestLuaScriptFilesErrorsAndPhysicsBindings() {
-    Scene scene("LuaBindings");
+bool TestAngelScriptFilesErrorsAndPhysicsBindings() {
+    Scene scene("AngelBindings");
 
     Actor* target = scene.CreateActor("Target");
     target->GetTransform().position = { 0.0f, 0.0f, 0.0f };
@@ -341,39 +342,89 @@ bool TestLuaScriptFilesErrorsAndPhysicsBindings() {
     Actor* actor = scene.CreateActor("Caster");
     auto* script = actor->AddComponent<ScriptComponent>();
     script->SetSource(
-        "State = {}\n"
-        "function Start()\n"
-        "  local hit = Physics.raycast(0, 0, 5, 0, 0, -1, 20)\n"
-        "  State.hit = hit and hit.actorName or ''\n"
-        "end\n");
+        "class Script {\n"
+        "  void Start() {\n"
+        "    RaycastHit hit = Physics::Raycast(Vec3(0, 0, 5), Vec3(0, 0, -1), 20);\n"
+        "    if (hit.hit) Actor::SetPosition(Vec3(hit.distance, 0, 0));\n"
+        "  }\n"
+        "}\n");
     scene.OnUpdate(1.0f / 60.0f);
-    if (!Check(script->GetInstanceState().value("hit", std::string{}) == "Target",
-               "Lua Physics.raycast binding failed")) return false;
+    if (!Check(actor->GetTransform().position.x > 0.0f,
+               "AngelScript Physics::Raycast binding failed: " + script->GetLastError())) return false;
 
-    script->SetSource("function Update(dt) error('boom') end\n");
+    script->SetSource(
+        "class Script {\n"
+        "  void Update(float dt) { Script@ other = null; other.Update(dt); }\n"
+        "}\n");
     scene.OnUpdate(1.0f / 60.0f);
-    if (!Check(!script->IsCompiled(), "Lua runtime error should disable script")) return false;
-    if (!Check(script->GetLastError().find("stack traceback") != std::string::npos,
-               "Lua error should include traceback")) return false;
+    if (!Check(!script->IsCompiled(), "AngelScript runtime error should disable script")) return false;
+    if (!Check(script->GetLastError().find("AngelScript execution failed") != std::string::npos,
+               "AngelScript error should include execution diagnostic")) return false;
 
-    const auto path = std::filesystem::temp_directory_path() / "myengine_hot_reload.lua";
+    const auto path = std::filesystem::temp_directory_path() / "myengine_hot_reload.as";
     {
         std::ofstream output(path, std::ios::binary);
-        output << "State = {}\nfunction Update(dt) Actor.translate(1 * dt, 0, 0) end\n";
+        output << "class Script { void Update(float dt) { Actor::Translate(Vec3(1 * dt, 0, 0)); } }\n";
     }
+    actor->GetTransform().position = {};
     script->SetScriptPath(path.string());
     scene.OnUpdate(1.0f);
     if (!Check(NearlyEqual(actor->GetTransform().position.x, 1.0f),
-               "Lua script file initial run failed")) return false;
+               "AngelScript file initial run failed")) return false;
     {
         std::ofstream output(path, std::ios::binary | std::ios::trunc);
-        output << "State = {}\nfunction Update(dt) Actor.translate(3 * dt, 0, 0) end\n";
+        output << "class Script { void Update(float dt) { Actor::Translate(Vec3(3 * dt, 0, 0)); } }\n";
     }
     std::filesystem::last_write_time(path, std::filesystem::file_time_type::clock::now());
     scene.OnUpdate(1.0f);
     std::filesystem::remove(path);
     return Check(NearlyEqual(actor->GetTransform().position.x, 4.0f),
-                 "Lua script file hot reload failed");
+                 "AngelScript file hot reload failed");
+}
+
+bool TestEditorLuaScriptService() {
+    Scene scene("EditorLua");
+    EditorContext context(&scene);
+    EditorCommandStack stack;
+    context.SetCommandStack(&stack);
+    EditorLuaScriptService service;
+    service.OnAttach(context);
+    std::string error;
+    if (!Check(service.RunSource(
+            "local id = Scene.create_actor('LuaActor')\n"
+            "Selection.select_actor(id)\n"
+            "Scene.set_selected_position(3, 4, 5)\n",
+            "EditorLuaTest", &error),
+            "editor Lua script failed: " + error)) return false;
+    Actor* actor = scene.FindByName("LuaActor");
+    if (!Check(actor && NearlyEqual(actor->GetTransform().position.x, 3.0f) &&
+               context.GetSelection().GetActorID() == actor->GetID(),
+               "editor Lua did not create/select/move actor")) return false;
+    if (!Check(stack.CanUndo() && stack.Undo(context),
+               "editor Lua command was not undoable")) return false;
+    service.OnDetach();
+    return true;
+}
+
+bool TestLegacyLuaScriptCompatibility() {
+    nlohmann::json legacy = {
+        {"source", "function Update(dt) Actor.translate(1 * dt, 0, 0) end\n"},
+        {"scriptPath", ""},
+        {"inspector", nlohmann::json::object({{"speed", 2.0}})},
+        {"state", nlohmann::json::object({{"updates", 3}})}
+    };
+    ScriptComponent script;
+    script.Deserialize(legacy);
+    if (!Check(script.IsLegacyLua() && !script.IsCompiled(),
+               "legacy Lua script should be retained but not compiled")) return false;
+    if (!Check(script.GetLastError().find("Legacy Lua gameplay scripts") != std::string::npos,
+               "legacy Lua diagnostic missing")) return false;
+    nlohmann::json saved;
+    script.Serialize(saved);
+    return Check(!saved.contains("language") &&
+                 saved.value("source", std::string{}) == legacy["source"].get<std::string>() &&
+                 saved["inspector"].value("speed", 0.0) == 2.0,
+                 "legacy Lua fields were not preserved");
 }
 
 bool TestPhysicsGroundCollision() {
@@ -771,7 +822,10 @@ bool TestSceneRunStates() {
     SceneLayer layer("RunStateTest");
     Actor* actor = layer.GetScene().CreateActor("Scripted");
     auto* script = actor->AddComponent<ScriptComponent>();
-    script->SetSource("function Update(dt) Actor.translate(2 * dt, 0, 0) end\n");
+    script->SetSource(
+        "class Script {\n"
+        "  void Update(float dt) { Actor::Translate(Vec3(2 * dt, 0, 0)); }\n"
+        "}\n");
     layer.MarkDirty();
 
     layer.OnUpdate(0.5f);
@@ -1967,10 +2021,10 @@ bool TestSceneSerializerMalformedDataIsolation() {
 
 bool TestScriptHotReloadFailureRollback() {
     namespace fs = std::filesystem;
-    const fs::path path = fs::temp_directory_path() / "myengine_script_reload_rollback.lua";
+    const fs::path path = fs::temp_directory_path() / "myengine_script_reload_rollback.as";
     {
         std::ofstream output(path, std::ios::binary);
-        output << "State = {}\nfunction Update(dt) Actor.translate(1 * dt, 0, 0) end\n";
+        output << "class Script { void Update(float dt) { Actor::Translate(Vec3(1 * dt, 0, 0)); } }\n";
     }
 
     Scene scene("ScriptRollback");
@@ -1979,12 +2033,12 @@ bool TestScriptHotReloadFailureRollback() {
     script->SetScriptPath(path.string());
     scene.OnUpdate(1.0f);
     if (!Check(NearlyEqual(actor->GetTransform().position.x, 1.0f),
-               "initial script file update failed")) return false;
+               "initial script file update failed: " + script->GetLastError())) return false;
 
     const auto previousWriteTime = fs::last_write_time(path);
     {
         std::ofstream output(path, std::ios::binary | std::ios::trunc);
-        output << "function Update(\n";
+        output << "class Script { void Update(\n";
     }
     fs::last_write_time(path, previousWriteTime + std::chrono::seconds(2));
     scene.OnUpdate(1.0f);
@@ -2459,14 +2513,14 @@ bool TestProjectConfigAndPortableAssetPaths() {
 
     const auto scripts = root / "Content" / "Scripts";
     fs::create_directories(scripts);
-    const auto scriptPath = scripts / "Portable.lua";
-    std::ofstream(scriptPath) << "function Update(dt) end\n";
+    const auto scriptPath = scripts / "Portable.as";
+    std::ofstream(scriptPath) << "class Script { void Update(float dt) {} }\n";
     ScriptComponent script;
     script.SetScriptPath(scriptPath.string());
     nlohmann::json scriptData;
     script.Serialize(scriptData);
     if (!Check(scriptData.value("scriptPath", std::string{}) ==
-                   "Content/Scripts/Portable.lua",
+                   "Content/Scripts/Portable.as",
                "script path was not stored project-relative")) return false;
     ScriptComponent loadedScript;
     loadedScript.Deserialize(scriptData);
@@ -2594,9 +2648,12 @@ bool TestWorkspaceCookAndPublish() {
     const auto assetPath = projectRoot / "Content" / "Data" / "payload.bin";
     fs::create_directories(assetPath.parent_path());
     std::ofstream(assetPath, std::ios::binary) << "cooked payload";
-    const auto scriptPath = projectRoot / "Content" / "Scripts" / "main.lua";
+    const auto scriptPath = projectRoot / "Content" / "Scripts" / "main.as";
     fs::create_directories(scriptPath.parent_path());
-    std::ofstream(scriptPath) << "function Update(dt) end\n";
+    std::ofstream(scriptPath) << "class Script { void Update(float dt) {} }\n";
+    const auto editorScriptPath = projectRoot / "Content" / "Editor" / "Scripts" / "tool.lua";
+    fs::create_directories(editorScriptPath.parent_path());
+    std::ofstream(editorScriptPath) << "Editor.log('tool')\n";
 
     ProjectConfig project;
     if (!Check(project.Open(projectRoot, false, &error),
@@ -2736,7 +2793,8 @@ bool TestWorkspaceCookAndPublish() {
                "Content archive extraction failed: " + error)) return false;
     if (!Check(fs::is_regular_file(extracted / "Content/Scenes/Main.scene.json") &&
                fs::is_regular_file(extracted / "Content/Data/payload.bin") &&
-               fs::is_regular_file(extracted / "Content/Scripts/main.lua") &&
+               fs::is_regular_file(extracted / "Content/Scripts/main.as") &&
+               !fs::exists(extracted / "Content/Editor/Scripts/tool.lua") &&
                fs::is_regular_file(extracted / "Content/Engine/Shaders/Mesh.shader") &&
                !fs::exists(extracted / "Content/Engine/Shaders/Mesh.hlsl"),
                "cooked Content files were not restored")) return false;
@@ -2955,7 +3013,9 @@ bool TestPrefabCookDependencyValidation()
 MYENGINE_REGISTER_TEST("Scene", "TestSceneSerializationRegression", TestSceneSerializationRegression);
 MYENGINE_REGISTER_TEST("Scene", "TestBuiltinSceneMaterialRoundTrip", TestBuiltinSceneMaterialRoundTrip);
 MYENGINE_REGISTER_TEST("Scripting", "TestScriptRuntimeLifecycle", TestScriptRuntimeLifecycle);
-MYENGINE_REGISTER_TEST("Scripting", "TestLuaScriptFilesErrorsAndPhysicsBindings", TestLuaScriptFilesErrorsAndPhysicsBindings);
+MYENGINE_REGISTER_TEST("Scripting", "TestAngelScriptFilesErrorsAndPhysicsBindings", TestAngelScriptFilesErrorsAndPhysicsBindings);
+MYENGINE_REGISTER_TEST("Scripting", "TestEditorLuaScriptService", TestEditorLuaScriptService);
+MYENGINE_REGISTER_TEST("Scripting", "TestLegacyLuaScriptCompatibility", TestLegacyLuaScriptCompatibility);
 MYENGINE_REGISTER_TEST("Animation", "TestGpuSkinningAnimationBlend", TestGpuSkinningAnimationBlend);
 MYENGINE_REGISTER_TEST("Scene", "TestComponentRegistry", TestComponentRegistry);
 MYENGINE_REGISTER_TEST("Scene", "TestSceneRunStates", TestSceneRunStates);

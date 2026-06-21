@@ -19,7 +19,7 @@ EditorAssetType EditorAssetRegistry::Classify(const std::filesystem::path& path)
         extension == ".bmp" || extension == ".tga" || extension == ".hdr") return EditorAssetType::Texture;
     if (extension == ".mat") return EditorAssetType::Material;
     if (extension == ".json") return EditorAssetType::Scene;
-    if (extension == ".lua") return EditorAssetType::Script;
+    if (extension == ".lua" || extension == ".as") return EditorAssetType::Script;
     if (extension == ".shader" || extension == ".hlsl" || extension == ".hlsli") return EditorAssetType::Shader;
     return EditorAssetType::Unknown;
 }

@@ -200,7 +200,10 @@ void SceneRenderLayer::OnSceneLoaded() {
         mat1->SetParam("Roughness", MaterialParam::FromFloat(0.35f));
         mr1->SetMaterial(AssetManager::Get().Register(std::move(mat1)));
         auto* script = cube1->AddComponent<ScriptComponent>();
-        script->SetSource("function Update(dt) Actor.rotate(0, 35 * dt, 0) end\n");
+        script->SetSource(
+            "class Script {\n"
+            "  void Update(float dt) { Actor::Rotate(Vec3(0, 35 * dt, 0)); }\n"
+            "}\n");
 
         // Second cube offset in X and colored differently
         Actor* cube2 = GetScene().CreateActor("Cube2");

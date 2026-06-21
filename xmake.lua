@@ -51,6 +51,7 @@ add_requires("joltphysics v5.5.0", { configs = {
     debug_renderer = true,
     cross_platform_deterministic = false
 } })
+add_requires("angelscript 2.38.0")
 
 -- Must live in rule after_build: root xmake.lua locals use project-scope `os` (no os.cp).
 rule("copy_game_content")
@@ -132,7 +133,8 @@ target("MyEngineRuntime")
         "src/Runtime/Assets/ShaderAsset.cpp",
         "src/Runtime/Assets/MeshAsset.cpp",
         "src/Runtime/Assets/TextureAsset.cpp",
-        "src/Runtime/Scripting/ScriptRuntime.cpp",
+        "thirdparty/angelscript_addons/scriptstdstring/scriptstdstring.cpp",
+        "src/Runtime/Scripting/AngelScriptRuntime.cpp",
         "src/Runtime/Scripting/ScriptComponent.cpp",
         "src/Runtime/Physics/RigidBodyComponent.cpp",
         "src/Runtime/Physics/BoxColliderComponent.cpp",
@@ -190,12 +192,13 @@ target("MyEngineRuntime")
 
     add_includedirs("src/Runtime", { public = true })
     add_includedirs("src")
+    add_includedirs("thirdparty/angelscript_addons/scriptstdstring")
     add_packages("libsdl3", { public = true })
     add_packages("nlohmann_json", { public = true })
     add_packages("stb", { public = true })
     add_packages("tinyobjloader")
     add_packages("joltphysics", { public = true })
-    add_deps("Lua")
+    add_packages("angelscript", { public = true })
     add_includedirs("thirdparty")
     add_packages("imgui", { public = true })
 
@@ -260,6 +263,7 @@ target("MyEngineEditor")
         "src/Editor/EditorLayer.cpp",
         "src/Editor/EditorLayout.cpp",
         "src/Editor/EditorLogService.cpp",
+        "src/Editor/EditorLuaScriptService.cpp",
         "src/Editor/EditorPanel.cpp",
         "src/Editor/EditorProject.cpp",
         "src/Editor/EditorSelection.cpp",
@@ -284,6 +288,7 @@ target("MyEngineEditor")
     )
     add_includedirs("src", "src/Editor", "thirdparty/ImGuizmo")
     add_deps("MyEngineRuntime")
+    add_deps("Lua")
     add_packages("tinyobjloader")
     add_defines("MYENGINE_ENABLE_IMGUI")
     add_defines("MYENGINE_BUILD_ID=dev_0_1_0")
@@ -420,6 +425,7 @@ target("MyEngineTests")
         "src/Editor/EditorLayer.cpp",
         "src/Editor/EditorLayout.cpp",
         "src/Editor/EditorLogService.cpp",
+        "src/Editor/EditorLuaScriptService.cpp",
         "src/Editor/EditorPanel.cpp",
         "src/Editor/EditorProject.cpp",
         "src/Editor/EditorSelection.cpp",
@@ -444,6 +450,7 @@ target("MyEngineTests")
     )
     add_includedirs("src", "src/Runtime", "src/Editor", "thirdparty/ImGuizmo")
     add_deps("MyEngineRuntime")
+    add_deps("Lua")
     add_options("mem_stats", "mem_tracking", "mem_guard")
     add_packages("tinyobjloader")
     add_defines("MYENGINE_ENABLE_IMGUI")

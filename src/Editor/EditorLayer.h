@@ -9,6 +9,7 @@
 #include "Editor/EditorDialogService.h"
 #include "Editor/EditorImportService.h"
 #include "Editor/EditorLogService.h"
+#include "Editor/EditorLuaScriptService.h"
 #include "Editor/EditorProject.h"
 #include "Editor/EditorShaderWatchService.h"
 #include "Editor/EditorService.h"
@@ -88,6 +89,7 @@ private:
     EditorLogService m_LogService;
     EditorDialogService m_DialogService;
     EditorImportService m_ImportService;
+    EditorLuaScriptService m_LuaScriptService;
     EditorShaderWatchService m_ShaderWatchService;
     EditorServiceCollection m_ServiceCollection;
     EditorActionRegistry m_ActionRegistry;

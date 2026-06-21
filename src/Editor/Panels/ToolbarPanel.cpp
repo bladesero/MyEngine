@@ -55,6 +55,7 @@ void ToolbarPanel::DrawContent()
         DrawActionButton(*context, "project.settings");
         DrawActionButton(*context, "project.setStartup");
         DrawActionButton(*context, "project.publish");
+        DrawActionButton(*context, "editor.runLua");
         DrawActionButton(*context, "edit.undo");
         DrawActionButton(*context, "edit.redo");
 
