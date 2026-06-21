@@ -79,7 +79,7 @@ SSAOConstants BuildSSAOConstants(const Scene& scene, const Camera& camera,
 }
 }
 
-PostProcessPass::PostProcessPass(IRenderContext* context) : RenderPass(context) {}
+PostProcessPass::PostProcessPass(IRHIDevice* device) : RenderPass(device) {}
 
 void PostProcessPass::Resize(uint32_t width, uint32_t height) {
     width = (std::max)(1u, width); height = (std::max)(1u, height);
@@ -96,7 +96,7 @@ void PostProcessPass::Resize(uint32_t width, uint32_t height) {
 }
 
 bool PostProcessPass::EnsureResources() {
-    auto* device = Context(); if (!device) return false;
+    auto* device = Device(); if (!device) return false;
     if (m_SceneColor) {
         const bool changed = (m_FXAAHandle && m_FXAAHandle->version != m_FXAAVersion) ||
             (m_SSAOHandle && m_SSAOHandle->version != m_SSAOVersion) ||
@@ -199,28 +199,66 @@ bool PostProcessPass::EnsureResources() {
            m_FXAABackbufferPipeline && m_FXAAOffscreenPipeline && m_SSAOPipeline && m_BlurPipeline;
 }
 
-void PostProcessPass::BeginOffscreen() {
+bool PostProcessPass::PrepareGraphResources() {
+    if (!EnsureResources()) {
+        Logger::Error("[PostProcessPass] Failed to create backend-independent resources");
+        return false;
+    }
+    m_SceneRendering = false;
+    return true;
+}
+
+PostProcessPass::GraphResources PostProcessPass::GetGraphResources() const {
+    GraphResources out;
+    out.sceneColor = m_SceneColor;
+    out.sceneColorRtv = m_SceneColorRtv;
+    out.sceneDepth = m_SceneDepth;
+    out.sceneDepthDsv = m_SceneDepthDsv;
+    out.ssao = m_SSAO;
+    out.ssaoRtv = m_SSAORtv;
+    out.ssaoBlur = m_SSAOBlur;
+    out.ssaoBlurRtv = m_SSAOBlurRtv;
+    out.composite = m_Composite;
+    out.compositeRtv = m_CompositeRtv;
+    out.sceneColorState = m_SceneColorState;
+    out.sceneDepthState = m_SceneDepthState;
+    out.ssaoState = m_SSAOState;
+    out.ssaoBlurState = m_SSAOBlurState;
+    out.compositeState = m_CompositeState;
+    return out;
+}
+
+void PostProcessPass::MarkGraphResourcesShaderResource(bool compositeWritten) {
+    m_SceneRendering = false;
+    m_SceneColorState = RHIResourceState::ShaderResource;
+    m_SceneDepthState = RHIResourceState::ShaderResource;
+    m_SSAOState = RHIResourceState::ShaderResource;
+    m_SSAOBlurState = RHIResourceState::ShaderResource;
+    if (compositeWritten) {
+        m_CompositeState = RHIResourceState::ShaderResource;
+    }
+}
+
+void PostProcessPass::BeginOffscreen(GpuCommandList& commands) {
     if (!EnsureResources()) {
         Logger::Error("[PostProcessPass] Failed to create backend-independent resources");
         return;
     }
-    auto* commands = Context()->GetGraphicsCommandList(); if (!commands) return;
-    commands->Transition(m_SceneColor.get(), m_SceneColorState, RHIResourceState::RenderTarget);
-    commands->Transition(m_SceneDepth.get(), m_SceneDepthState, RHIResourceState::DepthWrite);
+    commands.Transition(m_SceneColor.get(), m_SceneColorState, RHIResourceState::RenderTarget);
+    commands.Transition(m_SceneDepth.get(), m_SceneDepthState, RHIResourceState::DepthWrite);
     m_SceneColorState = RHIResourceState::RenderTarget;
     m_SceneDepthState = RHIResourceState::DepthWrite;
     RenderingAttachment color; color.view = m_SceneColorRtv.get(); color.loadOp = RHILoadOp::Clear;
     RenderingAttachment depth; depth.view = m_SceneDepthDsv.get(); depth.loadOp = RHILoadOp::Clear;
     RenderingInfo info{&color, 1, &depth, m_Width, m_Height};
-    commands->BeginRendering(info); m_SceneRendering = true;
+    commands.BeginRendering(info); m_SceneRendering = true;
 }
 
-void PostProcessPass::CloseSceneRendering() {
+void PostProcessPass::CloseSceneRendering(GpuCommandList& commands) {
     if (!m_SceneRendering) return;
-    auto* commands = Context()->GetGraphicsCommandList(); if (!commands) return;
-    commands->EndRendering(); m_SceneRendering = false;
-    commands->Transition(m_SceneColor.get(), m_SceneColorState, RHIResourceState::ShaderResource);
-    commands->Transition(m_SceneDepth.get(), m_SceneDepthState, RHIResourceState::ShaderResource);
+    commands.EndRendering(); m_SceneRendering = false;
+    commands.Transition(m_SceneColor.get(), m_SceneColorState, RHIResourceState::ShaderResource);
+    commands.Transition(m_SceneDepth.get(), m_SceneDepthState, RHIResourceState::ShaderResource);
     m_SceneColorState = m_SceneDepthState = RHIResourceState::ShaderResource;
 }
 
@@ -238,59 +276,116 @@ void PostProcessPass::DrawFullscreen(GpuCommandList& commands, GpuGraphicsPipeli
     targetState = RHIResourceState::ShaderResource;
 }
 
-void PostProcessPass::RenderSSAO(const Scene& scene, const Camera& camera) {
-    CloseSceneRendering(); if (!m_SSAOPipeline) return;
-    auto* commands = Context()->GetGraphicsCommandList(); if (!commands) return;
-    auto ssaoBindings = Context()->CreateBindGroup(m_SSAOShader);
+void PostProcessPass::RenderSSAO(GpuCommandList& commands, const Scene& scene, const Camera& camera) {
+    CloseSceneRendering(commands); if (!m_SSAOPipeline) return;
+    DrawSSAOOcclusion(commands, scene, camera);
+    DrawSSAOBlurHorizontal(commands);
+    DrawSSAOBlurVertical(commands);
+}
+
+void PostProcessPass::DrawSSAOOcclusion(GpuCommandList& commands, const Scene& scene,
+                                        const Camera& camera) {
+    if (!m_SSAOPipeline || !m_SSAOShader) return;
+    auto ssaoBindings = Device()->CreateBindGroup(m_SSAOShader);
+    if (!ssaoBindings) return;
     SSAOConstants constants = BuildSSAOConstants(scene, camera, m_Width, m_Height);
     ssaoBindings->SetConstants("SSAOParams", &constants, sizeof(constants));
     ssaoBindings->SetTexture("g_DepthTex", m_SceneDepthSrv);
     ssaoBindings->SetSampler("g_DepthSampler", m_PointClamp);
     ssaoBindings->SetTexture("g_NoiseTex", m_NoiseSrv);
     ssaoBindings->SetSampler("g_NoiseSampler", m_NoiseSampler);
-    DrawFullscreen(*commands, *m_SSAOPipeline, *ssaoBindings, *m_SSAORtv,
-                   m_SSAOState, {1, 1, 1, 1});
+    commands.SetGraphicsPipeline(m_SSAOPipeline.get());
+    commands.SetBindGroup(0, ssaoBindings.get());
+    commands.Draw(3);
+}
+
+void PostProcessPass::DrawSSAOBlurHorizontal(GpuCommandList& commands) {
+    if (!m_BlurPipeline || !m_BlurShader) return;
     SSAOBlurConstants blur{};
     blur.texelSize[0] = 1.0f / m_Width; blur.texelSize[2] = 1.0f / m_Height;
-    auto horizontal = Context()->CreateBindGroup(m_BlurShader);
+    auto horizontal = Device()->CreateBindGroup(m_BlurShader);
+    if (!horizontal) return;
     horizontal->SetConstants("BlurParams", &blur, sizeof(blur));
     horizontal->SetTexture("g_SSAOInput", m_SSAOSrv);
     horizontal->SetSampler("g_SSAOSampler", m_PointClamp);
-    DrawFullscreen(*commands, *m_BlurPipeline, *horizontal, *m_SSAOBlurRtv,
-                   m_SSAOBlurState, {1, 1, 1, 1});
+    commands.SetGraphicsPipeline(m_BlurPipeline.get());
+    commands.SetBindGroup(0, horizontal.get());
+    commands.Draw(3);
+}
+
+void PostProcessPass::DrawSSAOBlurVertical(GpuCommandList& commands) {
+    if (!m_BlurPipeline || !m_BlurShader) return;
+    SSAOBlurConstants blur{};
+    blur.texelSize[0] = 1.0f / m_Width; blur.texelSize[2] = 1.0f / m_Height;
     blur.texelSize[1] = 1.0f;
-    auto vertical = Context()->CreateBindGroup(m_BlurShader);
+    auto vertical = Device()->CreateBindGroup(m_BlurShader);
+    if (!vertical) return;
     vertical->SetConstants("BlurParams", &blur, sizeof(blur));
     vertical->SetTexture("g_SSAOInput", m_SSAOBlurSrv);
     vertical->SetSampler("g_SSAOSampler", m_PointClamp);
-    DrawFullscreen(*commands, *m_BlurPipeline, *vertical, *m_SSAORtv,
-                   m_SSAOState, {1, 1, 1, 1});
+    commands.SetGraphicsPipeline(m_BlurPipeline.get());
+    commands.SetBindGroup(0, vertical.get());
+    commands.Draw(3);
 }
 
-void PostProcessPass::RenderBloom(const Scene&) {}
+void PostProcessPass::RenderBloom(GpuCommandList&, const Scene&) {}
 
-void PostProcessPass::EndOffscreenAndComposite(const Scene& scene) {
-    CloseSceneRendering(); if (!m_FXAAShader) return;
-    auto* commands = Context()->GetGraphicsCommandList(); if (!commands) return;
-    auto bindings = Context()->CreateBindGroup(m_FXAAShader);
+void PostProcessPass::EndOffscreenAndComposite(GpuCommandList& commands, const Scene& scene,
+                                               GpuTextureView* backBufferView) {
+    CloseSceneRendering(commands); if (!m_FXAAShader) return;
+    if (m_CompositeToBackbuffer) {
+        DrawCompositeToBackbuffer(commands, scene, backBufferView);
+    } else {
+        auto bindings = Device()->CreateBindGroup(m_FXAAShader);
+        PostProcessConstants constants = CollectPostProcessParams(scene, m_Width, m_Height);
+        bindings->SetConstants("PostProcessParams", &constants, sizeof(constants));
+        bindings->SetTexture("g_SceneColor", m_SceneColorSrv);
+        bindings->SetSampler("g_Sampler", m_LinearClamp);
+        bindings->SetTexture("g_SSAOMap", m_SSAOSrv ? m_SSAOSrv : m_SceneColorSrv);
+        bindings->SetSampler("g_SSAOSampler", m_PointClamp);
+        DrawFullscreen(commands, *m_FXAAOffscreenPipeline, *bindings, *m_CompositeRtv,
+                       m_CompositeState, {0, 0, 0, 1});
+    }
+}
+
+void PostProcessPass::DrawCompositeOffscreen(GpuCommandList& commands, const Scene& scene) {
+    if (!m_FXAAShader || !m_FXAAOffscreenPipeline) return;
+    auto bindings = Device()->CreateBindGroup(m_FXAAShader);
+    if (!bindings) return;
     PostProcessConstants constants = CollectPostProcessParams(scene, m_Width, m_Height);
     bindings->SetConstants("PostProcessParams", &constants, sizeof(constants));
     bindings->SetTexture("g_SceneColor", m_SceneColorSrv);
     bindings->SetSampler("g_Sampler", m_LinearClamp);
     bindings->SetTexture("g_SSAOMap", m_SSAOSrv ? m_SSAOSrv : m_SceneColorSrv);
     bindings->SetSampler("g_SSAOSampler", m_PointClamp);
-    if (m_CompositeToBackbuffer) {
-        auto* target = Context()->GetCurrentBackBufferView();
-        if (!target) return;
-        RenderingAttachment color; color.view = target; color.loadOp = RHILoadOp::Clear;
-        RenderingInfo info{&color, 1, nullptr, m_Width, m_Height};
-        commands->BeginRendering(info);
-        commands->SetGraphicsPipeline(m_FXAABackbufferPipeline.get());
-        commands->SetBindGroup(0, bindings.get()); commands->Draw(3); commands->EndRendering();
-    } else {
-        DrawFullscreen(*commands, *m_FXAAOffscreenPipeline, *bindings, *m_CompositeRtv,
-                       m_CompositeState, {0, 0, 0, 1});
-    }
+    commands.SetGraphicsPipeline(m_FXAAOffscreenPipeline.get());
+    commands.SetBindGroup(0, bindings.get());
+    commands.Draw(3);
 }
 
-void PostProcessPass::Execute(const Scene&, const Camera&) {}
+void PostProcessPass::DrawCompositeToBackbuffer(GpuCommandList& commands, const Scene& scene,
+                                                GpuTextureView* backBufferView) {
+    if (!m_FXAAShader || !m_FXAABackbufferPipeline || !backBufferView) return;
+    RenderingAttachment color; color.view = backBufferView; color.loadOp = RHILoadOp::Clear;
+    RenderingInfo info{&color, 1, nullptr, m_Width, m_Height};
+    commands.BeginRendering(info);
+    DrawCompositeToCurrentTarget(commands, scene);
+    commands.EndRendering();
+}
+
+void PostProcessPass::DrawCompositeToCurrentTarget(GpuCommandList& commands, const Scene& scene) {
+    if (!m_FXAAShader || !m_FXAABackbufferPipeline) return;
+    auto bindings = Device()->CreateBindGroup(m_FXAAShader);
+    if (!bindings) return;
+    PostProcessConstants constants = CollectPostProcessParams(scene, m_Width, m_Height);
+    bindings->SetConstants("PostProcessParams", &constants, sizeof(constants));
+    bindings->SetTexture("g_SceneColor", m_SceneColorSrv);
+    bindings->SetSampler("g_Sampler", m_LinearClamp);
+    bindings->SetTexture("g_SSAOMap", m_SSAOSrv ? m_SSAOSrv : m_SceneColorSrv);
+    bindings->SetSampler("g_SSAOSampler", m_PointClamp);
+    commands.SetGraphicsPipeline(m_FXAABackbufferPipeline.get());
+    commands.SetBindGroup(0, bindings.get());
+    commands.Draw(3);
+}
+
+void PostProcessPass::Execute(GpuCommandList&, const Scene&, const Camera&) {}

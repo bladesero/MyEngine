@@ -11,8 +11,8 @@ namespace {
 struct AtmosphereFaceConstants { float faceInfo[4]; };
 }
 
-EnvironmentPass::EnvironmentPass(IRenderContext* context)
-    : RenderPass(context)
+EnvironmentPass::EnvironmentPass(IRHIDevice* device, IRHIReadbackService* readbackService)
+    : RenderPass(device, readbackService)
 {
     m_SH2[0][0] = 0.08f;
     m_SH2[0][1] = 0.10f;
@@ -23,7 +23,7 @@ void EnvironmentPass::Resize(uint32_t, uint32_t) {}
 
 bool EnvironmentPass::EnsureResources()
 {
-    auto* device = Context();
+    auto* device = Device();
     if (!device) return false;
     if (m_Environment) {
         if ((m_AtmosphereHandle && m_AtmosphereHandle->version != m_AtmosphereVersion) ||
@@ -137,7 +137,7 @@ void EnvironmentPass::RenderCubemap(GpuCommandList& commands)
         RenderingInfo rendering{&color, 1, nullptr, kCubeSize, kCubeSize};
         commands.BeginRendering(rendering);
         commands.SetGraphicsPipeline(m_AtmospherePipeline.get());
-        auto bindings = Context()->CreateBindGroup(m_AtmosphereShader);
+        auto bindings = Device()->CreateBindGroup(m_AtmosphereShader);
         if (!bindings) {
             Logger::Error("[EnvironmentPass] Failed to create atmosphere bind group");
             commands.EndRendering();
@@ -165,7 +165,7 @@ void EnvironmentPass::RenderCubemap(GpuCommandList& commands)
             RenderingInfo rendering{&color, 1, nullptr, size, size};
             commands.BeginRendering(rendering);
             commands.SetGraphicsPipeline(m_MipmapPipeline.get());
-            auto bindings = Context()->CreateBindGroup(m_MipmapShader);
+            auto bindings = Device()->CreateBindGroup(m_MipmapShader);
             if (!bindings) {
                 Logger::Error("[EnvironmentPass] Failed to create mipmap bind group");
                 commands.EndRendering();
@@ -190,7 +190,7 @@ void EnvironmentPass::ProjectSH(GpuCommandList& commands)
     commands.Transition(m_SHBuffer.get(), RHIResourceState::Undefined,
                         RHIResourceState::UnorderedAccess);
     commands.SetComputePipeline(m_SHPipeline.get());
-    auto bindings = Context()->CreateBindGroup(m_SHShader);
+    auto bindings = Device()->CreateBindGroup(m_SHShader);
     if (!bindings) {
         Logger::Error("[EnvironmentPass] Failed to create SH bind group");
         return;
@@ -208,7 +208,7 @@ void EnvironmentPass::ProjectSH(GpuCommandList& commands)
     commands.UAVBarrier(m_SHBuffer.get());
     commands.Transition(m_SHBuffer.get(), RHIResourceState::UnorderedAccess,
                         RHIResourceState::CopySource);
-    m_Readback = Context()->ReadbackBufferAsync(m_SHBuffer);
+    m_Readback = ReadbackService() ? ReadbackService()->ReadbackBufferAsync(m_SHBuffer) : nullptr;
     commands.Transition(m_SHBuffer.get(), RHIResourceState::CopySource,
                         RHIResourceState::ShaderResource);
 }
@@ -222,13 +222,49 @@ void EnvironmentPass::ConsumeReadback()
     m_Readback.reset();
 }
 
-void EnvironmentPass::Execute(const Scene&, const Camera&)
+bool EnvironmentPass::PrepareGraphResources()
+{
+    ConsumeReadback();
+    return EnsureResources();
+}
+
+EnvironmentPass::GraphResources EnvironmentPass::GetGraphResources() const
+{
+    GraphResources out;
+    out.environment = m_Environment;
+    out.environmentView = m_EnvironmentSrv;
+    out.shBuffer = m_SHBuffer;
+    out.shBufferView = m_SH2Srv;
+    out.environmentInitialState = m_EnvironmentInShaderState
+        ? RHIResourceState::ShaderResource : RHIResourceState::Undefined;
+    out.shInitialState = m_SHBufferInShaderState
+        ? RHIResourceState::ShaderResource : RHIResourceState::Undefined;
+    out.generated = m_Generated;
+    return out;
+}
+
+void EnvironmentPass::ExecuteGraphManaged(GpuCommandList& commands)
+{
+    if (m_Generated) return;
+    RenderCubemap(commands);
+    ProjectSH(commands);
+    m_Generated = true;
+}
+
+void EnvironmentPass::MarkGraphResourcesShaderResource()
+{
+    if (!m_Generated) return;
+    m_EnvironmentInShaderState = true;
+    m_SHBufferInShaderState = true;
+}
+
+void EnvironmentPass::Execute(GpuCommandList& commands, const Scene&, const Camera&)
 {
     ConsumeReadback();
     if (!EnsureResources() || m_Generated) return;
-    auto* commands = Context()->GetGraphicsCommandList();
-    if (!commands) return;
-    RenderCubemap(*commands);
-    ProjectSH(*commands);
+    RenderCubemap(commands);
+    ProjectSH(commands);
     m_Generated = true;
+    m_EnvironmentInShaderState = true;
+    m_SHBufferInShaderState = true;
 }

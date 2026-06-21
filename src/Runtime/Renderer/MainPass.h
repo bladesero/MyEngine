@@ -14,9 +14,10 @@ struct ShaderHandle;
 
 class MainPass final : public RenderPass {
 public:
-    explicit MainPass(IRenderContext* context);
+    explicit MainPass(IRHIDevice* device);
 
-    void Execute(const Scene& scene, const Camera& camera) override;
+    void Execute(GpuCommandList& commands, const Scene& scene,
+                 const Camera& camera) override;
     void Resize(uint32_t width, uint32_t height) override;
 
 

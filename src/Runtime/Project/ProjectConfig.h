@@ -10,6 +10,10 @@ struct ProjectPublishSettings {
     std::string target = PublishTargets::kDefaultTargetId;
 };
 
+struct ProjectInputSettings {
+    std::string config = "Content/Config/Input.input.json";
+};
+
 class ProjectConfig {
 public:
     static constexpr int kCurrentVersion = 1;
@@ -27,6 +31,11 @@ public:
                           std::filesystem::path& resolved,
                           bool requireExists = true,
                           std::string* error = nullptr) const;
+    bool SetInputConfigPath(const std::filesystem::path& configPath,
+                            std::string* error = nullptr);
+    bool ResolveInputConfigPath(std::filesystem::path& resolved,
+                                bool requireExists = false,
+                                std::string* error = nullptr) const;
 
     int GetVersion() const { return m_Version; }
     const std::string& GetName() const { return m_Name; }
@@ -36,6 +45,8 @@ public:
     const std::filesystem::path& GetManifestPath() const { return m_ManifestPath; }
     ProjectPublishSettings& GetPublishSettings() { return m_PublishSettings; }
     const ProjectPublishSettings& GetPublishSettings() const { return m_PublishSettings; }
+    ProjectInputSettings& GetInputSettings() { return m_InputSettings; }
+    const ProjectInputSettings& GetInputSettings() const { return m_InputSettings; }
     bool HasManifest() const { return m_HasManifest; }
 
     void SetName(std::string name) { m_Name = std::move(name); }
@@ -52,5 +63,6 @@ private:
     std::string m_ProjectId;
     std::string m_StartupScene;
     ProjectPublishSettings m_PublishSettings;
+    ProjectInputSettings m_InputSettings;
     bool m_HasManifest = false;
 };

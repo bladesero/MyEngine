@@ -150,7 +150,7 @@ public:
 
     // Called by EditorImGuiBackend to invalidate ImGui RTV cache on resize.
     using SwapChainResizeCallback = void(*)();
-    void SetSwapChainResizeCallback(SwapChainResizeCallback cb) { m_ResizeCallback = cb; }
+    void SetSwapChainResizeCallback(SwapChainResizeCallback cb) override { m_ResizeCallback = cb; }
 
     // Native handles (needed by editor overlays such as ImGui).
     ID3D11Device*        GetDevice() const        { return m_Device.Get(); }

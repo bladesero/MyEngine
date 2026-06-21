@@ -1,5 +1,6 @@
 #include "Editor/EditorWorkspace.h"
 
+#include "Input/InputActionMap.h"
 #include "Project/ProjectConfig.h"
 #include "Project/PublishTargets.h"
 
@@ -96,6 +97,7 @@ EditorWorkspace::EditorWorkspace(fs::path settingsPath, fs::path templateRoot)
 bool EditorWorkspace::Load(std::string* error) {
     if (error) error->clear();
     m_RecentProjects.clear();
+    m_Shortcuts.ResetDefaults();
     std::error_code ec;
     if (!fs::exists(m_SettingsPath, ec)) return true;
     try {
@@ -110,6 +112,12 @@ bool EditorWorkspace::Load(std::string* error) {
                 if (!ec && fs::is_directory(path, ec) && !ec) m_RecentProjects.push_back(std::move(path));
                 ec.clear();
             }
+        }
+        const auto shortcuts = json.find("shortcuts");
+        if (shortcuts != json.end()) {
+            std::string warning;
+            m_Shortcuts.LoadOverrides(*shortcuts, &warning);
+            if (!warning.empty()) SetError(error, warning);
         }
     }
     catch (const std::exception& exception) {
@@ -134,6 +142,7 @@ bool EditorWorkspace::Save(std::string* error) const {
         for (const auto& project : m_RecentProjects) {
             json["recentProjects"].push_back(project.string());
         }
+        json["shortcuts"] = m_Shortcuts.SaveOverrides();
         std::ofstream output(m_SettingsPath);
         if (!output) {
             SetError(error, "failed to write workspace: " + m_SettingsPath.string());
@@ -209,12 +218,16 @@ bool EditorWorkspace::CreateProject(const fs::path& projectRoot,
             return false;
         }
         sceneOutput << scene.dump(2) << '\n';
+        if (!InputActionMap::WriteDefaultFile(root / InputActionMap::kDefaultProjectPath, error)) {
+            return false;
+        }
     }
 
     ProjectConfig config;
     if (!config.Open(root, true, error)) return false;
     config.SetName(projectName);
     config.GetPublishSettings().target = PublishTargets::kDefaultTargetId;
+    if (!config.SetInputConfigPath(InputActionMap::kDefaultProjectPath, error)) return false;
     const fs::path startupScene = root / "Content" / "Scenes" / "Main.scene.json";
     if (!config.SetStartupScene(startupScene, error) || !config.Save(error)) return false;
     AddRecentProject(root);

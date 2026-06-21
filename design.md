@@ -71,7 +71,7 @@ MyEngine/
 
 1. **Math** — 数学类型与少量实现（如 `Mat4Inverse`），**不依赖**引擎子系统。
 2. **Core** — 应用生命周期、窗口抽象、事件、Layer 栈、时间管理、日志、平台宏。**仅通过 Window/事件路径触及 SDL**，被几乎所有上层使用。
-3. **Input** — 输入状态；由 **Core/Engine** 的事件循环喂入，供 Layer 或编辑器查询。
+3. **Input** — 输入状态与项目可配置 gameplay 映射；由 **Core/Engine** 的事件循环喂入 raw 键鼠/手柄快照，上层可直接查询 raw input，也可通过项目 `Content/Config/Input.input.json` 定义的 `Button` / `Axis1D` / `Axis2D` action 查询语义化输入名。
 4. **Assets** — 资源注册与加载；依赖文件系统与第三方导入库；**Mesh 等数据可被 Scene 组件引用**，导入路径可与 `SceneSerializer` 存储的路径字符串衔接。
 5. **Scene** — `Scene` / `Actor` / `Transform` / `Component` / `MeshRendererComponent`；**序列化**依赖 **nlohmann_json**；组件内引用 **Assets**（网格/材质句柄或路径）。
 6. **Camera** — 视图投影与控制器相关数学；依赖 **Math**，与 **Renderer** 的数据约定一致。
@@ -151,6 +151,7 @@ Application::Run()
 
 - **AssetManager**：按扩展名加载纹理/模型；内置白/黑/法线贴图、立方体等；`GetByPath` / `Load` / `Register`。
 - **SceneSerializer**：场景 JSON 序列化；`MeshRendererComponent` 持久化 mesh/material **路径**，加载时通过 **AssetManager** 解析。Prefab 实例只保存源资源引用、UUID、根放置和覆盖数据，实例子树由 `PrefabSystem` 批量重建；格式与限制见 [`docs/classes/scene/PrefabSystem.md`](docs/classes/scene/PrefabSystem.md)。
+- **Input action map**：`ProjectConfig` 默认引用 `Content/Config/Input.input.json`；Editor 打开项目和 Player 启动时加载该 JSON，失败或缺失时回退到内置默认映射。Lua 脚本通过 `Input.action_down("Jump")`、`Input.axis2("Move")` 等接口读取语义化输入。
 - **构建产物**：`copy_game_content` 将仓库根目录 **Content** 复制到目标输出目录，便于相对路径资源与测试。
 
 ---
@@ -187,8 +188,9 @@ Application::Run()
   verifies the manifest and archive, serializes concurrent extraction by archive
   hash, atomically installs the cache, and rebuilds missing or damaged files
   before Player loads `startupScene`.
-- Editor **Project Settings** owns the project name and publish output. Publish
-  is allowed only from Edit mode with a saved, clean current scene.
+- Editor **Settings** owns project metadata, gameplay input config routing, and
+  per-user editor shortcuts. Publish is allowed only from Edit mode with a
+  saved, clean current scene.
 
 ---
 
@@ -217,6 +219,12 @@ flowchart LR
     Controllers --> Runtime
 ```
 
+- Editor actions are the single command surface for toolbar buttons and user
+  shortcuts. `EditorShortcutMap` stores per-user chords in `EditorWorkspace`
+  (`workspace.json`), detects chord conflicts, and dispatches only enabled
+  `EditorActionRegistry` actions. These shortcuts are separate from project
+  gameplay input maps under `Content/Config`.
+
 - **Context**：统一暴露 scene layer、render context、window、engine、selection、command stack、project、asset registry、actions 和 typed services。选择状态只保存 `ActorID` 或资产路径。
 - **Services**：`EditorLogService`、`EditorDialogService`、`EditorImportService`、`EditorShaderWatchService` 由 `EditorServiceCollection` 按注册顺序 attach/update，并按逆序 detach。
 - **Panels**：Toolbar、Scene Hierarchy、Viewport、Inspector、Asset Browser、Log 都继承 `EditorPanel`。固定布局由 `EditorLayout` 统一计算。
@@ -227,10 +235,44 @@ flowchart LR
 # RHI and frame graph boundary
 
 Runtime rendering follows `Render Pass -> RenderGraph -> IRHIDevice/GpuCommandList -> backend`.
+`IRenderContext` is a temporary compatibility facade over split RHI interfaces:
+`IRHIDevice` for resource creation/capabilities, `IRHIFrameContext` for frame
+boundaries and command-list access, `IRHIReadbackService` for asynchronous
+readback, and `IEditorImGuiRHIInterop` for editor UI native-handle bridging.
+New backend-agnostic features should target these smaller interfaces instead
+of adding methods to the facade.
 RenderGraph validates dependencies and owns attachment state transitions. DXBC reflection
 produces a shared named binding layout used by both Windows backends. Native D3D types are
 restricted to backend implementation files; `tools/check-rhi-boundaries.ps1` enforces
 the rule without a render-pass allowlist.
+RenderGraph pass setup must declare resource access, except explicitly marked
+side-effect compatibility passes. Imported resources can declare final states so
+cross-frame resource ownership is explicit at the graph boundary.
+RenderGraph failures expose a stable `RenderGraph::ErrorCode` alongside
+human-readable `GetLastError()` text so tests and tools do not parse diagnostics.
+The `Renderer` frame graph path does not register empty compatibility passes;
+optional resources that cannot be prepared are omitted or fail before graph
+execution rather than hidden behind no-resource passes.
+The D3D offscreen post-process chain imports scene color/depth, SSAO, blur, and
+composite targets into RenderGraph so `Main`, SSAO, blur, and offscreen
+composite passes expose real read/write dependencies.
+Swapchain composite imports the current backbuffer as the graph color target,
+while backend frame contexts retain ownership of the final Present transition.
+Shadow maps are graph resources as well; the `Shadow` pass declares depth writes
+and `PrepareMain` declares reads, with `ManualRenderingScope` used until
+cascade/cube-face subresources become first-class graph accesses.
+Environment cubemap and SH resources are graph-declared dependencies too; the
+generation pass keeps manual per-mip/per-face transitions until subresource
+access is represented directly by RenderGraph.
+RenderGraph now exposes `RGTextureSubresource` access overloads and creates
+access-local views, allowing disjoint mip/layer ranges to be tracked without
+falling back to whole-texture dependencies.
+RenderGraph also performs conservative pass culling: unobserved transient
+write-only branches are removed from execution and resource creation, while
+imported/final-state resources and read-only side-effect passes stay live.
+Transient resource reuse is descriptor-keyed rather than debug-name-keyed, so
+same-desc resources can be recycled across frames without tying reuse to pass
+or resource names.
 
 ## 11. Physics backend boundary
 

@@ -211,13 +211,13 @@ ScenePostProcessData CollectPostProcess(const Scene& scene)
 
 } // namespace
 
-MainPass::MainPass(IRenderContext* context)
-    : RenderPass(context)
+MainPass::MainPass(IRHIDevice* device)
+    : RenderPass(device)
 {}
 
 void MainPass::Resize(uint32_t, uint32_t)
 {
-    // Viewport is controlled by SceneRenderLayer via IRenderContext::SetViewport.
+    // Viewport is controlled by SceneRenderLayer through the active command list.
 }
 
 void MainPass::SetShadowInput(const Mat4& lightViewProj,
@@ -289,31 +289,31 @@ void MainPass::SetEnvironmentInput(GpuTexture* environmentCubemap,
 
 void MainPass::EnsureMeshUploaded(MeshAsset* mesh)
 {
-    if (!mesh || mesh->IsUploaded() || !Context()) return;
+    if (!mesh || mesh->IsUploaded() || !Device()) return;
 
     const auto& verts = mesh->GetVertices();
     const auto& idx   = mesh->GetIndices();
     if (verts.empty()) return;
 
     const uint32_t vbBytes = static_cast<uint32_t>(verts.size() * sizeof(MeshVertex));
-    mesh->SetVertexBuffer(Context()->CreateVertexBuffer(verts.data(), vbBytes, sizeof(MeshVertex)));
+    mesh->SetVertexBuffer(Device()->CreateVertexBuffer(verts.data(), vbBytes, sizeof(MeshVertex)));
 
     if (!idx.empty()) {
         const uint32_t ibBytes = static_cast<uint32_t>(idx.size() * sizeof(uint32_t));
-        mesh->SetIndexBuffer(Context()->CreateIndexBuffer(idx.data(), ibBytes));
+        mesh->SetIndexBuffer(Device()->CreateIndexBuffer(idx.data(), ibBytes));
     }
 }
 
 void MainPass::EnsureTextureUploaded(TextureAsset* tex)
 {
-    if (!tex || !Context()) return;
+    if (!tex || !Device()) return;
     if (tex->HasGpuHandle()) return;
     if (m_TexCache.count(tex)) return;
 
     const auto& pixels = tex->GetPixelData();
     if (pixels.empty()) return;
 
-    auto gpuTex = Context()->UploadTexture2D(
+    auto gpuTex = Device()->UploadTexture2D(
         pixels.data(), tex->GetWidth(), tex->GetHeight());
     if (gpuTex) {
         tex->SetGpuHandle(gpuTex.get());
@@ -323,16 +323,16 @@ void MainPass::EnsureTextureUploaded(TextureAsset* tex)
 
 void MainPass::EnsureNamedBindingDefaults()
 {
-    if (!Context() || m_DefaultTextureView) return;
+    if (!Device() || m_DefaultTextureView) return;
     const uint8_t white[4] = {255, 255, 255, 255};
-    m_DefaultTexture = Context()->UploadTexture2D(white, 1, 1);
+    m_DefaultTexture = Device()->UploadTexture2D(white, 1, 1);
     RHITextureViewDesc viewDesc; viewDesc.usage = RHIResourceUsage::ShaderResource;
-    m_DefaultTextureView = Context()->CreateTextureView(m_DefaultTexture, viewDesc);
+    m_DefaultTextureView = Device()->CreateTextureView(m_DefaultTexture, viewDesc);
     RHISamplerDesc linear;
     linear.addressU = linear.addressV = linear.addressW = RHIAddressMode::Clamp;
-    m_LinearSampler = Context()->CreateSampler(linear);
+    m_LinearSampler = Device()->CreateSampler(linear);
     RHISamplerDesc shadow = linear; shadow.filter = RHIFilter::ComparisonLinear;
-    m_ShadowSampler = Context()->CreateSampler(shadow);
+    m_ShadowSampler = Device()->CreateSampler(shadow);
 }
 
 std::shared_ptr<GpuTextureView> MainPass::GetTextureView(GpuTexture* texture)
@@ -345,7 +345,7 @@ std::shared_ptr<GpuTextureView> MainPass::GetTextureView(GpuTexture* texture)
     desc.mipCount = texture->desc.mipLevels;
     desc.layerCount = texture->desc.arrayLayers;
     desc.usage = RHIResourceUsage::ShaderResource;
-    auto view = Context()->CreateTextureView(
+    auto view = Device()->CreateTextureView(
         std::shared_ptr<GpuTexture>(texture, [](GpuTexture*) {}), desc);
     if (view) m_TextureViews[texture] = view;
     return view ? view : m_DefaultTextureView;
@@ -353,13 +353,11 @@ std::shared_ptr<GpuTextureView> MainPass::GetTextureView(GpuTexture* texture)
 
 GpuShader* MainPass::GetOrCreateShader()
 {
-    if (!Context()) return nullptr;
+    if (!Device()) return nullptr;
 
 #ifdef MYENGINE_PLATFORM_WINDOWS
-    ShaderManager::Get().SetContext(Context());
-
-    const bool supportsWindowsPbr = Context()->GetBackend() == RHIBackend::D3D11 ||
-                                    Context()->GetBackend() == RHIBackend::D3D12;
+    const bool supportsWindowsPbr = Device()->GetBackend() == RHIBackend::D3D11 ||
+                                    Device()->GetBackend() == RHIBackend::D3D12;
     if (supportsWindowsPbr) {
         if (!m_MainShaderHandle) {
             m_MainShaderHandle = ShaderManager::Get().GetOrCreate(
@@ -386,7 +384,7 @@ GpuShader* MainPass::GetOrCreateShader()
 #else
     if (!m_MainShaderHandle) {
         m_MainShaderHandle = std::make_shared<ShaderHandle>();
-        m_MainShaderHandle->shader = Context()->CreateShader(
+        m_MainShaderHandle->shader = Device()->CreateShader(
             k_MeshShaderSource, "VSMain", "PSMain",
             k_MeshVertexLayout, k_MeshVertexLayoutCount);
     }
@@ -414,7 +412,7 @@ void MainPass::SetHdrPassthrough(bool passthrough)
 GpuGraphicsPipeline* MainPass::GetOrCreateMainPipeline(
     bool transparent, bool twoSided, bool wireframe)
 {
-    if (!Context() || !m_MainShaderHandle || !m_MainShaderHandle->shader) return nullptr;
+    if (!Device() || !m_MainShaderHandle || !m_MainShaderHandle->shader) return nullptr;
     const size_t index = (transparent ? 1u : 0u) |
                          (twoSided ? 2u : 0u) |
                          (wireframe ? 4u : 0u);
@@ -428,14 +426,14 @@ GpuGraphicsPipeline* MainPass::GetOrCreateMainPipeline(
         desc.rasterizer.cullMode = twoSided ? RHICullMode::None : RHICullMode::Back;
         desc.rasterizer.fillMode = wireframe ? RHIFillMode::Wireframe : RHIFillMode::Solid;
         desc.blend.attachments[0].blendEnable = transparent;
-        pipeline = Context()->CreateGraphicsPipeline(desc);
+        pipeline = Device()->CreateGraphicsPipeline(desc);
     }
     return pipeline.get();
 }
 
 GpuGraphicsPipeline* MainPass::GetOrCreateMaterialPipeline(const MaterialAsset& material)
 {
-    if (!Context() || !material.GetShader()) return nullptr;
+    if (!Device() || !material.GetShader()) return nullptr;
     auto& pipeline = m_MaterialPipelines[&material];
     const bool transparent = material.GetBlendMode() == BlendMode::Transparent;
     const RHICullMode cull = material.IsTwoSided() ? RHICullMode::None : RHICullMode::Back;
@@ -454,14 +452,14 @@ GpuGraphicsPipeline* MainPass::GetOrCreateMaterialPipeline(const MaterialAsset& 
         desc.rasterizer.cullMode = cull;
         desc.rasterizer.fillMode = fill;
         desc.blend.attachments[0].blendEnable = transparent;
-        pipeline = Context()->CreateGraphicsPipeline(desc);
+        pipeline = Device()->CreateGraphicsPipeline(desc);
     }
     return pipeline.get();
 }
 
 GpuGraphicsPipeline* MainPass::GetOrCreateSkyPipeline()
 {
-    if (!Context() || !m_SkyShaderHandle || !m_SkyShaderHandle->shader) return nullptr;
+    if (!Device() || !m_SkyShaderHandle || !m_SkyShaderHandle->shader) return nullptr;
     if (m_SkyShaderVersion != m_SkyShaderHandle->version) {
         m_SkyShaderVersion = m_SkyShaderHandle->version;
         m_SkyPipeline.reset();
@@ -475,15 +473,14 @@ GpuGraphicsPipeline* MainPass::GetOrCreateSkyPipeline()
         desc.depthStencil.depthTestEnable = false;
         desc.depthStencil.depthWriteEnable = false;
         desc.rasterizer.cullMode = RHICullMode::None;
-        m_SkyPipeline = Context()->CreateGraphicsPipeline(desc);
+        m_SkyPipeline = Device()->CreateGraphicsPipeline(desc);
     }
     return m_SkyPipeline.get();
 }
 
 GpuShader* MainPass::GetOrCreateSkyShader()
 {
-    if (!Context()) return nullptr;
-    ShaderManager::Get().SetContext(Context());
+    if (!Device()) return nullptr;
     if (!m_SkyShaderHandle) {
         m_SkyShaderHandle = ShaderManager::Get().GetOrCreate(
             "Content/Engine/Shaders/ProceduralSky.shader", nullptr, 0);
@@ -518,18 +515,16 @@ void MainPass::RenderSky(const Camera& camera, GpuCommandList& cmd)
     cmd.SetGraphicsPipeline(skyPipeline);
     cmd.BindVertexBuffer(nullptr);
     cmd.BindIndexBuffer(nullptr);
-    auto bindings = Context()->CreateBindGroup(
+    auto bindings = Device()->CreateBindGroup(
         m_SkyShaderHandle ? m_SkyShaderHandle->shader : nullptr);
     if (bindings && bindings->SetConstants("SkyConstants", &constants, sizeof(constants)))
         cmd.SetBindGroup(0, bindings.get());
     cmd.Draw(3);
 }
 
-void MainPass::Execute(const Scene& scene, const Camera& camera)
+void MainPass::Execute(GpuCommandList& commands, const Scene& scene, const Camera& camera)
 {
-    if (!Context()) return;
-    GpuCommandList* cmd = Context()->GetGraphicsCommandList();
-    if (!cmd) return;
+    if (!Device()) return;
 
     GpuShader* shader = GetOrCreateShader();
     if (!shader) return;
@@ -539,7 +534,7 @@ void MainPass::Execute(const Scene& scene, const Camera& camera)
     const Mat4 viewProj = camera.GetViewProj();
     const SceneLightData sceneLights = CollectSceneLights(scene);
     const ScenePostProcessData postProcess = CollectPostProcess(scene);
-    RenderSky(camera, *cmd);
+    RenderSky(camera, commands);
 
     std::vector<RenderItem> opaqueItems;
     std::vector<RenderItem> transparentItems;
@@ -615,11 +610,11 @@ void MainPass::Execute(const Scene& scene, const Camera& camera)
                     mat->GetBlendMode() == BlendMode::Transparent,
                     mat->IsTwoSided(), mat->IsWireframe());
                 if (!pipeline) { itemIndex += instanceCount; continue; }
-                cmd->SetGraphicsPipeline(pipeline);
+                commands.SetGraphicsPipeline(pipeline);
             } else {
                 auto* pipeline = GetOrCreateMaterialPipeline(*mat);
                 if (!pipeline) { itemIndex += instanceCount; continue; }
-                cmd->SetGraphicsPipeline(pipeline);
+                commands.SetGraphicsPipeline(pipeline);
             }
         }
 
@@ -630,7 +625,7 @@ void MainPass::Execute(const Scene& scene, const Camera& camera)
                 normalMatrix = normalMatrix.Transposed();
             }
 
-            cmd->BindVertexBuffer(mesh->GetVertexBuffer());
+            commands.BindVertexBuffer(mesh->GetVertexBuffer());
 
         GpuTexture* baseColorTexture = nullptr;
         GpuTexture* namedTextures[9] = {};
@@ -807,7 +802,7 @@ void MainPass::Execute(const Scene& scene, const Camera& camera)
                         sizeof(constants.normalMatrix));
 
             EnsureNamedBindingDefaults();
-            auto bindings = Context()->CreateBindGroup(
+            auto bindings = Device()->CreateBindGroup(
                 m_MainShaderHandle ? m_MainShaderHandle->shader : nullptr);
             if (bindings) {
                 bindings->SetConstants("PerDraw", &constants, sizeof(constants));
@@ -823,20 +818,20 @@ void MainPass::Execute(const Scene& scene, const Camera& camera)
                 }
                 if (m_EnvironmentSH2Buffer)
                     bindings->SetStorageBuffer("g_EnvironmentSH2", m_EnvironmentSH2Buffer);
-                cmd->SetBindGroup(0, bindings.get());
+                commands.SetBindGroup(0, bindings.get());
             }
 
             if (mesh->GetIndexBuffer()) {
-                cmd->BindIndexBuffer(mesh->GetIndexBuffer());
+                commands.BindIndexBuffer(mesh->GetIndexBuffer());
                 for (const auto& sm : mesh->GetSubMeshes()) {
-                    cmd->DrawIndexedInstanced(
+                    commands.DrawIndexedInstanced(
                         sm.indexCount, static_cast<uint32_t>(instanceCount),
                         sm.indexOffset, static_cast<uint32_t>(sm.vertexOffset));
                 }
             } else {
-                cmd->BindIndexBuffer(nullptr);
+                commands.BindIndexBuffer(nullptr);
                 for (const auto& sm : mesh->GetSubMeshes()) {
-                    cmd->DrawInstanced(
+                    commands.DrawInstanced(
                         sm.indexCount, static_cast<uint32_t>(instanceCount),
                         sm.vertexOffset);
                 }
@@ -846,25 +841,25 @@ void MainPass::Execute(const Scene& scene, const Camera& camera)
             std::memcpy(constants.mvp, mvp.Data(), sizeof(constants.mvp));
             FillColorConstants(constants.baseColor, *mat, "BaseColor", Vec3::One());
             EnsureNamedBindingDefaults();
-            auto bindings = Context()->CreateBindGroup(
+            auto bindings = Device()->CreateBindGroup(
                 m_MainShaderHandle ? m_MainShaderHandle->shader : nullptr);
             if (bindings) {
                 bindings->SetConstants("PerDraw", &constants, sizeof(constants));
                 bindings->SetTexture("g_BaseColorMap", GetTextureView(baseColorTexture));
                 bindings->SetSampler("g_Sampler", m_LinearSampler);
-                cmd->SetBindGroup(0, bindings.get());
+                commands.SetBindGroup(0, bindings.get());
             }
 
             if (mesh->GetIndexBuffer()) {
-                cmd->BindIndexBuffer(mesh->GetIndexBuffer());
+                commands.BindIndexBuffer(mesh->GetIndexBuffer());
                 for (const auto& sm : mesh->GetSubMeshes()) {
-                    cmd->DrawIndexed(sm.indexCount, sm.indexOffset,
+                    commands.DrawIndexed(sm.indexCount, sm.indexOffset,
                                      static_cast<uint32_t>(sm.vertexOffset));
                 }
             } else {
-                cmd->BindIndexBuffer(nullptr);
+                commands.BindIndexBuffer(nullptr);
                 for (const auto& sm : mesh->GetSubMeshes()) {
-                    cmd->Draw(sm.indexCount, sm.vertexOffset);
+                    commands.Draw(sm.indexCount, sm.vertexOffset);
                 }
             }
         }

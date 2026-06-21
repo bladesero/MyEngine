@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Assets/ShaderAsset.h"
-#include "Renderer/IRenderContext.h"
+#include "Renderer/RHI/IRHIDevice.h"
 
 #include <memory>
 #include <string>
@@ -16,7 +16,7 @@ struct ShaderHandle {
 class ShaderManager {
 public:
     static ShaderManager& Get();
-    void SetContext(IRenderContext* context) { m_Context = context; }
+    void SetDevice(IRHIDevice* device) { m_Device = device; }
 
     std::shared_ptr<ShaderHandle> GetOrCreate(
         const std::string& shaderAssetPath,
@@ -42,7 +42,7 @@ private:
     std::shared_ptr<ShaderHandle> GetOrCreateInternal(
         const std::string&, const VertexElement*, uint32_t, bool);
 
-    IRenderContext* m_Context = nullptr;
+    IRHIDevice* m_Device = nullptr;
     std::vector<ShaderRecord> m_Records;
     std::unordered_map<std::string, size_t> m_KeyToIndex;
 };

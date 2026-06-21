@@ -53,8 +53,14 @@ private:
     void DrawProjectSelector();
     void DrawProjectSettings();
     void DrawProjectResult();
+    void DrawProjectSettingsTab();
+    void DrawGameplayInputSettingsTab();
+    void DrawShortcutSettingsTab();
     void OpenProjectSettings();
     void ShowProjectResult(std::string message, bool error);
+    void LoadProjectInputConfig();
+    void CreateDefaultInputConfig();
+    void DispatchEditorShortcuts();
     void RegisterServices();
     void RegisterPanels();
     void ProcessDialogResults();
@@ -93,8 +99,11 @@ private:
     std::array<char, 1024> m_ProjectPath{};
     std::array<char, 128> m_ProjectName{};
     std::array<char, 1024> m_PublishOutput{};
+    std::array<char, 1024> m_InputConfigPath{};
     std::string m_ProjectError;
     std::string m_ProjectResult;
+    std::string m_CapturingShortcutAction;
+    std::string m_ShortcutCaptureError;
     bool m_ProjectSettingsRequested = false;
     bool m_ProjectResultRequested = false;
     bool m_ProjectResultIsError = false;

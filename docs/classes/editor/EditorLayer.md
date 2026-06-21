@@ -1,11 +1,17 @@
 # EditorLayer
 
-## 角色
+## Role
 
-编辑器 UI 与交互层（ImGui/ImGuizmo）。
+ImGui/ImGuizmo editor shell that coordinates panels, actions, project settings,
+workspace preferences, and scene editing against `SceneRenderLayer`.
 
-## 关键职责
+## Contract
 
-- 管理编辑器面板与场景编辑交互
-- 提供对象选中、属性编辑、Gizmo 操作等能力
-- 与 SceneRenderLayer 协同完成编辑器渲染流程
+- Owns the editor ImGui frame and renders after the scene layer.
+- Registers editor actions in `EditorActionRegistry`; toolbar buttons and
+  shortcuts execute through the same action path.
+- Stores editor shortcuts in `EditorWorkspace` as user preferences, not in the
+  project manifest or gameplay input config.
+- Provides the Settings modal with Project, Gameplay Input, and Shortcuts tabs.
+- Keeps scene-changing operations routed through `EditorCommandStack` when they
+  need undo/redo support.

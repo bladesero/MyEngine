@@ -326,6 +326,10 @@ The renderer is moving through an RHI abstraction. Do not bypass it casually. Th
 Authoritative RHI files:
 
 - `src/Runtime/Renderer/IRenderContext.h`
+- `src/Runtime/Renderer/RHI/IRHIDevice.h`
+- `src/Runtime/Renderer/RHI/IRHIFrameContext.h`
+- `src/Runtime/Renderer/RHI/IRHIReadbackService.h`
+- `src/Runtime/Renderer/RHI/IEditorImGuiRHIInterop.h`
 - `src/Runtime/Renderer/RHI/GpuCommandList.h`
 - `src/Runtime/Renderer/RHI/GpuBuffer.h`
 - `src/Runtime/Renderer/RHI/GpuShader.h`
@@ -336,16 +340,70 @@ Authoritative RHI files:
 
 ### Backend-Agnostic Code Must Use RHI Types
 
-In backend-agnostic renderer code, prefer:
+In backend-agnostic renderer code, prefer the smallest RHI interface needed:
 
 ```cpp
-IRenderContext* context;
-GpuCommandList* cmd = context->GetGraphicsCommandList();
+IRHIDevice* device;              // resource creation and capabilities
+IRHIFrameContext* frameContext;  // frame boundary and command-list access
+GpuCommandList* cmd = frameContext->GetGraphicsCommandList();
 GpuBuffer* buffer;
 GpuShader* shader;
 GpuTexture* texture;
 GpuSwapChain* swapChain;
 ```
+
+`IRenderContext` remains as a compatibility facade for existing wiring and
+backend factories. Do not add new backend-agnostic features to the facade when
+they fit `IRHIDevice`, `IRHIFrameContext`, `IRHIReadbackService`, or
+`GpuCommandList`.
+
+Render passes should not store or fetch a command list from a context. Pass
+constructors receive the smallest service they need, usually `IRHIDevice` plus
+an optional `IRHIReadbackService`, and their execution path receives an explicit
+`GpuCommandList&` from `Renderer` / `RenderGraph`.
+
+RenderGraph pass setup must declare resource access. Empty setup callbacks are
+rejected unless the pass is explicitly marked with
+`RenderGraph::PassFlags::AllowNoResourceAccess`; use that only for temporary
+side-effect/compatibility passes while their real resources are being migrated
+into the graph.
+`Renderer`'s main frame graph path should not register passes with
+`AllowNoResourceAccess`; unavailable optional resources should either be omitted
+from the graph or produce a clear error before graph execution.
+
+Imported resources may declare a final state through the import overload or
+`SetFinalState`. RenderGraph will transition imported textures and buffers to
+that final state after all passes execute, which avoids cross-frame state being
+left as an undocumented caller assumption.
+The D3D offscreen post-process path imports `SceneColor`, `SceneDepth`, `SSAO`,
+`SSAOBlur`, and `Composite` resources into RenderGraph; `Main`, SSAO, blur, and
+offscreen composite passes declare their reads/writes instead of using empty
+compatibility setup callbacks.
+When compositing to the swapchain, the current backbuffer is imported as the
+Composite pass color target with RenderTarget state ownership for that pass;
+the frame context still performs the backend-specific Present transition in
+`EndFrame`.
+Shadow maps are imported into RenderGraph and declared as depth writes/read
+dependencies for `Shadow` and `PrepareMain`. Shadow rendering uses
+`RenderGraph::PassFlags::ManualRenderingScope` while cascades and cube faces are
+still expressed as backend views rather than first-class graph subresources.
+The environment cubemap and SH buffer are also graph resources. Environment
+generation uses `ManualRenderingScope | ManualResourceTransitions` because it
+still performs per-mip/per-face transitions internally until RenderGraph has a
+first-class subresource access model.
+RenderGraph supports texture subresource declarations through
+`RGTextureSubresource` overloads on `ReadTexture`, `WriteColor`, `WriteDepth`,
+and `ReadWriteUAV`. Disjoint mip/layer ranges may be declared independently,
+access-local views are created by the graph, and `RenderGraphResources` can
+return a matching subresource view for shader binding.
+Compile performs conservative liveness analysis. Passes that only write
+unobserved transient resources are culled, culled pass names are exposed through
+`GetCulledPasses`, and transient resources outside the live graph are not
+created. Imported resources, final-state resources, read-only side-effect passes,
+and explicit `AllowNoResourceAccess` passes remain live roots.
+Transient texture and buffer reuse is descriptor-keyed rather than name-keyed:
+same-desc resources can be reused across frames even when their debug names
+change, while culled transient resources never enter the reuse pool.
 
 Do not store or pass native D3D objects through general renderer APIs:
 
@@ -369,9 +427,9 @@ If you add a D3D11 path, either add the equivalent D3D12/Metal path or make the 
 Only the top-level renderer should own frame boundaries:
 
 ```cpp
-context->BeginFrame(clearR, clearG, clearB, clearA);
+frameContext->BeginFrame(clearR, clearG, clearB, clearA);
 // passes execute here
-context->EndFrame();
+frameContext->EndFrame();
 ```
 
 Render passes must not call `BeginFrame()` or `EndFrame()` on their own. A pass may bind render targets, set viewport, draw, and restore state, but it must not present the swap chain.
@@ -393,7 +451,7 @@ Do not add a pass that calls `EndFrame()` early. That breaks editor offscreen, p
 New draw code should use `GpuCommandList` where possible:
 
 ```cpp
-GpuCommandList* cmd = context->GetGraphicsCommandList();
+GpuCommandList* cmd = frameContext->GetGraphicsCommandList();
 cmd->BindShader(shader);
 cmd->BindVertexBuffer(vertexBuffer);
 cmd->BindIndexBuffer(indexBuffer);
@@ -402,7 +460,10 @@ cmd->BindPSTexture(0, texture);
 cmd->DrawIndexed(indexCount, indexOffset, baseVertex);
 ```
 
-`IRenderContext` still exposes immediate compatibility wrappers such as `BindShader`, `SetVSConstants`, and `DrawIndexed`. These forward to the command list. Do not add new backend-agnostic immediate methods unless they are needed across all backends.
+Older backend classes still expose immediate compatibility wrappers such as
+`BindShader`, `SetVSConstants`, and `DrawIndexed`. New backend-agnostic draw
+code should go through `GpuCommandList`; do not add new immediate methods to
+`IRenderContext`.
 
 ### Constants
 
@@ -540,13 +601,11 @@ Do not let a render pass call swap-chain resize directly. Resize is coordinated 
 
 ### ImGui And Editor Interop
 
-ImGui access goes through `IRenderContext` hooks:
+ImGui access goes through `IEditorImGuiRHIInterop`:
 
 ```cpp
-InitImGui(window);
-BeginImGuiFrame();
-RenderImGuiDrawData(drawData);
-ShutdownImGui();
+IEditorImGuiRHIInterop* interop;
+ImGuiBackendHandles handles = interop->GetImGuiBackendHandles();
 ```
 
 Do not call `imgui_impl_dx11` / `imgui_impl_dx12` directly outside backend context code. Editor code should stay backend-agnostic.

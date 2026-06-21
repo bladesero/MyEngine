@@ -3279,6 +3279,7 @@ std::shared_ptr<GpuTextureView> D3D12Context::CreateTextureView(
     }
     if (HasUsage(desc.usage, RHIResourceUsage::DepthStencil)) {
         view->dsvCpu = AllocDsvSlot(&view->dsvLease);
+        if (view->dsvCpu.ptr == 0) return nullptr;
         D3D12_DEPTH_STENCIL_VIEW_DESC d{}; d.Format = ToDxgiRHIFormat(td.format);
         if (td.sampleCount > 1 && td.arrayLayers > 1) { d.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2DMSARRAY; d.Texture2DMSArray.FirstArraySlice = desc.firstLayer; d.Texture2DMSArray.ArraySize = desc.layerCount; }
         else if (td.sampleCount > 1) { d.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2DMS; }

@@ -8,9 +8,12 @@
 #include "Core/Window.h"
 #include "Editor/EditorPanel.h"
 #include "Editor/EditorPanels.h"
+#include "Editor/EditorShortcutMap.h"
 #include "Editor/ProjectPublisher.h"
 #include "Game/SceneRenderLayer.h"
+#include "Input/Input.h"
 #include "Project/PublishTargets.h"
+#include "Renderer/ShaderManager.h"
 
 #include <SDL3/SDL.h>
 
@@ -21,6 +24,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <vector>
 
 namespace {
 class EditorImGuiEventBridge final : public IPlatformEventBridge {
@@ -32,6 +36,39 @@ public:
 private:
     class EditorImGuiBackend* m_Backend = nullptr;
 };
+
+bool CaptureShortcutChord(EditorShortcutChord& chord)
+{
+#if defined(MYENGINE_ENABLE_IMGUI)
+    ImGuiIO& io = ImGui::GetIO();
+    const auto makeChord = [&](ImGuiKey key) {
+        chord = {};
+        chord.ctrl = io.KeyCtrl;
+        chord.shift = io.KeyShift;
+        chord.alt = io.KeyAlt;
+        chord.super = io.KeySuper;
+        chord.key = static_cast<int>(key);
+        return true;
+    };
+    std::vector<ImGuiKey> keys;
+    for (int key = ImGuiKey_A; key <= ImGuiKey_Z; ++key) keys.push_back(static_cast<ImGuiKey>(key));
+    for (int key = ImGuiKey_0; key <= ImGuiKey_9; ++key) keys.push_back(static_cast<ImGuiKey>(key));
+    for (int key = ImGuiKey_F1; key <= ImGuiKey_F12; ++key) keys.push_back(static_cast<ImGuiKey>(key));
+    keys.insert(keys.end(), {
+        ImGuiKey_Space, ImGuiKey_Enter, ImGuiKey_Escape, ImGuiKey_Delete,
+        ImGuiKey_Backspace, ImGuiKey_Tab, ImGuiKey_Insert, ImGuiKey_Home,
+        ImGuiKey_End, ImGuiKey_PageUp, ImGuiKey_PageDown, ImGuiKey_UpArrow,
+        ImGuiKey_DownArrow, ImGuiKey_LeftArrow, ImGuiKey_RightArrow,
+        ImGuiKey_Comma, ImGuiKey_Period
+    });
+    for (ImGuiKey key : keys) {
+        if (ImGui::IsKeyPressed(key, false)) return makeChord(key);
+    }
+#else
+    (void)chord;
+#endif
+    return false;
+}
 }
 
 
@@ -75,8 +112,10 @@ void EditorLayer::OnAttach() {
     m_Context.SetCommandStack(&m_CommandStack);
     m_Context.SetAssetRegistry(&m_AssetRegistry);
     m_Context.SetProject(&m_Project);
+    m_Context.SetShortcutMap(&m_Workspace.GetShortcuts());
     std::string workspaceError;
     if (!m_Workspace.Load(&workspaceError)) Logger::Warn("[Editor] ", workspaceError);
+    else if (!workspaceError.empty()) Logger::Warn("[Editor] ", workspaceError);
     if (const char* basePath = SDL_GetBasePath()) {
         m_Workspace.SetTemplateRoot(std::filesystem::path(basePath) / "ProjectTemplates" / "Default");
     }
@@ -102,6 +141,7 @@ bool EditorLayer::OpenProject(const std::filesystem::path& root) {
     }
     AssetManager::Get().Clear();
     AssetManager::Get().SetProjectRoot(m_Project.GetRoot());
+    LoadProjectInputConfig();
     m_Context.SetProjectRoot(m_Project.GetRoot());
     m_AssetRegistry.SetRoot(m_Project.GetContentRoot());
     m_AssetRegistry.Refresh();
@@ -155,7 +195,7 @@ void EditorLayer::RegisterPanels() {
     m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
         "asset.import", "Import", [this](EditorContext&) { ImportAssetDialog(); }));
     m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
-        "project.settings", "Project Settings",
+        "project.settings", "Settings",
         [this](EditorContext&) { OpenProjectSettings(); },
         [](EditorContext& context) { return context.IsEditing(); }));
     m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
@@ -187,6 +227,53 @@ void EditorLayer::RegisterPanels() {
             auto* stack = context.GetCommandStack();
             return context.IsEditing() && stack && stack->CanRedo();
         }));
+    m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
+        "play.start", "Play",
+        [](EditorContext& context) {
+            if (auto* layer = context.GetSceneLayer()) layer->BeginPlay();
+        },
+        [](EditorContext& context) {
+            auto* layer = context.GetSceneLayer();
+            return layer && layer->IsEditing();
+        }));
+    m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
+        "play.stop", "Stop",
+        [](EditorContext& context) {
+            if (auto* layer = context.GetSceneLayer()) layer->StopPlay();
+        },
+        [](EditorContext& context) {
+            auto* layer = context.GetSceneLayer();
+            return layer && !layer->IsEditing();
+        }));
+    m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
+        "play.pause", "Pause",
+        [](EditorContext& context) {
+            if (auto* layer = context.GetSceneLayer()) layer->PausePlay();
+        },
+        [](EditorContext& context) {
+            auto* layer = context.GetSceneLayer();
+            return layer && layer->IsPlaying();
+        }));
+    m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
+        "play.resume", "Resume",
+        [](EditorContext& context) {
+            if (auto* layer = context.GetSceneLayer()) layer->ResumePlay();
+        },
+        [](EditorContext& context) {
+            auto* layer = context.GetSceneLayer();
+            return layer && !layer->IsEditing() && !layer->IsPlaying();
+        }));
+    m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
+        "play.step", "Step",
+        [](EditorContext& context) {
+            if (auto* layer = context.GetSceneLayer()) layer->StepPlay();
+        },
+        [](EditorContext& context) {
+            return context.GetSceneLayer() != nullptr;
+        }));
+    m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
+        "shader.recompile", "Recompile",
+        [](EditorContext&) { ShaderManager::Get().RecompileAll(); }));
     m_Context.SetActionRegistry(&m_ActionRegistry);
 
     auto gizmo = std::make_shared<EditorGizmoState>();
@@ -224,6 +311,7 @@ void EditorLayer::OnDetach() {
     m_Panels.clear();
     m_ActionRegistry.Clear();
     m_Context.SetActionRegistry(nullptr);
+    m_Context.SetShortcutMap(nullptr);
     if (m_ServicesRegistered) m_ServiceCollection.DetachAll(m_Context);
     if (m_Engine) m_Engine->SetPlatformEventBridge(nullptr);
     m_ImGuiEventBridge.reset();
@@ -297,6 +385,10 @@ void EditorLayer::OpenProjectSettings() {
                  config.GetPublishSettings().outputDirectory.c_str(),
                  m_PublishOutput.size() - 1);
     m_PublishOutput.back() = '\0';
+    std::strncpy(m_InputConfigPath.data(),
+                 config.GetInputSettings().config.c_str(),
+                 m_InputConfigPath.size() - 1);
+    m_InputConfigPath.back() = '\0';
     m_ProjectSettingsRequested = true;
 }
 
@@ -306,16 +398,90 @@ void EditorLayer::ShowProjectResult(std::string message, bool error) {
     m_ProjectResultRequested = true;
 }
 
+void EditorLayer::LoadProjectInputConfig() {
+    std::string error;
+    std::filesystem::path inputConfig;
+    if (!m_Project.GetConfig().ResolveInputConfigPath(inputConfig, false, &error)) {
+        Logger::Warn("[Editor] Input config path invalid: ", error,
+                     "; using default input map");
+        Input::SetDefaultActionMap();
+        return;
+    }
+    if (!std::filesystem::is_regular_file(inputConfig)) {
+        Logger::Warn("[Editor] Input config not found: ", inputConfig.string(),
+                     "; using default input map");
+        Input::SetDefaultActionMap();
+        return;
+    }
+    if (!Input::LoadActionMapFromFile(inputConfig, &error)) {
+        Logger::Warn("[Editor] Failed to load input config: ", error,
+                     "; using default input map");
+        return;
+    }
+    Logger::Info("[Editor] Loaded input config: ", inputConfig.string());
+}
+
+void EditorLayer::CreateDefaultInputConfig() {
+    auto& config = m_Project.GetConfig();
+    const ProjectConfig previous = config;
+    std::string error;
+    if (!config.SetInputConfigPath(m_InputConfigPath.data(), &error)) {
+        config = previous;
+        ShowProjectResult("Invalid input config path: " + error, true);
+        return;
+    }
+    std::filesystem::path inputConfig;
+    if (!config.ResolveInputConfigPath(inputConfig, false, &error)) {
+        config = previous;
+        ShowProjectResult("Failed to resolve input config path: " + error, true);
+        return;
+    }
+    if (!InputActionMap::WriteDefaultFile(inputConfig, &error)) {
+        config = previous;
+        ShowProjectResult("Failed to create input config: " + error, true);
+        return;
+    }
+    if (!config.Save(&error)) {
+        config = previous;
+        ShowProjectResult("Failed to save project settings: " + error, true);
+        return;
+    }
+    LoadProjectInputConfig();
+    ShowProjectResult("Default input config created.", false);
+}
+
 void EditorLayer::DrawProjectSettings() {
 #if defined(MYENGINE_ENABLE_IMGUI)
     if (m_ProjectSettingsRequested) {
-        ImGui::OpenPopup("Project Settings");
+        ImGui::OpenPopup("Settings");
         m_ProjectSettingsRequested = false;
     }
-    ImGui::SetNextWindowSize({620.0f, 0.0f}, ImGuiCond_Appearing);
-    if (!ImGui::BeginPopupModal("Project Settings", nullptr,
-                                ImGuiWindowFlags_AlwaysAutoResize)) return;
+    ImGui::SetNextWindowSize({760.0f, 520.0f}, ImGuiCond_Appearing);
+    if (!ImGui::BeginPopupModal("Settings", nullptr, ImGuiWindowFlags_NoCollapse)) return;
 
+    if (ImGui::BeginTabBar("SettingsTabs")) {
+        if (ImGui::BeginTabItem("Project")) {
+            DrawProjectSettingsTab();
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Gameplay Input")) {
+            DrawGameplayInputSettingsTab();
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Shortcuts")) {
+            DrawShortcutSettingsTab();
+            ImGui::EndTabItem();
+        }
+        ImGui::EndTabBar();
+    }
+    ImGui::Separator();
+    if (ImGui::Button("Close")) ImGui::CloseCurrentPopup();
+    ImGui::EndPopup();
+#endif
+}
+
+void EditorLayer::DrawProjectSettingsTab() {
+#if defined(MYENGINE_ENABLE_IMGUI)
     const auto& config = m_Project.GetConfig();
     ImGui::InputText("Project name", m_ProjectName.data(), m_ProjectName.size());
     ImGui::InputText("Output directory", m_PublishOutput.data(), m_PublishOutput.size());
@@ -324,7 +490,6 @@ void EditorLayer::DrawProjectSettings() {
                      config.GetStartupScene().empty()
                          ? "<not set>" : config.GetStartupScene().c_str());
     ImGui::TextDisabled("Use Set Startup to assign the currently saved scene.");
-    ImGui::Separator();
     if (ImGui::Button("Save")) {
         auto& editable = m_Project.GetConfig();
         const ProjectConfig previous = editable;
@@ -332,18 +497,151 @@ void EditorLayer::DrawProjectSettings() {
         editable.GetPublishSettings().outputDirectory = m_PublishOutput.data();
         editable.GetPublishSettings().target = PublishTargets::kDefaultTargetId;
         std::string error;
+        if (!editable.SetInputConfigPath(m_InputConfigPath.data(), &error)) {
+            editable = previous;
+            ShowProjectResult("Invalid input config path: " + error, true);
+            ImGui::EndPopup();
+            return;
+        }
         if (editable.Save(&error)) {
             Logger::Info("[Editor] Project settings saved");
-            ImGui::CloseCurrentPopup();
+            LoadProjectInputConfig();
             ShowProjectResult("Project settings saved.", false);
         } else {
             editable = previous;
             ShowProjectResult("Failed to save project settings: " + error, true);
         }
     }
+#endif
+}
+
+void EditorLayer::DrawGameplayInputSettingsTab() {
+#if defined(MYENGINE_ENABLE_IMGUI)
+    ImGui::InputText("Input config", m_InputConfigPath.data(), m_InputConfigPath.size());
+    if (ImGui::Button("Create Default Input Config")) CreateDefaultInputConfig();
     ImGui::SameLine();
-    if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
-    ImGui::EndPopup();
+    if (ImGui::Button("Reload Input Config")) {
+        auto& editable = m_Project.GetConfig();
+        const ProjectConfig previous = editable;
+        std::string error;
+        if (!editable.SetInputConfigPath(m_InputConfigPath.data(), &error)) {
+            editable = previous;
+            ShowProjectResult("Invalid input config path: " + error, true);
+        } else if (!editable.Save(&error)) {
+            editable = previous;
+            ShowProjectResult("Failed to save project settings: " + error, true);
+        } else {
+            LoadProjectInputConfig();
+            ShowProjectResult("Input config reloaded.", false);
+        }
+    }
+#endif
+}
+
+void EditorLayer::DrawShortcutSettingsTab() {
+#if defined(MYENGINE_ENABLE_IMGUI)
+    EditorShortcutMap& shortcuts = m_Workspace.GetShortcuts();
+    if (ImGui::Button("Reset All Defaults")) {
+        shortcuts.ResetDefaults();
+        m_ShortcutCaptureError.clear();
+        m_CapturingShortcutAction.clear();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Save Shortcuts")) {
+        std::string error;
+        if (m_Workspace.Save(&error)) ShowProjectResult("Shortcuts saved.", false);
+        else ShowProjectResult("Failed to save shortcuts: " + error, true);
+    }
+    if (!m_ShortcutCaptureError.empty()) {
+        ImGui::TextColored({1.0f, 0.35f, 0.3f, 1.0f}, "%s", m_ShortcutCaptureError.c_str());
+    }
+
+    if (ImGui::BeginTable("ShortcutTable", 5,
+            ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable)) {
+        ImGui::TableSetupColumn("Action");
+        ImGui::TableSetupColumn("ID");
+        ImGui::TableSetupColumn("Shortcut");
+        ImGui::TableSetupColumn("Conflict");
+        ImGui::TableSetupColumn("Edit");
+        ImGui::TableHeadersRow();
+
+        for (EditorAction* action : m_ActionRegistry.GetOrderedActions()) {
+            if (!action) continue;
+            const std::string actionId = action->GetID();
+            const EditorShortcutChord* chord = shortcuts.FindShortcut(actionId);
+            const std::string chordText = chord ? EditorShortcutMap::FormatChord(*chord) : std::string{};
+            const std::string conflict = chord ? shortcuts.FindConflict(actionId, *chord) : std::string{};
+            const bool capturing = m_CapturingShortcutAction == actionId;
+
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::TextUnformatted(action->GetLabel());
+            ImGui::TableSetColumnIndex(1);
+            ImGui::TextUnformatted(action->GetID());
+            ImGui::TableSetColumnIndex(2);
+            ImGui::TextUnformatted(capturing ? "Press shortcut..." :
+                (chordText.empty() ? "<none>" : chordText.c_str()));
+            ImGui::TableSetColumnIndex(3);
+            if (!conflict.empty()) {
+                ImGui::TextColored({1.0f, 0.35f, 0.3f, 1.0f}, "%s", conflict.c_str());
+            } else {
+                ImGui::TextDisabled("-");
+            }
+            ImGui::TableSetColumnIndex(4);
+            const std::string recordId = "Record##" + actionId;
+            const std::string clearId = "Clear##" + actionId;
+            const std::string resetId = "Reset##" + actionId;
+            if (ImGui::Button(recordId.c_str())) {
+                m_CapturingShortcutAction = actionId;
+                m_ShortcutCaptureError.clear();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button(clearId.c_str())) {
+                shortcuts.ClearShortcut(actionId);
+                if (m_CapturingShortcutAction == actionId) m_CapturingShortcutAction.clear();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button(resetId.c_str())) {
+                EditorShortcutMap defaults = EditorShortcutMap::CreateDefault();
+                if (const EditorShortcutChord* defaultChord = defaults.FindShortcut(actionId)) {
+                    shortcuts.SetShortcut(actionId, *defaultChord);
+                } else {
+                    shortcuts.ClearShortcut(actionId);
+                }
+                if (m_CapturingShortcutAction == actionId) m_CapturingShortcutAction.clear();
+            }
+        }
+        ImGui::EndTable();
+    }
+
+    if (!m_CapturingShortcutAction.empty()) {
+        EditorShortcutChord captured;
+        if (CaptureShortcutChord(captured)) {
+            if (captured.key == static_cast<int>(ImGuiKey_Escape) &&
+                !captured.ctrl && !captured.shift && !captured.alt && !captured.super) {
+                m_CapturingShortcutAction.clear();
+                m_ShortcutCaptureError.clear();
+            } else {
+                const std::string conflict = shortcuts.FindConflict(m_CapturingShortcutAction, captured);
+                shortcuts.SetShortcut(m_CapturingShortcutAction, captured);
+                m_ShortcutCaptureError = conflict.empty()
+                    ? std::string{}
+                    : "Shortcut also assigned to " + conflict;
+                m_CapturingShortcutAction.clear();
+            }
+        }
+    }
+#endif
+}
+
+void EditorLayer::DispatchEditorShortcuts() {
+#if defined(MYENGINE_ENABLE_IMGUI)
+    if (!m_ProjectOpen || !m_Context.GetActionRegistry() || !m_Context.GetShortcutMap()) return;
+    if (!m_CapturingShortcutAction.empty()) return;
+    ImGuiIO& io = ImGui::GetIO();
+    if (io.WantTextInput) return;
+    if (ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId)) return;
+    m_Context.GetShortcutMap()->Dispatch(*m_Context.GetActionRegistry(), m_Context);
 #endif
 }
 
@@ -374,6 +672,7 @@ void EditorLayer::OnRender() {
     ImGui::NewFrame();
     ImGuizmo::BeginFrame();
     ImGuizmo::AllowAxisFlip(false);
+    DispatchEditorShortcuts();
     if (m_ProjectOpen) {
         for (auto& panel : m_Panels) panel->OnImGui();
         DrawProjectSettings();

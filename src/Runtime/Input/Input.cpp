@@ -5,6 +5,26 @@
 #include <SDL3/SDL.h>
 
 #include <algorithm>
+#include <cmath>
+
+namespace {
+
+float ApplyDeadZone(float value, float deadZone)
+{
+    return std::fabs(value) <= deadZone ? 0.0f : value;
+}
+
+float ClampAxis(float value)
+{
+    return std::clamp(value, -1.0f, 1.0f);
+}
+
+float Dominant(float current, float candidate)
+{
+    return std::fabs(candidate) > std::fabs(current) ? candidate : current;
+}
+
+} // namespace
 
 // Static storage
 std::array<bool, Input::k_MaxKeys>    Input::s_Keys     = {};
@@ -16,6 +36,7 @@ int Input::s_MouseY    = 0;
 int Input::s_MouseRelX = 0;
 int Input::s_MouseRelY = 0;
 std::array<Input::GamepadState, Input::k_MaxGamepads> Input::s_Gamepads = {};
+InputActionMap Input::s_ActionMap = InputActionMap::CreateDefault();
 
 bool Input::IsGamepadSubsystemReady() {
     return (SDL_WasInit(SDL_INIT_GAMEPAD) != 0);
@@ -193,6 +214,7 @@ void Input::Shutdown() {
     s_MouseY = 0;
     s_MouseRelX = 0;
     s_MouseRelY = 0;
+    s_ActionMap.Clear();
 }
 
 // ---- Keyboard ---------------------------------------------------------------
@@ -299,6 +321,178 @@ float Input::GetGamepadAxis(SDL_JoystickID instanceId, SDL_GamepadAxis axis) {
     }
 
     return std::clamp(raw / 32767.0f, -1.0f, 1.0f);
+}
+
+// ---- Project action map -----------------------------------------------------
+namespace {
+
+float ReadSourceValue(const InputSource& source)
+{
+    switch (source.kind) {
+    case InputSourceKind::KeyboardKey:
+        return Input::IsKeyDown(source.code) ? 1.0f : 0.0f;
+    case InputSourceKind::MouseButton:
+        return Input::IsMouseDown(source.code) ? 1.0f : 0.0f;
+    case InputSourceKind::MouseDeltaX:
+        return ClampAxis(static_cast<float>(Input::GetMouseRelX()));
+    case InputSourceKind::MouseDeltaY:
+        return ClampAxis(static_cast<float>(Input::GetMouseRelY()));
+    case InputSourceKind::GamepadButton: {
+        const SDL_JoystickID pad = Input::GetPrimaryGamepadId();
+        return pad != 0 && Input::IsGamepadButtonDown(
+            pad, static_cast<SDL_GamepadButton>(source.code)) ? 1.0f : 0.0f;
+    }
+    case InputSourceKind::GamepadAxis: {
+        const SDL_JoystickID pad = Input::GetPrimaryGamepadId();
+        return pad != 0 ? Input::GetGamepadAxis(
+            pad, static_cast<SDL_GamepadAxis>(source.code)) : 0.0f;
+    }
+    case InputSourceKind::None:
+        break;
+    }
+    return 0.0f;
+}
+
+bool ReadSourceDown(const InputSource& source)
+{
+    switch (source.kind) {
+    case InputSourceKind::KeyboardKey:
+        return Input::IsKeyDown(source.code);
+    case InputSourceKind::MouseButton:
+        return Input::IsMouseDown(source.code);
+    case InputSourceKind::MouseDeltaX:
+    case InputSourceKind::MouseDeltaY:
+    case InputSourceKind::GamepadAxis:
+        return std::fabs(ReadSourceValue(source)) > 0.0f;
+    case InputSourceKind::GamepadButton: {
+        const SDL_JoystickID pad = Input::GetPrimaryGamepadId();
+        return pad != 0 && Input::IsGamepadButtonDown(
+            pad, static_cast<SDL_GamepadButton>(source.code));
+    }
+    case InputSourceKind::None:
+        break;
+    }
+    return false;
+}
+
+bool ReadSourcePressed(const InputSource& source)
+{
+    switch (source.kind) {
+    case InputSourceKind::KeyboardKey:
+        return Input::IsKeyPressed(source.code);
+    case InputSourceKind::MouseButton:
+        return Input::IsMousePressed(source.code);
+    case InputSourceKind::GamepadButton: {
+        const SDL_JoystickID pad = Input::GetPrimaryGamepadId();
+        return pad != 0 && Input::IsGamepadButtonPressed(
+            pad, static_cast<SDL_GamepadButton>(source.code));
+    }
+    default:
+        break;
+    }
+    return false;
+}
+
+bool ReadSourceReleased(const InputSource& source)
+{
+    switch (source.kind) {
+    case InputSourceKind::KeyboardKey:
+        return Input::IsKeyReleased(source.code);
+    case InputSourceKind::MouseButton:
+        return Input::IsMouseReleased(source.code);
+    case InputSourceKind::GamepadButton: {
+        const SDL_JoystickID pad = Input::GetPrimaryGamepadId();
+        return pad != 0 && Input::IsGamepadButtonReleased(
+            pad, static_cast<SDL_GamepadButton>(source.code));
+    }
+    default:
+        break;
+    }
+    return false;
+}
+
+} // namespace
+
+bool Input::IsActionDown(std::string_view name)
+{
+    const InputAction* action = s_ActionMap.FindAction(name);
+    if (!action || action->type != InputActionType::Button) return false;
+    for (const InputBinding& binding : action->bindings) {
+        if (ReadSourceDown(binding.source)) return true;
+    }
+    return false;
+}
+
+bool Input::IsActionPressed(std::string_view name)
+{
+    const InputAction* action = s_ActionMap.FindAction(name);
+    if (!action || action->type != InputActionType::Button) return false;
+    for (const InputBinding& binding : action->bindings) {
+        if (ReadSourcePressed(binding.source)) return true;
+    }
+    return false;
+}
+
+bool Input::IsActionReleased(std::string_view name)
+{
+    const InputAction* action = s_ActionMap.FindAction(name);
+    if (!action || action->type != InputActionType::Button) return false;
+    for (const InputBinding& binding : action->bindings) {
+        if (ReadSourceReleased(binding.source)) return true;
+    }
+    return false;
+}
+
+float Input::GetAxis1D(std::string_view name)
+{
+    const InputAction* action = s_ActionMap.FindAction(name);
+    if (!action || action->type != InputActionType::Axis1D) return 0.0f;
+    float value = 0.0f;
+    for (const InputBinding& binding : action->bindings) {
+        const float candidate = ApplyDeadZone(
+            ReadSourceValue(binding.source) * binding.scale, binding.deadZone);
+        value = Dominant(value, candidate);
+    }
+    return ClampAxis(value);
+}
+
+Math::Vec2 Input::GetAxis2D(std::string_view name)
+{
+    const InputAction* action = s_ActionMap.FindAction(name);
+    if (!action || action->type != InputActionType::Axis2D) return {};
+    Math::Vec2 value;
+    for (const InputBinding& binding : action->bindings) {
+        if (binding.x.IsValid()) {
+            value.x = Dominant(value.x, ApplyDeadZone(
+                ReadSourceValue(binding.x) * binding.scaleX, binding.deadZone));
+        }
+        if (binding.y.IsValid()) {
+            value.y = Dominant(value.y, ApplyDeadZone(
+                ReadSourceValue(binding.y) * binding.scaleY, binding.deadZone));
+        }
+    }
+    return {ClampAxis(value.x), ClampAxis(value.y)};
+}
+
+bool Input::LoadActionMapFromFile(const std::filesystem::path& path, std::string* error)
+{
+    InputActionMap loaded;
+    if (!loaded.LoadFromFile(path, error)) {
+        s_ActionMap = InputActionMap::CreateDefault();
+        return false;
+    }
+    s_ActionMap = std::move(loaded);
+    return true;
+}
+
+void Input::SetDefaultActionMap()
+{
+    s_ActionMap = InputActionMap::CreateDefault();
+}
+
+void Input::ClearActionMap()
+{
+    s_ActionMap.Clear();
 }
 
 void Input::OnGamepadAdded(SDL_JoystickID instanceId) {

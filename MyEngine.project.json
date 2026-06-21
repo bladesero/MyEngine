@@ -5,5 +5,8 @@
   "publish": {
     "outputDirectory": "Builds",
     "target": "windows-x64"
+  },
+  "input": {
+    "config": "Content/Config/Input.input.json"
   }
 }

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Core/Platform.h"
-#include "IRenderContext.h"
+#include "Renderer/RHI/VertexLayout.h"
 #include "Assets/MeshAsset.h"
 
 // ============================================================================

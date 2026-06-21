@@ -962,41 +962,63 @@
             "parentID": 0,
             "prefabInstance": {
                 "asset": "Content/Prefabs/monkey.prefab.json",
-                "overrides": [],
+                "overrides": [
+                    {
+                        "componentType": "CapsuleCollider",
+                        "data": {
+                            "halfHeight": 0.10000000149011612,
+                            "isTrigger": false,
+                            "layer": 1,
+                            "layerMask": 4294967295,
+                            "radius": 0.1599999964237213
+                        },
+                        "enabled": true,
+                        "kind": "AddComponent",
+                        "localId": "a5fdc444effe3190f625ed3a6b1de14d"
+                    },
+                    {
+                        "componentType": "RigidBody",
+                        "data": {
+                            "angularAxisLocks": [
+                                0.0,
+                                0.0,
+                                0.0
+                            ],
+                            "angularDamping": 0.05000000074505806,
+                            "angularVelocity": [
+                                0.0,
+                                0.0,
+                                0.0
+                            ],
+                            "bodyType": "dynamic",
+                            "collisionDetection": "discrete",
+                            "friction": 0.6000000238418579,
+                            "linearAxisLocks": [
+                                0.0,
+                                0.0,
+                                0.0
+                            ],
+                            "linearDamping": 0.05000000074505806,
+                            "mass": 1.0,
+                            "restitution": 0.10000000149011612,
+                            "useGravity": true,
+                            "velocity": [
+                                0.0,
+                                0.0,
+                                0.0
+                            ]
+                        },
+                        "enabled": true,
+                        "kind": "AddComponent",
+                        "localId": "a5fdc444effe3190f625ed3a6b1de14d"
+                    }
+                ],
                 "uuid": "280b4505-c69a-420b-85b7-922352de8c86"
             },
             "transform": {
                 "position": [
                     -0.07559654116630554,
-                    -2.384185791015625e-07,
-                    -2.635707139968872
-                ],
-                "rotation": [
-                    0.0,
-                    -0.0,
-                    -0.0
-                ],
-                "scale": [
-                    1.0,
-                    1.0,
-                    1.0
-                ]
-            }
-        },
-        {
-            "active": true,
-            "id": 8,
-            "name": "monkey",
-            "parentID": 0,
-            "prefabInstance": {
-                "asset": "Content/Prefabs/monkey.prefab.json",
-                "overrides": [],
-                "uuid": "280b4505-c69a-420b-85b7-922352de8c86"
-            },
-            "transform": {
-                "position": [
-                    -0.07559654116630554,
-                    -2.384185791015625e-07,
+                    0.1588536500930786,
                     -2.635707139968872
                 ],
                 "rotation": [
@@ -1013,5 +1035,5 @@
         }
     ],
     "name": "Untitled",
-    "nextID": 9
+    "nextID": 8
 }

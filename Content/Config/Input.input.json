@@ -1,0 +1,74 @@
+{
+  "version": 1,
+  "actions": [
+    {
+      "name": "Jump",
+      "type": "Button",
+      "bindings": [
+        {
+          "source": "Keyboard/Space"
+        },
+        {
+          "source": "Gamepad/South"
+        }
+      ]
+    },
+    {
+      "name": "Move",
+      "type": "Axis2D",
+      "bindings": [
+        {
+          "x": "Keyboard/D",
+          "scaleX": 1.0
+        },
+        {
+          "x": "Keyboard/A",
+          "scaleX": -1.0
+        },
+        {
+          "y": "Keyboard/W",
+          "scaleY": 1.0
+        },
+        {
+          "y": "Keyboard/S",
+          "scaleY": -1.0
+        },
+        {
+          "x": "Gamepad/LeftX",
+          "y": "Gamepad/LeftY",
+          "deadZone": 0.15,
+          "scaleY": -1.0
+        }
+      ]
+    },
+    {
+      "name": "Look",
+      "type": "Axis2D",
+      "bindings": [
+        {
+          "x": "Mouse/DeltaX",
+          "y": "Mouse/DeltaY"
+        },
+        {
+          "x": "Gamepad/RightX",
+          "y": "Gamepad/RightY",
+          "deadZone": 0.15,
+          "scaleY": -1.0
+        }
+      ]
+    },
+    {
+      "name": "Throttle",
+      "type": "Axis1D",
+      "bindings": [
+        {
+          "source": "Gamepad/RightTrigger"
+        },
+        {
+          "source": "Gamepad/LeftTrigger",
+          "scale": -1.0
+        }
+      ]
+    }
+  ]
+}

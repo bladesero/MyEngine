@@ -249,6 +249,39 @@ int InputMouseDown(lua_State* state)
     return 1;
 }
 
+int InputActionDown(lua_State* state)
+{
+    lua_pushboolean(state, Input::IsActionDown(luaL_checkstring(state, 1)));
+    return 1;
+}
+
+int InputActionPressed(lua_State* state)
+{
+    lua_pushboolean(state, Input::IsActionPressed(luaL_checkstring(state, 1)));
+    return 1;
+}
+
+int InputActionReleased(lua_State* state)
+{
+    lua_pushboolean(state, Input::IsActionReleased(luaL_checkstring(state, 1)));
+    return 1;
+}
+
+int InputAxis(lua_State* state)
+{
+    lua_pushnumber(state, Input::GetAxis1D(luaL_checkstring(state, 1)));
+    return 1;
+}
+
+int InputAxis2(lua_State* state)
+{
+    const Math::Vec2 value = Input::GetAxis2D(luaL_checkstring(state, 1));
+    lua_createtable(state, 0, 2);
+    lua_pushnumber(state, value.x); lua_setfield(state, -2, "x");
+    lua_pushnumber(state, value.y); lua_setfield(state, -2, "y");
+    return 1;
+}
+
 int PhysicsRaycast(lua_State* state)
 {
     Actor* actor = GetActor(state);
@@ -307,10 +340,15 @@ void CreateBindings(lua_State* state, ScriptComponent& component)
     SetBoundFunction(state, component, "set_kinematic_target", BodySetKinematicTarget);
     lua_setglobal(state, "RigidBody");
 
-    lua_createtable(state, 0, 3);
+    lua_createtable(state, 0, 8);
     SetBoundFunction(state, component, "is_key_down", InputKeyDown);
     SetBoundFunction(state, component, "is_key_pressed", InputKeyPressed);
     SetBoundFunction(state, component, "is_mouse_down", InputMouseDown);
+    SetBoundFunction(state, component, "action_down", InputActionDown);
+    SetBoundFunction(state, component, "action_pressed", InputActionPressed);
+    SetBoundFunction(state, component, "action_released", InputActionReleased);
+    SetBoundFunction(state, component, "axis", InputAxis);
+    SetBoundFunction(state, component, "axis2", InputAxis2);
     lua_setglobal(state, "Input");
 
     lua_createtable(state, 0, 1);

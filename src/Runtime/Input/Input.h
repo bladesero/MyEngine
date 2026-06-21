@@ -1,7 +1,11 @@
 #pragma once
 
+#include "Input/InputActionMap.h"
+
 #include <array>
 #include <cstdint>
+#include <filesystem>
+#include <string_view>
 
 #include <SDL3/SDL_gamepad.h>
 
@@ -56,6 +60,18 @@ public:
     // Returns a normalized value in [-1, 1] for sticks and [0, 1] for triggers.
     static float GetGamepadAxis(SDL_JoystickID instanceId, SDL_GamepadAxis axis);
 
+    // ----- Project action map ----------------------------------------------
+    static bool IsActionDown(std::string_view name);
+    static bool IsActionPressed(std::string_view name);
+    static bool IsActionReleased(std::string_view name);
+    static float GetAxis1D(std::string_view name);
+    static Math::Vec2 GetAxis2D(std::string_view name);
+
+    static bool LoadActionMapFromFile(const std::filesystem::path& path,
+                                      std::string* error = nullptr);
+    static void SetDefaultActionMap();
+    static void ClearActionMap();
+
     // ----- Internal (called by Engine) --------------------------------------
     static void OnKeyDown(int scancode);
     static void OnKeyUp(int scancode);
@@ -77,6 +93,7 @@ private:
     static std::array<bool, k_MaxButtons> s_MousePrev;
     static int s_MouseX, s_MouseY, s_MouseRelX, s_MouseRelY;
     static std::array<GamepadState, k_MaxGamepads> s_Gamepads;
+    static InputActionMap s_ActionMap;
 
     static bool IsGamepadSubsystemReady();
     static int FindGamepadSlot(SDL_JoystickID instanceId);

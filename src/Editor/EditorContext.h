@@ -13,6 +13,7 @@ class EditorCommandStack;
 class EditorImGuiBackend;
 class EditorProject;
 class EditorService;
+class EditorShortcutMap;
 class Engine;
 class IWindow;
 class Scene;
@@ -43,6 +44,8 @@ public:
     EditorProject* GetProject() const { return m_Project; }
     void SetActionRegistry(EditorActionRegistry* value) { m_ActionRegistry = value; }
     EditorActionRegistry* GetActionRegistry() const { return m_ActionRegistry; }
+    void SetShortcutMap(EditorShortcutMap* value) { m_ShortcutMap = value; }
+    EditorShortcutMap* GetShortcutMap() const { return m_ShortcutMap; }
     void SetImGuiBackend(EditorImGuiBackend* backend) { m_ImGuiBackend = backend; }
     EditorImGuiBackend* GetImGuiBackend() const { return m_ImGuiBackend; }
     void SetProjectRoot(std::filesystem::path root);
@@ -68,6 +71,7 @@ private:
     EditorAssetRegistry* m_AssetRegistry = nullptr;
     EditorProject* m_Project = nullptr;
     EditorActionRegistry* m_ActionRegistry = nullptr;
+    EditorShortcutMap* m_ShortcutMap = nullptr;
     EditorImGuiBackend* m_ImGuiBackend = nullptr;
     std::unordered_map<std::type_index, EditorService*> m_Services;
     std::filesystem::path m_ProjectRoot;

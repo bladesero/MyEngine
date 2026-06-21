@@ -10,7 +10,9 @@
 #include "Editor/EditorProject.h"
 #include "Editor/EditorSelection.h"
 #include "Editor/EditorService.h"
+#include "Editor/EditorShortcutMap.h"
 #include "Editor/EditorViewportControllers.h"
+#include "Editor/EditorWorkspace.h"
 #include "Editor/InspectorSections.h"
 #include "Physics/BoxColliderComponent.h"
 #include "Scene/Scene.h"
@@ -20,6 +22,7 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <nlohmann/json.hpp>
 #include <thread>
 #include <vector>
 
@@ -293,6 +296,75 @@ bool TestEditorServiceActionAndInspectorRegistries() {
                  "inspector section did not accept actor selection");
 }
 
+bool TestEditorShortcutMapAndWorkspacePersistence() {
+    EditorShortcutChord chord;
+    std::string error;
+    if (!Check(EditorShortcutMap::ParseChord("Ctrl+Shift+Z", chord, &error),
+               "shortcut parse failed: " + error)) return false;
+    if (!Check(chord.ctrl && chord.shift && !chord.alt && chord.IsValid(),
+               "shortcut modifiers parsed incorrectly")) return false;
+    if (!Check(EditorShortcutMap::FormatChord(chord) == "Ctrl+Shift+Z",
+               "shortcut format mismatch")) return false;
+    if (!Check(!EditorShortcutMap::ParseChord("Ctrl+NoSuchKey", chord, &error),
+               "invalid shortcut key was accepted")) return false;
+
+    EditorShortcutMap shortcuts = EditorShortcutMap::CreateDefault();
+    if (!Check(shortcuts.FindShortcut("scene.save") &&
+               EditorShortcutMap::FormatChord(*shortcuts.FindShortcut("scene.save")) == "Ctrl+S",
+               "default save shortcut missing")) return false;
+
+    EditorShortcutChord saveChord;
+    if (!Check(EditorShortcutMap::ParseChord("Ctrl+S", saveChord, &error),
+               "save shortcut parse failed")) return false;
+    shortcuts.SetShortcut("conflict.action", saveChord);
+    if (!Check(shortcuts.FindConflict("scene.save", saveChord) == "conflict.action",
+               "shortcut conflict was not detected")) return false;
+
+    Scene scene("ShortcutDispatch");
+    EditorContext context(&scene);
+    EditorActionRegistry actions;
+    bool enabled = false;
+    int disabledCount = 0;
+    int enabledCount = 0;
+    if (!Check(actions.Register(std::make_unique<LambdaEditorAction>(
+            "disabled.action", "Disabled",
+            [&disabledCount](EditorContext&) { ++disabledCount; },
+            [&enabled](EditorContext&) { return enabled; })),
+            "disabled action registration failed")) return false;
+    if (!Check(actions.Register(std::make_unique<LambdaEditorAction>(
+            "enabled.action", "Enabled",
+            [&enabledCount](EditorContext&) { ++enabledCount; })),
+            "enabled action registration failed")) return false;
+    EditorShortcutMap dispatchMap;
+    dispatchMap.SetShortcut("disabled.action", saveChord);
+    if (!Check(!dispatchMap.DispatchChord(saveChord, actions, context) && disabledCount == 0,
+               "disabled shortcut action executed")) return false;
+    dispatchMap.ClearShortcut("disabled.action");
+    dispatchMap.SetShortcut("enabled.action", saveChord);
+    if (!Check(dispatchMap.DispatchChord(saveChord, actions, context) && enabledCount == 1,
+               "enabled shortcut action did not execute")) return false;
+
+    namespace fs = std::filesystem;
+    const auto root = fs::temp_directory_path() /
+        ("myengine_shortcut_workspace_" + std::to_string(
+            std::chrono::steady_clock::now().time_since_epoch().count()));
+    fs::create_directories(root);
+    EditorWorkspace workspace(root / "workspace.json");
+    workspace.GetShortcuts().SetShortcut("scene.save", saveChord);
+    workspace.GetShortcuts().ClearShortcut("edit.undo");
+    if (!Check(workspace.Save(&error), "workspace shortcut save failed: " + error)) return false;
+
+    EditorWorkspace loaded(root / "workspace.json");
+    if (!Check(loaded.Load(&error), "workspace shortcut load failed: " + error)) return false;
+    const auto* loadedSave = loaded.GetShortcuts().FindShortcut("scene.save");
+    const auto* loadedUndo = loaded.GetShortcuts().FindShortcut("edit.undo");
+    const bool persisted = loadedSave && *loadedSave == saveChord &&
+        loadedUndo && !loadedUndo->IsValid();
+    std::error_code ec;
+    fs::remove_all(root, ec);
+    return Check(persisted, "workspace shortcut persistence mismatch");
+}
+
 bool TestEditorInspectorSelectionRouting() {
     const auto root = std::filesystem::temp_directory_path()
         / "myengine_inspector_selection_routing";
@@ -483,6 +555,7 @@ MYENGINE_REGISTER_TEST("Editor", "TestEditorSelectObjectEvents", TestEditorSelec
 MYENGINE_REGISTER_TEST("Editor", "TestEditorSceneSnapshotCommands", TestEditorSceneSnapshotCommands);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorGizmoRowVectorLocalConversion", TestEditorGizmoRowVectorLocalConversion);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorServiceActionAndInspectorRegistries", TestEditorServiceActionAndInspectorRegistries);
+MYENGINE_REGISTER_TEST("Editor", "TestEditorShortcutMapAndWorkspacePersistence", TestEditorShortcutMapAndWorkspacePersistence);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorInspectorSelectionRouting", TestEditorInspectorSelectionRouting);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorProjectAndAssetRegistry", TestEditorProjectAndAssetRegistry);
 MYENGINE_REGISTER_TEST("Editor", "TestProductionAssetDatabaseAndImportPipeline", TestProductionAssetDatabaseAndImportPipeline);

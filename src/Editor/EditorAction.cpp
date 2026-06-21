@@ -24,7 +24,10 @@ bool EditorActionRegistry::Register(std::unique_ptr<EditorAction> action)
 {
     if (!action || !action->GetID() || !*action->GetID()) return false;
     const std::string id = action->GetID();
-    return m_Actions.emplace(id, std::move(action)).second;
+    EditorAction* raw = action.get();
+    const bool inserted = m_Actions.emplace(id, std::move(action)).second;
+    if (inserted) m_Order.push_back(raw);
+    return inserted;
 }
 
 EditorAction* EditorActionRegistry::Find(const std::string& id) const

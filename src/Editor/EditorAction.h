@@ -4,6 +4,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 class EditorContext;
 
@@ -45,8 +46,10 @@ public:
     EditorAction* Find(const std::string& id) const;
     bool CanExecute(const std::string& id, EditorContext& context) const;
     bool Execute(const std::string& id, EditorContext& context) const;
-    void Clear() { m_Actions.clear(); }
+    const std::vector<EditorAction*>& GetOrderedActions() const { return m_Order; }
+    void Clear() { m_Actions.clear(); m_Order.clear(); }
 
 private:
     std::unordered_map<std::string, std::unique_ptr<EditorAction>> m_Actions;
+    std::vector<EditorAction*> m_Order;
 };

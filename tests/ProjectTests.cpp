@@ -115,6 +115,8 @@ bool TestProjectConfigAndPortableAssetPaths() {
     std::string error;
     if (!Check(project.Open(root, true, &error), "missing project should open in editor mode")) return false;
     project.SetName("ProjectTest");
+    if (!Check(project.SetInputConfigPath("Content/Config/Input.input.json", &error),
+               "project input config path save failed: " + error)) return false;
     if (!Check(project.SetStartupScene(startupPath, &error) && project.Save(&error),
                "project startup scene save failed: " + error)) return false;
 
@@ -122,7 +124,8 @@ bool TestProjectConfigAndPortableAssetPaths() {
     if (!Check(loaded.Open(root, false, &error), "project manifest load failed: " + error)) return false;
     if (!Check(loaded.GetVersion() == ProjectConfig::kCurrentVersion &&
                loaded.GetName() == "ProjectTest" &&
-               loaded.GetStartupScene() == "Content/Scenes/Main.scene.json",
+               loaded.GetStartupScene() == "Content/Scenes/Main.scene.json" &&
+               loaded.GetInputSettings().config == "Content/Config/Input.input.json",
                "project manifest fields mismatch")) return false;
 
     fs::path resolved;
@@ -138,6 +141,11 @@ bool TestProjectConfigAndPortableAssetPaths() {
                "traversal startup scene path was accepted")) return false;
     if (!Check(!loaded.ResolveScenePath("Content/Scenes/Missing.scene.json", resolved, true, &error),
                "missing startup scene was accepted")) return false;
+    if (!Check(loaded.ResolveInputConfigPath(resolved, false, &error) &&
+               resolved == (root / "Content" / "Config" / "Input.input.json").lexically_normal(),
+               "input config resolution failed")) return false;
+    if (!Check(!loaded.SetInputConfigPath("../Outside.input.json", &error),
+               "traversal input config path was accepted")) return false;
     std::ofstream(root / ProjectConfig::kFileName)
         << R"({"version":999,"name":"Future","startupScene":"Content/Scenes/Main.scene.json"})";
     ProjectConfig unsupported;

@@ -912,6 +912,7 @@ class MockRenderContext final : public IRenderContext {
 public:
     bool Init(IWindow*) override { return true; }
     void Shutdown() override {}
+    RHIBackend GetBackend() const override { return RHIBackend::Unknown; }
     void BeginFrame(float, float, float, float) override { ++beginFrames; }
     void EndFrame() override { ++endFrames; }
     GpuCommandList* GetGraphicsCommandList() override { return &commands; }
@@ -1061,7 +1062,7 @@ bool TestRenderGraphValidationAndExecution() {
     if (!Check(graph.Compile(), "RenderGraph compile failed: " + graph.GetLastError())) return false;
     if (!Check(graph.GetExecutionOrder() == std::vector<std::string>({"Main", "Composite"}),
                "RenderGraph execution order mismatch")) return false;
-    if (!Check(graph.Execute(), "RenderGraph execute failed: " + graph.GetLastError())) return false;
+    if (!Check(graph.Execute(context.commands), "RenderGraph execute failed: " + graph.GetLastError())) return false;
     if (!Check(executed == std::vector<std::string>({"Main", "Composite"}) &&
                context.graphTextureCreates == 1 && context.commands.renderingScopes == 0,
                "RenderGraph did not execute through the RHI resource path")) return false;
@@ -1075,7 +1076,7 @@ bool TestRenderGraphValidationAndExecution() {
     graph.AddPass("Rewrite", [&](RenderGraphBuilder& builder) {
         builder.WriteColor(reused, RHILoadOp::Clear);
     }, {});
-    if (!Check(graph.Execute() && context.graphTextureCreates == 1,
+    if (!Check(graph.Execute(context.commands) && context.graphTextureCreates == 1,
                "RenderGraph did not reuse a descriptor-compatible transient texture")) return false;
 
     RenderGraph invalid(context);
@@ -1151,7 +1152,7 @@ bool TestBackendIndependentPassRecording() {
         commands.SetBindGroup(0, bindings.get());
         commands.Draw(3);
     });
-    return Check(graph.Execute() && context.commands.pipelineBinds == 1 &&
+    return Check(graph.Execute(context.commands) && context.commands.pipelineBinds == 1 &&
                  context.commands.bindGroupBinds == 1 && context.commands.drawCalls == 1,
                  "backend-independent validation pass did not record the expected RHI commands");
 }
@@ -1220,7 +1221,7 @@ bool TestRenderGraphComputeBufferDependencies() {
     }, [&](GpuCommandList&, const RenderGraphResources& resources) {
         if (resources.GetBuffer(output)) executed.push_back("ConsumeSH");
     });
-    if (!Check(graph.Execute() &&
+    if (!Check(graph.Execute(context.commands) &&
                executed == std::vector<std::string>({"ProjectSH", "ConsumeSH"}) &&
                context.bufferCreates == 1 && context.commands.dispatches == 1,
                "RenderGraph compute-buffer dependency execution failed")) return false;
@@ -1259,9 +1260,9 @@ bool TestHeadlessRendering() {
     camera.SetPerspective(60.0f, 16.0f / 9.0f);
 
     MockRenderContext context;
-    Renderer renderer(&context);
+    Renderer renderer(&context, &context, &context);
     int queuedUploadRuns = 0;
-    GpuUploadQueue::Get().Enqueue([&queuedUploadRuns](IRenderContext& uploadContext) {
+    GpuUploadQueue::Get().Enqueue([&queuedUploadRuns](IRHIDevice& uploadContext) {
         ++queuedUploadRuns;
         const uint8_t pixel[4] = { 255, 255, 255, 255 };
         uploadContext.UploadTexture2D(pixel, 1, 1);
@@ -1481,6 +1482,97 @@ bool TestGamepadStateTransitions() {
     Input::OnGamepadRemoved(pad);
     if (!Check(!Input::IsGamepadConnected(pad), "gamepad should be disconnected after remove")) return false;
 
+    return true;
+}
+
+bool TestInputActionMapJsonAndEvaluation() {
+    namespace fs = std::filesystem;
+    Input::Shutdown();
+    Input::SetDefaultActionMap();
+
+    Input::OnKeyUp(SDL_SCANCODE_SPACE);
+    Input::Flush();
+    Input::OnKeyDown(SDL_SCANCODE_SPACE);
+    if (!Check(Input::IsActionDown("Jump"), "Jump action should be down from keyboard")) return false;
+    if (!Check(Input::IsActionPressed("Jump"), "Jump action should be pressed from keyboard")) return false;
+    Input::Flush();
+    if (!Check(!Input::IsActionPressed("Jump"), "Jump pressed should clear next frame")) return false;
+    Input::OnKeyUp(SDL_SCANCODE_SPACE);
+    if (!Check(Input::IsActionReleased("Jump"), "Jump action should be released from keyboard")) return false;
+
+    Input::Flush();
+    Input::OnKeyDown(SDL_SCANCODE_D);
+    Input::OnKeyDown(SDL_SCANCODE_W);
+    const Math::Vec2 move = Input::GetAxis2D("Move");
+    if (!Check(NearlyEqual(move.x, 1.0f) && NearlyEqual(move.y, 1.0f),
+               "Move action should combine keyboard X/Y bindings")) return false;
+    Input::OnKeyUp(SDL_SCANCODE_D);
+    Input::OnKeyUp(SDL_SCANCODE_W);
+
+    const auto path = fs::temp_directory_path() /
+        ("myengine_input_map_" + std::to_string(
+            std::chrono::steady_clock::now().time_since_epoch().count()) + ".json");
+    {
+        std::ofstream output(path);
+        output << R"({
+  "version": 1,
+  "actions": [
+    {
+      "name": "Throttle",
+      "type": "Axis1D",
+      "bindings": [
+        { "source": "Keyboard/A", "scale": -2.0 },
+        { "source": "Gamepad/LeftX", "deadZone": 0.25 }
+      ]
+    },
+    {
+      "name": "Look",
+      "type": "Axis2D",
+      "bindings": [
+        { "x": "Mouse/DeltaX", "y": "Mouse/DeltaY" },
+        { "x": "Gamepad/RightX", "y": "Gamepad/RightY", "deadZone": 0.15, "scaleY": -1.0 }
+      ]
+    }
+  ]
+})";
+    }
+    std::string error;
+    if (!Check(Input::LoadActionMapFromFile(path, &error), "custom input map load failed: " + error)) return false;
+    Input::Flush();
+    Input::OnKeyDown(SDL_SCANCODE_A);
+    if (!Check(NearlyEqual(Input::GetAxis1D("Throttle"), -1.0f),
+               "Axis1D keyboard scale should clamp")) return false;
+    Input::OnKeyUp(SDL_SCANCODE_A);
+
+    const SDL_JoystickID pad = 77;
+    Input::OnGamepadAdded(pad);
+    Input::OnGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTX, 1000);
+    if (!Check(NearlyEqual(Input::GetAxis1D("Throttle"), 0.0f),
+               "Axis1D gamepad dead zone should zero small input")) return false;
+    Input::OnGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTX, 20000);
+    if (!Check(Input::GetAxis1D("Throttle") > 0.55f,
+               "Axis1D gamepad axis should evaluate above dead zone")) return false;
+
+    Input::OnMouseMove(10, 12, 2, -3);
+    const Math::Vec2 look = Input::GetAxis2D("Look");
+    if (!Check(NearlyEqual(look.x, 1.0f) && NearlyEqual(look.y, -1.0f),
+               "Axis2D mouse delta should clamp")) return false;
+
+    InputActionMap invalid;
+    const nlohmann::json invalidJson = {
+        {"version", 1},
+        {"actions", nlohmann::json::array({
+            {{"name", "Bad"}, {"type", "Button"},
+             {"bindings", nlohmann::json::array({{{"source", "Keyboard/NoSuchKey"}}})}}
+        })},
+    };
+    if (!Check(!invalid.LoadFromJson(invalidJson, &error),
+               "invalid input source should fail parsing")) return false;
+
+    std::error_code ec;
+    fs::remove(path, ec);
+    Input::Shutdown();
+    Input::SetDefaultActionMap();
     return true;
 }
 
@@ -2293,6 +2385,8 @@ bool TestProjectConfigAndPortableAssetPaths() {
     std::string error;
     if (!Check(project.Open(root, true, &error), "missing project should open in editor mode")) return false;
     project.SetName("ProjectTest");
+    if (!Check(project.SetInputConfigPath("Content/Config/Input.input.json", &error),
+               "project input config path save failed: " + error)) return false;
     if (!Check(project.SetStartupScene(startupPath, &error) && project.Save(&error),
                "project startup scene save failed: " + error)) return false;
 
@@ -2300,7 +2394,8 @@ bool TestProjectConfigAndPortableAssetPaths() {
     if (!Check(loaded.Open(root, false, &error), "project manifest load failed: " + error)) return false;
     if (!Check(loaded.GetVersion() == ProjectConfig::kCurrentVersion &&
                loaded.GetName() == "ProjectTest" &&
-               loaded.GetStartupScene() == "Content/Scenes/Main.scene.json",
+               loaded.GetStartupScene() == "Content/Scenes/Main.scene.json" &&
+               loaded.GetInputSettings().config == "Content/Config/Input.input.json",
                "project manifest fields mismatch")) return false;
 
     fs::path resolved;
@@ -2316,6 +2411,11 @@ bool TestProjectConfigAndPortableAssetPaths() {
                "traversal startup scene path was accepted")) return false;
     if (!Check(!loaded.ResolveScenePath("Content/Scenes/Missing.scene.json", resolved, true, &error),
                "missing startup scene was accepted")) return false;
+    if (!Check(loaded.ResolveInputConfigPath(resolved, false, &error) &&
+               resolved == (root / "Content" / "Config" / "Input.input.json").lexically_normal(),
+               "input config resolution failed")) return false;
+    if (!Check(!loaded.SetInputConfigPath("../Outside.input.json", &error),
+               "traversal input config path was accepted")) return false;
     std::ofstream(root / ProjectConfig::kFileName)
         << R"({"version":999,"name":"Future","startupScene":"Content/Scenes/Main.scene.json"})";
     ProjectConfig unsupported;
@@ -2864,6 +2964,7 @@ MYENGINE_REGISTER_TEST("Scene", "TestTransformHierarchyWorldPosition", TestTrans
 MYENGINE_REGISTER_TEST("Camera", "TestCameraViewportProjectionStability", TestCameraViewportProjectionStability);
 MYENGINE_REGISTER_TEST("Input", "TestInputBoundaries", TestInputBoundaries);
 MYENGINE_REGISTER_TEST("Input", "TestGamepadStateTransitions", TestGamepadStateTransitions);
+MYENGINE_REGISTER_TEST("Input", "TestInputActionMapJsonAndEvaluation", TestInputActionMapJsonAndEvaluation);
 MYENGINE_REGISTER_TEST("Scene", "TestSceneSerializerMalformedDataIsolation", TestSceneSerializerMalformedDataIsolation);
 MYENGINE_REGISTER_TEST("Scripting", "TestScriptHotReloadFailureRollback", TestScriptHotReloadFailureRollback);
 MYENGINE_REGISTER_TEST("Core", "TestMemoryLinearAllocator", TestMemoryLinearAllocator);

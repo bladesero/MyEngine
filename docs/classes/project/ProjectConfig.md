@@ -9,6 +9,8 @@ Runtime-owned project manifest used by both Editor and Player.
 - Opens `MyEngine.project.json` from a project root.
 - Stores schema `version`, project `name`, and a project-relative `startupScene`.
 - Accepts startup scenes only under `Content/` and can require the scene file to exist.
+- Stores optional gameplay input configuration under `input.config`; the path must
+  be project-relative and stay under `Content/`.
 - Editor may open a project without a manifest and creates it when assigning the first startup scene.
 - Player requires a valid manifest unless `--scene` supplies an explicit override.
 - Stores publish output directory and target settings under the `publish` object;

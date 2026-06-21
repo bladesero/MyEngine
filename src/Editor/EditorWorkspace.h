@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Editor/EditorShortcutMap.h"
+
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -22,6 +24,8 @@ public:
     }
     const std::filesystem::path& GetSettingsPath() const { return m_SettingsPath; }
     const std::filesystem::path& GetTemplateRoot() const { return m_TemplateRoot; }
+    EditorShortcutMap& GetShortcuts() { return m_Shortcuts; }
+    const EditorShortcutMap& GetShortcuts() const { return m_Shortcuts; }
 
 private:
     static std::filesystem::path DefaultSettingsPath();
@@ -29,4 +33,5 @@ private:
     std::filesystem::path m_SettingsPath;
     std::filesystem::path m_TemplateRoot;
     std::vector<std::filesystem::path> m_RecentProjects;
+    EditorShortcutMap m_Shortcuts = EditorShortcutMap::CreateDefault();
 };

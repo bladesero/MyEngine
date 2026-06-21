@@ -2,7 +2,8 @@
 
 #include "Core/Platform.h"
 #include "Core/PlatformEventBridge.h"
-#include "Renderer/IRenderContext.h"
+#include "Renderer/RHI/IEditorImGuiRHIInterop.h"
+#include "Renderer/RHI/GpuTextureView.h"
 
 #include <memory>
 
@@ -16,7 +17,7 @@ union SDL_Event;
 // ==========================================================================
 class EditorImGuiBackend {
 public:
-    EditorImGuiBackend(IRenderContext* context, IWindow* window);
+    EditorImGuiBackend(IEditorImGuiRHIInterop* interop, IWindow* window);
     ~EditorImGuiBackend();
 
     bool Init();
@@ -29,7 +30,7 @@ public:
     bool IsInitialized() const { return m_Initialized; }
 
 private:
-    IRenderContext* m_Context = nullptr;
+    IEditorImGuiRHIInterop* m_Interop = nullptr;
     IWindow* m_Window = nullptr;
     bool m_Initialized = false;
 };

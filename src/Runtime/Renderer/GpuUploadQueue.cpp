@@ -27,7 +27,7 @@ void GpuUploadQueue::Enqueue(UploadTask task)
     impl->tasks.push_back(std::move(task));
 }
 
-size_t GpuUploadQueue::Process(IRenderContext& context, size_t maxTasks)
+size_t GpuUploadQueue::Process(IRHIDevice& device, size_t maxTasks)
 {
     Impl* impl = Get().m_Impl;
     std::vector<UploadTask> ready;
@@ -41,7 +41,7 @@ size_t GpuUploadQueue::Process(IRenderContext& context, size_t maxTasks)
         }
     }
 
-    for (UploadTask& task : ready) task(context);
+    for (UploadTask& task : ready) task(device);
     return ready.size();
 }
 

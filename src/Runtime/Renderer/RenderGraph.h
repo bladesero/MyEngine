@@ -1,6 +1,7 @@
 #pragma once
 
-#include "Renderer/IRenderContext.h"
+#include "Renderer/RHI/IRHIDevice.h"
+#include "Renderer/RHI/GpuCommandList.h"
 
 #include <cstdint>
 #include <functional>
@@ -18,12 +19,20 @@ struct RGBufferHandle {
     bool IsValid() const { return index != UINT32_MAX; }
 };
 
+struct RGTextureSubresource {
+    uint32_t firstMip = 0;
+    uint32_t mipCount = 1;
+    uint32_t firstLayer = 0;
+    uint32_t layerCount = 1;
+};
+
 class RenderGraph;
 
 class RenderGraphResources {
 public:
     GpuTexture* GetTexture(RGTextureHandle handle) const;
     GpuTextureView* GetView(RGTextureHandle handle) const;
+    GpuTextureView* GetView(RGTextureHandle handle, RGTextureSubresource subresource) const;
     GpuBuffer* GetBuffer(RGBufferHandle handle) const;
     GpuBufferView* GetBufferView(RGBufferHandle handle) const;
 
@@ -36,12 +45,21 @@ private:
 class RenderGraphBuilder {
 public:
     void ReadTexture(RGTextureHandle handle);
+    void ReadTexture(RGTextureHandle handle, RGTextureSubresource subresource);
     void WriteColor(RGTextureHandle handle, RHILoadOp load = RHILoadOp::Load,
+                    RHIStoreOp store = RHIStoreOp::Store,
+                    ClearColor clear = {});
+    void WriteColor(RGTextureHandle handle, RGTextureSubresource subresource,
+                    RHILoadOp load = RHILoadOp::Load,
                     RHIStoreOp store = RHIStoreOp::Store,
                     ClearColor clear = {});
     void WriteDepth(RGTextureHandle handle, RHILoadOp load = RHILoadOp::Load,
                     RHIStoreOp store = RHIStoreOp::Store, float clearDepth = 1.0f);
+    void WriteDepth(RGTextureHandle handle, RGTextureSubresource subresource,
+                    RHILoadOp load = RHILoadOp::Load,
+                    RHIStoreOp store = RHIStoreOp::Store, float clearDepth = 1.0f);
     void ReadWriteUAV(RGTextureHandle handle);
+    void ReadWriteUAV(RGTextureHandle handle, RGTextureSubresource subresource);
     void ReadBuffer(RGBufferHandle handle);
     void ReadWriteUAV(RGBufferHandle handle);
 
@@ -56,6 +74,9 @@ private:
         float clearDepth = 1.0f;
         bool read = false;
         bool write = false;
+        RHITextureViewDesc viewDesc{};
+        bool hasViewDesc = false;
+        std::shared_ptr<GpuTextureView> view;
     };
     void Add(Access access);
     std::vector<Access>& m_Accesses;
@@ -75,24 +96,64 @@ class RenderGraph {
 public:
     using SetupCallback = std::function<void(RenderGraphBuilder&)>;
     using ExecuteCallback = std::function<void(GpuCommandList&, const RenderGraphResources&)>;
+    enum class PassFlags : uint32_t {
+        None = 0,
+        AllowNoResourceAccess = 1u << 0,
+        ManualRenderingScope = 1u << 1,
+        ManualResourceTransitions = 1u << 2,
+    };
+    enum class ErrorCode {
+        None,
+        InvalidTextureHandle,
+        InvalidBufferHandle,
+        MissingResourceAccess,
+        DuplicateResourceAccess,
+        UninitializedTextureRead,
+        UninitializedBufferRead,
+        TextureUsageMismatch,
+        BufferUsageMismatch,
+        AttachmentSizeMismatch,
+        AttachmentFormatMismatch,
+        TooManyColorAttachments,
+        DependencyCycle,
+        ResourceCreationFailed,
+    };
 
-    explicit RenderGraph(IRenderContext& device);
+    explicit RenderGraph(IRHIDevice& device);
 
     RGTextureHandle ImportTexture(const std::string& name,
                                   const std::shared_ptr<GpuTexture>& texture,
                                   RHIResourceState initialState);
+    RGTextureHandle ImportTexture(const std::string& name,
+                                  const std::shared_ptr<GpuTexture>& texture,
+                                  RHIResourceState initialState,
+                                  RHIResourceState finalState);
+    RGTextureHandle ImportTexture(const std::string& name,
+                                  const std::shared_ptr<GpuTexture>& texture,
+                                  const std::shared_ptr<GpuTextureView>& view,
+                                  RHIResourceState initialState,
+                                  RHIResourceState finalState);
     RGTextureHandle CreateTexture(const std::string& name, const RHITextureDesc& desc);
     RGBufferHandle ImportBuffer(const std::string& name,
                                 const std::shared_ptr<GpuBuffer>& buffer,
                                 RHIResourceState initialState);
+    RGBufferHandle ImportBuffer(const std::string& name,
+                                const std::shared_ptr<GpuBuffer>& buffer,
+                                RHIResourceState initialState,
+                                RHIResourceState finalState);
     RGBufferHandle CreateBuffer(const std::string& name, const RHIBufferDesc& desc);
-    void AddPass(const std::string& name, SetupCallback setup, ExecuteCallback execute);
+    void SetFinalState(RGTextureHandle handle, RHIResourceState finalState);
+    void SetFinalState(RGBufferHandle handle, RHIResourceState finalState);
+    void AddPass(const std::string& name, SetupCallback setup, ExecuteCallback execute,
+                 PassFlags flags = PassFlags::None);
 
     bool Compile();
-    bool Execute();
+    bool Execute(GpuCommandList& commandList);
     void Reset();
     const std::string& GetLastError() const { return m_LastError; }
+    ErrorCode GetLastErrorCode() const { return m_LastErrorCode; }
     const std::vector<std::string>& GetExecutionOrder() const { return m_ExecutionOrderNames; }
+    const std::vector<std::string>& GetCulledPasses() const { return m_CulledPassNames; }
 
 private:
     friend class RenderGraphResources;
@@ -103,6 +164,9 @@ private:
         std::shared_ptr<GpuTextureView> view;
         RHIResourceState initialState = RHIResourceState::Undefined;
         RHIResourceState currentState = RHIResourceState::Undefined;
+        RHIResourceState finalState = RHIResourceState::Undefined;
+        std::vector<RHIResourceState> subresourceStates;
+        bool hasFinalState = false;
         bool imported = false;
     };
     struct Pass {
@@ -110,6 +174,7 @@ private:
         std::vector<RenderGraphBuilder::Access> accesses;
         std::vector<RenderGraphBuilder::BufferAccess> bufferAccesses;
         ExecuteCallback execute;
+        PassFlags flags = PassFlags::None;
     };
     struct PooledTexture {
         RHITextureDesc desc;
@@ -123,6 +188,8 @@ private:
         std::shared_ptr<GpuBufferView> view;
         RHIResourceState initialState = RHIResourceState::Undefined;
         RHIResourceState currentState = RHIResourceState::Undefined;
+        RHIResourceState finalState = RHIResourceState::Undefined;
+        bool hasFinalState = false;
         bool imported = false;
     };
     struct PooledBuffer {
@@ -132,16 +199,28 @@ private:
     };
 
     bool ValidateHandle(RGTextureHandle handle, const std::string& passName);
+    bool ValidateTextureAccess(const Pass& pass, const RenderGraphBuilder::Access& access);
+    bool ValidateBufferAccess(const Pass& pass, const RenderGraphBuilder::BufferAccess& access);
     bool EnsureResources();
+    bool SetError(ErrorCode code, std::string message);
 
-    IRenderContext& m_Device;
+    IRHIDevice& m_Device;
     std::vector<TextureResource> m_Textures;
     std::vector<BufferResource> m_Buffers;
     std::vector<Pass> m_Passes;
     std::vector<uint32_t> m_ExecutionOrder;
     std::vector<std::string> m_ExecutionOrderNames;
+    std::vector<std::string> m_CulledPassNames;
+    std::vector<uint8_t> m_LiveTextures;
+    std::vector<uint8_t> m_LiveBuffers;
     std::string m_LastError;
+    ErrorCode m_LastErrorCode = ErrorCode::None;
     bool m_Compiled = false;
-    std::unordered_map<std::string, PooledTexture> m_TexturePool;
-    std::unordered_map<std::string, PooledBuffer> m_BufferPool;
+    std::unordered_map<std::string, std::vector<PooledTexture>> m_TexturePool;
+    std::unordered_map<std::string, std::vector<PooledBuffer>> m_BufferPool;
 };
+
+inline RenderGraph::PassFlags operator|(RenderGraph::PassFlags a, RenderGraph::PassFlags b) {
+    return static_cast<RenderGraph::PassFlags>(
+        static_cast<uint32_t>(a) | static_cast<uint32_t>(b));
+}

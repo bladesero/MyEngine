@@ -7,6 +7,7 @@
 #include "Core/Logger.h"
 #include "Core/Platform.h"
 #include "Game/SceneRenderLayer.h"
+#include "Input/Input.h"
 #include "Project/CookedProjectCache.h"
 #include "Project/ProjectConfig.h"
 #include "Renderer/IRenderContext.h"
@@ -54,6 +55,7 @@ protected:
             return false;
         }
         AssetManager::Get().SetProjectRoot(m_Project.GetRoot());
+        LoadProjectInputConfig();
 
 #ifdef MYENGINE_PLATFORM_WINDOWS
         switch (m_Backend) {
@@ -101,6 +103,29 @@ protected:
     }
 
 private:
+    void LoadProjectInputConfig() {
+        std::string error;
+        std::filesystem::path inputConfig;
+        if (!m_Project.ResolveInputConfigPath(inputConfig, false, &error)) {
+            Logger::Warn("[Player] Input config path invalid: ", error,
+                         "; using default input map");
+            Input::SetDefaultActionMap();
+            return;
+        }
+        if (!std::filesystem::is_regular_file(inputConfig)) {
+            Logger::Warn("[Player] Input config not found: ", inputConfig.string(),
+                         "; using default input map");
+            Input::SetDefaultActionMap();
+            return;
+        }
+        if (!Input::LoadActionMapFromFile(inputConfig, &error)) {
+            Logger::Warn("[Player] Failed to load input config: ", error,
+                         "; using default input map");
+            return;
+        }
+        Logger::Info("[Player] Loaded input config: ", inputConfig.string());
+    }
+
     std::unique_ptr<IRenderContext> m_RenderContext;
     RenderBackend m_Backend = kDefaultRenderBackend;
     std::filesystem::path m_ProjectRoot;

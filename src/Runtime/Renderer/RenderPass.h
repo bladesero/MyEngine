@@ -1,6 +1,8 @@
 #pragma once
 
-#include "Renderer/IRenderContext.h"
+#include "Renderer/RHI/GpuCommandList.h"
+#include "Renderer/RHI/IRHIDevice.h"
+#include "Renderer/RHI/IRHIReadbackService.h"
 #include "Scene/Scene.h"
 #include "Camera/Camera.h"
 
@@ -9,19 +11,22 @@
 // Base abstraction for renderer passes (shadow, main color, post, ...).
 class RenderPass {
 public:
-    explicit RenderPass(IRenderContext* context)
-        : m_Context(context) {}
+    explicit RenderPass(IRHIDevice* device, IRHIReadbackService* readbackService = nullptr)
+        : m_Device(device), m_ReadbackService(readbackService) {}
     virtual ~RenderPass() = default;
 
-    virtual void Execute(const Scene& scene, const Camera& camera) = 0;
+    virtual void Execute(GpuCommandList& commands, const Scene& scene,
+                         const Camera& camera) = 0;
     virtual void Resize(uint32_t width, uint32_t height) {
         (void)width;
         (void)height;
     }
 
 protected:
-    IRenderContext* Context() const { return m_Context; }
+    IRHIDevice* Device() const { return m_Device; }
+    IRHIReadbackService* ReadbackService() const { return m_ReadbackService; }
 
 private:
-    IRenderContext* m_Context = nullptr;
+    IRHIDevice* m_Device = nullptr;
+    IRHIReadbackService* m_ReadbackService = nullptr;
 };

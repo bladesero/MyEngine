@@ -41,7 +41,7 @@ void TriangleLayer::OnAttach() {
         vertices, sizeof(vertices), sizeof(Vertex));
 
     // ---- Shader ------------------------------------------------------------
-    ShaderManager::Get().SetContext(m_Renderer);
+    ShaderManager::Get().SetDevice(m_Renderer);
     m_ShaderHandle = ShaderManager::Get().GetOrCreate(
         "Content/Engine/Shaders/Triangle.shader", k_Layout, 2);
 

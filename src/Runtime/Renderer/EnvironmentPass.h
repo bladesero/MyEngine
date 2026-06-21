@@ -11,10 +11,25 @@ struct ShaderHandle;
 
 class EnvironmentPass final : public RenderPass {
 public:
-    explicit EnvironmentPass(IRenderContext* context);
+    struct GraphResources {
+        std::shared_ptr<GpuTexture> environment;
+        std::shared_ptr<GpuTextureView> environmentView;
+        std::shared_ptr<GpuBuffer> shBuffer;
+        std::shared_ptr<GpuBufferView> shBufferView;
+        RHIResourceState environmentInitialState = RHIResourceState::Undefined;
+        RHIResourceState shInitialState = RHIResourceState::Undefined;
+        bool generated = false;
+    };
 
-    void Execute(const Scene& scene, const Camera& camera) override;
+    EnvironmentPass(IRHIDevice* device, IRHIReadbackService* readbackService);
+
+    void Execute(GpuCommandList& commands, const Scene& scene,
+                 const Camera& camera) override;
     void Resize(uint32_t width, uint32_t height) override;
+    bool PrepareGraphResources();
+    GraphResources GetGraphResources() const;
+    void ExecuteGraphManaged(GpuCommandList& commands);
+    void MarkGraphResourcesShaderResource();
 
     GpuTexture* GetEnvironmentCubemap() const { return m_Environment.get(); }
     std::shared_ptr<GpuBufferView> GetSH2BufferView() const { return m_SH2Srv; }
@@ -51,4 +66,6 @@ private:
     std::shared_ptr<GpuBufferView> m_SHUav;
     std::shared_ptr<GpuBufferView> m_SH2Srv;
     std::shared_ptr<GpuReadbackTicket> m_Readback;
+    bool m_EnvironmentInShaderState = false;
+    bool m_SHBufferInShaderState = false;
 };

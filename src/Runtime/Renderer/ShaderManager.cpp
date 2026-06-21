@@ -15,7 +15,7 @@ std::string ShaderManager::MakeKey(const ShaderAsset& asset, const VertexElement
                                    uint32_t count, bool compute) const {
     std::ostringstream out;
     out << asset.GetID() << ':' << asset.GetVersion() << ':'
-        << static_cast<int>(m_Context ? m_Context->GetBackend() : RHIBackend::Unknown)
+        << static_cast<int>(m_Device ? m_Device->GetBackend() : RHIBackend::Unknown)
         << ':' << compute;
     for (uint32_t i = 0; i < count; ++i) {
         out << '|' << layout[i].semantic << ':' << layout[i].index << ':'
@@ -25,27 +25,27 @@ std::string ShaderManager::MakeKey(const ShaderAsset& asset, const VertexElement
 }
 
 std::shared_ptr<GpuShader> ShaderManager::CompileRecord(const ShaderRecord& rec) {
-    if (!m_Context || !rec.asset.IsValid()) return {};
+    if (!m_Device || !rec.asset.IsValid()) return {};
     const ShaderAsset& asset = *rec.asset;
-    const RHIBackend activeBackend = m_Context->GetBackend();
+    const RHIBackend activeBackend = m_Device->GetBackend();
     const ShaderBackend backend = activeBackend == RHIBackend::D3D12
         ? ShaderBackend::D3D12 : ShaderBackend::D3D11;
     if (asset.IsCooked()) {
         if (rec.compute) {
             const auto& cs = asset.GetBytecode(backend, ShaderStage::Compute);
-            return cs.empty() ? nullptr : m_Context->CreateComputeShaderFromBytecode(cs.data(), cs.size());
+            return cs.empty() ? nullptr : m_Device->CreateComputeShaderFromBytecode(cs.data(), cs.size());
         }
         const auto& vs = asset.GetBytecode(backend, ShaderStage::Vertex);
         const auto& ps = asset.GetBytecode(backend, ShaderStage::Pixel);
         if (vs.empty() || ps.empty()) return {};
-        return m_Context->CreateShaderFromBytecode(vs.data(), vs.size(), ps.data(), ps.size(),
+        return m_Device->CreateShaderFromBytecode(vs.data(), vs.size(), ps.data(), ps.size(),
             rec.layout.data(), static_cast<uint32_t>(rec.layout.size()));
     }
     if (activeBackend != RHIBackend::D3D11 && activeBackend != RHIBackend::D3D12) {
         if (rec.compute) return {};
         std::ifstream input(asset.ResolveSource(ShaderStage::Vertex), std::ios::binary);
         std::ostringstream source; source << input.rdbuf();
-        return input ? m_Context->CreateShader(source.str(), asset.GetStage(ShaderStage::Vertex).entry,
+        return input ? m_Device->CreateShader(source.str(), asset.GetStage(ShaderStage::Vertex).entry,
             asset.GetStage(ShaderStage::Pixel).entry, rec.layout.data(), static_cast<uint32_t>(rec.layout.size())) : nullptr;
     }
 #ifdef MYENGINE_PLATFORM_WINDOWS
@@ -56,7 +56,7 @@ std::shared_ptr<GpuShader> ShaderManager::CompileRecord(const ShaderRecord& rec)
         const bool ok = backend == ShaderBackend::D3D12
             ? ShaderCompilerD3D12::CompileStageFromFile(asset.ResolveSource(ShaderStage::Compute).string(), stage.entry, profile, cs, asset.GetDefines())
             : ShaderCompilerD3D11::CompileStageFromFile(asset.ResolveSource(ShaderStage::Compute).string(), stage.entry, profile, cs, asset.GetDefines());
-        return ok ? m_Context->CreateComputeShaderFromBytecode(cs.data(), cs.size()) : nullptr;
+        return ok ? m_Device->CreateComputeShaderFromBytecode(cs.data(), cs.size()) : nullptr;
     }
     const auto& vsStage = asset.GetStage(ShaderStage::Vertex);
     const auto& psStage = asset.GetStage(ShaderStage::Pixel);
@@ -66,13 +66,13 @@ std::shared_ptr<GpuShader> ShaderManager::CompileRecord(const ShaderRecord& rec)
           ShaderCompilerD3D12::CompileStageFromFile(asset.ResolveSource(ShaderStage::Pixel).string(), psStage.entry, "ps_5_1", ps, asset.GetDefines())
         : ShaderCompilerD3D11::CompileStageFromFile(asset.ResolveSource(ShaderStage::Vertex).string(), vsStage.entry, "vs_5_0", vs, asset.GetDefines()) &&
           ShaderCompilerD3D11::CompileStageFromFile(asset.ResolveSource(ShaderStage::Pixel).string(), psStage.entry, "ps_5_0", ps, asset.GetDefines());
-    return ok ? m_Context->CreateShaderFromBytecode(vs.data(), vs.size(), ps.data(), ps.size(),
+    return ok ? m_Device->CreateShaderFromBytecode(vs.data(), vs.size(), ps.data(), ps.size(),
         rec.layout.data(), static_cast<uint32_t>(rec.layout.size())) : nullptr;
 #else
     if (rec.compute) return {};
     std::ifstream input(asset.ResolveSource(ShaderStage::Vertex), std::ios::binary);
     std::ostringstream source; source << input.rdbuf();
-    return input ? m_Context->CreateShader(source.str(), asset.GetStage(ShaderStage::Vertex).entry,
+    return input ? m_Device->CreateShader(source.str(), asset.GetStage(ShaderStage::Vertex).entry,
         asset.GetStage(ShaderStage::Pixel).entry, rec.layout.data(), static_cast<uint32_t>(rec.layout.size())) : nullptr;
 #endif
 }
@@ -114,4 +114,4 @@ void ShaderManager::Recompile(const std::string& path) {
         rec.handle->shader = std::move(shader); ++rec.handle->version;
     }
 }
-void ShaderManager::Clear() { m_Records.clear(); m_KeyToIndex.clear(); m_Context = nullptr; }
+void ShaderManager::Clear() { m_Records.clear(); m_KeyToIndex.clear(); m_Device = nullptr; }

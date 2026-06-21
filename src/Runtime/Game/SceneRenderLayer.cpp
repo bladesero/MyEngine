@@ -22,7 +22,7 @@ SceneRenderLayer::SceneRenderLayer(IRenderContext* context,
                                    int viewportWidth, int viewportHeight)
     : SceneLayer("SceneRenderLayer")
     , m_RenderContext(context)
-    , m_Renderer(context)
+    , m_Renderer(context, context, context)
     , m_VpW(viewportWidth)
     , m_VpH(viewportHeight)
 {}

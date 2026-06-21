@@ -9,15 +9,18 @@
 #include "Renderer/ShadowPass.h"
 #include "Renderer/RenderGraph.h"
 
-Renderer::Renderer(IRenderContext* context)
-    : m_Context(context)
-    , m_ShadowPass(std::make_unique<ShadowPass>(context))
-    , m_EnvironmentPass(std::make_unique<EnvironmentPass>(context))
-    , m_MainPass(std::make_unique<MainPass>(context))
-    , m_PostProcessPass(std::make_unique<PostProcessPass>(context))
-    , m_RenderGraph(context ? std::make_unique<RenderGraph>(*context) : nullptr)
+Renderer::Renderer(IRHIDevice* device, IRHIFrameContext* frameContext,
+                   IRHIReadbackService* readbackService)
+    : m_Device(device)
+    , m_FrameContext(frameContext)
+    , m_ReadbackService(readbackService)
+    , m_ShadowPass(std::make_unique<ShadowPass>(device))
+    , m_EnvironmentPass(std::make_unique<EnvironmentPass>(device, readbackService))
+    , m_MainPass(std::make_unique<MainPass>(device))
+    , m_PostProcessPass(std::make_unique<PostProcessPass>(device))
+    , m_RenderGraph(device ? std::make_unique<RenderGraph>(*device) : nullptr)
 {
-    ShaderManager::Get().SetContext(context);
+    ShaderManager::Get().SetDevice(device);
 }
 
 Renderer::~Renderer() = default;
@@ -32,25 +35,95 @@ void Renderer::Resize(uint32_t width, uint32_t height)
 
 void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool present)
 {
-    if (!m_Context || !m_ShadowPass || !m_MainPass || !m_PostProcessPass) return;
+    if (!m_Device || !m_FrameContext || !m_ShadowPass || !m_MainPass || !m_PostProcessPass) return;
 
-    GpuUploadQueue::Get().Process(*m_Context);
+    GpuUploadQueue::Get().Process(*m_Device);
 
-    m_Context->BeginFrame(0.12f, 0.12f, 0.18f);
+    m_FrameContext->BeginFrame(0.12f, 0.12f, 0.18f);
+    GpuCommandList* commandList = m_FrameContext->GetGraphicsCommandList();
+    if (!commandList) {
+        Logger::Error("[Renderer] RHI returned no graphics command list");
+        m_FrameContext->EndFrame();
+        return;
+    }
 
     m_RenderGraph->Reset();
-    m_RenderGraph->AddPass("Shadow", [](RenderGraphBuilder&) {},
-        [this, &scene, &camera](GpuCommandList&, const RenderGraphResources&) {
-            m_ShadowPass->Execute(scene, camera);
-        });
-    m_RenderGraph->AddPass("Environment", [](RenderGraphBuilder&) {},
-        [this, &scene, &camera](GpuCommandList&, const RenderGraphResources&) {
-            m_EnvironmentPass->Execute(scene, camera);
-        });
-    const bool useOffscreen = m_Context->GetBackend() == RHIBackend::D3D11 ||
-                              m_Context->GetBackend() == RHIBackend::D3D12;
+    if (!m_ShadowPass->PrepareGraphResources(scene, camera)) {
+        Logger::Error("[Renderer] ShadowPass failed to prepare graph resources");
+        m_FrameContext->EndFrame();
+        return;
+    }
+    const auto shadowResources = m_ShadowPass->GetGraphResources();
+    const auto directionalShadow = m_RenderGraph->ImportTexture(
+        "DirectionalShadow", shadowResources.directional,
+        shadowResources.directionalCascadeViews[0], shadowResources.initialState,
+        RHIResourceState::ShaderResource);
+    const auto spotShadow = m_RenderGraph->ImportTexture(
+        "SpotShadow", shadowResources.spot, shadowResources.spotView,
+        shadowResources.initialState, RHIResourceState::ShaderResource);
+    const auto pointShadow = m_RenderGraph->ImportTexture(
+        "PointShadow", shadowResources.point, shadowResources.pointViews[0],
+        shadowResources.initialState, RHIResourceState::ShaderResource);
+
+    m_RenderGraph->AddPass("Shadow",
+        [directionalShadow, spotShadow, pointShadow](RenderGraphBuilder& builder) {
+            for (uint32_t cascade = 0; cascade < 3; ++cascade) {
+                builder.WriteDepth(directionalShadow, RGTextureSubresource{0, 1, cascade, 1},
+                                   RHILoadOp::Clear, RHIStoreOp::Store, 1.0f);
+            }
+            builder.WriteDepth(spotShadow, RHILoadOp::Clear, RHIStoreOp::Store, 1.0f);
+            for (uint32_t face = 0; face < 6; ++face) {
+                builder.WriteDepth(pointShadow, RGTextureSubresource{0, 1, face, 1},
+                                   RHILoadOp::Clear, RHIStoreOp::Store, 1.0f);
+            }
+        },
+        [this, &scene, &camera](GpuCommandList& commands, const RenderGraphResources&) {
+            (void)camera;
+            m_ShadowPass->ExecuteGraphManaged(commands, scene);
+        }, RenderGraph::PassFlags::ManualRenderingScope);
+    const bool environmentGraphReady = m_EnvironmentPass->PrepareGraphResources();
+    RGTextureHandle environmentCube;
+    RGBufferHandle environmentSH;
+    if (environmentGraphReady) {
+        const auto environmentResources = m_EnvironmentPass->GetGraphResources();
+        environmentCube = m_RenderGraph->ImportTexture(
+            "EnvironmentCube", environmentResources.environment,
+            environmentResources.environmentView, environmentResources.environmentInitialState,
+            RHIResourceState::ShaderResource);
+        environmentSH = m_RenderGraph->ImportBuffer(
+            "EnvironmentSH2", environmentResources.shBuffer,
+            environmentResources.shInitialState, RHIResourceState::ShaderResource);
+        m_RenderGraph->AddPass("Environment",
+            [environmentCube, environmentSH, generated = environmentResources.generated](
+                RenderGraphBuilder& builder) {
+                if (generated) {
+                    builder.ReadTexture(environmentCube);
+                    builder.ReadBuffer(environmentSH);
+                } else {
+                    builder.WriteColor(environmentCube, RHILoadOp::Clear, RHIStoreOp::Store,
+                                       {0.0f, 0.0f, 0.0f, 1.0f});
+                    builder.ReadWriteUAV(environmentSH);
+                }
+            },
+            [this](GpuCommandList& commands, const RenderGraphResources&) {
+                m_EnvironmentPass->ExecuteGraphManaged(commands);
+            }, RenderGraph::PassFlags::ManualRenderingScope |
+               RenderGraph::PassFlags::ManualResourceTransitions);
+    }
+    const bool useOffscreen = m_Device->GetBackend() == RHIBackend::D3D11 ||
+                              m_Device->GetBackend() == RHIBackend::D3D12;
     m_MainPass->SetHdrPassthrough(useOffscreen);
-    m_RenderGraph->AddPass("PrepareMain", [](RenderGraphBuilder&) {},
+    m_RenderGraph->AddPass("PrepareMain",
+        [directionalShadow, spotShadow, pointShadow, environmentGraphReady, environmentCube, environmentSH](
+            RenderGraphBuilder& builder) {
+            builder.ReadTexture(directionalShadow);
+            builder.ReadTexture(spotShadow);
+            builder.ReadTexture(pointShadow);
+            if (environmentGraphReady) {
+                builder.ReadTexture(environmentCube);
+                builder.ReadBuffer(environmentSH);
+            }
+        },
         [this](GpuCommandList&, const RenderGraphResources&) {
             const uint32_t cascadeCount = m_ShadowPass->GetCascadeCount();
             Mat4 cascades[3] = {
@@ -70,36 +143,130 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
                 m_EnvironmentPass->GetSH2Coefficients());
         });
     if (useOffscreen) {
-        m_RenderGraph->AddPass("Main", [](RenderGraphBuilder&) {},
-            [this, &scene, &camera](GpuCommandList&, const RenderGraphResources&) {
-                m_PostProcessPass->BeginOffscreen(); m_MainPass->Execute(scene, camera);
+        if (!m_PostProcessPass->PrepareGraphResources()) {
+            m_FrameContext->EndFrame();
+            return;
+        }
+        const auto postResources = m_PostProcessPass->GetGraphResources();
+        const auto sceneColor = m_RenderGraph->ImportTexture(
+            "SceneColor", postResources.sceneColor, postResources.sceneColorRtv,
+            postResources.sceneColorState, RHIResourceState::ShaderResource);
+        const auto sceneDepth = m_RenderGraph->ImportTexture(
+            "SceneDepth", postResources.sceneDepth, postResources.sceneDepthDsv,
+            postResources.sceneDepthState, RHIResourceState::ShaderResource);
+        const auto ssao = m_RenderGraph->ImportTexture(
+            "SSAO", postResources.ssao, postResources.ssaoRtv,
+            postResources.ssaoState, RHIResourceState::ShaderResource);
+        const auto ssaoBlur = m_RenderGraph->ImportTexture(
+            "SSAOBlur", postResources.ssaoBlur, postResources.ssaoBlurRtv,
+            postResources.ssaoBlurState, RHIResourceState::ShaderResource);
+        RGTextureHandle composite;
+        const bool compositeToBackbuffer = m_PostProcessPass->IsCompositeToBackbuffer();
+        RGTextureHandle backBuffer;
+        GpuTextureView* backBufferView = nullptr;
+        if (!compositeToBackbuffer) {
+            composite = m_RenderGraph->ImportTexture(
+                "Composite", postResources.composite, postResources.compositeRtv,
+                postResources.compositeState, RHIResourceState::ShaderResource);
+        } else {
+            backBufferView = m_FrameContext->GetCurrentBackBufferView();
+            if (!backBufferView || !backBufferView->texture) {
+                Logger::Error("[Renderer] RHI returned no current backbuffer view");
+                m_FrameContext->EndFrame();
+                return;
+            }
+            auto backBufferSharedView =
+                std::shared_ptr<GpuTextureView>(backBufferView->texture, backBufferView);
+            backBuffer = m_RenderGraph->ImportTexture(
+                "BackBuffer", backBufferView->texture, backBufferSharedView,
+                RHIResourceState::RenderTarget, RHIResourceState::RenderTarget);
+        }
+
+        m_RenderGraph->AddPass("Main", [sceneColor, sceneDepth](RenderGraphBuilder& builder) {
+                builder.WriteColor(sceneColor, RHILoadOp::Clear, RHIStoreOp::Store,
+                                   {0.0f, 0.0f, 0.0f, 1.0f});
+                builder.WriteDepth(sceneDepth, RHILoadOp::Clear, RHIStoreOp::Store, 1.0f);
+            },
+            [this, &scene, &camera](GpuCommandList& commands, const RenderGraphResources&) {
+                m_MainPass->Execute(commands, scene, camera);
             });
-        m_RenderGraph->AddPass("SSAO", [](RenderGraphBuilder&) {},
-            [this, &scene, &camera](GpuCommandList&, const RenderGraphResources&) {
-                m_PostProcessPass->RenderSSAO(scene, camera);
+        m_RenderGraph->AddPass("SSAO", [sceneDepth, ssao](RenderGraphBuilder& builder) {
+                builder.ReadTexture(sceneDepth);
+                builder.WriteColor(ssao, RHILoadOp::Clear, RHIStoreOp::Store, {1, 1, 1, 1});
+            },
+            [this, &scene, &camera](GpuCommandList& commands, const RenderGraphResources&) {
+                m_PostProcessPass->DrawSSAOOcclusion(commands, scene, camera);
             });
-        m_RenderGraph->AddPass("Bloom", [](RenderGraphBuilder&) {},
-            [this, &scene](GpuCommandList&, const RenderGraphResources&) {
-                m_PostProcessPass->RenderBloom(scene);
+        m_RenderGraph->AddPass("SSAOBlurH", [ssao, ssaoBlur](RenderGraphBuilder& builder) {
+                builder.ReadTexture(ssao);
+                builder.WriteColor(ssaoBlur, RHILoadOp::Clear, RHIStoreOp::Store, {1, 1, 1, 1});
+            },
+            [this](GpuCommandList& commands, const RenderGraphResources&) {
+                m_PostProcessPass->DrawSSAOBlurHorizontal(commands);
             });
-        m_RenderGraph->AddPass("Composite", [](RenderGraphBuilder&) {},
-            [this, &scene](GpuCommandList&, const RenderGraphResources&) {
-                m_PostProcessPass->EndOffscreenAndComposite(scene);
+        m_RenderGraph->AddPass("SSAOBlurV", [ssaoBlur, ssao](RenderGraphBuilder& builder) {
+                builder.ReadTexture(ssaoBlur);
+                builder.WriteColor(ssao, RHILoadOp::Clear, RHIStoreOp::Store, {1, 1, 1, 1});
+            },
+            [this](GpuCommandList& commands, const RenderGraphResources&) {
+                m_PostProcessPass->DrawSSAOBlurVertical(commands);
+            });
+        m_RenderGraph->AddPass("Composite",
+            [sceneColor, ssao, compositeToBackbuffer, composite, backBuffer](RenderGraphBuilder& builder) {
+                builder.ReadTexture(sceneColor);
+                builder.ReadTexture(ssao);
+                if (compositeToBackbuffer) {
+                    builder.WriteColor(backBuffer, RHILoadOp::Clear, RHIStoreOp::Store,
+                                       {0, 0, 0, 1});
+                } else {
+                    builder.WriteColor(composite, RHILoadOp::Clear, RHIStoreOp::Store,
+                                       {0, 0, 0, 1});
+                }
+            },
+            [this, &scene](GpuCommandList& commands, const RenderGraphResources&) {
+                if (m_PostProcessPass->IsCompositeToBackbuffer()) {
+                    m_PostProcessPass->DrawCompositeToCurrentTarget(commands, scene);
+                } else {
+                    m_PostProcessPass->DrawCompositeOffscreen(commands, scene);
+                }
             });
     } else {
-        m_RenderGraph->AddPass("Main", [](RenderGraphBuilder&) {},
-            [this, &scene, &camera](GpuCommandList&, const RenderGraphResources&) {
-                m_MainPass->Execute(scene, camera);
+        GpuTextureView* backBufferView = m_FrameContext->GetCurrentBackBufferView();
+        if (!backBufferView || !backBufferView->texture) {
+            Logger::Error("[Renderer] RHI returned no current backbuffer view for main pass");
+            m_FrameContext->EndFrame();
+            return;
+        }
+        auto backBufferSharedView =
+            std::shared_ptr<GpuTextureView>(backBufferView->texture, backBufferView);
+        const auto backBuffer = m_RenderGraph->ImportTexture(
+            "BackBuffer", backBufferView->texture, backBufferSharedView,
+            RHIResourceState::RenderTarget, RHIResourceState::RenderTarget);
+        m_RenderGraph->AddPass("Main", [backBuffer](RenderGraphBuilder& builder) {
+                builder.WriteColor(backBuffer, RHILoadOp::Clear, RHIStoreOp::Store,
+                                   {0.12f, 0.12f, 0.18f, 1.0f});
+            },
+            [this, &scene, &camera](GpuCommandList& commands, const RenderGraphResources&) {
+                m_MainPass->Execute(commands, scene, camera);
             });
     }
-    if (!m_RenderGraph->Execute()) {
+    if (!m_RenderGraph->Execute(*commandList)) {
         Logger::Error("[Renderer] RenderGraph execution failed: ", m_RenderGraph->GetLastError());
-        m_Context->EndFrame();
+        m_FrameContext->EndFrame();
         return;
+    }
+    if (useOffscreen) {
+        m_ShadowPass->MarkGraphResourcesShaderResource();
+        m_EnvironmentPass->MarkGraphResourcesShaderResource();
+        m_PostProcessPass->MarkGraphResourcesShaderResource(
+            !m_PostProcessPass->IsCompositeToBackbuffer());
+    } else {
+        m_ShadowPass->MarkGraphResourcesShaderResource();
+        m_EnvironmentPass->MarkGraphResourcesShaderResource();
     }
 
     if (present) {
-        m_Context->EndFrame();
+        m_FrameContext->EndFrame();
     }
 }
 

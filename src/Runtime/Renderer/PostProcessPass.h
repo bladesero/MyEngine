@@ -10,24 +10,56 @@ struct ShaderHandle;
 
 class PostProcessPass final : public RenderPass {
 public:
-    explicit PostProcessPass(IRenderContext* context);
+    struct GraphResources {
+        std::shared_ptr<GpuTexture> sceneColor;
+        std::shared_ptr<GpuTextureView> sceneColorRtv;
+        std::shared_ptr<GpuTexture> sceneDepth;
+        std::shared_ptr<GpuTextureView> sceneDepthDsv;
+        std::shared_ptr<GpuTexture> ssao;
+        std::shared_ptr<GpuTextureView> ssaoRtv;
+        std::shared_ptr<GpuTexture> ssaoBlur;
+        std::shared_ptr<GpuTextureView> ssaoBlurRtv;
+        std::shared_ptr<GpuTexture> composite;
+        std::shared_ptr<GpuTextureView> compositeRtv;
+        RHIResourceState sceneColorState = RHIResourceState::Undefined;
+        RHIResourceState sceneDepthState = RHIResourceState::Undefined;
+        RHIResourceState ssaoState = RHIResourceState::Undefined;
+        RHIResourceState ssaoBlurState = RHIResourceState::Undefined;
+        RHIResourceState compositeState = RHIResourceState::Undefined;
+    };
 
-    void Execute(const Scene& scene, const Camera& camera) override;
+    explicit PostProcessPass(IRHIDevice* device);
+
+    void Execute(GpuCommandList& commands, const Scene& scene,
+                 const Camera& camera) override;
     void Resize(uint32_t width, uint32_t height) override;
-    void BeginOffscreen();
-    void RenderSSAO(const Scene& scene, const Camera& camera);
-    void RenderBloom(const Scene& scene);
-    void EndOffscreenAndComposite(const Scene& scene);
+    bool PrepareGraphResources();
+    GraphResources GetGraphResources() const;
+    void MarkGraphResourcesShaderResource(bool compositeWritten);
+    void BeginOffscreen(GpuCommandList& commands);
+    void RenderSSAO(GpuCommandList& commands, const Scene& scene, const Camera& camera);
+    void RenderBloom(GpuCommandList& commands, const Scene& scene);
+    void EndOffscreenAndComposite(GpuCommandList& commands, const Scene& scene,
+                                  GpuTextureView* backBufferView);
+    void DrawSSAOOcclusion(GpuCommandList& commands, const Scene& scene,
+                           const Camera& camera);
+    void DrawSSAOBlurHorizontal(GpuCommandList& commands);
+    void DrawSSAOBlurVertical(GpuCommandList& commands);
+    void DrawCompositeOffscreen(GpuCommandList& commands, const Scene& scene);
+    void DrawCompositeToBackbuffer(GpuCommandList& commands, const Scene& scene,
+                                   GpuTextureView* backBufferView);
+    void DrawCompositeToCurrentTarget(GpuCommandList& commands, const Scene& scene);
 
     GpuTextureView* GetSceneColorView() const {
         return (!m_CompositeToBackbuffer && m_CompositeSrv)
             ? m_CompositeSrv.get() : m_SceneColorSrv.get();
     }
     void SetCompositeToBackbuffer(bool enabled) { m_CompositeToBackbuffer = enabled; }
+    bool IsCompositeToBackbuffer() const { return m_CompositeToBackbuffer; }
 
 private:
     bool EnsureResources();
-    void CloseSceneRendering();
+    void CloseSceneRendering(GpuCommandList& commands);
     void DrawFullscreen(GpuCommandList& commands, GpuGraphicsPipeline& pipeline,
                         GpuBindGroup& bindings, GpuTextureView& target,
                         RHIResourceState& targetState, const ClearColor& clear);

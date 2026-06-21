@@ -5,8 +5,6 @@
 #include "Editor/EditorContext.h"
 #include "Editor/EditorLayout.h"
 #include "Editor/EditorProject.h"
-#include "Game/SceneRenderLayer.h"
-#include "Renderer/ShaderManager.h"
 
 #if defined(MYENGINE_ENABLE_IMGUI)
 #include <imgui.h>
@@ -60,23 +58,12 @@ void ToolbarPanel::DrawContent()
         DrawActionButton(*context, "edit.undo");
         DrawActionButton(*context, "edit.redo");
 
-        SceneRenderLayer* layer = context->GetSceneLayer();
-        if (layer && layer->IsEditing()) {
-            if (ImGui::Button("Play")) layer->BeginPlay();
-        } else if (layer) {
-            if (ImGui::Button("Stop")) layer->StopPlay();
-            ImGui::SameLine();
-            if (layer->IsPlaying()) {
-                if (ImGui::Button("Pause")) layer->PausePlay();
-            } else if (ImGui::Button("Resume")) {
-                layer->ResumePlay();
-            }
-            ImGui::SameLine();
-            if (ImGui::Button("Step")) layer->StepPlay();
-        }
-
-        ImGui::SameLine();
-        if (ImGui::Button("Recompile")) ShaderManager::Get().RecompileAll();
+        DrawActionButton(*context, "play.start");
+        DrawActionButton(*context, "play.stop");
+        DrawActionButton(*context, "play.pause");
+        DrawActionButton(*context, "play.resume");
+        DrawActionButton(*context, "play.step");
+        DrawActionButton(*context, "shader.recompile");
         if (context->GetEngine()) {
             const auto& stats = context->GetEngine()->GetFrameStats();
             ImGui::SameLine();

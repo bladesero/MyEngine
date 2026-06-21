@@ -9,10 +9,25 @@ struct ShaderHandle;
 
 class ShadowPass final : public RenderPass {
 public:
-    explicit ShadowPass(IRenderContext* context);
+    struct GraphResources {
+        std::shared_ptr<GpuTexture> directional;
+        std::shared_ptr<GpuTextureView> directionalCascadeViews[3];
+        std::shared_ptr<GpuTexture> spot;
+        std::shared_ptr<GpuTextureView> spotView;
+        std::shared_ptr<GpuTexture> point;
+        std::shared_ptr<GpuTextureView> pointViews[6];
+        RHIResourceState initialState = RHIResourceState::Undefined;
+    };
 
-    void Execute(const Scene& scene, const Camera& camera) override;
+    explicit ShadowPass(IRHIDevice* device);
+
+    void Execute(GpuCommandList& commands, const Scene& scene,
+                 const Camera& camera) override;
     void Resize(uint32_t width, uint32_t height) override;
+    bool PrepareGraphResources(const Scene& scene, const Camera& camera);
+    GraphResources GetGraphResources() const;
+    void ExecuteGraphManaged(GpuCommandList& commands, const Scene& scene);
+    void MarkGraphResourcesShaderResource() { m_ShadowResourcesInShaderState = true; }
 
     const Mat4& GetLightViewProj() const { return m_LightViewProj; }
     const Vec3& GetLightDirection() const { return m_LightDirection; }
@@ -35,6 +50,8 @@ private:
     void EnsureShadowShader();
 
     bool EnsureShadowResources();
+    void DrawShadowScene(GpuCommandList& commands, const Scene& scene,
+                         const Mat4& lightViewProj);
 
 private:
     static constexpr uint32_t kDefaultShadowMapSize = 2048;

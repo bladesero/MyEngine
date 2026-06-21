@@ -42,6 +42,7 @@ bool ProjectConfig::Open(fs::path projectRoot, bool allowMissing, std::string* e
     if (m_Name.empty()) m_Name = "MyEngine";
     m_StartupScene.clear();
     m_PublishSettings = {};
+    m_InputSettings = {};
     m_HasManifest = fs::is_regular_file(m_ManifestPath, ec) && !ec;
     if (!m_HasManifest) {
         if (allowMissing) return true;
@@ -71,6 +72,11 @@ bool ProjectConfig::Open(fs::path projectRoot, bool allowMissing, std::string* e
                 publish->value("outputDirectory", std::string{"Builds"});
             m_PublishSettings.target =
                 publish->value("target", std::string{PublishTargets::kDefaultTargetId});
+        }
+        if (const auto input = json.find("input");
+            input != json.end() && input->is_object()) {
+            m_InputSettings.config =
+                input->value("config", std::string{ProjectInputSettings{}.config});
         }
     }
     catch (const std::exception& exception) {
@@ -102,6 +108,10 @@ bool ProjectConfig::Open(fs::path projectRoot, bool allowMissing, std::string* e
         fs::path ignored;
         if (!ResolveScenePath(m_StartupScene, ignored, false, error)) return false;
     }
+    if (!m_InputSettings.config.empty()) {
+        fs::path ignored;
+        if (!ResolveInputConfigPath(ignored, false, error)) return false;
+    }
     return true;
 }
 
@@ -128,6 +138,10 @@ bool ProjectConfig::Save(std::string* error)
         fs::path ignored;
         if (!ResolveScenePath(m_StartupScene, ignored, true, error)) return false;
     }
+    if (!m_InputSettings.config.empty()) {
+        fs::path ignored;
+        if (!ResolveInputConfigPath(ignored, false, error)) return false;
+    }
 
     try {
         nlohmann::json json;
@@ -138,6 +152,9 @@ bool ProjectConfig::Save(std::string* error)
         json["publish"] = {
             {"outputDirectory", m_PublishSettings.outputDirectory},
             {"target", m_PublishSettings.target},
+        };
+        json["input"] = {
+            {"config", m_InputSettings.config},
         };
         std::ofstream output(m_ManifestPath);
         if (!output) {
@@ -227,6 +244,77 @@ bool ProjectConfig::ResolveScenePath(const std::string& projectRelativePath,
         std::error_code ec;
         if (!fs::is_regular_file(resolved, ec) || ec) {
             SetError(error, "scene file does not exist: " + resolved.string());
+            return false;
+        }
+    }
+    return true;
+}
+
+bool ProjectConfig::SetInputConfigPath(const fs::path& configPath, std::string* error)
+{
+    if (error) error->clear();
+    if (m_Root.empty()) {
+        SetError(error, "project config has not been opened");
+        return false;
+    }
+    if (configPath.empty()) {
+        SetError(error, "input config path must not be empty");
+        return false;
+    }
+
+    std::error_code ec;
+    fs::path absoluteConfig = configPath.is_absolute()
+        ? configPath.lexically_normal()
+        : fs::absolute(m_Root / configPath, ec).lexically_normal();
+    if (ec) {
+        SetError(error, "failed to resolve input config path");
+        return false;
+    }
+
+    const fs::path contentRoot = (m_Root / "Content").lexically_normal();
+    if (!IsWithin(absoluteConfig, contentRoot)) {
+        SetError(error, "input config must be inside the project Content directory");
+        return false;
+    }
+
+    const fs::path relative = fs::relative(absoluteConfig, m_Root, ec);
+    if (ec || relative.empty()) {
+        SetError(error, "failed to make input config project-relative");
+        return false;
+    }
+    m_InputSettings.config = relative.generic_string();
+    return true;
+}
+
+bool ProjectConfig::ResolveInputConfigPath(fs::path& resolved, bool requireExists,
+                                           std::string* error) const
+{
+    if (error) error->clear();
+    if (m_Root.empty()) {
+        SetError(error, "project config has not been opened");
+        return false;
+    }
+    if (m_InputSettings.config.empty()) {
+        SetError(error, "project input config is not configured");
+        return false;
+    }
+
+    const fs::path input(m_InputSettings.config);
+    if (input.is_absolute() || input.has_root_name() || input.has_root_directory()) {
+        SetError(error, "input config path must be project-relative");
+        return false;
+    }
+
+    resolved = (m_Root / input).lexically_normal();
+    const fs::path contentRoot = (m_Root / "Content").lexically_normal();
+    if (!IsWithin(resolved, contentRoot)) {
+        SetError(error, "input config path must stay inside the project Content directory");
+        return false;
+    }
+    if (requireExists) {
+        std::error_code ec;
+        if (!fs::is_regular_file(resolved, ec) || ec) {
+            SetError(error, "input config file does not exist: " + resolved.string());
             return false;
         }
     }

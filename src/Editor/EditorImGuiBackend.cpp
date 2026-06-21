@@ -2,7 +2,6 @@
 
 #include "Core/Logger.h"
 #include "Core/Window.h"
-#include "Renderer/IRenderContext.h"
 #include "Renderer/RHI/GpuTextureView.h"
 #include "Renderer/RHI/RHITypes.h"
 
@@ -22,8 +21,8 @@
 #endif
 #endif
 
-EditorImGuiBackend::EditorImGuiBackend(IRenderContext* context, IWindow* window)
-    : m_Context(context), m_Window(window) {}
+EditorImGuiBackend::EditorImGuiBackend(IEditorImGuiRHIInterop* interop, IWindow* window)
+    : m_Interop(interop), m_Window(window) {}
 
 EditorImGuiBackend::~EditorImGuiBackend() {
     Shutdown();
@@ -31,8 +30,8 @@ EditorImGuiBackend::~EditorImGuiBackend() {
 
 bool EditorImGuiBackend::Init() {
 #if defined(MYENGINE_ENABLE_IMGUI)
-    if (!m_Context || !m_Window || !m_Window->GetSDLWindow()) {
-        Logger::Error("[EditorImGuiBackend] Missing context or window");
+    if (!m_Interop || !m_Window || !m_Window->GetSDLWindow()) {
+        Logger::Error("[EditorImGuiBackend] Missing RHI interop or window");
         return false;
     }
 
@@ -43,7 +42,7 @@ bool EditorImGuiBackend::Init() {
 
     Shutdown();
 
-    const ImGuiBackendHandles handles = m_Context->GetImGuiBackendHandles();
+    const ImGuiBackendHandles handles = m_Interop->GetImGuiBackendHandles();
 
 #if defined(MYENGINE_PLATFORM_WINDOWS)
     if (handles.backend == RHIBackend::D3D12) {
@@ -84,7 +83,7 @@ bool EditorImGuiBackend::Init() {
 #endif
 
     if (handles.backend == RHIBackend::D3D11) {
-        m_Context->SetSwapChainResizeCallback([]() {
+        m_Interop->SetSwapChainResizeCallback([]() {
             ImGui_ImplDX11_InvalidateDeviceObjects();
         });
     }
@@ -99,7 +98,8 @@ void EditorImGuiBackend::Shutdown() {
 #if defined(MYENGINE_ENABLE_IMGUI)
     if (!m_Initialized) return;
 
-    const RHIBackend backend = m_Context ? m_Context->GetBackend() : RHIBackend::Unknown;
+    const ImGuiBackendHandles handles = m_Interop ? m_Interop->GetImGuiBackendHandles() : ImGuiBackendHandles{};
+    const RHIBackend backend = handles.backend;
 #if defined(MYENGINE_PLATFORM_WINDOWS)
     if (backend == RHIBackend::D3D12) {
         ImGui_ImplDX12_Shutdown();
@@ -124,7 +124,7 @@ void EditorImGuiBackend::BeginFrame() {
 #if defined(MYENGINE_ENABLE_IMGUI)
     if (!m_Initialized) return;
 
-    const ImGuiBackendHandles handles = m_Context->GetImGuiBackendHandles();
+    const ImGuiBackendHandles handles = m_Interop->GetImGuiBackendHandles();
 
 #if defined(MYENGINE_PLATFORM_WINDOWS)
     if (handles.backend == RHIBackend::D3D12) {
@@ -150,7 +150,7 @@ void EditorImGuiBackend::RenderDrawData(ImDrawData* drawData) {
 #if defined(MYENGINE_ENABLE_IMGUI)
     if (!m_Initialized || !drawData) return;
 
-    const ImGuiBackendHandles handles = m_Context->GetImGuiBackendHandles();
+    const ImGuiBackendHandles handles = m_Interop->GetImGuiBackendHandles();
 
 #if defined(MYENGINE_PLATFORM_WINDOWS)
     if (handles.backend == RHIBackend::D3D12) {

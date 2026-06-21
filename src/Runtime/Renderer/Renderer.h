@@ -1,6 +1,8 @@
 #pragma once
 
-#include "Renderer/IRenderContext.h"
+#include "Renderer/RHI/IRHIDevice.h"
+#include "Renderer/RHI/IRHIFrameContext.h"
+#include "Renderer/RHI/IRHIReadbackService.h"
 #include "Scene/Scene.h"
 #include "Camera/Camera.h"
 
@@ -15,20 +17,21 @@ class RenderGraph;
 // ============================================================================
 // Renderer  鈥? minimal scene renderer for MeshRendererComponent
 //
-//  - Owns no window; works on top of an IRenderContext (D3D11 in this repo)
+//  - Owns no window; works on top of split RHI device/frame/readback services
 //  - Traverses Scene, finds actors with MeshRendererComponent and draws them
 //  - Uses row-major, left-handed math (Mat4, Camera) and MeshShader.h
 // ============================================================================
 
 class Renderer {
 public:
-    explicit Renderer(IRenderContext* context);
+    Renderer(IRHIDevice* device, IRHIFrameContext* frameContext,
+             IRHIReadbackService* readbackService);
     ~Renderer();
 
     void Resize(uint32_t width, uint32_t height);
 
     // Render all visible MeshRendererComponent in the scene from the camera.
-    // If present == false, the caller is responsible for calling IRenderContext::EndFrame()
+    // If present == false, the caller is responsible for ending the RHI frame
     // (useful for editor overlays like ImGui).
     void RenderScene(const Scene& scene, const Camera& camera, bool present = true);
 
@@ -36,7 +39,9 @@ public:
     GpuTextureView* GetSceneColorView() const;
 
 private:
-    IRenderContext*            m_Context = nullptr;
+    IRHIDevice*                m_Device = nullptr;
+    IRHIFrameContext*          m_FrameContext = nullptr;
+    IRHIReadbackService*       m_ReadbackService = nullptr;
     std::unique_ptr<ShadowPass> m_ShadowPass;
     std::unique_ptr<EnvironmentPass> m_EnvironmentPass;
     std::unique_ptr<MainPass>   m_MainPass;
