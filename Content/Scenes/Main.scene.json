@@ -138,12 +138,12 @@
                 },
                 {
                     "data": {
-                        "inspector": [],
                         "className": "Script",
                         "language": "angelscript",
+                        "properties": {},
                         "scriptPath": "",
                         "source": "class Script {\n  void Update(float dt) { Actor::Rotate(Vec3(0, 35 * dt, 0)); }\n}\n",
-                        "state": []
+                        "state": {}
                     },
                     "enabled": true,
                     "type": "Script"
@@ -1041,8 +1041,46 @@
                     1.0
                 ]
             }
+        },
+        {
+            "active": true,
+            "components": [
+                {
+                    "data": {
+                        "loop": false,
+                        "maxDistance": 100.0,
+                        "minDistance": 1.0,
+                        "pitch": 1.0,
+                        "playOnStart": true,
+                        "spatial": true,
+                        "volume": 1.0
+                    },
+                    "enabled": true,
+                    "type": "AudioSource"
+                }
+            ],
+            "id": 8,
+            "name": "audio",
+            "parentID": 0,
+            "transform": {
+                "position": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            }
         }
     ],
     "name": "Untitled",
-    "nextID": 8
+    "nextID": 9
 }

@@ -54,6 +54,10 @@ size_t EstimateAssetCpuBytes(const Asset& a) {
                                                 static_cast<ShaderStage>(stage)).size();
             return bytes;
         }
+        case AssetType::AudioClip: {
+            const auto& clip = static_cast<const AudioClipAsset&>(a);
+            return 512 + static_cast<size_t>(clip.GetChannels()) * 64;
+        }
         default:
             return 256;
     }
@@ -543,6 +547,13 @@ void AssetManager::RegisterDefaultLoaders() {
     RegisterLoader("shader", [](const std::string& path) -> std::shared_ptr<Asset> {
         return std::static_pointer_cast<Asset>(LoadShaderAssetFromFile(path));
     });
+    auto audioLoader = [](const std::string& path) -> std::shared_ptr<Asset> {
+        return std::static_pointer_cast<Asset>(LoadAudioClipAssetFromFile(path));
+    };
+    RegisterLoader("wav", audioLoader);
+    RegisterLoader("flac", audioLoader);
+    RegisterLoader("mp3", audioLoader);
+    RegisterLoader("ogg", audioLoader);
 }
 
 TextureHandle AssetManager::GetWhiteTexture()

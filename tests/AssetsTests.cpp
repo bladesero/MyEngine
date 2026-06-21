@@ -4,6 +4,7 @@
 #include "Assets/AssetMeta.h"
 #include "Assets/ShaderAsset.h"
 #include "Animation/SkinnedMeshRendererComponent.h"
+#include "Audio/AudioClipAsset.h"
 #include "Project/ProjectConfig.h"
 #include "Scene/MeshRendererComponent.h"
 #include "Scene/Scene.h"
@@ -11,6 +12,7 @@
 #include "Scripting/ScriptComponent.h"
 
 #include <chrono>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <vector>
@@ -18,6 +20,36 @@
 #include <nlohmann/json.hpp>
 
 namespace {
+
+void WriteSilentWav(const std::filesystem::path& path)
+{
+    std::ofstream output(path, std::ios::binary);
+    const uint32_t sampleRate = 8000;
+    const uint16_t channels = 1;
+    const uint16_t bitsPerSample = 16;
+    const uint32_t frameCount = 16;
+    const uint32_t dataBytes = frameCount * channels * (bitsPerSample / 8);
+    const uint32_t riffSize = 36 + dataBytes;
+    const uint32_t byteRate = sampleRate * channels * (bitsPerSample / 8);
+    const uint16_t blockAlign = channels * (bitsPerSample / 8);
+    output.write("RIFF", 4);
+    output.write(reinterpret_cast<const char*>(&riffSize), sizeof(riffSize));
+    output.write("WAVEfmt ", 8);
+    const uint32_t fmtSize = 16;
+    const uint16_t audioFormat = 1;
+    output.write(reinterpret_cast<const char*>(&fmtSize), sizeof(fmtSize));
+    output.write(reinterpret_cast<const char*>(&audioFormat), sizeof(audioFormat));
+    output.write(reinterpret_cast<const char*>(&channels), sizeof(channels));
+    output.write(reinterpret_cast<const char*>(&sampleRate), sizeof(sampleRate));
+    output.write(reinterpret_cast<const char*>(&byteRate), sizeof(byteRate));
+    output.write(reinterpret_cast<const char*>(&blockAlign), sizeof(blockAlign));
+    output.write(reinterpret_cast<const char*>(&bitsPerSample), sizeof(bitsPerSample));
+    output.write("data", 4);
+    output.write(reinterpret_cast<const char*>(&dataBytes), sizeof(dataBytes));
+    std::vector<int16_t> silence(frameCount * channels, 0);
+    output.write(reinterpret_cast<const char*>(silence.data()),
+                 static_cast<std::streamsize>(silence.size() * sizeof(int16_t)));
+}
 
 bool TestShaderAssetFormats() {
     namespace fs = std::filesystem;
@@ -220,6 +252,33 @@ bool TestAssetFileImporters() {
 
     am.Clear();
     fs::remove_all(root);
+    return true;
+}
+
+bool TestAudioClipAssetLoader() {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "myengine_audio_clip_test";
+    std::error_code ec;
+    fs::remove_all(root, ec);
+    fs::create_directories(root);
+    const fs::path wavPath = root / "beep.wav";
+    WriteSilentWav(wavPath);
+
+    AssetManager& manager = AssetManager::Get();
+    manager.Clear();
+    AudioClipHandle clip = manager.Load<AudioClipAsset>(wavPath.string());
+    if (!Check(clip.IsValid(), "audio clip load failed")) return false;
+    if (!Check(clip->GetChannels() == 1 && clip->GetSampleRate() == 8000,
+               "audio clip metadata mismatch")) return false;
+    if (!Check(clip->GetFrameCount() == 16 && clip->GetDurationSeconds() > 0.0f,
+               "audio clip duration mismatch")) return false;
+
+    const fs::path badPath = root / "bad.wav";
+    std::ofstream(badPath) << "not a wave";
+    if (!Check(!manager.Load<AudioClipAsset>(badPath.string()).IsValid(),
+               "invalid audio clip was accepted")) return false;
+    manager.Clear();
+    fs::remove_all(root, ec);
     return true;
 }
 
@@ -548,6 +607,7 @@ MYENGINE_REGISTER_TEST("Assets", "TestPbrMaterialParameters", TestPbrMaterialPar
 MYENGINE_REGISTER_TEST("Assets", "TestMaterialAssetFileRoundTrip", TestMaterialAssetFileRoundTrip);
 MYENGINE_REGISTER_TEST("Assets", "TestAssetManagerSharedAcrossRuntimeBoundary", TestAssetManagerSharedAcrossRuntimeBoundary);
 MYENGINE_REGISTER_TEST("Assets", "TestAssetFileImporters", TestAssetFileImporters);
+MYENGINE_REGISTER_TEST("Assets", "TestAudioClipAssetLoader", TestAudioClipAssetLoader);
 MYENGINE_REGISTER_TEST("Assets", "TestGltfImportAndStableMeta", TestGltfImportAndStableMeta);
 MYENGINE_REGISTER_TEST("Assets", "TestAssetAsyncLoadingAndHotReload", TestAssetAsyncLoadingAndHotReload);
 MYENGINE_REGISTER_TEST("Assets", "TestAssetManagerFailureRollback", TestAssetManagerFailureRollback);

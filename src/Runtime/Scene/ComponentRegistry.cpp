@@ -1,5 +1,6 @@
 #include "Scene/ComponentRegistry.h"
 
+#include "Audio/AudioSourceComponent.h"
 #include "Animation/SkinnedMeshRendererComponent.h"
 #include "Physics/BoxColliderComponent.h"
 #include "Physics/CapsuleColliderComponent.h"
@@ -32,6 +33,7 @@ ComponentRegistry::ComponentRegistry()
     Register("CharacterController", [] { return std::make_unique<CharacterControllerComponent>(); });
     Register("Light", [] { return std::make_unique<LightComponent>(); });
     Register("PostProcess", [] { return std::make_unique<PostProcessComponent>(); });
+    Register("AudioSource", [] { return std::make_unique<AudioSourceComponent>(); });
 }
 
 bool ComponentRegistry::Register(const std::string& typeName, Factory factory)

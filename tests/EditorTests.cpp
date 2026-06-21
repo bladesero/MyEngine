@@ -373,10 +373,12 @@ bool TestEditorInspectorSelectionRouting() {
     std::filesystem::create_directories(root);
     const auto materialPath = root / "Selected.mat";
     const auto texturePath = root / "Selected.png";
+    const auto audioPath = root / "Selected.wav";
     const auto modelPath = root / "Selected.obj";
     const auto jsonPath = root / "Selected.json";
     std::ofstream(materialPath) << "{}";
     std::ofstream(texturePath) << "png";
+    std::ofstream(audioPath) << "wav";
     std::ofstream(modelPath) << "obj";
     std::ofstream(jsonPath) << R"({"name":"Selected"})";
 
@@ -432,7 +434,12 @@ bool TestEditorInspectorSelectionRouting() {
         && !accepts("materialAsset", jsonObject)
         && !accepts("textureAsset", jsonObject);
     std::filesystem::remove_all(root, error);
-    return Check(modelRouted && jsonRouted,
+    const EditorSelectObject audioObject =
+        EditorSelectObject::MakeAsset(audioPath.string());
+    const bool audioRouted = accepts("genericAsset", audioObject)
+        && !accepts("materialAsset", audioObject)
+        && !accepts("textureAsset", audioObject);
+    return Check(modelRouted && jsonRouted && audioRouted,
                  "generic asset selection routing mismatch");
 }
 
@@ -444,9 +451,11 @@ bool TestEditorProjectAndAssetRegistry() {
     std::filesystem::create_directories(content / "Models");
     std::filesystem::create_directories(content / "Textures");
     std::filesystem::create_directories(content / "Materials");
+    std::filesystem::create_directories(content / "Audio");
     std::ofstream(content / "Models" / "test.gltf") << "{}";
     std::ofstream(content / "Textures" / "test.png") << "png";
     std::ofstream(content / "Materials" / "test.mat") << "{}";
+    std::ofstream(content / "Audio" / "test.wav") << "wav";
     std::ofstream(content / "Models" / "test.gltf.meta") << "{}";
 
     EditorAssetRegistry registry;
@@ -458,7 +467,9 @@ bool TestEditorProjectAndAssetRegistry() {
                "asset registry texture classification failed")) return false;
     if (!Check(registry.GetAssets(EditorAssetType::Material).size() == 1,
                "asset registry material classification failed")) return false;
-    if (!Check(registry.GetAssets().size() == 3,
+    if (!Check(registry.GetAssets(EditorAssetType::Audio).size() == 1,
+               "asset registry audio classification failed")) return false;
+    if (!Check(registry.GetAssets().size() == 4,
                "asset registry exposed metadata files")) return false;
 
     std::this_thread::sleep_for(std::chrono::milliseconds(20));

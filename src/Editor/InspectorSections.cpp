@@ -1,6 +1,7 @@
 ﻿#include "Editor/InspectorSections.h"
 
 #include "Animation/SkinnedMeshRendererComponent.h"
+#include "Audio/AudioSourceComponent.h"
 #include "Assets/Asset.h"
 #include "Assets/AssetManager.h"
 #include "Assets/MaterialAsset.h"
@@ -473,6 +474,66 @@ public:
     }
 };
 
+class AudioSourceInspectorSection final : public ActorInspectorSection {
+public:
+    const char* GetID() const override { return "audioSource"; }
+    int GetOrder() const override { return 250; }
+
+    void Draw(EditorContext& context) override
+    {
+        Actor* actor = SelectedActor(context);
+        auto* source = actor ? actor->GetComponent<AudioSourceComponent>() : nullptr;
+        if (!source) return;
+
+        ImGui::Separator();
+        ImGui::PushID("AudioSource");
+        ImGui::TextUnformatted("Audio Source");
+        DrawEnabled(*source);
+
+        std::vector<std::string> clips = AssetManager::Get().GetCachedPathsByType(AssetType::AudioClip);
+        if (const EditorAssetRegistry* registry = context.GetAssetRegistry()) {
+            for (const auto& asset : registry->GetAssets(EditorAssetType::Audio)) {
+                clips.push_back(asset.absolutePath.string());
+                if (!asset.relativePath.empty())
+                    clips.push_back((std::filesystem::path("Content") / asset.relativePath).generic_string());
+            }
+        }
+        std::sort(clips.begin(), clips.end());
+        clips.erase(std::unique(clips.begin(), clips.end()), clips.end());
+
+        const std::string current = source->GetClipPath().empty()
+            ? std::string("(none)") : source->GetClipPath();
+        if (ImGui::BeginCombo("Clip", current.c_str())) {
+            if (ImGui::Selectable("(none)", source->GetClipPath().empty()))
+                source->SetClipPath({});
+            for (const std::string& path : clips)
+                if (ImGui::Selectable(path.c_str(), path == source->GetClipPath()))
+                    source->SetClipPath(path);
+            ImGui::EndCombo();
+        }
+
+        bool playOnStart = source->GetPlayOnStart();
+        if (ImGui::Checkbox("Play On Start", &playOnStart)) source->SetPlayOnStart(playOnStart);
+        bool loop = source->GetLoop();
+        if (ImGui::Checkbox("Loop", &loop)) source->SetLoop(loop);
+        bool spatial = source->GetSpatial();
+        if (ImGui::Checkbox("Spatial", &spatial)) source->SetSpatial(spatial);
+        float volume = source->GetVolume();
+        if (ImGui::SliderFloat("Volume", &volume, 0.0f, 2.0f)) source->SetVolume(volume);
+        float pitch = source->GetPitch();
+        if (ImGui::SliderFloat("Pitch", &pitch, 0.25f, 4.0f)) source->SetPitch(pitch);
+        float minDistance = source->GetMinDistance();
+        if (ImGui::DragFloat("Min Distance", &minDistance, 0.05f, 0.01f, 1000.0f))
+            source->SetMinDistance(minDistance);
+        float maxDistance = source->GetMaxDistance();
+        if (ImGui::DragFloat("Max Distance", &maxDistance, 0.1f, 0.01f, 10000.0f))
+            source->SetMaxDistance(maxDistance);
+
+        if (ImGui::Button("Remove Audio Source")) actor->RemoveComponent<AudioSourceComponent>();
+        ImGui::PopID();
+    }
+};
+
 class PhysicsInspectorSection final : public ActorInspectorSection {
 public:
     const char* GetID() const override { return "physics"; }
@@ -711,6 +772,7 @@ std::vector<std::unique_ptr<EditorInspectorSection>> CreateDefaultInspectorSecti
     sections.push_back(std::make_unique<MeshRendererInspectorSection>());
     sections.push_back(std::make_unique<SkinnedMeshInspectorSection>());
     sections.push_back(std::make_unique<MaterialInspectorSection>());
+    sections.push_back(std::make_unique<AudioSourceInspectorSection>());
     sections.push_back(std::make_unique<PhysicsInspectorSection>());
     sections.push_back(std::make_unique<LightInspectorSection>());
     sections.push_back(std::make_unique<PostProcessInspectorSection>());

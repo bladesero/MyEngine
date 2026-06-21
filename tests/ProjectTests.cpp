@@ -21,6 +21,7 @@
 #include "Scene/SceneSerializer.h"
 #include "Scripting/ScriptComponent.h"
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -56,6 +57,19 @@ bool TestPublishHardeningPrimitives() {
                !preflight.errors.empty() &&
                preflight.errors.front().code == PublishIssueCode::MissingDependency,
                "publish preflight accepted a missing script dependency")) return false;
+
+    fs::remove_all(root / "Content/Scenes", ec);
+    fs::create_directories(root / "Content/Scenes");
+    fs::create_directories(root / "Content/Audio");
+    std::ofstream(root / "Content/Audio/beep.wav", std::ios::binary) << "audio";
+    std::ofstream(root / "Content/Scenes/Main.scene.json")
+        << R"({"actors":[{"components":[{"data":{"clip":"Content/Audio/beep.wav"}}]}]})";
+    preflight = {};
+    if (!Check(CookDependencyGraph::Validate(root, preflight),
+               "publish preflight rejected an audio clip dependency")) return false;
+    if (!Check(std::find(preflight.visitedAssets.begin(), preflight.visitedAssets.end(),
+                         "Content/Audio/beep.wav") != preflight.visitedAssets.end(),
+               "publish preflight did not visit audio clip dependency")) return false;
 
     CookManifest manifest;
     manifest.project = "ContractTest";

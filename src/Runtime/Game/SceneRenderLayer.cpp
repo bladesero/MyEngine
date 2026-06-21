@@ -1,4 +1,5 @@
 #include "Game/SceneRenderLayer.h"
+#include "Audio/AudioEngine.h"
 #include "Assets/AssetManager.h"
 #include "Assets/TextureAsset.h"
 #include "Assets/MaterialAsset.h"
@@ -65,6 +66,8 @@ void SceneRenderLayer::OnUpdate(float dt) {
 
     if (!m_ViewportInputEnabled) {
         m_RmbDown = false;
+        AudioEngine::Get().SetListenerTransform(
+            m_Camera.GetPosition(), m_Camera.GetForward(), m_Camera.GetCamUp());
         return;
     }
 
@@ -110,6 +113,9 @@ void SceneRenderLayer::OnUpdate(float dt) {
             m_Camera.MoveForward(dolly * 4.0f * dt);
         }
     }
+
+    AudioEngine::Get().SetListenerTransform(
+        m_Camera.GetPosition(), m_Camera.GetForward(), m_Camera.GetCamUp());
 }
 
 void SceneRenderLayer::OnEvent(Event& event) {

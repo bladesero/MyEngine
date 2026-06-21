@@ -6,6 +6,7 @@
 #include "Assets/MaterialAsset.h"
 #include "Assets/ModelAsset.h"
 #include "Assets/ShaderAsset.h"
+#include "Audio/AudioClipAsset.h"
 #include "Core/Logger.h"
 
 #include <array>

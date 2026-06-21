@@ -4,6 +4,7 @@
 #include "Assets/ShaderAsset.h"
 #include "Assets/PrefabAsset.h"
 #include "Animation/SkinnedMeshRendererComponent.h"
+#include "Audio/AudioSourceComponent.h"
 #include "Core/Memory/MemoryService.h"
 #include "Core/Memory/PoolAllocator.h"
 #include "Core/CrashHandler.h"
@@ -791,7 +792,8 @@ bool TestComponentRegistry() {
     ComponentRegistry& registry = ComponentRegistry::Get();
     const char* required[] = {
         "MeshRenderer", "SkinnedMeshRenderer", "Script", "RigidBody", "BoxCollider",
-        "SphereCollider", "CapsuleCollider", "CharacterController", "Light", "PostProcess"
+        "SphereCollider", "CapsuleCollider", "CharacterController", "Light", "PostProcess",
+        "AudioSource"
     };
     for (const char* type : required) {
         if (!Check(registry.IsRegistered(type),
@@ -1537,6 +1539,36 @@ bool TestGamepadStateTransitions() {
     if (!Check(!Input::IsGamepadConnected(pad), "gamepad should be disconnected after remove")) return false;
 
     return true;
+}
+
+bool TestAudioSourceComponentSerialization() {
+    Scene scene("AudioSourceRoundTrip");
+    Actor* actor = scene.CreateActor("Emitter");
+    auto* audio = actor->AddComponent<AudioSourceComponent>();
+    audio->SetClipPath("Content/Audio/beep.wav");
+    audio->SetPlayOnStart(false);
+    audio->SetLoop(true);
+    audio->SetSpatial(false);
+    audio->SetVolume(0.35f);
+    audio->SetPitch(1.25f);
+    audio->SetMinDistance(2.0f);
+    audio->SetMaxDistance(25.0f);
+
+    Scene loaded("LoadedAudio");
+    if (!Check(SceneSerializer::LoadFromString(loaded, SceneSerializer::SaveToString(scene)),
+               "audio source scene roundtrip failed")) return false;
+    Actor* loadedActor = loaded.FindByName("Emitter");
+    auto* loadedAudio = loadedActor ? loadedActor->GetComponent<AudioSourceComponent>() : nullptr;
+    if (!Check(loadedAudio, "audio source component was not restored")) return false;
+    return Check(loadedAudio->GetClipPath() == "Content/Audio/beep.wav" &&
+                 !loadedAudio->GetPlayOnStart() &&
+                 loadedAudio->GetLoop() &&
+                 !loadedAudio->GetSpatial() &&
+                 NearlyEqual(loadedAudio->GetVolume(), 0.35f) &&
+                 NearlyEqual(loadedAudio->GetPitch(), 1.25f) &&
+                 NearlyEqual(loadedAudio->GetMinDistance(), 2.0f) &&
+                 NearlyEqual(loadedAudio->GetMaxDistance(), 25.0f),
+                 "audio source fields changed after serialization");
 }
 
 bool TestInputActionMapJsonAndEvaluation() {
@@ -3025,6 +3057,7 @@ MYENGINE_REGISTER_TEST("Scripting", "TestEditorLuaScriptService", TestEditorLuaS
 MYENGINE_REGISTER_TEST("Scripting", "TestLegacyLuaScriptCompatibility", TestLegacyLuaScriptCompatibility);
 MYENGINE_REGISTER_TEST("Animation", "TestGpuSkinningAnimationBlend", TestGpuSkinningAnimationBlend);
 MYENGINE_REGISTER_TEST("Scene", "TestComponentRegistry", TestComponentRegistry);
+MYENGINE_REGISTER_TEST("Scene", "TestAudioSourceComponentSerialization", TestAudioSourceComponentSerialization);
 MYENGINE_REGISTER_TEST("Scene", "TestSceneRunStates", TestSceneRunStates);
 MYENGINE_REGISTER_TEST("Core", "TestCrashReportWriting", TestCrashReportWriting);
 MYENGINE_REGISTER_TEST("Scene", "TestTransformHierarchyWorldPosition", TestTransformHierarchyWorldPosition);

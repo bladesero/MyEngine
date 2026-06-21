@@ -22,6 +22,7 @@ MyEngine/
     ├── Runtime/
     │   ├── Core/             # Application、Engine、Window、Event、Layer、LayerStack、Time、Logger、Platform、EngineMath
     │   ├── Input/            # 输入快照（与 Engine 事件循环配合）
+    │   ├── Audio/            # miniaudio 后端、音频资源、AudioSource 组件
     │   ├── Math/             # Vector/Quaternion/Mat4/Color/Ray/AABB 等；Mat4Inverse 实现
     │   ├── Assets/           # AssetManager、导入器；Mesh/Material/Texture/Model 资产类型
     │   ├── Scene/            # Scene、Actor、Transform、组件、SceneSerializer（JSON）
@@ -58,6 +59,7 @@ MyEngine/
 | **nlohmann_json** | `SceneSerializer` 与测试 |
 | **stb** | 图像加载等 |
 | **tinyobjloader** | 模型导入（`AssetImporters`） |
+| **miniaudio** | 运行时音频设备、解码和播放 |
 
 平台相关：`Windows` 链入 `d3d11`、`d3d12`、`dxgi`、`d3dcompiler` 等；`macOS` 链入 `Metal`、`MetalKit` 等框架。
 
@@ -72,12 +74,13 @@ MyEngine/
 1. **Math** — 数学类型与少量实现（如 `Mat4Inverse`），**不依赖**引擎子系统。
 2. **Core** — 应用生命周期、窗口抽象、事件、Layer 栈、时间管理、日志、平台宏。**仅通过 Window/事件路径触及 SDL**，被几乎所有上层使用。
 3. **Input** — 输入状态与项目可配置 gameplay 映射；由 **Core/Engine** 的事件循环喂入 raw 键鼠/手柄快照，上层可直接查询 raw input，也可通过项目 `Content/Config/Input.input.json` 定义的 `Button` / `Axis1D` / `Axis2D` action 查询语义化输入名。
-4. **Assets** — 资源注册与加载；依赖文件系统与第三方导入库；**Mesh 等数据可被 Scene 组件引用**，导入路径可与 `SceneSerializer` 存储的路径字符串衔接。
-5. **Scene** — `Scene` / `Actor` / `Transform` / `Component` / `MeshRendererComponent`；**序列化**依赖 **nlohmann_json**；组件内引用 **Assets**（网格/材质句柄或路径）。
-6. **Camera** — 视图投影与控制器相关数学；依赖 **Math**，与 **Renderer** 的数据约定一致。
-7. **Renderer（含 RHI）** — `IRenderContext` 及 D3D11/D3D12/Metal 实现；`Renderer` / `MainPass` / `ShadowPass` 消费 **Scene + Camera + RHI**；**不反向依赖** Editor。
-8. **Game** — `SceneLayer` 持有 **Scene**，并提供 `LoadScene`/`SaveScene`（基于 **SceneSerializer**）；`SceneRenderLayer` 在 **SceneLayer** 之上组合 **IRenderContext + Renderer + Camera**。
-9. **Editor** — `EditorLayer` 继承 **Layer**（非 `SceneLayer`），持有 **`SceneRenderLayer*`** 以编辑同一场景；依赖 **ImGui**、**ImGuizmo**、**Engine/Window** 与序列化接口。
+4. **Audio** — `AudioEngine` 封装 miniaudio 设备生命周期，`AudioClipAsset` 走统一资源系统，`AudioSourceComponent` 通过场景组件生命周期播放和停止声音；设备不可用时进入无声模式。
+5. **Assets** — 资源注册与加载；依赖文件系统与第三方导入库；**Mesh/AudioClip 等数据可被 Scene 组件引用**，导入路径可与 `SceneSerializer` 存储的路径字符串衔接。
+6. **Scene** — `Scene` / `Actor` / `Transform` / `Component` / `MeshRendererComponent` / `AudioSourceComponent`；**序列化**依赖 **nlohmann_json**；组件内引用 **Assets**（网格/材质/音频句柄或路径）。
+7. **Camera** — 视图投影与控制器相关数学；依赖 **Math**，与 **Renderer** 的数据约定一致。
+8. **Renderer（含 RHI）** — `IRenderContext` 及 D3D11/D3D12/Metal 实现；`Renderer` / `MainPass` / `ShadowPass` 消费 **Scene + Camera + RHI**；**不反向依赖** Editor。
+9. **Game** — `SceneLayer` 持有 **Scene**，并提供 `LoadScene`/`SaveScene`（基于 **SceneSerializer**）；`SceneRenderLayer` 在 **SceneLayer** 之上组合 **IRenderContext + Renderer + Camera**，并把活动相机同步为音频 listener。
+10. **Editor** — `EditorLayer` 继承 **Layer**（非 `SceneLayer`），持有 **`SceneRenderLayer*`** 以编辑同一场景；依赖 **ImGui**、**ImGuizmo**、**Engine/Window** 与序列化接口。
 
 ### 3.2 依赖关系示意（Mermaid）
 

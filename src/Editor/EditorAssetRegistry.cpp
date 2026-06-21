@@ -21,6 +21,8 @@ EditorAssetType EditorAssetRegistry::Classify(const std::filesystem::path& path)
     if (extension == ".json") return EditorAssetType::Scene;
     if (extension == ".lua" || extension == ".as") return EditorAssetType::Script;
     if (extension == ".shader" || extension == ".hlsl" || extension == ".hlsli") return EditorAssetType::Shader;
+    if (extension == ".wav" || extension == ".ogg" || extension == ".flac" || extension == ".mp3")
+        return EditorAssetType::Audio;
     return EditorAssetType::Unknown;
 }
 void EditorAssetRegistry::Refresh() {

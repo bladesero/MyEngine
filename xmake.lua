@@ -122,6 +122,9 @@ target("MyEngineRuntime")
         "src/Runtime/Core/Memory/GeneralHeapAllocator.cpp",
         "src/Runtime/Core/Memory/LinearAllocator.cpp",
         "src/Runtime/Core/Memory/MemoryService.cpp",
+        "src/Runtime/Audio/AudioClipAsset.cpp",
+        "src/Runtime/Audio/AudioEngine.cpp",
+        "src/Runtime/Audio/AudioSourceComponent.cpp",
         "src/Runtime/Assets/AssetManager.cpp",
         "src/Runtime/Assets/AssetDatabase.cpp",
         "src/Runtime/Assets/AssetImporter.cpp",
@@ -192,6 +195,7 @@ target("MyEngineRuntime")
 
     add_includedirs("src/Runtime", { public = true })
     add_includedirs("src")
+    add_includedirs("thirdparty/miniaudio")
     add_includedirs("thirdparty/angelscript_addons/scriptstdstring")
     add_packages("libsdl3", { public = true })
     add_packages("nlohmann_json", { public = true })

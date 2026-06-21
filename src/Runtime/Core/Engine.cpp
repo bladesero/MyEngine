@@ -1,6 +1,7 @@
 #include "Engine.h"
 #include "Logger.h"
 #include "EngineTime.h"
+#include "Audio/AudioEngine.h"
 #include "Core/Memory/MemoryService.h"
 #include "Window.h"
 #include "../Input/Input.h"
@@ -20,12 +21,14 @@ void Engine::SetWindow(IWindow* window) {
 void Engine::Init() {
     MemoryService::Get().Init();
     Logger::Info("Init Engine: ", m_Config.appName);
+    AudioEngine::Get().Init();
     Time::Reset();
     m_Running = true;
     m_ExitCode = 0;
 }
 
 void Engine::Shutdown() {
+    AudioEngine::Get().Shutdown();
     MemoryService::Get().Shutdown();
     Logger::Info("Shutdown Engine");
     m_Running = false;
@@ -69,6 +72,7 @@ void Engine::RunLoop() {
         DispatchEvents();
         const auto updateStart = Time::Clock::now();
         UpdateLayers();
+        AudioEngine::Get().Update();
         const auto renderStart = Time::Clock::now();
         RenderLayers();
         const auto renderEnd = Time::Clock::now();
