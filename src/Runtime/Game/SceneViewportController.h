@@ -1,31 +1,49 @@
 #pragma once
 
-#include "Camera/Camera.h"
-#include "Math/Ray.h"
+#include "Game/RenderViewport.h"
 
-class SceneViewportController {
+class IRHIDevice;
+class IRHIFrameContext;
+class IRHIReadbackService;
+
+enum class SceneViewDirection {
+    Front,
+    Back,
+    Left,
+    Right,
+    Top,
+    Bottom
+};
+
+class SceneViewport : public RenderViewport {
 public:
-    void Initialize(int width, int height);
-    void OnUpdate(float dt);
-    void OnWindowResize(int width, int height);
+    SceneViewport(IRHIDevice* device,
+                  IRHIFrameContext* frameContext,
+                  IRHIReadbackService* readbackService);
 
-    void SetEditorViewportRect(int x, int y, int width, int height);
+    void Initialize(int width, int height) override;
+    void OnUpdate(float dt) override;
+    void OnWindowResize(int width, int height) override;
+    void SetViewportRect(int x, int y, int width, int height);
     void SetInputEnabled(bool enabled);
-    void GetViewportRect(int& outX, int& outY, int& outW, int& outH) const;
 
-    bool BuildRayFromScreen(float screenX, float screenY, Math::Ray& outRay) const;
+    Camera& GetCamera() override { return m_Camera; }
+    const Camera& GetCamera() const override { return m_Camera; }
 
-    Camera& GetCamera() { return m_Camera; }
-    const Camera& GetCamera() const { return m_Camera; }
-    bool UsesEditorViewport() const { return m_UseEditorViewport; }
+    void FrameDirection(SceneViewDirection direction,
+                        const Vec3& target,
+                        float distance = 10.0f);
+    void OrbitAroundFocus(const Vec3& target, float yawDegrees, float pitchDegrees);
+    void ToggleProjectionMode();
+    void SetProjectionMode(ProjectionMode mode);
+    bool IsOrthographic() const;
 
 private:
+    void ApplyOrthographicForCurrentAspect();
+
     Camera m_Camera;
-    int m_VpX = 0;
-    int m_VpY = 0;
-    int m_VpW = 0;
-    int m_VpH = 0;
     bool m_RmbDown = false;
-    bool m_UseEditorViewport = false;
-    bool m_InputEnabled = true;
+    float m_OrthographicWidth = 10.0f;
 };
+
+using SceneViewportController = SceneViewport;

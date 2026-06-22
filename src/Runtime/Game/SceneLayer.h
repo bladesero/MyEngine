@@ -50,8 +50,15 @@ public:
     bool SaveSceneAs(const std::string& filepath);
 
     // ---- 访问 ----------------------------------------------------------
-    Scene&       GetScene()       { return *m_Scene; }
-    const Scene& GetScene() const { return *m_Scene; }
+    Scene&       GetScene()       { return GetSimulationScene(); }
+    const Scene& GetScene() const { return GetSimulationScene(); }
+    Scene&       GetEditorScene()       { return *m_EditorScene; }
+    const Scene& GetEditorScene() const { return *m_EditorScene; }
+    Scene*       GetPlayScene()       { return m_PlayScene.get(); }
+    const Scene* GetPlayScene() const { return m_PlayScene.get(); }
+    Scene&       GetSimulationScene();
+    const Scene& GetSimulationScene() const;
+    bool HasPlayWorld() const { return m_PlayScene != nullptr; }
 
     // 当前场景关联的文件路径，空字符串表示尚未保存到文件
     const std::string& GetSceneFilePath() const { return m_SceneFilePath; }
@@ -78,15 +85,15 @@ protected:
     virtual void OnSceneLoaded()  {}
     virtual void OnSceneUnloaded() {}
 
-    std::unique_ptr<Scene> m_Scene;
+    std::unique_ptr<Scene> m_EditorScene;
+    std::unique_ptr<Scene> m_PlayScene;
 
 private:
-    bool CloneSceneFromJson(const std::string& json);
+    std::unique_ptr<Scene> CloneSceneFromJson(const std::string& json) const;
 
     std::string m_SceneFilePath;
     bool        m_Dirty = false;
     SceneRunState m_RunState = SceneRunState::Edit;
-    std::string m_EditSceneSnapshot;
     bool m_EditDirtySnapshot = false;
     bool m_StepRequested = false;
 };

@@ -33,6 +33,9 @@ public:
     virtual int  GetWidth()  const = 0;
     virtual int  GetHeight() const = 0;
     virtual bool IsOpen()    const = 0;
+    virtual bool SetIconFromPixels(const void* rgba8, int width, int height) {
+        (void)rgba8; (void)width; (void)height; return false;
+    }
 
     // Raw handles – may be nullptr for non-SDL back-ends.
     virtual SDL_Window*   GetSDLWindow()   const { return nullptr; }
@@ -56,6 +59,7 @@ public:
     int  GetWidth()  const override { return m_Width; }
     int  GetHeight() const override { return m_Height; }
     bool IsOpen()    const override { return m_Open; }
+    bool SetIconFromPixels(const void* rgba8, int width, int height) override;
 
     SDL_Window*   GetSDLWindow()   const override { return m_Window; }
     SDL_Renderer* GetSDLRenderer() const override { return m_Renderer; }

@@ -1,5 +1,6 @@
 #include "Editor/EditorSelection.h"
 
+#include "Editor/EditorContext.h"
 #include "Scene/Actor.h"
 #include "Scene/Scene.h"
 
@@ -7,19 +8,22 @@
 #include <filesystem>
 
 EditorSelectObject EditorSelectObject::MakeActor(ActorHandle handle,
-                                                 uint64_t persistentID)
+                                                 uint64_t persistentID,
+                                                 EditorSelectionWorldKind world)
 {
     EditorSelectObject object;
     if (!handle.IsValid() && persistentID == 0) return object;
     object.m_Type = EditorSelectObjectType::Actor;
     object.m_ActorHandle = handle;
     object.m_ActorID = persistentID;
+    object.m_WorldKind = world;
     return object;
 }
 
-EditorSelectObject EditorSelectObject::MakeActor(uint64_t persistentID)
+EditorSelectObject EditorSelectObject::MakeActor(uint64_t persistentID,
+                                                 EditorSelectionWorldKind world)
 {
-    return MakeActor({}, persistentID);
+    return MakeActor({}, persistentID, world);
 }
 
 EditorSelectObject EditorSelectObject::MakeAsset(std::string path)
@@ -37,6 +41,7 @@ bool operator==(const EditorSelectObject& left, const EditorSelectObject& right)
     if (left.m_Type != right.m_Type) return false;
     if (left.IsNone()) return true;
     if (left.IsAsset()) return left.m_AssetPath == right.m_AssetPath;
+    if (left.m_WorldKind != right.m_WorldKind) return false;
     if (left.m_ActorID != 0 && right.m_ActorID != 0) {
         return left.m_ActorID == right.m_ActorID;
     }
@@ -97,14 +102,16 @@ void EditorSelection::UnsubscribeSelectionChanged(ListenerID listenerID)
     if (listenerID != 0) m_Listeners.erase(listenerID);
 }
 
-void EditorSelection::SelectActorID(uint64_t actorID)
+void EditorSelection::SelectActorID(uint64_t actorID,
+                                    EditorSelectionWorldKind world)
 {
-    Select(EditorSelectObject::MakeActor(actorID));
+    Select(EditorSelectObject::MakeActor(actorID, world));
 }
 
-void EditorSelection::SelectActorHandle(ActorHandle actor)
+void EditorSelection::SelectActorHandle(ActorHandle actor,
+                                        EditorSelectionWorldKind world)
 {
-    Select(EditorSelectObject::MakeActor(actor));
+    Select(EditorSelectObject::MakeActor(actor, 0, world));
 }
 
 void EditorSelection::SelectAssetPath(std::string path)
@@ -118,6 +125,11 @@ void EditorSelection::Clear()
 }
 
 void EditorSelection::Validate(Scene& scene)
+{
+    Validate(scene, m_PrimaryObject.GetWorldKind());
+}
+
+void EditorSelection::Validate(Scene& scene, EditorSelectionWorldKind world)
 {
     const EditorSelectObject previous = m_PrimaryObject;
     const std::vector<uint64_t> previousActorIDs = m_MultiActorIDs;
@@ -137,11 +149,11 @@ void EditorSelection::Validate(Scene& scene)
         }
         if (actor) {
             m_PrimaryObject = EditorSelectObject::MakeActor(
-                actor->GetHandle(), actor->GetID());
+                actor->GetHandle(), actor->GetID(), world);
         } else if (!m_MultiActorIDs.empty()) {
             Actor* fallback = scene.FindByID(m_MultiActorIDs.back());
             m_PrimaryObject = fallback
-                ? EditorSelectObject::MakeActor(fallback->GetHandle(), fallback->GetID())
+                ? EditorSelectObject::MakeActor(fallback->GetHandle(), fallback->GetID(), world)
                 : EditorSelectObject{};
         } else {
             m_PrimaryObject = {};
@@ -171,14 +183,28 @@ const Actor* EditorSelection::ResolveActor(const Scene& scene) const
         ? scene.FindByID(m_PrimaryObject.GetActorID()) : nullptr;
 }
 
-void EditorSelection::ToggleActorID(uint64_t actorID)
+Actor* EditorSelection::ResolveActor(EditorContext& context) const
 {
-    Select(EditorSelectObject::MakeActor(actorID), EditorSelectionMode::Toggle);
+    Scene* scene = context.GetInspectorScene();
+    return scene ? ResolveActor(*scene) : nullptr;
 }
 
-void EditorSelection::AddToMultiSelect(uint64_t actorID)
+const Actor* EditorSelection::ResolveActor(const EditorContext& context) const
 {
-    Select(EditorSelectObject::MakeActor(actorID), EditorSelectionMode::Add);
+    const Scene* scene = context.GetInspectorScene();
+    return scene ? ResolveActor(*scene) : nullptr;
+}
+
+void EditorSelection::ToggleActorID(uint64_t actorID,
+                                    EditorSelectionWorldKind world)
+{
+    Select(EditorSelectObject::MakeActor(actorID, world), EditorSelectionMode::Toggle);
+}
+
+void EditorSelection::AddToMultiSelect(uint64_t actorID,
+                                       EditorSelectionWorldKind world)
+{
+    Select(EditorSelectObject::MakeActor(actorID, world), EditorSelectionMode::Add);
 }
 
 void EditorSelection::RemoveFromMultiSelect(uint64_t actorID)
@@ -187,8 +213,10 @@ void EditorSelection::RemoveFromMultiSelect(uint64_t actorID)
     Select(EditorSelectObject::MakeActor(actorID), EditorSelectionMode::Toggle);
 }
 
-bool EditorSelection::IsSelected(uint64_t actorID) const
+bool EditorSelection::IsSelected(uint64_t actorID,
+                                 EditorSelectionWorldKind world) const
 {
+    if (m_PrimaryObject.IsActor() && m_PrimaryObject.GetWorldKind() != world) return false;
     return std::find(m_MultiActorIDs.begin(), m_MultiActorIDs.end(), actorID)
         != m_MultiActorIDs.end();
 }

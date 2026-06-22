@@ -21,6 +21,11 @@
       "area": "center"
     },
     {
+      "id": "gameViewport",
+      "title": "Game View",
+      "area": "center"
+    },
+    {
       "id": "inspector",
       "title": "Inspector",
       "area": "right"

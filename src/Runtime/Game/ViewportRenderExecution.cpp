@@ -1,0 +1,69 @@
+#include "Game/ViewportRenderExecution.h"
+
+#include "Camera/Camera.h"
+#include "Game/RenderViewport.h"
+#include "Renderer/RHI/IRHIFrameContext.h"
+#include "Scene/Scene.h"
+
+ViewportRenderExecution::ViewportRenderExecution(IRHIDevice* device,
+                                                 IRHIFrameContext* frameContext,
+                                                 IRHIReadbackService* readbackService)
+    : m_FrameContext(frameContext)
+    , m_Renderer(device, frameContext, readbackService)
+{}
+
+void ViewportRenderExecution::ResizeIfNeeded(int width, int height)
+{
+    if (width <= 0 || height <= 0) {
+        return;
+    }
+    if (m_RendererW == width && m_RendererH == height) {
+        return;
+    }
+    m_Renderer.Resize(static_cast<uint32_t>(width), static_cast<uint32_t>(height));
+    m_RendererW = width;
+    m_RendererH = height;
+}
+
+void ViewportRenderExecution::Render(Scene& scene, Camera& camera,
+                                     const RenderViewport& viewport,
+                                     bool presentToSwapchain)
+{
+    int x = 0, y = 0, w = 0, h = 0;
+    viewport.GetViewportRect(x, y, w, h);
+    if (w <= 0 || h <= 0) {
+        return;
+    }
+
+    ResizeIfNeeded(w, h);
+    SetCommandViewport(viewport);
+    m_Renderer.SetOutputOffscreen(!presentToSwapchain);
+    m_Renderer.RenderScene(scene, camera, presentToSwapchain);
+}
+
+void ViewportRenderExecution::ReleaseFrameResources()
+{
+    m_Renderer.ReleaseFrameResources();
+}
+
+GpuTextureView* ViewportRenderExecution::GetOutputView() const
+{
+    return m_Renderer.GetSceneColorView();
+}
+
+void ViewportRenderExecution::SetCommandViewport(const RenderViewport& viewport)
+{
+    if (!m_FrameContext) {
+        return;
+    }
+
+    int x = 0, y = 0, w = 0, h = 0;
+    viewport.GetViewportRect(x, y, w, h);
+    if (w <= 0 || h <= 0) {
+        return;
+    }
+    if (auto* commands = m_FrameContext->GetGraphicsCommandList()) {
+        commands->SetViewport(static_cast<float>(x), static_cast<float>(y),
+                              static_cast<float>(w), static_cast<float>(h));
+    }
+}

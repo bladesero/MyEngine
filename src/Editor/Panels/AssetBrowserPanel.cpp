@@ -14,6 +14,8 @@
 #include "Editor/EditorImportService.h"
 #include "Editor/EditorPanelHelpers.h"
 #include "Editor/EditorProject.h"
+#include "Editor/UI/EditorIcons.h"
+#include "Editor/UI/EditorWidgets.h"
 #if defined(MYENGINE_ENABLE_IMGUI)
 #include <imgui.h>
 #endif
@@ -26,10 +28,27 @@ namespace {
 constexpr const char kModelPayload[]="MYENGINE_MODEL_PATH";
 constexpr const char kTexturePayload[]="MYENGINE_TEXTURE_PATH";
 constexpr const char kPrefabPayload[]="MYENGINE_PREFAB_PATH";
+namespace EditorIcons = Editor::UI::EditorIcons;
+namespace EditorWidgets = Editor::UI::EditorWidgets;
 
 std::string ReadFileContent(const std::string& path) {
     std::ifstream in(path, std::ios::binary);
     return {std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+}
+
+const char* IconForAssetType(EditorAssetType type)
+{
+    switch (type) {
+        case EditorAssetType::Model: return EditorIcons::Mesh;
+        case EditorAssetType::Texture: return EditorIcons::Texture;
+        case EditorAssetType::Material: return EditorIcons::Material;
+        case EditorAssetType::Scene: return EditorIcons::Scene;
+        case EditorAssetType::Prefab: return EditorIcons::Prefab;
+        case EditorAssetType::Script: return EditorIcons::Script;
+        case EditorAssetType::Shader: return EditorIcons::Shader;
+        case EditorAssetType::Audio: return EditorIcons::Audio;
+        default: return EditorIcons::Asset;
+    }
 }
 }
 
@@ -116,8 +135,8 @@ void AssetBrowserPanel::DrawContent(){
     using namespace EditorPanelHelpers;auto* context=GetContext();auto* registry=context?context->GetAssetRegistry():nullptr;if(!registry)return;
 
     // Toolbar: Refresh | Import | Create Material / Texture / Script
-    if(ImGui::Button("Refresh"))registry->Refresh();ImGui::SameLine();
-    if(ImGui::Button("Import")){if(auto* dialogs=context->GetService<EditorDialogService>())dialogs->RequestImportAsset(context->GetWindow());}ImGui::SameLine();
+    if(EditorWidgets::IconButton(*context, "RefreshAssets", EditorIcons::Refresh, "Refresh"))registry->Refresh();ImGui::SameLine();
+    if(EditorWidgets::IconButton(*context, "ImportAsset", EditorIcons::Asset, "Import")){if(auto* dialogs=context->GetService<EditorDialogService>())dialogs->RequestImportAsset(context->GetWindow());}ImGui::SameLine();
 
     if (ImGui::BeginCombo("##CreateAsset", "Create...")) {
         if (ImGui::Selectable("Material")) {
@@ -142,6 +161,8 @@ void AssetBrowserPanel::DrawContent(){
         ImGui::EndCombo();
     }
 
+    EditorWidgets::SvgIcon(*context, EditorIcons::Search, 14.0f);
+    ImGui::SameLine();
     ImGui::InputTextWithHint("##Filter","Filter...",m_Filter,sizeof(m_Filter));ImGui::Separator();
 
     // Context menu detection for empty area
@@ -174,6 +195,8 @@ void AssetBrowserPanel::DrawContent(){
             continue;
         }
 
+        EditorWidgets::SvgIcon(*context, IconForAssetType(asset.type), 14.0f);
+        ImGui::SameLine();
         if(ImGui::Selectable(asset.relativePath.c_str(),selected)){
             context->GetSelection().Select(
                 EditorSelectObject::MakeAsset(asset.absolutePath.string()));

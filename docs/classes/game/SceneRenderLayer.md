@@ -9,21 +9,33 @@ rendering, and default-scene setup to narrower runtime helpers.
 ## Responsibilities
 
 - Drive `SceneLayer` edit/play/pause/step lifecycle.
-- Forward camera, picking-ray, viewport-rect, and input-enable requests to
-  `SceneViewportController`.
-- Forward renderer output, swapchain resize, and present/offscreen behavior to
-  `SceneRenderHost`.
-- Call the legacy `DefaultSceneFactory::PopulateIfEmpty` hook after scene load.
+- Forward editor camera, picking-ray, viewport-rect, and input-enable requests
+  to `SceneViewport`.
+- Resolve Game View camera state through `GameViewport` and scene
+  `CameraComponent` data.
+- Schedule Scene/Game viewport renders through each viewport's
+  `ViewportRenderExecution`.
+- Route Scene View to EditorWorld by default, or to `GetSimulationScene()` when
+  the editor enables PlayWorld inspection.
+- Route Game View to `GetSimulationScene()` (EditorWorld in edit mode,
+  PlayWorld during play/pause/step).
+- Resize the swapchain once on window resize; per-viewport render targets are
+  resized by each viewport execution.
+- Call the legacy `DefaultSceneFactory::PopulateIfEmpty` hook after EditorWorld
+  scene load.
 
 ## Collaborators
 
-- `SceneViewportController`: camera setup, editor viewport rect, input, rays,
-  and audio listener transform.
-- `SceneRenderHost`: `IRenderContext`, `Renderer`, scene color view, swapchain
-  resize, command-list viewport, and scene render submission.
+- `SceneViewport`: editor camera setup, editor viewport rect, input, rays, and
+  audio listener transform, plus its own render execution/output view.
+- `GameViewport`: main-camera resolution and fallback runtime preview camera.
+- `ViewportRenderExecution`: per-viewport `Renderer`, scene color view,
+  command-list viewport, and scene render submission.
 - `DefaultSceneFactory`: legacy no-op hook for future explicit scene templates.
 
-Editor code should prefer `EditorContext::GetSceneViewport()` and
-`EditorContext::GetSceneRenderHost()` when it only needs camera/ray or render
-output access. `GetSceneLayer()` remains transitional for scene lifecycle and
-compatibility.
+Editor code should prefer `EditorContext::GetSceneViewport()` /
+`GetGameViewport()` for camera/ray and render output access. `GetSceneLayer()`
+remains transitional for scene lifecycle and compatibility.
+`SetSceneViewportUsesSimulationScene()` is a runtime-safe switch used by the
+editor; it stores no PlayWorld pointer, so stopping play cannot leave a dangling
+Scene View render target.

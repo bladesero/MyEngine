@@ -1218,6 +1218,7 @@ bool D3D12Context::Init(IWindow* window) {
     m_CommandList->SetName(L"MyEngine D3D12 Frame Command List");
     if (!CheckDeviceResult(m_CommandList->Close(), "Close(frame command list during init)"))
         return false;
+    m_FrameCommandListClosed = true;
 
     // ---- Constant buffers (per-frame) ------------------------------------
     for (uint32_t i = 0; i < kFrameCount; ++i) {
@@ -1300,6 +1301,7 @@ void D3D12Context::Shutdown() {
 
     if (m_IsRecording && m_CommandList) {
         CheckDeviceResult(m_CommandList->Close(), "Close(frame command list during shutdown)");
+        m_FrameCommandListClosed = true;
         if (m_DeferredReleaseQueue) m_DeferredReleaseQueue->AbortUnsubmittedFrame();
         m_IsRecording = false;
     }
@@ -1476,9 +1478,27 @@ void D3D12Context::BeginFrame(float r, float g, float b, float a) {
     auto& fr = m_Frames[m_RenderFrameIndex];
     fr.constantBufferOffset = 0;
 
+    if (!m_FrameCommandListClosed && m_CommandList) {
+        const HRESULT closeHr = m_CommandList->Close();
+        if (SUCCEEDED(closeHr)) {
+            m_FrameCommandListClosed = true;
+        } else {
+            Logger::Warn("Close(stale frame command list) failed during recovery: ",
+                         FormatHRESULT(closeHr));
+        }
+    }
+
     if (!CheckDeviceResult(fr.commandAllocator->Reset(), "Reset(frame command allocator)")) return;
-    if (!CheckDeviceResult(m_CommandList->Reset(fr.commandAllocator.Get(), nullptr),
-                           "Reset(frame command list)")) return;
+    HRESULT resetHr = m_CommandList
+        ? m_CommandList->Reset(fr.commandAllocator.Get(), nullptr)
+        : E_POINTER;
+    if (SUCCEEDED(resetHr)) {
+        m_FrameCommandListClosed = false;
+    } else {
+        Logger::Warn("Reset(frame command list) failed during recovery: ",
+                     FormatHRESULT(resetHr), "; recreating command list");
+        if (!RecreateFrameCommandList(fr.commandAllocator.Get())) return;
+    }
     if (m_DeferredReleaseQueue) {
         const uint64_t completedFenceValue = m_Fence ? m_Fence->GetCompletedValue() : 0;
         m_DeferredReleaseQueue->BeginFrame(completedFenceValue);
@@ -1490,6 +1510,7 @@ void D3D12Context::BeginFrame(float r, float g, float b, float a) {
     if (m_DeviceLost) {
         CheckDeviceResult(m_CommandList->Close(),
                           "Close(frame command list after device removal)");
+        m_FrameCommandListClosed = true;
         if (m_DeferredReleaseQueue) m_DeferredReleaseQueue->AbortUnsubmittedFrame();
         m_IsRecording = false;
         return;
@@ -1538,6 +1559,7 @@ void D3D12Context::EndFrame() {
         m_IsRecording = false;
         return;
     }
+    m_FrameCommandListClosed = true;
 
     ID3D12CommandList* cmdLists[] = { m_CommandList.Get() };
     m_CommandQueue->ExecuteCommandLists(1, cmdLists);
@@ -1567,6 +1589,7 @@ GpuSwapChain* D3D12Context::GetSwapChain() {
 }
 
 GpuCommandList* D3D12Context::GetGraphicsCommandList() {
+    if (!m_IsRecording) return nullptr;
     return m_GraphicsCommandList.get();
 }
 
@@ -1588,14 +1611,26 @@ void D3D12Context::PresentSwapChain(bool vsync) {
     CheckDeviceResult(presentHr, "D3D12 Present");
 }
 
+bool D3D12Context::RecreateFrameCommandList(ID3D12CommandAllocator* allocator)
+{
+    if (!m_Device || !allocator) return false;
+    ComPtr<ID3D12GraphicsCommandList> commandList;
+    const HRESULT hr = m_Device->CreateCommandList(
+        0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator, nullptr,
+        IID_PPV_ARGS(&commandList));
+    if (!CheckDeviceResult(hr, "CreateCommandList(frame recovery)")) return false;
+    commandList->SetName(L"MyEngine D3D12 Frame Command List");
+    m_CommandList = std::move(commandList);
+    m_FrameCommandListClosed = false;
+    return true;
+}
+
 bool D3D12Context::ResizeSwapChain(uint32_t width, uint32_t height) {
     if (!m_Device || !m_SwapChain || !m_RtvHeap) return false;
     if (width == 0 || height == 0) return false;
     if (m_IsRecording) return false;
 
-    for (uint32_t i = 0; i < kFrameCount; ++i) {
-        WaitForFrame(i);
-    }
+    WaitForGpuIdle();
 
     for (uint32_t i = 0; i < kFrameCount; ++i) {
         m_BackBufferViews[i].reset();
@@ -1962,6 +1997,7 @@ std::shared_ptr<GpuBufferView> D3D12Context::CreateBufferView(
         nativeBuffer->desc.size / nativeBuffer->desc.stride;
     if (HasUsage(desc.usage, RHIResourceUsage::ShaderResource)) {
         view->srvCpu = AllocSrvSlot(view->srvGpu, &view->srvLease);
+        if (view->srvCpu.ptr == 0 || view->srvGpu.ptr == 0) return nullptr;
         D3D12_SHADER_RESOURCE_VIEW_DESC d{}; d.Format = DXGI_FORMAT_UNKNOWN;
         d.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
         d.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
@@ -1971,6 +2007,7 @@ std::shared_ptr<GpuBufferView> D3D12Context::CreateBufferView(
     }
     if (HasUsage(desc.usage, RHIResourceUsage::UnorderedAccess)) {
         view->uavCpu = AllocSrvSlot(view->uavGpu, &view->uavLease);
+        if (view->uavCpu.ptr == 0 || view->uavGpu.ptr == 0) return nullptr;
         D3D12_UNORDERED_ACCESS_VIEW_DESC d{}; d.Format = DXGI_FORMAT_UNKNOWN;
         d.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
         d.Buffer.FirstElement = desc.firstElement; d.Buffer.NumElements = count;
@@ -2100,6 +2137,7 @@ bool D3D12Context::CreateMainDepthBuffer()
     if (!CheckDeviceResult(hr, "CreateCommittedResource(main depth buffer)")) return false;
 
     m_MainDsvHandle = AllocDsvSlot(&m_MainDsvLease);
+    if (m_MainDsvHandle.ptr == 0) return false;
     D3D12_DEPTH_STENCIL_VIEW_DESC dsvDesc = {};
     dsvDesc.Format = kDepthFormat;
     dsvDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
@@ -2206,6 +2244,7 @@ std::shared_ptr<GpuTexture> D3D12Context::CreateDepthTexture(
     if (!CheckDeviceResult(hr, "CreateCommittedResource(depth texture)")) return nullptr;
 
     tex->srvCpu = AllocSrvSlot(tex->srvGpu, &tex->srvLease);
+    if (tex->srvCpu.ptr == 0 || tex->srvGpu.ptr == 0) return nullptr;
     D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
     srvDesc.Format = DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
     srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
@@ -2223,6 +2262,7 @@ std::shared_ptr<GpuTexture> D3D12Context::CreateDepthTexture(
     m_Device->CreateShaderResourceView(tex->resource.Get(), &srvDesc, tex->srvCpu);
 
     tex->sampCpu = AllocSampSlot(tex->sampGpu, &tex->sampLease);
+    if (tex->sampCpu.ptr == 0 || tex->sampGpu.ptr == 0) return nullptr;
     D3D12_SAMPLER_DESC sampDesc = {};
     sampDesc.Filter = D3D12_FILTER_COMPARISON_MIN_MAG_LINEAR_MIP_POINT;
     sampDesc.AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
@@ -2237,6 +2277,7 @@ std::shared_ptr<GpuTexture> D3D12Context::CreateDepthTexture(
         tex->dsvFaceLeases.resize(6);
         for (uint32_t face = 0; face < 6; ++face) {
             tex->dsvFaces[face] = AllocDsvSlot(&tex->dsvFaceLeases[face]);
+            if (tex->dsvFaces[face].ptr == 0) return nullptr;
             D3D12_DEPTH_STENCIL_VIEW_DESC dsvDesc = {};
             dsvDesc.Format = kDepthFormat;
             dsvDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2DARRAY;
@@ -2252,6 +2293,7 @@ std::shared_ptr<GpuTexture> D3D12Context::CreateDepthTexture(
         tex->dsvFaceLeases.resize(arraySize);
         for (uint32_t slice = 0; slice < arraySize; ++slice) {
             tex->dsvFaces[slice] = AllocDsvSlot(&tex->dsvFaceLeases[slice]);
+            if (tex->dsvFaces[slice].ptr == 0) return nullptr;
             D3D12_DEPTH_STENCIL_VIEW_DESC dsvDesc = {};
             dsvDesc.Format = kDepthFormat;
             dsvDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2DARRAY;
@@ -2264,6 +2306,7 @@ std::shared_ptr<GpuTexture> D3D12Context::CreateDepthTexture(
         tex->dsvCpu = tex->dsvFaces[0];
     } else {
         tex->dsvCpu = AllocDsvSlot(&tex->dsvLease);
+        if (tex->dsvCpu.ptr == 0) return nullptr;
         D3D12_DEPTH_STENCIL_VIEW_DESC dsvDesc = {};
         dsvDesc.Format = kDepthFormat;
         dsvDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
@@ -2696,7 +2739,11 @@ void D3D12Context::EnsureDefaultResources()
     }
 
     // Default SRV
-    m_DefaultTexSrvCpu = AllocSrvSlot(m_DefaultTexSrvGpu);
+    m_DefaultTexSrvCpu = AllocSrvSlot(m_DefaultTexSrvGpu, &m_DefaultTexSrvLease);
+    if (m_DefaultTexSrvCpu.ptr == 0 || m_DefaultTexSrvGpu.ptr == 0) {
+        m_DefaultTexture.Reset();
+        return;
+    }
     {
         D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
         srvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -2708,7 +2755,14 @@ void D3D12Context::EnsureDefaultResources()
     }
 
     // Default sampler
-    m_DefaultSampCpu = AllocSampSlot(m_DefaultSampGpu);
+    m_DefaultSampCpu = AllocSampSlot(m_DefaultSampGpu, &m_DefaultSampLease);
+    if (m_DefaultSampCpu.ptr == 0 || m_DefaultSampGpu.ptr == 0) {
+        m_DefaultTexture.Reset();
+        m_DefaultTexSrvCpu = {};
+        m_DefaultTexSrvGpu = {};
+        m_DefaultTexSrvLease.reset();
+        return;
+    }
     {
         D3D12_SAMPLER_DESC sampDesc = {};
         sampDesc.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
@@ -2962,6 +3016,7 @@ std::shared_ptr<GpuTexture> D3D12Context::UploadTexture2D(
     tex->desc.usage = RHIResourceUsage::ShaderResource;
 
     tex->srvCpu = AllocSrvSlot(tex->srvGpu, &tex->srvLease);
+    if (tex->srvCpu.ptr == 0 || tex->srvGpu.ptr == 0) return nullptr;
     {
         D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
         srvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -2973,6 +3028,7 @@ std::shared_ptr<GpuTexture> D3D12Context::UploadTexture2D(
     }
 
     tex->sampCpu = AllocSampSlot(tex->sampGpu, &tex->sampLease);
+    if (tex->sampCpu.ptr == 0 || tex->sampGpu.ptr == 0) return nullptr;
     {
         D3D12_SAMPLER_DESC sampDesc = {};
         sampDesc.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
@@ -3255,6 +3311,7 @@ std::shared_ptr<GpuTextureView> D3D12Context::CreateTextureView(
     const RHITextureDesc& td = nativeTexture->desc;
     if (HasUsage(desc.usage, RHIResourceUsage::ShaderResource)) {
         view->srvCpu = AllocSrvSlot(view->srvGpu, &view->srvLease);
+        if (view->srvCpu.ptr == 0 || view->srvGpu.ptr == 0) return nullptr;
         const UINT64 heapBase = m_SrvHeap->GetGPUDescriptorHandleForHeapStart().ptr;
         view->bindlessIndex = static_cast<uint32_t>(
             (view->srvGpu.ptr - heapBase) / m_SrvDescriptorSize);
@@ -3270,6 +3327,7 @@ std::shared_ptr<GpuTextureView> D3D12Context::CreateTextureView(
     }
     if (HasUsage(desc.usage, RHIResourceUsage::RenderTarget)) {
         view->rtvCpu = AllocRtvSlot(&view->rtvLease);
+        if (view->rtvCpu.ptr == 0) return nullptr;
         D3D12_RENDER_TARGET_VIEW_DESC d{}; d.Format = ToDxgiRHIFormat(td.format);
         if (td.sampleCount > 1 && td.arrayLayers > 1) { d.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DMSARRAY; d.Texture2DMSArray.FirstArraySlice = desc.firstLayer; d.Texture2DMSArray.ArraySize = desc.layerCount; }
         else if (td.sampleCount > 1) { d.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DMS; }
@@ -3290,6 +3348,7 @@ std::shared_ptr<GpuTextureView> D3D12Context::CreateTextureView(
     if (HasUsage(desc.usage, RHIResourceUsage::UnorderedAccess)) {
         if (td.sampleCount > 1) return nullptr;
         view->uavCpu = AllocSrvSlot(view->uavGpu, &view->uavLease);
+        if (view->uavCpu.ptr == 0 || view->uavGpu.ptr == 0) return nullptr;
         D3D12_UNORDERED_ACCESS_VIEW_DESC d{}; d.Format = ToDxgiRHIFormat(td.format); d.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D; d.Texture2D.MipSlice = desc.firstMip;
         m_Device->CreateUnorderedAccessView(nativeTexture->resource.Get(), nullptr, &d, view->uavCpu);
     }
@@ -3300,6 +3359,7 @@ std::shared_ptr<GpuSampler> D3D12Context::CreateSampler(const RHISamplerDesc& de
     if (!CanUseDevice("CreateSampler")) return nullptr;
     auto result = std::make_shared<D3D12Sampler>(); result->desc = desc;
     result->cpu = AllocSampSlot(result->gpu, &result->lease);
+    if (result->cpu.ptr == 0 || result->gpu.ptr == 0) return nullptr;
     D3D12_SAMPLER_DESC d{};
     d.Filter = desc.filter == RHIFilter::Point ? D3D12_FILTER_MIN_MAG_MIP_POINT : desc.filter == RHIFilter::ComparisonLinear ? D3D12_FILTER_COMPARISON_MIN_MAG_LINEAR_MIP_POINT : D3D12_FILTER_MIN_MAG_MIP_LINEAR;
     auto address = [](RHIAddressMode m) { return m == RHIAddressMode::Clamp ? D3D12_TEXTURE_ADDRESS_MODE_CLAMP : m == RHIAddressMode::Border ? D3D12_TEXTURE_ADDRESS_MODE_BORDER : D3D12_TEXTURE_ADDRESS_MODE_WRAP; };

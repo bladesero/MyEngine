@@ -97,30 +97,57 @@ void PostProcessPass::Resize(uint32_t width, uint32_t height) {
 
 bool PostProcessPass::EnsureResources() {
     auto* device = Device(); if (!device) return false;
+    auto resetResources = [&]() {
+        m_SceneColor.reset(); m_SceneDepth.reset(); m_SSAO.reset();
+        m_SSAOBlur.reset(); m_Composite.reset(); m_Noise.reset();
+        m_SceneColorRtv.reset(); m_SceneColorSrv.reset();
+        m_SceneDepthDsv.reset(); m_SceneDepthSrv.reset();
+        m_SSAORtv.reset(); m_SSAOSrv.reset(); m_SSAOBlurRtv.reset();
+        m_SSAOBlurSrv.reset(); m_CompositeRtv.reset(); m_CompositeSrv.reset();
+        m_LinearClamp.reset(); m_PointClamp.reset(); m_NoiseSampler.reset();
+        m_NoiseSrv.reset();
+        m_SceneColorState = m_SceneDepthState = m_SSAOState =
+            m_SSAOBlurState = m_CompositeState = RHIResourceState::Undefined;
+    };
+    auto resourcesComplete = [&]() {
+        return m_SceneColor && m_SceneColorRtv && m_SceneColorSrv &&
+            m_SceneDepth && m_SceneDepthDsv && m_SceneDepthSrv &&
+            m_SSAO && m_SSAORtv && m_SSAOSrv &&
+            m_SSAOBlur && m_SSAOBlurRtv && m_SSAOBlurSrv &&
+            m_Composite && m_CompositeRtv && m_CompositeSrv &&
+            m_LinearClamp && m_PointClamp && m_NoiseSampler &&
+            m_Noise && m_NoiseSrv &&
+            m_FXAABackbufferPipeline && m_FXAAOffscreenPipeline &&
+            m_SSAOPipeline && m_BlurPipeline;
+    };
     if (m_SceneColor) {
-        const bool changed = (m_FXAAHandle && m_FXAAHandle->version != m_FXAAVersion) ||
-            (m_SSAOHandle && m_SSAOHandle->version != m_SSAOVersion) ||
-            (m_BlurHandle && m_BlurHandle->version != m_BlurVersion);
-        if (changed) {
-            m_FXAAShader = m_FXAAHandle->shader; m_SSAOShader = m_SSAOHandle->shader;
-            m_BlurShader = m_BlurHandle->shader;
-            GraphicsPipelineDesc pipeline;
-            pipeline.depthStencil.depthTestEnable = false;
-            pipeline.depthStencil.depthWriteEnable = false;
-            pipeline.rasterizer.cullMode = RHICullMode::None;
-            pipeline.shader = m_FXAAShader; pipeline.colorFormats = {RHIFormat::RGBA8UNorm};
-            m_FXAAOffscreenPipeline = device->CreateGraphicsPipeline(pipeline);
-            pipeline.colorFormats = {RHIFormat::RGBA16Float};
-            m_FXAAOffscreenPipeline = device->CreateGraphicsPipeline(pipeline);
-            pipeline.shader = m_SSAOShader; pipeline.colorFormats = {RHIFormat::R8UNorm};
-            pipeline.rasterizer.cullMode = RHICullMode::None;
-            m_SSAOPipeline = device->CreateGraphicsPipeline(pipeline);
-            pipeline.shader = m_BlurShader; m_BlurPipeline = device->CreateGraphicsPipeline(pipeline);
-            m_FXAAVersion = m_FXAAHandle->version;
-            m_SSAOVersion = m_SSAOHandle->version;
-            m_BlurVersion = m_BlurHandle->version;
+        if (!resourcesComplete()) {
+            resetResources();
+        } else {
+            const bool changed = (m_FXAAHandle && m_FXAAHandle->version != m_FXAAVersion) ||
+                (m_SSAOHandle && m_SSAOHandle->version != m_SSAOVersion) ||
+                (m_BlurHandle && m_BlurHandle->version != m_BlurVersion);
+            if (changed) {
+                m_FXAAShader = m_FXAAHandle->shader; m_SSAOShader = m_SSAOHandle->shader;
+                m_BlurShader = m_BlurHandle->shader;
+                GraphicsPipelineDesc pipeline;
+                pipeline.depthStencil.depthTestEnable = false;
+                pipeline.depthStencil.depthWriteEnable = false;
+                pipeline.rasterizer.cullMode = RHICullMode::None;
+                pipeline.shader = m_FXAAShader; pipeline.colorFormats = {RHIFormat::RGBA8UNorm};
+                m_FXAAOffscreenPipeline = device->CreateGraphicsPipeline(pipeline);
+                pipeline.colorFormats = {RHIFormat::RGBA16Float};
+                m_FXAAOffscreenPipeline = device->CreateGraphicsPipeline(pipeline);
+                pipeline.shader = m_SSAOShader; pipeline.colorFormats = {RHIFormat::R8UNorm};
+                pipeline.rasterizer.cullMode = RHICullMode::None;
+                m_SSAOPipeline = device->CreateGraphicsPipeline(pipeline);
+                pipeline.shader = m_BlurShader; m_BlurPipeline = device->CreateGraphicsPipeline(pipeline);
+                m_FXAAVersion = m_FXAAHandle->version;
+                m_SSAOVersion = m_SSAOHandle->version;
+                m_BlurVersion = m_BlurHandle->version;
+            }
+            return resourcesComplete();
         }
-        return m_FXAABackbufferPipeline && m_FXAAOffscreenPipeline && m_SSAOPipeline && m_BlurPipeline;
     }
     auto makeTexture = [&](const char* name, RHIFormat format, RHIResourceUsage usage,
                            std::shared_ptr<GpuTexture>& texture,
@@ -151,7 +178,10 @@ bool PostProcessPass::EnsureResources() {
             m_SSAOBlur, m_SSAOBlurRtv, m_SSAOBlurSrv) ||
         !makeTexture("Composite", RHIFormat::RGBA16Float,
             RHIResourceUsage::RenderTarget | RHIResourceUsage::ShaderResource,
-            m_Composite, m_CompositeRtv, m_CompositeSrv)) return false;
+            m_Composite, m_CompositeRtv, m_CompositeSrv)) {
+        resetResources();
+        return false;
+    }
 
     RHISamplerDesc linear; linear.addressU = linear.addressV = linear.addressW = RHIAddressMode::Clamp;
     m_LinearClamp = device->CreateSampler(linear);
@@ -195,8 +225,11 @@ bool PostProcessPass::EnsureResources() {
     pipeline.shader = m_BlurShader;
     pipeline.rasterizer.cullMode = RHICullMode::None;
     m_BlurPipeline = device->CreateGraphicsPipeline(pipeline);
-    return m_LinearClamp && m_PointClamp && m_NoiseSampler && m_NoiseSrv &&
-           m_FXAABackbufferPipeline && m_FXAAOffscreenPipeline && m_SSAOPipeline && m_BlurPipeline;
+    if (!resourcesComplete()) {
+        resetResources();
+        return false;
+    }
+    return true;
 }
 
 bool PostProcessPass::PrepareGraphResources() {

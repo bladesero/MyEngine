@@ -18,9 +18,14 @@ class Engine;
 class IWindow;
 class Scene;
 class SceneLayer;
-class SceneRenderHost;
 class SceneRenderLayer;
-class SceneViewportController;
+class GameViewport;
+class SceneViewport;
+
+enum class EditorWorldViewMode : uint8_t {
+    EditorWorld,
+    PlayWorldInspect,
+};
 
 class EditorContext {
 public:
@@ -32,11 +37,22 @@ public:
     // Transitional access while editor call sites move to narrower runtime services.
     SceneRenderLayer* GetSceneLayer() const { return m_SceneLayer; }
     SceneLayer* GetSceneLayerBase() const;
-    SceneViewportController* GetSceneViewport() const;
-    SceneRenderHost* GetSceneRenderHost() const;
+    SceneViewport* GetSceneViewport() const;
+    GameViewport* GetGameViewport() const;
     IRenderContext* GetRenderContext() const { return m_RenderContext; }
     IWindow* GetWindow() const { return m_Window; }
     Engine* GetEngine() const { return m_Engine; }
+    Scene* GetEditorScene() const;
+    Scene* GetPlayScene() const;
+    Scene* GetSimulationScene() const;
+    EditorWorldViewMode GetSceneViewMode() const { return m_SceneViewMode; }
+    void SetSceneViewMode(EditorWorldViewMode mode);
+    void RefreshSceneViewMode();
+    Scene* GetSceneViewScene() const;
+    Scene* GetInspectorScene() const;
+    bool CanEditScene() const;
+    bool CanEditSelection() const;
+    bool IsInspectingPlayWorld() const;
     Scene* GetScene() const;
     bool IsEditing() const;
     void MarkSceneDirty() const;
@@ -80,6 +96,7 @@ private:
     EditorActionRegistry* m_ActionRegistry = nullptr;
     EditorShortcutMap* m_ShortcutMap = nullptr;
     EditorImGuiBackend* m_ImGuiBackend = nullptr;
+    EditorWorldViewMode m_SceneViewMode = EditorWorldViewMode::EditorWorld;
     std::unordered_map<std::type_index, EditorService*> m_Services;
     std::filesystem::path m_ProjectRoot;
     std::filesystem::path m_ContentRoot;

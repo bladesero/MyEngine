@@ -388,8 +388,26 @@ void ShadowPass::EnsureShadowShader()
 
 bool ShadowPass::EnsureShadowResources()
 {
-    if (m_ShadowMapTexture && m_SpotShadowMapTexture && m_PointShadowMapTexture)
+    auto resetResources = [&]() {
+        m_ShadowMapTexture.reset();
+        m_SpotShadowMapTexture.reset();
+        m_PointShadowMapTexture.reset();
+        for (auto& view : m_ShadowCascadeViews) view.reset();
+        m_SpotShadowView.reset();
+        for (auto& view : m_PointShadowViews) view.reset();
+        m_ShadowResourcesInShaderState = false;
+    };
+    auto resourcesComplete = [&]() {
+        bool valid = m_ShadowMapTexture && m_SpotShadowMapTexture &&
+            m_PointShadowMapTexture && m_SpotShadowView;
+        for (const auto& view : m_ShadowCascadeViews) valid = valid && view != nullptr;
+        for (const auto& view : m_PointShadowViews) valid = valid && view != nullptr;
+        return valid;
+    };
+    if (resourcesComplete())
         return true;
+    resetResources();
+
     RHITextureDesc directional;
     directional.width = directional.height = m_ShadowMapSize;
     directional.arrayLayers = kMaxCascades;
@@ -407,6 +425,7 @@ bool ShadowPass::EnsureShadowResources()
     m_PointShadowMapTexture = Device()->CreateTexture(point);
     if (!m_ShadowMapTexture || !m_SpotShadowMapTexture || !m_PointShadowMapTexture) {
         Logger::Error("[ShadowPass] RHI shadow texture creation failed");
+        resetResources();
         return false;
     }
     for (uint32_t cascade = 0; cascade < kMaxCascades; ++cascade) {
@@ -426,7 +445,10 @@ bool ShadowPass::EnsureShadowResources()
     bool valid = m_SpotShadowView != nullptr;
     for (const auto& view : m_ShadowCascadeViews) valid = valid && view != nullptr;
     for (const auto& view : m_PointShadowViews) valid = valid && view != nullptr;
-    if (!valid) Logger::Error("[ShadowPass] RHI shadow view creation failed");
+    if (!valid) {
+        Logger::Error("[ShadowPass] RHI shadow view creation failed");
+        resetResources();
+    }
     return valid;
 }
 

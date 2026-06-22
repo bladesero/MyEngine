@@ -1,4 +1,4 @@
-﻿#include "Assets/AssetManager.h"
+#include "Assets/AssetManager.h"
 #include "Assets/AssetMeta.h"
 #include "Core/Memory/LinearAllocator.h"
 #include "Assets/ShaderAsset.h"
@@ -9,7 +9,9 @@
 #include "Core/Memory/PoolAllocator.h"
 #include "Core/CrashHandler.h"
 #include "Camera/Camera.h"
+#include "Camera/CameraComponent.h"
 #include "Game/DefaultSceneFactory.h"
+#include "Game/GameViewport.h"
 #include "Game/SceneLayer.h"
 #include "Game/SceneViewportController.h"
 #include "Input/Input.h"
@@ -56,6 +58,7 @@
 #include "Project/RuntimeCompatibility.h"
 #include "Project/RuntimeDependencies.h"
 #include "TestHarness.h"
+#include "Miscs/IconsManager.h"
 
 #include <algorithm>
 #include <cmath>
@@ -887,7 +890,7 @@ bool TestComponentRegistry() {
     ComponentRegistry& registry = ComponentRegistry::Get();
     const char* required[] = {
         "MeshRenderer", "SkinnedMeshRenderer", "Script", "RigidBody", "BoxCollider",
-        "SphereCollider", "CapsuleCollider", "CharacterController", "Light", "PostProcess",
+        "SphereCollider", "CapsuleCollider", "CharacterController", "Camera", "Light", "PostProcess",
         "AudioSource"
     };
     for (const char* type : required) {
@@ -917,7 +920,8 @@ bool TestComponentRegistry() {
 
 bool TestSceneRunStates() {
     SceneLayer layer("RunStateTest");
-    Actor* actor = layer.GetScene().CreateActor("Scripted");
+    Scene* editorScene = &layer.GetEditorScene();
+    Actor* actor = editorScene->CreateActor("Scripted");
     auto* script = actor->AddComponent<ScriptComponent>();
     script->SetSource(
         "class Script {\n"
@@ -930,12 +934,18 @@ bool TestSceneRunStates() {
                "Edit mode should not simulate scene")) return false;
 
     if (!Check(layer.BeginPlay(), "BeginPlay failed")) return false;
-    Actor* runtimeActor = layer.GetScene().FindByName("Scripted");
+    if (!Check(&layer.GetEditorScene() == editorScene,
+               "BeginPlay replaced the editor scene")) return false;
+    if (!Check(layer.HasPlayWorld() && layer.GetPlayScene(),
+               "BeginPlay did not create PlayWorld")) return false;
+    Actor* runtimeActor = layer.GetPlayScene()->FindByName("Scripted");
     if (!Check(runtimeActor && runtimeActor != actor,
-               "Play mode did not clone the edit scene")) return false;
+               "PlayWorld did not clone the edit scene")) return false;
     layer.OnUpdate(0.5f);
     if (!Check(NearlyEqual(runtimeActor->GetTransform().position.x, 1.0f),
                "Play mode did not update runtime scene")) return false;
+    if (!Check(NearlyEqual(actor->GetTransform().position.x, 0.0f),
+               "PlayWorld update leaked into EditorWorld")) return false;
 
     layer.PausePlay();
     layer.OnUpdate(0.5f);
@@ -950,9 +960,11 @@ bool TestSceneRunStates() {
                "paused scene advanced after Step")) return false;
 
     layer.StopPlay();
-    Actor* restored = layer.GetScene().FindByName("Scripted");
-    if (!Check(layer.IsEditing() && restored,
+    Actor* restored = layer.GetEditorScene().FindByName("Scripted");
+    if (!Check(layer.IsEditing() && !layer.HasPlayWorld() && restored,
                "StopPlay did not restore Edit mode")) return false;
+    if (!Check(restored == actor && &layer.GetEditorScene() == editorScene,
+               "StopPlay should keep the original EditorWorld alive")) return false;
     if (!Check(NearlyEqual(restored->GetTransform().position.x, 0.0f),
                "runtime changes leaked into edit scene")) return false;
     return Check(layer.IsDirty(), "edit dirty state was not restored");
@@ -1158,6 +1170,72 @@ public:
     std::vector<uint8_t> bufferBytes;
     std::shared_ptr<MockReadbackTicket> lastReadback;
 };
+
+bool TestIconsManagerSvgRasterizeIcoAndUploadCache()
+{
+    namespace fs = std::filesystem;
+    IconsManager& icons = IconsManager::Get();
+    icons.Clear();
+    icons.SetIconRoot(fs::current_path() / "EngineContent" / "Editor" / "Icons");
+
+    if (!Check(fs::is_regular_file(icons.ResolveIconPath(IconsManager::kEditorIcon)),
+               "engine-editor.svg was not resolved")) return false;
+
+    const char* required[] = {
+        IconsManager::kEditorIcon,
+        IconsManager::kPlayerIcon,
+        IconsManager::kCookerIcon,
+        "play-start"
+    };
+    for (const char* icon : required) {
+        for (int size : {16, 32, 64}) {
+            auto pixels = icons.Rasterize(icon, size, {220, 40, 60, 255});
+            if (!Check(pixels && pixels->width == size && pixels->height == size &&
+                       pixels->rgba8.size() == static_cast<size_t>(size * size * 4),
+                       std::string("failed to rasterize icon: ") + icon)) return false;
+            bool hasVisiblePixel = false;
+            bool hasTintedPixel = false;
+            for (size_t i = 0; i + 3 < pixels->rgba8.size(); i += 4) {
+                if (pixels->rgba8[i + 3] != 0) {
+                    hasVisiblePixel = true;
+                    if (pixels->rgba8[i] > pixels->rgba8[i + 1] &&
+                        pixels->rgba8[i] > pixels->rgba8[i + 2]) {
+                        hasTintedPixel = true;
+                    }
+                }
+            }
+            if (!Check(hasVisiblePixel && hasTintedPixel,
+                       std::string("icon did not produce tinted visible pixels: ") + icon)) {
+                return false;
+            }
+        }
+    }
+
+    if (!Check(!icons.Rasterize("__missing_icon__", 32),
+               "missing icon should fail without producing pixels")) return false;
+
+    const fs::path output = fs::temp_directory_path() / "myengine_icon_test.ico";
+    std::error_code ec;
+    fs::remove(output, ec);
+    if (!Check(icons.WriteIco(IconsManager::kEditorIcon, output,
+                              std::vector<int>{16, 24, 32, 48, 64, 128, 256}),
+               "ico generation failed")) return false;
+    std::ifstream ico(output, std::ios::binary);
+    unsigned char header[6] = {};
+    ico.read(reinterpret_cast<char*>(header), sizeof(header));
+    const int count = header[4] | (header[5] << 8);
+    if (!Check(ico.good() && count == 7 && fs::file_size(output) > 1024,
+               "ico did not contain all requested image sizes")) return false;
+    fs::remove(output, ec);
+
+    MockRenderContext context;
+    GpuTextureView* first = icons.GetOrUpload(context, "play-start", 24, {255, 255, 255, 255});
+    GpuTextureView* second = icons.GetOrUpload(context, "play-start", 24, {255, 255, 255, 255});
+    GpuTextureView* third = icons.GetOrUpload(context, "play-start", 24, {128, 255, 128, 255});
+    return Check(first && second && third && first == second && first != third &&
+                 context.textureUploads == 2,
+                 "icon upload cache key did not include name/size/color");
+}
 
 bool TestExtendedRHIContracts() {
     MockRenderContext context;
@@ -1576,8 +1654,52 @@ bool TestCameraViewportProjectionStability() {
     return Check(checkProjected(bottom, 0.0f, -1.0f), "bottom ray projection drift");
 }
 
+bool TestCameraComponentAndGameViewport() {
+    Scene scene("CameraViewport");
+    GameViewport viewport(nullptr, nullptr, nullptr);
+    viewport.Initialize(800, 400);
+    viewport.ResolveFrameCamera(scene);
+    if (!Check(!viewport.HasMainCamera(), "empty scene reported a main camera")) return false;
+    if (!Check(NearlyEqual(viewport.GetCamera().GetAspect(), 2.0f),
+               "fallback camera aspect mismatch")) return false;
+
+    Actor* inactive = scene.CreateActor("InactiveCamera");
+    auto* inactiveCamera = inactive->AddComponent<CameraComponent>();
+    inactiveCamera->SetMainCamera(true);
+    inactive->SetActive(false);
+
+    Actor* actor = scene.CreateActor("MainCamera");
+    actor->GetTransform().position = {1.0f, 2.0f, -3.0f};
+    actor->GetTransform().rotation = {0.0f, 0.0f, 0.0f};
+    auto* camera = actor->AddComponent<CameraComponent>();
+    camera->SetMainCamera(true);
+    camera->SetFovYDegrees(72.0f);
+    camera->SetNearClip(0.25f);
+    camera->SetFarClip(500.0f);
+    camera->SetClearColor({0.2f, 0.3f, 0.4f});
+
+    viewport.ResolveFrameCamera(scene);
+    if (!Check(viewport.HasMainCamera() && viewport.GetMainCameraComponent() == camera,
+               "game viewport did not resolve enabled main camera")) return false;
+    if (!Check(NearlyEqual(viewport.GetCamera().GetFovY(), 72.0f) &&
+               NearlyEqual(viewport.GetCamera().GetNear(), 0.25f) &&
+               NearlyEqual(viewport.GetCamera().GetFar(), 500.0f),
+               "game viewport camera settings mismatch")) return false;
+
+    const std::string serialized = SceneSerializer::SaveToString(scene);
+    Scene loaded("LoadedCamera");
+    if (!Check(SceneSerializer::LoadFromString(loaded, serialized),
+               "camera component scene load failed")) return false;
+    Actor* loadedActor = loaded.FindByName("MainCamera");
+    auto* loadedCamera = loadedActor ? loadedActor->GetComponent<CameraComponent>() : nullptr;
+    return Check(loadedCamera && loadedCamera->IsMainCamera() &&
+                 NearlyEqual(loadedCamera->GetFovYDegrees(), 72.0f) &&
+                 NearlyEqual(loadedCamera->GetClearColor().y, 0.3f),
+                 "camera component round trip mismatch");
+}
+
 bool TestSceneViewportControllerRayStability() {
-    SceneViewportController viewport;
+    SceneViewportController viewport(nullptr, nullptr, nullptr);
     viewport.Initialize(800, 600);
 
     int x = -1, y = -1, w = 0, h = 0;
@@ -1593,7 +1715,7 @@ bool TestSceneViewportControllerRayStability() {
                center.direction.z > 0.99f,
                "center screen ray direction drifted")) return false;
 
-    viewport.SetEditorViewportRect(100, 50, 400, 200);
+    viewport.SetViewportRect(100, 50, 400, 200);
     viewport.GetViewportRect(x, y, w, h);
     if (!Check(x == 100 && y == 50 && w == 400 && h == 200,
                "editor viewport rect mismatch")) return false;
@@ -1606,8 +1728,58 @@ bool TestSceneViewportControllerRayStability() {
                "bottom-right editor ray failed")) return false;
     if (!Check(topLeft.direction.x < 0.0f && topLeft.direction.y > 0.0f,
                "top-left editor ray direction mismatch")) return false;
-    return Check(bottomRight.direction.x > 0.0f && bottomRight.direction.y < 0.0f,
-                 "bottom-right editor ray direction mismatch");
+    if (!Check(bottomRight.direction.x > 0.0f && bottomRight.direction.y < 0.0f,
+               "bottom-right editor ray direction mismatch")) return false;
+
+    viewport.FrameDirection(SceneViewDirection::Front, Vec3::Zero(), 8.0f);
+    if (!Check(NearlyEqual(viewport.GetCamera().GetForward().x, 0.0f) &&
+               NearlyEqual(viewport.GetCamera().GetForward().y, 0.0f) &&
+               viewport.GetCamera().GetForward().z > 0.99f,
+               "front view direction mismatch")) return false;
+    viewport.FrameDirection(SceneViewDirection::Top, Vec3::Zero(), 8.0f);
+    if (!Check(viewport.GetCamera().GetForward().y < -0.99f,
+               "top view direction mismatch")) return false;
+    const Vec3 orbitTarget {1.0f, 2.0f, 3.0f};
+    viewport.FrameDirection(SceneViewDirection::Front, orbitTarget, 8.0f);
+    const Vec3 beforeOrbitPosition = viewport.GetCamera().GetPosition();
+    const float beforeOrbitDistance = (beforeOrbitPosition - orbitTarget).Length();
+    viewport.OrbitAroundFocus(orbitTarget, 30.0f, -12.0f);
+    const Vec3 afterOrbitPosition = viewport.GetCamera().GetPosition();
+    const float afterOrbitDistance = (afterOrbitPosition - orbitTarget).Length();
+    if (!Check(NearlyEqual(beforeOrbitDistance, afterOrbitDistance, 1e-3f),
+               "scene viewport orbit changed focus distance")) return false;
+    if (!Check((afterOrbitPosition - beforeOrbitPosition).Length() > 0.1f,
+               "scene viewport orbit did not move camera")) return false;
+    if (!Check((viewport.GetCamera().GetTarget() - orbitTarget).Length() < 1e-3f,
+               "scene viewport orbit target mismatch")) return false;
+
+    const float aspect = viewport.GetCamera().GetAspect();
+    viewport.ToggleProjectionMode();
+    if (!Check(viewport.IsOrthographic() &&
+               viewport.GetCamera().GetProjectionMode() == ProjectionMode::Orthographic,
+               "scene viewport did not switch to orthographic")) return false;
+    if (!Check(NearlyEqual(
+            viewport.GetCamera().GetOrthoWidth() / viewport.GetCamera().GetOrthoHeight(),
+            aspect,
+            1e-3f),
+            "orthographic aspect mismatch")) return false;
+    Ray orthoCenter;
+    if (!Check(viewport.BuildRayFromScreen(300.0f, 150.0f, orthoCenter),
+               "orthographic center ray failed")) return false;
+
+    viewport.SetViewportRect(100, 50, 300, 300);
+    const float squareAspect = viewport.GetCamera().GetAspect();
+    if (!Check(NearlyEqual(
+            viewport.GetCamera().GetOrthoWidth() / viewport.GetCamera().GetOrthoHeight(),
+            squareAspect,
+            1e-3f),
+            "orthographic resize did not preserve aspect")) return false;
+
+    viewport.ToggleProjectionMode();
+    return Check(!viewport.IsOrthographic() &&
+                 viewport.GetCamera().GetProjectionMode() == ProjectionMode::Perspective &&
+                 NearlyEqual(viewport.GetCamera().GetAspect(), squareAspect),
+                 "scene viewport did not restore perspective aspect");
 }
 
 bool TestDefaultSceneFactoryLeavesScenesUnmodified() {
@@ -3200,8 +3372,10 @@ MYENGINE_REGISTER_TEST("Scripting", "TestEditorLuaScriptService", TestEditorLuaS
 MYENGINE_REGISTER_TEST("Scripting", "TestLegacyLuaScriptCompatibility", TestLegacyLuaScriptCompatibility);
 MYENGINE_REGISTER_TEST("Animation", "TestGpuSkinningAnimationBlend", TestGpuSkinningAnimationBlend);
 MYENGINE_REGISTER_TEST("Scene", "TestComponentRegistry", TestComponentRegistry);
+MYENGINE_REGISTER_TEST("Scene", "TestCameraComponentAndGameViewport", TestCameraComponentAndGameViewport);
 MYENGINE_REGISTER_TEST("Scene", "TestAudioSourceComponentSerialization", TestAudioSourceComponentSerialization);
 MYENGINE_REGISTER_TEST("Scene", "TestSceneRunStates", TestSceneRunStates);
+MYENGINE_REGISTER_TEST("Miscs", "TestIconsManagerSvgRasterizeIcoAndUploadCache", TestIconsManagerSvgRasterizeIcoAndUploadCache);
 MYENGINE_REGISTER_TEST("Core", "TestCrashReportWriting", TestCrashReportWriting);
 MYENGINE_REGISTER_TEST("Scene", "TestTransformHierarchyWorldPosition", TestTransformHierarchyWorldPosition);
 MYENGINE_REGISTER_TEST("Camera", "TestCameraViewportProjectionStability", TestCameraViewportProjectionStability);

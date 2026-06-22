@@ -2,9 +2,13 @@
 
 #include "Editor/EditorAction.h"
 #include "Editor/EditorContext.h"
+#include "Editor/EditorImGuiBackend.h"
+#include "Editor/UI/EditorIcons.h"
 #include "Editor/UI/EditorNotifications.h"
 #include "Editor/UI/EditorPropertyGrid.h"
 #include "Editor/UI/EditorTheme.h"
+#include "Renderer/IRenderContext.h"
+#include "Miscs/IconsManager.h"
 
 #if defined(MYENGINE_ENABLE_IMGUI)
 #include <imgui.h>
@@ -58,8 +62,12 @@ bool ToolbarActionButton(EditorContext& context, const char* actionID,
 
     const bool enabled = action->CanExecute(context);
     const std::string label = icon && icon[0] != '\0'
-        ? std::string(icon) + " " + action->GetLabel()
+        ? std::string(EditorIcons::FallbackFor(icon)) + " " + action->GetLabel()
         : std::string(action->GetLabel());
+    if (icon && icon[0] != '\0') {
+        SvgIcon(context, icon, 16.0f);
+        ImGui::SameLine();
+    }
     PushButtonVariant(variant);
     ImGui::BeginDisabled(!enabled);
     const bool clicked = ImGui::Button(label.c_str());
@@ -81,11 +89,75 @@ bool ToolbarActionButton(EditorContext& context, const char* actionID,
 #endif
 }
 
+bool SvgIcon(EditorContext& context, const char* icon, float size, IconColor color)
+{
+#if defined(MYENGINE_ENABLE_IMGUI)
+    if (!icon || icon[0] == '\0' || size <= 0.0f) return false;
+    IRenderContext* renderContext = context.GetRenderContext();
+    EditorImGuiBackend* backend = context.GetImGuiBackend();
+    if (!renderContext || !backend) return false;
+    GpuTextureView* view = IconsManager::Get().GetOrUpload(
+        *renderContext, icon, static_cast<int>(size + 0.5f), color);
+    void* texture = view ? backend->GetTextureId(view) : nullptr;
+    if (!texture) return false;
+    ImGui::Image(reinterpret_cast<ImTextureID>(texture), {size, size});
+    return true;
+#else
+    (void)context;
+    (void)icon;
+    (void)size;
+    (void)color;
+    return false;
+#endif
+}
+
+bool IconButton(EditorContext& context, const char* id, const char* icon,
+                const char* tooltip, bool enabled)
+{
+#if defined(MYENGINE_ENABLE_IMGUI)
+    const char* fallback = EditorIcons::FallbackFor(icon);
+    ImGui::PushID(id ? id : "");
+    ImGui::BeginDisabled(!enabled);
+    bool clicked = false;
+    const float size = ImGui::GetFrameHeight();
+    const bool hasSvg = context.GetRenderContext() && context.GetImGuiBackend() &&
+        IconsManager::Get().ResolveIconPath(icon ? icon : "").empty() == false;
+    if (hasSvg) {
+        clicked = ImGui::Button("##svgIconButton", {size, size});
+        const ImVec2 min = ImGui::GetItemRectMin();
+        const ImVec2 max = ImGui::GetItemRectMax();
+        const ImVec2 cursorAfterButton = ImGui::GetCursorScreenPos();
+        const float iconSize = ImGui::GetFontSize();
+        ImGui::SetCursorScreenPos({
+            min.x + (max.x - min.x - iconSize) * 0.5f,
+            min.y + (max.y - min.y - iconSize) * 0.5f
+        });
+        SvgIcon(context, icon, iconSize);
+        ImGui::SetCursorScreenPos(cursorAfterButton);
+    } else {
+        clicked = ImGui::SmallButton(fallback && fallback[0] ? fallback : "?");
+    }
+    ImGui::EndDisabled();
+    if (tooltip && tooltip[0] && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
+        ImGui::SetTooltip("%s", tooltip);
+    }
+    ImGui::PopID();
+    return clicked && enabled;
+#else
+    (void)context;
+    (void)id;
+    (void)icon;
+    (void)tooltip;
+    (void)enabled;
+    return false;
+#endif
+}
+
 bool IconButton(const char* id, const char* icon, const char* tooltip, bool enabled)
 {
 #if defined(MYENGINE_ENABLE_IMGUI)
     ImGui::BeginDisabled(!enabled);
-    const std::string label = std::string(icon && icon[0] ? icon : "?") + "##" + id;
+    const std::string label = std::string(EditorIcons::FallbackFor(icon)) + "##" + id;
     const bool clicked = ImGui::SmallButton(label.c_str());
     ImGui::EndDisabled();
     if (tooltip && tooltip[0] && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {

@@ -13,7 +13,7 @@ namespace Editor::UI {
 
 class EditorStatusBar {
 public:
-    float Draw(const EditorContext& context,
+    float Draw(EditorContext& context,
                const EditorProject* project,
                IRenderContext* renderContext,
                Engine* engine,

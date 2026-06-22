@@ -22,6 +22,7 @@
 #include "Editor/EditorViewportControllers.h"
 #include "Editor/EditorWorkspace.h"
 #include "Editor/InspectorSections.h"
+#include "Game/SceneRenderLayer.h"
 #include "Physics/BoxColliderComponent.h"
 #include "Scene/Scene.h"
 #include "Scene/SceneSerializer.h"
@@ -192,6 +193,71 @@ bool TestEditorSceneSnapshotCommands() {
     return Check(restoredParent && restoredParent->GetChildren().size() == 1 &&
                  restoredParent->GetChildren()[0]->GetComponent<BoxColliderComponent>() != nullptr,
                  "scene snapshot redo lost hierarchy or component");
+}
+
+bool TestEditorContextWorldRouting() {
+    SceneRenderLayer layer(nullptr, 320, 180);
+    Actor* editorActor = layer.GetEditorScene().CreateActor("EditorOnly");
+    EditorContext context(&layer, nullptr, nullptr, nullptr);
+    context.GetSelection().Select(EditorSelectObject::MakeActor(
+        editorActor->GetHandle(), editorActor->GetID()));
+
+    if (!Check(context.GetScene() == &layer.GetEditorScene(),
+               "EditorContext::GetScene should return EditorWorld")) return false;
+    if (!Check(context.GetEditorScene() == &layer.GetEditorScene(),
+               "EditorContext::GetEditorScene mismatch")) return false;
+    if (!Check(context.GetSimulationScene() == &layer.GetEditorScene(),
+               "Edit mode simulation scene should be EditorWorld")) return false;
+    if (!Check(context.GetPlayScene() == nullptr,
+               "Edit mode should not expose a PlayWorld")) return false;
+    context.SetSceneViewMode(EditorWorldViewMode::PlayWorldInspect);
+    if (!Check(context.GetSceneViewMode() == EditorWorldViewMode::EditorWorld &&
+               context.GetSceneViewScene() == &layer.GetEditorScene(),
+               "Edit mode should reject PlayWorldInspect")) return false;
+
+    layer.MarkDirty();
+    if (!Check(layer.BeginPlay(), "BeginPlay failed for editor context routing")) return false;
+    if (!Check(context.GetScene() == &layer.GetEditorScene() &&
+               context.GetEditorScene() == &layer.GetEditorScene(),
+               "EditorContext should keep editing routed to EditorWorld in Play")) return false;
+    if (!Check(context.GetPlayScene() == layer.GetPlayScene() &&
+               context.GetSimulationScene() == layer.GetPlayScene(),
+               "Play mode simulation scene should be PlayWorld")) return false;
+    Actor* playActor = layer.GetPlayScene()->FindByID(editorActor->GetID());
+    if (!Check(playActor && playActor != editorActor,
+               "PlayWorld should contain cloned actor instances")) return false;
+    playActor->GetTransform().position.x = 42.0f;
+
+    if (!Check(context.GetSceneViewScene() == &layer.GetEditorScene() &&
+               !layer.GetSceneViewportUsesSimulationScene(),
+               "SceneView should stay on EditorWorld after BeginPlay")) return false;
+    context.SetSceneViewMode(EditorWorldViewMode::PlayWorldInspect);
+    if (!Check(context.GetSceneViewScene() == layer.GetPlayScene() &&
+               layer.GetSceneViewportUsesSimulationScene(),
+               "PlayWorldInspect did not route SceneView to PlayWorld")) return false;
+    if (!Check(context.GetInspectorScene() == layer.GetPlayScene() &&
+               context.GetSelection().GetPrimaryObject().GetWorldKind() == EditorSelectionWorldKind::Play,
+               "PlayWorldInspect did not map actor selection to PlayWorld")) return false;
+    if (!Check(context.GetSelection().ResolveActor(*layer.GetPlayScene()) == playActor &&
+               context.GetSelection().ResolveActor(*context.GetScene()) == editorActor,
+               "selection did not preserve persistent id across worlds")) return false;
+    if (!Check(!context.CanEditScene() && !context.CanEditSelection(),
+               "PlayWorldInspect should be read-only")) return false;
+
+    layer.PausePlay();
+    if (!Check(context.GetScene() == &layer.GetEditorScene() &&
+               context.GetSimulationScene() == layer.GetPlayScene(),
+               "Pause mode should preserve EditorWorld edits and PlayWorld simulation")) return false;
+
+    layer.StopPlay();
+    context.RefreshSceneViewMode();
+    return Check(context.GetPlayScene() == nullptr &&
+                 context.GetSimulationScene() == &layer.GetEditorScene() &&
+                 context.GetSceneViewScene() == &layer.GetEditorScene() &&
+                 context.GetInspectorScene() == &layer.GetEditorScene() &&
+                 context.GetScene() == &layer.GetEditorScene() &&
+                 context.GetSelection().GetPrimaryObject().GetWorldKind() == EditorSelectionWorldKind::Editor,
+                 "StopPlay did not return editor context to EditorWorld-only routing");
 }
 
 bool TestEditorGizmoRowVectorLocalConversion() {
@@ -565,7 +631,7 @@ bool TestEditorLayoutConfigAndStatePersistence() {
 
     std::unordered_set<std::string> ids;
     for (const auto& panel : config.panels) ids.insert(panel.panelID);
-    for (const char* required : {"toolbar", "sceneHierarchy", "viewport",
+    for (const char* required : {"toolbar", "sceneHierarchy", "viewport", "gameViewport",
                                  "inspector", "assetBrowser", "log"}) {
         if (!Check(ids.count(required) == 1,
                    std::string("default layout missing panel: ") + required)) return false;
@@ -609,6 +675,7 @@ bool TestEditorLayoutConfigAndStatePersistence() {
     EditorProject project;
     if (!Check(project.Open(root), "layout state project open failed")) return false;
     if (!Check(!project.GetState().IsPanelVisible("sceneHierarchy") &&
+               project.GetState().IsPanelVisible("gameViewport") &&
                !project.GetState().IsPanelVisible("assetBrowser") &&
                project.GetLastScenePath() == "Content/Scenes/Legacy.scene.json" &&
                project.GetState().selectedAssetPath == "Content/Models/Legacy.gltf",
@@ -624,6 +691,7 @@ bool TestEditorLayoutConfigAndStatePersistence() {
         reloaded.GetLastScenePath() == "Content/Scenes/Legacy.scene.json" &&
         reloaded.GetState().selectedAssetPath == "Content/Models/Legacy.gltf" &&
         !reloaded.GetState().IsPanelVisible("sceneHierarchy") &&
+        reloaded.GetState().IsPanelVisible("gameViewport") &&
         !reloaded.GetState().IsPanelVisible("assetBrowser") &&
         !reloaded.GetState().IsPanelVisible("log") &&
         reloaded.GetState().imguiLayoutIni.find("Scene View###viewport") != std::string::npos;
@@ -757,6 +825,7 @@ bool TestProductionAssetDatabaseAndImportPipeline() {
 MYENGINE_REGISTER_TEST("Editor", "TestEditorCommandStackAndSelection", TestEditorCommandStackAndSelection);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorSelectObjectEvents", TestEditorSelectObjectEvents);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorSceneSnapshotCommands", TestEditorSceneSnapshotCommands);
+MYENGINE_REGISTER_TEST("Editor", "TestEditorContextWorldRouting", TestEditorContextWorldRouting);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorGizmoRowVectorLocalConversion", TestEditorGizmoRowVectorLocalConversion);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorServiceActionAndInspectorRegistries", TestEditorServiceActionAndInspectorRegistries);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorShortcutMapAndWorkspacePersistence", TestEditorShortcutMapAndWorkspacePersistence);

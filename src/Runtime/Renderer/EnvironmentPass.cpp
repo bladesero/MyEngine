@@ -25,7 +25,39 @@ bool EnvironmentPass::EnsureResources()
 {
     auto* device = Device();
     if (!device) return false;
+    auto resetResources = [&]() {
+        m_Environment.reset();
+        m_EnvironmentSrv.reset();
+        for (auto& view : m_MipSrvs) view.reset();
+        for (auto& mip : m_FaceRtvs) {
+            for (auto& view : mip) view.reset();
+        }
+        m_LinearClamp.reset();
+        m_AtmospherePipeline.reset();
+        m_MipmapPipeline.reset();
+        m_SHPipeline.reset();
+        m_SHBuffer.reset();
+        m_SHUav.reset();
+        m_SH2Srv.reset();
+        m_Readback.reset();
+        m_Generated = false;
+        m_EnvironmentInShaderState = false;
+        m_SHBufferInShaderState = false;
+    };
+    auto resourcesComplete = [&]() {
+        bool valid = m_Environment && m_EnvironmentSrv && m_LinearClamp &&
+            m_AtmospherePipeline && m_MipmapPipeline && m_SHPipeline &&
+            m_SHBuffer && m_SHUav && m_SH2Srv;
+        for (const auto& view : m_MipSrvs) valid = valid && view != nullptr;
+        for (const auto& mip : m_FaceRtvs) {
+            for (const auto& view : mip) valid = valid && view != nullptr;
+        }
+        return valid;
+    };
     if (m_Environment) {
+        if (!resourcesComplete()) {
+            resetResources();
+        } else {
         if ((m_AtmosphereHandle && m_AtmosphereHandle->version != m_AtmosphereVersion) ||
             (m_MipmapHandle && m_MipmapHandle->version != m_MipmapVersion) ||
             (m_SHHandle && m_SHHandle->version != m_SHVersion)) {
@@ -42,7 +74,8 @@ bool EnvironmentPass::EnsureResources()
             m_SHVersion = m_SHHandle->version;
             m_Generated = false;
         }
-        return m_AtmospherePipeline && m_MipmapPipeline;
+        return resourcesComplete();
+        }
     }
 #ifndef MYENGINE_PLATFORM_WINDOWS
     return false;
@@ -64,7 +97,10 @@ bool EnvironmentPass::EnsureResources()
     srvDesc.layerCount = 6;
     srvDesc.usage = RHIResourceUsage::ShaderResource;
     m_EnvironmentSrv = device->CreateTextureView(m_Environment, srvDesc);
-    if (!m_EnvironmentSrv) return false;
+    if (!m_EnvironmentSrv) {
+        resetResources();
+        return false;
+    }
     for (uint32_t mip = 0; mip < kCubeMipLevels; ++mip) {
         RHITextureViewDesc mipSrvDesc;
         mipSrvDesc.firstMip = mip;
@@ -72,7 +108,10 @@ bool EnvironmentPass::EnsureResources()
         mipSrvDesc.layerCount = 6;
         mipSrvDesc.usage = RHIResourceUsage::ShaderResource;
         m_MipSrvs[mip] = device->CreateTextureView(m_Environment, mipSrvDesc);
-        if (!m_MipSrvs[mip]) return false;
+        if (!m_MipSrvs[mip]) {
+            resetResources();
+            return false;
+        }
     }
     for (uint32_t mip = 0; mip < kCubeMipLevels; ++mip) {
         for (uint32_t face = 0; face < 6; ++face) {
@@ -81,13 +120,20 @@ bool EnvironmentPass::EnsureResources()
             rtvDesc.firstLayer = face;
             rtvDesc.usage = RHIResourceUsage::RenderTarget;
             m_FaceRtvs[mip][face] = device->CreateTextureView(m_Environment, rtvDesc);
-            if (!m_FaceRtvs[mip][face]) return false;
+            if (!m_FaceRtvs[mip][face]) {
+                resetResources();
+                return false;
+            }
         }
     }
     RHISamplerDesc samplerDesc;
     samplerDesc.filter = RHIFilter::Linear;
     samplerDesc.addressU = samplerDesc.addressV = samplerDesc.addressW = RHIAddressMode::Clamp;
     m_LinearClamp = device->CreateSampler(samplerDesc);
+    if (!m_LinearClamp) {
+        resetResources();
+        return false;
+    }
 
     m_AtmosphereHandle = ShaderManager::Get().GetOrCreate(
         "Content/Engine/Shaders/AtmosphereCubemap.shader", nullptr, 0);
@@ -101,7 +147,10 @@ bool EnvironmentPass::EnsureResources()
     m_MipmapVersion = m_MipmapHandle ? m_MipmapHandle->version : 0;
     m_SHShader = m_SHHandle ? m_SHHandle->shader : nullptr;
     m_SHVersion = m_SHHandle ? m_SHHandle->version : 0;
-    if (!m_LinearClamp || !m_AtmosphereShader || !m_MipmapShader || !m_SHShader) return false;
+    if (!m_AtmosphereShader || !m_MipmapShader || !m_SHShader) {
+        resetResources();
+        return false;
+    }
 
     GraphicsPipelineDesc graphicsDesc;
     graphicsDesc.colorFormats = {RHIFormat::RGBA16Float};
@@ -130,8 +179,11 @@ bool EnvironmentPass::EnsureResources()
     srvBufferDesc.elementCount = 9;
     srvBufferDesc.usage = RHIResourceUsage::ShaderResource;
     m_SH2Srv = device->CreateBufferView(m_SHBuffer, srvBufferDesc);
-    return m_AtmospherePipeline && m_MipmapPipeline && m_SHPipeline &&
-           m_SHBuffer && m_SHUav && m_SH2Srv;
+    if (!resourcesComplete()) {
+        resetResources();
+        return false;
+    }
+    return true;
 #endif
 }
 

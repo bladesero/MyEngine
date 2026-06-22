@@ -11,6 +11,7 @@
 #include "Project/CookedProjectCache.h"
 #include "Project/ProjectConfig.h"
 #include "Renderer/IRenderContext.h"
+#include "Miscs/IconsManager.h"
 
 #include <filesystem>
 #include <memory>
@@ -27,6 +28,7 @@ public:
 
 protected:
     bool OnInit() override {
+        IconsManager::Get().ApplyWindowIcon(GetWindow(), IconsManager::kPlayerIcon);
         std::string error;
         const bool allowMissingManifest = !m_SceneOverride.empty();
         if (!m_Project.Open(m_ProjectRoot, allowMissingManifest, &error)) {

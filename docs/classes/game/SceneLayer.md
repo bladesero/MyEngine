@@ -1,10 +1,25 @@
 # SceneLayer
 
-## 角色
+## Role
 
-场景驱动层。
+`SceneLayer` owns scene file lifecycle and runtime simulation state. It keeps
+editing and play simulation in separate worlds:
 
-## 关键职责
+- `EditorWorld`: the persistent editable scene used by load/save, undo, editor
+  panels, editor selection, and Scene View's default mode.
+- `PlayWorld`: a temporary clone created by `BeginPlay()` and destroyed by
+  `StopPlay()`. Editor-only inspection can view it, but changes are not copied
+  back to EditorWorld.
 
-- 持有/更新 `Scene`
-- 协调场景生命周期与运行时逻辑
+## Responsibilities
+
+- Load, create, and save only the EditorWorld.
+- Clone EditorWorld into PlayWorld on `BeginPlay()` using scene serialization.
+- Update only PlayWorld while running, paused-step, or playing.
+- Preserve EditorWorld and dirty state when PlayWorld is stopped.
+- Expose explicit world accessors: `GetEditorScene()`, `GetPlayScene()`, and
+  `GetSimulationScene()`.
+
+`GetScene()` is retained as a transitional runtime compatibility alias for
+`GetSimulationScene()`. Editor code should use `EditorContext`, where
+`GetScene()` intentionally means EditorWorld.

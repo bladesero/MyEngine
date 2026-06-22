@@ -67,7 +67,7 @@ void InspectorPanel::DrawContent()
 {
 #if defined(MYENGINE_ENABLE_IMGUI)
     EditorContext* context = GetContext();
-    Scene* scene = context ? context->GetScene() : nullptr;
+    Scene* scene = context ? context->GetInspectorScene() : nullptr;
     if (!scene) return;
 
     Actor* actor = m_SelectedObject.IsActor()
@@ -76,7 +76,15 @@ void InspectorPanel::DrawContent()
     const std::string before = actor ? SceneSerializer::SaveToString(*scene) : std::string{};
     bool directCommand=false;
 
-    ImGui::BeginDisabled(!context->IsEditing());
+    const bool canEditSelection = context->CanEditSelection();
+    if (m_SelectedObject.IsActor() &&
+        m_SelectedObject.GetWorldKind() == EditorSelectionWorldKind::Play) {
+        ImGui::TextColored({1.0f, 0.75f, 0.25f, 1.0f},
+                           "PlayWorld runtime object - read-only");
+        ImGui::Separator();
+    }
+
+    ImGui::BeginDisabled(!canEditSelection);
     if(actor && actor->IsPrefabRoot()){
         ImGui::Text("Prefab: %s",actor->GetPrefabAssetPath().c_str());
         std::string error;bool refreshed=false;
@@ -96,27 +104,13 @@ void InspectorPanel::DrawContent()
         if(refreshed){context->MarkSceneDirty();actor=context->GetSelection().ResolveActor(*scene);if(!actor){ImGui::EndDisabled();return;}}
         ImGui::Separator();
     }
-    if (actor) {
+    if (canEditSelection && actor) {
         std::array<char, 256> actorName {};
         std::strncpy(actorName.data(), actor->GetName().c_str(), actorName.size() - 1);
         if (ImGui::InputText("Name", actorName.data(), actorName.size())) {
             actor->SetName(actorName.data());
         }
         ImGui::Text("ID: %llu", static_cast<unsigned long long>(actor->GetID()));
-
-        ImGui::Separator();
-        ImGui::TextUnformatted("Gizmo");
-        if (ImGui::RadioButton("Translate", m_State->operation == ImGuizmo::TRANSLATE)) {
-            m_State->operation = ImGuizmo::TRANSLATE;
-        }
-        ImGui::SameLine();
-        if (ImGui::RadioButton("Rotate", m_State->operation == ImGuizmo::ROTATE)) {
-            m_State->operation = ImGuizmo::ROTATE;
-        }
-        ImGui::SameLine();
-        if (ImGui::RadioButton("Scale", m_State->operation == ImGuizmo::SCALE)) {
-            m_State->operation = ImGuizmo::SCALE;
-        }
     }
 
     for (const auto& section : m_SectionRegistry.GetSections()) {

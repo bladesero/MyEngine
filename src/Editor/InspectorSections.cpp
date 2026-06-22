@@ -7,12 +7,14 @@
 #include "Assets/MaterialAsset.h"
 #include "Assets/ScriptAsset.h"
 #include "Assets/TextureAsset.h"
+#include "Camera/CameraComponent.h"
 #include "Editor/EditorCommand.h"
 #include "Editor/EditorContext.h"
 #include "Editor/EditorAssetRegistry.h"
 #include "Editor/EditorInspectorSection.h"
 #include "Editor/EditorPanelHelpers.h"
 #include "Editor/EditorUndoUtil.h"
+#include "Editor/UI/EditorIcons.h"
 #include "Editor/UI/EditorWidgets.h"
 #include "Physics/BoxColliderComponent.h"
 #include "Physics/CapsuleColliderComponent.h"
@@ -42,6 +44,7 @@
 
 namespace {
 using namespace EditorPanelHelpers;
+namespace EditorIcons = Editor::UI::EditorIcons;
 namespace EditorWidgets = Editor::UI::EditorWidgets;
 
 constexpr const char kTexturePayload[] = "MYENGINE_TEXTURE_PATH";
@@ -63,8 +66,16 @@ const char* ScriptFieldTypeLabel(ScriptFieldType type)
 
 Actor* SelectedActor(EditorContext& context)
 {
-    Scene* scene = context.GetScene();
+    Scene* scene = context.GetInspectorScene();
     return scene ? context.GetSelection().ResolveActor(*scene) : nullptr;
+}
+
+bool SectionHeaderWithIcon(EditorContext& context, const char* icon,
+                           const char* label, bool defaultOpen = true)
+{
+    EditorWidgets::SvgIcon(context, icon, 14.0f);
+    ImGui::SameLine();
+    return EditorWidgets::SectionHeader(label, defaultOpen);
 }
 
 bool IsJsonAsset(const std::string& path)
@@ -479,7 +490,7 @@ public:
         if (!actor) return;
 
         ImGui::Separator();
-        if (!EditorWidgets::SectionHeader("Transform")) return;
+        if (!SectionHeaderWithIcon(context, EditorIcons::Actor, "Transform")) return;
         Transform& transform = actor->GetTransform();
         EditorWidgets::BeginPropertyGrid("TransformProperties");
         if (EditorWidgets::BeginPropertyRow("Position")) {
@@ -520,7 +531,7 @@ public:
 
         ImGui::Separator();
         ImGui::PushID("MeshRenderer");
-        if (!EditorWidgets::SectionHeader("Mesh Renderer")) {
+        if (!SectionHeaderWithIcon(context, EditorIcons::Mesh, "Mesh Renderer")) {
             ImGui::PopID();
             return;
         }
@@ -577,7 +588,7 @@ public:
 
         ImGui::Separator();
         ImGui::PushID("SkinnedMesh");
-        if (!EditorWidgets::SectionHeader("Skinned Mesh Renderer")) {
+        if (!SectionHeaderWithIcon(context, EditorIcons::Mesh, "Skinned Mesh Renderer")) {
             ImGui::PopID();
             return;
         }
@@ -603,7 +614,7 @@ public:
 
         ImGui::Separator();
         ImGui::PushID("Material");
-        if (!EditorWidgets::SectionHeader("Material Instance")) {
+        if (!SectionHeaderWithIcon(context, EditorIcons::Material, "Material Instance")) {
             ImGui::PopID();
             return;
         }
@@ -628,7 +639,7 @@ public:
 
         ImGui::Separator();
         ImGui::PushID("AudioSource");
-        if (!EditorWidgets::SectionHeader("Audio Source")) {
+        if (!SectionHeaderWithIcon(context, EditorIcons::Audio, "Audio Source")) {
             ImGui::PopID();
             return;
         }
@@ -698,7 +709,7 @@ public:
 
         ImGui::Separator();
         ImGui::PushID("Physics");
-        if (!EditorWidgets::SectionHeader("Physics")) {
+        if (!SectionHeaderWithIcon(context, EditorIcons::Physics, "Physics")) {
             ImGui::PopID();
             return;
         }
@@ -798,7 +809,7 @@ public:
 
         ImGui::Separator();
         ImGui::PushID("Light");
-        if (!EditorWidgets::SectionHeader("Light")) {
+        if (!SectionHeaderWithIcon(context, EditorIcons::Light, "Light")) {
             ImGui::PopID();
             return;
         }
@@ -825,6 +836,59 @@ public:
     }
 };
 
+class CameraInspectorSection final : public ActorInspectorSection {
+public:
+    const char* GetID() const override { return "camera"; }
+    int GetOrder() const override { return 340; }
+
+    void Draw(EditorContext& context) override
+    {
+        Actor* actor = SelectedActor(context);
+        auto* camera = actor ? actor->GetComponent<CameraComponent>() : nullptr;
+        if (!camera) return;
+
+        ImGui::Separator();
+        ImGui::PushID("Camera");
+        if (!SectionHeaderWithIcon(context, EditorIcons::Camera, "Camera")) {
+            ImGui::PopID();
+            return;
+        }
+        DrawEnabled(*camera);
+
+        bool changed = false;
+        bool isMain = camera->IsMainCamera();
+        if (ImGui::Checkbox("Main Camera", &isMain)) {
+            camera->SetMainCamera(isMain);
+            changed = true;
+        }
+        float fov = camera->GetFovYDegrees();
+        if (ImGui::DragFloat("FOV Y", &fov, 0.25f, 1.0f, 179.0f)) {
+            camera->SetFovYDegrees(fov);
+            changed = true;
+        }
+        float nearClip = camera->GetNearClip();
+        if (ImGui::DragFloat("Near", &nearClip, 0.01f, 0.001f, 1000.0f)) {
+            camera->SetNearClip(nearClip);
+            changed = true;
+        }
+        float farClip = camera->GetFarClip();
+        if (ImGui::DragFloat("Far", &farClip, 1.0f, 0.002f, 100000.0f)) {
+            camera->SetFarClip(farClip);
+            changed = true;
+        }
+        Vec3 clear = camera->GetClearColor();
+        float color[3] = {clear.x, clear.y, clear.z};
+        if (ImGui::ColorEdit3("Clear Color", color)) {
+            camera->SetClearColor({color[0], color[1], color[2]});
+            changed = true;
+        }
+        if (EditorWidgets::IconButton("RemoveCamera", "X", "Remove Camera"))
+            actor->RemoveComponent<CameraComponent>();
+        if (changed) context.MarkSceneDirty();
+        ImGui::PopID();
+    }
+};
+
 class PostProcessInspectorSection final : public ActorInspectorSection {
 public:
     const char* GetID() const override { return "postProcess"; }
@@ -838,7 +902,7 @@ public:
 
         ImGui::Separator();
         ImGui::PushID("PostProcess");
-        if (!EditorWidgets::SectionHeader("Post Process")) {
+        if (!SectionHeaderWithIcon(context, EditorIcons::Renderer, "Post Process")) {
             ImGui::PopID();
             return;
         }
@@ -1000,6 +1064,7 @@ std::vector<std::unique_ptr<EditorInspectorSection>> CreateDefaultInspectorSecti
     sections.push_back(std::make_unique<MaterialInspectorSection>());
     sections.push_back(std::make_unique<AudioSourceInspectorSection>());
     sections.push_back(std::make_unique<PhysicsInspectorSection>());
+    sections.push_back(std::make_unique<CameraInspectorSection>());
     sections.push_back(std::make_unique<LightInspectorSection>());
     sections.push_back(std::make_unique<PostProcessInspectorSection>());
     sections.push_back(std::make_unique<ScriptInspectorSection>());

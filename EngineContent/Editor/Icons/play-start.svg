@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="Start play">
+  <title>Start play</title>
+  <!-- MyEngine SVG Icon | 24x24 | stroke=currentColor | MIT-friendly generated vector -->
+  <circle cx="12" cy="12" r="9"/>
+  <path d="M10 8.5v7l6-3.5-6-3.5Z" fill="currentColor" stroke="none"/>
+</svg>

@@ -9,8 +9,9 @@
 #include "Editor/EditorImGuiBackend.h"
 #include "Editor/EditorPanelHelpers.h"
 #include "Editor/EditorUndoUtil.h"
-#include "Game/SceneRenderHost.h"
+#include "Game/SceneRenderLayer.h"
 #include "Game/SceneViewportController.h"
+#include "Game/GameViewport.h"
 #include "Scene/Actor.h"
 #include "Scene/MeshRendererComponent.h"
 #include "Scene/PrefabSystem.h"
@@ -21,17 +22,71 @@
 #include <imgui.h>
 #endif
 
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <filesystem>
 
 namespace {
 constexpr const char kModelPayload[] = "MYENGINE_MODEL_PATH";
 constexpr const char kPrefabPayload[] = "MYENGINE_PREFAB_PATH";
+
+Vec3 ResolveViewportFrameTarget(EditorContext& context)
+{
+    Scene* scene = context.GetInspectorScene();
+    Actor* actor = scene ? context.GetSelection().ResolveActor(*scene) : nullptr;
+    return actor ? actor->GetWorldMatrix().TransformPoint(Vec3::Zero()) : Vec3::Zero();
 }
 
-void ViewportPanel::DropPrefab(const std::string& path, float screenX, float screenY)
+#if defined(MYENGINE_ENABLE_IMGUI)
+struct AxisGizmoEndpoint {
+    Vec3 axis;
+    SceneViewDirection direction;
+    const char* label;
+    ImU32 color;
+    ImVec2 pos;
+    float depth = 0.0f;
+    float radius = 8.0f;
+};
+
+ImU32 AxisColor(float r, float g, float b, float a = 1.0f)
 {
-    EditorContext* context=GetContext();if(!context||!context->IsEditing())return;
+    return ImGui::ColorConvertFloat4ToU32({r, g, b, a});
+}
+
+ImU32 DimAxisColor(ImU32 color)
+{
+    const ImVec4 value = ImGui::ColorConvertU32ToFloat4(color);
+    return ImGui::ColorConvertFloat4ToU32({
+        value.x * 0.55f,
+        value.y * 0.55f,
+        value.z * 0.55f,
+        value.w * 0.85f
+    });
+}
+
+ImVec2 ProjectAxisToGizmo(const Vec3& axis,
+                          const Camera& camera,
+                          const ImVec2& center,
+                          float radius)
+{
+    const float x = axis.Dot(camera.GetRight());
+    const float y = -axis.Dot(camera.GetCamUp());
+    return {center.x + x * radius, center.y + y * radius};
+}
+
+bool PointInCircle(const ImVec2& point, const ImVec2& center, float radius)
+{
+    const float dx = point.x - center.x;
+    const float dy = point.y - center.y;
+    return dx * dx + dy * dy <= radius * radius;
+}
+#endif
+}
+
+void SceneViewportPanel::DropPrefab(const std::string& path, float screenX, float screenY)
+{
+    EditorContext* context=GetContext();if(!context||!context->CanEditScene())return;
     Scene* scene=context->GetScene();const std::string before=SceneSerializer::SaveToString(*scene);const uint64_t old=context->GetSelection().GetActorID();
     Transform placement;Math::Ray ray{};float distance=0.0f;
     auto* sceneViewport = context->GetSceneViewport();
@@ -43,11 +98,11 @@ void ViewportPanel::DropPrefab(const std::string& path, float screenX, float scr
     context->GetCommandStack()->ExecuteCommand(EditorUndoUtil::MakeSceneSnapshotCommand("Drop Prefab",before,after,old,id),*context);
 }
 
-ViewportPanel::ViewportPanel(std::shared_ptr<EditorGizmoState> state)
+SceneViewportPanel::SceneViewportPanel(std::shared_ptr<EditorGizmoState> state)
     : EditorPanel("viewport", "Scene View"), m_State(std::move(state))
 {}
 
-int ViewportPanel::GetWindowFlags() const
+int SceneViewportPanel::GetWindowFlags() const
 {
 #if defined(MYENGINE_ENABLE_IMGUI)
     return ImGuiWindowFlags_NoScrollbar |
@@ -58,7 +113,7 @@ int ViewportPanel::GetWindowFlags() const
 #endif
 }
 
-void ViewportPanel::BeforeBegin()
+void SceneViewportPanel::BeforeBegin()
 {
 #if defined(MYENGINE_ENABLE_IMGUI)
     ImGui::SetNextWindowBgAlpha(0.0f);
@@ -66,19 +121,19 @@ void ViewportPanel::BeforeBegin()
 #endif
 }
 
-void ViewportPanel::AfterEnd()
+void SceneViewportPanel::AfterEnd()
 {
 #if defined(MYENGINE_ENABLE_IMGUI)
     ImGui::PopStyleVar();
 #endif
 }
 
-void ViewportPanel::DropModel(const std::string& path, float screenX, float screenY)
+void SceneViewportPanel::DropModel(const std::string& path, float screenX, float screenY)
 {
     using namespace EditorPanelHelpers;
 
     EditorContext* context = GetContext();
-    if (!context || !context->IsEditing() || !IsModel(path)) return;
+    if (!context || !context->CanEditScene() || !IsModel(path)) return;
 
     ModelHandle model = AssetManager::Get().Load<ModelAsset>(path);
     if (!model || !model->GetMesh()) {
@@ -119,14 +174,165 @@ void ViewportPanel::DropModel(const std::string& path, float screenX, float scre
         *context);
 }
 
-void ViewportPanel::DrawContent()
+bool SceneViewportPanel::DrawSceneViewOverlay(EditorContext& context,
+                                              SceneViewport& viewport,
+                                              EditorGizmoState& state,
+                                              const EditorPanelRect& rect)
+{
+#if defined(MYENGINE_ENABLE_IMGUI)
+    bool hovered = false;
+    constexpr ImGuiWindowFlags flags =
+        ImGuiWindowFlags_NoDecoration |
+        ImGuiWindowFlags_AlwaysAutoResize |
+        ImGuiWindowFlags_NoSavedSettings |
+        ImGuiWindowFlags_NoDocking |
+        ImGuiWindowFlags_NoFocusOnAppearing |
+        ImGuiWindowFlags_NoNav;
+
+    const bool hasPlayWorld = context.GetSceneLayer() && !context.GetSceneLayer()->IsEditing();
+    const bool inspectingPlay = context.IsInspectingPlayWorld();
+
+    ImGui::SetNextWindowPos({rect.x + 10.0f, rect.y + 10.0f}, ImGuiCond_Always);
+    ImGui::SetNextWindowBgAlpha(0.45f);
+    if (ImGui::Begin("Scene View Overlay###scene_view_overlay_left", nullptr, flags)) {
+        hovered |= ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
+
+        if (!hasPlayWorld) ImGui::BeginDisabled();
+        if (ImGui::SmallButton(inspectingPlay ? "PlayWorld" : "EditorWorld")) {
+            context.SetSceneViewMode(inspectingPlay
+                ? EditorWorldViewMode::EditorWorld
+                : EditorWorldViewMode::PlayWorldInspect);
+        }
+        if (!hasPlayWorld) ImGui::EndDisabled();
+        if (inspectingPlay) {
+            ImGui::SameLine();
+            ImGui::TextColored({1.0f, 0.75f, 0.25f, 1.0f}, "Read-only");
+        }
+
+        ImGui::Separator();
+        const bool canEditSelection = context.CanEditSelection();
+        if (!canEditSelection) ImGui::BeginDisabled();
+        auto drawOperationButton = [&state](const char* label, ImGuizmo::OPERATION operation) {
+            const bool active = state.operation == operation;
+            if (active) ImGui::PushStyleColor(ImGuiCol_Button, {0.20f, 0.45f, 0.82f, 1.0f});
+            if (ImGui::SmallButton(label)) state.operation = operation;
+            if (active) ImGui::PopStyleColor();
+        };
+        drawOperationButton("Move", ImGuizmo::TRANSLATE);
+        ImGui::SameLine();
+        drawOperationButton("Rotate", ImGuizmo::ROTATE);
+        ImGui::SameLine();
+        drawOperationButton("Scale", ImGuizmo::SCALE);
+        if (!canEditSelection) ImGui::EndDisabled();
+    }
+    ImGui::End();
+
+    ImGui::SetNextWindowPos(
+        {rect.x + rect.width - 10.0f, rect.y + 10.0f},
+        ImGuiCond_Always,
+        {1.0f, 0.0f});
+    ImGui::SetNextWindowBgAlpha(0.45f);
+    if (ImGui::Begin("Scene View Control Gizmos###scene_view_overlay_right", nullptr, flags)) {
+        hovered |= ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
+
+        const Vec3 target = ResolveViewportFrameTarget(context);
+        constexpr float kGizmoSize = 112.0f;
+        constexpr float kAxisLength = 34.0f;
+        constexpr float kCenterRadius = 34.0f;
+        constexpr float kEndpointRadius = 10.0f;
+
+        const ImVec2 itemMin = ImGui::GetCursorScreenPos();
+        ImGui::InvisibleButton("##scene_view_axis_gizmo", {kGizmoSize, kGizmoSize});
+        const bool itemHovered = ImGui::IsItemHovered();
+        const bool itemActive = ImGui::IsItemActive();
+        hovered |= itemHovered || itemActive;
+
+        ImDrawList* drawList = ImGui::GetWindowDrawList();
+        const ImVec2 center {
+            itemMin.x + kGizmoSize * 0.5f,
+            itemMin.y + kGizmoSize * 0.5f
+        };
+        const Camera& camera = viewport.GetCamera();
+        const ImU32 red = AxisColor(0.92f, 0.16f, 0.26f);
+        const ImU32 green = AxisColor(0.42f, 0.78f, 0.05f);
+        const ImU32 blue = AxisColor(0.18f, 0.48f, 0.88f);
+        std::array<AxisGizmoEndpoint, 6> endpoints {{
+            { Vec3::Right(), SceneViewDirection::Right, "X", red },
+            { -Vec3::Right(), SceneViewDirection::Left, "", DimAxisColor(red) },
+            { Vec3::Up(), SceneViewDirection::Top, "Y", green },
+            { -Vec3::Up(), SceneViewDirection::Bottom, "", DimAxisColor(green) },
+            { Vec3::Forward(), SceneViewDirection::Back, "Z", blue },
+            { -Vec3::Forward(), SceneViewDirection::Front, "", DimAxisColor(blue) }
+        }};
+        for (auto& endpoint : endpoints) {
+            endpoint.pos = ProjectAxisToGizmo(endpoint.axis, camera, center, kAxisLength);
+            endpoint.depth = endpoint.axis.Dot(camera.GetForward());
+            endpoint.radius = endpoint.label[0] ? kEndpointRadius : kEndpointRadius * 0.82f;
+        }
+        std::sort(endpoints.begin(), endpoints.end(),
+                  [](const AxisGizmoEndpoint& a, const AxisGizmoEndpoint& b) {
+                      return a.depth < b.depth;
+                  });
+
+        drawList->AddCircleFilled(center, kCenterRadius,
+                                  AxisColor(0.55f, 0.58f, 0.63f, 0.30f), 36);
+        drawList->AddCircle(center, kCenterRadius,
+                            AxisColor(0.78f, 0.80f, 0.84f, 0.25f), 36, 1.0f);
+        for (const auto& endpoint : endpoints) {
+            drawList->AddLine(center, endpoint.pos, endpoint.color, 2.5f);
+        }
+        drawList->AddCircleFilled(center, 4.0f,
+                                  AxisColor(0.82f, 0.84f, 0.88f, 0.90f), 16);
+        for (const auto& endpoint : endpoints) {
+            drawList->AddCircleFilled(endpoint.pos, endpoint.radius, endpoint.color, 24);
+            drawList->AddCircle(endpoint.pos, endpoint.radius,
+                                AxisColor(0.04f, 0.05f, 0.06f, 0.35f), 24, 1.0f);
+            if (endpoint.label[0]) {
+                const ImVec2 textSize = ImGui::CalcTextSize(endpoint.label);
+                drawList->AddText({
+                    endpoint.pos.x - textSize.x * 0.5f,
+                    endpoint.pos.y - textSize.y * 0.5f
+                }, AxisColor(0.05f, 0.06f, 0.08f), endpoint.label);
+            }
+        }
+
+        const ImVec2 mouse = ImGui::GetIO().MousePos;
+        if (itemHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+            for (auto it = endpoints.rbegin(); it != endpoints.rend(); ++it) {
+                if (PointInCircle(mouse, it->pos, it->radius + 3.0f)) {
+                    viewport.FrameDirection(it->direction, target);
+                    break;
+                }
+            }
+        }
+        if (itemActive && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 2.0f)) {
+            const ImVec2 delta = ImGui::GetIO().MouseDelta;
+            viewport.OrbitAroundFocus(target, -delta.x * 0.35f, -delta.y * 0.35f);
+        }
+
+        if (ImGui::SmallButton(viewport.IsOrthographic() ? "Ortho" : "Persp")) {
+            viewport.ToggleProjectionMode();
+        }
+    }
+    ImGui::End();
+
+    return hovered;
+#else
+    (void)context;
+    (void)viewport;
+    (void)state;
+    (void)rect;
+    return false;
+#endif
+}
+
+void SceneViewportPanel::DrawContent()
 {
 #if defined(MYENGINE_ENABLE_IMGUI)
     EditorContext* context = GetContext();
     if (!context || !m_State) return;
     auto* sceneViewport = context->GetSceneViewport();
-    auto* renderHost = context->GetSceneRenderHost();
-    if (!sceneViewport || !renderHost) return;
+    if (!sceneViewport) return;
 
     const ImVec2 imageMin = ImGui::GetCursorScreenPos();
     const ImVec2 imageSize = ImGui::GetContentRegionAvail();
@@ -135,19 +341,19 @@ void ViewportPanel::DrawContent()
         imageMin.x, imageMin.y, imageSize.x, imageSize.y
     };
 
-    sceneViewport->SetEditorViewportRect(
+    sceneViewport->SetViewportRect(
         static_cast<int>(imageMin.x), static_cast<int>(imageMin.y),
         static_cast<int>(imageSize.x), static_cast<int>(imageSize.y));
     sceneViewport->SetInputEnabled(hovered);
 
-    if (GpuTextureView* view = renderHost->GetSceneColorView()) {
+    if (GpuTextureView* view = sceneViewport->GetOutputView()) {
         void* texture = nullptr;
         if (auto* backend = context->GetImGuiBackend())
             texture = backend->GetTextureId(view);
         if (texture) ImGui::Image(reinterpret_cast<ImTextureID>(texture), imageSize);
     }
 
-    if (context->IsEditing() && ImGui::BeginDragDropTarget()) {
+    if (context->CanEditScene() && ImGui::BeginDragDropTarget()) {
         if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kModelPayload)) {
             const ImVec2 mouse = ImGui::GetIO().MousePos;
             DropModel(static_cast<const char*>(payload->Data), mouse.x, mouse.y);
@@ -158,17 +364,87 @@ void ViewportPanel::DrawContent()
         ImGui::EndDragDropTarget();
     }
 
-    Actor* actor = context->GetSelection().ResolveActor(*context->GetScene());
-    if (context->IsEditing() && actor) {
+    const bool overlayBlocksViewportInput =
+        DrawSceneViewOverlay(*context, *sceneViewport, *m_State, imageRect);
+
+    Scene* inspectionScene = context->GetInspectorScene();
+    Actor* actor = inspectionScene
+        ? context->GetSelection().ResolveActor(*inspectionScene)
+        : nullptr;
+    if (!overlayBlocksViewportInput && context->CanEditSelection() && actor) {
         m_GizmoController.DrawAndApply(*context, *actor, imageRect, *m_State);
     } else {
         m_GizmoController.FinishInteraction(*context);
     }
 
     if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left) &&
-        !ImGuizmo::IsOver() && !ImGuizmo::IsUsing()) {
+        !overlayBlocksViewportInput && !ImGuizmo::IsOver() && !ImGuizmo::IsUsing()) {
         const ImVec2 mouse = ImGui::GetIO().MousePos;
         m_PickingController.Pick(*context, mouse.x, mouse.y);
+    }
+#endif
+}
+
+GameViewportPanel::GameViewportPanel()
+    : EditorPanel("gameViewport", "Game View")
+{}
+
+int GameViewportPanel::GetWindowFlags() const
+{
+#if defined(MYENGINE_ENABLE_IMGUI)
+    return ImGuiWindowFlags_NoScrollbar |
+        ImGuiWindowFlags_NoScrollWithMouse |
+        ImGuiWindowFlags_NoBackground;
+#else
+    return 0;
+#endif
+}
+
+void GameViewportPanel::BeforeBegin()
+{
+#if defined(MYENGINE_ENABLE_IMGUI)
+    ImGui::SetNextWindowBgAlpha(0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0.0f, 0.0f});
+#endif
+}
+
+void GameViewportPanel::AfterEnd()
+{
+#if defined(MYENGINE_ENABLE_IMGUI)
+    ImGui::PopStyleVar();
+#endif
+}
+
+void GameViewportPanel::DrawContent()
+{
+#if defined(MYENGINE_ENABLE_IMGUI)
+    EditorContext* context = GetContext();
+    if (!context) return;
+    auto* gameViewport = context->GetGameViewport();
+    if (!gameViewport) return;
+
+    const ImVec2 imageMin = ImGui::GetCursorScreenPos();
+    const ImVec2 imageSize = ImGui::GetContentRegionAvail();
+    gameViewport->SetViewportRect(
+        static_cast<int>(imageMin.x), static_cast<int>(imageMin.y),
+        static_cast<int>(imageSize.x), static_cast<int>(imageSize.y));
+    gameViewport->SetInputEnabled(false);
+
+    bool drewImage = false;
+    if (GpuTextureView* view = gameViewport->GetOutputView()) {
+        void* texture = nullptr;
+        if (auto* backend = context->GetImGuiBackend()) texture = backend->GetTextureId(view);
+        if (texture) {
+            ImGui::Image(reinterpret_cast<ImTextureID>(texture), imageSize);
+            drewImage = true;
+        }
+    }
+    if (!drewImage) {
+        ImGui::Dummy(imageSize);
+    }
+    if (!gameViewport->HasMainCamera()) {
+        ImGui::SetCursorScreenPos({imageMin.x + 12.0f, imageMin.y + 12.0f});
+        ImGui::TextColored({1.0f, 0.75f, 0.25f, 1.0f}, "No Main Camera Component");
     }
 #endif
 }

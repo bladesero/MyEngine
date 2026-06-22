@@ -2,6 +2,7 @@
 
 #include "Audio/AudioSourceComponent.h"
 #include "Animation/SkinnedMeshRendererComponent.h"
+#include "Camera/CameraComponent.h"
 #include "Physics/BoxColliderComponent.h"
 #include "Physics/CapsuleColliderComponent.h"
 #include "Physics/CharacterControllerComponent.h"
@@ -24,6 +25,7 @@ ComponentRegistry& ComponentRegistry::Get()
 ComponentRegistry::ComponentRegistry()
 {
     Register("MeshRenderer", [] { return std::make_unique<MeshRendererComponent>(); });
+    Register("Camera", [] { return std::make_unique<CameraComponent>(); });
     Register("SkinnedMeshRenderer", [] { return std::make_unique<SkinnedMeshRendererComponent>(); });
     Register("Script", [] { return std::make_unique<ScriptComponent>(); });
     Register("RigidBody", [] { return std::make_unique<RigidBodyComponent>(); });

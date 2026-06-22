@@ -13,6 +13,10 @@
 - [Input](./core/Input.md)
 - [IPlatformEventBridge](./core/IPlatformEventBridge.md)
 
+## Miscs
+
+- [IconsManager](./miscs/IconsManager.md)
+
 ## Memory
 
 - [MemoryService](./memory/MemoryService.md)
@@ -41,6 +45,7 @@
 - [Component](./scene/Component.md)
 - [Actor](./scene/Actor.md)
 - [MeshRendererComponent](./scene/MeshRendererComponent.md)
+- [CameraComponent](./scene/CameraComponent.md)
 - [Scene](./scene/Scene.md)
 - [SceneSerializer](./scene/SceneSerializer.md)
 - [Camera](./scene/Camera.md)
@@ -68,6 +73,6 @@
 - [SceneLayer](./game/SceneLayer.md)
 - [SceneRenderLayer](./game/SceneRenderLayer.md)
 - [SceneViewportController](./game/SceneViewportController.md)
-- [SceneRenderHost](./game/SceneRenderHost.md)
+- [ViewportRenderExecution](./game/ViewportRenderExecution.md)
 - [DefaultSceneFactory](./game/DefaultSceneFactory.md)
 - [EditorLayer](./editor/EditorLayer.md)

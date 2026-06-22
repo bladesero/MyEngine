@@ -75,6 +75,21 @@ void SDLWindow::SwapBuffers() {
     SDL_RenderPresent(m_Renderer);
 }
 
+bool SDLWindow::SetIconFromPixels(const void* rgba8, int width, int height) {
+    if (!m_Window || !rgba8 || width <= 0 || height <= 0) return false;
+    SDL_Surface* surface = SDL_CreateSurfaceFrom(
+        width, height, SDL_PIXELFORMAT_RGBA32,
+        const_cast<void*>(rgba8), width * 4);
+    if (!surface) {
+        Logger::Warn("SDL_CreateSurfaceFrom(icon) failed: ", SDL_GetError());
+        return false;
+    }
+    const bool ok = SDL_SetWindowIcon(m_Window, surface);
+    SDL_DestroySurface(surface);
+    if (!ok) Logger::Warn("SDL_SetWindowIcon failed: ", SDL_GetError());
+    return ok;
+}
+
 void* SDLWindow::GetNativeHandle() const {
 #ifdef MYENGINE_PLATFORM_WINDOWS
     if (!m_Window) return nullptr;

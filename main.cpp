@@ -11,6 +11,7 @@
 #include "Editor/EditorWorkspace.h"
 #include "Core/Logger.h"
 #include "Project/ProjectConfig.h"
+#include "Miscs/IconsManager.h"
 
 #include <memory>
 #include <filesystem>
@@ -82,7 +83,7 @@ void ApplyProjectBackend(const std::filesystem::path& projectRoot,
 }
 
 // --------------------------------------------------------------------------
-// MyApp  –  bootstraps the platform render context and pushes layers.
+// MyApp bootstraps the platform render context and pushes layers.
 //
 //  Windows : D3D11 (default) or D3D12 (--backend d3d12)
 //  macOS   : Metal
@@ -98,6 +99,7 @@ public:
 
 protected:
     bool OnInit() override {
+        IconsManager::Get().ApplyWindowIcon(GetWindow(), IconsManager::kEditorIcon);
 #ifdef MYENGINE_PLATFORM_WINDOWS
         switch (m_Backend) {
         case RenderBackend::D3D12:
@@ -145,7 +147,7 @@ private:
 
 static int RunEditor(int argc, char* argv[]) {
     ApplicationConfig cfg;
-    cfg.window.title     = "MyEngine Editor – Scene + MeshRenderer";
+    cfg.window.title     = "MyEngine Editor - Scene + MeshRenderer";
     cfg.window.width     = 1920;
     cfg.window.height    = 1080;
     cfg.window.vsync     = false;

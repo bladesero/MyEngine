@@ -157,6 +157,7 @@ target("MyEngineRuntime")
         "src/Runtime/Scene/Scene.cpp",
         "src/Runtime/Scene/SceneSerializer.cpp",
         "src/Runtime/Camera/Camera.cpp",
+        "src/Runtime/Camera/CameraComponent.cpp",
         "src/Runtime/Renderer/Renderer.cpp",
         "src/Runtime/Renderer/RenderGraph.cpp",
         "src/Runtime/Renderer/RHI/ShaderReflection.cpp",
@@ -171,12 +172,15 @@ target("MyEngineRuntime")
         "src/Runtime/Renderer/MainPass.cpp",
         "src/Runtime/Renderer/ShadowPass.cpp",
         "src/Runtime/Game/GameLayer.cpp",
+        "src/Runtime/Game/RenderViewport.cpp",
+        "src/Runtime/Game/GameViewport.cpp",
         "src/Runtime/Game/TriangleLayer.cpp",
         "src/Runtime/Game/SceneLayer.cpp",
         "src/Runtime/Game/SceneViewportController.cpp",
-        "src/Runtime/Game/SceneRenderHost.cpp",
+        "src/Runtime/Game/ViewportRenderExecution.cpp",
         "src/Runtime/Game/DefaultSceneFactory.cpp",
         "src/Runtime/Game/SceneRenderLayer.cpp",
+        "src/Runtime/Miscs/IconsManager.cpp",
         "src/Runtime/Math/Mat4Inverse.cpp"
     )
 
@@ -255,6 +259,28 @@ target("MyEngineRuntime")
     end)
 target_end()
 
+target("MyEngineIconTool")
+    set_kind("binary")
+    add_files("icon_tool_main.cpp")
+    add_includedirs("src", "src/Runtime")
+    add_deps("MyEngineRuntime")
+    if is_plat("windows") then
+        add_cxflags("/utf-8", { toolset = "msvc" })
+    end
+    set_rundir("$(projectdir)")
+    after_build(function (target)
+        if not is_plat("windows") then
+            return
+        end
+        local outdir = path.join(os.projectdir(), "build", "generated", "icons")
+        os.mkdir(outdir)
+        local root = path.join(os.projectdir(), "EngineContent", "Editor", "Icons")
+        os.execv(target:targetfile(), {"--icon-root", root, "--icon", "engine-editor", "--output", path.join(outdir, "editor.ico")})
+        os.execv(target:targetfile(), {"--icon-root", root, "--icon", "engine-player", "--output", path.join(outdir, "player.ico")})
+        os.execv(target:targetfile(), {"--icon-root", root, "--icon", "engine-cooker", "--output", path.join(outdir, "cooker.ico")})
+    end)
+target_end()
+
 target("MyEngineEditor")
     set_kind("binary")
     add_rules("copy_game_content")
@@ -305,6 +331,7 @@ target("MyEngineEditor")
     )
     add_includedirs("src", "src/Editor", "thirdparty/ImGuizmo")
     add_deps("MyEngineRuntime")
+    add_deps("MyEngineIconTool")
     add_deps("Lua")
     add_packages("tinyobjloader")
     add_defines("MYENGINE_ENABLE_IMGUI")
@@ -315,6 +342,7 @@ target("MyEngineEditor")
         add_defines("MYENGINE_BUILD_CONFIGURATION=debug")
     end
     if is_plat("windows") then
+        add_files("src/Runtime/Miscs/Resources/MyEngineEditor.rc")
         add_cxflags("/utf-8", { toolset = "msvc" })
         add_syslinks("dxgi")
     end
@@ -353,9 +381,11 @@ target("MyEnginePlayer")
     add_files("player_main.cpp")
     add_includedirs("src")
     add_deps("MyEngineRuntime")
+    add_deps("MyEngineIconTool")
     add_packages("libsdl3")
     add_defines("MYENGINE_ENABLE_IMGUI")
     if is_plat("windows") then
+        add_files("src/Runtime/Miscs/Resources/MyEnginePlayer.rc")
         add_cxflags("/utf-8", { toolset = "msvc" })
     end
     set_rundir("$(projectdir)")
@@ -395,6 +425,7 @@ target("MyEngineCooker")
     )
     add_includedirs("src", "src/Editor")
     add_deps("MyEngineRuntime")
+    add_deps("MyEngineIconTool")
     add_packages("nlohmann_json")
     add_defines("MYENGINE_BUILD_ID=dev_0_1_0")
     if is_mode("release") then
@@ -403,6 +434,7 @@ target("MyEngineCooker")
         add_defines("MYENGINE_BUILD_CONFIGURATION=debug")
     end
     if is_plat("windows") then
+        add_files("src/Runtime/Miscs/Resources/MyEngineCooker.rc")
         add_cxflags("/utf-8", { toolset = "msvc" })
     end
     set_rundir("$(projectdir)")

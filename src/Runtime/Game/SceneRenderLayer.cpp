@@ -3,18 +3,42 @@
 #include "Core/Event.h"
 #include "Core/Logger.h"
 #include "Game/DefaultSceneFactory.h"
+#include "Renderer/IRenderContext.h"
+#include "Renderer/RHI/GpuSwapChain.h"
 
 SceneRenderLayer::SceneRenderLayer(IRenderContext* context,
                                    int viewportWidth, int viewportHeight)
     : SceneLayer("SceneRenderLayer")
-    , m_RenderHost(context)
+    , m_RenderContext(context)
+    , m_Viewport(context, context, context)
+    , m_GameViewport(context, context, context)
 {
     m_Viewport.Initialize(viewportWidth, viewportHeight);
+    m_GameViewport.Initialize(viewportWidth, viewportHeight);
 }
 
 void SceneRenderLayer::SetPresentEnabled(bool enabled)
 {
-    m_RenderHost.SetPresentEnabled(enabled);
+    m_PresentEnabled = enabled;
+}
+
+void SceneRenderLayer::SetSceneViewportUsesSimulationScene(bool enabled)
+{
+    m_SceneViewportUsesSimulationScene = enabled;
+}
+
+Scene& SceneRenderLayer::GetSceneViewportRenderScene()
+{
+    return m_SceneViewportUsesSimulationScene && HasPlayWorld()
+        ? GetSimulationScene()
+        : GetEditorScene();
+}
+
+const Scene& SceneRenderLayer::GetSceneViewportRenderScene() const
+{
+    return m_SceneViewportUsesSimulationScene && HasPlayWorld()
+        ? GetSimulationScene()
+        : GetEditorScene();
 }
 
 void SceneRenderLayer::OnAttach()
@@ -22,7 +46,6 @@ void SceneRenderLayer::OnAttach()
     SceneLayer::OnAttach();
     int x = 0, y = 0, w = 0, h = 0;
     m_Viewport.GetViewportRect(x, y, w, h);
-    m_RenderHost.ResizeRendererIfNeeded(w, h);
     Logger::Info("[SceneRenderLayer] attached (", w, "x", h, ")");
 }
 
@@ -45,24 +68,31 @@ void SceneRenderLayer::OnEvent(Event& event)
         const int windowH = event.resize.height;
         if (windowW <= 0 || windowH <= 0) return;
         m_Viewport.OnWindowResize(windowW, windowH);
-        m_RenderHost.OnWindowResize(windowW, windowH, m_Viewport);
+        m_GameViewport.OnWindowResize(windowW, windowH);
+        if (m_RenderContext) {
+            if (GpuSwapChain* swapChain = m_RenderContext->GetSwapChain()) {
+                m_GameViewport.ReleaseFrameResources();
+                swapChain->Resize(static_cast<uint32_t>(windowW),
+                                  static_cast<uint32_t>(windowH));
+            }
+        }
     }
 }
 
 void SceneRenderLayer::OnSceneLoaded()
 {
     SceneLayer::OnSceneLoaded();
-    DefaultSceneFactory::PopulateIfEmpty(GetScene());
+    DefaultSceneFactory::PopulateIfEmpty(GetEditorScene());
 }
 
 void SceneRenderLayer::OnRender()
 {
-    m_RenderHost.Render(GetScene(), m_Viewport.GetCamera(), m_Viewport);
-}
-
-void SceneRenderLayer::SetEditorViewportRect(int x, int y, int width, int height)
-{
-    m_Viewport.SetEditorViewportRect(x, y, width, height);
+    if (m_PresentEnabled) {
+        m_GameViewport.Render(GetSimulationScene(), true);
+        return;
+    }
+    m_Viewport.Render(GetSceneViewportRenderScene(), false);
+    m_GameViewport.Render(GetSimulationScene(), false);
 }
 
 void SceneRenderLayer::SetViewportInputEnabled(bool enabled)

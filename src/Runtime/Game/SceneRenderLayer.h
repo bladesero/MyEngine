@@ -1,8 +1,11 @@
 #pragma once
 
 #include "Game/SceneLayer.h"
-#include "Game/SceneRenderHost.h"
+#include "Game/GameViewport.h"
 #include "Game/SceneViewportController.h"
+#include "Renderer/IRenderContext.h"
+
+struct GpuTextureView;
 
 class SceneRenderLayer : public SceneLayer {
 public:
@@ -15,15 +18,18 @@ public:
     void OnRender() override;
 
     void SetPresentEnabled(bool enabled);
-    void SetEditorViewportRect(int x, int y, int width, int height);
     void SetViewportInputEnabled(bool enabled);
+    void SetSceneViewportUsesSimulationScene(bool enabled);
+    bool GetSceneViewportUsesSimulationScene() const { return m_SceneViewportUsesSimulationScene; }
+    Scene& GetSceneViewportRenderScene();
+    const Scene& GetSceneViewportRenderScene() const;
 
-    IRenderContext* GetRenderContext() const { return m_RenderHost.GetRenderContext(); }
-    GpuTextureView* GetSceneColorView() const { return m_RenderHost.GetSceneColorView(); }
-    SceneViewportController* GetSceneViewport() { return &m_Viewport; }
-    const SceneViewportController* GetSceneViewport() const { return &m_Viewport; }
-    SceneRenderHost* GetSceneRenderHost() { return &m_RenderHost; }
-    const SceneRenderHost* GetSceneRenderHost() const { return &m_RenderHost; }
+    IRenderContext* GetRenderContext() const { return m_RenderContext; }
+    GpuTextureView* GetSceneColorView() const { return m_Viewport.GetOutputView(); }
+    SceneViewport* GetSceneViewport() { return &m_Viewport; }
+    const SceneViewport* GetSceneViewport() const { return &m_Viewport; }
+    GameViewport* GetGameViewport() { return &m_GameViewport; }
+    const GameViewport* GetGameViewport() const { return &m_GameViewport; }
 
     Camera& GetCamera() { return m_Viewport.GetCamera(); }
     const Camera& GetCamera() const { return m_Viewport.GetCamera(); }
@@ -35,6 +41,9 @@ protected:
     void OnSceneLoaded() override;
 
 private:
-    SceneViewportController m_Viewport;
-    SceneRenderHost m_RenderHost;
+    IRenderContext* m_RenderContext = nullptr;
+    SceneViewport m_Viewport;
+    GameViewport m_GameViewport;
+    bool m_PresentEnabled = true;
+    bool m_SceneViewportUsesSimulationScene = false;
 };

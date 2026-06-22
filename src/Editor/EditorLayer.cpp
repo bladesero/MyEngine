@@ -290,6 +290,7 @@ void EditorLayer::RegisterPanels() {
         "play.stop", "Stop",
         [](EditorContext& context) {
             if (auto* layer = context.GetSceneLayer()) layer->StopPlay();
+            context.SetSceneViewMode(EditorWorldViewMode::EditorWorld);
         },
         [](EditorContext& context) {
             auto* layer = context.GetSceneLayer();
@@ -334,7 +335,8 @@ void EditorLayer::RegisterPanels() {
 
     auto gizmo = std::make_shared<EditorGizmoState>();
     m_Panels.push_back(std::make_unique<ToolbarPanel>());
-    m_Panels.push_back(std::make_unique<ViewportPanel>(gizmo));
+    m_Panels.push_back(std::make_unique<SceneViewportPanel>(gizmo));
+    m_Panels.push_back(std::make_unique<GameViewportPanel>());
     m_Panels.push_back(std::make_unique<SceneHierarchyPanel>());
     m_Panels.push_back(std::make_unique<InspectorPanel>(gizmo));
     m_Panels.push_back(std::make_unique<LogPanel>());
@@ -382,7 +384,11 @@ void EditorLayer::OnUpdate(float deltaSeconds) {
     ProcessDialogResults();
     if (m_AutomationPending) RunAutomation();
     if (m_ProjectOpen) {
-        if (Scene* scene = m_Context.GetScene()) m_Context.GetSelection().Validate(*scene);
+        m_Context.RefreshSceneViewMode();
+        if (Scene* scene = m_Context.GetInspectorScene()) {
+            const auto world = m_Context.GetSelection().GetPrimaryObject().GetWorldKind();
+            m_Context.GetSelection().Validate(*scene, world);
+        }
     }
 }
 
@@ -877,13 +883,28 @@ void EditorLayer::DrawMainMenuBar() {
         const auto drawAction = [&](const char* actionID) {
             EditorAction* action = m_ActionRegistry.Find(actionID);
             if (!action) return;
+            const auto iconForAction = [](const char* id) -> const char* {
+                if (std::strcmp(id, "scene.new") == 0) return Editor::UI::EditorIcons::SceneNew;
+                if (std::strcmp(id, "scene.open") == 0) return Editor::UI::EditorIcons::SceneOpen;
+                if (std::strcmp(id, "scene.save") == 0) return Editor::UI::EditorIcons::SceneSave;
+                if (std::strcmp(id, "project.settings") == 0) return Editor::UI::EditorIcons::ProjectSettings;
+                if (std::strcmp(id, "project.setStartup") == 0) return Editor::UI::EditorIcons::ProjectStartup;
+                if (std::strcmp(id, "project.publish") == 0) return Editor::UI::EditorIcons::ProjectPublish;
+                if (std::strcmp(id, "edit.undo") == 0) return Editor::UI::EditorIcons::EditUndo;
+                if (std::strcmp(id, "edit.redo") == 0) return Editor::UI::EditorIcons::EditRedo;
+                if (std::strcmp(id, "shader.recompile") == 0) return Editor::UI::EditorIcons::ShaderRecompile;
+                return Editor::UI::EditorIcons::File;
+            };
             std::string shortcutText;
             if (const EditorShortcutChord* chord =
                     m_Workspace.GetShortcuts().FindShortcut(actionID)) {
                 if (chord->IsValid()) shortcutText = EditorShortcutMap::FormatChord(*chord);
             }
             const bool enabled = action->CanExecute(m_Context);
-            if (ImGui::MenuItem(action->GetLabel(),
+            const char* icon = iconForAction(actionID);
+            const std::string label = std::string(Editor::UI::EditorIcons::FallbackFor(icon)) +
+                " " + action->GetLabel();
+            if (ImGui::MenuItem(label.c_str(),
                                 shortcutText.empty() ? nullptr : shortcutText.c_str(),
                                 false, enabled)) {
                 m_ActionRegistry.Execute(actionID, m_Context);
@@ -980,6 +1001,7 @@ void EditorLayer::ProcessDialogResults() {
     if (!m_ProjectOpen) return;
     if (result.operation == EditorFileOperation::OpenScene) {
         if (m_SceneLayer->LoadScene(result.path)) {
+            m_Context.SetSceneViewMode(EditorWorldViewMode::EditorWorld);
             m_Context.GetSelection().Clear();
             m_CommandStack.Clear();
             m_Project.SetLastScenePath(result.path);
@@ -996,6 +1018,7 @@ void EditorLayer::ProcessDialogResults() {
 void EditorLayer::NewScene() {
     if (!m_Context.IsEditing()) return;
     m_SceneLayer->NewScene();
+    m_Context.SetSceneViewMode(EditorWorldViewMode::EditorWorld);
     m_Context.GetSelection().Clear();
     m_CommandStack.Clear();
 }

@@ -30,12 +30,12 @@ void ToolbarPanel::DrawContent()
     if (!context) return;
 
     Editor::UI::EditorWidgets::ToolbarActionButton(
-        *context, "play.start", EditorIcons::PlayIcon(), Editor::UI::EditorWidgetVariant::Accent);
+        *context, "play.start", EditorIcons::PlayStart, Editor::UI::EditorWidgetVariant::Accent);
     Editor::UI::EditorWidgets::ToolbarActionButton(
-        *context, "play.stop", EditorIcons::StopIcon(), Editor::UI::EditorWidgetVariant::Danger);
+        *context, "play.stop", EditorIcons::PlayStop, Editor::UI::EditorWidgetVariant::Danger);
     Editor::UI::EditorWidgets::ToolbarActionButton(
-        *context, "play.pause", EditorIcons::PauseIcon(), Editor::UI::EditorWidgetVariant::Warning);
+        *context, "play.pause", EditorIcons::PlayPause, Editor::UI::EditorWidgetVariant::Warning);
     Editor::UI::EditorWidgets::ToolbarActionButton(
-        *context, "play.step", EditorIcons::StepIcon(), Editor::UI::EditorWidgetVariant::Neutral, false);
+        *context, "play.step", EditorIcons::PlayStep, Editor::UI::EditorWidgetVariant::Neutral, false);
 #endif
 }

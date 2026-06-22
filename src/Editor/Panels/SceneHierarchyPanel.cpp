@@ -6,6 +6,8 @@
 #include "Editor/EditorImportService.h"
 #include "Editor/EditorUndoUtil.h"
 #include "Editor/EditorDragDrop.h"
+#include "Editor/UI/EditorIcons.h"
+#include "Editor/UI/EditorWidgets.h"
 #include "Scene/Actor.h"
 #include "Scene/Scene.h"
 #include "Scene/SceneSerializer.h"
@@ -23,6 +25,8 @@
 namespace {
 constexpr const char kActorPayload[] = "MYENGINE_ACTOR_ID";
 constexpr const char kPrefabPayload[] = "MYENGINE_PREFAB_PATH";
+namespace EditorIcons = Editor::UI::EditorIcons;
+namespace EditorWidgets = Editor::UI::EditorWidgets;
 
 #if defined(MYENGINE_ENABLE_IMGUI)
 void DrawDropHighlight(ImVec2 min, ImVec2 max, ImU32 color, float thickness = 2.0f)
@@ -157,10 +161,14 @@ SceneHierarchyPanel::SceneHierarchyPanel():EditorPanel("sceneHierarchy","Scene O
 
 void SceneHierarchyPanel::DrawToolbar(){
 #if defined(MYENGINE_ENABLE_IMGUI)
+    auto* ctx = GetContext();
+    if (ctx) {
+        EditorWidgets::SvgIcon(*ctx, EditorIcons::Search, 14.0f);
+        ImGui::SameLine();
+    }
     ImGui::InputTextWithHint("##Search","Search...",m_SearchFilter,sizeof(m_SearchFilter));
     ImGui::SameLine();
-    if (ImGui::Button("+")) {
-        auto* ctx = GetContext();
+    if (ctx && EditorWidgets::IconButton(*ctx, "CreateActor", EditorIcons::Actor, "Create Actor")) {
         Scene* sc = ctx ? ctx->GetScene() : nullptr;
         if (sc && ctx->IsEditing()) {
             const std::string before = SceneSerializer::SaveToString(*sc);
@@ -211,11 +219,18 @@ void SceneHierarchyPanel::DrawActor(Actor* actor){
 
     // Eye icon toggle for active state
     ImGui::PushID(static_cast<int>(actor->GetID()));
-    if (ImGui::SmallButton(isActive ? "v" : "x")) {
+    if (context && EditorWidgets::IconButton(*context,
+                                             isActive ? "SetInactive" : "SetActive",
+                                             isActive ? EditorIcons::Success : EditorIcons::Error,
+                                             isActive ? "Set Inactive" : "Set Active")) {
         context->GetCommandStack()->ExecuteCommand(
             EditorUndoUtil::MakeSetActiveCommand(*actor, !isActive), *context);
     }
     ImGui::SameLine();
+    if (context) {
+        EditorWidgets::SvgIcon(*context, EditorIcons::Actor, 14.0f);
+        ImGui::SameLine();
+    }
 
     // Inline rename
     if (m_PendingRenameID == actor->GetID()) {

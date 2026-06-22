@@ -23,9 +23,12 @@ void EditorPickingController::Pick(EditorContext& context, float screenX, float 
         return;
     }
 
+    Scene* scene = context.GetSceneViewScene();
+    if (!scene) return;
+
     Actor* closestActor = nullptr;
     float closestDistance = FLT_MAX;
-    context.GetScene()->ForEach([&](Actor& actor) {
+    scene->ForEach([&](Actor& actor) {
         auto* renderer = actor.GetComponent<MeshRendererComponent>();
         if (!renderer || !renderer->IsValid()) return;
 
@@ -45,8 +48,11 @@ void EditorPickingController::Pick(EditorContext& context, float screenX, float 
     });
 
     if (closestActor) {
+        const EditorSelectionWorldKind world = context.IsInspectingPlayWorld()
+            ? EditorSelectionWorldKind::Play
+            : EditorSelectionWorldKind::Editor;
         context.GetSelection().Select(EditorSelectObject::MakeActor(
-            closestActor->GetHandle(), closestActor->GetID()));
+            closestActor->GetHandle(), closestActor->GetID(), world));
     }
     else context.GetSelection().Clear();
 }

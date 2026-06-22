@@ -112,11 +112,11 @@ class D3D12Context final : public IRenderContext {
 public:
     static constexpr uint32_t kFrameCount = 2;
     static constexpr uint32_t kTextureSlotCount = 10;
-    static constexpr uint32_t kOffscreenRtvCount = 96;
+    static constexpr uint32_t kOffscreenRtvCount = 256;
     static constexpr uint32_t kDsvDescriptorCount = 32;
     static constexpr uint32_t kDefaultConstantBufferCapacity = 1024 * 1024;
-    static constexpr uint32_t kDefaultSrvDescriptorCount      = 256;
-    static constexpr uint32_t kDefaultSamplerDescriptorCount  = 64;
+    static constexpr uint32_t kDefaultSrvDescriptorCount      = 1024;
+    static constexpr uint32_t kDefaultSamplerDescriptorCount  = 256;
     static constexpr DXGI_FORMAT kDepthFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
     static constexpr DXGI_FORMAT kDepthTypelessFormat = DXGI_FORMAT_R24G8_TYPELESS;
 
@@ -134,6 +134,7 @@ public:
     GpuCommandList* GetGraphicsCommandList() override;
     GpuQueue* GetGraphicsQueue() override { return m_GraphicsQueue.get(); }
     GpuTextureView* GetCurrentBackBufferView() override {
+        if (m_RenderFrameIndex >= kFrameCount) return nullptr;
         return m_BackBufferViews[m_RenderFrameIndex].get();
     }
     RHIBackend GetBackend() const override { return RHIBackend::D3D12; }
@@ -286,6 +287,7 @@ private:
     void TransitionToPresent(ID3D12GraphicsCommandList* cmdList, uint32_t frameIndex);
     void PresentSwapChain(bool vsync);
     bool ResizeSwapChain(uint32_t width, uint32_t height);
+    bool RecreateFrameCommandList(ID3D12CommandAllocator* allocator);
     bool CheckDeviceResult(HRESULT hr, const char* operation);
     void ReportDeviceRemovedReason(const char* operation);
     void DumpDredDiagnostics();
@@ -309,6 +311,7 @@ private:
 
 private:
     bool m_IsRecording = false;
+    bool m_FrameCommandListClosed = true;
     bool m_DeviceLost = false;
     bool m_DredDumped = false;
     bool m_DeviceLossSuppressionLogged = false;
@@ -364,8 +367,10 @@ private:
     ComPtr<ID3D12Resource>           m_DefaultTexture;
     D3D12_CPU_DESCRIPTOR_HANDLE      m_DefaultTexSrvCpu = {};
     D3D12_GPU_DESCRIPTOR_HANDLE      m_DefaultTexSrvGpu = {};
+    std::shared_ptr<D3D12DescriptorLease> m_DefaultTexSrvLease;
     D3D12_CPU_DESCRIPTOR_HANDLE      m_DefaultSampCpu = {};
     D3D12_GPU_DESCRIPTOR_HANDLE      m_DefaultSampGpu = {};
+    std::shared_ptr<D3D12DescriptorLease> m_DefaultSampLease;
 
     ComPtr<ID3D12CommandAllocator>    m_UploadCommandAllocator;
     ComPtr<ID3D12GraphicsCommandList> m_UploadCommandList;

@@ -28,6 +28,54 @@
                     },
                     "enabled": true,
                     "type": "Script"
+                },
+                {
+                    "data": {
+                        "halfExtents": [
+                            0.5,
+                            0.5,
+                            0.5
+                        ],
+                        "isTrigger": false,
+                        "layer": 1,
+                        "layerMask": 4294967295
+                    },
+                    "enabled": true,
+                    "type": "BoxCollider"
+                },
+                {
+                    "data": {
+                        "angularAxisLocks": [
+                            0.0,
+                            0.0,
+                            0.0
+                        ],
+                        "angularDamping": 0.05000000074505806,
+                        "angularVelocity": [
+                            0.0,
+                            0.0,
+                            0.0
+                        ],
+                        "bodyType": "dynamic",
+                        "collisionDetection": "discrete",
+                        "friction": 0.6000000238418579,
+                        "linearAxisLocks": [
+                            0.0,
+                            0.0,
+                            0.0
+                        ],
+                        "linearDamping": 0.05000000074505806,
+                        "mass": 1.0,
+                        "restitution": 0.10000000149011612,
+                        "useGravity": true,
+                        "velocity": [
+                            0.0,
+                            0.0,
+                            0.0
+                        ]
+                    },
+                    "enabled": true,
+                    "type": "RigidBody"
                 }
             ],
             "id": 1,
@@ -36,13 +84,13 @@
             "transform": {
                 "position": [
                     0.0,
-                    0.0,
+                    2.2522361278533936,
                     0.0
                 ],
                 "rotation": [
                     0.0,
-                    0.0,
-                    0.0
+                    -0.0,
+                    -0.0
                 ],
                 "scale": [
                     1.0,
@@ -58,9 +106,9 @@
                     "data": {
                         "castShadows": true,
                         "color": [
-                            1.0,
-                            1.0,
-                            1.0
+                            0.9851190447807312,
+                            0.9177376627922058,
+                            0.6948607563972473
                         ],
                         "direction": [
                             -0.44832655787467957,
@@ -103,7 +151,7 @@
             "components": [
                 {
                     "data": {
-                        "material": "__builtin__/Default",
+                        "material": "Content/Materials/NewMaterial.mat",
                         "mesh": "Content/Mesh/monkey.obj#mesh"
                     },
                     "enabled": true,
@@ -141,6 +189,54 @@
                     },
                     "enabled": true,
                     "type": "MeshRenderer"
+                },
+                {
+                    "data": {
+                        "halfExtents": [
+                            0.5,
+                            0.5,
+                            0.5
+                        ],
+                        "isTrigger": false,
+                        "layer": 1,
+                        "layerMask": 4294967295
+                    },
+                    "enabled": true,
+                    "type": "BoxCollider"
+                },
+                {
+                    "data": {
+                        "angularAxisLocks": [
+                            0.0,
+                            0.0,
+                            0.0
+                        ],
+                        "angularDamping": 0.05000000074505806,
+                        "angularVelocity": [
+                            0.0,
+                            0.0,
+                            0.0
+                        ],
+                        "bodyType": "static",
+                        "collisionDetection": "discrete",
+                        "friction": 0.6000000238418579,
+                        "linearAxisLocks": [
+                            0.0,
+                            0.0,
+                            0.0
+                        ],
+                        "linearDamping": 0.05000000074505806,
+                        "mass": 1.0,
+                        "restitution": 0.10000000149011612,
+                        "useGravity": true,
+                        "velocity": [
+                            0.0,
+                            0.0,
+                            0.0
+                        ]
+                    },
+                    "enabled": true,
+                    "type": "RigidBody"
                 }
             ],
             "id": 4,
@@ -208,8 +304,48 @@
                     1.0
                 ]
             }
+        },
+        {
+            "active": true,
+            "components": [
+                {
+                    "data": {
+                        "clearColor": [
+                            0.11999999731779099,
+                            0.11999999731779099,
+                            0.18000000715255737
+                        ],
+                        "farClip": 1000.0,
+                        "fovYDegrees": 60.0,
+                        "isMainCamera": true,
+                        "nearClip": 0.10000000149011612
+                    },
+                    "enabled": true,
+                    "type": "Camera"
+                }
+            ],
+            "id": 6,
+            "name": "camera",
+            "parentID": 0,
+            "transform": {
+                "position": [
+                    -0.9461673498153687,
+                    0.9727115631103516,
+                    2.318805694580078
+                ],
+                "rotation": [
+                    0.0,
+                    -186.60000610351563,
+                    -0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            }
         }
     ],
     "name": "Untitled",
-    "nextID": 6
+    "nextID": 7
 }

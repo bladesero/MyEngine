@@ -3,7 +3,9 @@
 #include "Core/Engine.h"
 #include "Editor/EditorContext.h"
 #include "Editor/EditorProject.h"
+#include "Editor/UI/EditorIcons.h"
 #include "Editor/UI/EditorTheme.h"
+#include "Editor/UI/EditorWidgets.h"
 #include "Renderer/IRenderContext.h"
 #include "Scene/Actor.h"
 #include "Scene/Scene.h"
@@ -16,7 +18,7 @@
 
 namespace Editor::UI {
 
-float EditorStatusBar::Draw(const EditorContext& context,
+float EditorStatusBar::Draw(EditorContext& context,
                             const EditorProject* project,
                             IRenderContext* renderContext,
                             Engine* engine,
@@ -39,6 +41,10 @@ float EditorStatusBar::Draw(const EditorContext& context,
     if (ImGui::Begin("Editor Status Bar", nullptr, flags)) {
         const FrameStats emptyStats{};
         const FrameStats& stats = engine ? engine->GetFrameStats() : emptyStats;
+        if (EditorWidgets::SvgIcon(context, EditorIcons::EngineEditor,
+                                   ScaleToken(14.0f, effectiveScale))) {
+            ImGui::SameLine();
+        }
         ImGui::Text("Ready | Selected: %s | %s | %.1f FPS / %.2f ms | Project: %s",
                     FormatSelectedText(context).c_str(),
                     FormatBackendText(renderContext).c_str(),
@@ -63,7 +69,7 @@ std::string EditorStatusBar::FormatSelectedText(const EditorContext& context)
 {
     const auto& selection = context.GetSelection();
     if (selection.HasActor()) {
-        if (Scene* scene = context.GetScene()) {
+        if (Scene* scene = context.GetInspectorScene()) {
             if (Actor* actor = selection.ResolveActor(*scene)) return actor->GetName();
         }
         return "Actor";

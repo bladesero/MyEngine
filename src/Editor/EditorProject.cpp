@@ -96,6 +96,7 @@ bool EditorProject::LoadState(std::string* error) {
         {"toolbar", m_State.showToolbar},
         {"sceneHierarchy", m_State.showSceneHierarchy},
         {"viewport", m_State.showViewport},
+        {"gameViewport", true},
         {"inspector", m_State.showInspector},
         {"assetBrowser", m_State.showAssetBrowser},
         {"log", m_State.showLog}

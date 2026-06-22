@@ -12,6 +12,7 @@
 #include <vector>
 
 class Actor;
+class SceneViewport;
 class ToolbarPanel final:public EditorPanel {
 public: ToolbarPanel();
 protected:void DrawContent() override;
@@ -30,10 +31,15 @@ private:
     char m_RenameBuffer[256] = {};
     uint64_t m_PendingRenameID = 0;
 };
-class ViewportPanel final:public EditorPanel {
-public:explicit ViewportPanel(std::shared_ptr<EditorGizmoState> state);
+class SceneViewportPanel final:public EditorPanel {
+public:explicit SceneViewportPanel(std::shared_ptr<EditorGizmoState> state);
 protected:void DrawContent() override;
-private:int GetWindowFlags() const override;void BeforeBegin() override;void AfterEnd() override;void DropModel(const std::string& path,float x,float y);void DropPrefab(const std::string& path,float x,float y);std::shared_ptr<EditorGizmoState> m_State;EditorPickingController m_PickingController;EditorGizmoController m_GizmoController;
+private:int GetWindowFlags() const override;void BeforeBegin() override;void AfterEnd() override;bool DrawSceneViewOverlay(EditorContext& context,SceneViewport& viewport,EditorGizmoState& state,const EditorPanelRect& rect);void DropModel(const std::string& path,float x,float y);void DropPrefab(const std::string& path,float x,float y);std::shared_ptr<EditorGizmoState> m_State;EditorPickingController m_PickingController;EditorGizmoController m_GizmoController;
+};
+class GameViewportPanel final:public EditorPanel {
+public:GameViewportPanel();
+protected:void DrawContent() override;
+private:int GetWindowFlags() const override;void BeforeBegin() override;void AfterEnd() override;
 };
 class InspectorPanel final:public EditorPanel {
 public:

@@ -33,6 +33,11 @@ void Renderer::Resize(uint32_t width, uint32_t height)
     if (m_PostProcessPass) m_PostProcessPass->Resize(width, height);
 }
 
+void Renderer::ReleaseFrameResources()
+{
+    if (m_RenderGraph) m_RenderGraph->Reset();
+}
+
 void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool present)
 {
     if (!m_Device || !m_FrameContext || !m_ShadowPass || !m_MainPass || !m_PostProcessPass) return;

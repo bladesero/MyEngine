@@ -37,6 +37,7 @@ public:
 
     void SetOutputOffscreen(bool enabled);
     GpuTextureView* GetSceneColorView() const;
+    void ReleaseFrameResources();
 
 private:
     IRHIDevice*                m_Device = nullptr;
