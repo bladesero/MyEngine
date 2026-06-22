@@ -178,18 +178,23 @@ Application::Run()
 
 ## Runtime UI / RmlUi
 
-`src/Runtime/UI` integrates vendored RmlUi from `thirdparty/RmlUi` for in-game
-retained-mode UI. `UICanvasComponent` is the serialized scene entry point and
-stores project-relative RML, RCSS, font, visibility, interactivity, sort-order,
-and input-mode fields. `UISystem` owns RmlUi initialization, context update,
-input forwarding, font/document loading, and draw-list collection.
+`src/Runtime/UI` integrates RmlUi through the local xmake package
+`myengine-rmlui` for in-game retained-mode UI. `UICanvasComponent` is the
+serialized scene entry point and supports two authoring sources: `AssetDocument`
+loads project-relative RML, RCSS, and font paths, while `ActorTree` treats the
+Scene Actor subtree as the editable UI hierarchy and generates an in-memory RML
+document. `UIRectTransformComponent`, widget components, and layout components
+are Runtime serialization/editor facades; RmlUi remains the DOM/layout/render
+backend. `UISystem` owns RmlUi initialization, context update, input forwarding,
+font loading, actor-tree document reload, and draw-list collection.
 
 Rendering stays inside the existing Runtime renderer boundary: RmlUi emits
 geometry through `RmlRenderInterface`, which uploads RHI buffers/textures and
 records `UIDrawList` commands. `Renderer` appends `ScreenUIPass` at the end of
 the RenderGraph, after scene composite, and draws the UI into the backbuffer or
 offscreen viewport target. Editor remains ImGui-based and only exposes runtime
-UI assets/components for authoring.
+UI assets/components for authoring through Scene Outliner creation menus and
+Inspector sections.
 
 ## 9. Project startup flow
 

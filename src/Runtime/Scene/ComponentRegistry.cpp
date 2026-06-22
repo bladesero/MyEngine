@@ -14,6 +14,7 @@
 #include "Scene/MeshRendererComponent.h"
 #include "Scripting/ScriptComponent.h"
 #include "UI/Core/UICanvasComponent.h"
+#include "UI/Core/UIComponents.h"
 
 #include <algorithm>
 
@@ -38,6 +39,16 @@ ComponentRegistry::ComponentRegistry()
     Register("PostProcess", [] { return std::make_unique<PostProcessComponent>(); });
     Register("AudioSource", [] { return std::make_unique<AudioSourceComponent>(); });
     Register("UICanvas", [] { return std::make_unique<UICanvasComponent>(); });
+    Register("UIRectTransform", [] { return std::make_unique<UIRectTransformComponent>(); });
+    Register("UIText", [] { return std::make_unique<UITextComponent>(); });
+    Register("UIImage", [] { return std::make_unique<UIImageComponent>(); });
+    Register("UIButton", [] { return std::make_unique<UIButtonComponent>(); });
+    Register("UISlider", [] { return std::make_unique<UISliderComponent>(); });
+    Register("UIProgressBar", [] { return std::make_unique<UIProgressBarComponent>(); });
+    Register("UIScrollView", [] { return std::make_unique<UIScrollViewComponent>(); });
+    Register("UIVerticalLayout", [] { return std::make_unique<UIVerticalLayoutComponent>(); });
+    Register("UIHorizontalLayout", [] { return std::make_unique<UIHorizontalLayoutComponent>(); });
+    Register("UIGridLayout", [] { return std::make_unique<UIGridLayoutComponent>(); });
 }
 
 bool ComponentRegistry::Register(const std::string& typeName, Factory factory)

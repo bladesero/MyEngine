@@ -356,13 +356,15 @@
                             "Content/UI/Fonts/LatoLatin-Bold.ttf"
                         ],
                         "documentPath": "Content/UI/RmlExample.rml",
+                        "generatedStylePaths": [],
                         "inputMode": "GameAndUI",
                         "interactive": true,
                         "sortOrder": 0,
+                        "sourceMode": "AssetDocument",
                         "stylePaths": [
                             "Content/UI/RmlExample.rcss"
                         ],
-                        "visible": true
+                        "visible": false
                     },
                     "enabled": true,
                     "type": "UICanvas"
@@ -388,8 +390,332 @@
                     1.0
                 ]
             }
+        },
+        {
+            "active": true,
+            "components": [
+                {
+                    "data": {
+                        "canvasSpace": "Screen",
+                        "defaultFontPaths": [
+                            "Content/UI/Fonts/LatoLatin-Regular.ttf"
+                        ],
+                        "documentPath": "",
+                        "generatedStylePaths": [
+                            "Content/UI/RmlExample.rcss"
+                        ],
+                        "inputMode": "GameAndUI",
+                        "interactive": true,
+                        "sortOrder": 1,
+                        "sourceMode": "ActorTree",
+                        "stylePaths": [],
+                        "visible": true
+                    },
+                    "enabled": true,
+                    "type": "UICanvas"
+                },
+                {
+                    "data": {
+                        "anchorMax": [
+                            1.0,
+                            1.0
+                        ],
+                        "anchorMin": [
+                            0.0,
+                            0.0
+                        ],
+                        "offsetMax": [
+                            0.0,
+                            0.0
+                        ],
+                        "offsetMin": [
+                            0.0,
+                            0.0
+                        ],
+                        "pivot": [
+                            0.5,
+                            0.5
+                        ]
+                    },
+                    "enabled": true,
+                    "type": "UIRectTransform"
+                }
+            ],
+            "id": 8,
+            "name": "UI ActorTree Demo",
+            "parentID": 0,
+            "transform": {
+                "position": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            }
+        },
+        {
+            "active": true,
+            "components": [
+                {
+                    "data": {
+                        "alignItems": "flex-start",
+                        "className": "ui-layout-vertical",
+                        "elementId": "actor_tree_panel",
+                        "justifyContent": "flex-start",
+                        "padding": 18.0,
+                        "spacing": 2.0
+                    },
+                    "enabled": true,
+                    "type": "UIVerticalLayout"
+                },
+                {
+                    "data": {
+                        "anchorMax": [
+                            0.0,
+                            0.0
+                        ],
+                        "anchorMin": [
+                            0.0,
+                            0.0
+                        ],
+                        "offsetMax": [
+                            420.0,
+                            300.0
+                        ],
+                        "offsetMin": [
+                            32.0,
+                            96.0
+                        ],
+                        "pivot": [
+                            0.5,
+                            0.5
+                        ]
+                    },
+                    "enabled": true,
+                    "type": "UIRectTransform"
+                }
+            ],
+            "id": 9,
+            "name": "Panel",
+            "parentID": 8,
+            "transform": {
+                "position": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            }
+        },
+        {
+            "active": true,
+            "components": [
+                {
+                    "data": {
+                        "className": "",
+                        "color": [
+                            1.0,
+                            1.0,
+                            1.0,
+                            1.0
+                        ],
+                        "elementId": "actor_tree_title",
+                        "fontSize": 26.0,
+                        "text": "ActorTree UI"
+                    },
+                    "enabled": true,
+                    "type": "UIText"
+                }
+            ],
+            "id": 10,
+            "name": "Title",
+            "parentID": 9,
+            "transform": {
+                "position": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            }
+        },
+        {
+            "active": true,
+            "components": [
+                {
+                    "data": {
+                        "className": "",
+                        "disabled": false,
+                        "elementId": "actor_tree_button",
+                        "text": "Built in Editor"
+                    },
+                    "enabled": true,
+                    "type": "UIButton"
+                }
+            ],
+            "id": 11,
+            "name": "Button",
+            "parentID": 9,
+            "transform": {
+                "position": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            }
+        },
+        {
+            "active": true,
+            "components": [
+                {
+                    "data": {
+                        "className": "",
+                        "color": [
+                            1.0,
+                            1.0,
+                            1.0,
+                            1.0
+                        ],
+                        "elementId": "",
+                        "fontSize": 24.0,
+                        "text": "Text"
+                    },
+                    "enabled": true,
+                    "type": "UIText"
+                }
+            ],
+            "id": 12,
+            "name": "Text",
+            "parentID": 9,
+            "transform": {
+                "position": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            }
+        },
+        {
+            "active": true,
+            "components": [
+                {
+                    "data": {
+                        "className": "",
+                        "dataBinding": "",
+                        "elementId": "",
+                        "max": 1.0,
+                        "min": 0.0,
+                        "step": 0.009999999776482582,
+                        "value": 0.8299999833106995
+                    },
+                    "enabled": true,
+                    "type": "UISlider"
+                }
+            ],
+            "id": 13,
+            "name": "Slider",
+            "parentID": 9,
+            "transform": {
+                "position": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            }
+        },
+        {
+            "active": true,
+            "components": [
+                {
+                    "data": {
+                        "className": "",
+                        "elementId": "",
+                        "max": 1.0,
+                        "value": 0.5199999809265137
+                    },
+                    "enabled": true,
+                    "type": "UIProgressBar"
+                }
+            ],
+            "id": 14,
+            "name": "Progress Bar",
+            "parentID": 9,
+            "transform": {
+                "position": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            }
         }
     ],
     "name": "Untitled",
-    "nextID": 8
+    "nextID": 15
 }

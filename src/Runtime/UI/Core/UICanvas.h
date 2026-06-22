@@ -22,6 +22,11 @@ enum class UIInputMode {
     GameAndUI,
 };
 
+enum class UICanvasSourceMode {
+    AssetDocument,
+    ActorTree,
+};
+
 class UICanvas {
 public:
     UICanvas() = default;
@@ -35,6 +40,7 @@ public:
     Rml::ElementDocument* GetDocument() const { return m_Document; }
 
     bool LoadDocument(const std::string& path);
+    bool LoadDocumentFromMemory(const std::string& source, const std::string& sourceURL);
     void CloseDocument();
     bool Reload();
 
@@ -44,6 +50,7 @@ public:
     void SetStylePaths(std::vector<std::string> paths) { m_StylePaths = std::move(paths); }
     const std::vector<std::string>& GetDefaultFontPaths() const { return m_DefaultFontPaths; }
     void SetDefaultFontPaths(std::vector<std::string> paths) { m_DefaultFontPaths = std::move(paths); }
+    const std::string& GetMemoryDocumentSource() const { return m_MemoryDocumentSource; }
 
     bool IsVisible() const { return m_Visible; }
     void SetVisible(bool visible);
@@ -60,6 +67,8 @@ private:
     Rml::Context* m_Context = nullptr;
     Rml::ElementDocument* m_Document = nullptr;
     std::string m_DocumentPath;
+    std::string m_MemoryDocumentSource;
+    std::string m_MemoryDocumentURL;
     std::vector<std::string> m_StylePaths;
     std::vector<std::string> m_DefaultFontPaths;
     bool m_Visible = true;

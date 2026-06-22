@@ -67,4 +67,5 @@ private:
     UIEventBridge m_EventBridge;
     std::unordered_map<std::string, UIDataModel> m_DataModels;
     std::unordered_map<std::string, bool> m_LoadedFonts;
+    std::unordered_map<uint64_t, std::size_t> m_ActorTreeSignatures;
 };

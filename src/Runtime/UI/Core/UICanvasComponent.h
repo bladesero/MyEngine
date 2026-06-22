@@ -28,6 +28,10 @@ public:
     void SetStylePaths(std::vector<std::string> paths) { m_Canvas->SetStylePaths(std::move(paths)); }
     const std::vector<std::string>& GetDefaultFontPaths() const { return m_Canvas->GetDefaultFontPaths(); }
     void SetDefaultFontPaths(std::vector<std::string> paths) { m_Canvas->SetDefaultFontPaths(std::move(paths)); }
+    const std::vector<std::string>& GetGeneratedStylePaths() const { return m_GeneratedStylePaths; }
+    void SetGeneratedStylePaths(std::vector<std::string> paths) { m_GeneratedStylePaths = std::move(paths); }
+    UICanvasSourceMode GetSourceMode() const { return m_SourceMode; }
+    void SetSourceMode(UICanvasSourceMode mode) { m_SourceMode = mode; }
 
     bool IsVisible() const { return m_Canvas->IsVisible(); }
     void SetVisible(bool visible) { m_Canvas->SetVisible(visible); }
@@ -43,4 +47,6 @@ public:
 
 private:
     std::unique_ptr<UICanvas> m_Canvas;
+    UICanvasSourceMode m_SourceMode = UICanvasSourceMode::AssetDocument;
+    std::vector<std::string> m_GeneratedStylePaths;
 };

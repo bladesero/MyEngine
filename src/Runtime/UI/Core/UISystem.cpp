@@ -5,6 +5,7 @@
 #include "Core/Logger.h"
 #include "Scene/Actor.h"
 #include "Scene/Scene.h"
+#include "UI/Core/UIActorTreeBuilder.h"
 #include "UI/Core/UICanvasComponent.h"
 
 #include <RmlUi/Core.h>
@@ -48,6 +49,7 @@ void UISystem::Shutdown()
     m_ContextManager.Destroy();
     Rml::Shutdown();
     m_LoadedFonts.clear();
+    m_ActorTreeSignatures.clear();
     m_Initialized = false;
     m_Device = nullptr;
     m_FrameContext = nullptr;
@@ -89,7 +91,24 @@ void UISystem::EnsureCanvasDocuments(Scene& scene)
         if (!component || !component->IsEnabled()) return;
         UICanvas& canvas = component->GetCanvas();
         canvas.SetContext(context);
-        if (!canvas.GetDocument() && !canvas.GetDocumentPath().empty()) {
+        if (component->GetSourceMode() == UICanvasSourceMode::ActorTree) {
+            const std::size_t signature = UIActorTreeBuilder::ComputeSignature(actor);
+            const auto found = m_ActorTreeSignatures.find(actor.GetID());
+            if (!canvas.GetDocument() || found == m_ActorTreeSignatures.end() ||
+                found->second != signature) {
+                std::string rml;
+                std::string error;
+                if (UIActorTreeBuilder::BuildDocument(actor, *component, rml, &error)) {
+                    const std::string sourceURL = "generated://ui_actor_" +
+                        std::to_string(actor.GetID()) + ".rml";
+                    if (canvas.LoadDocumentFromMemory(rml, sourceURL)) {
+                        m_ActorTreeSignatures[actor.GetID()] = signature;
+                    }
+                } else if (!error.empty()) {
+                    Logger::Warn("[UI] Failed to build UI actor tree: ", error);
+                }
+            }
+        } else if (!canvas.GetDocument() && !canvas.GetDocumentPath().empty()) {
             canvas.LoadDocument(canvas.GetDocumentPath());
         }
     });

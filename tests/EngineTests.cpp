@@ -60,6 +60,9 @@
 #include "TestHarness.h"
 #include "Miscs/IconsManager.h"
 #include "UI/Core/UICanvasComponent.h"
+#include "UI/Core/UIActorTreeBuilder.h"
+#include "UI/Core/UIComponents.h"
+#include "UI/Core/UISystem.h"
 #include "UI/Render/UIDrawList.h"
 
 #include <algorithm>
@@ -3381,6 +3384,8 @@ bool TestUICanvasComponentSerialization()
     canvas->SetInteractive(false);
     canvas->SetSortOrder(4);
     canvas->SetInputMode(UIInputMode::UIOnly);
+    canvas->SetSourceMode(UICanvasSourceMode::ActorTree);
+    canvas->SetGeneratedStylePaths({"Content/UI/Generated.rcss"});
 
     Scene loaded("LoadedUI");
     if (!Check(SceneSerializer::LoadFromString(loaded, SceneSerializer::SaveToString(scene)),
@@ -3398,7 +3403,154 @@ bool TestUICanvasComponentSerialization()
     if (!Check(loadedCanvas->GetStylePaths().size() == 1 &&
                loadedCanvas->GetDefaultFontPaths().size() == 1,
                "UICanvas path arrays mismatch")) return false;
+    if (!Check(loadedCanvas->GetSourceMode() == UICanvasSourceMode::ActorTree &&
+               loadedCanvas->GetGeneratedStylePaths().size() == 1,
+               "UICanvas source mode mismatch")) return false;
     return true;
+}
+
+bool TestUIActorComponentsSerialization()
+{
+    const char* types[] = {
+        "UIRectTransform", "UIText", "UIImage", "UIButton", "UISlider",
+        "UIProgressBar", "UIScrollView", "UIVerticalLayout",
+        "UIHorizontalLayout", "UIGridLayout"
+    };
+    for (const char* type : types) {
+        if (!Check(ComponentRegistry::Get().IsRegistered(type),
+                   std::string("UI component not registered: ") + type)) return false;
+    }
+
+    Scene scene("UIComponents");
+    Actor* canvasActor = scene.CreateActor("Canvas");
+    auto* canvas = canvasActor->AddComponent<UICanvasComponent>();
+    canvas->SetSourceMode(UICanvasSourceMode::ActorTree);
+    Actor* buttonActor = scene.CreateActor("Button", canvasActor);
+    auto* rect = buttonActor->AddComponent<UIRectTransformComponent>();
+    rect->GetRect().offsetMin = {12.0f, 18.0f};
+    rect->GetRect().offsetMax = {180.0f, 54.0f};
+    auto* button = buttonActor->AddComponent<UIButtonComponent>();
+    button->SetElementID("play_button");
+    button->text = "Play";
+    button->disabled = true;
+    Actor* textActor = scene.CreateActor("Label", canvasActor);
+    auto* text = textActor->AddComponent<UITextComponent>();
+    text->text = "Score";
+    text->fontSize = 32.0f;
+
+    Scene loaded("LoadedUIComponents");
+    if (!Check(SceneSerializer::LoadFromString(loaded, SceneSerializer::SaveToString(scene)),
+               "UI components round-trip failed")) return false;
+    Actor* loadedButton = loaded.FindByName("Button");
+    auto* loadedButtonComponent = loadedButton ? loadedButton->GetComponent<UIButtonComponent>() : nullptr;
+    if (!Check(loadedButtonComponent && loadedButtonComponent->GetElementID() == "play_button" &&
+               loadedButtonComponent->text == "Play" && loadedButtonComponent->disabled,
+               "UIButton round-trip mismatch")) return false;
+    Actor* loadedText = loaded.FindByName("Label");
+    auto* loadedTextComponent = loadedText ? loadedText->GetComponent<UITextComponent>() : nullptr;
+    return Check(loadedTextComponent && loadedTextComponent->fontSize == 32.0f,
+                 "UIText round-trip mismatch");
+}
+
+bool TestUIActorTreeBuilder()
+{
+    Scene scene("UIBuilder");
+    Actor* canvasActor = scene.CreateActor("HUD");
+    auto* canvas = canvasActor->AddComponent<UICanvasComponent>();
+    canvas->SetSourceMode(UICanvasSourceMode::ActorTree);
+    canvas->SetGeneratedStylePaths({"Content/UI/RmlExample.rcss"});
+
+    Actor* textActor = scene.CreateActor("Title", canvasActor);
+    auto* text = textActor->AddComponent<UITextComponent>();
+    text->SetElementID("headline");
+    text->text = "Hello <HUD>";
+    text->fontSize = 20.0f;
+
+    Actor* buttonActor = scene.CreateActor("Button", canvasActor);
+    auto* button = buttonActor->AddComponent<UIButtonComponent>();
+    button->SetElementID("headline");
+    button->text = "Click";
+
+    Actor* sliderActor = scene.CreateActor("Slider", canvasActor);
+    auto* slider = sliderActor->AddComponent<UISliderComponent>();
+    slider->value = 0.75f;
+    slider->min = 0.0f;
+    slider->max = 1.0f;
+
+    Actor* progressActor = scene.CreateActor("Progress", canvasActor);
+    auto* progress = progressActor->AddComponent<UIProgressBarComponent>();
+    progress->value = 25.0f;
+    progress->max = 100.0f;
+
+    std::string rml;
+    std::string error;
+    if (!Check(UIActorTreeBuilder::BuildDocument(*canvasActor, *canvas, rml, &error),
+               "actor tree builder failed: " + error)) return false;
+    if (!Check(rml.find("<link type=\"text/rcss\" href=\"Content/UI/RmlExample.rcss\"") != std::string::npos,
+               "generated style path missing")) return false;
+    if (!Check(rml.find("id=\"headline\"") != std::string::npos &&
+               rml.find("Hello &lt;HUD&gt;") != std::string::npos,
+               "text element was not generated")) return false;
+    if (!Check(rml.find("id=\"ui_actor_" + std::to_string(buttonActor->GetID()) + "\"") != std::string::npos,
+               "duplicate element id did not fall back to actor id")) return false;
+    if (!Check(rml.find("ui-slider-fill") != std::string::npos &&
+               rml.find("ui-slider-handle") != std::string::npos &&
+               rml.find("data-ui-widget=\"slider\"") != std::string::npos,
+               "slider value/handle elements were not generated")) return false;
+    if (!Check(rml.find("ui-progress-fill") != std::string::npos &&
+               rml.find("data-ui-widget=\"progress\"") != std::string::npos,
+               "progress value element was not generated")) return false;
+
+    const std::size_t signature = UIActorTreeBuilder::ComputeSignature(*canvasActor);
+    button->text = "Changed";
+    return Check(signature != UIActorTreeBuilder::ComputeSignature(*canvasActor),
+                 "actor tree signature did not change after UI edit");
+}
+
+bool TestUIActorTreeCollectsDrawCommands()
+{
+    MockRenderContext context;
+    UISystem ui;
+    if (!Check(ui.Initialize(&context, &context), "UISystem failed to initialize")) return false;
+    ui.Resize(800, 600);
+
+    UIDrawList drawList;
+    {
+        Scene scene("UIActorTreeRender");
+        Actor* canvasActor = scene.CreateActor("HUD");
+        auto* canvas = canvasActor->AddComponent<UICanvasComponent>();
+        canvas->SetSourceMode(UICanvasSourceMode::ActorTree);
+        canvas->SetDefaultFontPaths({"Content/UI/Fonts/LatoLatin-Regular.ttf"});
+
+        Actor* panel = scene.CreateActor("Panel", canvasActor);
+        auto* panelRect = panel->AddComponent<UIRectTransformComponent>();
+        panelRect->GetRect().anchorMin = {0.0f, 0.0f};
+        panelRect->GetRect().anchorMax = {0.0f, 0.0f};
+        panelRect->GetRect().offsetMin = {20.0f, 20.0f};
+        panelRect->GetRect().offsetMax = {340.0f, 220.0f};
+        panel->AddComponent<UIVerticalLayoutComponent>();
+
+        Actor* textActor = scene.CreateActor("Title", panel);
+        auto* text = textActor->AddComponent<UITextComponent>();
+        text->text = "Actor UI";
+        text->fontSize = 24.0f;
+
+        Actor* buttonActor = scene.CreateActor("Button", panel);
+        auto* button = buttonActor->AddComponent<UIButtonComponent>();
+        button->text = "Click";
+
+        Actor* sliderActor = scene.CreateActor("Slider", panel);
+        sliderActor->AddComponent<UISliderComponent>();
+
+        Actor* progressActor = scene.CreateActor("Progress", panel);
+        auto* progress = progressActor->AddComponent<UIProgressBarComponent>();
+        progress->value = 0.5f;
+
+        ui.Update(scene, 0.016f);
+        ui.CollectDrawData(scene, drawList);
+    }
+    ui.Shutdown();
+    return Check(!drawList.Empty(), "ActorTree UI produced no draw commands");
 }
 
 bool TestUIDrawListBatchContainer()
@@ -3446,6 +3598,9 @@ MYENGINE_REGISTER_TEST("Scene", "TestActorHandleLifecycleAndDeferredMutation", T
 MYENGINE_REGISTER_TEST("Scene", "TestPrefabRoundTripOverridesAndValidation", TestPrefabRoundTripOverridesAndValidation);
 MYENGINE_REGISTER_TEST("Project", "TestPrefabCookDependencyValidation", TestPrefabCookDependencyValidation);
 MYENGINE_REGISTER_TEST("UI", "TestUICanvasComponentSerialization", TestUICanvasComponentSerialization);
+MYENGINE_REGISTER_TEST("UI", "TestUIActorComponentsSerialization", TestUIActorComponentsSerialization);
+MYENGINE_REGISTER_TEST("UI", "TestUIActorTreeBuilder", TestUIActorTreeBuilder);
+MYENGINE_REGISTER_TEST("UI", "TestUIActorTreeCollectsDrawCommands", TestUIActorTreeCollectsDrawCommands);
 MYENGINE_REGISTER_TEST("UI", "TestUIDrawListBatchContainer", TestUIDrawListBatchContainer);
 
 } // namespace

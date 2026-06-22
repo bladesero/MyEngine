@@ -13,6 +13,8 @@
 #include "Scene/SceneSerializer.h"
 #include "Scene/PrefabSystem.h"
 #include "Core/Logger.h"
+#include "UI/Core/UICanvasComponent.h"
+#include "UI/Core/UIComponents.h"
 
 #include <filesystem>
 #include <vector>
@@ -35,6 +37,157 @@ void DrawDropHighlight(ImVec2 min, ImVec2 max, ImU32 color, float thickness = 2.
     dl->AddRect(min, max, color, 0.0f, 0, thickness);
 }
 #endif
+
+enum class UIActorPreset {
+    Canvas,
+    Text,
+    Image,
+    Button,
+    Slider,
+    ProgressBar,
+    ScrollView,
+    VerticalLayout,
+    HorizontalLayout,
+    GridLayout,
+};
+
+const char* UIActorName(UIActorPreset preset)
+{
+    switch (preset) {
+    case UIActorPreset::Canvas: return "UI Canvas";
+    case UIActorPreset::Text: return "Text";
+    case UIActorPreset::Image: return "Image";
+    case UIActorPreset::Button: return "Button";
+    case UIActorPreset::Slider: return "Slider";
+    case UIActorPreset::ProgressBar: return "Progress Bar";
+    case UIActorPreset::ScrollView: return "Scroll View";
+    case UIActorPreset::VerticalLayout: return "Vertical Layout";
+    case UIActorPreset::HorizontalLayout: return "Horizontal Layout";
+    case UIActorPreset::GridLayout: return "Grid Layout";
+    }
+    return "UI Actor";
+}
+
+void ConfigureDefaultRect(UIRectTransformComponent& rect, UIActorPreset preset)
+{
+    RectTransform& value = rect.GetRect();
+    if (preset == UIActorPreset::Canvas) {
+        value.anchorMin = {0.0f, 0.0f};
+        value.anchorMax = {1.0f, 1.0f};
+        value.offsetMin = {0.0f, 0.0f};
+        value.offsetMax = {0.0f, 0.0f};
+        return;
+    }
+    value.anchorMin = {0.0f, 0.0f};
+    value.anchorMax = {0.0f, 0.0f};
+    value.offsetMin = {24.0f, 24.0f};
+    value.offsetMax = {224.0f, 72.0f};
+}
+
+void AddUIPresetComponents(Actor& actor, UIActorPreset preset)
+{
+    if (auto* rect = actor.AddComponent<UIRectTransformComponent>()) {
+        ConfigureDefaultRect(*rect, preset);
+    }
+    switch (preset) {
+    case UIActorPreset::Canvas: {
+        if (auto* canvas = actor.AddComponent<UICanvasComponent>()) {
+            canvas->SetSourceMode(UICanvasSourceMode::ActorTree);
+            canvas->SetDefaultFontPaths({"Content/UI/Fonts/LatoLatin-Regular.ttf"});
+            canvas->SetGeneratedStylePaths({"Content/UI/RmlExample.rcss"});
+        }
+        break;
+    }
+    case UIActorPreset::Text: {
+        auto* text = actor.AddComponent<UITextComponent>();
+        if (text) text->text = "Text";
+        break;
+    }
+    case UIActorPreset::Image:
+        actor.AddComponent<UIImageComponent>();
+        break;
+    case UIActorPreset::Button: {
+        auto* button = actor.AddComponent<UIButtonComponent>();
+        if (button) button->text = "Button";
+        break;
+    }
+    case UIActorPreset::Slider:
+        actor.AddComponent<UISliderComponent>();
+        break;
+    case UIActorPreset::ProgressBar:
+        actor.AddComponent<UIProgressBarComponent>();
+        break;
+    case UIActorPreset::ScrollView:
+        actor.AddComponent<UIScrollViewComponent>();
+        break;
+    case UIActorPreset::VerticalLayout:
+        actor.AddComponent<UIVerticalLayoutComponent>();
+        break;
+    case UIActorPreset::HorizontalLayout:
+        actor.AddComponent<UIHorizontalLayoutComponent>();
+        break;
+    case UIActorPreset::GridLayout:
+        actor.AddComponent<UIGridLayoutComponent>();
+        break;
+    }
+}
+
+void CreateUIActor(EditorContext& context, Scene& scene, Actor* parent, UIActorPreset preset)
+{
+    const std::string before = SceneSerializer::SaveToString(scene);
+    const uint64_t oldSelection = context.GetSelection().GetActorID();
+    Actor* actor = scene.CreateActor(UIActorName(preset), parent);
+    if (!actor) return;
+    AddUIPresetComponents(*actor, preset);
+    const uint64_t newSelection = actor->GetID();
+    const std::string after = SceneSerializer::SaveToString(scene);
+    SceneSerializer::LoadFromString(scene, before);
+    context.GetCommandStack()->ExecuteCommand(
+        EditorUndoUtil::MakeSceneSnapshotCommand("Create UI Actor", before, after,
+                                                 oldSelection, newSelection), context);
+}
+
+void AddUIActorMenu(EditorContext& context, Scene& scene, Actor* parent, EditorContextMenu& menu)
+{
+    if (parent == nullptr) {
+        menu.AddAction("UI/Create Canvas", [&context, &scene]() {
+            CreateUIActor(context, scene, nullptr, UIActorPreset::Canvas);
+        });
+        return;
+    }
+    if (!parent->GetComponent<UICanvasComponent>() &&
+        !parent->GetComponent<UIRectTransformComponent>()) {
+        return;
+    }
+    menu.AddSeparator();
+    menu.AddAction("UI/Text", [&context, &scene, parent]() {
+        CreateUIActor(context, scene, parent, UIActorPreset::Text);
+    });
+    menu.AddAction("UI/Image", [&context, &scene, parent]() {
+        CreateUIActor(context, scene, parent, UIActorPreset::Image);
+    });
+    menu.AddAction("UI/Button", [&context, &scene, parent]() {
+        CreateUIActor(context, scene, parent, UIActorPreset::Button);
+    });
+    menu.AddAction("UI/Slider", [&context, &scene, parent]() {
+        CreateUIActor(context, scene, parent, UIActorPreset::Slider);
+    });
+    menu.AddAction("UI/Progress Bar", [&context, &scene, parent]() {
+        CreateUIActor(context, scene, parent, UIActorPreset::ProgressBar);
+    });
+    menu.AddAction("UI/Scroll View", [&context, &scene, parent]() {
+        CreateUIActor(context, scene, parent, UIActorPreset::ScrollView);
+    });
+    menu.AddAction("Layout/Vertical", [&context, &scene, parent]() {
+        CreateUIActor(context, scene, parent, UIActorPreset::VerticalLayout);
+    });
+    menu.AddAction("Layout/Horizontal", [&context, &scene, parent]() {
+        CreateUIActor(context, scene, parent, UIActorPreset::HorizontalLayout);
+    });
+    menu.AddAction("Layout/Grid", [&context, &scene, parent]() {
+        CreateUIActor(context, scene, parent, UIActorPreset::GridLayout);
+    });
+}
 }
 
 SceneHierarchyPanel::SceneHierarchyPanel():EditorPanel("sceneHierarchy","Scene Outliner"){
@@ -59,6 +212,8 @@ SceneHierarchyPanel::SceneHierarchyPanel():EditorPanel("sceneHierarchy","Scene O
                 }
             }
         });
+
+        AddUIActorMenu(*context, *scene, actor, menu);
 
         menu.AddSeparator();
 
@@ -156,6 +311,7 @@ SceneHierarchyPanel::SceneHierarchyPanel():EditorPanel("sceneHierarchy","Scene O
             context->GetCommandStack()->ExecuteCommand(
                 EditorUndoUtil::MakeSceneSnapshotCommand("Create Actor",before,after,oldId,newId),*context);
         });
+        AddUIActorMenu(*context, *scene, nullptr, menu);
     });
 }
 
@@ -179,6 +335,13 @@ void SceneHierarchyPanel::DrawToolbar(){
             SceneSerializer::LoadFromString(*sc, before);
             ctx->GetCommandStack()->ExecuteCommand(
                 EditorUndoUtil::MakeSceneSnapshotCommand("Create Actor", before, after, old, nid), *ctx);
+        }
+    }
+    ImGui::SameLine();
+    if (ctx && EditorWidgets::IconButton(*ctx, "CreateUICanvas", EditorIcons::Input, "Create UI Canvas")) {
+        Scene* sc = ctx ? ctx->GetScene() : nullptr;
+        if (sc && ctx->IsEditing()) {
+            CreateUIActor(*ctx, *sc, nullptr, UIActorPreset::Canvas);
         }
     }
     ImGui::Separator();

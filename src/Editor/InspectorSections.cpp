@@ -31,6 +31,7 @@
 #include "Scene/Scene.h"
 #include "Scripting/ScriptComponent.h"
 #include "UI/Core/UICanvasComponent.h"
+#include "UI/Core/UIComponents.h"
 
 #if defined(MYENGINE_ENABLE_IMGUI)
 #include <imgui.h>
@@ -42,6 +43,7 @@
 #include <fstream>
 #include <nlohmann/json.hpp>
 #include <string>
+#include <type_traits>
 
 namespace {
 using namespace EditorPanelHelpers;
@@ -85,6 +87,51 @@ bool IsJsonAsset(const std::string& path)
     std::transform(extension.begin(), extension.end(), extension.begin(),
         [](unsigned char value) { return static_cast<char>(std::tolower(value)); });
     return extension == ".json";
+}
+
+template <typename T, typename Fn>
+void CommitComponentEdit(EditorContext& context, Actor& actor, T& component,
+                         const char* propertyName, Fn&& edit)
+{
+    nlohmann::json before = nlohmann::json::object();
+    component.Serialize(before);
+    edit();
+    nlohmann::json after = nlohmann::json::object();
+    component.Serialize(after);
+    if (before == after) return;
+    component.Deserialize(before);
+    if (auto* stack = context.GetCommandStack()) {
+        stack->ExecuteCommand(std::make_unique<SetComponentPropertyCommand>(
+            actor.GetID(), component.GetTypeName(), propertyName, before, after), context);
+    } else {
+        component.Deserialize(after);
+        context.MarkSceneDirty();
+    }
+}
+
+bool DrawStringField(const char* label, std::string& value)
+{
+    std::array<char, 260> buffer{};
+    std::strncpy(buffer.data(), value.c_str(), buffer.size() - 1);
+    if (!ImGui::InputText(label, buffer.data(), buffer.size())) return false;
+    value = buffer.data();
+    return true;
+}
+
+bool DrawVec2Field(const char* label, Vec2& value)
+{
+    float data[2] = {value.x, value.y};
+    if (!ImGui::DragFloat2(label, data, 1.0f)) return false;
+    value = {data[0], data[1]};
+    return true;
+}
+
+bool DrawColorField(const char* label, Color& value)
+{
+    float data[4] = {value.r, value.g, value.b, value.a};
+    if (!ImGui::ColorEdit4(label, data)) return false;
+    value = {data[0], data[1], data[2], data[3]};
+    return true;
 }
 
 void DrawJsonAssetPreview(const std::string& path)
@@ -1012,12 +1059,28 @@ public:
             canvas->SetInputMode(static_cast<UIInputMode>(inputMode));
             changed = true;
         }
-
-        std::array<char, 260> document{};
-        std::strncpy(document.data(), canvas->GetDocumentPath().c_str(), document.size() - 1);
-        if (ImGui::InputText("Document", document.data(), document.size())) {
-            canvas->SetDocumentPath(document.data());
+        int sourceMode = static_cast<int>(canvas->GetSourceMode());
+        if (ImGui::Combo("Source Mode", &sourceMode, "Asset Document\0Actor Tree\0")) {
+            canvas->SetSourceMode(static_cast<UICanvasSourceMode>(sourceMode));
             changed = true;
+        }
+
+        if (canvas->GetSourceMode() == UICanvasSourceMode::AssetDocument) {
+            std::array<char, 260> document{};
+            std::strncpy(document.data(), canvas->GetDocumentPath().c_str(), document.size() - 1);
+            if (ImGui::InputText("Document", document.data(), document.size())) {
+                canvas->SetDocumentPath(document.data());
+                changed = true;
+            }
+        } else {
+            auto generatedStyles = canvas->GetGeneratedStylePaths();
+            std::string firstStyle = generatedStyles.empty() ? std::string{} : generatedStyles.front();
+            if (DrawStringField("Generated Style", firstStyle)) {
+                canvas->SetGeneratedStylePaths(firstStyle.empty()
+                    ? std::vector<std::string>{}
+                    : std::vector<std::string>{firstStyle});
+                changed = true;
+            }
         }
         if (ImGui::Button("Reload Document")) {
             canvas->Reload();
@@ -1029,6 +1092,279 @@ public:
         }
         if (changed) context.MarkSceneDirty();
         ImGui::PopID();
+    }
+};
+
+class UIRectTransformInspectorSection final : public ActorInspectorSection {
+public:
+    const char* GetID() const override { return "uiRectTransform"; }
+    int GetOrder() const override { return 530; }
+
+    void Draw(EditorContext& context) override
+    {
+        Actor* actor = SelectedActor(context);
+        auto* rect = actor ? actor->GetComponent<UIRectTransformComponent>() : nullptr;
+        if (!rect) return;
+
+        ImGui::Separator();
+        ImGui::PushID("UIRectTransform");
+        if (!SectionHeaderWithIcon(context, EditorIcons::Actor, "UI Rect Transform")) {
+            ImGui::PopID();
+            return;
+        }
+        RectTransform next = rect->GetRect();
+        bool changed = false;
+        changed |= DrawVec2Field("Anchor Min", next.anchorMin);
+        changed |= DrawVec2Field("Anchor Max", next.anchorMax);
+        changed |= DrawVec2Field("Offset Min", next.offsetMin);
+        changed |= DrawVec2Field("Offset Max", next.offsetMax);
+        changed |= DrawVec2Field("Pivot", next.pivot);
+        if (changed) {
+            CommitComponentEdit(context, *actor, *rect, "Rect Transform", [&]() {
+                rect->GetRect() = next;
+            });
+        }
+        if (EditorWidgets::IconButton("RemoveUIRectTransform", "X", "Remove UI Rect Transform")) {
+            actor->RemoveComponent<UIRectTransformComponent>();
+            context.MarkSceneDirty();
+        }
+        ImGui::PopID();
+    }
+};
+
+class UIWidgetInspectorSection final : public ActorInspectorSection {
+public:
+    const char* GetID() const override { return "uiWidget"; }
+    int GetOrder() const override { return 540; }
+
+    void Draw(EditorContext& context) override
+    {
+        Actor* actor = SelectedActor(context);
+        if (!actor) return;
+
+        DrawText(context, *actor);
+        DrawImage(context, *actor);
+        DrawButton(context, *actor);
+        DrawSlider(context, *actor);
+        DrawProgress(context, *actor);
+        DrawScrollView(context, *actor);
+    }
+
+private:
+    template <typename T>
+    bool DrawCommon(EditorContext& context, Actor& actor, T& component, const char* label)
+    {
+        ImGui::Separator();
+        ImGui::PushID(label);
+        if (!SectionHeaderWithIcon(context, EditorIcons::Input, label)) {
+            ImGui::PopID();
+            return false;
+        }
+        bool changed = false;
+        std::string elementId = component.GetElementID();
+        std::string className = component.GetClassName();
+        changed |= DrawStringField("Element ID", elementId);
+        changed |= DrawStringField("Class", className);
+        if (changed) {
+            CommitComponentEdit(context, actor, component, label, [&]() {
+                component.SetElementID(elementId);
+                component.SetClassName(className);
+            });
+        }
+        return true;
+    }
+
+    void DrawText(EditorContext& context, Actor& actor)
+    {
+        auto* component = actor.GetComponent<UITextComponent>();
+        if (!component) return;
+        if (!DrawCommon(context, actor, *component, "UI Text")) return;
+        std::string text = component->text;
+        float fontSize = component->fontSize;
+        Color color = component->color;
+        bool changed = false;
+        changed |= DrawStringField("Text", text);
+        changed |= ImGui::DragFloat("Font Size", &fontSize, 1.0f, 1.0f, 256.0f);
+        changed |= DrawColorField("Color", color);
+        if (changed) {
+            CommitComponentEdit(context, actor, *component, "Text", [&]() {
+                component->text = text;
+                component->fontSize = fontSize;
+                component->color = color;
+            });
+        }
+        ImGui::PopID();
+    }
+
+    void DrawImage(EditorContext& context, Actor& actor)
+    {
+        auto* component = actor.GetComponent<UIImageComponent>();
+        if (!component) return;
+        if (!DrawCommon(context, actor, *component, "UI Image")) return;
+        std::string source = component->source;
+        Color tint = component->tint;
+        bool changed = DrawStringField("Source", source);
+        changed |= DrawColorField("Tint", tint);
+        if (changed) {
+            CommitComponentEdit(context, actor, *component, "Image", [&]() {
+                component->source = source;
+                component->tint = tint;
+            });
+        }
+        ImGui::PopID();
+    }
+
+    void DrawButton(EditorContext& context, Actor& actor)
+    {
+        auto* component = actor.GetComponent<UIButtonComponent>();
+        if (!component) return;
+        if (!DrawCommon(context, actor, *component, "UI Button")) return;
+        std::string text = component->text;
+        bool disabled = component->disabled;
+        bool changed = DrawStringField("Text", text);
+        changed |= ImGui::Checkbox("Disabled", &disabled);
+        if (changed) {
+            CommitComponentEdit(context, actor, *component, "Button", [&]() {
+                component->text = text;
+                component->disabled = disabled;
+            });
+        }
+        ImGui::PopID();
+    }
+
+    void DrawSlider(EditorContext& context, Actor& actor)
+    {
+        auto* component = actor.GetComponent<UISliderComponent>();
+        if (!component) return;
+        if (!DrawCommon(context, actor, *component, "UI Slider")) return;
+        float value = component->value;
+        float min = component->min;
+        float max = component->max;
+        float step = component->step;
+        std::string binding = component->dataBinding;
+        bool changed = ImGui::DragFloat("Value", &value, 0.01f);
+        changed |= ImGui::DragFloat("Min", &min, 0.01f);
+        changed |= ImGui::DragFloat("Max", &max, 0.01f);
+        changed |= ImGui::DragFloat("Step", &step, 0.01f, 0.001f, 100.0f);
+        changed |= DrawStringField("Data Binding", binding);
+        if (changed) {
+            CommitComponentEdit(context, actor, *component, "Slider", [&]() {
+                component->value = value;
+                component->min = min;
+                component->max = max;
+                component->step = step;
+                component->dataBinding = binding;
+            });
+        }
+        ImGui::PopID();
+    }
+
+    void DrawProgress(EditorContext& context, Actor& actor)
+    {
+        auto* component = actor.GetComponent<UIProgressBarComponent>();
+        if (!component) return;
+        if (!DrawCommon(context, actor, *component, "UI Progress Bar")) return;
+        float value = component->value;
+        float max = component->max;
+        bool changed = ImGui::DragFloat("Value", &value, 0.01f);
+        changed |= ImGui::DragFloat("Max", &max, 0.01f, 0.001f, 100000.0f);
+        if (changed) {
+            CommitComponentEdit(context, actor, *component, "Progress Bar", [&]() {
+                component->value = value;
+                component->max = max;
+            });
+        }
+        ImGui::PopID();
+    }
+
+    void DrawScrollView(EditorContext& context, Actor& actor)
+    {
+        auto* component = actor.GetComponent<UIScrollViewComponent>();
+        if (!component) return;
+        if (!DrawCommon(context, actor, *component, "UI Scroll View")) return;
+        bool horizontal = component->horizontal;
+        bool vertical = component->vertical;
+        bool changed = ImGui::Checkbox("Horizontal", &horizontal);
+        changed |= ImGui::Checkbox("Vertical", &vertical);
+        if (changed) {
+            CommitComponentEdit(context, actor, *component, "Scroll View", [&]() {
+                component->horizontal = horizontal;
+                component->vertical = vertical;
+            });
+        }
+        ImGui::PopID();
+    }
+};
+
+class UILayoutInspectorSection final : public ActorInspectorSection {
+public:
+    const char* GetID() const override { return "uiLayout"; }
+    int GetOrder() const override { return 550; }
+
+    void Draw(EditorContext& context) override
+    {
+        Actor* actor = SelectedActor(context);
+        if (!actor) return;
+        if (auto* layout = actor->GetComponent<UIVerticalLayoutComponent>()) {
+            DrawLayout(context, *actor, *layout, "UI Vertical Layout");
+        }
+        if (auto* layout = actor->GetComponent<UIHorizontalLayoutComponent>()) {
+            DrawLayout(context, *actor, *layout, "UI Horizontal Layout");
+        }
+        if (auto* grid = actor->GetComponent<UIGridLayoutComponent>()) {
+            DrawGrid(context, *actor, *grid);
+        }
+    }
+
+private:
+    template <typename T>
+    bool DrawLayout(EditorContext& context, Actor& actor, T& layout, const char* label)
+    {
+        ImGui::Separator();
+        ImGui::PushID(label);
+        if (!SectionHeaderWithIcon(context, EditorIcons::Input, label)) {
+            ImGui::PopID();
+            return false;
+        }
+        float spacing = layout.spacing;
+        float padding = layout.padding;
+        std::string alignItems = layout.alignItems;
+        std::string justifyContent = layout.justifyContent;
+        std::string className = layout.GetClassName();
+        bool changed = ImGui::DragFloat("Spacing", &spacing, 1.0f, 0.0f, 256.0f);
+        changed |= ImGui::DragFloat("Padding", &padding, 1.0f, 0.0f, 256.0f);
+        changed |= DrawStringField("Align Items", alignItems);
+        changed |= DrawStringField("Justify Content", justifyContent);
+        changed |= DrawStringField("Class", className);
+        if (changed) {
+            CommitComponentEdit(context, actor, layout, label, [&]() {
+                layout.spacing = spacing;
+                layout.padding = padding;
+                layout.alignItems = alignItems;
+                layout.justifyContent = justifyContent;
+                layout.SetClassName(className);
+            });
+        }
+        ImGui::PopID();
+        return true;
+    }
+
+    void DrawGrid(EditorContext& context, Actor& actor, UIGridLayoutComponent& grid)
+    {
+        if (!DrawLayout(context, actor, grid, "UI Grid Layout")) return;
+        int columns = grid.columns;
+        int rows = grid.rows;
+        float gap = grid.gap;
+        bool changed = ImGui::DragInt("Columns", &columns, 1.0f, 1, 64);
+        changed |= ImGui::DragInt("Rows", &rows, 1.0f, 1, 64);
+        changed |= ImGui::DragFloat("Gap", &gap, 1.0f, 0.0f, 256.0f);
+        if (changed) {
+            CommitComponentEdit(context, actor, grid, "Grid", [&]() {
+                grid.columns = columns;
+                grid.rows = rows;
+                grid.gap = gap;
+            });
+        }
     }
 };
 
@@ -1129,6 +1465,9 @@ std::vector<std::unique_ptr<EditorInspectorSection>> CreateDefaultInspectorSecti
     sections.push_back(std::make_unique<PostProcessInspectorSection>());
     sections.push_back(std::make_unique<ScriptInspectorSection>());
     sections.push_back(std::make_unique<UICanvasInspectorSection>());
+    sections.push_back(std::make_unique<UIRectTransformInspectorSection>());
+    sections.push_back(std::make_unique<UIWidgetInspectorSection>());
+    sections.push_back(std::make_unique<UILayoutInspectorSection>());
     sections.push_back(std::make_unique<AddComponentInspectorSection>());
     return sections;
 }

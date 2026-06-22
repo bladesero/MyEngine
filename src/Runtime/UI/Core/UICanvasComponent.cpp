@@ -31,6 +31,21 @@ UIInputMode ParseInputMode(const std::string& value)
     return UIInputMode::GameAndUI;
 }
 
+const char* SourceModeToString(UICanvasSourceMode mode)
+{
+    switch (mode) {
+    case UICanvasSourceMode::AssetDocument: return "AssetDocument";
+    case UICanvasSourceMode::ActorTree: return "ActorTree";
+    }
+    return "AssetDocument";
+}
+
+UICanvasSourceMode ParseSourceMode(const std::string& value)
+{
+    if (value == "ActorTree") return UICanvasSourceMode::ActorTree;
+    return UICanvasSourceMode::AssetDocument;
+}
+
 } // namespace
 
 UICanvasComponent::UICanvasComponent()
@@ -55,6 +70,8 @@ void UICanvasComponent::Serialize(nlohmann::json& data) const
     data["documentPath"] = AssetManager::Get().MakeProjectRelativePath(GetDocumentPath());
     data["stylePaths"] = GetStylePaths();
     data["defaultFontPaths"] = GetDefaultFontPaths();
+    data["generatedStylePaths"] = GetGeneratedStylePaths();
+    data["sourceMode"] = SourceModeToString(GetSourceMode());
     data["canvasSpace"] = "Screen";
     data["sortOrder"] = GetSortOrder();
     data["inputMode"] = InputModeToString(GetInputMode());
@@ -68,6 +85,8 @@ void UICanvasComponent::Deserialize(const nlohmann::json& data)
     SetDocumentPath(data.value("documentPath", std::string{}));
     SetStylePaths(ReadStringArray(data, "stylePaths"));
     SetDefaultFontPaths(ReadStringArray(data, "defaultFontPaths"));
+    SetGeneratedStylePaths(ReadStringArray(data, "generatedStylePaths"));
+    SetSourceMode(ParseSourceMode(data.value("sourceMode", std::string{"AssetDocument"})));
     SetSortOrder(data.value("sortOrder", 0));
     SetInputMode(ParseInputMode(data.value("inputMode", std::string{"GameAndUI"})));
     SetVisible(data.value("visible", true));
