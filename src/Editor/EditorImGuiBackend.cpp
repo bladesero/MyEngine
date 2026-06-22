@@ -169,8 +169,19 @@ void EditorImGuiBackend::RenderDrawData(ImDrawData* drawData) {
 
 bool EditorImGuiBackend::RebuildFontTexture() {
     if (!m_Initialized || !m_Interop) return false;
+    if (!SupportsRuntimeFontTextureRebuild()) return false;
     m_FontTextureRebuildPending = true;
     return true;
+}
+
+bool EditorImGuiBackend::SupportsRuntimeFontTextureRebuild() const {
+#if defined(MYENGINE_ENABLE_IMGUI) && defined(MYENGINE_PLATFORM_WINDOWS)
+    if (!m_Initialized || !m_Interop) return false;
+    const ImGuiBackendHandles handles = m_Interop->GetImGuiBackendHandles();
+    return handles.backend != RHIBackend::D3D12;
+#else
+    return false;
+#endif
 }
 
 bool EditorImGuiBackend::RebuildFontTextureNow() {

@@ -55,6 +55,7 @@ private:
     std::filesystem::path m_FontRoot;
     EditorFontConfig m_Config;
     std::array<ImFont*, static_cast<size_t>(EditorFontRole::Count)> m_Fonts{};
+    float m_BakedScale = 1.0f;
     bool m_Dirty = true;
     bool m_LastRebuilt = false;
     std::string m_LastWarning;

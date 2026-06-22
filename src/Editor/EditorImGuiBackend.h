@@ -26,6 +26,7 @@ public:
     void BeginFrame();
     void RenderDrawData(ImDrawData* drawData);
     bool RebuildFontTexture();
+    bool SupportsRuntimeFontTextureRebuild() const;
     void* GetTextureId(GpuTextureView* view);
 
     bool IsInitialized() const { return m_Initialized; }

@@ -32,13 +32,20 @@ bool EditorFontManager::RebuildIfNeeded(float effectiveScale, EditorImGuiBackend
     m_LastRebuilt = false;
     if (!m_Dirty || !ImGui::GetCurrentContext()) return false;
 
+    ImGuiIO& io = ImGui::GetIO();
+    const float safeScale = effectiveScale > 0.0f ? effectiveScale : 1.0f;
+    if (backend && !backend->SupportsRuntimeFontTextureRebuild()) {
+        const float bakedScale = m_BakedScale > 0.0f ? m_BakedScale : 1.0f;
+        io.FontGlobalScale = safeScale / bakedScale;
+        m_Dirty = false;
+        return false;
+    }
+
     m_Fonts.fill(nullptr);
     g_ActiveFonts.fill(nullptr);
     m_LastWarning.clear();
 
-    ImGuiIO& io = ImGui::GetIO();
     io.Fonts->Clear();
-    const float safeScale = effectiveScale > 0.0f ? effectiveScale : 1.0f;
     const float uiSize = m_Config.baseUIFontSize * safeScale;
     const float logSize = m_Config.baseLogFontSize * safeScale;
     const float iconSize = m_Config.baseIconFontSize * safeScale;
@@ -80,6 +87,7 @@ bool EditorFontManager::RebuildIfNeeded(float effectiveScale, EditorImGuiBackend
     g_ActiveFonts = m_Fonts;
     io.FontGlobalScale = 1.0f;
     if (backend) backend->RebuildFontTexture();
+    m_BakedScale = safeScale;
     m_Dirty = false;
     m_LastRebuilt = true;
     return true;
