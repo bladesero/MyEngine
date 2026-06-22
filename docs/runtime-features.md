@@ -10,12 +10,16 @@ The default Editor and Player scene demonstrates the complete runtime slice:
 
 ## Script Syntax
 
-Runtime gameplay scripts are AngelScript classes attached through the `Script`
-component. New scripts default to the `Script` class and can implement any of
-the lifecycle callbacks the engine calls.
+Runtime gameplay scripts are AngelScript classes stored as `.as` assets under
+`Content/Scripts` and attached through the `Script` component. A script asset
+can contain multiple classes; the editor lists each class as an addable script
+component entry while the scene still serializes a single `Script` component.
 
 ```cpp
-class Script {
+class RotatingCube {
+  float speed = 35.0f;
+  Vec3 axis = Vec3(0, 1, 0);
+
   void Start() {
     Actor::SetPosition(Vec3(0, 1, 0));
     RigidBody::SetVelocity(Vec3(0, 0, 0));
@@ -23,10 +27,15 @@ class Script {
 
   void Update(float dt) {
     Actor::Translate(Vec3(1 * dt, 0, 0));
-    Actor::Rotate(Vec3(0, 35 * dt, 0));
+    Actor::Rotate(axis * speed * dt);
   }
 }
 ```
+
+Public `bool`, integer, floating point, `string`, `Vec2`, and `Vec3` fields are
+reflected into the `ScriptComponent` parameter UI and serialized under the
+component's `properties` object. Unsupported fields remain available to the
+script at runtime but are not shown in the inspector.
 
 Bound runtime APIs are exposed through narrow namespaces such as `Actor`,
 `RigidBody`, `Input`, and `Physics`. Runtime scripts do not receive raw engine,

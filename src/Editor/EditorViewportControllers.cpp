@@ -5,7 +5,7 @@
 #include "Editor/EditorCommand.h"
 #include "Editor/EditorContext.h"
 #include "Editor/EditorPanelHelpers.h"
-#include "Game/SceneRenderLayer.h"
+#include "Game/SceneViewportController.h"
 #include "Math/Mat4Inverse.h"
 #include "Scene/Actor.h"
 #include "Scene/MeshRendererComponent.h"
@@ -17,8 +17,9 @@
 void EditorPickingController::Pick(EditorContext& context, float screenX, float screenY) const
 {
     Math::Ray ray {};
-    if (!context.GetSceneLayer() ||
-        !context.GetSceneLayer()->BuildRayFromScreen(screenX, screenY, ray)) {
+    auto* sceneViewport = context.GetSceneViewport();
+    if (!sceneViewport ||
+        !sceneViewport->BuildRayFromScreen(screenX, screenY, ray)) {
         return;
     }
 
@@ -76,8 +77,10 @@ void EditorGizmoController::DrawAndApply(EditorContext& context, Actor& actor,
     float view[16] {};
     float projection[16] {};
     float world[16] {};
-    MatToFloat(context.GetSceneLayer()->GetCamera().GetView(), view);
-    MatToFloat(context.GetSceneLayer()->GetCamera().GetProj(), projection);
+    auto* sceneViewport = context.GetSceneViewport();
+    if (!sceneViewport) return;
+    MatToFloat(sceneViewport->GetCamera().GetView(), view);
+    MatToFloat(sceneViewport->GetCamera().GetProj(), projection);
     MatToFloat(actor.GetWorldMatrix(), world);
 
     ImGuizmo::SetDrawlist(ImGui::GetWindowDrawList());

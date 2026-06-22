@@ -6,6 +6,7 @@
 #include "Assets/MaterialAsset.h"
 #include "Assets/ModelAsset.h"
 #include "Assets/ShaderAsset.h"
+#include "Assets/ScriptAsset.h"
 #include "Audio/AudioClipAsset.h"
 #include "Core/Logger.h"
 
@@ -34,6 +35,7 @@ using AssetLoaderFn = std::function<std::shared_ptr<Asset>(const std::string& pa
 std::shared_ptr<TextureAsset> LoadTextureAssetFromFile(const std::string& path);
 std::shared_ptr<ModelAsset>   LoadModelAssetFromObj(const std::string& path);
 std::shared_ptr<ModelAsset>   LoadModelAssetFromGltf(const std::string& path);
+std::shared_ptr<ScriptAsset>  LoadScriptAssetFromFile(const std::string& path);
 
 class AssetManager {
 public:
@@ -211,7 +213,7 @@ private:
 
     size_t              m_AssetCpuBudgetBytes = 0; // 0 = no budget / no warn
     size_t              m_AssetCpuTotalBytes = 0;
-    std::array<size_t, 7> m_AssetCpuBytesByType{};
+    std::array<size_t, 8> m_AssetCpuBytesByType{};
     std::unordered_map<AssetID, std::filesystem::file_time_type> m_SourceWriteTimes;
     std::unordered_map<AssetID, std::string> m_SourceHashes;
     std::unordered_map<ListenerID, AssetChangedCallback> m_AssetChangedListeners;

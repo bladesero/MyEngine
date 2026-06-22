@@ -17,7 +17,10 @@ class EditorShortcutMap;
 class Engine;
 class IWindow;
 class Scene;
+class SceneLayer;
+class SceneRenderHost;
 class SceneRenderLayer;
+class SceneViewportController;
 
 class EditorContext {
 public:
@@ -26,7 +29,11 @@ public:
     EditorContext(SceneRenderLayer* sceneLayer, IRenderContext* renderContext,
                   IWindow* window, Engine* engine);
 
+    // Transitional access while editor call sites move to narrower runtime services.
     SceneRenderLayer* GetSceneLayer() const { return m_SceneLayer; }
+    SceneLayer* GetSceneLayerBase() const;
+    SceneViewportController* GetSceneViewport() const;
+    SceneRenderHost* GetSceneRenderHost() const;
     IRenderContext* GetRenderContext() const { return m_RenderContext; }
     IWindow* GetWindow() const { return m_Window; }
     Engine* GetEngine() const { return m_Engine; }

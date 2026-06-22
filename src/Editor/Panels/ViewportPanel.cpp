@@ -10,7 +10,8 @@
 #include "Editor/EditorLayout.h"
 #include "Editor/EditorPanelHelpers.h"
 #include "Editor/EditorUndoUtil.h"
-#include "Game/SceneRenderLayer.h"
+#include "Game/SceneRenderHost.h"
+#include "Game/SceneViewportController.h"
 #include "Scene/Actor.h"
 #include "Scene/MeshRendererComponent.h"
 #include "Scene/PrefabSystem.h"
@@ -34,8 +35,9 @@ void ViewportPanel::DropPrefab(const std::string& path, float screenX, float scr
     EditorContext* context=GetContext();if(!context||!context->IsEditing())return;
     Scene* scene=context->GetScene();const std::string before=SceneSerializer::SaveToString(*scene);const uint64_t old=context->GetSelection().GetActorID();
     Transform placement;Math::Ray ray{};float distance=0.0f;
-    if(context->GetSceneLayer()->BuildRayFromScreen(screenX,screenY,ray)&&std::fabs(ray.direction.y)>1e-5f&&(distance=-ray.origin.y/ray.direction.y)>0.0f)placement.position=ray.At(distance);
-    else {Camera& camera=context->GetSceneLayer()->GetCamera();placement.position=camera.GetPosition()+camera.GetForward()*8.0f;}
+    auto* sceneViewport = context->GetSceneViewport();
+    if(sceneViewport&&sceneViewport->BuildRayFromScreen(screenX,screenY,ray)&&std::fabs(ray.direction.y)>1e-5f&&(distance=-ray.origin.y/ray.direction.y)>0.0f)placement.position=ray.At(distance);
+    else if(sceneViewport){Camera& camera=sceneViewport->GetCamera();placement.position=camera.GetPosition()+camera.GetForward()*8.0f;}
     PrefabInstantiateOptions options;options.rootTransform=placement;std::string error;Actor* actor=PrefabSystem::Instantiate(*scene,path,options,&error);
     if(!actor){Logger::Warn("[Editor] Failed to instantiate prefab: ",error);return;}
     const uint64_t id=actor->GetID();const std::string after=SceneSerializer::SaveToString(*scene);SceneSerializer::LoadFromString(*scene,before);
@@ -77,12 +79,14 @@ void ViewportPanel::DropModel(const std::string& path, float screenX, float scre
 
     Math::Ray ray {};
     float distance = 0.0f;
-    if (context->GetSceneLayer()->BuildRayFromScreen(screenX, screenY, ray) &&
+    auto* sceneViewport = context->GetSceneViewport();
+    if (sceneViewport &&
+        sceneViewport->BuildRayFromScreen(screenX, screenY, ray) &&
         std::fabs(ray.direction.y) > 1e-5f &&
         (distance = -ray.origin.y / ray.direction.y) > 0.0f) {
         actor->GetTransform().position = ray.At(distance);
-    } else {
-        Camera& camera = context->GetSceneLayer()->GetCamera();
+    } else if (sceneViewport) {
+        Camera& camera = sceneViewport->GetCamera();
         actor->GetTransform().position = camera.GetPosition() + camera.GetForward() * 8.0f;
     }
 
@@ -100,6 +104,9 @@ void ViewportPanel::DrawContent()
 #if defined(MYENGINE_ENABLE_IMGUI)
     EditorContext* context = GetContext();
     if (!context || !m_State) return;
+    auto* sceneViewport = context->GetSceneViewport();
+    auto* renderHost = context->GetSceneRenderHost();
+    if (!sceneViewport || !renderHost) return;
 
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
     const EditorPanelRect rect = EditorLayout::Compute(
@@ -126,12 +133,12 @@ void ViewportPanel::DrawContent()
         imageMin.x, imageMin.y, imageSize.x, imageSize.y
     };
 
-    context->GetSceneLayer()->SetEditorViewportRect(
+    sceneViewport->SetEditorViewportRect(
         static_cast<int>(imageMin.x), static_cast<int>(imageMin.y),
         static_cast<int>(imageSize.x), static_cast<int>(imageSize.y));
-    context->GetSceneLayer()->SetViewportInputEnabled(hovered);
+    sceneViewport->SetInputEnabled(hovered);
 
-    if (GpuTextureView* view = context->GetSceneLayer()->GetSceneColorView()) {
+    if (GpuTextureView* view = renderHost->GetSceneColorView()) {
         void* texture = nullptr;
         if (auto* backend = context->GetImGuiBackend())
             texture = backend->GetTextureId(view);

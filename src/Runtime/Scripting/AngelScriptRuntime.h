@@ -1,10 +1,12 @@
 #pragma once
 
 #include "Physics/CollisionEvent.h"
+#include "Scripting/ScriptReflection.h"
 
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <string>
+#include <vector>
 
 class ScriptComponent;
 
@@ -24,6 +26,11 @@ public:
 
     const nlohmann::json& GetProperties() const;
     const nlohmann::json& GetState() const;
+    const std::vector<ScriptFieldInfo>& GetFields() const;
+
+    static std::vector<ScriptClassInfo> DiscoverClasses(const std::string& source,
+                                                        const std::string& chunkName,
+                                                        std::string& error);
 
 private:
     struct Impl;

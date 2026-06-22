@@ -133,6 +133,7 @@ target("MyEngineRuntime")
         "src/Runtime/Assets/AssetImporters.cpp",
         "src/Runtime/Assets/GltfImporter.cpp",
         "src/Runtime/Assets/MaterialAsset.cpp",
+        "src/Runtime/Assets/ScriptAsset.cpp",
         "src/Runtime/Assets/ShaderAsset.cpp",
         "src/Runtime/Assets/MeshAsset.cpp",
         "src/Runtime/Assets/TextureAsset.cpp",
@@ -171,6 +172,9 @@ target("MyEngineRuntime")
         "src/Runtime/Game/GameLayer.cpp",
         "src/Runtime/Game/TriangleLayer.cpp",
         "src/Runtime/Game/SceneLayer.cpp",
+        "src/Runtime/Game/SceneViewportController.cpp",
+        "src/Runtime/Game/SceneRenderHost.cpp",
+        "src/Runtime/Game/DefaultSceneFactory.cpp",
         "src/Runtime/Game/SceneRenderLayer.cpp",
         "src/Runtime/Math/Mat4Inverse.cpp"
     )

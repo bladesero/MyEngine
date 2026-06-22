@@ -5,6 +5,7 @@
 #include "Assets/Asset.h"
 #include "Assets/AssetManager.h"
 #include "Assets/MaterialAsset.h"
+#include "Assets/ScriptAsset.h"
 #include "Assets/TextureAsset.h"
 #include "Editor/EditorCommand.h"
 #include "Editor/EditorContext.h"
@@ -36,11 +37,27 @@
 #include <cstring>
 #include <fstream>
 #include <nlohmann/json.hpp>
+#include <string>
 
 namespace {
 using namespace EditorPanelHelpers;
 
 constexpr const char kTexturePayload[] = "MYENGINE_TEXTURE_PATH";
+
+const char* ScriptFieldTypeLabel(ScriptFieldType type)
+{
+    switch (type) {
+        case ScriptFieldType::Bool: return "bool";
+        case ScriptFieldType::Int: return "int";
+        case ScriptFieldType::UInt: return "uint";
+        case ScriptFieldType::Float: return "float";
+        case ScriptFieldType::Double: return "double";
+        case ScriptFieldType::String: return "string";
+        case ScriptFieldType::Vec2: return "Vec2";
+        case ScriptFieldType::Vec3: return "Vec3";
+        default: return "unsupported";
+    }
+}
 
 Actor* SelectedActor(EditorContext& context)
 {
@@ -86,6 +103,99 @@ void DrawJsonAssetPreview(const std::string& path)
     }
 #else
     (void)path;
+#endif
+}
+
+bool DrawScriptFieldValue(const ScriptFieldInfo& field, const nlohmann::json& current,
+                          nlohmann::json& outValue)
+{
+#if defined(MYENGINE_ENABLE_IMGUI)
+    switch (field.type) {
+        case ScriptFieldType::Bool: {
+            bool value = current.is_boolean() ? current.get<bool>() : false;
+            if (ImGui::Checkbox(field.name.c_str(), &value)) {
+                outValue = value;
+                return true;
+            }
+            return false;
+        }
+        case ScriptFieldType::Int: {
+            int value = current.is_number_integer() ? current.get<int>() : 0;
+            if (ImGui::DragInt(field.name.c_str(), &value, 1.0f)) {
+                outValue = value;
+                return true;
+            }
+            return false;
+        }
+        case ScriptFieldType::UInt: {
+            int value = current.is_number_integer() ? static_cast<int>(current.get<unsigned int>()) : 0;
+            if (ImGui::DragInt(field.name.c_str(), &value, 1.0f, 0)) {
+                outValue = static_cast<unsigned int>(std::max(0, value));
+                return true;
+            }
+            return false;
+        }
+        case ScriptFieldType::Float: {
+            float value = current.is_number() ? current.get<float>() : 0.0f;
+            if (ImGui::DragFloat(field.name.c_str(), &value, 0.05f)) {
+                outValue = value;
+                return true;
+            }
+            return false;
+        }
+        case ScriptFieldType::Double: {
+            float value = current.is_number() ? static_cast<float>(current.get<double>()) : 0.0f;
+            if (ImGui::DragFloat(field.name.c_str(), &value, 0.05f)) {
+                outValue = static_cast<double>(value);
+                return true;
+            }
+            return false;
+        }
+        case ScriptFieldType::String: {
+            std::array<char, 256> buffer{};
+            if (current.is_string()) {
+                std::strncpy(buffer.data(), current.get<std::string>().c_str(), buffer.size() - 1);
+            }
+            if (ImGui::InputText(field.name.c_str(), buffer.data(), buffer.size())) {
+                outValue = std::string(buffer.data());
+                return true;
+            }
+            return false;
+        }
+        case ScriptFieldType::Vec2: {
+            float value[2] = {};
+            if (current.is_array() && current.size() >= 2) {
+                value[0] = current[0].get<float>();
+                value[1] = current[1].get<float>();
+            }
+            if (ImGui::DragFloat2(field.name.c_str(), value, 0.05f)) {
+                outValue = nlohmann::json::array({ value[0], value[1] });
+                return true;
+            }
+            return false;
+        }
+        case ScriptFieldType::Vec3: {
+            float value[3] = {};
+            if (current.is_array() && current.size() >= 3) {
+                value[0] = current[0].get<float>();
+                value[1] = current[1].get<float>();
+                value[2] = current[2].get<float>();
+            }
+            if (ImGui::DragFloat3(field.name.c_str(), value, 0.05f)) {
+                outValue = nlohmann::json::array({ value[0], value[1], value[2] });
+                return true;
+            }
+            return false;
+        }
+        default:
+            ImGui::TextDisabled("%s (%s)", field.name.c_str(), ScriptFieldTypeLabel(field.type));
+            return false;
+    }
+#else
+    (void)field;
+    (void)current;
+    (void)outValue;
+    return false;
 #endif
 }
 
@@ -724,6 +834,25 @@ public:
         if (!script->GetLastError().empty()) {
             ImGui::TextWrapped("Error: %s", script->GetLastError().c_str());
         }
+        const auto& fields = script->GetFields();
+        if (!fields.empty()) {
+            ImGui::TextUnformatted("Parameters");
+            const nlohmann::json properties = script->GetProperties();
+            for (const auto& field : fields) {
+                ImGui::PushID(field.name.c_str());
+                const nlohmann::json current = properties.contains(field.name)
+                    ? properties[field.name] : field.defaultValue;
+                nlohmann::json next;
+                if (DrawScriptFieldValue(field, current, next)) {
+                    script->SetPropertyValue(field.name, std::move(next));
+                    context.MarkSceneDirty();
+                }
+                if (!field.declaration.empty() && ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("%s", field.declaration.c_str());
+                }
+                ImGui::PopID();
+            }
+        }
         if (ImGui::Button("Remove Script")) actor->RemoveComponent<ScriptComponent>();
         ImGui::PopID();
     }
@@ -746,7 +875,12 @@ public:
             const bool exists = actor->HasComponentType(type);
             if (exists) ImGui::BeginDisabled();
             if (ImGui::Selectable(type.c_str()) && !exists) {
-                ComponentRegistry::Get().Create(type, *actor);
+                if (auto* stack = context.GetCommandStack()) {
+                    stack->ExecuteCommand(std::make_unique<AddComponentCommand>(
+                        actor->GetID(), type, nlohmann::json::object()), context);
+                } else {
+                    ComponentRegistry::Get().Create(type, *actor);
+                }
                 if (auto* renderer = actor->GetComponent<MeshRendererComponent>()) {
                     if (!renderer->GetMesh()) renderer->SetMesh(AssetManager::Get().GetCubeMesh());
                     if (!renderer->GetMaterial()) {
@@ -755,6 +889,48 @@ public:
                 }
             }
             if (exists) ImGui::EndDisabled();
+        }
+        if (auto* registry = context.GetAssetRegistry()) {
+            const bool hasScript = actor->HasComponent<ScriptComponent>();
+            const auto scripts = registry->GetAssets(EditorAssetType::Script);
+            if (!scripts.empty() && ImGui::BeginMenu("Scripts")) {
+                for (const auto& scriptInfo : scripts) {
+                    if (scriptInfo.absolutePath.extension() != ".as") continue;
+                    auto scriptAsset = AssetManager::Get().Load<ScriptAsset>(scriptInfo.absolutePath.string());
+                    if (!scriptAsset || !scriptAsset.Get()) continue;
+                    const std::string scriptLabel = scriptInfo.absolutePath.stem().string();
+                    if (ImGui::BeginMenu(scriptLabel.c_str())) {
+                        for (const auto& scriptClass : scriptAsset->GetClasses()) {
+                            if (hasScript) ImGui::BeginDisabled();
+                            if (ImGui::Selectable(scriptClass.name.c_str()) && !hasScript) {
+                                nlohmann::json properties = nlohmann::json::object();
+                                for (const auto& field : scriptClass.fields) {
+                                    properties[field.name] = field.defaultValue;
+                                }
+                                nlohmann::json initialData = {
+                                    {"language", "angelscript"},
+                                    {"scriptPath", AssetManager::Get().MakeProjectRelativePath(scriptInfo.absolutePath.string())},
+                                    {"className", scriptClass.name},
+                                    {"properties", properties},
+                                    {"state", nlohmann::json::object()}
+                                };
+                                if (auto* stack = context.GetCommandStack()) {
+                                    stack->ExecuteCommand(std::make_unique<AddComponentCommand>(
+                                        actor->GetID(), "Script", initialData), context);
+                                } else if (auto* component = actor->AddComponent<ScriptComponent>()) {
+                                    component->Deserialize(initialData);
+                                }
+                            }
+                            if (hasScript) ImGui::EndDisabled();
+                        }
+                        if (!scriptAsset->GetLastError().empty()) {
+                            ImGui::TextDisabled("%s", scriptAsset->GetLastError().c_str());
+                        }
+                        ImGui::EndMenu();
+                    }
+                }
+                ImGui::EndMenu();
+            }
         }
         ImGui::EndCombo();
     }

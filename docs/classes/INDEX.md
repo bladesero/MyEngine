@@ -67,4 +67,7 @@
 - [TriangleLayer](./game/TriangleLayer.md)
 - [SceneLayer](./game/SceneLayer.md)
 - [SceneRenderLayer](./game/SceneRenderLayer.md)
+- [SceneViewportController](./game/SceneViewportController.md)
+- [SceneRenderHost](./game/SceneRenderHost.md)
+- [DefaultSceneFactory](./game/DefaultSceneFactory.md)
 - [EditorLayer](./editor/EditorLayer.md)

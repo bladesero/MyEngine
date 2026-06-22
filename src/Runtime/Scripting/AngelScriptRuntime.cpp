@@ -10,8 +10,10 @@
 #include <angelscript.h>
 #include <scriptstdstring.h>
 
+#include <cstdint>
 #include <sstream>
 #include <utility>
+#include <vector>
 
 namespace {
 thread_local ScriptComponent* g_ActiveComponent = nullptr;
@@ -123,6 +125,187 @@ bool Check(int result)
     return result >= 0;
 }
 
+ScriptFieldType FieldTypeFromAngelScript(asIScriptEngine& engine, int typeId)
+{
+    if (typeId == asTYPEID_BOOL) return ScriptFieldType::Bool;
+    if (typeId == asTYPEID_INT8 || typeId == asTYPEID_INT16 ||
+        typeId == asTYPEID_INT32 || typeId == asTYPEID_INT64) {
+        return ScriptFieldType::Int;
+    }
+    if (typeId == asTYPEID_UINT8 || typeId == asTYPEID_UINT16 ||
+        typeId == asTYPEID_UINT32 || typeId == asTYPEID_UINT64) {
+        return ScriptFieldType::UInt;
+    }
+    if (typeId == asTYPEID_FLOAT) return ScriptFieldType::Float;
+    if (typeId == asTYPEID_DOUBLE) return ScriptFieldType::Double;
+
+    if (asITypeInfo* info = engine.GetTypeInfoById(typeId)) {
+        const std::string name = info->GetName() ? info->GetName() : "";
+        if (name.find("string") != std::string::npos) return ScriptFieldType::String;
+        if (name == "Vec2") return ScriptFieldType::Vec2;
+        if (name == "Vec3") return ScriptFieldType::Vec3;
+    }
+    const std::string declaration = engine.GetTypeDeclaration(typeId, true);
+    if (declaration.find("string") != std::string::npos) return ScriptFieldType::String;
+    if (declaration == "Vec2") return ScriptFieldType::Vec2;
+    if (declaration == "Vec3") return ScriptFieldType::Vec3;
+    return ScriptFieldType::Unsupported;
+}
+
+nlohmann::json ReadFieldJson(asIScriptObject& object, asITypeInfo& type,
+                             unsigned int index, ScriptFieldType fieldType)
+{
+    void* address = object.GetAddressOfProperty(index);
+    if (!address) return nlohmann::json();
+
+    int typeId = 0;
+    type.GetProperty(index, nullptr, &typeId);
+    switch (fieldType) {
+        case ScriptFieldType::Bool: return *static_cast<bool*>(address);
+        case ScriptFieldType::Int:
+            if (typeId == asTYPEID_INT8) return *static_cast<int8_t*>(address);
+            if (typeId == asTYPEID_INT16) return *static_cast<int16_t*>(address);
+            if (typeId == asTYPEID_INT64) return *static_cast<int64_t*>(address);
+            return *static_cast<int32_t*>(address);
+        case ScriptFieldType::UInt:
+            if (typeId == asTYPEID_UINT8) return *static_cast<uint8_t*>(address);
+            if (typeId == asTYPEID_UINT16) return *static_cast<uint16_t*>(address);
+            if (typeId == asTYPEID_UINT64) return *static_cast<uint64_t*>(address);
+            return *static_cast<uint32_t*>(address);
+        case ScriptFieldType::Float: return *static_cast<float*>(address);
+        case ScriptFieldType::Double: return *static_cast<double*>(address);
+        case ScriptFieldType::String: return *static_cast<std::string*>(address);
+        case ScriptFieldType::Vec2: {
+            const auto& value = *static_cast<Math::Vec2*>(address);
+            return nlohmann::json::array({ value.x, value.y });
+        }
+        case ScriptFieldType::Vec3: {
+            const auto& value = *static_cast<Vec3*>(address);
+            return nlohmann::json::array({ value.x, value.y, value.z });
+        }
+        default:
+            return nlohmann::json();
+    }
+}
+
+bool WriteFieldJson(asIScriptObject& object, asITypeInfo& type,
+                    unsigned int index, ScriptFieldType fieldType,
+                    const nlohmann::json& value)
+{
+    void* address = object.GetAddressOfProperty(index);
+    if (!address) return false;
+
+    int typeId = 0;
+    type.GetProperty(index, nullptr, &typeId);
+    try {
+        switch (fieldType) {
+            case ScriptFieldType::Bool:
+                if (value.is_boolean()) { *static_cast<bool*>(address) = value.get<bool>(); return true; }
+                return false;
+            case ScriptFieldType::Int:
+                if (!value.is_number_integer()) return false;
+                if (typeId == asTYPEID_INT8) *static_cast<int8_t*>(address) = static_cast<int8_t>(value.get<int64_t>());
+                else if (typeId == asTYPEID_INT16) *static_cast<int16_t*>(address) = static_cast<int16_t>(value.get<int64_t>());
+                else if (typeId == asTYPEID_INT64) *static_cast<int64_t*>(address) = value.get<int64_t>();
+                else *static_cast<int32_t*>(address) = static_cast<int32_t>(value.get<int64_t>());
+                return true;
+            case ScriptFieldType::UInt:
+                if (!value.is_number_unsigned() && !value.is_number_integer()) return false;
+                if (typeId == asTYPEID_UINT8) *static_cast<uint8_t*>(address) = static_cast<uint8_t>(value.get<uint64_t>());
+                else if (typeId == asTYPEID_UINT16) *static_cast<uint16_t*>(address) = static_cast<uint16_t>(value.get<uint64_t>());
+                else if (typeId == asTYPEID_UINT64) *static_cast<uint64_t*>(address) = value.get<uint64_t>();
+                else *static_cast<uint32_t*>(address) = static_cast<uint32_t>(value.get<uint64_t>());
+                return true;
+            case ScriptFieldType::Float:
+                if (value.is_number()) { *static_cast<float*>(address) = value.get<float>(); return true; }
+                return false;
+            case ScriptFieldType::Double:
+                if (value.is_number()) { *static_cast<double*>(address) = value.get<double>(); return true; }
+                return false;
+            case ScriptFieldType::String:
+                if (value.is_string()) { *static_cast<std::string*>(address) = value.get<std::string>(); return true; }
+                return false;
+            case ScriptFieldType::Vec2:
+                if (value.is_array() && value.size() >= 2 && value[0].is_number() && value[1].is_number()) {
+                    *static_cast<Math::Vec2*>(address) = Math::Vec2{ value[0].get<float>(), value[1].get<float>() };
+                    return true;
+                }
+                return false;
+            case ScriptFieldType::Vec3:
+                if (value.is_array() && value.size() >= 3 && value[0].is_number() &&
+                    value[1].is_number() && value[2].is_number()) {
+                    *static_cast<Vec3*>(address) = Vec3{ value[0].get<float>(), value[1].get<float>(), value[2].get<float>() };
+                    return true;
+                }
+                return false;
+            default:
+                return false;
+        }
+    } catch (...) {
+        return false;
+    }
+}
+
+std::vector<ScriptFieldInfo> ReflectFields(asIScriptEngine& engine, asITypeInfo& type,
+                                           asIScriptObject* object)
+{
+    std::vector<ScriptFieldInfo> fields;
+    const unsigned int count = type.GetPropertyCount();
+    for (unsigned int i = 0; i < count; ++i) {
+        const char* name = nullptr;
+        int typeId = 0;
+        bool isPrivate = false;
+        bool isProtected = false;
+        type.GetProperty(i, &name, &typeId, &isPrivate, &isProtected);
+        if (!name || isPrivate || isProtected) continue;
+
+        ScriptFieldInfo field;
+        field.name = name;
+        field.declaration = type.GetPropertyDeclaration(i, true);
+        field.type = FieldTypeFromAngelScript(engine, typeId);
+        if (field.type == ScriptFieldType::Unsupported) continue;
+        if (object) field.defaultValue = ReadFieldJson(*object, type, i, field.type);
+        fields.push_back(std::move(field));
+    }
+    return fields;
+}
+
+int FindPropertyIndexByName(asITypeInfo& type, const std::string& name)
+{
+    const unsigned int count = type.GetPropertyCount();
+    for (unsigned int i = 0; i < count; ++i) {
+        const char* propertyName = nullptr;
+        type.GetProperty(i, &propertyName);
+        if (propertyName && name == propertyName) return static_cast<int>(i);
+    }
+    return -1;
+}
+
+void CaptureProperties(asIScriptObject& object, asITypeInfo& type,
+                       const std::vector<ScriptFieldInfo>& fields,
+                       nlohmann::json& properties)
+{
+    properties = nlohmann::json::object();
+    for (const auto& field : fields) {
+        const int index = FindPropertyIndexByName(type, field.name);
+        if (index < 0) continue;
+        properties[field.name] = ReadFieldJson(object, type, static_cast<unsigned int>(index), field.type);
+    }
+}
+
+void ApplyProperties(asIScriptObject& object, asITypeInfo& type,
+                     const std::vector<ScriptFieldInfo>& fields,
+                     const nlohmann::json& properties)
+{
+    if (!properties.is_object()) return;
+    for (const auto& field : fields) {
+        if (!properties.contains(field.name)) continue;
+        const int index = FindPropertyIndexByName(type, field.name);
+        if (index < 0) continue;
+        WriteFieldJson(object, type, static_cast<unsigned int>(index), field.type, properties[field.name]);
+    }
+}
+
 void RegisterVec2(asIScriptEngine& engine)
 {
     Check(engine.RegisterObjectType("Vec2", sizeof(Math::Vec2),
@@ -133,6 +316,12 @@ void RegisterVec2(asIScriptEngine& engine)
         asFUNCTIONPR(ConstructVec2, (float, float, void*), void), asCALL_CDECL_OBJLAST));
     Check(engine.RegisterObjectProperty("Vec2", "float x", asOFFSET(Math::Vec2, x)));
     Check(engine.RegisterObjectProperty("Vec2", "float y", asOFFSET(Math::Vec2, y)));
+    Check(engine.RegisterObjectMethod("Vec2", "Vec2 opAdd(const Vec2 &in) const",
+        asMETHODPR(Math::Vec2, operator+, (const Math::Vec2&) const, Math::Vec2), asCALL_THISCALL));
+    Check(engine.RegisterObjectMethod("Vec2", "Vec2 opSub(const Vec2 &in) const",
+        asMETHODPR(Math::Vec2, operator-, (const Math::Vec2&) const, Math::Vec2), asCALL_THISCALL));
+    Check(engine.RegisterObjectMethod("Vec2", "Vec2 opMul(float) const",
+        asMETHODPR(Math::Vec2, operator*, (float) const, Math::Vec2), asCALL_THISCALL));
 }
 
 void RegisterVec3(asIScriptEngine& engine)
@@ -146,6 +335,12 @@ void RegisterVec3(asIScriptEngine& engine)
     Check(engine.RegisterObjectProperty("Vec3", "float x", asOFFSET(Vec3, x)));
     Check(engine.RegisterObjectProperty("Vec3", "float y", asOFFSET(Vec3, y)));
     Check(engine.RegisterObjectProperty("Vec3", "float z", asOFFSET(Vec3, z)));
+    Check(engine.RegisterObjectMethod("Vec3", "Vec3 opAdd(const Vec3 &in) const",
+        asMETHODPR(Vec3, operator+, (const Vec3&) const, Vec3), asCALL_THISCALL));
+    Check(engine.RegisterObjectMethod("Vec3", "Vec3 opSub(const Vec3 &in) const",
+        asMETHODPR(Vec3, operator-, (const Vec3&) const, Vec3), asCALL_THISCALL));
+    Check(engine.RegisterObjectMethod("Vec3", "Vec3 opMul(float) const",
+        asMETHODPR(Vec3, operator*, (float) const, Vec3), asCALL_THISCALL));
 }
 
 void RegisterScriptTypes(asIScriptEngine& engine)
@@ -310,6 +505,7 @@ struct AngelScriptRuntime::Impl {
     ScriptComponent& component;
     asIScriptEngine* engine = nullptr;
     asIScriptObject* object = nullptr;
+    asITypeInfo* type = nullptr;
     asIScriptFunction* awake = nullptr;
     asIScriptFunction* onEnable = nullptr;
     asIScriptFunction* start = nullptr;
@@ -321,6 +517,7 @@ struct AngelScriptRuntime::Impl {
     asIScriptFunction* onDestroy = nullptr;
     nlohmann::json properties = nlohmann::json::object();
     nlohmann::json state = nlohmann::json::object();
+    std::vector<ScriptFieldInfo> fields;
     std::ostringstream messages;
 };
 
@@ -345,6 +542,8 @@ bool AngelScriptRuntime::Load(const std::string& source, const std::string& chun
         m_Impl->engine->ShutDownAndRelease();
         m_Impl->engine = nullptr;
     }
+    m_Impl->type = nullptr;
+    m_Impl->fields.clear();
     m_Impl->messages.str(std::string{});
     m_Impl->messages.clear();
     m_Impl->properties = properties.is_object() ? properties : nlohmann::json::object();
@@ -372,28 +571,32 @@ bool AngelScriptRuntime::Load(const std::string& source, const std::string& chun
         return false;
     }
 
-    asITypeInfo* type = module->GetTypeInfoByName(className.c_str());
-    if (!type) {
+    m_Impl->type = module->GetTypeInfoByName(className.c_str());
+    if (!m_Impl->type) {
         error = "AngelScript class not found: " + className;
         return false;
     }
     m_Impl->object = static_cast<asIScriptObject*>(
-        m_Impl->engine->CreateScriptObject(type));
+        m_Impl->engine->CreateScriptObject(m_Impl->type));
     if (!m_Impl->object) {
         error = "failed to instantiate AngelScript class: " + className;
         return false;
     }
 
-    m_Impl->awake = type->GetMethodByDecl("void Awake()");
-    m_Impl->onEnable = type->GetMethodByDecl("void OnEnable()");
-    m_Impl->start = type->GetMethodByDecl("void Start()");
-    m_Impl->fixedUpdate = type->GetMethodByDecl("void FixedUpdate(float)");
-    m_Impl->update = type->GetMethodByDecl("void Update(float)");
-    m_Impl->lateUpdate = type->GetMethodByDecl("void LateUpdate(float)");
-    m_Impl->onCollision = type->GetMethodByDecl("void OnCollision(const CollisionEvent &in)");
-    if (!m_Impl->onCollision) m_Impl->onCollision = type->GetMethodByDecl("void OnCollision(CollisionEvent)");
-    m_Impl->onDisable = type->GetMethodByDecl("void OnDisable()");
-    m_Impl->onDestroy = type->GetMethodByDecl("void OnDestroy()");
+    m_Impl->fields = ReflectFields(*m_Impl->engine, *m_Impl->type, m_Impl->object);
+    ApplyProperties(*m_Impl->object, *m_Impl->type, m_Impl->fields, m_Impl->properties);
+    CaptureProperties(*m_Impl->object, *m_Impl->type, m_Impl->fields, m_Impl->properties);
+
+    m_Impl->awake = m_Impl->type->GetMethodByDecl("void Awake()");
+    m_Impl->onEnable = m_Impl->type->GetMethodByDecl("void OnEnable()");
+    m_Impl->start = m_Impl->type->GetMethodByDecl("void Start()");
+    m_Impl->fixedUpdate = m_Impl->type->GetMethodByDecl("void FixedUpdate(float)");
+    m_Impl->update = m_Impl->type->GetMethodByDecl("void Update(float)");
+    m_Impl->lateUpdate = m_Impl->type->GetMethodByDecl("void LateUpdate(float)");
+    m_Impl->onCollision = m_Impl->type->GetMethodByDecl("void OnCollision(const CollisionEvent &in)");
+    if (!m_Impl->onCollision) m_Impl->onCollision = m_Impl->type->GetMethodByDecl("void OnCollision(CollisionEvent)");
+    m_Impl->onDisable = m_Impl->type->GetMethodByDecl("void OnDisable()");
+    m_Impl->onDestroy = m_Impl->type->GetMethodByDecl("void OnDestroy()");
     return true;
 }
 
@@ -423,10 +626,84 @@ bool AngelScriptRuntime::CallCollision(const CollisionEvent& event, std::string&
 
 const nlohmann::json& AngelScriptRuntime::GetProperties() const
 {
+    if (m_Impl->object && m_Impl->type) {
+        CaptureProperties(*m_Impl->object, *m_Impl->type, m_Impl->fields, m_Impl->properties);
+    }
     return m_Impl->properties;
 }
 
 const nlohmann::json& AngelScriptRuntime::GetState() const
 {
     return m_Impl->state;
+}
+
+const std::vector<ScriptFieldInfo>& AngelScriptRuntime::GetFields() const
+{
+    return m_Impl->fields;
+}
+
+std::vector<ScriptClassInfo> AngelScriptRuntime::DiscoverClasses(const std::string& source,
+                                                                 const std::string& chunkName,
+                                                                 std::string& error)
+{
+    error.clear();
+    std::vector<ScriptClassInfo> classes;
+
+    asIScriptEngine* engine = asCreateScriptEngine();
+    if (!engine) {
+        error = "failed to create AngelScript engine";
+        return classes;
+    }
+
+    struct EngineGuard {
+        asIScriptEngine* value = nullptr;
+        ~EngineGuard() { if (value) value->ShutDownAndRelease(); }
+    } guard{engine};
+
+    std::ostringstream messages;
+    struct Callback {
+        static void Message(const asSMessageInfo* message, void* user)
+        {
+            auto* stream = static_cast<std::ostringstream*>(user);
+            *stream << message->section << "(" << message->row << "," << message->col << ") ";
+            if (message->type == asMSGTYPE_ERROR) *stream << "error: ";
+            else if (message->type == asMSGTYPE_WARNING) *stream << "warning: ";
+            else *stream << "info: ";
+            *stream << message->message << "\n";
+        }
+    };
+    engine->SetMessageCallback(asFUNCTION(Callback::Message), &messages, asCALL_CDECL);
+    RegisterScriptBindings(*engine);
+
+    asIScriptModule* module = engine->GetModule("GameplayScriptDiscovery", asGM_ALWAYS_CREATE);
+    if (!module) {
+        error = "failed to create AngelScript module";
+        return classes;
+    }
+
+    const int addResult = module->AddScriptSection(chunkName.c_str(), source.data(),
+                                                  static_cast<unsigned int>(source.size()));
+    if (addResult < 0 || module->Build() < 0) {
+        error = messages.str();
+        if (error.empty()) error = "AngelScript compile failed";
+        return classes;
+    }
+
+    const asUINT typeCount = module->GetObjectTypeCount();
+    for (asUINT i = 0; i < typeCount; ++i) {
+        asITypeInfo* type = module->GetObjectTypeByIndex(i);
+        if (!type || !(type->GetFlags() & asOBJ_SCRIPT_OBJECT)) continue;
+
+        ScriptClassInfo info;
+        info.name = type->GetName() ? type->GetName() : "";
+        asIScriptObject* object = static_cast<asIScriptObject*>(engine->CreateScriptObject(type));
+        if (object) {
+            info.fields = ReflectFields(*engine, *type, object);
+            object->Release();
+        } else {
+            info.fields = ReflectFields(*engine, *type, nullptr);
+        }
+        if (!info.name.empty()) classes.push_back(std::move(info));
+    }
+    return classes;
 }

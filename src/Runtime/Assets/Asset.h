@@ -46,6 +46,7 @@ enum class AssetType : uint8_t {
     Model,
     Shader,
     AudioClip,
+    Script,
 };
 
 inline const char* AssetTypeToString(AssetType t) {
@@ -56,6 +57,7 @@ inline const char* AssetTypeToString(AssetType t) {
         case AssetType::Model:    return "Model";
         case AssetType::Shader:   return "Shader";
         case AssetType::AudioClip:return "AudioClip";
+        case AssetType::Script:   return "Script";
         default:                  return "Unknown";
     }
 }

@@ -9,7 +9,9 @@
 #include "Core/Memory/PoolAllocator.h"
 #include "Core/CrashHandler.h"
 #include "Camera/Camera.h"
+#include "Game/DefaultSceneFactory.h"
 #include "Game/SceneLayer.h"
+#include "Game/SceneViewportController.h"
 #include "Input/Input.h"
 #include "Math/Mat4Inverse.h"
 #include "Physics/BoxColliderComponent.h"
@@ -26,6 +28,7 @@
 #include "Scene/PrefabSystem.h"
 #include "Scene/ComponentRegistry.h"
 #include "Scripting/ScriptComponent.h"
+#include "Assets/ScriptAsset.h"
 #include "Renderer/Renderer.h"
 #include "Renderer/RenderGraph.h"
 #include "Renderer/GpuUploadQueue.h"
@@ -381,6 +384,98 @@ bool TestAngelScriptFilesErrorsAndPhysicsBindings() {
     std::filesystem::remove(path);
     return Check(NearlyEqual(actor->GetTransform().position.x, 4.0f),
                  "AngelScript file hot reload failed");
+}
+
+bool TestAngelScriptAssetsClassesAndFields() {
+    namespace fs = std::filesystem;
+    const fs::path path = fs::temp_directory_path() / "myengine_script_asset_fields.as";
+    {
+        std::ofstream output(path, std::ios::binary);
+        output
+            << "class Rotator {\n"
+            << "  float speed = 35.0f;\n"
+            << "  Vec3 axis = Vec3(0, 1, 0);\n"
+            << "  string label = \"cube\";\n"
+            << "  Rotator@ ignored;\n"
+            << "  void Update(float dt) { Actor::Rotate(axis * speed * dt); }\n"
+            << "}\n"
+            << "class Mover {\n"
+            << "  int steps = 2;\n"
+            << "  void Update(float dt) { Actor::Translate(Vec3(steps * dt, 0, 0)); }\n"
+            << "}\n";
+    }
+
+    auto asset = AssetManager::Get().Load<ScriptAsset>(path.string());
+    if (!Check(asset.IsValid(), "script asset should load: " + (asset.Get() ? asset->GetLastError() : std::string{}))) return false;
+    if (!Check(asset->GetClasses().size() == 2, "script asset should discover two classes")) return false;
+
+    bool foundRotator = false;
+    for (const auto& cls : asset->GetClasses()) {
+        if (cls.name != "Rotator") continue;
+        foundRotator = true;
+        bool speed = false, axis = false, label = false, ignored = false;
+        for (const auto& field : cls.fields) {
+            if (field.name == "speed" && field.type == ScriptFieldType::Float &&
+                NearlyEqual(field.defaultValue.get<float>(), 35.0f)) speed = true;
+            if (field.name == "axis" && field.type == ScriptFieldType::Vec3 &&
+                field.defaultValue.is_array() && NearlyEqual(field.defaultValue[1].get<float>(), 1.0f)) axis = true;
+            if (field.name == "label" && field.type == ScriptFieldType::String &&
+                field.defaultValue == "cube") label = true;
+            if (field.name == "ignored") ignored = true;
+        }
+        if (!(speed && axis && label && !ignored)) {
+            std::ostringstream fields;
+            for (const auto& field : cls.fields) {
+                fields << field.name << ":" << field.declaration << " ";
+            }
+            return Check(false, "script field reflection mismatch: " + fields.str());
+        }
+    }
+    if (!Check(foundRotator, "Rotator class missing from script asset")) return false;
+
+    Scene scene("ScriptAssetFields");
+    Actor* actor = scene.CreateActor("Scripted");
+    auto* script = actor->AddComponent<ScriptComponent>();
+    script->SetScriptPath(path.string());
+    script->SetClassName("Rotator");
+    if (!Check(script->IsCompiled(), "script asset component should compile: " + script->GetLastError())) return false;
+    if (!Check(script->SetPropertyValue("speed", 10.0f), "script property edit failed")) return false;
+    if (!Check(script->SetPropertyValue("axis", nlohmann::json::array({0.0f, 2.0f, 0.0f})),
+               "script Vec3 property edit failed")) return false;
+    scene.OnUpdate(1.0f);
+    if (!Check(NearlyEqual(actor->GetTransform().rotation.y, 20.0f),
+               "script reflected properties were not applied")) return false;
+
+    nlohmann::json data;
+    script->Serialize(data);
+    if (!Check(!data.contains("source") &&
+               data.value("className", std::string{}) == "Rotator" &&
+               data.contains("properties") &&
+               NearlyEqual(data["properties"]["speed"].get<float>(), 10.0f),
+               "file script serialization shape mismatch")) return false;
+
+    Scene commandScene("ScriptCommand");
+    Actor* commandActor = commandScene.CreateActor("CommandActor");
+    EditorContext context(&commandScene);
+    EditorCommandStack stack;
+    context.SetCommandStack(&stack);
+    nlohmann::json initialData = {
+        {"language", "angelscript"},
+        {"scriptPath", path.string()},
+        {"className", "Mover"},
+        {"properties", {{"steps", 4}}},
+        {"state", nlohmann::json::object()}
+    };
+    if (!Check(stack.ExecuteCommand(std::make_unique<AddComponentCommand>(
+            commandActor->GetID(), "Script", initialData), context),
+            "AddComponentCommand should create script component")) return false;
+    auto* added = commandActor->GetComponent<ScriptComponent>();
+    if (!Check(added && added->IsCompiled() && added->GetClassName() == "Mover",
+               "script component command initial data failed")) return false;
+    commandScene.OnUpdate(1.0f);
+    fs::remove(path);
+    return Check(NearlyEqual(commandActor->GetTransform().position.x, 4.0f),
+                 "command-created script did not execute reflected int property");
 }
 
 bool TestEditorLuaScriptService() {
@@ -1479,6 +1574,61 @@ bool TestCameraViewportProjectionStability() {
     if (!Check(checkProjected(left, -1.0f, 0.0f), "left ray projection drift")) return false;
     if (!Check(checkProjected(top, 0.0f, 1.0f), "top ray projection drift")) return false;
     return Check(checkProjected(bottom, 0.0f, -1.0f), "bottom ray projection drift");
+}
+
+bool TestSceneViewportControllerRayStability() {
+    SceneViewportController viewport;
+    viewport.Initialize(800, 600);
+
+    int x = -1, y = -1, w = 0, h = 0;
+    viewport.GetViewportRect(x, y, w, h);
+    if (!Check(x == 0 && y == 0 && w == 800 && h == 600,
+               "initial viewport rect mismatch")) return false;
+
+    Ray center;
+    if (!Check(viewport.BuildRayFromScreen(400.0f, 300.0f, center),
+               "center screen ray failed")) return false;
+    if (!Check(NearlyEqual(center.direction.x, 0.0f) &&
+               NearlyEqual(center.direction.y, 0.0f) &&
+               center.direction.z > 0.99f,
+               "center screen ray direction drifted")) return false;
+
+    viewport.SetEditorViewportRect(100, 50, 400, 200);
+    viewport.GetViewportRect(x, y, w, h);
+    if (!Check(x == 100 && y == 50 && w == 400 && h == 200,
+               "editor viewport rect mismatch")) return false;
+
+    Ray topLeft;
+    Ray bottomRight;
+    if (!Check(viewport.BuildRayFromScreen(100.0f, 50.0f, topLeft),
+               "top-left editor ray failed")) return false;
+    if (!Check(viewport.BuildRayFromScreen(500.0f, 250.0f, bottomRight),
+               "bottom-right editor ray failed")) return false;
+    if (!Check(topLeft.direction.x < 0.0f && topLeft.direction.y > 0.0f,
+               "top-left editor ray direction mismatch")) return false;
+    return Check(bottomRight.direction.x > 0.0f && bottomRight.direction.y < 0.0f,
+                 "bottom-right editor ray direction mismatch");
+}
+
+bool TestDefaultSceneFactoryPopulatesScriptedDemo() {
+    Scene scene("DefaultFactory");
+    DefaultSceneFactory::PopulateIfEmpty(scene);
+
+    if (!Check(scene.ActorCount() >= 6,
+               "default scene factory did not create demo actors")) return false;
+    Actor* cube = scene.FindByName("Cube1");
+    if (!Check(cube != nullptr, "default scene missing Cube1")) return false;
+    auto* script = cube->GetComponent<ScriptComponent>();
+    if (!Check(script != nullptr, "default Cube1 missing ScriptComponent")) return false;
+    if (!Check(script->GetScriptPath().find("Content/Scripts/RotatingCube.as") != std::string::npos,
+               "default Cube1 script path mismatch")) return false;
+    if (!Check(script->GetClassName() == "RotatingCube",
+               "default Cube1 script class mismatch")) return false;
+
+    const size_t count = scene.ActorCount();
+    DefaultSceneFactory::PopulateIfEmpty(scene);
+    return Check(scene.ActorCount() == count,
+                 "default scene factory should not mutate non-empty scenes");
 }
 
 bool TestInputBoundaries() {
@@ -3053,6 +3203,7 @@ MYENGINE_REGISTER_TEST("Scene", "TestSceneSerializationRegression", TestSceneSer
 MYENGINE_REGISTER_TEST("Scene", "TestBuiltinSceneMaterialRoundTrip", TestBuiltinSceneMaterialRoundTrip);
 MYENGINE_REGISTER_TEST("Scripting", "TestScriptRuntimeLifecycle", TestScriptRuntimeLifecycle);
 MYENGINE_REGISTER_TEST("Scripting", "TestAngelScriptFilesErrorsAndPhysicsBindings", TestAngelScriptFilesErrorsAndPhysicsBindings);
+MYENGINE_REGISTER_TEST("Scripting", "TestAngelScriptAssetsClassesAndFields", TestAngelScriptAssetsClassesAndFields);
 MYENGINE_REGISTER_TEST("Scripting", "TestEditorLuaScriptService", TestEditorLuaScriptService);
 MYENGINE_REGISTER_TEST("Scripting", "TestLegacyLuaScriptCompatibility", TestLegacyLuaScriptCompatibility);
 MYENGINE_REGISTER_TEST("Animation", "TestGpuSkinningAnimationBlend", TestGpuSkinningAnimationBlend);
@@ -3062,6 +3213,8 @@ MYENGINE_REGISTER_TEST("Scene", "TestSceneRunStates", TestSceneRunStates);
 MYENGINE_REGISTER_TEST("Core", "TestCrashReportWriting", TestCrashReportWriting);
 MYENGINE_REGISTER_TEST("Scene", "TestTransformHierarchyWorldPosition", TestTransformHierarchyWorldPosition);
 MYENGINE_REGISTER_TEST("Camera", "TestCameraViewportProjectionStability", TestCameraViewportProjectionStability);
+MYENGINE_REGISTER_TEST("Camera", "TestSceneViewportControllerRayStability", TestSceneViewportControllerRayStability);
+MYENGINE_REGISTER_TEST("Scene", "TestDefaultSceneFactoryPopulatesScriptedDemo", TestDefaultSceneFactoryPopulatesScriptedDemo);
 MYENGINE_REGISTER_TEST("Input", "TestInputBoundaries", TestInputBoundaries);
 MYENGINE_REGISTER_TEST("Input", "TestGamepadStateTransitions", TestGamepadStateTransitions);
 MYENGINE_REGISTER_TEST("Input", "TestInputActionMapJsonAndEvaluation", TestInputActionMapJsonAndEvaluation);

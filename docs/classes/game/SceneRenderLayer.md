@@ -1,11 +1,29 @@
 # SceneRenderLayer
 
-## 角色
+## Role
 
-场景渲染层（连接 Scene 与 Renderer）。
+`SceneRenderLayer` is the scene runtime facade used by both Editor and Player.
+It still owns the active `SceneLayer` lifecycle, but it delegates viewport,
+rendering, and default-scene setup to narrower runtime helpers.
 
-## 关键职责
+## Responsibilities
 
-- 读取 Scene 可渲染数据
-- 调用 Renderer 执行绘制
-- 处理编辑器/玩家模式下的呈现策略差异
+- Drive `SceneLayer` edit/play/pause/step lifecycle.
+- Forward camera, picking-ray, viewport-rect, and input-enable requests to
+  `SceneViewportController`.
+- Forward renderer output, swapchain resize, and present/offscreen behavior to
+  `SceneRenderHost`.
+- Call `DefaultSceneFactory::PopulateIfEmpty` after scene load.
+
+## Collaborators
+
+- `SceneViewportController`: camera setup, editor viewport rect, input, rays,
+  and audio listener transform.
+- `SceneRenderHost`: `IRenderContext`, `Renderer`, scene color view, swapchain
+  resize, command-list viewport, and scene render submission.
+- `DefaultSceneFactory`: built-in empty-scene demo content.
+
+Editor code should prefer `EditorContext::GetSceneViewport()` and
+`EditorContext::GetSceneRenderHost()` when it only needs camera/ray or render
+output access. `GetSceneLayer()` remains transitional for scene lifecycle and
+compatibility.

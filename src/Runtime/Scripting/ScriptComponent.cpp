@@ -121,7 +121,23 @@ void ScriptComponent::SetInspectorFields(nlohmann::json fields)
 void ScriptComponent::SetProperties(nlohmann::json properties)
 {
     m_Inspector = properties.is_object() ? std::move(properties) : nlohmann::json::object();
-    Compile(true);
+    Compile(false);
+}
+
+bool ScriptComponent::SetPropertyValue(const std::string& name, nlohmann::json value)
+{
+    bool known = false;
+    for (const auto& field : m_Fields) {
+        if (field.name == name) {
+            known = true;
+            break;
+        }
+    }
+    if (!known) return false;
+    nlohmann::json next = GetProperties();
+    next[name] = std::move(value);
+    SetProperties(std::move(next));
+    return m_Compiled;
 }
 
 const nlohmann::json& ScriptComponent::GetInspectorFields() const
@@ -154,8 +170,8 @@ void ScriptComponent::Serialize(nlohmann::json& data) const
     }
     data["language"] = "angelscript";
     data["className"] = m_ClassName.empty() ? "Script" : m_ClassName;
-    data["source"] = m_Source;
     data["scriptPath"] = AssetManager::Get().MakeProjectRelativePath(m_ScriptPath);
+    if (m_ScriptPath.empty()) data["source"] = m_Source;
     data["properties"] = m_Inspector;
     data["state"] = m_State;
 }
@@ -193,6 +209,7 @@ void ScriptComponent::Deserialize(const nlohmann::json& data)
     m_Inspector = data.value("properties", data.value("inspector", nlohmann::json::object()));
     m_State = data.value("state", nlohmann::json::object());
     if (!m_ScriptPath.empty()) LoadFileSource();
+    Compile();
 }
 
 void ScriptComponent::Compile(bool preserveRuntimeState)
@@ -215,9 +232,11 @@ void ScriptComponent::Compile(bool preserveRuntimeState)
         m_Runtime = std::move(runtime);
         m_Inspector = std::move(inspector);
         m_State = std::move(state);
+        m_Fields = m_Runtime->GetFields();
         m_Compiled = true;
     } else {
         m_Runtime.reset();
+        m_Fields.clear();
         m_LastError = std::move(error);
         m_Compiled = false;
     }
@@ -279,6 +298,7 @@ void ScriptComponent::PollHotReload()
     m_Runtime = std::move(runtime);
     m_Inspector = std::move(inspector);
     m_State = std::move(state);
+    m_Fields = m_Runtime->GetFields();
     m_Compiled = true;
     m_Awake = false;
     m_Started = false;
@@ -315,6 +335,7 @@ void ScriptComponent::CaptureRuntimeTables()
 void ScriptComponent::MarkLegacyLua()
 {
     m_Runtime.reset();
+    m_Fields.clear();
     m_Compiled = false;
     m_Awake = false;
     m_Started = false;

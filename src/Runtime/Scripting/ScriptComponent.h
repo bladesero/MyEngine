@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <vector>
 
 class ScriptComponent final : public Component {
 public:
@@ -41,6 +42,8 @@ public:
     void SetInspectorFields(nlohmann::json fields);
     const nlohmann::json& GetProperties() const;
     void SetProperties(nlohmann::json properties);
+    const std::vector<ScriptFieldInfo>& GetFields() const { return m_Fields; }
+    bool SetPropertyValue(const std::string& name, nlohmann::json value);
     const nlohmann::json& GetInstanceState() const;
 
     void Serialize(nlohmann::json& data) const override;
@@ -73,6 +76,7 @@ private:
     nlohmann::json m_State = nlohmann::json::object();
     nlohmann::json m_LegacyInspector = nlohmann::json::object();
     nlohmann::json m_LegacyState = nlohmann::json::object();
+    std::vector<ScriptFieldInfo> m_Fields;
     std::unique_ptr<AngelScriptRuntime> m_Runtime;
     std::filesystem::file_time_type m_LastWriteTime{};
     bool m_HasWriteTime = false;

@@ -11,7 +11,7 @@ namespace {
 
 size_t TypeIndex(AssetType t) {
     const size_t i = static_cast<size_t>(t);
-    return i < 7 ? i : 0;
+    return i < 8 ? i : 0;
 }
 
 size_t EstimateAssetCpuBytes(const Asset& a) {
@@ -57,6 +57,10 @@ size_t EstimateAssetCpuBytes(const Asset& a) {
         case AssetType::AudioClip: {
             const auto& clip = static_cast<const AudioClipAsset&>(a);
             return 512 + static_cast<size_t>(clip.GetChannels()) * 64;
+        }
+        case AssetType::Script: {
+            const auto& script = static_cast<const ScriptAsset&>(a);
+            return 256 + script.GetSource().size() + script.GetClasses().size() * 128;
         }
         default:
             return 256;
@@ -554,6 +558,9 @@ void AssetManager::RegisterDefaultLoaders() {
     RegisterLoader("flac", audioLoader);
     RegisterLoader("mp3", audioLoader);
     RegisterLoader("ogg", audioLoader);
+    RegisterLoader("as", [](const std::string& path) -> std::shared_ptr<Asset> {
+        return std::static_pointer_cast<Asset>(LoadScriptAssetFromFile(path));
+    });
 }
 
 TextureHandle AssetManager::GetWhiteTexture()

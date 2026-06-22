@@ -168,7 +168,7 @@ Application::Run()
 
 ## 8. 文档维护说明
 
-早期文档若以 `TriangleLayer` 或多静态库为主线，当前主线为 **`SceneRenderLayer` + `Renderer` + `EditorLayer`**，并以 **`MyEnginePlayer`** 作为无编辑器运行时。后续增删目录或目标时，请同步更新本节与 `xmake.lua`。
+早期文档若以 `TriangleLayer` 或多静态库为主线，当前主线为 **`SceneRenderLayer` + `Renderer` + `EditorLayer`**，并以 **`MyEnginePlayer`** 作为无编辑器运行时。`SceneRenderLayer` 现在是薄 facade：viewport/camera/input/picking ray 由 `SceneViewportController` 管理，Renderer/IRenderContext/swapchain/offscreen scene color 由 `SceneRenderHost` 管理，空场景 demo 内容由 `DefaultSceneFactory` 管理。后续增删目录或目标时，请同步更新本节与 `xmake.lua`。
 
 ---
 
