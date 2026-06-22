@@ -12,11 +12,62 @@
 #include <RmlUi/Core/Context.h>
 
 #include <algorithm>
+#include <cctype>
+#include <filesystem>
+#include <fstream>
 #include <vector>
 
 namespace {
 
 bool g_RmlCoreInitialized = false;
+std::unordered_map<std::string, std::vector<unsigned char>> g_RmlFontData;
+
+std::string ToLower(std::string value)
+{
+    std::transform(value.begin(), value.end(), value.begin(),
+        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return value;
+}
+
+bool TryParseFontFaceFromPath(const std::string& path,
+                              std::string& family,
+                              Rml::Style::FontWeight& weight)
+{
+    const std::string stem = std::filesystem::path(path).stem().string();
+    const std::size_t separator = stem.find_last_of("-_ ");
+    if (separator == std::string::npos || separator == 0 || separator + 1 >= stem.size()) {
+        return false;
+    }
+
+    const std::string suffix = ToLower(stem.substr(separator + 1));
+    if (suffix == "regular") {
+        weight = Rml::Style::FontWeight::Normal;
+    } else if (suffix == "bold") {
+        weight = Rml::Style::FontWeight::Bold;
+    } else {
+        return false;
+    }
+
+    family = stem.substr(0, separator);
+    return !family.empty();
+}
+
+bool ReadBinaryFile(const std::string& path, std::vector<unsigned char>& bytes)
+{
+    std::ifstream file(path, std::ios::binary | std::ios::ate);
+    if (!file) {
+        return false;
+    }
+
+    const std::streamsize size = file.tellg();
+    if (size <= 0) {
+        return false;
+    }
+
+    bytes.resize(static_cast<std::size_t>(size));
+    file.seekg(0, std::ios::beg);
+    return static_cast<bool>(file.read(reinterpret_cast<char*>(bytes.data()), size));
+}
 
 bool HasInputEnabledCanvas(Scene& scene)
 {
@@ -93,7 +144,27 @@ void UISystem::LoadCanvasFonts(Scene& scene)
         for (const std::string& fontPath : canvas->GetDefaultFontPaths()) {
             if (fontPath.empty() || m_LoadedFonts.count(fontPath) != 0) continue;
             const std::string resolved = AssetManager::Get().ResolvePath(fontPath);
-            if (Rml::LoadFontFace(resolved)) {
+            bool loaded = false;
+            std::string family;
+            Rml::Style::FontWeight weight = Rml::Style::FontWeight::Auto;
+            if (TryParseFontFaceFromPath(fontPath, family, weight)) {
+                std::vector<unsigned char> fontBytes;
+                if (ReadBinaryFile(resolved, fontBytes)) {
+                    auto& storedBytes = g_RmlFontData[fontPath];
+                    storedBytes = std::move(fontBytes);
+                    const Rml::Span<const Rml::byte> fontData(storedBytes.data(), storedBytes.size());
+                    loaded = Rml::LoadFontFace(fontData, family, Rml::Style::FontStyle::Normal, weight);
+                    if (!loaded) {
+                        g_RmlFontData.erase(fontPath);
+                    }
+                }
+            }
+
+            if (!loaded) {
+                loaded = Rml::LoadFontFace(resolved);
+            }
+
+            if (loaded) {
                 m_LoadedFonts[fontPath] = true;
             } else {
                 Logger::Warn("[UI] Failed to load font: ", fontPath);

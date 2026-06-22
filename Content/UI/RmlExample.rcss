@@ -121,13 +121,11 @@ button
     color: white;
     font-size: 16dp;
     font-weight: bold;
-    transition: background-color 0.15s linear, transform 0.15s linear;
 }
 
 button:hover
 {
     background-color: #3b82f6;
-    transform: scale(1.03);
 }
 
 .slider

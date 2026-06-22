@@ -6,9 +6,9 @@ LayerStack::~LayerStack() {
 }
 
 void LayerStack::Clear() {
-    for (Layer* layer : m_Layers) {
-        layer->OnDetach();
-        delete layer;
+    for (auto it = m_Layers.rbegin(); it != m_Layers.rend(); ++it) {
+        (*it)->OnDetach();
+        delete *it;
     }
     m_Layers.clear();
 }
