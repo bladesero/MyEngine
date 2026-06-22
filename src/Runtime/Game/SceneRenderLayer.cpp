@@ -46,6 +46,7 @@ void SceneRenderLayer::OnAttach()
     SceneLayer::OnAttach();
     int x = 0, y = 0, w = 0, h = 0;
     m_GameViewport.GetViewportRect(x, y, w, h);
+    m_UIInputViewport = {x, y, w, h, 1.0f, 1.0f, true, true};
     m_UISystem.Resize(w, h);
     if (m_RenderContext) {
         m_UISystem.Initialize(m_RenderContext, m_RenderContext);
@@ -69,7 +70,7 @@ void SceneRenderLayer::OnUpdate(float dt)
 
 void SceneRenderLayer::OnEvent(Event& event)
 {
-    m_UISystem.ProcessEvent(event);
+    m_UISystem.ProcessEvent(GetSimulationScene(), event, m_UIInputViewport);
     if (event.handled) return;
     SceneLayer::OnEvent(event);
     if (event.type == EventType::WindowResize) {
@@ -78,7 +79,10 @@ void SceneRenderLayer::OnEvent(Event& event)
         if (windowW <= 0 || windowH <= 0) return;
         m_Viewport.OnWindowResize(windowW, windowH);
         m_GameViewport.OnWindowResize(windowW, windowH);
-        m_UISystem.Resize(windowW, windowH);
+        if (m_PresentEnabled) {
+            m_UIInputViewport = {0, 0, windowW, windowH, 1.0f, 1.0f, true, true};
+            m_UISystem.Resize(windowW, windowH);
+        }
         if (m_RenderContext) {
             if (GpuSwapChain* swapChain = m_RenderContext->GetSwapChain()) {
                 m_GameViewport.ReleaseFrameResources();
@@ -109,6 +113,14 @@ void SceneRenderLayer::OnRender()
 void SceneRenderLayer::SetViewportInputEnabled(bool enabled)
 {
     m_Viewport.SetInputEnabled(enabled);
+}
+
+void SceneRenderLayer::SetUIInputViewport(const UIInputViewport& viewport)
+{
+    m_UIInputViewport = viewport;
+    const int contextWidth = static_cast<int>(static_cast<float>(viewport.width) * viewport.scaleX);
+    const int contextHeight = static_cast<int>(static_cast<float>(viewport.height) * viewport.scaleY);
+    m_UISystem.Resize(contextWidth, contextHeight);
 }
 
 void SceneRenderLayer::GetViewportRect(int& outX, int& outY, int& outW, int& outH) const

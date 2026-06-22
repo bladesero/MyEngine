@@ -52,6 +52,12 @@ void Scene::QueueDestroyActor(ActorHandle handle)
 
 void Scene::QueueSetParent(ActorHandle child, ActorHandle parent)
 { m_Commands.push_back({CommandKind::SetParent, child, parent}); }
+void Scene::QueueMoveActor(ActorHandle child, ActorHandle parent, ActorHandle beforeSibling)
+{
+    Command c{CommandKind::MoveActor, child, parent};
+    c.beforeSibling = beforeSibling;
+    m_Commands.push_back(std::move(c));
+}
 void Scene::QueueSetActive(ActorHandle actor, bool active)
 { Command c{CommandKind::SetActive, actor}; c.flag = active; m_Commands.push_back(std::move(c)); }
 
@@ -114,7 +120,7 @@ bool Scene::FlushCommands()
         const Command& command = commands[i];
         const uint64_t actorKey = command.actor.ToUInt64();
         if (destroysActor.count(actorKey) && command.kind != CommandKind::Destroy) { skip[i] = true; continue; }
-        if (command.kind == CommandKind::SetParent) {
+        if (command.kind == CommandKind::SetParent || command.kind == CommandKind::MoveActor) {
             if (lastParent.count(actorKey)) skip[lastParent[actorKey]] = true;
             lastParent[actorKey] = i;
         } else if (command.kind == CommandKind::SetActive) {
@@ -170,6 +176,8 @@ bool Scene::FlushCommands()
         Actor* actor = TryGetActor(command.actor);
         if (!actor) continue;
         if (command.kind == CommandKind::SetParent) actor->SetParent(TryGetActor(command.other));
+        else if (command.kind == CommandKind::MoveActor)
+            MoveActorInternal(actor, TryGetActor(command.other), TryGetActor(command.beforeSibling));
         else if (command.kind == CommandKind::SetActive) actor->m_ActiveSelf = command.flag;
     }
     FinalizeCreated(created);
@@ -184,6 +192,7 @@ bool Scene::FlushCommands()
         switch (command.kind) {
         case CommandKind::Destroy: destroys.push_back(command.actor); break;
         case CommandKind::SetParent: break;
+        case CommandKind::MoveActor: break;
         case CommandKind::SetActive:
             if (actor && std::find(created.begin(), created.end(), actor) == created.end()) {
                 actor->m_ActiveSelf = command.flag;
@@ -266,6 +275,65 @@ void Scene::DestroyActorInternal(Actor* actor)
     }
     const auto it = std::find_if(m_Actors.begin(), m_Actors.end(), [actor](const auto& value) { return value.get() == actor; });
     if (it != m_Actors.end()) { m_Actors.erase(it); if (MemoryService::Get().IsInitialized()) MemoryService::Get().SceneNotifyActorDestroyed(); }
+}
+
+bool Scene::MoveRootActorBefore(Actor* actor, Actor* beforeSibling)
+{
+    if (!actor || actor == beforeSibling) return false;
+    const auto actorIt = std::find_if(m_Actors.begin(), m_Actors.end(),
+        [actor](const auto& value) { return value.get() == actor; });
+    if (actorIt == m_Actors.end()) return false;
+    auto beforeIt = m_Actors.end();
+    if (beforeSibling) {
+        beforeIt = std::find_if(m_Actors.begin(), m_Actors.end(),
+            [beforeSibling](const auto& value) { return value.get() == beforeSibling; });
+        if (beforeIt == m_Actors.end()) return false;
+    }
+
+    std::unique_ptr<Actor> moved = std::move(*actorIt);
+    m_Actors.erase(actorIt);
+    if (beforeSibling) {
+        beforeIt = std::find_if(m_Actors.begin(), m_Actors.end(),
+            [beforeSibling](const auto& value) { return value.get() == beforeSibling; });
+    } else {
+        beforeIt = m_Actors.end();
+    }
+    m_Actors.insert(beforeIt, std::move(moved));
+    return true;
+}
+
+bool Scene::MoveActorInternal(Actor* actor, Actor* parent, Actor* beforeSibling)
+{
+    if (!actor) return false;
+    if (actor == parent || actor == beforeSibling) {
+        Logger::Warn("[Scene] rejected actor move to itself");
+        return false;
+    }
+    for (Actor* ancestor = parent; ancestor; ancestor = ancestor->GetParent()) {
+        if (ancestor == actor) {
+            Logger::Warn("[Scene] rejected cyclic actor move");
+            return false;
+        }
+    }
+    if (beforeSibling && beforeSibling->GetParent() != parent) {
+        Logger::Warn("[Scene] rejected actor move with sibling outside target parent");
+        return false;
+    }
+
+    const auto nextSiblingOf = [](Actor* value) -> Actor* {
+        if (!value) return nullptr;
+        Actor* parentActor = value->GetParent();
+        const std::vector<Actor*> siblings = parentActor ? parentActor->GetChildren() : value->m_Scene->GetRootActors();
+        const auto it = std::find(siblings.begin(), siblings.end(), value);
+        if (it == siblings.end()) return nullptr;
+        const auto next = std::next(it);
+        return next != siblings.end() ? *next : nullptr;
+    };
+    if (actor->GetParent() == parent && nextSiblingOf(actor) == beforeSibling) return false;
+
+    actor->SetParent(parent);
+    if (parent) return parent->MoveChildBefore(actor, beforeSibling);
+    return MoveRootActorBefore(actor, beforeSibling);
 }
 
 void Scene::Clear()

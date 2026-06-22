@@ -143,6 +143,23 @@ private:
     uint64_t m_BeforeParentID, m_AfterParentID;
 };
 
+class MoveActorCommand final : public IEditorCommand {
+public:
+    MoveActorCommand(uint64_t childID,
+                     uint64_t beforeParentID, uint64_t beforeNextSiblingID,
+                     uint64_t afterParentID, uint64_t afterNextSiblingID);
+    bool Execute(EditorContext& context) override;
+    bool Undo(EditorContext& context) override;
+    const char* GetName() const override { return "Move Actor"; }
+private:
+    bool Apply(EditorContext& context, uint64_t parentID, uint64_t nextSiblingID);
+    uint64_t m_ChildID;
+    uint64_t m_BeforeParentID;
+    uint64_t m_BeforeNextSiblingID;
+    uint64_t m_AfterParentID;
+    uint64_t m_AfterNextSiblingID;
+};
+
 class SetActorActiveCommand final : public IEditorCommand {
 public:
     SetActorActiveCommand(uint64_t actorID, bool beforeActive, bool afterActive);

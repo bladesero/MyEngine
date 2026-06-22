@@ -1,6 +1,7 @@
 #include "UI/Core/UICanvas.h"
 
 #include "Core/Logger.h"
+#include "UI/Rml/RmlContextManager.h"
 
 #include <RmlUi/Core.h>
 #include <RmlUi/Core/Context.h>
@@ -54,7 +55,9 @@ bool UICanvas::LoadDocumentFromMemory(const std::string& source, const std::stri
 void UICanvas::CloseDocument()
 {
     if (m_Document) {
-        m_Document->Close();
+        if (RmlContextManager::IsContextAlive(m_Context)) {
+            m_Document->Close();
+        }
         m_Document = nullptr;
     }
 }

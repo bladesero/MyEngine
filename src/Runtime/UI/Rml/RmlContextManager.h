@@ -13,6 +13,7 @@ public:
     void Resize(int width, int height);
 
     Rml::Context* GetContext() const { return m_Context; }
+    static bool IsContextAlive(Rml::Context* context);
 
 private:
     Rml::Context* m_Context = nullptr;

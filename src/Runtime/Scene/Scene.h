@@ -44,6 +44,7 @@ public:
     ActorHandle QueueCreateActor(const ActorCreateDesc& desc = {});
     void QueueDestroyActor(ActorHandle actor);
     void QueueSetParent(ActorHandle child, ActorHandle parent);
+    void QueueMoveActor(ActorHandle child, ActorHandle parent, ActorHandle beforeSibling);
     void QueueSetActive(ActorHandle actor, bool active);
     ComponentHandle QueueAddComponent(ActorHandle actor, const ComponentTypeID& type,
                                       const nlohmann::json& initialData = nlohmann::json::object());
@@ -87,11 +88,12 @@ public:
 private:
     struct Slot { Actor* actor = nullptr; uint32_t generation = 1; bool reserved = false; };
     struct PendingCreate { ActorHandle handle; ActorCreateDesc desc; bool cancelled = false; };
-    enum class CommandKind { Destroy, SetParent, SetActive, AddComponent, RemoveComponent, SetComponentEnabled };
+    enum class CommandKind { Destroy, SetParent, MoveActor, SetActive, AddComponent, RemoveComponent, SetComponentEnabled };
     struct Command {
         CommandKind kind;
         ActorHandle actor;
         ActorHandle other;
+        ActorHandle beforeSibling;
         ComponentTypeID componentType;
         nlohmann::json data;
         bool flag = false;
@@ -100,6 +102,8 @@ private:
     ActorHandle ReserveHandle();
     void ReleaseReserved(ActorHandle handle);
     void DestroyActorInternal(Actor* actor);
+    bool MoveActorInternal(Actor* actor, Actor* parent, Actor* beforeSibling);
+    bool MoveRootActorBefore(Actor* actor, Actor* beforeSibling);
     std::vector<Actor*> OrderedActors(bool reverse = false) const;
     void FinalizeCreated(const std::vector<Actor*>& actors);
 

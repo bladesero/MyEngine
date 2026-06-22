@@ -16,6 +16,7 @@
 #include "UI/Core/UICanvasComponent.h"
 #include "UI/Core/UIComponents.h"
 
+#include <algorithm>
 #include <filesystem>
 #include <vector>
 #include <cstring>
@@ -36,7 +37,78 @@ void DrawDropHighlight(ImVec2 min, ImVec2 max, ImU32 color, float thickness = 2.
     auto* dl = ImGui::GetWindowDrawList();
     dl->AddRect(min, max, color, 0.0f, 0, thickness);
 }
+
+enum class ActorDropZone {
+    Before,
+    Into,
+    After,
+};
+
+ActorDropZone GetActorDropZone(ImVec2 min, ImVec2 max)
+{
+    const float height = std::max(1.0f, max.y - min.y);
+    const float y = ImGui::GetMousePos().y;
+    if (y < min.y + height * 0.25f) return ActorDropZone::Before;
+    if (y > max.y - height * 0.25f) return ActorDropZone::After;
+    return ActorDropZone::Into;
+}
+
+void DrawActorDropCue(ImVec2 min, ImVec2 max, ActorDropZone zone, bool delivery)
+{
+    const ImU32 color = IM_COL32(80, 200, 120, 160);
+    const float thickness = delivery ? 3.0f : 2.0f;
+    auto* dl = ImGui::GetWindowDrawList();
+    if (zone == ActorDropZone::Into) {
+        dl->AddRect(min, max, color, 0.0f, 0, thickness);
+        return;
+    }
+    const float y = zone == ActorDropZone::Before ? min.y : max.y;
+    dl->AddLine(ImVec2(min.x, y), ImVec2(max.x, y), color, thickness);
+}
 #endif
+
+Actor* GetNextSibling(Scene& scene, const Actor& actor, const Actor* exclude = nullptr)
+{
+    const std::vector<Actor*> siblings = actor.GetParent()
+        ? actor.GetParent()->GetChildren()
+        : scene.GetRootActors();
+    bool found = false;
+    for (Actor* sibling : siblings) {
+        if (!sibling || sibling == exclude) continue;
+        if (found) return sibling;
+        if (sibling == &actor) found = true;
+    }
+    return nullptr;
+}
+
+bool IsDescendantOf(const Actor& candidate, const Actor& ancestor)
+{
+    for (Actor* parent = candidate.GetParent(); parent; parent = parent->GetParent()) {
+        if (parent == &ancestor) return true;
+    }
+    return false;
+}
+
+bool ExecuteMoveActorDrop(EditorContext& context, Scene& scene, Actor& source,
+                          Actor* afterParent, Actor* afterNextSibling)
+{
+    if (&source == afterParent || (&source == afterNextSibling)) return false;
+    if (afterParent && IsDescendantOf(*afterParent, source)) return false;
+    if (afterNextSibling && afterNextSibling->GetParent() != afterParent) return false;
+
+    Actor* beforeNextSibling = GetNextSibling(scene, source);
+    const uint64_t beforeParentID = source.GetParent() ? source.GetParent()->GetID() : uint64_t(0);
+    const uint64_t beforeNextID = beforeNextSibling ? beforeNextSibling->GetID() : uint64_t(0);
+    const uint64_t afterParentID = afterParent ? afterParent->GetID() : uint64_t(0);
+    const uint64_t afterNextID = afterNextSibling ? afterNextSibling->GetID() : uint64_t(0);
+    if (beforeParentID == afterParentID && beforeNextID == afterNextID) return false;
+
+    context.GetCommandStack()->ExecuteCommand(
+        EditorUndoUtil::MakeMoveActorCommand(
+            source, beforeParentID, beforeNextID, afterParentID, afterNextID),
+        context);
+    return true;
+}
 
 enum class UIActorPreset {
     Canvas,
@@ -449,16 +521,16 @@ void SceneHierarchyPanel::DrawActor(Actor* actor){
             }
         }
 
-        // Drop target for re-parenting
+        // Drop target for actor re-parenting and sibling insertion.
         if (ImGui::BeginDragDropTarget()) {
             const ImGuiPayload* previewPayload = ImGui::GetDragDropPayload();
+            const ImVec2 areaMin(ImGui::GetItemRectMin());
+            const ImVec2 areaMax(ImGui::GetItemRectMax());
+            const ActorDropZone dropZone = GetActorDropZone(areaMin, areaMax);
             if (previewPayload) {
-                const ImVec2 areaMin(ImGui::GetItemRectMin());
-                const ImVec2 areaMax(ImGui::GetItemRectMax());
                 if (previewPayload->IsDataType(kActorPayload))
-                    DrawDropHighlight(areaMin, areaMax, IM_COL32(80, 200, 120, 120),
-                                      previewPayload->IsDelivery() ? 3.0f : 2.0f);
-                else if (previewPayload->IsDataType(kPrefabPayload))
+                    DrawActorDropCue(areaMin, areaMax, dropZone, previewPayload->IsDelivery());
+                else if (previewPayload->IsDataType(kPrefabPayload) && dropZone == ActorDropZone::Into)
                     DrawDropHighlight(areaMin, areaMax, IM_COL32(200, 160, 80, 120),
                                       previewPayload->IsDelivery() ? 3.0f : 2.0f);
             }
@@ -469,24 +541,33 @@ void SceneHierarchyPanel::DrawActor(Actor* actor){
                         uint64_t sourceId = 0;
                         std::memcpy(&sourceId, payload->Data, sizeof(sourceId));
                         Actor* source = scene->FindByID(sourceId);
-                        if (source && source != actor && source->GetParent() != actor) {
-                            const uint64_t beforeParent = source->GetParent() ? source->GetParent()->GetID() : uint64_t(0);
-                            context->GetCommandStack()->ExecuteCommand(
-                                EditorUndoUtil::MakeSetParentCommand(*source, beforeParent, actor->GetID()), *context);
+                        if (source && source != actor) {
+                            Actor* afterParent = actor;
+                            Actor* afterNextSibling = nullptr;
+                            if (dropZone == ActorDropZone::Before) {
+                                afterParent = actor->GetParent();
+                                afterNextSibling = actor;
+                            } else if (dropZone == ActorDropZone::After) {
+                                afterParent = actor->GetParent();
+                                afterNextSibling = GetNextSibling(*scene, *actor, source);
+                            }
+                            ExecuteMoveActorDrop(*context, *scene, *source, afterParent, afterNextSibling);
                         }
                     }
                 }
-                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kPrefabPayload)) {
-                    const std::string path(static_cast<const char*>(payload->Data), payload->DataSize);
-                    std::string error;
-                    PrefabInstantiateOptions opts;
-                    opts.parent = actor->GetHandle();
-                    Actor* instance = PrefabSystem::Instantiate(*scene, path, opts, &error);
-                    if (instance) {
-                        context->GetSelection().Select(EditorSelectObject::MakeActor(
-                            instance->GetHandle(), instance->GetID()));
-                    } else {
-                        Logger::Warn("[Editor] Instantiate prefab failed: ", error);
+                if (dropZone == ActorDropZone::Into) {
+                    if (const ImGuiPayload* prefabPayload = ImGui::AcceptDragDropPayload(kPrefabPayload)) {
+                        const std::string path(static_cast<const char*>(prefabPayload->Data), prefabPayload->DataSize);
+                        std::string error;
+                        PrefabInstantiateOptions opts;
+                        opts.parent = actor->GetHandle();
+                        Actor* instance = PrefabSystem::Instantiate(*scene, path, opts, &error);
+                        if (instance) {
+                            context->GetSelection().Select(EditorSelectObject::MakeActor(
+                                instance->GetHandle(), instance->GetID()));
+                        } else {
+                            Logger::Warn("[Editor] Instantiate prefab failed: ", error);
+                        }
                     }
                 }
             }
@@ -522,17 +603,14 @@ void SceneHierarchyPanel::HandleDragDropTarget(Actor* targetParent){
                                   previewPayload->IsDelivery() ? 3.0f : 2.0f);
         }
 
-        // Actor drop: re-parent
+        // Actor drop: move to target parent and append after existing children/root actors.
         if(const ImGuiPayload* payload=ImGui::AcceptDragDropPayload(kActorPayload)){
             if(payload->DataSize>=sizeof(uint64_t)){
                 uint64_t sourceId=0;
                 std::memcpy(&sourceId,payload->Data,sizeof(sourceId));
                 Actor* source=scene->FindByID(sourceId);
-                if(source && source->GetParent()!=targetParent){
-                    const uint64_t beforeParent = source->GetParent() ? source->GetParent()->GetID() : uint64_t(0);
-                    const uint64_t afterParent = targetParent ? targetParent->GetID() : uint64_t(0);
-                    context->GetCommandStack()->ExecuteCommand(
-                        EditorUndoUtil::MakeSetParentCommand(*source, beforeParent, afterParent), *context);
+                if(source){
+                    ExecuteMoveActorDrop(*context, *scene, *source, targetParent, nullptr);
                 }
             }
         }

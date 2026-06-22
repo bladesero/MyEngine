@@ -147,6 +147,13 @@ std::unique_ptr<IEditorCommand> EditorUndoUtil::MakeSetParentCommand(
     return std::make_unique<SetParentCommand>(child.GetID(), beforeParentID, afterParentID);
 }
 
+std::unique_ptr<IEditorCommand> EditorUndoUtil::MakeMoveActorCommand(
+    const Actor& child, uint64_t beforeParentID, uint64_t beforeNextSiblingID,
+    uint64_t afterParentID, uint64_t afterNextSiblingID) {
+    return std::make_unique<MoveActorCommand>(
+        child.GetID(), beforeParentID, beforeNextSiblingID, afterParentID, afterNextSiblingID);
+}
+
 std::unique_ptr<IEditorCommand> EditorUndoUtil::MakeSetActiveCommand(
     const Actor& actor, bool afterActive) {
     return std::make_unique<SetActorActiveCommand>(

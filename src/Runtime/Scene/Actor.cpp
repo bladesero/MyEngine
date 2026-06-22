@@ -176,6 +176,25 @@ void Actor::RemoveChild(Actor* child)
     if (it != m_Children.end()) m_Children.erase(it);
 }
 
+bool Actor::MoveChildBefore(Actor* child, Actor* beforeChild)
+{
+    if (!child || child == beforeChild) return false;
+    const auto childIt = std::find(m_Children.begin(), m_Children.end(), child);
+    if (childIt == m_Children.end()) return false;
+    auto beforeIt = m_Children.end();
+    if (beforeChild) {
+        beforeIt = std::find(m_Children.begin(), m_Children.end(), beforeChild);
+        if (beforeIt == m_Children.end()) return false;
+    }
+
+    Actor* moved = *childIt;
+    m_Children.erase(childIt);
+    if (beforeChild) beforeIt = std::find(m_Children.begin(), m_Children.end(), beforeChild);
+    else beforeIt = m_Children.end();
+    m_Children.insert(beforeIt, moved);
+    return true;
+}
+
 void Actor::FinalizeConstruction(bool playing)
 {
     for (Component* comp : OrderedComponents()) if (!comp->m_Attached) { comp->OnAttach(); comp->m_Attached = true; }

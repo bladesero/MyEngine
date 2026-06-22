@@ -14,6 +14,25 @@
 #include <algorithm>
 #include <vector>
 
+namespace {
+
+bool g_RmlCoreInitialized = false;
+
+bool HasInputEnabledCanvas(Scene& scene)
+{
+    bool found = false;
+    scene.ForEach([&](Actor& actor) {
+        if (found || !actor.IsActive()) return;
+        auto* canvas = actor.GetComponent<UICanvasComponent>();
+        if (!canvas || !canvas->IsEnabled()) return;
+        found = canvas->IsVisible() && canvas->IsInteractive() &&
+            canvas->GetInputMode() != UIInputMode::None;
+    });
+    return found;
+}
+
+} // namespace
+
 UISystem::UISystem() = default;
 
 UISystem::~UISystem()
@@ -30,13 +49,15 @@ bool UISystem::Initialize(IRHIDevice* device, IRHIFrameContext* frameContext)
     Rml::SetSystemInterface(&m_AssetLoader);
     Rml::SetFileInterface(&m_AssetLoader);
     Rml::SetRenderInterface(&m_RenderInterface);
-    if (!Rml::Initialise()) {
-        Logger::Error("[UI] RmlUi initialization failed");
-        return false;
+    if (!g_RmlCoreInitialized) {
+        if (!Rml::Initialise()) {
+            Logger::Error("[UI] RmlUi initialization failed");
+            return false;
+        }
+        g_RmlCoreInitialized = true;
     }
     if (!m_ContextManager.Create("MyEngineInGameUI", m_Width, m_Height)) {
         Logger::Error("[UI] Failed to create RmlUi context");
-        Rml::Shutdown();
         return false;
     }
     m_Initialized = true;
@@ -47,9 +68,9 @@ void UISystem::Shutdown()
 {
     if (!m_Initialized) return;
     m_ContextManager.Destroy();
-    Rml::Shutdown();
     m_LoadedFonts.clear();
     m_ActorTreeSignatures.clear();
+    m_ExternalEventBridge = nullptr;
     m_Initialized = false;
     m_Device = nullptr;
     m_FrameContext = nullptr;
@@ -135,6 +156,59 @@ bool UISystem::ProcessEvent(Event& event)
     return consumed;
 }
 
+bool UISystem::ProcessEvent(Scene& scene, Event& event, const UIInputViewport& viewport)
+{
+    if (!m_Initialized || event.handled) return false;
+    Rml::Context* context = m_ContextManager.GetContext();
+    if (!context) return false;
+    if (!HasInputEnabledCanvas(scene)) return false;
+    EnsureCanvasDocuments(scene);
+
+    Event localEvent = event;
+    bool insideViewport = true;
+    if (event.type == EventType::MouseMove ||
+        event.type == EventType::MouseButtonDown ||
+        event.type == EventType::MouseButtonUp) {
+        const int x = event.type == EventType::MouseMove ? event.mouseMove.x : event.mouseButton.x;
+        const int y = event.type == EventType::MouseMove ? event.mouseMove.y : event.mouseButton.y;
+        insideViewport = x >= viewport.x && y >= viewport.y &&
+            x < viewport.x + viewport.width && y < viewport.y + viewport.height;
+        if (insideViewport) {
+            const float sx = viewport.scaleX != 0.0f ? viewport.scaleX : 1.0f;
+            const float sy = viewport.scaleY != 0.0f ? viewport.scaleY : 1.0f;
+            const int localX = static_cast<int>((x - viewport.x) * sx);
+            const int localY = static_cast<int>((y - viewport.y) * sy);
+            if (event.type == EventType::MouseMove) {
+                localEvent.mouseMove.x = localX;
+                localEvent.mouseMove.y = localY;
+            } else {
+                localEvent.mouseButton.x = localX;
+                localEvent.mouseButton.y = localY;
+            }
+        }
+    }
+
+    const bool mouseEvent = event.type == EventType::MouseMove ||
+        event.type == EventType::MouseButtonDown ||
+        event.type == EventType::MouseButtonUp ||
+        event.type == EventType::MouseWheel;
+    bool consumed = false;
+    if (mouseEvent) {
+        consumed = m_UIInputSystem.ProcessEvent(
+            scene, *context, event, viewport, *GetActiveEventBridge(), &UISystem::ResolveDataModel, this);
+        if (consumed) {
+            event.handled = true;
+            return true;
+        }
+    }
+    if (viewport.enabled && viewport.hovered && insideViewport) {
+        const bool rmlConsumed = m_InputAdapter.ProcessEvent(*context, localEvent);
+        consumed = rmlConsumed;
+    }
+    if (consumed) event.handled = true;
+    return consumed;
+}
+
 void UISystem::CollectDrawData(Scene& scene, UIDrawList& drawList)
 {
     if (!m_Initialized) {
@@ -155,4 +229,20 @@ void UISystem::CollectDrawData(Scene& scene, UIDrawList& drawList)
 UIDataModel& UISystem::CreateDataModel(const std::string& name)
 {
     return m_DataModels[name];
+}
+
+void UISystem::MarkActorTreeDirty(uint64_t canvasActorID)
+{
+    m_ActorTreeSignatures.erase(canvasActorID);
+}
+
+UIEventBridge* UISystem::GetActiveEventBridge()
+{
+    return m_ExternalEventBridge ? m_ExternalEventBridge : &m_EventBridge;
+}
+
+UIDataModel* UISystem::ResolveDataModel(void* user, const std::string& name)
+{
+    auto* self = static_cast<UISystem*>(user);
+    return self ? &self->CreateDataModel(name) : nullptr;
 }

@@ -372,6 +372,46 @@ bool SetParentCommand::Undo(EditorContext& context) {
 }
 
 // ==========================================================================
+// MoveActorCommand
+// ==========================================================================
+
+MoveActorCommand::MoveActorCommand(uint64_t childID,
+                                   uint64_t beforeParentID, uint64_t beforeNextSiblingID,
+                                   uint64_t afterParentID, uint64_t afterNextSiblingID)
+    : m_ChildID(childID)
+    , m_BeforeParentID(beforeParentID)
+    , m_BeforeNextSiblingID(beforeNextSiblingID)
+    , m_AfterParentID(afterParentID)
+    , m_AfterNextSiblingID(afterNextSiblingID)
+{
+}
+
+bool MoveActorCommand::Apply(EditorContext& context, uint64_t parentID, uint64_t nextSiblingID)
+{
+    Scene* scene = context.GetScene();
+    Actor* child = scene ? scene->FindByID(m_ChildID) : nullptr;
+    if (!child) return false;
+    Actor* parent = parentID ? scene->FindByID(parentID) : nullptr;
+    Actor* nextSibling = nextSiblingID ? scene->FindByID(nextSiblingID) : nullptr;
+    scene->QueueMoveActor(child->GetHandle(),
+                          parent ? parent->GetHandle() : ActorHandle{},
+                          nextSibling ? nextSibling->GetHandle() : ActorHandle{});
+    scene->FlushCommands();
+    context.GetSelection().SelectActorID(m_ChildID);
+    return true;
+}
+
+bool MoveActorCommand::Execute(EditorContext& context)
+{
+    return Apply(context, m_AfterParentID, m_AfterNextSiblingID);
+}
+
+bool MoveActorCommand::Undo(EditorContext& context)
+{
+    return Apply(context, m_BeforeParentID, m_BeforeNextSiblingID);
+}
+
+// ==========================================================================
 // SetActorActiveCommand
 // ==========================================================================
 

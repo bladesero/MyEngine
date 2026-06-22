@@ -195,6 +195,7 @@ target("MyEngineRuntime")
         "src/Runtime/UI/Core/UICanvasComponent.cpp",
         "src/Runtime/UI/Core/UIComponents.cpp",
         "src/Runtime/UI/Core/UISystem.cpp",
+        "src/Runtime/UI/Input/UIInputSystem.cpp",
         "src/Runtime/UI/Rml/RmlAssetLoader.cpp",
         "src/Runtime/UI/Rml/RmlContextManager.cpp",
         "src/Runtime/UI/Rml/RmlInputAdapter.cpp",

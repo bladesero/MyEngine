@@ -81,6 +81,14 @@ bool PointInCircle(const ImVec2& point, const ImVec2& center, float radius)
     const float dy = point.y - center.y;
     return dx * dx + dy * dy <= radius * radius;
 }
+
+ImVec2 ToPlatformWindowLocal(const ImVec2& screenPos)
+{
+    if (const ImGuiViewport* viewport = ImGui::GetWindowViewport()) {
+        return {screenPos.x - viewport->Pos.x, screenPos.y - viewport->Pos.y};
+    }
+    return screenPos;
+}
 #endif
 }
 
@@ -425,10 +433,21 @@ void GameViewportPanel::DrawContent()
 
     const ImVec2 imageMin = ImGui::GetCursorScreenPos();
     const ImVec2 imageSize = ImGui::GetContentRegionAvail();
+    const ImVec2 imageMinLocal = ToPlatformWindowLocal(imageMin);
     gameViewport->SetViewportRect(
-        static_cast<int>(imageMin.x), static_cast<int>(imageMin.y),
+        static_cast<int>(imageMinLocal.x), static_cast<int>(imageMinLocal.y),
         static_cast<int>(imageSize.x), static_cast<int>(imageSize.y));
     gameViewport->SetInputEnabled(false);
+    if (auto* layer = context->GetSceneLayer()) {
+        UIInputViewport viewport;
+        viewport.x = static_cast<int>(imageMinLocal.x);
+        viewport.y = static_cast<int>(imageMinLocal.y);
+        viewport.width = static_cast<int>(imageSize.x);
+        viewport.height = static_cast<int>(imageSize.y);
+        viewport.enabled = true;
+        viewport.hovered = true;
+        layer->SetUIInputViewport(viewport);
+    }
 
     bool drewImage = false;
     if (GpuTextureView* view = gameViewport->GetOutputView()) {

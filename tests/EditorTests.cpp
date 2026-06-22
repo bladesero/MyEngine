@@ -13,6 +13,7 @@
 #include "Editor/EditorService.h"
 #include "Editor/EditorShortcutMap.h"
 #include "Editor/EditorThemeManager.h"
+#include "Editor/EditorUndoUtil.h"
 #include "Editor/EditorUIScaleManager.h"
 #include "Editor/UI/EditorFontManager.h"
 #include "Editor/UI/EditorIcons.h"
@@ -193,6 +194,52 @@ bool TestEditorSceneSnapshotCommands() {
     return Check(restoredParent && restoredParent->GetChildren().size() == 1 &&
                  restoredParent->GetChildren()[0]->GetComponent<BoxColliderComponent>() != nullptr,
                  "scene snapshot redo lost hierarchy or component");
+}
+
+bool TestEditorMoveActorCommandUndoRedo() {
+    Scene scene("EditorMoveActor");
+    EditorContext context(&scene);
+    EditorCommandStack stack;
+    context.SetCommandStack(&stack);
+
+    Actor* parent = scene.CreateActor("Parent");
+    Actor* childA = scene.CreateActor("ChildA", parent);
+    Actor* childB = scene.CreateActor("ChildB", parent);
+    Actor* childC = scene.CreateActor("ChildC", parent);
+    Actor* otherParent = scene.CreateActor("OtherParent");
+    Actor* otherA = scene.CreateActor("OtherA", otherParent);
+    Actor* otherB = scene.CreateActor("OtherB", otherParent);
+
+    const uint64_t beforeParentID = parent->GetID();
+    const uint64_t beforeNextID = childC->GetID();
+    const uint64_t afterParentID = otherParent->GetID();
+    const uint64_t afterNextID = otherB->GetID();
+    if (!Check(stack.ExecuteCommand(
+            EditorUndoUtil::MakeMoveActorCommand(
+                *childB, beforeParentID, beforeNextID, afterParentID, afterNextID),
+            context),
+            "move actor command execute failed")) return false;
+    if (!Check(childB->GetParent() == otherParent &&
+               otherParent->GetChildren().size() == 3 &&
+               otherParent->GetChildren()[0] == otherA &&
+               otherParent->GetChildren()[1] == childB &&
+               otherParent->GetChildren()[2] == otherB,
+               "move actor command did not apply target order")) return false;
+    if (!Check(context.GetSelection().GetActorID() == childB->GetID(),
+               "move actor command did not select moved actor")) return false;
+
+    if (!Check(stack.Undo(context), "move actor command undo failed")) return false;
+    if (!Check(childB->GetParent() == parent &&
+               parent->GetChildren().size() == 3 &&
+               parent->GetChildren()[0] == childA &&
+               parent->GetChildren()[1] == childB &&
+               parent->GetChildren()[2] == childC,
+               "move actor command undo did not restore original order")) return false;
+
+    if (!Check(stack.Redo(context), "move actor command redo failed")) return false;
+    return Check(childB->GetParent() == otherParent &&
+                 otherParent->GetChildren()[1] == childB,
+                 "move actor command redo did not restore target order");
 }
 
 bool TestEditorContextWorldRouting() {
@@ -825,6 +872,7 @@ bool TestProductionAssetDatabaseAndImportPipeline() {
 MYENGINE_REGISTER_TEST("Editor", "TestEditorCommandStackAndSelection", TestEditorCommandStackAndSelection);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorSelectObjectEvents", TestEditorSelectObjectEvents);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorSceneSnapshotCommands", TestEditorSceneSnapshotCommands);
+MYENGINE_REGISTER_TEST("Editor", "TestEditorMoveActorCommandUndoRedo", TestEditorMoveActorCommandUndoRedo);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorContextWorldRouting", TestEditorContextWorldRouting);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorGizmoRowVectorLocalConversion", TestEditorGizmoRowVectorLocalConversion);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorServiceActionAndInspectorRegistries", TestEditorServiceActionAndInspectorRegistries);

@@ -40,6 +40,9 @@ public:
         const Actor& actor);
     static std::unique_ptr<IEditorCommand> MakeSetParentCommand(
         const Actor& child, uint64_t beforeParentID, uint64_t afterParentID);
+    static std::unique_ptr<IEditorCommand> MakeMoveActorCommand(
+        const Actor& child, uint64_t beforeParentID, uint64_t beforeNextSiblingID,
+        uint64_t afterParentID, uint64_t afterNextSiblingID);
     static std::unique_ptr<IEditorCommand> MakeSetActiveCommand(
         const Actor& actor, bool afterActive);
     static std::unique_ptr<IEditorCommand> MakeSetNameCommand(

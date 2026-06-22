@@ -10,6 +10,8 @@ class UICanvas;
 struct UIEvent {
     std::string elementId;
     std::string eventName;
+    float value = 0.0f;
+    bool hasValue = false;
 };
 
 class UIEventBridge {

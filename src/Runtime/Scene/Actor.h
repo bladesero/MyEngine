@@ -148,6 +148,7 @@ public:
 private:
     void AddChild(Actor* child);
     void RemoveChild(Actor* child);
+    bool MoveChildBefore(Actor* child, Actor* beforeChild);
     Component* AddComponentObject(std::type_index type, std::unique_ptr<Component> component,
                                   bool finalizeNow);
     bool RemoveComponentAt(size_t index);

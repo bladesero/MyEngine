@@ -38,7 +38,7 @@ void ViewportRenderExecution::Render(Scene& scene, Camera& camera,
     }
 
     ResizeIfNeeded(w, h);
-    SetCommandViewport(viewport);
+    SetCommandViewport(viewport, presentToSwapchain);
     m_Renderer.SetOutputOffscreen(!presentToSwapchain);
     m_Renderer.SetUIDrawList(uiDrawList);
     m_Renderer.RenderScene(scene, camera, presentToSwapchain);
@@ -55,7 +55,8 @@ GpuTextureView* ViewportRenderExecution::GetOutputView() const
     return m_Renderer.GetSceneColorView();
 }
 
-void ViewportRenderExecution::SetCommandViewport(const RenderViewport& viewport)
+void ViewportRenderExecution::SetCommandViewport(const RenderViewport& viewport,
+                                                 bool presentToSwapchain)
 {
     if (!m_FrameContext) {
         return;
@@ -67,7 +68,9 @@ void ViewportRenderExecution::SetCommandViewport(const RenderViewport& viewport)
         return;
     }
     if (auto* commands = m_FrameContext->GetGraphicsCommandList()) {
-        commands->SetViewport(static_cast<float>(x), static_cast<float>(y),
+        const float viewportX = presentToSwapchain ? static_cast<float>(x) : 0.0f;
+        const float viewportY = presentToSwapchain ? static_cast<float>(y) : 0.0f;
+        commands->SetViewport(viewportX, viewportY,
                               static_cast<float>(w), static_cast<float>(h));
     }
 }

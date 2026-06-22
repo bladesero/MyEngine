@@ -25,7 +25,7 @@ public:
     GpuTextureView* GetOutputView() const;
 
 private:
-    void SetCommandViewport(const RenderViewport& viewport);
+    void SetCommandViewport(const RenderViewport& viewport, bool presentToSwapchain);
 
     IRHIFrameContext* m_FrameContext = nullptr;
     Renderer m_Renderer;

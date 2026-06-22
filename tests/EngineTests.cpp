@@ -3316,6 +3316,61 @@ bool TestActorHandleLifecycleAndDeferredMutation()
     return true;
 }
 
+bool TestSceneActorSiblingReorder()
+{
+    Scene scene("ActorReorder");
+    Actor* rootA = scene.CreateActor("RootA");
+    Actor* rootB = scene.CreateActor("RootB");
+    Actor* rootC = scene.CreateActor("RootC");
+    scene.QueueMoveActor(rootA->GetHandle(), ActorHandle{}, rootC->GetHandle());
+    scene.FlushCommands();
+    std::vector<Actor*> roots = scene.GetRootActors();
+    if (!Check(roots.size() == 3 && roots[0] == rootB && roots[1] == rootA && roots[2] == rootC,
+               "root actor reorder mismatch")) return false;
+
+    const nlohmann::json serialized = nlohmann::json::parse(SceneSerializer::SaveToString(scene));
+    if (!Check(serialized["actors"][0]["name"] == "RootB" &&
+               serialized["actors"][1]["name"] == "RootA" &&
+               serialized["actors"][2]["name"] == "RootC",
+               "serialized root actor order mismatch")) return false;
+
+    Actor* parent = scene.CreateActor("Parent");
+    Actor* childA = scene.CreateActor("ChildA", parent);
+    Actor* childB = scene.CreateActor("ChildB", parent);
+    Actor* childC = scene.CreateActor("ChildC", parent);
+    scene.QueueMoveActor(childB->GetHandle(), parent->GetHandle(), ActorHandle{});
+    scene.FlushCommands();
+    const std::vector<Actor*>& children = parent->GetChildren();
+    if (!Check(children.size() == 3 && children[0] == childA && children[1] == childC && children[2] == childB,
+               "child actor reorder mismatch")) return false;
+
+    Actor* otherParent = scene.CreateActor("OtherParent");
+    Actor* otherA = scene.CreateActor("OtherA", otherParent);
+    Actor* otherB = scene.CreateActor("OtherB", otherParent);
+    scene.QueueMoveActor(childB->GetHandle(), otherParent->GetHandle(), otherB->GetHandle());
+    scene.FlushCommands();
+    const std::vector<Actor*>& otherChildren = otherParent->GetChildren();
+    if (!Check(childB->GetParent() == otherParent &&
+               otherChildren.size() == 3 &&
+               otherChildren[0] == otherA &&
+               otherChildren[1] == childB &&
+               otherChildren[2] == otherB,
+               "cross-parent ordered actor move mismatch")) return false;
+
+    scene.QueueMoveActor(parent->GetHandle(), childA->GetHandle(), ActorHandle{});
+    scene.FlushCommands();
+    if (!Check(parent->GetParent() == nullptr && childA->GetParent() == parent,
+               "cyclic actor move should be rejected")) return false;
+
+    scene.QueueMoveActor(childA->GetHandle(), parent->GetHandle(), otherA->GetHandle());
+    scene.FlushCommands();
+    if (!Check(childA->GetParent() == parent &&
+               parent->GetChildren().size() == 2 &&
+               parent->GetChildren()[0] == childA,
+               "move with sibling outside target parent should be rejected")) return false;
+    return true;
+}
+
 bool TestPrefabRoundTripOverridesAndValidation()
 {
     namespace fs=std::filesystem;const fs::path project=fs::temp_directory_path()/"myengine_prefab_test";std::error_code ec;fs::remove_all(project,ec);fs::create_directories(project/"Content/Prefabs");AssetManager::Get().SetProjectRoot(project);
@@ -3500,6 +3555,14 @@ bool TestUIActorTreeBuilder()
     if (!Check(rml.find("ui-progress-fill") != std::string::npos &&
                rml.find("data-ui-widget=\"progress\"") != std::string::npos,
                "progress value element was not generated")) return false;
+    scene.QueueMoveActor(sliderActor->GetHandle(), canvasActor->GetHandle(), textActor->GetHandle());
+    scene.FlushCommands();
+    if (!Check(UIActorTreeBuilder::BuildDocument(*canvasActor, *canvas, rml, &error),
+               "actor tree builder failed after reorder: " + error)) return false;
+    const std::string sliderID = "id=\"ui_actor_" + std::to_string(sliderActor->GetID()) + "\"";
+    if (!Check(rml.find(sliderID) != std::string::npos &&
+               rml.find(sliderID) < rml.find("id=\"headline\""),
+               "actor tree builder did not preserve reordered child order")) return false;
 
     const std::size_t signature = UIActorTreeBuilder::ComputeSignature(*canvasActor);
     button->text = "Changed";
@@ -3553,6 +3616,122 @@ bool TestUIActorTreeCollectsDrawCommands()
     return Check(!drawList.Empty(), "ActorTree UI produced no draw commands");
 }
 
+bool TestUIInputSystemButtonAndSlider()
+{
+    MockRenderContext context;
+    UISystem ui;
+    if (!Check(ui.Initialize(&context, &context), "UISystem failed to initialize")) return false;
+    ui.Resize(320, 220);
+
+    Scene scene("UIInput");
+    Actor* canvasActor = scene.CreateActor("HUD");
+    auto* canvas = canvasActor->AddComponent<UICanvasComponent>();
+    canvas->SetSourceMode(UICanvasSourceMode::ActorTree);
+
+    Actor* buttonActor = scene.CreateActor("Button", canvasActor);
+    auto* buttonRect = buttonActor->AddComponent<UIRectTransformComponent>();
+    buttonRect->GetRect().anchorMin = {0.0f, 0.0f};
+    buttonRect->GetRect().anchorMax = {0.0f, 0.0f};
+    buttonRect->GetRect().offsetMin = {20.0f, 20.0f};
+    buttonRect->GetRect().offsetMax = {220.0f, 60.0f};
+    auto* button = buttonActor->AddComponent<UIButtonComponent>();
+    button->text = "Click";
+
+    Actor* sliderActor = scene.CreateActor("Slider", canvasActor);
+    auto* sliderRect = sliderActor->AddComponent<UIRectTransformComponent>();
+    sliderRect->GetRect().anchorMin = {0.0f, 0.0f};
+    sliderRect->GetRect().anchorMax = {0.0f, 0.0f};
+    sliderRect->GetRect().offsetMin = {20.0f, 80.0f};
+    sliderRect->GetRect().offsetMax = {220.0f, 104.0f};
+    auto* slider = sliderActor->AddComponent<UISliderComponent>();
+    slider->min = 0.0f;
+    slider->max = 1.0f;
+    slider->step = 0.25f;
+    slider->value = 0.0f;
+
+    ui.Update(scene, 0.016f);
+
+    const std::string buttonID = "ui_actor_" + std::to_string(buttonActor->GetID());
+    const std::string sliderID = "ui_actor_" + std::to_string(sliderActor->GetID());
+    int clickCount = 0;
+    int sliderChangeCount = 0;
+    float lastSliderValue = 0.0f;
+    ui.GetEventBridge().Subscribe(&canvas->GetCanvas(), buttonID, "click",
+        [&](const UIEvent&) { ++clickCount; });
+    ui.GetEventBridge().Subscribe(&canvas->GetCanvas(), sliderID, "change",
+        [&](const UIEvent& event) {
+            ++sliderChangeCount;
+            if (event.hasValue) lastSliderValue = event.value;
+        });
+
+    UIInputViewport viewport;
+    viewport.x = 100;
+    viewport.y = 50;
+    viewport.width = 320;
+    viewport.height = 220;
+
+    Event down;
+    down.type = EventType::MouseButtonDown;
+    down.mouseButton.button = 1;
+    down.mouseButton.x = 130;
+    down.mouseButton.y = 85;
+    if (!Check(ui.ProcessEvent(scene, down, viewport) && down.handled,
+               "button mouse down was not consumed")) return false;
+    Event up = down;
+    up.type = EventType::MouseButtonUp;
+    up.handled = false;
+    if (!Check(ui.ProcessEvent(scene, up, viewport) && up.handled && clickCount == 1,
+               "button mouse up did not emit click")) return false;
+
+    Event outside;
+    outside.type = EventType::MouseButtonDown;
+    outside.mouseButton.button = 1;
+    outside.mouseButton.x = 10;
+    outside.mouseButton.y = 10;
+    if (!Check(!ui.ProcessEvent(scene, outside, viewport) && !outside.handled,
+               "outside viewport event should pass through")) return false;
+
+    Event sliderDown;
+    sliderDown.type = EventType::MouseButtonDown;
+    sliderDown.mouseButton.button = 1;
+    sliderDown.mouseButton.x = 120;
+    sliderDown.mouseButton.y = 140;
+    if (!Check(ui.ProcessEvent(scene, sliderDown, viewport) && sliderDown.handled,
+               "slider mouse down was not consumed")) return false;
+    Event sliderMove;
+    sliderMove.type = EventType::MouseMove;
+    sliderMove.mouseMove.x = 270;
+    sliderMove.mouseMove.y = 142;
+    if (!Check(ui.ProcessEvent(scene, sliderMove, viewport) && sliderMove.handled,
+               "captured slider mouse move was not consumed")) return false;
+    Event sliderUp;
+    sliderUp.type = EventType::MouseButtonUp;
+    sliderUp.mouseButton.button = 1;
+    sliderUp.mouseButton.x = 270;
+    sliderUp.mouseButton.y = 142;
+    if (!Check(ui.ProcessEvent(scene, sliderUp, viewport) && sliderUp.handled,
+               "slider mouse up was not consumed")) return false;
+    if (!Check(slider->value >= 0.75f && sliderChangeCount > 0 && lastSliderValue == slider->value,
+               "slider drag did not update value or emit change")) return false;
+
+    canvas->SetInteractive(false);
+    Event disabled = down;
+    disabled.handled = false;
+    if (!Check(!ui.ProcessEvent(scene, disabled, viewport) && !disabled.handled,
+               "non-interactive canvas should not consume input")) return false;
+    canvas->SetInteractive(true);
+    canvas->SetInputMode(UIInputMode::None);
+    Event noneMode = down;
+    noneMode.handled = false;
+    const int beforeClicks = clickCount;
+    if (!Check(!ui.ProcessEvent(scene, noneMode, viewport) &&
+               !noneMode.handled && clickCount == beforeClicks,
+               "inputMode None should not consume input")) return false;
+
+    ui.Shutdown();
+    return true;
+}
+
 bool TestUIDrawListBatchContainer()
 {
     UIDrawList list;
@@ -3595,12 +3774,14 @@ MYENGINE_REGISTER_TEST("Core", "TestMemoryServiceHeapRoundTrip", TestMemoryServi
 MYENGINE_REGISTER_TEST("Core", "TestSceneAndAssetMemoryCounters", TestSceneAndAssetMemoryCounters);
 MYENGINE_REGISTER_TEST("Scene", "TestSceneColdLoadsModelSubAssetReferences", TestSceneColdLoadsModelSubAssetReferences);
 MYENGINE_REGISTER_TEST("Scene", "TestActorHandleLifecycleAndDeferredMutation", TestActorHandleLifecycleAndDeferredMutation);
+MYENGINE_REGISTER_TEST("Scene", "TestSceneActorSiblingReorder", TestSceneActorSiblingReorder);
 MYENGINE_REGISTER_TEST("Scene", "TestPrefabRoundTripOverridesAndValidation", TestPrefabRoundTripOverridesAndValidation);
 MYENGINE_REGISTER_TEST("Project", "TestPrefabCookDependencyValidation", TestPrefabCookDependencyValidation);
 MYENGINE_REGISTER_TEST("UI", "TestUICanvasComponentSerialization", TestUICanvasComponentSerialization);
 MYENGINE_REGISTER_TEST("UI", "TestUIActorComponentsSerialization", TestUIActorComponentsSerialization);
 MYENGINE_REGISTER_TEST("UI", "TestUIActorTreeBuilder", TestUIActorTreeBuilder);
 MYENGINE_REGISTER_TEST("UI", "TestUIActorTreeCollectsDrawCommands", TestUIActorTreeCollectsDrawCommands);
+MYENGINE_REGISTER_TEST("UI", "TestUIInputSystemButtonAndSlider", TestUIInputSystemButtonAndSlider);
 MYENGINE_REGISTER_TEST("UI", "TestUIDrawListBatchContainer", TestUIDrawListBatchContainer);
 
 } // namespace
