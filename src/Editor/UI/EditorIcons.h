@@ -29,6 +29,7 @@ inline constexpr const char* Scene = "scene";
 inline constexpr const char* Prefab = "prefab";
 inline constexpr const char* Camera = "camera";
 inline constexpr const char* Audio = "audio";
+inline constexpr const char* Input = "input";
 inline constexpr const char* Physics = "physics";
 inline constexpr const char* Light = "light";
 inline constexpr const char* Renderer = "renderer";

@@ -1,0 +1,172 @@
+body
+{
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    font-family: LatoLatin;
+    font-weight: normal;
+    font-style: normal;
+    font-size: 16dp;
+    color: #f4f7fb;
+}
+
+#hud
+{
+    position: absolute;
+    left: 32dp;
+    top: 28dp;
+    width: 520dp;
+}
+
+.topbar
+{
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 18dp 20dp;
+    background-color: rgba(18, 24, 34, 218);
+    border: 1dp #5b6b82;
+    border-radius: 8dp;
+}
+
+.eyebrow
+{
+    color: #86efac;
+    font-size: 12dp;
+    letter-spacing: 0dp;
+}
+
+.title
+{
+    margin-top: 4dp;
+    font-size: 28dp;
+    font-weight: bold;
+}
+
+.badge
+{
+    padding: 8dp 12dp;
+    background-color: #274060;
+    border-radius: 6dp;
+    color: #c7d2fe;
+}
+
+.grid
+{
+    display: flex;
+    margin-top: 12dp;
+}
+
+.panel
+{
+    width: 240dp;
+    min-height: 164dp;
+    margin-right: 12dp;
+    padding: 18dp;
+    background-color: rgba(12, 17, 25, 222);
+    border: 1dp #3d4a5f;
+    border-radius: 8dp;
+}
+
+.label
+{
+    color: #a8b3c7;
+    font-size: 13dp;
+}
+
+.metric
+{
+    margin-top: 8dp;
+    font-size: 34dp;
+    font-weight: bold;
+}
+
+.bar
+{
+    margin-top: 14dp;
+    width: 204dp;
+    height: 10dp;
+    background-color: #202938;
+    border-radius: 5dp;
+}
+
+.bar-fill
+{
+    width: 68%;
+    height: 10dp;
+    border-radius: 5dp;
+}
+
+.health
+{
+    background-color: #22c55e;
+}
+
+.hint
+{
+    margin-top: 14dp;
+    color: #9aa7ba;
+    line-height: 20dp;
+}
+
+button
+{
+    display: block;
+    width: 200dp;
+    height: 40dp;
+    margin-top: 12dp;
+    background-color: #2563eb;
+    border: 0;
+    border-radius: 6dp;
+    color: white;
+    font-size: 16dp;
+    font-weight: bold;
+    transition: background-color 0.15s linear, transform 0.15s linear;
+}
+
+button:hover
+{
+    background-color: #3b82f6;
+    transform: scale(1.03);
+}
+
+.slider
+{
+    display: block;
+    width: 200dp;
+    margin-top: 18dp;
+}
+
+.text-input
+{
+    display: block;
+    width: 188dp;
+    height: 34dp;
+    margin-top: 14dp;
+    padding-left: 10dp;
+    background-color: #111827;
+    border: 1dp #4b5563;
+    border-radius: 6dp;
+    color: #e5e7eb;
+}
+
+.toast
+{
+    display: flex;
+    align-items: center;
+    margin-top: 12dp;
+    padding: 12dp 14dp;
+    background-color: rgba(15, 23, 42, 210);
+    border: 1dp #334155;
+    border-radius: 8dp;
+    color: #dbeafe;
+}
+
+.dot
+{
+    width: 10dp;
+    height: 10dp;
+    margin-right: 10dp;
+    background-color: #22c55e;
+    border-radius: 5dp;
+}

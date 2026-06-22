@@ -12,6 +12,8 @@ enum class EventType {
     MouseButtonDown,
     MouseButtonUp,
     MouseMove,
+    MouseWheel,
+    TextInput,
     GamepadAdded,
     GamepadRemoved,
     GamepadButtonDown,
@@ -47,6 +49,15 @@ struct MouseMoveEvent {
     int relY = 0;
 };
 
+struct MouseWheelEvent {
+    float x = 0.0f;
+    float y = 0.0f;
+};
+
+struct TextInputEvent {
+    char text[32] = {};
+};
+
 struct GamepadDeviceEvent {
     int instanceId = 0;
 };
@@ -72,6 +83,8 @@ struct Event {
         ResizeEvent      resize;
         MouseButtonEvent mouseButton;
         MouseMoveEvent   mouseMove;
+        MouseWheelEvent   mouseWheel;
+        TextInputEvent    textInput;
         GamepadDeviceEvent gamepadDevice;
         GamepadButtonEvent gamepadButton;
         GamepadAxisEvent   gamepadAxis;

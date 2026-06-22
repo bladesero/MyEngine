@@ -30,6 +30,7 @@
 #include "Scene/MeshRendererComponent.h"
 #include "Scene/Scene.h"
 #include "Scripting/ScriptComponent.h"
+#include "UI/Core/UICanvasComponent.h"
 
 #if defined(MYENGINE_ENABLE_IMGUI)
 #include <imgui.h>
@@ -972,6 +973,65 @@ public:
     }
 };
 
+class UICanvasInspectorSection final : public ActorInspectorSection {
+public:
+    const char* GetID() const override { return "uiCanvas"; }
+    int GetOrder() const override { return 520; }
+
+    void Draw(EditorContext& context) override
+    {
+        Actor* actor = SelectedActor(context);
+        auto* canvas = actor ? actor->GetComponent<UICanvasComponent>() : nullptr;
+        if (!canvas) return;
+
+        ImGui::Separator();
+        ImGui::PushID("UICanvas");
+        if (!SectionHeaderWithIcon(context, EditorIcons::Input, "UI Canvas")) {
+            ImGui::PopID();
+            return;
+        }
+
+        bool changed = false;
+        bool visible = canvas->IsVisible();
+        if (ImGui::Checkbox("Visible", &visible)) {
+            canvas->SetVisible(visible);
+            changed = true;
+        }
+        bool interactive = canvas->IsInteractive();
+        if (ImGui::Checkbox("Interactive", &interactive)) {
+            canvas->SetInteractive(interactive);
+            changed = true;
+        }
+        int sortOrder = canvas->GetSortOrder();
+        if (ImGui::DragInt("Sort Order", &sortOrder, 1.0f)) {
+            canvas->SetSortOrder(sortOrder);
+            changed = true;
+        }
+        int inputMode = static_cast<int>(canvas->GetInputMode());
+        if (ImGui::Combo("Input Mode", &inputMode, "None\0UI Only\0Game And UI\0")) {
+            canvas->SetInputMode(static_cast<UIInputMode>(inputMode));
+            changed = true;
+        }
+
+        std::array<char, 260> document{};
+        std::strncpy(document.data(), canvas->GetDocumentPath().c_str(), document.size() - 1);
+        if (ImGui::InputText("Document", document.data(), document.size())) {
+            canvas->SetDocumentPath(document.data());
+            changed = true;
+        }
+        if (ImGui::Button("Reload Document")) {
+            canvas->Reload();
+        }
+        ImGui::SameLine();
+        if (EditorWidgets::IconButton("RemoveUICanvas", "X", "Remove UI Canvas")) {
+            actor->RemoveComponent<UICanvasComponent>();
+            changed = true;
+        }
+        if (changed) context.MarkSceneDirty();
+        ImGui::PopID();
+    }
+};
+
 class AddComponentInspectorSection final : public ActorInspectorSection {
 public:
     const char* GetID() const override { return "addComponent"; }
@@ -1068,6 +1128,7 @@ std::vector<std::unique_ptr<EditorInspectorSection>> CreateDefaultInspectorSecti
     sections.push_back(std::make_unique<LightInspectorSection>());
     sections.push_back(std::make_unique<PostProcessInspectorSection>());
     sections.push_back(std::make_unique<ScriptInspectorSection>());
+    sections.push_back(std::make_unique<UICanvasInspectorSection>());
     sections.push_back(std::make_unique<AddComponentInspectorSection>());
     return sections;
 }

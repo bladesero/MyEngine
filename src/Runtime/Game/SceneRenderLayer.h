@@ -4,6 +4,8 @@
 #include "Game/GameViewport.h"
 #include "Game/SceneViewportController.h"
 #include "Renderer/IRenderContext.h"
+#include "UI/Core/UISystem.h"
+#include "UI/Render/UIDrawList.h"
 
 struct GpuTextureView;
 
@@ -44,6 +46,8 @@ private:
     IRenderContext* m_RenderContext = nullptr;
     SceneViewport m_Viewport;
     GameViewport m_GameViewport;
+    UISystem m_UISystem;
+    UIDrawList m_UIDrawList;
     bool m_PresentEnabled = true;
     bool m_SceneViewportUsesSimulationScene = false;
 };

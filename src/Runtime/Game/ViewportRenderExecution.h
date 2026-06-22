@@ -9,6 +9,7 @@ class IRHIFrameContext;
 class IRHIReadbackService;
 class RenderViewport;
 class Scene;
+class UIDrawList;
 
 class ViewportRenderExecution {
 public:
@@ -18,7 +19,7 @@ public:
 
     void ResizeIfNeeded(int width, int height);
     void Render(Scene& scene, Camera& camera, const RenderViewport& viewport,
-                bool presentToSwapchain);
+                bool presentToSwapchain, const UIDrawList* uiDrawList = nullptr);
     void ReleaseFrameResources();
 
     GpuTextureView* GetOutputView() const;

@@ -8,6 +8,8 @@
 #include "Renderer/ShaderManager.h"
 #include "Renderer/ShadowPass.h"
 #include "Renderer/RenderGraph.h"
+#include "Renderer/ScreenUIPass.h"
+#include "UI/Render/UIDrawList.h"
 
 Renderer::Renderer(IRHIDevice* device, IRHIFrameContext* frameContext,
                    IRHIReadbackService* readbackService)
@@ -18,6 +20,7 @@ Renderer::Renderer(IRHIDevice* device, IRHIFrameContext* frameContext,
     , m_EnvironmentPass(std::make_unique<EnvironmentPass>(device, readbackService))
     , m_MainPass(std::make_unique<MainPass>(device))
     , m_PostProcessPass(std::make_unique<PostProcessPass>(device))
+    , m_ScreenUIPass(std::make_unique<ScreenUIPass>(device))
     , m_RenderGraph(device ? std::make_unique<RenderGraph>(*device) : nullptr)
 {
     ShaderManager::Get().SetDevice(device);
@@ -31,6 +34,7 @@ void Renderer::Resize(uint32_t width, uint32_t height)
     if (m_EnvironmentPass) m_EnvironmentPass->Resize(width, height);
     if (m_MainPass) m_MainPass->Resize(width, height);
     if (m_PostProcessPass) m_PostProcessPass->Resize(width, height);
+    if (m_ScreenUIPass) m_ScreenUIPass->Resize(width, height);
 }
 
 void Renderer::ReleaseFrameResources()
@@ -232,6 +236,19 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
                     m_PostProcessPass->DrawCompositeOffscreen(commands, scene);
                 }
             });
+        if (m_UIDrawList && !m_UIDrawList->Empty()) {
+            m_RenderGraph->AddPass("ScreenUI",
+                [compositeToBackbuffer, composite, backBuffer](RenderGraphBuilder& builder) {
+                    if (compositeToBackbuffer) {
+                        builder.WriteColor(backBuffer, RHILoadOp::Load, RHIStoreOp::Store);
+                    } else {
+                        builder.WriteColor(composite, RHILoadOp::Load, RHIStoreOp::Store);
+                    }
+                },
+                [this](GpuCommandList& commands, const RenderGraphResources&) {
+                    m_ScreenUIPass->Execute(commands, *m_UIDrawList);
+                });
+        }
     } else {
         GpuTextureView* backBufferView = m_FrameContext->GetCurrentBackBufferView();
         if (!backBufferView || !backBufferView->texture) {
@@ -260,6 +277,15 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
             [this, &scene, &camera](GpuCommandList& commands, const RenderGraphResources&) {
                 m_MainPass->Execute(commands, scene, camera);
             });
+        if (m_UIDrawList && !m_UIDrawList->Empty()) {
+            m_RenderGraph->AddPass("ScreenUI",
+                [backBuffer](RenderGraphBuilder& builder) {
+                    builder.WriteColor(backBuffer, RHILoadOp::Load, RHIStoreOp::Store);
+                },
+                [this](GpuCommandList& commands, const RenderGraphResources&) {
+                    m_ScreenUIPass->Execute(commands, *m_UIDrawList);
+                });
+        }
     }
     if (!m_RenderGraph->Execute(*commandList)) {
         Logger::Error("[Renderer] RenderGraph execution failed: ", m_RenderGraph->GetLastError());

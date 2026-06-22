@@ -11,7 +11,7 @@ namespace {
 
 size_t TypeIndex(AssetType t) {
     const size_t i = static_cast<size_t>(t);
-    return i < 8 ? i : 0;
+    return i < 11 ? i : 0;
 }
 
 size_t EstimateAssetCpuBytes(const Asset& a) {
@@ -547,6 +547,21 @@ void AssetManager::RegisterDefaultLoaders() {
     RegisterLoader("glb", gltfLoader);
     RegisterLoader("mat", [](const std::string& path) -> std::shared_ptr<Asset> {
         return std::static_pointer_cast<Asset>(LoadMaterialAssetFromFile(path));
+    });
+    RegisterLoader("rml", [](const std::string& path) -> std::shared_ptr<Asset> {
+        return std::static_pointer_cast<Asset>(std::make_shared<UIPrefabAsset>(path));
+    });
+    RegisterLoader("rcss", [](const std::string& path) -> std::shared_ptr<Asset> {
+        return std::static_pointer_cast<Asset>(std::make_shared<UIStyleAsset>(path));
+    });
+    RegisterLoader("ttf", [](const std::string& path) -> std::shared_ptr<Asset> {
+        return std::static_pointer_cast<Asset>(std::make_shared<UIFontAsset>(path));
+    });
+    RegisterLoader("otf", [](const std::string& path) -> std::shared_ptr<Asset> {
+        return std::static_pointer_cast<Asset>(std::make_shared<UIFontAsset>(path));
+    });
+    RegisterLoader("ui.json", [](const std::string& path) -> std::shared_ptr<Asset> {
+        return std::static_pointer_cast<Asset>(std::make_shared<UIPrefabAsset>(path));
     });
     RegisterLoader("shader", [](const std::string& path) -> std::shared_ptr<Asset> {
         return std::static_pointer_cast<Asset>(LoadShaderAssetFromFile(path));

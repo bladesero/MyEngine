@@ -8,6 +8,7 @@
 
 #include <SDL3/SDL.h>
 #include <algorithm>
+#include <cstring>
 #include <exception>
 #include <thread>
 
@@ -187,6 +188,22 @@ void Engine::PollPlatformEvents() {
             e.mouseMove.relY  = static_cast<int>(sdlEvent.motion.yrel);
             Input::OnMouseMove(e.mouseMove.x, e.mouseMove.y,
                                e.mouseMove.relX, e.mouseMove.relY);
+            PushEvent(e);
+            break;
+        }
+        case SDL_EVENT_MOUSE_WHEEL: {
+            Event e;
+            e.type = EventType::MouseWheel;
+            e.mouseWheel.x = sdlEvent.wheel.x;
+            e.mouseWheel.y = sdlEvent.wheel.y;
+            PushEvent(e);
+            break;
+        }
+        case SDL_EVENT_TEXT_INPUT: {
+            Event e;
+            e.type = EventType::TextInput;
+            std::strncpy(e.textInput.text, sdlEvent.text.text,
+                         sizeof(e.textInput.text) - 1);
             PushEvent(e);
             break;
         }

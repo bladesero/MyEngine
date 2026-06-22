@@ -9,6 +9,7 @@ class IRHIDevice;
 class IRHIFrameContext;
 class IRHIReadbackService;
 class Scene;
+class UIDrawList;
 
 class RenderViewport {
 public:
@@ -21,7 +22,8 @@ public:
     virtual void OnUpdate(float dt) { (void)dt; }
     virtual void OnWindowResize(int width, int height);
     virtual void ResolveFrameCamera(const Scene& scene) { (void)scene; }
-    virtual void Render(Scene& scene, bool presentToSwapchain);
+    virtual void Render(Scene& scene, bool presentToSwapchain,
+                        const UIDrawList* uiDrawList = nullptr);
 
     void SetViewportRect(int x, int y, int width, int height);
     void SetInputEnabled(bool enabled);

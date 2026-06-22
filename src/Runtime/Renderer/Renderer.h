@@ -12,7 +12,9 @@ class ShadowPass;
 class PostProcessPass;
 class MainPass;
 class EnvironmentPass;
+class ScreenUIPass;
 class RenderGraph;
+class UIDrawList;
 
 // ============================================================================
 // Renderer  鈥? minimal scene renderer for MeshRendererComponent
@@ -34,6 +36,7 @@ public:
     // If present == false, the caller is responsible for ending the RHI frame
     // (useful for editor overlays like ImGui).
     void RenderScene(const Scene& scene, const Camera& camera, bool present = true);
+    void SetUIDrawList(const UIDrawList* drawList) { m_UIDrawList = drawList; }
 
     void SetOutputOffscreen(bool enabled);
     GpuTextureView* GetSceneColorView() const;
@@ -47,7 +50,9 @@ private:
     std::unique_ptr<EnvironmentPass> m_EnvironmentPass;
     std::unique_ptr<MainPass>   m_MainPass;
     std::unique_ptr<PostProcessPass> m_PostProcessPass;
+    std::unique_ptr<ScreenUIPass> m_ScreenUIPass;
     std::unique_ptr<RenderGraph> m_RenderGraph;
     bool m_OutputOffscreen = false;
+    const UIDrawList* m_UIDrawList = nullptr;
 };
 

@@ -11,6 +11,8 @@ EditorAssetType EditorAssetRegistry::Classify(const std::filesystem::path& path)
         return EditorAssetType::Prefab;
     if (filename.size() >= 11 && filename.compare(filename.size() - 11, 11, ".scene.json") == 0)
         return EditorAssetType::Scene;
+    if (filename.size() >= 8 && filename.compare(filename.size() - 8, 8, ".ui.json") == 0)
+        return EditorAssetType::UI;
     std::string extension = path.extension().string();
     std::transform(extension.begin(), extension.end(), extension.begin(),
         [](unsigned char value) { return static_cast<char>(std::tolower(value)); });
@@ -23,6 +25,9 @@ EditorAssetType EditorAssetRegistry::Classify(const std::filesystem::path& path)
     if (extension == ".shader" || extension == ".hlsl" || extension == ".hlsli") return EditorAssetType::Shader;
     if (extension == ".wav" || extension == ".ogg" || extension == ".flac" || extension == ".mp3")
         return EditorAssetType::Audio;
+    if (extension == ".rml" || extension == ".rcss" || extension == ".ttf" ||
+        extension == ".otf" || extension == ".ui.json")
+        return EditorAssetType::UI;
     return EditorAssetType::Unknown;
 }
 void EditorAssetRegistry::Refresh() {

@@ -1,0 +1,70 @@
+#pragma once
+
+#include "UI/Rml/RmlAssetLoader.h"
+#include "UI/Rml/RmlContextManager.h"
+#include "UI/Rml/RmlInputAdapter.h"
+#include "UI/Rml/RmlRenderInterface.h"
+#include "UI/Render/UIDrawList.h"
+#include "UI/UIEventBridge.h"
+
+#include <memory>
+#include <string>
+#include <unordered_map>
+#include <utility>
+#include <variant>
+
+struct Event;
+class IRHIDevice;
+class IRHIFrameContext;
+class Scene;
+
+class UIDataModel {
+public:
+    using Value = std::variant<bool, int, float, std::string>;
+
+    void SetBool(const std::string& name, bool value) { m_Values[name] = value; m_Dirty = true; }
+    void SetInt(const std::string& name, int value) { m_Values[name] = value; m_Dirty = true; }
+    void SetFloat(const std::string& name, float value) { m_Values[name] = value; m_Dirty = true; }
+    void SetString(const std::string& name, std::string value) { m_Values[name] = std::move(value); m_Dirty = true; }
+    const std::unordered_map<std::string, Value>& GetValues() const { return m_Values; }
+    void MarkDirty() { m_Dirty = true; }
+    bool ConsumeDirty() { const bool dirty = m_Dirty; m_Dirty = false; return dirty; }
+
+private:
+    std::unordered_map<std::string, Value> m_Values;
+    bool m_Dirty = false;
+};
+
+class UISystem {
+public:
+    UISystem();
+    ~UISystem();
+
+    bool Initialize(IRHIDevice* device, IRHIFrameContext* frameContext);
+    void Shutdown();
+    void Resize(int width, int height);
+
+    void Update(Scene& scene, float dt);
+    bool ProcessEvent(Event& event);
+    void CollectDrawData(Scene& scene, UIDrawList& drawList);
+
+    UIDataModel& CreateDataModel(const std::string& name);
+    UIEventBridge& GetEventBridge() { return m_EventBridge; }
+
+private:
+    void EnsureCanvasDocuments(Scene& scene);
+    void LoadCanvasFonts(Scene& scene);
+
+    IRHIDevice* m_Device = nullptr;
+    IRHIFrameContext* m_FrameContext = nullptr;
+    bool m_Initialized = false;
+    int m_Width = 1;
+    int m_Height = 1;
+    RmlAssetLoader m_AssetLoader;
+    RmlRenderInterface m_RenderInterface;
+    RmlContextManager m_ContextManager;
+    RmlInputAdapter m_InputAdapter;
+    UIEventBridge m_EventBridge;
+    std::unordered_map<std::string, UIDataModel> m_DataModels;
+    std::unordered_map<std::string, bool> m_LoadedFonts;
+};

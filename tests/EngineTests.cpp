@@ -59,6 +59,8 @@
 #include "Project/RuntimeDependencies.h"
 #include "TestHarness.h"
 #include "Miscs/IconsManager.h"
+#include "UI/Core/UICanvasComponent.h"
+#include "UI/Render/UIDrawList.h"
 
 #include <algorithm>
 #include <cmath>
@@ -3363,6 +3365,55 @@ bool TestPrefabCookDependencyValidation()
     fs::remove_all(root,ec);return true;
 }
 
+bool TestUICanvasComponentSerialization()
+{
+    if (!Check(ComponentRegistry::Get().IsRegistered("UICanvas"),
+               "UICanvas component was not registered")) return false;
+
+    Scene scene("UICanvasScene");
+    Actor* actor = scene.CreateActor("HUD");
+    auto* canvas = actor->AddComponent<UICanvasComponent>();
+    if (!Check(canvas != nullptr, "failed to add UICanvasComponent")) return false;
+    canvas->SetDocumentPath("Content/UI/HUD.rml");
+    canvas->SetStylePaths({"Content/UI/HUD.rcss"});
+    canvas->SetDefaultFontPaths({"Content/UI/Inter.ttf"});
+    canvas->SetVisible(false);
+    canvas->SetInteractive(false);
+    canvas->SetSortOrder(4);
+    canvas->SetInputMode(UIInputMode::UIOnly);
+
+    Scene loaded("LoadedUI");
+    if (!Check(SceneSerializer::LoadFromString(loaded, SceneSerializer::SaveToString(scene)),
+               "UICanvas scene round-trip failed")) return false;
+    Actor* loadedActor = loaded.FindByName("HUD");
+    auto* loadedCanvas = loadedActor ? loadedActor->GetComponent<UICanvasComponent>() : nullptr;
+    if (!Check(loadedCanvas != nullptr, "loaded UICanvasComponent missing")) return false;
+    if (!Check(loadedCanvas->GetDocumentPath() == "Content/UI/HUD.rml",
+               "UICanvas document path mismatch")) return false;
+    if (!Check(!loadedCanvas->IsVisible() && !loadedCanvas->IsInteractive(),
+               "UICanvas booleans mismatch")) return false;
+    if (!Check(loadedCanvas->GetSortOrder() == 4 &&
+               loadedCanvas->GetInputMode() == UIInputMode::UIOnly,
+               "UICanvas sort/input mismatch")) return false;
+    if (!Check(loadedCanvas->GetStylePaths().size() == 1 &&
+               loadedCanvas->GetDefaultFontPaths().size() == 1,
+               "UICanvas path arrays mismatch")) return false;
+    return true;
+}
+
+bool TestUIDrawListBatchContainer()
+{
+    UIDrawList list;
+    if (!Check(list.Empty(), "new UIDrawList should be empty")) return false;
+    UIDrawCommand command;
+    command.indexCount = 6;
+    command.scissor = {1, 2, 3, 4, true};
+    list.Add(command);
+    if (!Check(!list.Empty() && list.Size() == 1, "UIDrawList add failed")) return false;
+    list.Clear();
+    return Check(list.Empty(), "UIDrawList clear failed");
+}
+
 MYENGINE_REGISTER_TEST("Scene", "TestSceneSerializationRegression", TestSceneSerializationRegression);
 MYENGINE_REGISTER_TEST("Scene", "TestBuiltinSceneMaterialRoundTrip", TestBuiltinSceneMaterialRoundTrip);
 MYENGINE_REGISTER_TEST("Scripting", "TestScriptRuntimeLifecycle", TestScriptRuntimeLifecycle);
@@ -3394,5 +3445,7 @@ MYENGINE_REGISTER_TEST("Scene", "TestSceneColdLoadsModelSubAssetReferences", Tes
 MYENGINE_REGISTER_TEST("Scene", "TestActorHandleLifecycleAndDeferredMutation", TestActorHandleLifecycleAndDeferredMutation);
 MYENGINE_REGISTER_TEST("Scene", "TestPrefabRoundTripOverridesAndValidation", TestPrefabRoundTripOverridesAndValidation);
 MYENGINE_REGISTER_TEST("Project", "TestPrefabCookDependencyValidation", TestPrefabCookDependencyValidation);
+MYENGINE_REGISTER_TEST("UI", "TestUICanvasComponentSerialization", TestUICanvasComponentSerialization);
+MYENGINE_REGISTER_TEST("UI", "TestUIDrawListBatchContainer", TestUIDrawListBatchContainer);
 
 } // namespace

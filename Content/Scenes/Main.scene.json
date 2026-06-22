@@ -344,8 +344,52 @@
                     1.0
                 ]
             }
+        },
+        {
+            "active": true,
+            "components": [
+                {
+                    "data": {
+                        "canvasSpace": "Screen",
+                        "defaultFontPaths": [
+                            "Content/UI/Fonts/LatoLatin-Regular.ttf",
+                            "Content/UI/Fonts/LatoLatin-Bold.ttf"
+                        ],
+                        "documentPath": "Content/UI/RmlExample.rml",
+                        "inputMode": "GameAndUI",
+                        "interactive": true,
+                        "sortOrder": 0,
+                        "stylePaths": [
+                            "Content/UI/RmlExample.rcss"
+                        ],
+                        "visible": true
+                    },
+                    "enabled": true,
+                    "type": "UICanvas"
+                }
+            ],
+            "id": 7,
+            "name": "UI",
+            "parentID": 0,
+            "transform": {
+                "position": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            }
         }
     ],
     "name": "Untitled",
-    "nextID": 7
+    "nextID": 8
 }

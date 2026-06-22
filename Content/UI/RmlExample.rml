@@ -1,0 +1,40 @@
+<rml>
+<head>
+    <title>MyEngine RmlUi Example</title>
+    <link type="text/rcss" href="RmlExample.rcss"/>
+</head>
+<body>
+    <div id="hud">
+        <div class="topbar">
+            <div>
+                <div class="eyebrow">MyEngine Runtime UI</div>
+                <div class="title">RmlUi in-game HUD</div>
+            </div>
+            <div class="badge">Screen Space</div>
+        </div>
+
+        <div class="grid">
+            <div class="panel status">
+                <div class="label">Player</div>
+                <div class="metric">Ready</div>
+                <div class="bar">
+                    <div class="bar-fill health"></div>
+                </div>
+                <div class="hint">RCSS transition/animation, retained DOM, batched draw list.</div>
+            </div>
+
+            <div class="panel controls">
+                <div class="label">Controls</div>
+                <button id="primary-action">Start Mission</button>
+                <input class="slider" type="range" min="0" max="100" value="68"/>
+                <input class="text-input" type="text" value="Type here"/>
+            </div>
+        </div>
+
+        <div class="toast">
+            <div class="dot"></div>
+            <div>Loaded from Content/UI/RmlExample.rml</div>
+        </div>
+    </div>
+</body>
+</rml>

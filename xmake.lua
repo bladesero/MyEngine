@@ -2,6 +2,8 @@
 set_version("0.1.0")
 set_xmakever("2.8.0")
 
+add_repositories("myengine-packages .", {rootdir = os.scriptdir()})
+
 add_rules("mode.debug", "mode.release")
 set_languages("c++17")
 set_warnings("all")
@@ -41,6 +43,13 @@ add_requires("libsdl3 3.2.14", { configs = { shared = true } })
 add_requireconfs("**.libsdl3", { version = "3.2.14", configs = { shared = true }, override = true })
 add_requires("nlohmann_json 3.11.3")
 add_requires("stb")
+add_requires("myengine-rmlui 6.2", { alias = "rmlui", configs = {
+    freetype = true,
+    lua = false,
+    svg = false,
+    lottie = false,
+    shared = false
+} })
 add_requires("tinyobjloader")
 add_requires("joltphysics v5.5.0", { configs = {
     shared = false,
@@ -165,6 +174,7 @@ target("MyEngineRuntime")
         "src/Runtime/Renderer/LightComponent.cpp",
         "src/Runtime/Renderer/PostProcessComponent.cpp",
         "src/Runtime/Renderer/PostProcessPass.cpp",
+        "src/Runtime/Renderer/ScreenUIPass.cpp",
         "src/Runtime/Renderer/EnvironmentPass.cpp",
         "src/Runtime/Renderer/ShaderManager.cpp",
         "src/Runtime/Renderer/ShaderCompilerD3D11.cpp",
@@ -180,10 +190,17 @@ target("MyEngineRuntime")
         "src/Runtime/Game/ViewportRenderExecution.cpp",
         "src/Runtime/Game/DefaultSceneFactory.cpp",
         "src/Runtime/Game/SceneRenderLayer.cpp",
+        "src/Runtime/UI/Core/UICanvas.cpp",
+        "src/Runtime/UI/Core/UICanvasComponent.cpp",
+        "src/Runtime/UI/Core/UISystem.cpp",
+        "src/Runtime/UI/Rml/RmlAssetLoader.cpp",
+        "src/Runtime/UI/Rml/RmlContextManager.cpp",
+        "src/Runtime/UI/Rml/RmlInputAdapter.cpp",
+        "src/Runtime/UI/Rml/RmlRenderInterface.cpp",
+        "src/Runtime/UI/UIEventBridge.cpp",
         "src/Runtime/Miscs/IconsManager.cpp",
         "src/Runtime/Math/Mat4Inverse.cpp"
     )
-
     if is_plat("windows") then
         add_files("src/Runtime/Renderer/D3D11Context.cpp", "src/Runtime/Renderer/D3D12Context.cpp")
     elseif is_plat("macosx") then
@@ -195,7 +212,7 @@ target("MyEngineRuntime")
 
     if is_plat("windows") then
         add_rules("utils.symbols.export_all")
-        add_syslinks("d3d11", "d3d12", "dxgi", "d3dcompiler", "comdlg32")
+        add_syslinks("d3d11", "d3d12", "dxgi", "d3dcompiler", "comdlg32", "user32")
         add_cxflags("/utf-8", { toolset = "msvc" })
     elseif is_plat("macosx") then
         add_deps("imgui_metal")
@@ -209,6 +226,7 @@ target("MyEngineRuntime")
     add_packages("libsdl3", { public = true })
     add_packages("nlohmann_json", { public = true })
     add_packages("stb", { public = true })
+    add_packages("rmlui", { public = true })
     add_packages("tinyobjloader")
     add_packages("joltphysics", { public = true })
     add_packages("angelscript", { public = true })

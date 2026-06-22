@@ -13,6 +13,7 @@
 #include "Scene/Actor.h"
 #include "Scene/MeshRendererComponent.h"
 #include "Scripting/ScriptComponent.h"
+#include "UI/Core/UICanvasComponent.h"
 
 #include <algorithm>
 
@@ -36,6 +37,7 @@ ComponentRegistry::ComponentRegistry()
     Register("Light", [] { return std::make_unique<LightComponent>(); });
     Register("PostProcess", [] { return std::make_unique<PostProcessComponent>(); });
     Register("AudioSource", [] { return std::make_unique<AudioSourceComponent>(); });
+    Register("UICanvas", [] { return std::make_unique<UICanvasComponent>(); });
 }
 
 bool ComponentRegistry::Register(const std::string& typeName, Factory factory)

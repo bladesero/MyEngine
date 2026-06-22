@@ -4,6 +4,7 @@
 #include "Game/RenderViewport.h"
 #include "Renderer/RHI/IRHIFrameContext.h"
 #include "Scene/Scene.h"
+#include "UI/Render/UIDrawList.h"
 
 ViewportRenderExecution::ViewportRenderExecution(IRHIDevice* device,
                                                  IRHIFrameContext* frameContext,
@@ -27,7 +28,8 @@ void ViewportRenderExecution::ResizeIfNeeded(int width, int height)
 
 void ViewportRenderExecution::Render(Scene& scene, Camera& camera,
                                      const RenderViewport& viewport,
-                                     bool presentToSwapchain)
+                                     bool presentToSwapchain,
+                                     const UIDrawList* uiDrawList)
 {
     int x = 0, y = 0, w = 0, h = 0;
     viewport.GetViewportRect(x, y, w, h);
@@ -38,7 +40,9 @@ void ViewportRenderExecution::Render(Scene& scene, Camera& camera,
     ResizeIfNeeded(w, h);
     SetCommandViewport(viewport);
     m_Renderer.SetOutputOffscreen(!presentToSwapchain);
+    m_Renderer.SetUIDrawList(uiDrawList);
     m_Renderer.RenderScene(scene, camera, presentToSwapchain);
+    m_Renderer.SetUIDrawList(nullptr);
 }
 
 void ViewportRenderExecution::ReleaseFrameResources()

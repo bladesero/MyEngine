@@ -7,6 +7,7 @@
 #include "Assets/ModelAsset.h"
 #include "Assets/ShaderAsset.h"
 #include "Assets/ScriptAsset.h"
+#include "Assets/UIAsset.h"
 #include "Audio/AudioClipAsset.h"
 #include "Core/Logger.h"
 
@@ -183,6 +184,14 @@ private:
     void RegisterDefaultLoaders();
 
     static std::string GetExtension(const std::string& path) {
+        const std::string uiJson = ".ui.json";
+        if (path.size() >= uiJson.size()) {
+            std::string suffix = path.substr(path.size() - uiJson.size());
+            for (auto& c : suffix) {
+                c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            }
+            if (suffix == uiJson) return "ui.json";
+        }
         const auto dot = path.rfind('.');
         if (dot == std::string::npos) return "";
         const auto slash = path.find_last_of("/\\");
@@ -213,7 +222,7 @@ private:
 
     size_t              m_AssetCpuBudgetBytes = 0; // 0 = no budget / no warn
     size_t              m_AssetCpuTotalBytes = 0;
-    std::array<size_t, 8> m_AssetCpuBytesByType{};
+    std::array<size_t, 11> m_AssetCpuBytesByType{};
     std::unordered_map<AssetID, std::filesystem::file_time_type> m_SourceWriteTimes;
     std::unordered_map<AssetID, std::string> m_SourceHashes;
     std::unordered_map<ListenerID, AssetChangedCallback> m_AssetChangedListeners;

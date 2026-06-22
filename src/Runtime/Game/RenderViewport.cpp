@@ -26,10 +26,11 @@ void RenderViewport::OnWindowResize(int width, int height)
     UpdateCameraAspect(GetCamera());
 }
 
-void RenderViewport::Render(Scene& scene, bool presentToSwapchain)
+void RenderViewport::Render(Scene& scene, bool presentToSwapchain,
+                            const UIDrawList* uiDrawList)
 {
     ResolveFrameCamera(scene);
-    m_RenderExecution.Render(scene, GetCamera(), *this, presentToSwapchain);
+    m_RenderExecution.Render(scene, GetCamera(), *this, presentToSwapchain, uiDrawList);
 }
 
 void RenderViewport::SetViewportRect(int x, int y, int width, int height)

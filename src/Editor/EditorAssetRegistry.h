@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-enum class EditorAssetType { Unknown, Model, Texture, Material, Scene, Prefab, Script, Shader, Audio };
+enum class EditorAssetType { Unknown, Model, Texture, Material, Scene, Prefab, Script, Shader, Audio, UI };
 struct EditorAssetInfo {
     std::filesystem::path absolutePath;
     std::string relativePath;

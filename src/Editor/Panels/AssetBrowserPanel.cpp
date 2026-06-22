@@ -47,6 +47,7 @@ const char* IconForAssetType(EditorAssetType type)
         case EditorAssetType::Script: return EditorIcons::Script;
         case EditorAssetType::Shader: return EditorIcons::Shader;
         case EditorAssetType::Audio: return EditorIcons::Audio;
+        case EditorAssetType::UI: return EditorIcons::Input;
         default: return EditorIcons::Asset;
     }
 }

@@ -45,12 +45,18 @@ void SceneRenderLayer::OnAttach()
 {
     SceneLayer::OnAttach();
     int x = 0, y = 0, w = 0, h = 0;
+    m_GameViewport.GetViewportRect(x, y, w, h);
+    m_UISystem.Resize(w, h);
+    if (m_RenderContext) {
+        m_UISystem.Initialize(m_RenderContext, m_RenderContext);
+    }
     m_Viewport.GetViewportRect(x, y, w, h);
     Logger::Info("[SceneRenderLayer] attached (", w, "x", h, ")");
 }
 
 void SceneRenderLayer::OnDetach()
 {
+    m_UISystem.Shutdown();
     SceneLayer::OnDetach();
 }
 
@@ -58,10 +64,13 @@ void SceneRenderLayer::OnUpdate(float dt)
 {
     SceneLayer::OnUpdate(dt);
     m_Viewport.OnUpdate(dt);
+    m_UISystem.Update(GetSimulationScene(), dt);
 }
 
 void SceneRenderLayer::OnEvent(Event& event)
 {
+    m_UISystem.ProcessEvent(event);
+    if (event.handled) return;
     SceneLayer::OnEvent(event);
     if (event.type == EventType::WindowResize) {
         const int windowW = event.resize.width;
@@ -69,6 +78,7 @@ void SceneRenderLayer::OnEvent(Event& event)
         if (windowW <= 0 || windowH <= 0) return;
         m_Viewport.OnWindowResize(windowW, windowH);
         m_GameViewport.OnWindowResize(windowW, windowH);
+        m_UISystem.Resize(windowW, windowH);
         if (m_RenderContext) {
             if (GpuSwapChain* swapChain = m_RenderContext->GetSwapChain()) {
                 m_GameViewport.ReleaseFrameResources();
@@ -87,12 +97,13 @@ void SceneRenderLayer::OnSceneLoaded()
 
 void SceneRenderLayer::OnRender()
 {
+    m_UISystem.CollectDrawData(GetSimulationScene(), m_UIDrawList);
     if (m_PresentEnabled) {
-        m_GameViewport.Render(GetSimulationScene(), true);
+        m_GameViewport.Render(GetSimulationScene(), true, &m_UIDrawList);
         return;
     }
     m_Viewport.Render(GetSceneViewportRenderScene(), false);
-    m_GameViewport.Render(GetSimulationScene(), false);
+    m_GameViewport.Render(GetSimulationScene(), false, &m_UIDrawList);
 }
 
 void SceneRenderLayer::SetViewportInputEnabled(bool enabled)

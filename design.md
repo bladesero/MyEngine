@@ -176,6 +176,21 @@ Application::Run()
 
 `src/Runtime/Miscs/IconsManager` is the shared SVG icon service for the engine. It resolves SVG files from `EngineContent/Editor/Icons`, rasterizes them to RGBA8 pixels, uploads cached icon textures through `IRHIDevice`, applies SDL window icons, and writes multi-size Windows `.ico` resources for Editor, Player, and Cooker. Editor UI consumes the service through `src/Editor/UI/EditorWidgets`; Runtime and Player do not depend on Editor headers.
 
+## Runtime UI / RmlUi
+
+`src/Runtime/UI` integrates vendored RmlUi from `thirdparty/RmlUi` for in-game
+retained-mode UI. `UICanvasComponent` is the serialized scene entry point and
+stores project-relative RML, RCSS, font, visibility, interactivity, sort-order,
+and input-mode fields. `UISystem` owns RmlUi initialization, context update,
+input forwarding, font/document loading, and draw-list collection.
+
+Rendering stays inside the existing Runtime renderer boundary: RmlUi emits
+geometry through `RmlRenderInterface`, which uploads RHI buffers/textures and
+records `UIDrawList` commands. `Renderer` appends `ScreenUIPass` at the end of
+the RenderGraph, after scene composite, and draws the UI into the backbuffer or
+offscreen viewport target. Editor remains ImGui-based and only exposes runtime
+UI assets/components for authoring.
+
 ## 9. Project startup flow
 
 - `ProjectConfig` is a Runtime service shared by Editor and Player. It reads
