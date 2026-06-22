@@ -7,10 +7,18 @@
 #include "Editor/EditorContext.h"
 #include "Editor/EditorImportService.h"
 #include "Editor/EditorInspectorSection.h"
+#include "Editor/EditorLayoutManager.h"
 #include "Editor/EditorProject.h"
 #include "Editor/EditorSelection.h"
 #include "Editor/EditorService.h"
 #include "Editor/EditorShortcutMap.h"
+#include "Editor/EditorThemeManager.h"
+#include "Editor/EditorUIScaleManager.h"
+#include "Editor/UI/EditorFontManager.h"
+#include "Editor/UI/EditorIcons.h"
+#include "Editor/UI/EditorStatusBar.h"
+#include "Editor/UI/EditorTheme.h"
+#include "Editor/UI/EditorUIScaleManager.h"
 #include "Editor/EditorViewportControllers.h"
 #include "Editor/EditorWorkspace.h"
 #include "Editor/InspectorSections.h"
@@ -24,6 +32,7 @@
 #include <fstream>
 #include <nlohmann/json.hpp>
 #include <thread>
+#include <unordered_set>
 #include <vector>
 
 namespace {
@@ -365,6 +374,111 @@ bool TestEditorShortcutMapAndWorkspacePersistence() {
     return Check(persisted, "workspace shortcut persistence mismatch");
 }
 
+bool TestEditorAppearancePreferencesAndScale() {
+    if (!Check(EditorUIScaleManager::ClampUserScale(0.1f) ==
+               EditorUIScaleSettings::kMinUserScale,
+               "ui scale lower clamp mismatch")) return false;
+    if (!Check(Editor::UI::EditorUIScaleManager::ClampUserScale(0.1f) ==
+               Editor::UI::EditorUIScaleSettings::kMinUserScale,
+               "namespaced ui scale lower clamp mismatch")) return false;
+    if (!Check(EditorUIScaleManager::ClampUserScale(10.0f) ==
+               EditorUIScaleSettings::kMaxUserScale,
+               "ui scale upper clamp mismatch")) return false;
+    if (!Check(NearlyEqual(EditorUIScaleManager::ComputeEffectiveScale(1.5f, 1.25f), 1.875f),
+               "effective ui scale calculation mismatch")) return false;
+
+    const auto& fontConfig = Editor::UI::EditorFontManager::GetDefaultConfig();
+    if (!Check(fontConfig.uiRegularPath.filename() == "Inter-Regular.ttf" &&
+               fontConfig.uiSemiBoldPath.filename() == "Inter-SemiBold.ttf" &&
+               fontConfig.logRegularPath.filename() == "JetBrainsMono-Regular.ttf" &&
+               fontConfig.iconSolidPath.filename() == "FontAwesome-Free-Solid-900.ttf",
+               "editor font config filenames mismatch")) return false;
+    if (!Check(std::string(Editor::UI::EditorIcons::PlayIcon()).size() > 0 &&
+               std::string(Editor::UI::EditorIcons::StopIcon()).size() > 0 &&
+               std::string(Editor::UI::EditorIcons::PauseIcon()).size() > 0 &&
+               std::string(Editor::UI::EditorIcons::StepIcon()).size() > 0,
+               "editor icon fallback tokens are empty")) return false;
+
+    EditorUIScaleManager scale;
+    scale.Initialize(nullptr, 1.0f);
+    scale.SetPlatformScaleForTesting(1.25f);
+    const float first = scale.GetEffectiveScale();
+    if (!Check(NearlyEqual(first, 1.25f),
+               "testing dpi scale did not affect effective scale")) return false;
+    if (!Check(scale.SetUserScale(1.5f) &&
+               NearlyEqual(scale.GetEffectiveScale(), 1.875f),
+               "user ui scale did not affect effective scale")) return false;
+    if (!Check(!scale.SetUserScale(1.5f),
+               "unchanged user ui scale reported a change")) return false;
+
+    EditorThemeManager theme;
+    theme.Initialize("unknown");
+    if (!Check(theme.GetThemeID() == "dark",
+               "unknown theme did not fall back to dark")) return false;
+    if (!Check(NearlyEqual(EditorThemeManager::ScaleValue(8.0f, 1.5f), 12.0f),
+               "theme scaled spacing mismatch")) return false;
+    if (!Check(NearlyEqual(Editor::UI::ScaleToken(
+            Editor::UI::EditorStyleTokens{}.toolbarHeight, 1.25f),
+            Editor::UI::EditorStyleTokens{}.toolbarHeight * 1.25f),
+            "toolbar style token scale mismatch")) return false;
+    if (!Check(NearlyEqual(Editor::UI::ScaleToken(
+            Editor::UI::EditorStyleTokens{}.statusBarHeight, 1.5f),
+            Editor::UI::EditorStyleTokens{}.statusBarHeight * 1.5f),
+            "status bar style token scale mismatch")) return false;
+
+    namespace fs = std::filesystem;
+    const auto root = fs::temp_directory_path() /
+        ("myengine_appearance_workspace_" + std::to_string(
+            std::chrono::steady_clock::now().time_since_epoch().count()));
+    fs::create_directories(root);
+    std::string error;
+    EditorWorkspace workspace(root / "workspace.json");
+    workspace.SetUserUiScale(1.35f);
+    workspace.SetEditorThemeId("dark");
+    if (!Check(workspace.Save(&error), "appearance workspace save failed: " + error)) return false;
+
+    EditorWorkspace loaded(root / "workspace.json");
+    if (!Check(loaded.Load(&error), "appearance workspace load failed: " + error)) return false;
+    const bool persisted = NearlyEqual(loaded.GetUserUiScale(), 1.35f) &&
+        loaded.GetEditorThemeId() == "dark";
+    std::error_code ec;
+    fs::remove_all(root, ec);
+    return Check(persisted, "appearance workspace persistence mismatch");
+}
+
+bool TestEditorStatusBarTextAndActionRouting() {
+    Scene scene("StatusBar");
+    EditorContext context(&scene);
+    if (!Check(Editor::UI::EditorStatusBar::FormatSelectedText(context) == "None",
+               "status bar empty selection mismatch")) return false;
+
+    Actor* actor = scene.CreateActor("monkey");
+    context.GetSelection().SelectActorID(actor->GetID());
+    if (!Check(Editor::UI::EditorStatusBar::FormatSelectedText(context) == "monkey",
+               "status bar actor selection mismatch")) return false;
+
+    context.GetSelection().SelectAssetPath("Content/Models/monkey.gltf");
+    if (!Check(Editor::UI::EditorStatusBar::FormatSelectedText(context) == "monkey.gltf",
+               "status bar asset selection mismatch")) return false;
+    if (!Check(Editor::UI::EditorStatusBar::FormatBackendText(RHIBackend::D3D12) == "D3D12" &&
+               Editor::UI::EditorStatusBar::FormatBackendText(RHIBackend::D3D11) == "D3D11" &&
+               Editor::UI::EditorStatusBar::FormatBackendText(RHIBackend::Unknown) == "Unknown",
+               "status bar backend text mismatch")) return false;
+
+    EditorActionRegistry actions;
+    int executions = 0;
+    bool enabled = false;
+    actions.Register(std::make_unique<LambdaEditorAction>(
+        "menu.test", "Menu Test",
+        [&executions](EditorContext&) { ++executions; },
+        [&enabled](EditorContext&) { return enabled; }));
+    if (!Check(!actions.Execute("menu.test", context) && executions == 0,
+               "disabled menu action executed")) return false;
+    enabled = true;
+    return Check(actions.Execute("menu.test", context) && executions == 1,
+                 "enabled menu action did not execute");
+}
+
 bool TestEditorInspectorSelectionRouting() {
     const auto root = std::filesystem::temp_directory_path()
         / "myengine_inspector_selection_routing";
@@ -443,6 +557,81 @@ bool TestEditorInspectorSelectionRouting() {
                  "generic asset selection routing mismatch");
 }
 
+bool TestEditorLayoutConfigAndStatePersistence() {
+    namespace fs = std::filesystem;
+    EditorLayoutConfig config = EditorLayoutConfig::CreateDefault();
+    std::string error;
+    if (!Check(config.Validate(&error), "default editor layout invalid: " + error)) return false;
+
+    std::unordered_set<std::string> ids;
+    for (const auto& panel : config.panels) ids.insert(panel.panelID);
+    for (const char* required : {"toolbar", "sceneHierarchy", "viewport",
+                                 "inspector", "assetBrowser", "log"}) {
+        if (!Check(ids.count(required) == 1,
+                   std::string("default layout missing panel: ") + required)) return false;
+    }
+
+    const auto root = fs::temp_directory_path() /
+        ("myengine_editor_layout_" + std::to_string(
+            std::chrono::steady_clock::now().time_since_epoch().count()));
+    fs::create_directories(root);
+    const fs::path layoutPath = root / "Config" / "EditorLayout.default.json";
+    if (!Check(EditorLayoutConfig::SaveToFile(layoutPath, config, &error),
+               "default layout save failed: " + error)) return false;
+    EditorLayoutConfig loaded;
+    if (!Check(EditorLayoutConfig::LoadFromFile(layoutPath, loaded, &error),
+               "default layout load failed: " + error)) return false;
+    if (!Check(loaded.panels.size() == config.panels.size(),
+               "default layout round trip changed panel count")) return false;
+
+    const fs::path invalidPath = root / "Config" / "InvalidLayout.json";
+    std::ofstream(invalidPath) << R"({"version":1,"panels":[{"id":"toolbar","area":"top"}]})";
+    EditorLayoutConfig invalid;
+    if (!Check(!EditorLayoutConfig::LoadFromFile(invalidPath, invalid, &error) &&
+               error.find("missing panel id") != std::string::npos,
+               "invalid layout was accepted")) return false;
+
+    nlohmann::json legacyState = {
+        {"lastScenePath", "Content/Scenes/Legacy.scene.json"},
+        {"selectedAssetPath", "Content/Models/Legacy.gltf"},
+        {"lastOpenDirectory", "Content"},
+        {"panels", {
+            {"toolbar", true},
+            {"sceneHierarchy", false},
+            {"viewport", true},
+            {"inspector", true},
+            {"assetBrowser", false},
+            {"log", true}
+        }}
+    };
+    std::ofstream(root / ".myengine_editor_state.json") << legacyState.dump(2);
+
+    EditorProject project;
+    if (!Check(project.Open(root), "layout state project open failed")) return false;
+    if (!Check(!project.GetState().IsPanelVisible("sceneHierarchy") &&
+               !project.GetState().IsPanelVisible("assetBrowser") &&
+               project.GetLastScenePath() == "Content/Scenes/Legacy.scene.json" &&
+               project.GetState().selectedAssetPath == "Content/Models/Legacy.gltf",
+               "legacy panel visibility migration failed")) return false;
+
+    project.GetState().imguiLayoutIni = "[Window][Scene View###viewport]\nPos=10,10\n";
+    project.GetState().SetPanelVisible("log", false);
+    if (!Check(project.SaveState(), "layout state save failed")) return false;
+
+    EditorProject reloaded;
+    if (!Check(reloaded.Open(root), "layout state reload failed")) return false;
+    const bool stateMatches =
+        reloaded.GetLastScenePath() == "Content/Scenes/Legacy.scene.json" &&
+        reloaded.GetState().selectedAssetPath == "Content/Models/Legacy.gltf" &&
+        !reloaded.GetState().IsPanelVisible("sceneHierarchy") &&
+        !reloaded.GetState().IsPanelVisible("assetBrowser") &&
+        !reloaded.GetState().IsPanelVisible("log") &&
+        reloaded.GetState().imguiLayoutIni.find("Scene View###viewport") != std::string::npos;
+    std::error_code ec;
+    fs::remove_all(root, ec);
+    return Check(stateMatches, "layout state persistence mismatch");
+}
+
 bool TestEditorProjectAndAssetRegistry() {
     const auto root = std::filesystem::temp_directory_path() /
         ("myengine_editor_test_" + std::to_string(
@@ -502,6 +691,8 @@ bool TestEditorProjectAndAssetRegistry() {
     project.SetLastScenePath("Content/Scenes/test.json");
     project.GetState().selectedAssetPath = "Models/test.gltf";
     project.GetState().showLog = false;
+    project.GetState().SetPanelVisible("log", false);
+    project.GetState().imguiLayoutIni = "[Window][Log Output###log]\nCollapsed=1\n";
     if (!Check(project.SaveState(), "editor project state save failed")) return false;
 
     EditorProject loaded;
@@ -509,7 +700,9 @@ bool TestEditorProjectAndAssetRegistry() {
     const bool stateMatches =
         loaded.GetLastScenePath() == "Content/Scenes/test.json" &&
         loaded.GetState().selectedAssetPath == "Models/test.gltf" &&
-        !loaded.GetState().showLog;
+        !loaded.GetState().showLog &&
+        !loaded.GetState().IsPanelVisible("log") &&
+        loaded.GetState().imguiLayoutIni.find("Log Output###log") != std::string::npos;
     std::error_code error;
     std::filesystem::remove_all(root, error);
     return Check(stateMatches, "editor project state persistence mismatch");
@@ -567,7 +760,10 @@ MYENGINE_REGISTER_TEST("Editor", "TestEditorSceneSnapshotCommands", TestEditorSc
 MYENGINE_REGISTER_TEST("Editor", "TestEditorGizmoRowVectorLocalConversion", TestEditorGizmoRowVectorLocalConversion);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorServiceActionAndInspectorRegistries", TestEditorServiceActionAndInspectorRegistries);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorShortcutMapAndWorkspacePersistence", TestEditorShortcutMapAndWorkspacePersistence);
+MYENGINE_REGISTER_TEST("Editor", "TestEditorAppearancePreferencesAndScale", TestEditorAppearancePreferencesAndScale);
+MYENGINE_REGISTER_TEST("Editor", "TestEditorStatusBarTextAndActionRouting", TestEditorStatusBarTextAndActionRouting);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorInspectorSelectionRouting", TestEditorInspectorSelectionRouting);
+MYENGINE_REGISTER_TEST("Editor", "TestEditorLayoutConfigAndStatePersistence", TestEditorLayoutConfigAndStatePersistence);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorProjectAndAssetRegistry", TestEditorProjectAndAssetRegistry);
 MYENGINE_REGISTER_TEST("Editor", "TestProductionAssetDatabaseAndImportPipeline", TestProductionAssetDatabaseAndImportPipeline);
 

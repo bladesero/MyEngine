@@ -13,7 +13,7 @@ rendering, and default-scene setup to narrower runtime helpers.
   `SceneViewportController`.
 - Forward renderer output, swapchain resize, and present/offscreen behavior to
   `SceneRenderHost`.
-- Call `DefaultSceneFactory::PopulateIfEmpty` after scene load.
+- Call the legacy `DefaultSceneFactory::PopulateIfEmpty` hook after scene load.
 
 ## Collaborators
 
@@ -21,7 +21,7 @@ rendering, and default-scene setup to narrower runtime helpers.
   and audio listener transform.
 - `SceneRenderHost`: `IRenderContext`, `Renderer`, scene color view, swapchain
   resize, command-list viewport, and scene render submission.
-- `DefaultSceneFactory`: built-in empty-scene demo content.
+- `DefaultSceneFactory`: legacy no-op hook for future explicit scene templates.
 
 Editor code should prefer `EditorContext::GetSceneViewport()` and
 `EditorContext::GetSceneRenderHost()` when it only needs camera/ray or render

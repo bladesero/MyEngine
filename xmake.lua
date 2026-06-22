@@ -56,23 +56,24 @@ add_requires("angelscript 2.38.0")
 -- Must live in rule after_build: root xmake.lua locals use project-scope `os` (no os.cp).
 rule("copy_game_content")
     after_build(function (target)
-        local src = path.absolute(path.join(os.projectdir(), "Content"))
-        if not os.isdir(src) then
-            return
-        end
         local destdir = target:targetdir()
-        local dest = path.join(destdir, "Content")
-        if os.isdir(dest) then
-            os.rm(dest)
+        for _, name in ipairs({"Content", "EngineContent"}) do
+            local src = path.absolute(path.join(os.projectdir(), name))
+            if os.isdir(src) then
+                local dest = path.join(destdir, name)
+                if os.isdir(dest) then
+                    os.rm(dest)
+                end
+                os.cp(src, destdir)
+            end
         end
-        os.cp(src, destdir)
     end)
 rule_end()
 
 if is_plat("windows") then
-    add_requires("imgui", { version = "v1.91.3", configs = { sdl3 = true, dx11 = true, dx12 = true } })
+    add_requires("imgui", { version = "v1.91.3-docking", configs = { sdl3 = true, dx11 = true, dx12 = true } })
 else
-    add_requires("imgui", { version = "v1.91.3", configs = { sdl3 = true } })
+    add_requires("imgui", { version = "v1.91.3-docking", configs = { sdl3 = true } })
 end
 
 if is_plat("macosx") then
@@ -270,6 +271,7 @@ target("MyEngineEditor")
         "src/Editor/AssetImportService.cpp",
         "src/Editor/EditorLayer.cpp",
         "src/Editor/EditorLayout.cpp",
+        "src/Editor/EditorLayoutManager.cpp",
         "src/Editor/EditorLogService.cpp",
         "src/Editor/EditorLuaScriptService.cpp",
         "src/Editor/EditorPanel.cpp",
@@ -281,6 +283,13 @@ target("MyEngineEditor")
         "src/Editor/EditorUndoUtil.cpp",
         "src/Editor/EditorViewportControllers.cpp",
         "src/Editor/EditorWorkspace.cpp",
+        "src/Editor/UI/EditorFontManager.cpp",
+        "src/Editor/UI/EditorNotifications.cpp",
+        "src/Editor/UI/EditorPropertyGrid.cpp",
+        "src/Editor/UI/EditorStatusBar.cpp",
+        "src/Editor/UI/EditorTheme.cpp",
+        "src/Editor/UI/EditorUIScaleManager.cpp",
+        "src/Editor/UI/EditorWidgets.cpp",
         "src/Editor/ProjectPublisher.cpp",
         "src/Editor/CookDependencyGraph.cpp",
         "src/Editor/InspectorSections.cpp",
@@ -307,6 +316,7 @@ target("MyEngineEditor")
     end
     if is_plat("windows") then
         add_cxflags("/utf-8", { toolset = "msvc" })
+        add_syslinks("dxgi")
     end
     set_rundir("$(projectdir)")
     after_build(function (target)
@@ -432,6 +442,7 @@ target("MyEngineTests")
         "src/Editor/AssetImportService.cpp",
         "src/Editor/EditorLayer.cpp",
         "src/Editor/EditorLayout.cpp",
+        "src/Editor/EditorLayoutManager.cpp",
         "src/Editor/EditorLogService.cpp",
         "src/Editor/EditorLuaScriptService.cpp",
         "src/Editor/EditorPanel.cpp",
@@ -443,6 +454,13 @@ target("MyEngineTests")
         "src/Editor/EditorUndoUtil.cpp",
         "src/Editor/EditorViewportControllers.cpp",
         "src/Editor/EditorWorkspace.cpp",
+        "src/Editor/UI/EditorFontManager.cpp",
+        "src/Editor/UI/EditorNotifications.cpp",
+        "src/Editor/UI/EditorPropertyGrid.cpp",
+        "src/Editor/UI/EditorStatusBar.cpp",
+        "src/Editor/UI/EditorTheme.cpp",
+        "src/Editor/UI/EditorUIScaleManager.cpp",
+        "src/Editor/UI/EditorWidgets.cpp",
         "src/Editor/ProjectPublisher.cpp",
         "src/Editor/CookDependencyGraph.cpp",
         "src/Editor/InspectorSections.cpp",
@@ -470,6 +488,7 @@ target("MyEngineTests")
     end
     if is_plat("windows") then
         add_cxflags("/utf-8", { toolset = "msvc" })
+        add_syslinks("dxgi")
     end
     after_build(function (target)
         if not is_plat("windows") then

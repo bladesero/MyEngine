@@ -9,6 +9,10 @@
 #include "Editor/EditorPanel.h"
 #include "Editor/EditorPanels.h"
 #include "Editor/EditorShortcutMap.h"
+#include "Editor/UI/EditorIcons.h"
+#include "Editor/UI/EditorNotifications.h"
+#include "Editor/UI/EditorStyleTokens.h"
+#include "Editor/UI/EditorWidgets.h"
 #include "Editor/ProjectPublisher.h"
 #include "Game/SceneRenderLayer.h"
 #include "Input/Input.h"
@@ -24,7 +28,10 @@
 
 #include <algorithm>
 #include <cstring>
+#include <filesystem>
 #include <vector>
+
+namespace EditorWidgets = Editor::UI::EditorWidgets;
 
 namespace {
 class EditorImGuiEventBridge final : public IPlatformEventBridge {
@@ -69,6 +76,20 @@ bool CaptureShortcutChord(EditorShortcutChord& chord)
 #endif
     return false;
 }
+
+std::filesystem::path FindEditorFontRoot()
+{
+    if (const char* basePath = SDL_GetBasePath()) {
+        const std::filesystem::path candidate =
+            std::filesystem::path(basePath) / "EngineContent" / "Editor" / "Fonts";
+        std::error_code ec;
+        if (std::filesystem::is_directory(candidate, ec) && !ec) return candidate;
+    }
+    const std::filesystem::path candidate =
+        std::filesystem::current_path() / "EngineContent" / "Editor" / "Fonts";
+    return candidate.lexically_normal();
+}
+
 }
 
 
@@ -96,7 +117,18 @@ void EditorLayer::OnAttach() {
     }
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
-    ImGui::StyleColorsDark();
+    ImGuiIO& io = ImGui::GetIO();
+    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+    io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
+    io.IniFilename = nullptr;
+    std::string workspaceError;
+    if (!m_Workspace.Load(&workspaceError)) Logger::Warn("[Editor] ", workspaceError);
+    else if (!workspaceError.empty()) Logger::Warn("[Editor] ", workspaceError);
+    m_UIScaleManager.Initialize(m_Window, m_Workspace.GetUserUiScale());
+    m_UIScaleManager.SetFontRoot(FindEditorFontRoot());
+    m_ThemeManager.Initialize(m_Workspace.GetEditorThemeId());
+    m_UIScaleManager.BeginFrame(nullptr);
+    m_ThemeManager.Apply(m_UIScaleManager.GetEffectiveScale());
     ImGuizmo::SetImGuiContext(ImGui::GetCurrentContext());
     m_ImGuiBackend = std::make_unique<EditorImGuiBackend>(m_RenderContext, m_Window);
     if (!m_ImGuiBackend->Init()) {
@@ -113,9 +145,6 @@ void EditorLayer::OnAttach() {
     m_Context.SetAssetRegistry(&m_AssetRegistry);
     m_Context.SetProject(&m_Project);
     m_Context.SetShortcutMap(&m_Workspace.GetShortcuts());
-    std::string workspaceError;
-    if (!m_Workspace.Load(&workspaceError)) Logger::Warn("[Editor] ", workspaceError);
-    else if (!workspaceError.empty()) Logger::Warn("[Editor] ", workspaceError);
     if (const char* basePath = SDL_GetBasePath()) {
         m_Workspace.SetTemplateRoot(std::filesystem::path(basePath) / "ProjectTemplates" / "Default");
     }
@@ -147,6 +176,7 @@ bool EditorLayer::OpenProject(const std::filesystem::path& root) {
     m_AssetRegistry.Refresh();
     RegisterServices();
     RegisterPanels();
+    m_LayoutManager.OpenProject(m_Project.GetRoot(), m_Project.GetState(), m_Panels);
     m_ProjectOpen = true;
     m_ProjectError.clear();
     if (!m_Project.GetLastWarning().empty()) {
@@ -294,6 +324,12 @@ void EditorLayer::RegisterPanels() {
     m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
         "shader.recompile", "Recompile",
         [](EditorContext&) { ShaderManager::Get().RecompileAll(); }));
+    m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
+        "layout.save", "Save Layout",
+        [this](EditorContext&) { SaveEditorLayout(); }));
+    m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
+        "layout.resetDefault", "Reset Layout",
+        [this](EditorContext&) { ResetEditorLayoutToDefault(); }));
     m_Context.SetActionRegistry(&m_ActionRegistry);
 
     auto gizmo = std::make_shared<EditorGizmoState>();
@@ -303,29 +339,25 @@ void EditorLayer::RegisterPanels() {
     m_Panels.push_back(std::make_unique<InspectorPanel>(gizmo));
     m_Panels.push_back(std::make_unique<LogPanel>());
     m_Panels.push_back(std::make_unique<AssetBrowserPanel>());
-    const auto& state = m_Project.GetState();
-    const bool visibility[] = {state.showToolbar, state.showViewport,
-        state.showSceneHierarchy, state.showInspector, state.showLog,
-        state.showAssetBrowser};
     for (size_t index = 0; index < m_Panels.size(); ++index) {
-        m_Panels[index]->SetVisible(visibility[index]);
+        const auto& state = m_Project.GetState();
+        m_Panels[index]->SetVisible(state.IsPanelVisible(m_Panels[index]->GetID()));
         m_Panels[index]->OnAttach(m_Context);
     }
 }
 
 void EditorLayer::OnDetach() {
 #if defined(MYENGINE_ENABLE_IMGUI)
-    if (m_ProjectOpen && m_Panels.size() == 6) {
+    if (m_ProjectOpen) {
         auto& state = m_Project.GetState();
-        state.showToolbar = m_Panels[0]->IsVisible();
-        state.showViewport = m_Panels[1]->IsVisible();
-        state.showSceneHierarchy = m_Panels[2]->IsVisible();
-        state.showInspector = m_Panels[3]->IsVisible();
-        state.showLog = m_Panels[4]->IsVisible();
-        state.showAssetBrowser = m_Panels[5]->IsVisible();
+        for (const auto& panel : m_Panels) {
+            if (panel) state.SetPanelVisible(panel->GetID(), panel->IsVisible());
+        }
+        m_LayoutManager.SaveCurrentLayout(state);
         if (m_SceneLayer && m_SceneLayer->HasFilePath())
             m_Project.SetLastScenePath(m_SceneLayer->GetSceneFilePath());
         m_Project.SaveState();
+        m_LayoutManager.CloseProject();
     }
     for (auto it = m_Panels.rbegin(); it != m_Panels.rend(); ++it) (*it)->OnDetach();
     m_Panels.clear();
@@ -498,11 +530,84 @@ void EditorLayer::DrawProjectSettings() {
             DrawShortcutSettingsTab();
             ImGui::EndTabItem();
         }
+        if (ImGui::BeginTabItem("Appearance")) {
+            DrawAppearanceSettingsTab();
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Layout")) {
+            DrawLayoutSettingsTab();
+            ImGui::EndTabItem();
+        }
         ImGui::EndTabBar();
     }
     ImGui::Separator();
     if (ImGui::Button("Close")) ImGui::CloseCurrentPopup();
     ImGui::EndPopup();
+#endif
+}
+
+void EditorLayer::DrawLayoutSettingsTab() {
+#if defined(MYENGINE_ENABLE_IMGUI)
+    ImGui::LabelText("Default config", "%s", m_LayoutManager.GetConfigPath().string().c_str());
+    if (!m_LayoutManager.GetLastWarning().empty()) {
+        EditorWidgets::InlineMessage(EditorWidgets::MessageType::Warning,
+                                     m_LayoutManager.GetLastWarning().c_str());
+    }
+    if (ImGui::Button("Save Current")) SaveEditorLayout();
+    ImGui::SameLine();
+    if (ImGui::Button("Reset To Default")) ResetEditorLayoutToDefault();
+    ImGui::SameLine();
+    if (ImGui::Button("Reveal Config Path")) RevealEditorLayoutConfig();
+    ImGui::Separator();
+    ImGui::TextDisabled("Layout is stored in editor state and does not dirty the scene.");
+#endif
+}
+
+void EditorLayer::DrawAppearanceSettingsTab() {
+#if defined(MYENGINE_ENABLE_IMGUI)
+    float userScale = m_Workspace.GetUserUiScale();
+    ImGui::Text("Platform DPI scale: %.2f", m_UIScaleManager.GetPlatformScale());
+    ImGui::Text("Effective UI scale: %.2f", m_UIScaleManager.GetEffectiveScale());
+    ImGui::LabelText("Font root", "%s",
+                     m_UIScaleManager.GetFontManager().GetFontRoot().string().c_str());
+    if (!m_UIScaleManager.GetFontManager().GetLastWarning().empty()) {
+        EditorWidgets::InlineMessage(
+            Editor::UI::EditorNotificationType::Warning,
+            m_UIScaleManager.GetFontManager().GetLastWarning().c_str());
+    }
+    if (ImGui::SliderFloat("UI Scale", &userScale,
+                           Editor::UI::EditorUIScaleSettings::kMinUserScale,
+                           Editor::UI::EditorUIScaleSettings::kMaxUserScale, "%.2f")) {
+        m_Workspace.SetUserUiScale(userScale);
+        m_UIScaleManager.SetUserScale(userScale);
+        m_UIScaleManager.MarkFontAtlasDirty();
+        m_ThemeManager.Apply(m_UIScaleManager.GetEffectiveScale());
+        std::string error;
+        if (!m_Workspace.Save(&error)) Logger::Warn("[Editor] ", error);
+    }
+
+    static constexpr const char* kThemes[] = {"Dark"};
+    int themeIndex = 0;
+    if (ImGui::Combo("Theme", &themeIndex, kThemes, 1)) {
+        m_Workspace.SetEditorThemeId("dark");
+        m_ThemeManager.SetThemeID(m_Workspace.GetEditorThemeId());
+        m_ThemeManager.Apply(m_UIScaleManager.GetEffectiveScale());
+        std::string error;
+        if (!m_Workspace.Save(&error)) Logger::Warn("[Editor] ", error);
+    }
+    if (ImGui::Button("Reset Appearance")) {
+        m_Workspace.SetUserUiScale(1.0f);
+        m_Workspace.SetEditorThemeId("dark");
+        m_UIScaleManager.SetUserScale(m_Workspace.GetUserUiScale());
+        m_UIScaleManager.MarkFontAtlasDirty();
+        m_ThemeManager.SetThemeID(m_Workspace.GetEditorThemeId());
+        m_ThemeManager.Apply(m_UIScaleManager.GetEffectiveScale());
+        std::string error;
+        if (m_Workspace.Save(&error)) ShowProjectResult("Appearance reset.", false);
+        else ShowProjectResult("Failed to save appearance: " + error, true);
+    }
+    ImGui::Separator();
+    ImGui::TextDisabled("Appearance is stored in workspace preferences and does not dirty the scene.");
 #endif
 }
 
@@ -566,6 +671,38 @@ void EditorLayer::DrawGraphicsSettingsTab() {
         }
     }
 #endif
+}
+
+void EditorLayer::SaveEditorLayout() {
+#if defined(MYENGINE_ENABLE_IMGUI)
+    if (!m_ProjectOpen) return;
+    auto& state = m_Project.GetState();
+    for (const auto& panel : m_Panels) {
+        if (panel) state.SetPanelVisible(panel->GetID(), panel->IsVisible());
+    }
+    m_LayoutManager.SaveCurrentLayout(state);
+    if (m_Project.SaveState()) ShowProjectResult("Editor layout saved.", false);
+    else ShowProjectResult("Failed to save editor layout.", true);
+#endif
+}
+
+void EditorLayer::ResetEditorLayoutToDefault() {
+    if (!m_ProjectOpen) return;
+    auto& state = m_Project.GetState();
+    for (const auto& panel : m_Panels) {
+        if (!panel) continue;
+        panel->SetVisible(true);
+        state.SetPanelVisible(panel->GetID(), true);
+    }
+    m_LayoutManager.ResetToDefault(state);
+    if (m_Project.SaveState()) ShowProjectResult("Editor layout reset to default.", false);
+    else ShowProjectResult("Failed to save reset editor layout.", true);
+}
+
+void EditorLayer::RevealEditorLayoutConfig() {
+    if (!m_ProjectOpen) return;
+    ShowProjectResult("Default editor layout config:\n" +
+                      m_LayoutManager.GetConfigPath().string(), false);
 }
 
 void EditorLayer::DrawGameplayInputSettingsTab() {
@@ -707,26 +844,115 @@ void EditorLayer::DrawProjectResult() {
     ImGui::SetNextWindowSize({620.0f, 0.0f}, ImGuiCond_Appearing);
     if (!ImGui::BeginPopupModal("Project Result", nullptr,
                                 ImGuiWindowFlags_AlwaysAutoResize)) return;
-    const ImVec4 color = m_ProjectResultIsError
-        ? ImVec4{1.0f, 0.35f, 0.3f, 1.0f}
-        : ImVec4{0.45f, 0.9f, 0.55f, 1.0f};
     ImGui::PushTextWrapPos(580.0f);
-    ImGui::TextColored(color, "%s", m_ProjectResult.c_str());
+    EditorWidgets::InlineMessage(
+        m_ProjectResultIsError ? EditorWidgets::MessageType::Error
+                               : EditorWidgets::MessageType::Success,
+        m_ProjectResult.c_str());
     ImGui::PopTextWrapPos();
     if (ImGui::Button("OK")) ImGui::CloseCurrentPopup();
     ImGui::EndPopup();
 #endif
 }
 
+void EditorLayer::DrawMainMenuBar() {
+#if defined(MYENGINE_ENABLE_IMGUI)
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    const float scale = m_UIScaleManager.GetEffectiveScale();
+    const float height = Editor::UI::ScaleToken(
+        Editor::UI::EditorStyleTokens{}.menuBarHeight, scale);
+    ImGui::SetNextWindowPos(viewport->WorkPos);
+    ImGui::SetNextWindowSize({viewport->WorkSize.x, height});
+    ImGui::SetNextWindowViewport(viewport->ID);
+    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDocking |
+        ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar |
+        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoNavFocus |
+        ImGuiWindowFlags_MenuBar;
+
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0.0f, 0.0f});
+    if (ImGui::Begin("Editor Main Menu Bar", nullptr, flags) && ImGui::BeginMenuBar()) {
+        const auto drawAction = [&](const char* actionID) {
+            EditorAction* action = m_ActionRegistry.Find(actionID);
+            if (!action) return;
+            std::string shortcutText;
+            if (const EditorShortcutChord* chord =
+                    m_Workspace.GetShortcuts().FindShortcut(actionID)) {
+                if (chord->IsValid()) shortcutText = EditorShortcutMap::FormatChord(*chord);
+            }
+            const bool enabled = action->CanExecute(m_Context);
+            if (ImGui::MenuItem(action->GetLabel(),
+                                shortcutText.empty() ? nullptr : shortcutText.c_str(),
+                                false, enabled)) {
+                m_ActionRegistry.Execute(actionID, m_Context);
+            }
+        };
+
+        if (ImGui::BeginMenu("File")) {
+            drawAction("scene.new");
+            drawAction("scene.open");
+            drawAction("scene.save");
+            ImGui::EndMenu();
+        }
+        if (ImGui::BeginMenu("Project")) {
+            drawAction("project.settings");
+            drawAction("project.setStartup");
+            drawAction("project.publish");
+            ImGui::EndMenu();
+        }
+        if (ImGui::BeginMenu("Edit")) {
+            drawAction("edit.undo");
+            drawAction("edit.redo");
+            ImGui::EndMenu();
+        }
+        if (ImGui::BeginMenu("Build/Debug")) {
+            drawAction("shader.recompile");
+            ImGui::EndMenu();
+        }
+        ImGui::EndMenuBar();
+    }
+    ImGui::End();
+    ImGui::PopStyleVar(3);
+#endif
+}
+
+float EditorLayer::DrawStatusBar() {
+#if defined(MYENGINE_ENABLE_IMGUI)
+    return m_StatusBar.Draw(m_Context, m_ProjectOpen ? &m_Project : nullptr,
+                            m_RenderContext, m_Engine,
+                            m_UIScaleManager.GetEffectiveScale());
+#else
+    return 0.0f;
+#endif
+}
+
+std::string EditorLayer::GetSelectedStatusText() const {
+    return Editor::UI::EditorStatusBar::FormatSelectedText(m_Context);
+}
+
+std::string EditorLayer::GetBackendStatusText() const {
+    return Editor::UI::EditorStatusBar::FormatBackendText(m_RenderContext);
+}
+
 void EditorLayer::OnRender() {
 #if defined(MYENGINE_ENABLE_IMGUI)
     if (!m_ImGuiReady || !m_RenderContext) return;
+    const bool scaleOrFontChanged = m_UIScaleManager.BeginFrame(m_ImGuiBackend.get());
+    if (scaleOrFontChanged) m_ThemeManager.Apply(m_UIScaleManager.GetEffectiveScale());
     if (m_ImGuiBackend) m_ImGuiBackend->BeginFrame();
     ImGui::NewFrame();
     ImGuizmo::BeginFrame();
     ImGuizmo::AllowAxisFlip(false);
     DispatchEditorShortcuts();
     if (m_ProjectOpen) {
+        const float menuHeight = Editor::UI::ScaleToken(
+            Editor::UI::EditorStyleTokens{}.menuBarHeight,
+            m_UIScaleManager.GetEffectiveScale());
+        DrawMainMenuBar();
+        const float statusHeight = DrawStatusBar();
+        m_LayoutManager.BeginDockSpace(m_Panels, menuHeight, statusHeight);
         for (auto& panel : m_Panels) panel->OnImGui();
         DrawProjectSettings();
         DrawProjectResult();
@@ -735,6 +961,10 @@ void EditorLayer::OnRender() {
     }
     ImGui::Render();
     if (m_ImGuiBackend) m_ImGuiBackend->RenderDrawData(ImGui::GetDrawData());
+    if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
+        ImGui::UpdatePlatformWindows();
+        ImGui::RenderPlatformWindowsDefault();
+    }
     m_RenderContext->EndFrame();
 #endif
 }

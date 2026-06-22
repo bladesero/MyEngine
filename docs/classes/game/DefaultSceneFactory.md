@@ -2,14 +2,14 @@
 
 ## Role
 
-`DefaultSceneFactory` creates the built-in demo scene when a loaded scene is
-empty.
+`DefaultSceneFactory` is a legacy hook called after scene load. It no longer
+creates built-in actors or demo content.
 
 ## Responsibilities
 
-- Populate Sun, PostProcess, Cube1, Cube2, ShadowPlane, and SkinnedCube actors.
-- Register the checker texture and built-in demo materials.
-- Bind Cube1 to `Content/Scripts/RotatingCube.as` with class `RotatingCube`.
+- Leave empty scenes empty.
+- Leave authored scenes unchanged.
+- Preserve a narrow replacement point for future explicit scene templates.
 
-Future template-asset work should replace this factory without changing
-`SceneRenderLayer`.
+Scene startup content should come from saved scene assets or user actions in
+the editor, not from implicit runtime population.

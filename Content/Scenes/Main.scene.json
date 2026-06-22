@@ -5,132 +5,7 @@
             "components": [
                 {
                     "data": {
-                        "castShadows": true,
-                        "color": [
-                            1.0,
-                            0.9599999785423279,
-                            0.8799999952316284
-                        ],
-                        "direction": [
-                            -0.44832655787467957,
-                            -0.8151391744613647,
-                            -0.3668126165866852
-                        ],
-                        "innerConeAngle": 25.0,
-                        "intensity": 3.0,
-                        "outerConeAngle": 35.0,
-                        "range": 8.0,
-                        "type": "directional"
-                    },
-                    "enabled": true,
-                    "type": "Light"
-                }
-            ],
-            "id": 1,
-            "name": "Sun",
-            "parentID": 0,
-            "transform": {
-                "position": [
-                    0.0,
-                    0.0,
-                    0.0
-                ],
-                "rotation": [
-                    0.0,
-                    0.0,
-                    0.0
-                ],
-                "scale": [
-                    1.0,
-                    1.0,
-                    1.0
-                ]
-            }
-        },
-        {
-            "active": true,
-            "components": [
-                {
-                    "data": {
-                        "antiAliasingStrength": 1.0,
-                        "bloomEnabled": false,
-                        "bloomIntensity": 0.0,
-                        "bloomThreshold": 1.0,
-                        "contrast": 1.0,
-                        "exposure": 1.0,
-                        "gamma": 2.200000047683716,
-                        "saturation": 1.0,
-                        "ssaoBias": 0.02500000037252903,
-                        "ssaoIntensity": 0.800000011920929,
-                        "ssaoPower": 1.7999999523162842,
-                        "ssaoRadius": 1.5,
-                        "toneMapping": true,
-                        "vignette": 0.0
-                    },
-                    "enabled": true,
-                    "type": "PostProcess"
-                }
-            ],
-            "id": 2,
-            "name": "PostProcess",
-            "parentID": 0,
-            "transform": {
-                "position": [
-                    0.0,
-                    0.0,
-                    0.0
-                ],
-                "rotation": [
-                    0.0,
-                    0.0,
-                    0.0
-                ],
-                "scale": [
-                    1.0,
-                    1.0,
-                    1.0
-                ]
-            }
-        },
-        {
-            "active": true,
-            "components": [
-                {
-                    "data": {
-                        "material": "__builtin__/CheckerMat",
-                        "materialData": {
-                            "alphaThreshold": 0.5,
-                            "blendMode": "Opaque",
-                            "name": "CheckerMat",
-                            "params": {
-                                "BaseColor": {
-                                    "data": [
-                                        1.0,
-                                        1.0,
-                                        1.0,
-                                        1.0
-                                    ],
-                                    "type": "Vec4"
-                                },
-                                "Metallic": {
-                                    "data": [
-                                        0.15000000596046448
-                                    ],
-                                    "type": "Float"
-                                },
-                                "Roughness": {
-                                    "data": [
-                                        0.3499999940395355
-                                    ],
-                                    "type": "Float"
-                                }
-                            },
-                            "textures": {
-                                "BaseColorMap": "__builtin__/Checker"
-                            },
-                            "twoSided": false,
-                            "wireframe": false
-                        },
+                        "material": "__builtin__/Default",
                         "mesh": "__builtin__/Cube"
                     },
                     "enabled": true,
@@ -155,886 +30,94 @@
                     "type": "Script"
                 }
             ],
+            "id": 1,
+            "name": "Actor",
+            "parentID": 0,
+            "transform": {
+                "position": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            }
+        },
+        {
+            "active": true,
+            "components": [
+                {
+                    "data": {
+                        "castShadows": true,
+                        "color": [
+                            1.0,
+                            1.0,
+                            1.0
+                        ],
+                        "direction": [
+                            -0.44832655787467957,
+                            -0.8151391744613647,
+                            -0.3668126165866852
+                        ],
+                        "innerConeAngle": 25.0,
+                        "intensity": 3.0,
+                        "outerConeAngle": 35.0,
+                        "range": 8.0,
+                        "type": "directional"
+                    },
+                    "enabled": true,
+                    "type": "Light"
+                }
+            ],
+            "id": 2,
+            "name": "Actor",
+            "parentID": 0,
+            "transform": {
+                "position": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            }
+        },
+        {
+            "active": true,
+            "components": [
+                {
+                    "data": {
+                        "material": "__builtin__/Default",
+                        "mesh": "Content/Mesh/monkey.obj#mesh"
+                    },
+                    "enabled": true,
+                    "type": "MeshRenderer"
+                }
+            ],
             "id": 3,
-            "name": "Cube1",
-            "parentID": 0,
-            "transform": {
-                "position": [
-                    0.0,
-                    0.5,
-                    0.0
-                ],
-                "rotation": [
-                    0.0,
-                    0.0,
-                    0.0
-                ],
-                "scale": [
-                    1.0,
-                    1.0,
-                    1.0
-                ]
-            }
-        },
-        {
-            "active": true,
-            "components": [
-                {
-                    "data": {
-                        "material": "__builtin__/DynamicPbrMat",
-                        "materialData": {
-                            "alphaThreshold": 0.5,
-                            "blendMode": "Opaque",
-                            "name": "DynamicPbrMat",
-                            "params": {
-                                "BaseColor": {
-                                    "data": [
-                                        0.10000000149011612,
-                                        0.699999988079071,
-                                        1.0,
-                                        1.0
-                                    ],
-                                    "type": "Vec4"
-                                },
-                                "Metallic": {
-                                    "data": [
-                                        0.75
-                                    ],
-                                    "type": "Float"
-                                },
-                                "Roughness": {
-                                    "data": [
-                                        0.20000000298023224
-                                    ],
-                                    "type": "Float"
-                                }
-                            },
-                            "textures": {
-                                "BaseColorMap": "__builtin__/White"
-                            },
-                            "twoSided": false,
-                            "wireframe": false
-                        },
-                        "mesh": "__builtin__/Cube"
-                    },
-                    "enabled": true,
-                    "type": "MeshRenderer"
-                },
-                {
-                    "data": {
-                        "angularAxisLocks": [
-                            0.0,
-                            0.0,
-                            0.0
-                        ],
-                        "angularDamping": 0.05000000074505806,
-                        "angularVelocity": [
-                            0.0,
-                            0.0,
-                            0.0
-                        ],
-                        "bodyType": "dynamic",
-                        "collisionDetection": "discrete",
-                        "friction": 0.6000000238418579,
-                        "linearAxisLocks": [
-                            0.0,
-                            0.0,
-                            0.0
-                        ],
-                        "linearDamping": 0.05000000074505806,
-                        "mass": 1.0,
-                        "restitution": 0.25,
-                        "useGravity": true,
-                        "velocity": [
-                            0.0,
-                            0.0,
-                            0.0
-                        ]
-                    },
-                    "enabled": true,
-                    "type": "RigidBody"
-                },
-                {
-                    "data": {
-                        "halfExtents": [
-                            0.5,
-                            0.5,
-                            0.5
-                        ],
-                        "isTrigger": false,
-                        "layer": 1,
-                        "layerMask": 4294967295
-                    },
-                    "enabled": true,
-                    "type": "BoxCollider"
-                }
-            ],
-            "id": 4,
-            "name": "Cube2",
-            "parentID": 0,
-            "transform": {
-                "position": [
-                    2.0,
-                    4.366269111633301,
-                    0.0
-                ],
-                "rotation": [
-                    0.0,
-                    -0.0,
-                    39.72600173950195
-                ],
-                "scale": [
-                    1.0,
-                    1.0,
-                    1.0
-                ]
-            }
-        },
-        {
-            "active": true,
-            "components": [
-                {
-                    "data": {
-                        "material": "__builtin__/GroundMat",
-                        "materialData": {
-                            "alphaThreshold": 0.5,
-                            "blendMode": "Opaque",
-                            "name": "GroundMat",
-                            "params": {
-                                "AmbientOcclusion": {
-                                    "data": [
-                                        1.0
-                                    ],
-                                    "type": "Float"
-                                },
-                                "BaseColor": {
-                                    "data": [
-                                        0.550000011920929,
-                                        0.550000011920929,
-                                        0.5199999809265137,
-                                        1.0
-                                    ],
-                                    "type": "Vec4"
-                                },
-                                "Metallic": {
-                                    "data": [
-                                        0.0
-                                    ],
-                                    "type": "Float"
-                                },
-                                "Roughness": {
-                                    "data": [
-                                        0.8999999761581421
-                                    ],
-                                    "type": "Float"
-                                }
-                            },
-                            "textures": {
-                                "BaseColorMap": "__builtin__/White"
-                            },
-                            "twoSided": false,
-                            "wireframe": false
-                        },
-                        "mesh": "__builtin__/Cube"
-                    },
-                    "enabled": true,
-                    "type": "MeshRenderer"
-                },
-                {
-                    "data": {
-                        "angularAxisLocks": [
-                            0.0,
-                            0.0,
-                            0.0
-                        ],
-                        "angularDamping": 0.05000000074505806,
-                        "angularVelocity": [
-                            0.0,
-                            0.0,
-                            0.0
-                        ],
-                        "bodyType": "static",
-                        "collisionDetection": "discrete",
-                        "friction": 0.8999999761581421,
-                        "linearAxisLocks": [
-                            0.0,
-                            0.0,
-                            0.0
-                        ],
-                        "linearDamping": 0.05000000074505806,
-                        "mass": 1.0,
-                        "restitution": 0.0,
-                        "useGravity": false,
-                        "velocity": [
-                            0.0,
-                            0.0,
-                            0.0
-                        ]
-                    },
-                    "enabled": true,
-                    "type": "RigidBody"
-                },
-                {
-                    "data": {
-                        "halfExtents": [
-                            0.5,
-                            0.5,
-                            0.009999999776482582
-                        ],
-                        "isTrigger": false,
-                        "layer": 1,
-                        "layerMask": 4294967295
-                    },
-                    "enabled": true,
-                    "type": "BoxCollider"
-                }
-            ],
-            "id": 5,
-            "name": "ShadowPlane",
-            "parentID": 0,
-            "transform": {
-                "position": [
-                    0.0,
-                    -0.3237749934196472,
-                    1.4152657712429573e-08
-                ],
-                "rotation": [
-                    -90.0,
-                    0.0,
-                    0.0
-                ],
-                "scale": [
-                    12.0,
-                    12.0,
-                    0.6000000238418579
-                ]
-            }
-        },
-        {
-            "active": true,
-            "components": [
-                {
-                    "data": {
-                        "bones": [
-                            {
-                                "inverseBind": [
-                                    1.0,
-                                    0.0,
-                                    0.0,
-                                    0.0,
-                                    0.0,
-                                    1.0,
-                                    0.0,
-                                    0.0,
-                                    0.0,
-                                    0.0,
-                                    1.0,
-                                    0.0,
-                                    0.0,
-                                    0.0,
-                                    0.0,
-                                    1.0
-                                ],
-                                "name": "Root",
-                                "parent": -1,
-                                "rotation": [
-                                    0.0,
-                                    0.0,
-                                    0.0,
-                                    1.0
-                                ],
-                                "scale": [
-                                    1.0,
-                                    1.0,
-                                    1.0
-                                ],
-                                "translation": [
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
-                            },
-                            {
-                                "inverseBind": [
-                                    1.0,
-                                    0.0,
-                                    0.0,
-                                    0.0,
-                                    0.0,
-                                    1.0,
-                                    0.0,
-                                    0.0,
-                                    0.0,
-                                    0.0,
-                                    1.0,
-                                    0.0,
-                                    0.0,
-                                    -0.5,
-                                    0.0,
-                                    1.0
-                                ],
-                                "name": "Upper",
-                                "parent": 0,
-                                "rotation": [
-                                    0.0,
-                                    0.0,
-                                    0.0,
-                                    1.0
-                                ],
-                                "scale": [
-                                    1.0,
-                                    1.0,
-                                    1.0
-                                ],
-                                "translation": [
-                                    0.0,
-                                    0.5,
-                                    0.0
-                                ]
-                            }
-                        ],
-                        "clip": {
-                            "duration": 2.0,
-                            "looping": true,
-                            "name": "Bend"
-                        },
-                        "material": "__builtin__/SkinPbrMat",
-                        "materialData": {
-                            "alphaThreshold": 0.5,
-                            "blendMode": "Opaque",
-                            "name": "SkinPbrMat",
-                            "params": {
-                                "BaseColor": {
-                                    "data": [
-                                        0.8500000238418579,
-                                        0.25,
-                                        0.15000000596046448,
-                                        1.0
-                                    ],
-                                    "type": "Vec4"
-                                },
-                                "Metallic": {
-                                    "data": [
-                                        0.05000000074505806
-                                    ],
-                                    "type": "Float"
-                                },
-                                "Roughness": {
-                                    "data": [
-                                        0.5
-                                    ],
-                                    "type": "Float"
-                                }
-                            },
-                            "textures": {
-                                "BaseColorMap": "__builtin__/White"
-                            },
-                            "twoSided": false,
-                            "wireframe": false
-                        },
-                        "mesh": "__builtin__/Cube",
-                        "playing": true,
-                        "time": 0.0,
-                        "tracks": [
-                            {
-                                "bone": 1,
-                                "keys": [
-                                    {
-                                        "rotation": [
-                                            -0.0,
-                                            -0.0,
-                                            -0.22310636937618256,
-                                            0.9747941493988037
-                                        ],
-                                        "scale": [
-                                            1.0,
-                                            1.0,
-                                            1.0
-                                        ],
-                                        "time": 0.0,
-                                        "translation": [
-                                            0.0,
-                                            0.5,
-                                            0.0
-                                        ]
-                                    },
-                                    {
-                                        "rotation": [
-                                            0.0,
-                                            0.0,
-                                            0.22310636937618256,
-                                            0.9747941493988037
-                                        ],
-                                        "scale": [
-                                            1.0,
-                                            1.0,
-                                            1.0
-                                        ],
-                                        "time": 1.0,
-                                        "translation": [
-                                            0.0,
-                                            0.5,
-                                            0.0
-                                        ]
-                                    },
-                                    {
-                                        "rotation": [
-                                            -0.0,
-                                            -0.0,
-                                            -0.22310636937618256,
-                                            0.9747941493988037
-                                        ],
-                                        "scale": [
-                                            1.0,
-                                            1.0,
-                                            1.0
-                                        ],
-                                        "time": 2.0,
-                                        "translation": [
-                                            0.0,
-                                            0.5,
-                                            0.0
-                                        ]
-                                    }
-                                ]
-                            }
-                        ],
-                        "weights": [
-                            {
-                                "bones": [
-                                    0,
-                                    0,
-                                    0,
-                                    0
-                                ],
-                                "values": [
-                                    1.0,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
-                            },
-                            {
-                                "bones": [
-                                    0,
-                                    0,
-                                    0,
-                                    0
-                                ],
-                                "values": [
-                                    1.0,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
-                            },
-                            {
-                                "bones": [
-                                    1,
-                                    0,
-                                    0,
-                                    0
-                                ],
-                                "values": [
-                                    1.0,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
-                            },
-                            {
-                                "bones": [
-                                    1,
-                                    0,
-                                    0,
-                                    0
-                                ],
-                                "values": [
-                                    1.0,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
-                            },
-                            {
-                                "bones": [
-                                    0,
-                                    0,
-                                    0,
-                                    0
-                                ],
-                                "values": [
-                                    1.0,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
-                            },
-                            {
-                                "bones": [
-                                    0,
-                                    0,
-                                    0,
-                                    0
-                                ],
-                                "values": [
-                                    1.0,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
-                            },
-                            {
-                                "bones": [
-                                    1,
-                                    0,
-                                    0,
-                                    0
-                                ],
-                                "values": [
-                                    1.0,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
-                            },
-                            {
-                                "bones": [
-                                    1,
-                                    0,
-                                    0,
-                                    0
-                                ],
-                                "values": [
-                                    1.0,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
-                            },
-                            {
-                                "bones": [
-                                    0,
-                                    0,
-                                    0,
-                                    0
-                                ],
-                                "values": [
-                                    1.0,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
-                            },
-                            {
-                                "bones": [
-                                    0,
-                                    0,
-                                    0,
-                                    0
-                                ],
-                                "values": [
-                                    1.0,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
-                            },
-                            {
-                                "bones": [
-                                    1,
-                                    0,
-                                    0,
-                                    0
-                                ],
-                                "values": [
-                                    1.0,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
-                            },
-                            {
-                                "bones": [
-                                    1,
-                                    0,
-                                    0,
-                                    0
-                                ],
-                                "values": [
-                                    1.0,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
-                            },
-                            {
-                                "bones": [
-                                    0,
-                                    0,
-                                    0,
-                                    0
-                                ],
-                                "values": [
-                                    1.0,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
-                            },
-                            {
-                                "bones": [
-                                    0,
-                                    0,
-                                    0,
-                                    0
-                                ],
-                                "values": [
-                                    1.0,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
-                            },
-                            {
-                                "bones": [
-                                    1,
-                                    0,
-                                    0,
-                                    0
-                                ],
-                                "values": [
-                                    1.0,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
-                            },
-                            {
-                                "bones": [
-                                    1,
-                                    0,
-                                    0,
-                                    0
-                                ],
-                                "values": [
-                                    1.0,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
-                            },
-                            {
-                                "bones": [
-                                    1,
-                                    0,
-                                    0,
-                                    0
-                                ],
-                                "values": [
-                                    1.0,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
-                            },
-                            {
-                                "bones": [
-                                    1,
-                                    0,
-                                    0,
-                                    0
-                                ],
-                                "values": [
-                                    1.0,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
-                            },
-                            {
-                                "bones": [
-                                    1,
-                                    0,
-                                    0,
-                                    0
-                                ],
-                                "values": [
-                                    1.0,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
-                            },
-                            {
-                                "bones": [
-                                    1,
-                                    0,
-                                    0,
-                                    0
-                                ],
-                                "values": [
-                                    1.0,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
-                            },
-                            {
-                                "bones": [
-                                    0,
-                                    0,
-                                    0,
-                                    0
-                                ],
-                                "values": [
-                                    1.0,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
-                            },
-                            {
-                                "bones": [
-                                    0,
-                                    0,
-                                    0,
-                                    0
-                                ],
-                                "values": [
-                                    1.0,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
-                            },
-                            {
-                                "bones": [
-                                    0,
-                                    0,
-                                    0,
-                                    0
-                                ],
-                                "values": [
-                                    1.0,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
-                            },
-                            {
-                                "bones": [
-                                    0,
-                                    0,
-                                    0,
-                                    0
-                                ],
-                                "values": [
-                                    1.0,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
-                            }
-                        ]
-                    },
-                    "enabled": true,
-                    "type": "SkinnedMeshRenderer"
-                }
-            ],
-            "id": 6,
-            "name": "SkinnedCube",
-            "parentID": 0,
-            "transform": {
-                "position": [
-                    -2.0,
-                    0.5,
-                    0.0
-                ],
-                "rotation": [
-                    0.0,
-                    0.0,
-                    0.0
-                ],
-                "scale": [
-                    1.0,
-                    1.0,
-                    1.0
-                ]
-            }
-        },
-        {
-            "active": true,
-            "id": 7,
             "name": "monkey",
             "parentID": 0,
-            "prefabInstance": {
-                "asset": "Content/Prefabs/monkey.prefab.json",
-                "overrides": [
-                    {
-                        "componentType": "MeshRenderer",
-                        "kind": "SetProperty",
-                        "localId": "a5fdc444effe3190f625ed3a6b1de14d",
-                        "path": "/material",
-                        "value": "Content/Materials/NewMaterial.mat"
-                    },
-                    {
-                        "componentType": "CapsuleCollider",
-                        "data": {
-                            "halfHeight": 0.10000000149011612,
-                            "isTrigger": false,
-                            "layer": 1,
-                            "layerMask": 4294967295,
-                            "radius": 0.1599999964237213
-                        },
-                        "enabled": true,
-                        "kind": "AddComponent",
-                        "localId": "a5fdc444effe3190f625ed3a6b1de14d"
-                    },
-                    {
-                        "componentType": "RigidBody",
-                        "data": {
-                            "angularAxisLocks": [
-                                0.0,
-                                0.0,
-                                0.0
-                            ],
-                            "angularDamping": 0.05000000074505806,
-                            "angularVelocity": [
-                                0.0,
-                                0.0,
-                                0.0
-                            ],
-                            "bodyType": "dynamic",
-                            "collisionDetection": "discrete",
-                            "friction": 0.6000000238418579,
-                            "linearAxisLocks": [
-                                0.0,
-                                0.0,
-                                0.0
-                            ],
-                            "linearDamping": 0.05000000074505806,
-                            "mass": 1.0,
-                            "restitution": 0.10000000149011612,
-                            "useGravity": true,
-                            "velocity": [
-                                0.0,
-                                0.0,
-                                0.0
-                            ]
-                        },
-                        "enabled": true,
-                        "kind": "AddComponent",
-                        "localId": "a5fdc444effe3190f625ed3a6b1de14d"
-                    }
-                ],
-                "uuid": "280b4505-c69a-420b-85b7-922352de8c86"
-            },
             "transform": {
                 "position": [
-                    -0.07559654116630554,
-                    0.1588536500930786,
-                    -2.635707139968872
+                    -1.266559362411499,
+                    -0.5912749171257019,
+                    -2.128021001815796
                 ],
                 "rotation": [
                     0.0,
@@ -1053,20 +136,60 @@
             "components": [
                 {
                     "data": {
-                        "loop": false,
-                        "maxDistance": 100.0,
-                        "minDistance": 1.0,
-                        "pitch": 1.0,
-                        "playOnStart": true,
-                        "spatial": true,
-                        "volume": 1.0
+                        "material": "__builtin__/Default",
+                        "mesh": "__builtin__/Cube"
                     },
                     "enabled": true,
-                    "type": "AudioSource"
+                    "type": "MeshRenderer"
                 }
             ],
-            "id": 8,
-            "name": "audio",
+            "id": 4,
+            "name": "ground",
+            "parentID": 0,
+            "transform": {
+                "position": [
+                    0.0,
+                    -0.5670939087867737,
+                    0.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    -0.0
+                ],
+                "scale": [
+                    12.0,
+                    0.20000000298023224,
+                    12.0
+                ]
+            }
+        },
+        {
+            "active": true,
+            "components": [
+                {
+                    "data": {
+                        "antiAliasingStrength": 0.0,
+                        "bloomEnabled": false,
+                        "bloomIntensity": 0.0,
+                        "bloomThreshold": 1.0,
+                        "contrast": 1.0,
+                        "exposure": 1.0,
+                        "gamma": 2.200000047683716,
+                        "saturation": 1.0,
+                        "ssaoBias": 0.02500000037252903,
+                        "ssaoIntensity": 1.8600000143051147,
+                        "ssaoPower": 1.5,
+                        "ssaoRadius": 1.2000000476837158,
+                        "toneMapping": true,
+                        "vignette": 0.0
+                    },
+                    "enabled": true,
+                    "type": "PostProcess"
+                }
+            ],
+            "id": 5,
+            "name": "postprocess",
             "parentID": 0,
             "transform": {
                 "position": [
@@ -1088,5 +211,5 @@
         }
     ],
     "name": "Untitled",
-    "nextID": 9
+    "nextID": 6
 }

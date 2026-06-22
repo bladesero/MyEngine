@@ -1,6 +1,6 @@
 {
   "graphics": {
-    "backend": "d3d11"
+    "backend": "d3d12"
   },
   "input": {
     "config": "Content/Config/Input.input.json"

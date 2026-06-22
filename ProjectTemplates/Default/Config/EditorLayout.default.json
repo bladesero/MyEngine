@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "toolbarHeightRatio": 0.04,
+  "leftWidthRatio": 0.14583333,
+  "rightWidthRatio": 0.16666667,
+  "bottomHeightRatio": 0.21153846,
+  "panels": [
+    {
+      "id": "toolbar",
+      "title": "Toolbar",
+      "area": "top"
+    },
+    {
+      "id": "sceneHierarchy",
+      "title": "Scene Outliner",
+      "area": "left"
+    },
+    {
+      "id": "viewport",
+      "title": "Scene View",
+      "area": "center"
+    },
+    {
+      "id": "inspector",
+      "title": "Inspector",
+      "area": "right"
+    },
+    {
+      "id": "assetBrowser",
+      "title": "Asset Browser",
+      "area": "bottomLeft"
+    },
+    {
+      "id": "log",
+      "title": "Log Output",
+      "area": "bottomCenter"
+    }
+  ]
+}

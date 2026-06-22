@@ -13,11 +13,12 @@
 
 class Actor;
 class ToolbarPanel final:public EditorPanel {
-public: ToolbarPanel(); void OnImGui() override;
+public: ToolbarPanel();
 protected:void DrawContent() override;
+private:int GetWindowFlags() const override;
 };
 class SceneHierarchyPanel final:public EditorPanel {
-public:SceneHierarchyPanel();void OnImGui() override;
+public:SceneHierarchyPanel();
 protected:void DrawContent() override;
 private:
     void DrawToolbar();
@@ -30,9 +31,9 @@ private:
     uint64_t m_PendingRenameID = 0;
 };
 class ViewportPanel final:public EditorPanel {
-public:explicit ViewportPanel(std::shared_ptr<EditorGizmoState> state);void OnImGui() override;
+public:explicit ViewportPanel(std::shared_ptr<EditorGizmoState> state);
 protected:void DrawContent() override;
-private:void DropModel(const std::string& path,float x,float y);void DropPrefab(const std::string& path,float x,float y);std::shared_ptr<EditorGizmoState> m_State;EditorPickingController m_PickingController;EditorGizmoController m_GizmoController;
+private:int GetWindowFlags() const override;void BeforeBegin() override;void AfterEnd() override;void DropModel(const std::string& path,float x,float y);void DropPrefab(const std::string& path,float x,float y);std::shared_ptr<EditorGizmoState> m_State;EditorPickingController m_PickingController;EditorGizmoController m_GizmoController;
 };
 class InspectorPanel final:public EditorPanel {
 public:
@@ -40,7 +41,6 @@ public:
     ~InspectorPanel() override;
     void OnAttach(EditorContext& context) override;
     void OnDetach() override;
-    void OnImGui() override;
 protected:
     void DrawContent() override;
 private:
@@ -52,7 +52,7 @@ private:
     EditorSelection::ListenerID m_SelectionListenerID = 0;
 };
 class AssetBrowserPanel final:public EditorPanel {
-public:AssetBrowserPanel();void OnAttach(EditorContext& context) override;void OnUpdate(float dt) override;void OnImGui() override;
+public:AssetBrowserPanel();void OnAttach(EditorContext& context) override;void OnUpdate(float dt) override;
 protected:void DrawContent() override;
 private:
     void DeleteSelectedAsset();
@@ -64,6 +64,6 @@ private:
     bool m_PendingDelete = false;
 };
 class LogPanel final:public EditorPanel {
-public:LogPanel();void OnImGui() override;
+public:LogPanel();
 protected:void DrawContent() override;
 };

@@ -1610,25 +1610,17 @@ bool TestSceneViewportControllerRayStability() {
                  "bottom-right editor ray direction mismatch");
 }
 
-bool TestDefaultSceneFactoryPopulatesScriptedDemo() {
+bool TestDefaultSceneFactoryLeavesScenesUnmodified() {
     Scene scene("DefaultFactory");
     DefaultSceneFactory::PopulateIfEmpty(scene);
+    if (!Check(scene.ActorCount() == 0,
+               "default scene factory should leave empty scenes empty")) return false;
 
-    if (!Check(scene.ActorCount() >= 6,
-               "default scene factory did not create demo actors")) return false;
-    Actor* cube = scene.FindByName("Cube1");
-    if (!Check(cube != nullptr, "default scene missing Cube1")) return false;
-    auto* script = cube->GetComponent<ScriptComponent>();
-    if (!Check(script != nullptr, "default Cube1 missing ScriptComponent")) return false;
-    if (!Check(script->GetScriptPath().find("Content/Scripts/RotatingCube.as") != std::string::npos,
-               "default Cube1 script path mismatch")) return false;
-    if (!Check(script->GetClassName() == "RotatingCube",
-               "default Cube1 script class mismatch")) return false;
-
+    scene.CreateActor("UserActor");
     const size_t count = scene.ActorCount();
     DefaultSceneFactory::PopulateIfEmpty(scene);
     return Check(scene.ActorCount() == count,
-                 "default scene factory should not mutate non-empty scenes");
+                 "default scene factory should not mutate authored scenes");
 }
 
 bool TestInputBoundaries() {
@@ -3214,7 +3206,7 @@ MYENGINE_REGISTER_TEST("Core", "TestCrashReportWriting", TestCrashReportWriting)
 MYENGINE_REGISTER_TEST("Scene", "TestTransformHierarchyWorldPosition", TestTransformHierarchyWorldPosition);
 MYENGINE_REGISTER_TEST("Camera", "TestCameraViewportProjectionStability", TestCameraViewportProjectionStability);
 MYENGINE_REGISTER_TEST("Camera", "TestSceneViewportControllerRayStability", TestSceneViewportControllerRayStability);
-MYENGINE_REGISTER_TEST("Scene", "TestDefaultSceneFactoryPopulatesScriptedDemo", TestDefaultSceneFactoryPopulatesScriptedDemo);
+MYENGINE_REGISTER_TEST("Scene", "TestDefaultSceneFactoryLeavesScenesUnmodified", TestDefaultSceneFactoryLeavesScenesUnmodified);
 MYENGINE_REGISTER_TEST("Input", "TestInputBoundaries", TestInputBoundaries);
 MYENGINE_REGISTER_TEST("Input", "TestGamepadStateTransitions", TestGamepadStateTransitions);
 MYENGINE_REGISTER_TEST("Input", "TestInputActionMapJsonAndEvaluation", TestInputActionMapJsonAndEvaluation);

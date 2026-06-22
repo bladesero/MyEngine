@@ -7,7 +7,6 @@
 #include "Editor/EditorCommand.h"
 #include "Editor/EditorContext.h"
 #include "Editor/EditorImGuiBackend.h"
-#include "Editor/EditorLayout.h"
 #include "Editor/EditorPanelHelpers.h"
 #include "Editor/EditorUndoUtil.h"
 #include "Game/SceneRenderHost.h"
@@ -48,9 +47,30 @@ ViewportPanel::ViewportPanel(std::shared_ptr<EditorGizmoState> state)
     : EditorPanel("viewport", "Scene View"), m_State(std::move(state))
 {}
 
-void ViewportPanel::OnImGui()
+int ViewportPanel::GetWindowFlags() const
 {
-    if (IsVisible()) DrawContent();
+#if defined(MYENGINE_ENABLE_IMGUI)
+    return ImGuiWindowFlags_NoScrollbar |
+        ImGuiWindowFlags_NoScrollWithMouse |
+        ImGuiWindowFlags_NoBackground;
+#else
+    return 0;
+#endif
+}
+
+void ViewportPanel::BeforeBegin()
+{
+#if defined(MYENGINE_ENABLE_IMGUI)
+    ImGui::SetNextWindowBgAlpha(0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0.0f, 0.0f});
+#endif
+}
+
+void ViewportPanel::AfterEnd()
+{
+#if defined(MYENGINE_ENABLE_IMGUI)
+    ImGui::PopStyleVar();
+#endif
 }
 
 void ViewportPanel::DropModel(const std::string& path, float screenX, float screenY)
@@ -108,24 +128,6 @@ void ViewportPanel::DrawContent()
     auto* renderHost = context->GetSceneRenderHost();
     if (!sceneViewport || !renderHost) return;
 
-    const ImGuiViewport* viewport = ImGui::GetMainViewport();
-    const EditorPanelRect rect = EditorLayout::Compute(
-        viewport->WorkPos.x, viewport->WorkPos.y,
-        viewport->WorkSize.x, viewport->WorkSize.y).viewport;
-
-    ImGui::SetNextWindowPos({rect.x, rect.y});
-    ImGui::SetNextWindowSize({rect.width, rect.height});
-    ImGui::SetNextWindowBgAlpha(0.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0.0f, 0.0f});
-
-    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoScrollbar |
-        ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoBackground;
-    if (!ImGui::Begin("Scene View", nullptr, flags)) {
-        ImGui::End();
-        ImGui::PopStyleVar();
-        return;
-    }
-
     const ImVec2 imageMin = ImGui::GetCursorScreenPos();
     const ImVec2 imageSize = ImGui::GetContentRegionAvail();
     const bool hovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows);
@@ -168,8 +170,5 @@ void ViewportPanel::DrawContent()
         const ImVec2 mouse = ImGui::GetIO().MousePos;
         m_PickingController.Pick(*context, mouse.x, mouse.y);
     }
-
-    ImGui::End();
-    ImGui::PopStyleVar();
 #endif
 }

@@ -168,7 +168,7 @@ Application::Run()
 
 ## 8. 文档维护说明
 
-早期文档若以 `TriangleLayer` 或多静态库为主线，当前主线为 **`SceneRenderLayer` + `Renderer` + `EditorLayer`**，并以 **`MyEnginePlayer`** 作为无编辑器运行时。`SceneRenderLayer` 现在是薄 facade：viewport/camera/input/picking ray 由 `SceneViewportController` 管理，Renderer/IRenderContext/swapchain/offscreen scene color 由 `SceneRenderHost` 管理，空场景 demo 内容由 `DefaultSceneFactory` 管理。后续增删目录或目标时，请同步更新本节与 `xmake.lua`。
+早期文档若以 `TriangleLayer` 或多静态库为主线，当前主线为 **`SceneRenderLayer` + `Renderer` + `EditorLayer`**，并以 **`MyEnginePlayer`** 作为无编辑器运行时。`SceneRenderLayer` 现在是薄 facade：viewport/camera/input/picking ray 由 `SceneViewportController` 管理，Renderer/IRenderContext/swapchain/offscreen scene color 由 `SceneRenderHost` 管理，`DefaultSceneFactory` 仅保留为空实现的 legacy hook，不再隐式创建 demo actor。后续增删目录或目标时，请同步更新本节与 `xmake.lua`。
 
 ---
 
@@ -230,11 +230,26 @@ flowchart LR
 
 - **Context**：统一暴露 scene layer、render context、window、engine、selection、command stack、project、asset registry、actions 和 typed services。选择状态只保存 `ActorID` 或资产路径。
 - **Services**：`EditorLogService`、`EditorDialogService`、`EditorImportService`、`EditorShaderWatchService` 由 `EditorServiceCollection` 按注册顺序 attach/update，并按逆序 detach。
-- **Panels**：Toolbar、Scene Hierarchy、Viewport、Inspector、Asset Browser、Log 都继承 `EditorPanel`。固定布局由 `EditorLayout` 统一计算。
+- **Panels**：Toolbar、Scene Hierarchy、Viewport、Inspector、Asset Browser、Log 都继承 `EditorPanel`。默认布局由 `EditorLayoutManager` 从 `Config/EditorLayout.default.json` 构建 ImGui DockSpace；用户调整后的 dock/float/window 状态保存到 editor state，不写入 scene。
 - **Inspector**：组件 UI 实现为独立 `EditorInspectorSection`，由 `EditorInspectorRegistry` 按 order 稳定排序。连续属性拖动通过 scene transaction 合并为一次撤销记录。
 - **Actions and commands**：按钮通过 `EditorActionRegistry` 调度；会修改场景的操作进入 `EditorCommandStack`。事务按执行顺序 redo、逆序 undo，新命令会清空 redo。
 - **Viewport controllers**：`EditorPickingController` 负责 screen ray/AABB picking；`EditorGizmoController` 负责 ImGuizmo 适配和 transform transaction。父子局部矩阵遵守行向量关系 `world = local * parentWorld`，因此 `local = world * inverse(parentWorld)`。
 - **Dependency rule**：依赖方向只能是 `Editor -> Game/Scene/Assets/Renderer public APIs`。Runtime、Renderer 和 RHI 不允许反向包含 Editor 头文件。
+**Editor UI foundation**: `EditorUIScaleManager` owns platform DPI and user UI
+scale; `EditorFontManager` owns ImGui font-atlas rebuilds and role fonts
+(`Inter` for UI, `JetBrains Mono` for logs, `Font Awesome` for icons);
+`EditorThemeManager` applies centralized
+color, rounding, and spacing tokens; `EditorWidgets` provides shared toolbar,
+section, property-row, icon-button, and inline-message wrappers. UI scale and
+theme are per-user `EditorWorkspace` preferences and never dirty scenes or
+project runtime resources.
+Editor design-system code lives under `src/Editor/UI`: scale and font managers,
+theme/style tokens, text/icon tokens, widgets, property grids, notifications,
+and the fixed status bar. The main menubar and status bar are viewport-fixed
+editor chrome, not dock panels; `EditorLayoutManager` reserves their height
+before building the DockSpace. The top `Toolbar` remains a dock panel and is
+limited to play controls.
+
 # RHI and frame graph boundary
 
 Runtime rendering follows `Render Pass -> RenderGraph -> IRHIDevice/GpuCommandList -> backend`.

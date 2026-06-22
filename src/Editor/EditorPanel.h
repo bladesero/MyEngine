@@ -22,6 +22,7 @@ public:
     virtual void OnImGui();
     const std::string& GetID() const { return m_ID; }
     const std::string& GetTitle() const { return m_Title; }
+    std::string GetStableWindowName() const;
     bool IsVisible() const { return m_Visible; }
     void SetVisible(bool value) { m_Visible = value; }
 
@@ -30,6 +31,9 @@ public:
 
 protected:
     virtual void DrawContent() = 0;
+    virtual int GetWindowFlags() const { return 0; }
+    virtual void BeforeBegin() {}
+    virtual void AfterEnd() {}
     EditorContext* GetContext() const { return m_Context; }
 
     // Call inside a context-menu popup (after BeginPopup returned true).

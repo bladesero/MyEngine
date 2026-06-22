@@ -13,6 +13,7 @@
 #include "Editor/EditorInspectorSection.h"
 #include "Editor/EditorPanelHelpers.h"
 #include "Editor/EditorUndoUtil.h"
+#include "Editor/UI/EditorWidgets.h"
 #include "Physics/BoxColliderComponent.h"
 #include "Physics/CapsuleColliderComponent.h"
 #include "Physics/CharacterControllerComponent.h"
@@ -41,6 +42,7 @@
 
 namespace {
 using namespace EditorPanelHelpers;
+namespace EditorWidgets = Editor::UI::EditorWidgets;
 
 constexpr const char kTexturePayload[] = "MYENGINE_TEXTURE_PATH";
 
@@ -477,11 +479,31 @@ public:
         if (!actor) return;
 
         ImGui::Separator();
-        ImGui::TextUnformatted("Transform");
+        if (!EditorWidgets::SectionHeader("Transform")) return;
         Transform& transform = actor->GetTransform();
-        DrawVec3("Position", transform.position, 0.05f);
-        DrawVec3("Rotation", transform.rotation, 0.2f);
-        DrawVec3("Scale", transform.scale, 0.05f);
+        EditorWidgets::BeginPropertyGrid("TransformProperties");
+        if (EditorWidgets::BeginPropertyRow("Position")) {
+            float value[3] = {transform.position.x, transform.position.y, transform.position.z};
+            if (ImGui::DragFloat3("##Value", value, 0.05f)) {
+                transform.position = {value[0], value[1], value[2]};
+            }
+            EditorWidgets::EndPropertyRow();
+        }
+        if (EditorWidgets::BeginPropertyRow("Rotation")) {
+            float value[3] = {transform.rotation.x, transform.rotation.y, transform.rotation.z};
+            if (ImGui::DragFloat3("##Value", value, 0.2f)) {
+                transform.rotation = {value[0], value[1], value[2]};
+            }
+            EditorWidgets::EndPropertyRow();
+        }
+        if (EditorWidgets::BeginPropertyRow("Scale")) {
+            float value[3] = {transform.scale.x, transform.scale.y, transform.scale.z};
+            if (ImGui::DragFloat3("##Value", value, 0.05f)) {
+                transform.scale = {value[0], value[1], value[2]};
+            }
+            EditorWidgets::EndPropertyRow();
+        }
+        EditorWidgets::EndPropertyGrid();
     }
 };
 
@@ -498,7 +520,10 @@ public:
 
         ImGui::Separator();
         ImGui::PushID("MeshRenderer");
-        ImGui::TextUnformatted("Mesh Renderer");
+        if (!EditorWidgets::SectionHeader("Mesh Renderer")) {
+            ImGui::PopID();
+            return;
+        }
         DrawEnabled(*renderer);
 
         std::vector<std::string> meshes {
@@ -532,7 +557,7 @@ public:
             ImGui::EndCombo();
         }
 
-        if (ImGui::Button("Remove Mesh Renderer")) {
+        if (EditorWidgets::IconButton("RemoveMeshRenderer", "X", "Remove Mesh Renderer")) {
             actor->RemoveComponent<MeshRendererComponent>();
         }
         ImGui::PopID();
@@ -552,10 +577,13 @@ public:
 
         ImGui::Separator();
         ImGui::PushID("SkinnedMesh");
-        ImGui::TextUnformatted("Skinned Mesh Renderer");
+        if (!EditorWidgets::SectionHeader("Skinned Mesh Renderer")) {
+            ImGui::PopID();
+            return;
+        }
         DrawEnabled(*skinned);
 
-        if (ImGui::Button("Remove Skinned Mesh")) {
+        if (EditorWidgets::IconButton("RemoveSkinnedMesh", "X", "Remove Skinned Mesh")) {
             actor->RemoveComponent<SkinnedMeshRendererComponent>();
         }
         ImGui::PopID();
@@ -575,7 +603,10 @@ public:
 
         ImGui::Separator();
         ImGui::PushID("Material");
-        ImGui::TextUnformatted("Material Instance");
+        if (!EditorWidgets::SectionHeader("Material Instance")) {
+            ImGui::PopID();
+            return;
+        }
         auto* mat = renderer->GetMaterial().Get();
         if (!mat) { ImGui::PopID(); return; }
 
@@ -597,7 +628,10 @@ public:
 
         ImGui::Separator();
         ImGui::PushID("AudioSource");
-        ImGui::TextUnformatted("Audio Source");
+        if (!EditorWidgets::SectionHeader("Audio Source")) {
+            ImGui::PopID();
+            return;
+        }
         DrawEnabled(*source);
 
         std::vector<std::string> clips = AssetManager::Get().GetCachedPathsByType(AssetType::AudioClip);
@@ -639,7 +673,8 @@ public:
         if (ImGui::DragFloat("Max Distance", &maxDistance, 0.1f, 0.01f, 10000.0f))
             source->SetMaxDistance(maxDistance);
 
-        if (ImGui::Button("Remove Audio Source")) actor->RemoveComponent<AudioSourceComponent>();
+        if (EditorWidgets::IconButton("RemoveAudioSource", "X", "Remove Audio Source"))
+            actor->RemoveComponent<AudioSourceComponent>();
         ImGui::PopID();
     }
 };
@@ -663,7 +698,10 @@ public:
 
         ImGui::Separator();
         ImGui::PushID("Physics");
-        ImGui::TextUnformatted("Physics");
+        if (!EditorWidgets::SectionHeader("Physics")) {
+            ImGui::PopID();
+            return;
+        }
         bool changed = false;
 
         if (rb) {
@@ -693,7 +731,8 @@ public:
             Vec3 linearLocks = rb->GetLinearAxisLocks(), angularLocks = rb->GetAngularAxisLocks();
             if (DrawVec3("Linear Axis Locks", linearLocks, 1.0f)) { rb->SetLinearAxisLocks(linearLocks); changed = true; }
             if (DrawVec3("Angular Axis Locks", angularLocks, 1.0f)) { rb->SetAngularAxisLocks(angularLocks); changed = true; }
-            if (ImGui::Button("Remove RigidBody")) actor->RemoveComponent<RigidBodyComponent>();
+            if (EditorWidgets::IconButton("RemoveRigidBody", "X", "Remove RigidBody"))
+                actor->RemoveComponent<RigidBodyComponent>();
         }
 
         const auto drawCollider = [&](ColliderComponent& collider) {
@@ -710,7 +749,8 @@ public:
             Vec3 half = box->GetHalfExtents();
             if (DrawVec3("HalfExtents", half, 0.05f)) { box->SetHalfExtents(half); changed = true; }
             drawCollider(*box);
-            if (ImGui::Button("Remove Box Collider")) actor->RemoveComponent<BoxColliderComponent>();
+            if (EditorWidgets::IconButton("RemoveBoxCollider", "X", "Remove Box Collider"))
+                actor->RemoveComponent<BoxColliderComponent>();
         }
 
         if (sphere) {
@@ -719,7 +759,8 @@ public:
             float radius = sphere->GetRadius();
             if (ImGui::DragFloat("Radius", &radius, 0.05f, 0.01f, 100.0f)) { sphere->SetRadius(radius); changed = true; }
             drawCollider(*sphere);
-            if (ImGui::Button("Remove Sphere Collider")) actor->RemoveComponent<SphereColliderComponent>();
+            if (EditorWidgets::IconButton("RemoveSphereCollider", "X", "Remove Sphere Collider"))
+                actor->RemoveComponent<SphereColliderComponent>();
         }
         if (capsule) {
             ImGui::TextUnformatted("Capsule Collider"); DrawEnabled(*capsule);
@@ -727,7 +768,8 @@ public:
             if (ImGui::DragFloat("Capsule Radius", &radius, 0.05f, 0.01f, 100.0f)) { capsule->SetRadius(radius); changed = true; }
             if (ImGui::DragFloat("Capsule Half Height", &halfHeight, 0.05f, 0.0f, 100.0f)) { capsule->SetHalfHeight(halfHeight); changed = true; }
             drawCollider(*capsule);
-            if (ImGui::Button("Remove Capsule Collider")) actor->RemoveComponent<CapsuleColliderComponent>();
+            if (EditorWidgets::IconButton("RemoveCapsuleCollider", "X", "Remove Capsule Collider"))
+                actor->RemoveComponent<CapsuleColliderComponent>();
         }
         if (character) {
             ImGui::TextUnformatted("Character Controller"); DrawEnabled(*character);
@@ -735,7 +777,8 @@ public:
             if (ImGui::Checkbox("Character Gravity", &gravity)) { character->SetUseGravity(gravity); changed = true; }
             if (ImGui::DragFloat("Step Offset", &step, 0.01f, 0.0f, 10.0f)) { character->SetStepOffset(step); changed = true; }
             if (ImGui::SliderFloat("Max Slope Angle", &slope, 0.0f, 89.0f)) { character->SetMaxSlopeAngle(slope); changed = true; }
-            if (ImGui::Button("Remove Character Controller")) actor->RemoveComponent<CharacterControllerComponent>();
+            if (EditorWidgets::IconButton("RemoveCharacterController", "X", "Remove Character Controller"))
+                actor->RemoveComponent<CharacterControllerComponent>();
         }
         if (changed) context.MarkSceneDirty();
         ImGui::PopID();
@@ -755,7 +798,10 @@ public:
 
         ImGui::Separator();
         ImGui::PushID("Light");
-        ImGui::TextUnformatted("Light");
+        if (!EditorWidgets::SectionHeader("Light")) {
+            ImGui::PopID();
+            return;
+        }
         DrawEnabled(*light);
 
         int type = static_cast<int>(light->GetLightType());
@@ -773,7 +819,8 @@ public:
         }
         Vec3 direction = light->GetDirection();
         if (DrawVec3("Direction", direction, 0.02f)) light->SetDirection(direction);
-        if (ImGui::Button("Remove Light")) actor->RemoveComponent<LightComponent>();
+        if (EditorWidgets::IconButton("RemoveLight", "X", "Remove Light"))
+            actor->RemoveComponent<LightComponent>();
         ImGui::PopID();
     }
 };
@@ -791,7 +838,10 @@ public:
 
         ImGui::Separator();
         ImGui::PushID("PostProcess");
-        ImGui::TextUnformatted("Post Process");
+        if (!EditorWidgets::SectionHeader("Post Process")) {
+            ImGui::PopID();
+            return;
+        }
         float exposure = post->GetExposure();
         float gamma = post->GetGamma();
         float ssao = post->GetSSAOIntensity();
@@ -806,7 +856,7 @@ public:
         if (ImGui::DragFloat("Bloom", &bloom, 0.02f, 0.0f, 8.0f)) {
             post->SetBloomIntensity(bloom);
         }
-        if (ImGui::Button("Remove Post Process")) {
+        if (EditorWidgets::IconButton("RemovePostProcess", "X", "Remove Post Process")) {
             actor->RemoveComponent<PostProcessComponent>();
         }
         ImGui::PopID();

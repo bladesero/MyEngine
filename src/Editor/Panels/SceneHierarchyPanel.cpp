@@ -4,7 +4,6 @@
 #include "Editor/EditorContext.h"
 #include "Editor/EditorAssetRegistry.h"
 #include "Editor/EditorImportService.h"
-#include "Editor/EditorLayout.h"
 #include "Editor/EditorUndoUtil.h"
 #include "Editor/EditorDragDrop.h"
 #include "Scene/Actor.h"
@@ -156,11 +155,6 @@ SceneHierarchyPanel::SceneHierarchyPanel():EditorPanel("sceneHierarchy","Scene O
     });
 }
 
-void SceneHierarchyPanel::OnImGui()
-{
-    if (IsVisible()) DrawContent();
-}
-
 void SceneHierarchyPanel::DrawToolbar(){
 #if defined(MYENGINE_ENABLE_IMGUI)
     ImGui::InputTextWithHint("##Search","Search...",m_SearchFilter,sizeof(m_SearchFilter));
@@ -260,8 +254,13 @@ void SceneHierarchyPanel::DrawActor(Actor* actor){
         }
 
         // Context menu
-        m_ActorRightClicked = false;
-        if (EditorContextMenu::DetectItem("##ActorCtx")) m_ActorRightClicked = true;
+        if (EditorContextMenu::DetectItem("##ActorCtx")) {
+            m_ActorRightClicked = true;
+            if (!isSelected) {
+                context->GetSelection().Select(
+                    EditorSelectObject::MakeActor(actor->GetHandle(), actor->GetID()));
+            }
+        }
         {
             EditorContextMenu actorMenu("##ActorCtx");
             if (actorMenu.IsOpen()) {
@@ -386,13 +385,6 @@ void SceneHierarchyPanel::DrawContent(){
 #if defined(MYENGINE_ENABLE_IMGUI)
     auto* context=GetContext();Scene* scene=context?context->GetScene():nullptr;
     if(!scene)return;
-    const auto* viewport=ImGui::GetMainViewport();
-    const auto rect=EditorLayout::Compute(
-        viewport->WorkPos.x,viewport->WorkPos.y,
-        viewport->WorkSize.x,viewport->WorkSize.y).outliner;
-    ImGui::SetNextWindowPos({rect.x,rect.y});
-    ImGui::SetNextWindowSize({rect.width,rect.height});
-    ImGui::Begin("Scene Outliner");
 
     ImGui::BeginDisabled(!context->IsEditing());
     DrawToolbar();
@@ -418,6 +410,6 @@ void SceneHierarchyPanel::DrawContent(){
     }
     HandleDragDropTarget(nullptr);
 
-    ImGui::EndDisabled();ImGui::End();
+    ImGui::EndDisabled();
 #endif
 }

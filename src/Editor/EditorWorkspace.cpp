@@ -1,5 +1,7 @@
 #include "Editor/EditorWorkspace.h"
 
+#include "Editor/UI/EditorTheme.h"
+#include "Editor/UI/EditorUIScaleManager.h"
 #include "Input/InputActionMap.h"
 #include "Project/ProjectConfig.h"
 #include "Project/PublishTargets.h"
@@ -98,6 +100,8 @@ bool EditorWorkspace::Load(std::string* error) {
     if (error) error->clear();
     m_RecentProjects.clear();
     m_Shortcuts.ResetDefaults();
+    m_UserUiScale = 1.0f;
+    m_EditorThemeId = "dark";
     std::error_code ec;
     if (!fs::exists(m_SettingsPath, ec)) return true;
     try {
@@ -119,6 +123,10 @@ bool EditorWorkspace::Load(std::string* error) {
             m_Shortcuts.LoadOverrides(*shortcuts, &warning);
             if (!warning.empty()) SetError(error, warning);
         }
+        m_UserUiScale = Editor::UI::EditorUIScaleManager::ClampUserScale(
+            json.value("userUiScale", m_UserUiScale));
+        m_EditorThemeId = Editor::UI::EditorThemeManager::NormalizeThemeID(
+            json.value("editorThemeId", m_EditorThemeId));
     }
     catch (const std::exception& exception) {
         SetError(error, "failed to load workspace: " + std::string(exception.what()));
@@ -143,6 +151,8 @@ bool EditorWorkspace::Save(std::string* error) const {
             json["recentProjects"].push_back(project.string());
         }
         json["shortcuts"] = m_Shortcuts.SaveOverrides();
+        json["userUiScale"] = m_UserUiScale;
+        json["editorThemeId"] = m_EditorThemeId;
         std::ofstream output(m_SettingsPath);
         if (!output) {
             SetError(error, "failed to write workspace: " + m_SettingsPath.string());
@@ -175,6 +185,14 @@ void EditorWorkspace::SetTemplateRoot(fs::path templateRoot) {
     std::error_code ec;
     m_TemplateRoot = fs::absolute(std::move(templateRoot), ec).lexically_normal();
     if (ec) m_TemplateRoot.clear();
+}
+
+void EditorWorkspace::SetUserUiScale(float value) {
+    m_UserUiScale = Editor::UI::EditorUIScaleManager::ClampUserScale(value);
+}
+
+void EditorWorkspace::SetEditorThemeId(std::string value) {
+    m_EditorThemeId = Editor::UI::EditorThemeManager::NormalizeThemeID(value);
 }
 
 bool EditorWorkspace::CreateProject(const fs::path& projectRoot,

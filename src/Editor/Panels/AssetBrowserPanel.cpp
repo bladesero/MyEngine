@@ -12,7 +12,6 @@
 #include "Editor/EditorDialogService.h"
 #include "Editor/EditorDragDrop.h"
 #include "Editor/EditorImportService.h"
-#include "Editor/EditorLayout.h"
 #include "Editor/EditorPanelHelpers.h"
 #include "Editor/EditorProject.h"
 #if defined(MYENGINE_ENABLE_IMGUI)
@@ -37,7 +36,6 @@ std::string ReadFileContent(const std::string& path) {
 AssetBrowserPanel::AssetBrowserPanel():EditorPanel("assetBrowser","Asset Browser"){}
 void AssetBrowserPanel::OnAttach(EditorContext& context){EditorPanel::OnAttach(context);if(context.GetAssetRegistry())context.GetAssetRegistry()->Refresh();}
 void AssetBrowserPanel::OnUpdate(float dt){(void)dt;auto* registry=GetContext()?GetContext()->GetAssetRegistry():nullptr;if(registry)registry->WatchForChanges();}
-void AssetBrowserPanel::OnImGui(){if(IsVisible())DrawContent();}
 
 void AssetBrowserPanel::DeleteSelectedAsset() {
     auto* context = GetContext();
@@ -115,7 +113,7 @@ void AssetBrowserPanel::RenameSelectedAsset() {
 
 void AssetBrowserPanel::DrawContent(){
 #if defined(MYENGINE_ENABLE_IMGUI)
-    using namespace EditorPanelHelpers;auto* context=GetContext();auto* registry=context?context->GetAssetRegistry():nullptr;if(!registry)return;const auto* viewport=ImGui::GetMainViewport();const auto rect=EditorLayout::Compute(viewport->WorkPos.x,viewport->WorkPos.y,viewport->WorkSize.x,viewport->WorkSize.y).assetBrowser;ImGui::SetNextWindowPos({rect.x,rect.y});ImGui::SetNextWindowSize({rect.width,rect.height});ImGui::Begin("Asset Browser");
+    using namespace EditorPanelHelpers;auto* context=GetContext();auto* registry=context?context->GetAssetRegistry():nullptr;if(!registry)return;
 
     // Toolbar: Refresh | Import | Create Material / Texture / Script
     if(ImGui::Button("Refresh"))registry->Refresh();ImGui::SameLine();
@@ -217,6 +215,5 @@ void AssetBrowserPanel::DrawContent(){
         ImGui::EndPopup();
     }
 
-    ImGui::End();
 #endif
 }

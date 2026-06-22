@@ -9,10 +9,14 @@
 #include "Editor/EditorDialogService.h"
 #include "Editor/EditorImportService.h"
 #include "Editor/EditorLogService.h"
+#include "Editor/EditorLayoutManager.h"
 #include "Editor/EditorLuaScriptService.h"
 #include "Editor/EditorProject.h"
 #include "Editor/EditorShaderWatchService.h"
 #include "Editor/EditorService.h"
+#include "Editor/UI/EditorStatusBar.h"
+#include "Editor/UI/EditorTheme.h"
+#include "Editor/UI/EditorUIScaleManager.h"
 #include "Editor/EditorWorkspace.h"
 #include "Editor/EditorImGuiBackend.h"
 
@@ -58,8 +62,17 @@ private:
     void DrawGraphicsSettingsTab();
     void DrawGameplayInputSettingsTab();
     void DrawShortcutSettingsTab();
+    void DrawLayoutSettingsTab();
+    void DrawAppearanceSettingsTab();
+    void DrawMainMenuBar();
+    float DrawStatusBar();
+    std::string GetSelectedStatusText() const;
+    std::string GetBackendStatusText() const;
     void OpenProjectSettings();
     void ShowProjectResult(std::string message, bool error);
+    void SaveEditorLayout();
+    void ResetEditorLayoutToDefault();
+    void RevealEditorLayoutConfig();
     void LoadProjectInputConfig();
     void CreateDefaultInputConfig();
     void DispatchEditorShortcuts();
@@ -94,6 +107,10 @@ private:
     EditorShaderWatchService m_ShaderWatchService;
     EditorServiceCollection m_ServiceCollection;
     EditorActionRegistry m_ActionRegistry;
+    EditorLayoutManager m_LayoutManager;
+    Editor::UI::EditorUIScaleManager m_UIScaleManager;
+    Editor::UI::EditorThemeManager m_ThemeManager;
+    Editor::UI::EditorStatusBar m_StatusBar;
     std::vector<std::unique_ptr<EditorPanel>> m_Panels;
     std::unique_ptr<EditorImGuiBackend> m_ImGuiBackend;
     std::unique_ptr<IPlatformEventBridge> m_ImGuiEventBridge;

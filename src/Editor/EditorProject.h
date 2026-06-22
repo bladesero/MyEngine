@@ -4,17 +4,25 @@
 
 #include <filesystem>
 #include <string>
+#include <unordered_map>
 
 struct EditorProjectState {
     std::string lastScenePath;
     std::string selectedAssetPath;
     std::string lastOpenDirectory;
+    std::string imguiLayoutIni;
+    std::string activeLayoutName = "default";
+    std::unordered_map<std::string, bool> panelVisibility;
     bool showToolbar = true;
     bool showSceneHierarchy = true;
     bool showViewport = true;
     bool showInspector = true;
     bool showAssetBrowser = true;
     bool showLog = true;
+
+    bool IsPanelVisible(const std::string& panelID) const;
+    void SetPanelVisible(const std::string& panelID, bool visible);
+    void SyncLegacyPanelFields();
 };
 
 class EditorProject {

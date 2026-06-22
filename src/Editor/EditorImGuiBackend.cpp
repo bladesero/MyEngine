@@ -110,6 +110,7 @@ void EditorImGuiBackend::Shutdown() {
 
     ImGui_ImplSDL3_Shutdown();
     m_Initialized = false;
+    m_FontTextureRebuildPending = false;
 #endif
 }
 
@@ -127,6 +128,9 @@ void EditorImGuiBackend::BeginFrame() {
     const ImGuiBackendHandles handles = m_Interop->GetImGuiBackendHandles();
 
 #if defined(MYENGINE_PLATFORM_WINDOWS)
+    if (m_FontTextureRebuildPending && RebuildFontTextureNow()) {
+        m_FontTextureRebuildPending = false;
+    }
     if (handles.backend == RHIBackend::D3D12) {
         ImGui_ImplDX12_NewFrame();
     } else {
@@ -160,6 +164,27 @@ void EditorImGuiBackend::RenderDrawData(ImDrawData* drawData) {
         ImGui_ImplDX11_RenderDrawData(drawData);
     }
 #endif
+#endif
+}
+
+bool EditorImGuiBackend::RebuildFontTexture() {
+    if (!m_Initialized || !m_Interop) return false;
+    m_FontTextureRebuildPending = true;
+    return true;
+}
+
+bool EditorImGuiBackend::RebuildFontTextureNow() {
+#if defined(MYENGINE_ENABLE_IMGUI) && defined(MYENGINE_PLATFORM_WINDOWS)
+    if (!m_Initialized || !m_Interop) return false;
+    const ImGuiBackendHandles handles = m_Interop->GetImGuiBackendHandles();
+    if (handles.backend == RHIBackend::D3D12) {
+        ImGui_ImplDX12_InvalidateDeviceObjects();
+        return ImGui_ImplDX12_CreateDeviceObjects();
+    }
+    ImGui_ImplDX11_InvalidateDeviceObjects();
+    return ImGui_ImplDX11_CreateDeviceObjects();
+#else
+    return false;
 #endif
 }
 

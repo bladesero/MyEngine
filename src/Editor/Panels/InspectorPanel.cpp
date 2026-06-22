@@ -3,7 +3,6 @@
 #include "Editor/EditorContext.h"
 #include "Editor/EditorCommand.h"
 #include "Editor/EditorInspectorSection.h"
-#include "Editor/EditorLayout.h"
 #include "Editor/InspectorSections.h"
 #include "Core/Logger.h"
 #include "Scene/Actor.h"
@@ -64,25 +63,12 @@ void InspectorPanel::OnSelectionChanged(const EditorSelectionChangedEvent& event
     m_Transaction.Cancel();
 }
 
-void InspectorPanel::OnImGui()
-{
-    if (IsVisible()) DrawContent();
-}
-
 void InspectorPanel::DrawContent()
 {
 #if defined(MYENGINE_ENABLE_IMGUI)
     EditorContext* context = GetContext();
     Scene* scene = context ? context->GetScene() : nullptr;
     if (!scene) return;
-
-    const ImGuiViewport* viewport = ImGui::GetMainViewport();
-    const EditorPanelRect rect = EditorLayout::Compute(
-        viewport->WorkPos.x, viewport->WorkPos.y,
-        viewport->WorkSize.x, viewport->WorkSize.y).inspector;
-    ImGui::SetNextWindowPos({rect.x, rect.y});
-    ImGui::SetNextWindowSize({rect.width, rect.height});
-    ImGui::Begin("Inspector");
 
     Actor* actor = m_SelectedObject.IsActor()
         ? context->GetSelection().ResolveActor(*scene) : nullptr;
@@ -107,7 +93,7 @@ void InspectorPanel::DrawContent()
         ImGui::SameLine();if(ImGui::Button("Revert All")){refreshed=PrefabSystem::RevertAll(*actor,&error);if(!refreshed)Logger::Warn("[Editor] Revert prefab failed: ",error);}
         ImGui::SameLine();if(ImGui::Button("Unpack")){if(!PrefabSystem::Unpack(*actor,&error))Logger::Warn("[Editor] Unpack prefab failed: ",error);else context->MarkSceneDirty();}
         ImGui::SameLine();if(ImGui::Button("Select Source"))context->GetSelection().SelectAssetPath(PrefabSystem::ResolvePrefabPath(actor->GetPrefabAssetPath()).string());
-        if(refreshed){context->MarkSceneDirty();actor=context->GetSelection().ResolveActor(*scene);if(!actor){ImGui::EndDisabled();ImGui::End();return;}}
+        if(refreshed){context->MarkSceneDirty();actor=context->GetSelection().ResolveActor(*scene);if(!actor){ImGui::EndDisabled();return;}}
         ImGui::Separator();
     }
     if (actor) {
@@ -147,7 +133,5 @@ void InspectorPanel::DrawContent()
             m_Transaction.Commit(*context);
         }
     }
-
-    ImGui::End();
 #endif
 }

@@ -25,12 +25,16 @@ public:
     void ProcessSDLEvent(const SDL_Event& event);
     void BeginFrame();
     void RenderDrawData(ImDrawData* drawData);
+    bool RebuildFontTexture();
     void* GetTextureId(GpuTextureView* view);
 
     bool IsInitialized() const { return m_Initialized; }
 
 private:
+    bool RebuildFontTextureNow();
+
     IEditorImGuiRHIInterop* m_Interop = nullptr;
     IWindow* m_Window = nullptr;
     bool m_Initialized = false;
+    bool m_FontTextureRebuildPending = false;
 };

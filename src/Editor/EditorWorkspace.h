@@ -26,6 +26,10 @@ public:
     const std::filesystem::path& GetTemplateRoot() const { return m_TemplateRoot; }
     EditorShortcutMap& GetShortcuts() { return m_Shortcuts; }
     const EditorShortcutMap& GetShortcuts() const { return m_Shortcuts; }
+    float GetUserUiScale() const { return m_UserUiScale; }
+    void SetUserUiScale(float value);
+    const std::string& GetEditorThemeId() const { return m_EditorThemeId; }
+    void SetEditorThemeId(std::string value);
 
 private:
     static std::filesystem::path DefaultSettingsPath();
@@ -34,4 +38,6 @@ private:
     std::filesystem::path m_TemplateRoot;
     std::vector<std::filesystem::path> m_RecentProjects;
     EditorShortcutMap m_Shortcuts = EditorShortcutMap::CreateDefault();
+    float m_UserUiScale = 1.0f;
+    std::string m_EditorThemeId = "dark";
 };
