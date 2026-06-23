@@ -81,8 +81,12 @@ public:
     void EndRendering();
     std::shared_ptr<GpuGraphicsPipeline> CreateGraphicsPipeline(
         const GraphicsPipelineDesc& desc) override;
+    std::shared_ptr<GpuComputePipeline> CreateComputePipeline(
+        const ComputePipelineDesc& desc) override;
     void SetGraphicsPipeline(GpuGraphicsPipeline* pipeline);
+    void SetComputePipeline(GpuComputePipeline* pipeline);
     void SetBindGroup(GpuBindGroup* group);
+    void Dispatch(uint32_t x, uint32_t y = 1, uint32_t z = 1);
     std::shared_ptr<GpuTexture> UploadTexture2D(
         const void* rgba8Data, int width, int height) override;
     std::shared_ptr<GpuTexture> CreateTexture(const RHITextureDesc& desc) override;

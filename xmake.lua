@@ -61,8 +61,6 @@ add_requires("joltphysics v5.5.0", { configs = {
     cross_platform_deterministic = false
 } })
 add_requires("angelscript 2.38.0")
-add_requires("slang v2025.6.3", { configs = { slangc = true, gfx = false, slangd = false, slangrt = false } })
-
 -- Must live in rule after_build: root xmake.lua locals use project-scope `os` (no os.cp).
 rule("copy_game_content")
     after_build(function (target)
@@ -82,26 +80,35 @@ rule_end()
 
 rule("copy_slang_tool")
     after_build(function (target)
-        local pkg = target:pkg("slang")
-        if not pkg then
+        local exe = is_plat("windows") and "slangc.exe" or "slangc"
+        local slangc = os.getenv("MYENGINE_SLANGC")
+        if not slangc or slangc == "" then
+            local pathenv = os.getenv("PATH") or ""
+            local separator = is_plat("windows") and ";" or ":"
+            for dir in pathenv:gmatch("[^" .. separator .. "]+") do
+                local candidate = path.join(dir, exe)
+                if os.isfile(candidate) then
+                    slangc = candidate
+                    break
+                end
+            end
+        end
+        if not slangc or slangc == "" or not os.isfile(slangc) then
             return
         end
-        local installdir = pkg:installdir()
         local destdir = target:targetdir()
-        local exe = is_plat("windows") and "slangc.exe" or "slangc"
-        local slangc = path.join(installdir, "bin", exe)
-        if os.isfile(slangc) then
-            os.cp(slangc, destdir)
-        end
+        os.cp(slangc, destdir)
+        local bindir = path.directory(slangc)
+        local installdir = path.directory(bindir)
         if is_plat("windows") then
-            for _, dll in ipairs(os.files(path.join(installdir, "bin", "*.dll"))) do
+            for _, dll in ipairs(os.files(path.join(bindir, "*.dll"))) do
                 os.cp(dll, destdir)
             end
         elseif is_plat("macosx") then
             for _, dylib in ipairs(os.files(path.join(installdir, "lib", "*.dylib"))) do
                 os.cp(dylib, destdir)
             end
-            for _, dylib in ipairs(os.files(path.join(installdir, "bin", "*.dylib"))) do
+            for _, dylib in ipairs(os.files(path.join(bindir, "*.dylib"))) do
                 os.cp(dylib, destdir)
             end
         end
@@ -180,7 +187,7 @@ target_end()
 target("MyEngineRuntime")
     set_kind("shared")
     set_basename("runtime")
-    add_rules("copy_sdl_runtime", "copy_slang_tool")
+    add_rules("copy_sdl_runtime")
     add_files(
         "src/Runtime/RuntimeModule.cpp",
         "src/Runtime/Project/ProjectConfig.cpp",
@@ -308,7 +315,6 @@ target("MyEngineRuntime")
     add_packages("tinyobjloader")
     add_packages("joltphysics", { public = true })
     add_packages("angelscript", { public = true })
-    add_packages("slang")
     add_includedirs("thirdparty")
     add_packages("imgui", { public = true })
 
@@ -417,7 +423,6 @@ target("MyEngineEditor")
     add_deps("MyEngineIconTool")
     add_deps("Lua")
     add_packages("tinyobjloader")
-    add_packages("slang")
     add_defines("MYENGINE_ENABLE_IMGUI")
     add_defines("MYENGINE_BUILD_ID=dev_0_1_0")
     if is_mode("release") then
@@ -438,13 +443,12 @@ target_end()
 
 target("MyEnginePlayer")
     set_kind("binary")
-    add_rules("copy_game_content", "copy_sdl_runtime", "copy_slang_tool", "copy_runtime_library")
+    add_rules("copy_game_content", "copy_sdl_runtime", "copy_runtime_library")
     add_files("player_main.cpp")
     add_includedirs("src")
     add_deps("MyEngineRuntime")
     add_deps("MyEngineIconTool")
     add_packages("libsdl3")
-    add_packages("slang")
     add_defines("MYENGINE_ENABLE_IMGUI")
     if is_plat("windows") then
         add_files("src/Runtime/Miscs/Resources/MyEnginePlayer.rc")
@@ -465,7 +469,6 @@ target("MyEngineCooker")
     add_deps("MyEngineRuntime")
     add_deps("MyEngineIconTool")
     add_packages("nlohmann_json")
-    add_packages("slang")
     add_defines("MYENGINE_BUILD_ID=dev_0_1_0")
     if is_mode("release") then
         add_defines("MYENGINE_BUILD_CONFIGURATION=release")
@@ -550,7 +553,6 @@ target("MyEngineTests")
     add_deps("Lua")
     add_options("mem_stats", "mem_tracking", "mem_guard")
     add_packages("tinyobjloader")
-    add_packages("slang")
     add_defines("MYENGINE_ENABLE_IMGUI")
     add_defines("MYENGINE_BUILD_ID=dev_0_1_0")
     if is_mode("release") then

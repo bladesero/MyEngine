@@ -55,6 +55,48 @@ float4 PSMain(VSOut input) : SV_Target
 }
 )";
 
+const char* kUIShaderMetal = R"(
+#include <metal_stdlib>
+using namespace metal;
+
+struct UIScreenConstants {
+    float2 u_InvSize;
+    float2 u_Padding;
+};
+
+struct VSIn {
+    float2 position [[attribute(0)]];
+    float2 uv       [[attribute(1)]];
+    float4 color    [[attribute(2)]];
+};
+
+struct VSOut {
+    float4 position [[position]];
+    float2 uv;
+    float4 color;
+};
+
+vertex VSOut VSMain(VSIn input [[stage_in]],
+                    constant UIScreenConstants& UIScreenConstants [[buffer(0)]])
+{
+    VSOut output;
+    float2 p = input.position + UIScreenConstants.u_Padding;
+    output.position = float4(p.x * UIScreenConstants.u_InvSize.x * 2.0 - 1.0,
+                             1.0 - p.y * UIScreenConstants.u_InvSize.y * 2.0,
+                             0.0, 1.0);
+    output.uv = input.uv;
+    output.color = input.color;
+    return output;
+}
+
+fragment float4 PSMain(VSOut input [[stage_in]],
+                       texture2d<float> u_Texture [[texture(0)]])
+{
+    constexpr sampler u_Sampler(filter::linear, address::clamp_to_edge);
+    return u_Texture.sample(u_Sampler, input.uv) * input.color;
+}
+)";
+
 } // namespace
 
 ScreenUIPass::ScreenUIPass(IRHIDevice* device)
@@ -75,7 +117,10 @@ GpuShader* ScreenUIPass::GetOrCreateShader()
         {"TEXCOORD", 0, VertexFormat::Float2, offsetof(UIVertex, u)},
         {"COLOR", 0, VertexFormat::Float4, offsetof(UIVertex, r)},
     };
-    m_Shader = Device()->CreateShader(kUIShader, "VSMain", "PSMain", layout, 3);
+    const char* source = Device()->GetBackend() == RHIBackend::Metal
+        ? kUIShaderMetal
+        : kUIShader;
+    m_Shader = Device()->CreateShader(source, "VSMain", "PSMain", layout, 3);
     if (!m_Shader) Logger::Warn("[ScreenUIPass] Failed to create UI shader");
     return m_Shader.get();
 }

@@ -9,7 +9,7 @@
   "projectId": "a29e010b0df24bbd4391819c4ebbc1741902106680018e86a8b3feda1ee83ae0",
   "publish": {
     "outputDirectory": "Builds",
-    "target": "windows-x64"
+    "target": "macos-arm64"
   },
   "startupScene": "Content/Scenes/Main.scene.json",
   "version": 1

@@ -400,6 +400,8 @@ void ImGui_ImplMetal_DestroyDeviceObjects()
 
 #if TARGET_OS_OSX
 #import <Cocoa/Cocoa.h>
+#include <SDL3/SDL_properties.h>
+#include <SDL3/SDL_video.h>
 #endif
 
 //--------------------------------------------------------------------------------------------------------
@@ -417,16 +419,38 @@ struct ImGuiViewportDataMetal
     bool                        FirstFrame = true;
 };
 
+#if TARGET_OS_OSX
+static NSWindow* ImGui_ImplMetal_GetNSWindowFromViewport(ImGuiViewport* viewport)
+{
+    if (viewport->PlatformHandleRaw)
+        return (__bridge NSWindow*)viewport->PlatformHandleRaw;
+
+    SDL_Window* sdl_window = (SDL_Window*)viewport->PlatformHandle;
+    if (sdl_window == nullptr)
+        return nil;
+
+    SDL_PropertiesID props = SDL_GetWindowProperties(sdl_window);
+    if (props == 0)
+        return nil;
+
+    void* cocoa_window = SDL_GetPointerProperty(props, SDL_PROP_WINDOW_COCOA_WINDOW_POINTER, nullptr);
+    return (__bridge NSWindow*)cocoa_window;
+}
+#endif
+
 static void ImGui_ImplMetal_CreateWindow(ImGuiViewport* viewport)
 {
     ImGui_ImplMetal_Data* bd = ImGui_ImplMetal_GetBackendData();
+#if TARGET_OS_OSX
+    NSWindow* window = ImGui_ImplMetal_GetNSWindowFromViewport(viewport);
+    if (window == nil)
+        return;
+#endif
+
     ImGuiViewportDataMetal* data = IM_NEW(ImGuiViewportDataMetal)();
     viewport->RendererUserData = data;
 
-    // PlatformHandleRaw should always be a NSWindow*, whereas PlatformHandle might be a higher-level handle (e.g. GLFWWindow*, SDL_Window*).
-    // Some back-ends will leave PlatformHandleRaw == 0, in which case we assume PlatformHandle will contain the NSWindow*.
     void* handle = viewport->PlatformHandleRaw ? viewport->PlatformHandleRaw : viewport->PlatformHandle;
-    IM_ASSERT(handle != nullptr);
 
     id<MTLDevice> device = bd->SharedMetalContext.device;
     CAMetalLayer* layer = [CAMetalLayer layer];
@@ -434,7 +458,6 @@ static void ImGui_ImplMetal_CreateWindow(ImGuiViewport* viewport)
     layer.framebufferOnly = YES;
     layer.pixelFormat = bd->SharedMetalContext.framebufferDescriptor.colorPixelFormat;
 #if TARGET_OS_OSX
-    NSWindow* window = (__bridge NSWindow*)handle;
     NSView* view = window.contentView;
     view.layer = layer;
     view.wantsLayer = YES;
@@ -469,8 +492,9 @@ static void ImGui_ImplMetal_RenderWindow(ImGuiViewport* viewport, void*)
     ImGuiViewportDataMetal* data = (ImGuiViewportDataMetal*)viewport->RendererUserData;
 
 #if TARGET_OS_OSX
-    void* handle = viewport->PlatformHandleRaw ? viewport->PlatformHandleRaw : viewport->PlatformHandle;
-    NSWindow* window = (__bridge NSWindow*)handle;
+    NSWindow* window = ImGui_ImplMetal_GetNSWindowFromViewport(viewport);
+    if (window == nil)
+        return;
 
     // Always render the first frame, regardless of occlusionState, to avoid an initial flicker
     if ((window.occlusionState & NSWindowOcclusionStateVisible) == 0 && !data->FirstFrame)

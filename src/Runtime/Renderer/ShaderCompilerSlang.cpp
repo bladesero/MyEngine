@@ -172,6 +172,7 @@ bool ShaderCompilerSlang::CompileStageFromFile(
             << " -entry " << Quote(entry)
             << " -stage " << StageName(stage)
             << " -target " << target;
+    command << " -matrix-layout-row-major";
     if (*profile) command << " -profile " << profile;
     command << " -o " << Quote(output.string());
     for (const auto& define : defines) command << " -D" << Quote(define);

@@ -168,6 +168,18 @@ bool EditorLayer::OpenProject(const std::filesystem::path& root) {
             ? "Failed to open project" : m_Project.GetLastError();
         return false;
     }
+    auto& projectConfig = m_Project.GetConfig();
+    if (projectConfig.GetPublishSettings().target != PublishTargets::kDefaultTargetId) {
+        const std::string oldTarget = projectConfig.GetPublishSettings().target;
+        projectConfig.GetPublishSettings().target = PublishTargets::kDefaultTargetId;
+        std::string saveError;
+        if (projectConfig.Save(&saveError)) {
+            Logger::Warn("[Editor] Updated publish target from '", oldTarget,
+                         "' to '", PublishTargets::kDefaultTargetId, "' for this platform");
+        } else {
+            Logger::Warn("[Editor] Failed to update publish target for this platform: ", saveError);
+        }
+    }
     AssetManager::Get().Clear();
     AssetManager::Get().SetProjectRoot(m_Project.GetRoot());
     LoadProjectInputConfig();

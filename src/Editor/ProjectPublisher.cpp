@@ -61,6 +61,28 @@ std::vector<std::string> RequiredBackendNamesForTarget(const std::string& target
     return {"d3d11", "d3d12"};
 }
 
+const char* ShaderBackendName(ShaderBackend backend)
+{
+    switch (backend) {
+    case ShaderBackend::D3D11: return "d3d11";
+    case ShaderBackend::D3D12: return "d3d12";
+    case ShaderBackend::Metal: return "metal";
+    }
+    return "unknown";
+}
+
+bool HostCanPublishTarget(const std::string& target)
+{
+#if defined(MYENGINE_PLATFORM_WINDOWS)
+    return target == PublishTargets::kWindowsX64.id;
+#elif defined(MYENGINE_PLATFORM_MACOS)
+    return target == PublishTargets::kMacOSArm64.id;
+#else
+    (void)target;
+    return false;
+#endif
+}
+
 bool IsWithin(const fs::path& path, const fs::path& parent) {
     std::error_code ec;
     const fs::path relative = fs::relative(path, parent, ec);
@@ -154,7 +176,8 @@ bool CompileShaderStageForBackend(const fs::path& hlsl,
 #endif
 
     if (error && error->empty()) {
-        *error = "shader compile failed: " + hlsl.string();
+        *error = std::string("shader compile failed for backend ") +
+            ShaderBackendName(backend) + ": " + hlsl.string();
     }
     return false;
 }
@@ -287,6 +310,12 @@ bool ProjectPublisher::Publish(const ProjectConfig& project,
     const auto& settings = project.GetPublishSettings();
     if (!PublishTargets::IsSupported(settings.target)) {
         SetError(error, "unsupported publish target: " + settings.target);
+        return false;
+    }
+    if (!HostCanPublishTarget(settings.target)) {
+        SetError(error, "publish target '" + settings.target +
+            "' is not supported by this host build; current host target is '" +
+            std::string(PublishTargets::kDefaultTargetId) + "'");
         return false;
     }
     const std::vector<ShaderBackend> shaderBackends =

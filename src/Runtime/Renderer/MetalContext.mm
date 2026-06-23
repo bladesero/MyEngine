@@ -48,6 +48,7 @@ struct MetalGpuShader : GpuShader {
     id<MTLDepthStencilState>   depthState;
     id<MTLFunction>            vertexFunction;
     id<MTLFunction>            fragmentFunction;
+    id<MTLFunction>            computeFunction;
     MTLVertexDescriptor*       vertexDescriptor = nil;
 };
 
@@ -58,6 +59,10 @@ struct MetalGraphicsPipeline : GpuGraphicsPipeline {
     MTLCullMode                cullMode = MTLCullModeBack;
     MTLWinding                 frontWinding = MTLWindingClockwise;
     MTLTriangleFillMode        fillMode = MTLTriangleFillModeFill;
+};
+
+struct MetalComputePipeline : GpuComputePipeline {
+    id<MTLComputePipelineState> pipelineState;
 };
 
 struct MetalGpuTexture : GpuTexture {
@@ -275,6 +280,7 @@ struct MetalContext::Impl {
     id<CAMetalDrawable>         drawable;
     id<MTLCommandBuffer>        cmdBuffer;
     id<MTLRenderCommandEncoder> encoder;
+    id<MTLComputeCommandEncoder> computeEncoder;
     MTLRenderPassDescriptor*    currentRPD = nil;
     id<MTLTexture>              depthTexture;
     bool                        frameActive = false;
@@ -371,12 +377,20 @@ public:
         m_Owner.SetGraphicsPipeline(pipeline);
     }
 
+    void SetComputePipeline(GpuComputePipeline* pipeline) override {
+        m_Owner.SetComputePipeline(pipeline);
+    }
+
     void SetDepthOnlyShader(GpuShader* shader) override {
         m_Owner.BindShader(shader);
     }
 
     void SetBindGroup(uint32_t, GpuBindGroup* group) override {
         m_Owner.SetBindGroup(group);
+    }
+
+    void Dispatch(uint32_t x, uint32_t y, uint32_t z) override {
+        m_Owner.Dispatch(x, y, z);
     }
 
     void* GetNativeHandle() const {
@@ -479,6 +493,10 @@ bool MetalContext::Init(IWindow* window) {
 }
 
 void MetalContext::Shutdown() {
+    if (m_Impl->computeEncoder) {
+        [m_Impl->computeEncoder endEncoding];
+        m_Impl->computeEncoder = nil;
+    }
     if (m_Impl->encoder) {
         [m_Impl->encoder endEncoding];
         m_Impl->encoder = nil;
@@ -569,6 +587,10 @@ void MetalContext::EndFrame() {
         return;
     }
 
+    if (m_Impl->computeEncoder) {
+        [m_Impl->computeEncoder endEncoding];
+        m_Impl->computeEncoder = nil;
+    }
     if (m_Impl->encoder) {
         [m_Impl->encoder endEncoding];
         m_Impl->encoder = nil;
@@ -597,6 +619,10 @@ GpuCommandList* MetalContext::GetGraphicsCommandList() {
 }
 
 ImGuiBackendHandles MetalContext::GetImGuiBackendHandles() {
+    if (m_Impl->computeEncoder) {
+        [m_Impl->computeEncoder endEncoding];
+        m_Impl->computeEncoder = nil;
+    }
     if (m_Impl->frameActive && !m_Impl->encoder && m_Impl->cmdBuffer && m_Impl->drawable) {
         MTLRenderPassDescriptor* rpd = [MTLRenderPassDescriptor renderPassDescriptor];
         rpd.colorAttachments[0].texture = m_Impl->drawable.texture;
@@ -824,10 +850,40 @@ std::shared_ptr<GpuShader> MetalContext::CreateShaderFromBytecode(
 }
 
 std::shared_ptr<GpuShader> MetalContext::CreateComputeShaderFromBytecode(
-    const void*, size_t)
+    const void* bytecode, size_t byteSize)
 {
-    Logger::Warn("[Metal] Compute shaders are not implemented yet");
-    return nullptr;
+    if (!bytecode || byteSize == 0 || !m_Impl || !m_Impl->device) return nullptr;
+    std::string source(static_cast<const char*>(bytecode), byteSize);
+    NSString* src = [[NSString alloc] initWithBytes:source.data()
+                                             length:source.size()
+                                           encoding:NSUTF8StringEncoding];
+    if (!src) {
+        Logger::Error("[Metal] Cooked Metal compute shader blob is not UTF-8 MSL");
+        return nullptr;
+    }
+    NSError* err = nil;
+    id<MTLLibrary> lib = [m_Impl->device newLibraryWithSource:src options:nil error:&err];
+    if (!lib) {
+        Logger::Error("[Metal] Compute MSL compile error: ",
+                      err ? [[err localizedDescription] UTF8String] : "unknown");
+        return nullptr;
+    }
+    id<MTLFunction> fn = [lib newFunctionWithName:@"CSMain"];
+    if (!fn) {
+        Logger::Error("[Metal] Cannot find cooked compute shader function CSMain");
+        return nullptr;
+    }
+
+    auto shader = std::make_shared<MetalGpuShader>();
+    shader->computeFunction = fn;
+    shader->computeBytecode.assign(static_cast<const uint8_t*>(bytecode),
+                                   static_cast<const uint8_t*>(bytecode) + byteSize);
+    ParseMetalBindings(source, ShaderStageCompute, shader->reflection);
+    if (shader->reflection.bindings.empty()) {
+        Logger::Error("[Metal] Cooked Metal compute shader has no binding reflection");
+        return nullptr;
+    }
+    return shader;
 }
 
 // ============================================================================
@@ -836,6 +892,10 @@ std::shared_ptr<GpuShader> MetalContext::CreateComputeShaderFromBytecode(
 
 void MetalContext::BeginRendering(const RenderingInfo& info) {
     if (!m_Impl || !m_Impl->cmdBuffer) return;
+    if (m_Impl->computeEncoder) {
+        [m_Impl->computeEncoder endEncoding];
+        m_Impl->computeEncoder = nil;
+    }
     if (m_Impl->encoder) {
         [m_Impl->encoder endEncoding];
         m_Impl->encoder = nil;
@@ -959,7 +1019,33 @@ std::shared_ptr<GpuGraphicsPipeline> MetalContext::CreateGraphicsPipeline(
     return pipeline;
 }
 
+std::shared_ptr<GpuComputePipeline> MetalContext::CreateComputePipeline(
+    const ComputePipelineDesc& desc)
+{
+    auto shader = std::dynamic_pointer_cast<MetalGpuShader>(desc.shader);
+    if (!shader || !shader->computeFunction || !m_Impl || !m_Impl->device) {
+        Logger::Error("[Metal] CreateComputePipeline failed: invalid shader/function");
+        return nullptr;
+    }
+    NSError* err = nil;
+    id<MTLComputePipelineState> pso =
+        [m_Impl->device newComputePipelineStateWithFunction:shader->computeFunction error:&err];
+    if (!pso) {
+        Logger::Error("[Metal] Compute pipeline creation failed: ",
+                      err ? [[err localizedDescription] UTF8String] : "unknown");
+        return nullptr;
+    }
+    auto pipeline = std::make_shared<MetalComputePipeline>();
+    pipeline->desc = desc;
+    pipeline->pipelineState = pso;
+    return pipeline;
+}
+
 void MetalContext::SetGraphicsPipeline(GpuGraphicsPipeline* pipeline) {
+    if (m_Impl && m_Impl->computeEncoder) {
+        [m_Impl->computeEncoder endEncoding];
+        m_Impl->computeEncoder = nil;
+    }
     auto* native = dynamic_cast<MetalGraphicsPipeline*>(pipeline);
     if (!native || !native->pipelineState || !m_Impl->encoder) return;
     [m_Impl->encoder setRenderPipelineState:native->pipelineState];
@@ -968,6 +1054,20 @@ void MetalContext::SetGraphicsPipeline(GpuGraphicsPipeline* pipeline) {
     [m_Impl->encoder setFrontFacingWinding:native->frontWinding];
     [m_Impl->encoder setTriangleFillMode:native->fillMode];
     m_Impl->primitiveType = native->primitiveType;
+}
+
+void MetalContext::SetComputePipeline(GpuComputePipeline* pipeline) {
+    if (!m_Impl || !m_Impl->cmdBuffer) return;
+    if (m_Impl->encoder) {
+        [m_Impl->encoder endEncoding];
+        m_Impl->encoder = nil;
+    }
+    auto* native = dynamic_cast<MetalComputePipeline*>(pipeline);
+    if (!native || !native->pipelineState) return;
+    if (!m_Impl->computeEncoder) {
+        m_Impl->computeEncoder = [m_Impl->cmdBuffer computeCommandEncoder];
+    }
+    [m_Impl->computeEncoder setComputePipelineState:native->pipelineState];
 }
 
 void MetalContext::BindShader(GpuShader* shader) {
@@ -1003,7 +1103,8 @@ void MetalContext::SetVSConstants(const void* data, uint32_t byteSize) {
 }
 
 void MetalContext::SetBindGroup(GpuBindGroup* group) {
-    if (!group || !group->GetShader() || !m_Impl->encoder) return;
+    if (!group || !group->GetShader() || !m_Impl ||
+        (!m_Impl->encoder && !m_Impl->computeEncoder)) return;
     const auto& reflection = group->GetShader()->reflection;
     static std::unordered_map<std::string, bool> warnedMissingBindings;
     auto warnMissing = [&](const std::string& name) {
@@ -1026,6 +1127,8 @@ void MetalContext::SetBindGroup(GpuBindGroup* group) {
                 [m_Impl->encoder setVertexBytes:bytes length:size atIndex:slot];
             if (binding->stages == 0 || (binding->stages & ShaderStagePixel))
                 [m_Impl->encoder setFragmentBytes:bytes length:size atIndex:slot];
+            if (m_Impl->computeEncoder && (binding->stages == 0 || (binding->stages & ShaderStageCompute)))
+                [m_Impl->computeEncoder setBytes:bytes length:size atIndex:slot];
         } else {
             id<MTLBuffer> buffer = [m_Impl->device newBufferWithBytes:bytes
                                                                length:size
@@ -1036,6 +1139,8 @@ void MetalContext::SetBindGroup(GpuBindGroup* group) {
                 [m_Impl->encoder setVertexBuffer:buffer offset:0 atIndex:slot];
             if (binding->stages == 0 || (binding->stages & ShaderStagePixel))
                 [m_Impl->encoder setFragmentBuffer:buffer offset:0 atIndex:slot];
+            if (m_Impl->computeEncoder && (binding->stages == 0 || (binding->stages & ShaderStageCompute)))
+                [m_Impl->computeEncoder setBuffer:buffer offset:0 atIndex:slot];
         }
     }
     for (const auto& value : group->GetTextures()) {
@@ -1051,6 +1156,8 @@ void MetalContext::SetBindGroup(GpuBindGroup* group) {
             [m_Impl->encoder setVertexTexture:view->textureView atIndex:slot];
         if (binding->stages == 0 || (binding->stages & ShaderStagePixel))
             [m_Impl->encoder setFragmentTexture:view->textureView atIndex:slot];
+        if (m_Impl->computeEncoder && (binding->stages == 0 || (binding->stages & ShaderStageCompute)))
+            [m_Impl->computeEncoder setTexture:view->textureView atIndex:slot];
     }
     for (const auto& value : group->GetSamplers()) {
         const auto* binding = reflection.Find(value.first);
@@ -1065,6 +1172,8 @@ void MetalContext::SetBindGroup(GpuBindGroup* group) {
             [m_Impl->encoder setVertexSamplerState:sampler->sampler atIndex:slot];
         if (binding->stages == 0 || (binding->stages & ShaderStagePixel))
             [m_Impl->encoder setFragmentSamplerState:sampler->sampler atIndex:slot];
+        if (m_Impl->computeEncoder && (binding->stages == 0 || (binding->stages & ShaderStageCompute)))
+            [m_Impl->computeEncoder setSamplerState:sampler->sampler atIndex:slot];
     }
     for (const auto& value : group->GetStorageBuffers()) {
         const auto* binding = reflection.Find(value.first);
@@ -1078,6 +1187,8 @@ void MetalContext::SetBindGroup(GpuBindGroup* group) {
             [m_Impl->encoder setVertexBuffer:view->buffer offset:0 atIndex:binding->bindPoint];
         if (binding->stages == 0 || (binding->stages & ShaderStagePixel))
             [m_Impl->encoder setFragmentBuffer:view->buffer offset:0 atIndex:binding->bindPoint];
+        if (m_Impl->computeEncoder && (binding->stages == 0 || (binding->stages & ShaderStageCompute)))
+            [m_Impl->computeEncoder setBuffer:view->buffer offset:0 atIndex:binding->bindPoint];
     }
 }
 
@@ -1129,6 +1240,15 @@ void MetalContext::DrawIndexedInstanced(uint32_t indexCount,
                              instanceCount:instanceCount
                                 baseVertex:static_cast<NSInteger>(baseVertex)
                               baseInstance:0];
+}
+
+void MetalContext::Dispatch(uint32_t x, uint32_t y, uint32_t z)
+{
+    if (!m_Impl || !m_Impl->computeEncoder || x == 0 || y == 0 || z == 0) return;
+    MTLSize threadgroups = MTLSizeMake(x, y, z);
+    MTLSize threadsPerThreadgroup = MTLSizeMake(9, 1, 1);
+    [m_Impl->computeEncoder dispatchThreadgroups:threadgroups
+                           threadsPerThreadgroup:threadsPerThreadgroup];
 }
 
 void MetalContext::SetViewport(float x, float y, float w, float h) {
@@ -1224,6 +1344,9 @@ std::shared_ptr<GpuSampler> MetalContext::CreateSampler(const RHISamplerDesc& de
     MTLSamplerDescriptor* native = [[MTLSamplerDescriptor alloc] init];
     native.minFilter = desc.filter == RHIFilter::Point ? MTLSamplerMinMagFilterNearest : MTLSamplerMinMagFilterLinear;
     native.magFilter = desc.filter == RHIFilter::Point ? MTLSamplerMinMagFilterNearest : MTLSamplerMinMagFilterLinear;
+    if (desc.filter == RHIFilter::ComparisonLinear) {
+        native.compareFunction = MTLCompareFunctionLessEqual;
+    }
     native.sAddressMode = desc.addressU == RHIAddressMode::Repeat ? MTLSamplerAddressModeRepeat : MTLSamplerAddressModeClampToEdge;
     native.tAddressMode = desc.addressV == RHIAddressMode::Repeat ? MTLSamplerAddressModeRepeat : MTLSamplerAddressModeClampToEdge;
     native.rAddressMode = desc.addressW == RHIAddressMode::Repeat ? MTLSamplerAddressModeRepeat : MTLSamplerAddressModeClampToEdge;

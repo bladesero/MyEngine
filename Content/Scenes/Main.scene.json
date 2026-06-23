@@ -151,8 +151,7 @@
             "components": [
                 {
                     "data": {
-                        "material": "Content/Materials/NewMaterial.mat",
-                        "mesh": "Content/Mesh/monkey.obj#mesh"
+                        "material": "Content/Materials/NewMaterial.mat"
                     },
                     "enabled": true,
                     "type": "MeshRenderer"
@@ -409,7 +408,7 @@
                         "sortOrder": 1,
                         "sourceMode": "ActorTree",
                         "stylePaths": [],
-                        "visible": true
+                        "visible": false
                     },
                     "enabled": true,
                     "type": "UICanvas"

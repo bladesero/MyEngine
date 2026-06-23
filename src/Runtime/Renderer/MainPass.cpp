@@ -382,11 +382,30 @@ GpuShader* MainPass::GetOrCreateShader()
         }
     }
 #else
-    if (!m_MainShaderHandle) {
+    if (Device()->GetBackend() == RHIBackend::Metal) {
+        if (!m_MainShaderHandle) {
+            m_MainShaderHandle = ShaderManager::Get().GetOrCreate(
+                "Content/Engine/Shaders/ShadowedMainPass.shader",
+                k_MeshVertexLayout, k_MeshVertexLayoutCount);
+            m_ShaderMode = ShaderMode::ShadowedPbr;
+        }
+        if ((!m_MainShaderHandle || !m_MainShaderHandle->shader) &&
+            m_ShaderMode == ShaderMode::ShadowedPbr) {
+            Logger::Warn("[MainPass] Metal PBR shader failed; fallback to legacy shader");
+            m_MainShaderHandle = std::make_shared<ShaderHandle>();
+            m_MainShaderHandle->shader = Device()->CreateShader(
+                k_MeshShaderSource, "VSMain", "PSMain",
+                k_MeshVertexLayout, k_MeshVertexLayoutCount);
+            if (m_MainShaderHandle->shader) ++m_MainShaderHandle->version;
+            m_ShaderMode = ShaderMode::Legacy;
+        }
+    } else if (!m_MainShaderHandle) {
         m_MainShaderHandle = std::make_shared<ShaderHandle>();
         m_MainShaderHandle->shader = Device()->CreateShader(
             k_MeshShaderSource, "VSMain", "PSMain",
             k_MeshVertexLayout, k_MeshVertexLayoutCount);
+        if (m_MainShaderHandle->shader) ++m_MainShaderHandle->version;
+        m_ShaderMode = ShaderMode::Legacy;
     }
 #endif
 
@@ -574,7 +593,9 @@ void MainPass::Execute(GpuCommandList& commands, const Scene& scene, const Camer
     for (size_t itemIndex = 0; itemIndex < opaqueItems.size();) {
         const RenderItem& item = opaqueItems[itemIndex];
         size_t instanceCount = 1;
-        if (m_ShaderMode == ShaderMode::ShadowedPbr &&
+        const bool allowInstancing = Device()->GetBackend() != RHIBackend::Metal;
+        if (allowInstancing &&
+            m_ShaderMode == ShaderMode::ShadowedPbr &&
             item.skin == nullptr &&
             item.material->GetBlendMode() != BlendMode::Transparent) {
             while (instanceCount < 64 &&
@@ -773,7 +794,7 @@ void MainPass::Execute(GpuCommandList& commands, const Scene& scene, const Camer
             constants.postProcess2[1] = postProcess.contrast;
             constants.postProcess2[2] = postProcess.antiAliasingStrength;
             constants.postProcess2[3] = m_HdrPassthrough ? -1.0f : 0.0f;
-            constants.drawInfo[0] = static_cast<float>(instanceCount);
+            constants.drawInfo[0] = instanceCount > 1 ? 1.0f : 0.0f;
             constants.drawInfo[1] = constants.shadowInfo[0];
             for (size_t instance = 0; instance < instanceCount; ++instance) {
                 const Mat4 instanceMatrix =

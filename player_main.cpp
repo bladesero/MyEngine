@@ -48,6 +48,7 @@ protected:
                 m_Project.Open(mount.projectRoot, false, &error)) {
                 Logger::Info("[Player] Mounted cooked Content: ", archive.string(),
                              mount.rebuilt ? " (cache rebuilt)" : " (cache reused)");
+                m_CookedEngineContentRoot = mount.projectRoot / "Content" / "Engine";
                 resolved = m_SceneOverride.empty()
                     ? m_Project.ResolveStartupScene(scenePath, &error)
                     : m_Project.ResolveScenePath(m_SceneOverride, scenePath, true, &error);
@@ -58,6 +59,9 @@ protected:
             return false;
         }
         AssetManager::Get().SetProjectRoot(m_Project.GetRoot());
+        if (!m_CookedEngineContentRoot.empty()) {
+            AssetManager::Get().SetEngineContentRoot(m_CookedEngineContentRoot);
+        }
         LoadProjectInputConfig();
 
 #ifdef MYENGINE_PLATFORM_WINDOWS
@@ -103,6 +107,7 @@ protected:
             m_RenderContext.reset();
         }
         AssetManager::Get().SetProjectRoot({});
+        AssetManager::Get().SetEngineContentRoot({});
     }
 
 private:
@@ -132,6 +137,7 @@ private:
     std::unique_ptr<IRenderContext> m_RenderContext;
     RenderBackend m_Backend = kDefaultRenderBackend;
     std::filesystem::path m_ProjectRoot;
+    std::filesystem::path m_CookedEngineContentRoot;
     std::string m_SceneOverride;
     ProjectConfig m_Project;
 };
@@ -185,7 +191,11 @@ static int RunPlayer(int argc, char* argv[]) {
     cfg.engine.appName = "MyEnginePlayer";
     cfg.engine.targetFps = 60;
 
-    std::filesystem::path projectRoot = std::filesystem::current_path();
+    const std::filesystem::path executableDirectory = ResolveExecutableDirectory();
+    std::filesystem::path projectRoot =
+        std::filesystem::is_regular_file(executableDirectory / ProjectConfig::kFileName)
+            ? executableDirectory
+            : std::filesystem::current_path();
     std::string sceneOverride;
     bool backendOverridden = false;
     for (int i = 1; i < argc; ++i) {
@@ -216,8 +226,7 @@ static int RunPlayer(int argc, char* argv[]) {
     }
 
     std::string packageError;
-    if (!RuntimeDependencyManifest::ValidatePackage(
-            ResolveExecutableDirectory(), &packageError)) {
+    if (!RuntimeDependencyManifest::ValidatePackage(executableDirectory, &packageError)) {
         Logger::Error("[Player] ", packageError);
         return 1;
     }

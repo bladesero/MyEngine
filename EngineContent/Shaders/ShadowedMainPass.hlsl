@@ -185,7 +185,7 @@ float SampleDirectionalCascade(float3 worldPos, float nDotL, uint cascade)
 float SampleDirectionalShadow(float3 worldPos, float nDotL)
 {
     float3 toCamera = worldPos - g_CameraPosition.xyz;
-    float viewDepth = abs(dot(toCamera, g_CameraForward.xyz));
+    float viewDepth = max(dot(toCamera, g_CameraForward.xyz), 0.0f);
 
     uint cascade = 0;
     if (viewDepth > g_CascadeSplits.y) {
