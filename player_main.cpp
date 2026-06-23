@@ -10,6 +10,7 @@
 #include "Input/Input.h"
 #include "Project/CookedProjectCache.h"
 #include "Project/ProjectConfig.h"
+#include "Project/RuntimeDependencies.h"
 #include "Renderer/IRenderContext.h"
 #include "Miscs/IconsManager.h"
 
@@ -149,6 +150,14 @@ static bool ParseBackend(const std::string& value, ApplicationConfig& cfg) {
     return true;
 }
 
+static std::filesystem::path ResolveExecutableDirectory() {
+    if (const char* basePath = SDL_GetBasePath()) {
+        return std::filesystem::absolute(std::filesystem::path(basePath)).lexically_normal();
+    }
+    std::error_code ec;
+    return std::filesystem::absolute(std::filesystem::current_path(), ec).lexically_normal();
+}
+
 static void ApplyProjectBackend(const std::filesystem::path& projectRoot,
                                 ApplicationConfig& cfg) {
 #ifdef MYENGINE_PLATFORM_WINDOWS
@@ -204,6 +213,13 @@ static int RunPlayer(int argc, char* argv[]) {
             Logger::Error("Unknown argument: ", arg);
             return 2;
         }
+    }
+
+    std::string packageError;
+    if (!RuntimeDependencyManifest::ValidatePackage(
+            ResolveExecutableDirectory(), &packageError)) {
+        Logger::Error("[Player] ", packageError);
+        return 1;
     }
 
     if (!backendOverridden) {

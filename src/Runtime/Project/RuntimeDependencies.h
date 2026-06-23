@@ -18,6 +18,8 @@ struct RuntimeDependencyManifest {
     bool Save(const std::filesystem::path&,std::string* error=nullptr) const;
     static bool Load(const std::filesystem::path&,RuntimeDependencyManifest&,std::string* error=nullptr);
     bool ValidateFiles(const std::filesystem::path&,std::string* error=nullptr) const;
+    static bool ValidatePackage(const std::filesystem::path& packageRoot,
+                                std::string* error=nullptr);
 };
 
 class WindowsRuntimeDependencyCollector {

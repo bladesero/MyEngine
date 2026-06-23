@@ -25,9 +25,9 @@ package("slang")
     end
 
     on_install("windows", "macosx", "linux", function (package)
-        os.cp("include/*", package:installdir("include"))
-        os.cp("lib/*", package:installdir("lib"))
-        os.cp("bin/*", package:installdir("bin"))
+        os.cp("include", package:installdir("include"))
+        os.cp("lib", package:installdir("lib"))
+        os.cp("bin", package:installdir("bin"))
         package:addenv("PATH", "bin")
     end)
 

@@ -119,7 +119,7 @@ bool TestPublishHardeningPrimitives() {
 #if defined(__APPLE__)
     manifest.requiredBackends = {"metal"};
 #else
-    manifest.requiredBackends = {"d3d11", "d3d12", "metal"};
+    manifest.requiredBackends = {"d3d11", "d3d12"};
 #endif
     manifest.runtimeDependenciesHash = std::string(64, '0');
     manifest.archiveHash = std::string(64, '1');
@@ -132,6 +132,11 @@ bool TestPublishHardeningPrimitives() {
     manifest.version = CookManifest::kCurrentVersion;
     manifest.requiredBackends = {"d3d11"};
     if (!Check(!manifest.Validate(&error), "manifest with missing D3D12 backend was accepted")) return false;
+#if defined(__APPLE__)
+    manifest.requiredBackends = {"metal"};
+#else
+    manifest.requiredBackends = {"d3d11", "d3d12"};
+#endif
 
     fs::create_directories(root / "Runtime");
     const auto dependency = root / "Runtime/test.dll";
@@ -144,6 +149,32 @@ bool TestPublishHardeningPrimitives() {
     std::ofstream(dependency, std::ios::binary | std::ios::app) << "tampered";
     if (!Check(!dependencies.ValidateFiles(root / "Runtime", &error),
                "tampered runtime dependency was accepted")) return false;
+
+    const auto package = root / "Package";
+    fs::create_directories(package / "Content/Scenes");
+    const auto packageDependency = package / "test.dll";
+    std::ofstream(packageDependency, std::ios::binary) << "package dependency";
+    RuntimeDependencyManifest packageDependencies;
+    packageDependencies.files.push_back({"test.dll", "x64",
+        fs::file_size(packageDependency), Sha256::HashFile(packageDependency, &error)});
+    if (!Check(packageDependencies.Save(package / RuntimeDependencyManifest::kFileName,
+                                        &error),
+               "failed to save runtime dependency manifest: " + error)) return false;
+    CookManifest packageManifest = manifest;
+    packageManifest.runtimeDependenciesHash =
+        Sha256::HashFile(package / RuntimeDependencyManifest::kFileName, &error);
+    if (!Check(packageManifest.Save(package / CookManifest::kFileName, &error),
+               "failed to save package Cook manifest: " + error)) return false;
+    if (!Check(RuntimeDependencyManifest::ValidatePackage(package, &error),
+               "valid package runtime dependencies were rejected: " + error)) return false;
+    std::ofstream(package / RuntimeDependencyManifest::kFileName,
+                  std::ios::binary | std::ios::app) << " ";
+    if (!Check(!RuntimeDependencyManifest::ValidatePackage(package, &error),
+               "tampered runtime dependency manifest was accepted")) return false;
+    packageDependencies.Save(package / RuntimeDependencyManifest::kFileName, &error);
+    fs::remove(packageDependency);
+    if (!Check(!RuntimeDependencyManifest::ValidatePackage(package, &error),
+               "package with missing runtime dependency was accepted")) return false;
     fs::remove_all(root, ec);
     return true;
 }
@@ -3172,8 +3203,8 @@ bool TestWorkspaceCookAndPublish() {
     if (!Check(cookedShader && cookedShader->IsCooked() &&
                !cookedShader->GetBytecode(ShaderBackend::D3D11, ShaderStage::Vertex).empty() &&
                !cookedShader->GetBytecode(ShaderBackend::D3D12, ShaderStage::Pixel).empty() &&
-               !cookedShader->GetBytecode(ShaderBackend::Metal, ShaderStage::Vertex).empty(),
-               "published shader does not contain all RHI backends")) return false;
+               cookedShader->GetBytecode(ShaderBackend::Metal, ShaderStage::Vertex).empty(),
+               "published Windows shader does not contain the expected D3D backends")) return false;
 #endif
     std::ifstream payload(extracted / "Content/Data/payload.bin", std::ios::binary);
     std::string payloadText((std::istreambuf_iterator<char>(payload)),

@@ -29,7 +29,7 @@ bool SafeContentPath(const std::string& value) {
 std::vector<std::string> ExpectedRequiredBackends(const std::string& target)
 {
     if (target == PublishTargets::kMacOSArm64.id) return {"metal"};
-    return {"d3d11", "d3d12", "metal"};
+    return {"d3d11", "d3d12"};
 }
 }
 

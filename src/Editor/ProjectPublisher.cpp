@@ -52,13 +52,13 @@ bool CopyRequired(const fs::path& source, const fs::path& destination,
 std::vector<ShaderBackend> ShaderBackendsForTarget(const std::string& target)
 {
     if (target == PublishTargets::kMacOSArm64.id) return {ShaderBackend::Metal};
-    return {ShaderBackend::D3D11, ShaderBackend::D3D12, ShaderBackend::Metal};
+    return {ShaderBackend::D3D11, ShaderBackend::D3D12};
 }
 
 std::vector<std::string> RequiredBackendNamesForTarget(const std::string& target)
 {
     if (target == PublishTargets::kMacOSArm64.id) return {"metal"};
-    return {"d3d11", "d3d12", "metal"};
+    return {"d3d11", "d3d12"};
 }
 
 bool IsWithin(const fs::path& path, const fs::path& parent) {
@@ -128,9 +128,9 @@ bool CompileShaderStageForBackend(const fs::path& hlsl,
                                   const std::vector<std::string>& defines,
                                   std::vector<uint8_t>& outBlob,
                                   std::string* error) {
-    if (ShaderCompilerSlang::CompileStageFromFile(
-            hlsl, sourceStage.entry, stage, backend, outBlob, defines, error)) {
-        return true;
+    if (backend == ShaderBackend::Metal) {
+        return ShaderCompilerSlang::CompileStageFromFile(
+            hlsl, sourceStage.entry, stage, backend, outBlob, defines, error);
     }
 
 #ifdef MYENGINE_PLATFORM_WINDOWS
@@ -177,10 +177,12 @@ bool CompileCookedShader(const fs::path& source, const fs::path& destination,
     }
     std::vector<std::string> dependencies(dependencySet.begin(),dependencySet.end());
     std::sort(dependencies.begin(),dependencies.end());
+    const bool usesSlang = std::find(backends.begin(), backends.end(),
+                                     ShaderBackend::Metal) != backends.end();
     Sha256 cacheKey;
     const std::string cookerContract=std::string(RuntimeCompatibility::kBuildId)+
         "|shader-cooker-v2|"+
-        ShaderCompilerSlang::GetVersionString()+"|"+
+        (usesSlang ? ShaderCompilerSlang::GetVersionString() : "fxc") + "|" +
         std::to_string(description->GetSourceHash());
     cacheKey.Update(cookerContract.data(),cookerContract.size());
     for (ShaderBackend backend : backends) {

@@ -60,9 +60,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\release-smoke.ps1
 
 The output path is controlled by `publish.outputDirectory` and `publish.target`
 in `MyEngine.project.json`. The package contains Player/runtime binaries,
-`Content.pak`, `CookManifest.json`, and the project manifest. Player validates
-the manifest and archive, then atomically installs or repairs a hash-versioned
-runtime cache. Publishing currently supports Windows x64 only.
+`Content.pak`, `CookManifest.json`, `RuntimeDependencies.json`, and the project
+manifest. Player validates local runtime dependencies from its executable
+directory before loading project content, then validates the manifest and archive
+and atomically installs or repairs a hash-versioned runtime cache. Publishing is
+release-ready on Windows x64; macOS Metal is experimental/unverified; Linux has
+no repository GPU backend.
 
 - **Windows GPU backend** (Editor/Player): optional ` --backend d3d11` or ` --backend d3d12` (see `main.cpp` / `player_main.cpp`).
 
@@ -95,8 +98,8 @@ runtime cache. Publishing currently supports Windows x64 only.
 ## Windows: HLSL → embedded bytecode
 
 - Shader sources live under `EngineContent/Shaders` or project `Content/Shaders`. Windows publishing cooks every `.shader` descriptor to D3D11/D3D12 bytecode in `Content.pak`; HLSL/HLSLI files are excluded.
-- That script invokes **dxc** to compile `.hlsl` sources and generates **`build/hlsl_generated/`** (e.g. `ShaderBytecodeWindows.cpp` + headers). Editing HLSL or the embed script may require a **clean rebuild** of the runtime target.
-- If build fails with missing generated files, ensure PowerShell can run and **DirectX Shader Compiler (dxc)** is on `PATH` (typical with Windows SDK).
+- Windows D3D shader compilation uses the platform D3DCompile/FXC path; Slang is reserved for Metal. Editing HLSL or the embed script may require a **clean rebuild** of the runtime target.
+- If build fails with missing generated files, ensure PowerShell can run and Windows D3D compiler support is available through the Windows SDK.
 
 ---
 

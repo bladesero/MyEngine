@@ -9,6 +9,19 @@ stores up to ten recent project roots in the user's MyEngine workspace file.
 target is fixed to `windows-x64`. Publishing rejects unsaved scene changes and
 reports its final output or error in the Editor.
 
+## Platform support contract
+
+The supported publish target matrix is intentionally narrow:
+
+| Target | Support level | Runtime backend | Shader compiler |
+| --- | --- | --- | --- |
+| `windows-x64` | release-ready | D3D11, D3D12 | D3DCompile/FXC |
+| `macos-arm64` | experimental, unverified on this host | Metal | Slang |
+| Linux | future target only | none in-repository | none |
+
+Linux may define `MYENGINE_PLATFORM_LINUX`, but this repository does not ship a
+Linux GPU `IRenderContext`; do not advertise Linux Player GPU support yet.
+
 ## Cook and publish
 
 `ProjectPublisher` builds a dependency graph rooted at every scene, validates
@@ -18,14 +31,21 @@ cooks all runtime `Content/` files; dependency analysis is a correctness gate,
 not a pruning pass.
 
 The v2 `CookManifest` records the engine/build/content/archive compatibility
-contract, required D3D backends, project identity and SHA-256 hashes. A Windows
-PE collector recursively resolves non-system imports from the build output or
-the x64 MSVC Redistributable and writes `RuntimeDependencies.json`. The staged
-package is fully re-read and extracted before the previous package is replaced.
+contract, required backends, project identity and SHA-256 hashes. Windows
+packages require exactly `d3d11,d3d12`; macOS packages require exactly `metal`.
+A Windows PE collector recursively resolves non-system imports from the build
+output or the x64 MSVC Redistributable and writes `RuntimeDependencies.json`.
+The staged package is fully re-read and extracted before the previous package
+is replaced.
 
 Use the Editor **Publish** action or `tools/publish.ps1`. The standalone Player
-rejects malformed or incompatible manifests, unsafe paths, mismatched SHA-256
-hashes, missing runtime dependencies, corrupt entries and trailing PAK data.
+first validates local package files from its executable directory: if
+`RuntimeDependencies.json` is present, its SHA-256 must match `CookManifest.json`
+and every listed runtime DLL must exist with the expected size and hash. This
+happens before project content or startup scenes are loaded, so an incomplete
+package fails with a non-zero exit code instead of falling back to DLLs from an
+external path. The Player also rejects malformed or incompatible manifests,
+unsafe paths, mismatched SHA-256 hashes, corrupt entries and trailing PAK data.
 `CookedProjectCache` is isolated by `projectId/archiveHash`, checks free space,
 uses atomic staging, retains three versions per project within a 20 GiB budget,
 and rebuilds missing or modified cached files automatically.

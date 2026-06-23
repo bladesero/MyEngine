@@ -90,34 +90,6 @@ std::shared_ptr<GpuShader> ShaderManager::CompileRecord(const ShaderRecord& rec)
     }
 #endif
 #ifdef MYENGINE_PLATFORM_WINDOWS
-    if (ShaderCompilerSlang::IsAvailable()) {
-        if (rec.compute) {
-            std::vector<uint8_t> cs;
-            std::string error;
-            const auto& stage = asset.GetStage(ShaderStage::Compute);
-            if (ShaderCompilerSlang::CompileStageFromFile(
-                    asset.ResolveSource(ShaderStage::Compute), stage.entry,
-                    ShaderStage::Compute, backend, cs, asset.GetDefines(), &error)) {
-                return m_Device->CreateComputeShaderFromBytecode(cs.data(), cs.size());
-            }
-            Logger::Warn("[ShaderManager] Slang compile failed; falling back to D3D compiler: ", error);
-        } else {
-            std::vector<uint8_t> vs, ps;
-            std::string error;
-            const auto& vsStage = asset.GetStage(ShaderStage::Vertex);
-            const auto& psStage = asset.GetStage(ShaderStage::Pixel);
-            if (ShaderCompilerSlang::CompileStageFromFile(
-                    asset.ResolveSource(ShaderStage::Vertex), vsStage.entry,
-                    ShaderStage::Vertex, backend, vs, asset.GetDefines(), &error) &&
-                ShaderCompilerSlang::CompileStageFromFile(
-                    asset.ResolveSource(ShaderStage::Pixel), psStage.entry,
-                    ShaderStage::Pixel, backend, ps, asset.GetDefines(), &error)) {
-                return m_Device->CreateShaderFromBytecode(vs.data(), vs.size(), ps.data(), ps.size(),
-                    rec.layout.data(), static_cast<uint32_t>(rec.layout.size()));
-            }
-            Logger::Warn("[ShaderManager] Slang compile failed; falling back to D3D compiler: ", error);
-        }
-    }
     if (rec.compute) {
         std::vector<unsigned char> cs;
         const auto& stage = asset.GetStage(ShaderStage::Compute);
