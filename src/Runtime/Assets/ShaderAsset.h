@@ -9,7 +9,9 @@
 #include <vector>
 
 enum class ShaderStage : uint8_t { Vertex = 0, Pixel = 1, Compute = 2 };
-enum class ShaderBackend : uint8_t { D3D11 = 0, D3D12 = 1 };
+enum class ShaderBackend : uint8_t { D3D11 = 0, D3D12 = 1, Metal = 2 };
+inline constexpr size_t kShaderBackendCount = 3;
+inline constexpr size_t kShaderStageCount = 3;
 
 struct ShaderStageSource {
     std::string source;
@@ -18,7 +20,10 @@ struct ShaderStageSource {
 
 class ShaderAsset final : public Asset {
 public:
-    static constexpr uint32_t kFormatVersion = 1;
+    static constexpr uint32_t kDescriptionVersion = 1;
+    static constexpr uint32_t kCookedFormatVersion = 2;
+    static constexpr uint32_t kLegacyCookedFormatVersion = 1;
+    static constexpr uint32_t kFormatVersion = kDescriptionVersion;
     static constexpr uint32_t kVertexMask = 1u << 0;
     static constexpr uint32_t kPixelMask = 1u << 1;
     static constexpr uint32_t kComputeMask = 1u << 2;
@@ -39,7 +44,7 @@ public:
     void SetDescription(uint32_t stageMask, std::array<ShaderStageSource, 3> sources,
                         std::vector<std::string> defines, uint64_t sourceHash);
     void SetCooked(uint32_t stageMask, uint64_t sourceHash,
-                   std::array<std::array<std::vector<uint8_t>, 3>, 2> bytecode);
+                   std::array<std::array<std::vector<uint8_t>, kShaderStageCount>, kShaderBackendCount> bytecode);
     void MarkReady() { SetState(AssetState::Ready); }
     bool ReloadFrom(const Asset& source) override;
 
@@ -49,7 +54,7 @@ private:
     uint64_t m_SourceHash = 0;
     std::array<ShaderStageSource, 3> m_Sources{};
     std::vector<std::string> m_Defines;
-    std::array<std::array<std::vector<uint8_t>, 3>, 2> m_Bytecode{};
+    std::array<std::array<std::vector<uint8_t>, kShaderStageCount>, kShaderBackendCount> m_Bytecode{};
 };
 
 using ShaderAssetHandle = AssetHandle<ShaderAsset>;

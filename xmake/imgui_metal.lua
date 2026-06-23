@@ -1,0 +1,7 @@
+target("imgui_metal")
+    set_kind("static")
+    add_files("../thirdparty/imgui/backends/imgui_impl_metal.mm")
+    add_includedirs("../thirdparty/imgui", "../thirdparty/imgui/backends", { public = true })
+    add_packages("imgui", { public = true })
+    add_frameworks("Metal", "MetalKit", "QuartzCore", "AppKit")
+target_end()

@@ -60,6 +60,7 @@ MyEngine/
 | **stb** | 图像加载等 |
 | **tinyobjloader** | 模型导入（`AssetImporters`） |
 | **miniaudio** | 运行时音频设备、解码和播放 |
+| **Slang / slangc** | 统一 Shader 编译入口；`.shader + .hlsl/.hlsli` 一次编写，cook/热编译生成 D3D11、D3D12、Metal 后端产物 |
 
 平台相关：`Windows` 链入 `d3d11`、`d3d12`、`dxgi`、`d3dcompiler` 等；`macOS` 链入 `Metal`、`MetalKit` 等框架。
 
@@ -147,6 +148,15 @@ Application::Run()
 - **Windows**：`D3D11Context` / `D3D12Context`；入口可通过 `--backend d3d11 | d3d12` 选择。
 - **macOS**：`MetalContext`；ImGui 与 Metal 通过 `xmake/imgui_metal.lua` 辅助目标衔接。
 - **Linux**：当前仅有 `MYENGINE_PLATFORM_LINUX` 等编译定义；**无 GPU `IRenderContext` 实现**，需后续补充（如 Vulkan/OpenGL）。
+
+Shader 管线以 HLSL 为唯一源码形态：`.shader` 描述逻辑 stage、entry 与
+defines，源码仍放在 `EngineContent/Shaders` 或项目 `Content/Shaders` 下的
+`.hlsl/.hlsli`。`ShaderCompilerSlang` 负责将同一份 HLSL 编译为当前 RHI 所需
+产物：D3D11/D3D12 使用 DX bytecode，Metal 使用 MSL 文本 blob；cooked shader
+容器 v2 同时保存 D3D11、D3D12、Metal 三套后端数据，并兼容读取旧 v1
+双 D3D 容器。开发机需要在 `PATH` 中提供 `slangc`，或通过 `MYENGINE_SLANGC`
+指定编译器路径；Windows 热编译在 Slang 不可用时可临时回退到原 D3D 编译器，
+Metal 后端必须依赖 Slang。
 
 ---
 

@@ -519,7 +519,6 @@ void ShadowPass::DrawShadowScene(GpuCommandList& commands, const Scene& scene,
 void ShadowPass::ExecuteGraphManaged(GpuCommandList& commands, const Scene& scene)
 {
     if (!Device() || !m_ShadowPipeline) return;
-    commands.SetGraphicsPipeline(m_ShadowPipeline.get());
     commands.SetViewport(0.0f, 0.0f, static_cast<float>(m_ShadowMapSize),
                          static_cast<float>(m_ShadowMapSize));
 
@@ -528,6 +527,7 @@ void ShadowPass::ExecuteGraphManaged(GpuCommandList& commands, const Scene& scen
         depth.storeOp = RHIStoreOp::Store; depth.clearDepth = 1.0f;
         RenderingInfo info; info.depth = &depth; info.width = m_ShadowMapSize; info.height = m_ShadowMapSize;
         commands.BeginRendering(info);
+        commands.SetGraphicsPipeline(m_ShadowPipeline.get());
         DrawShadowScene(commands, scene, matrix);
         commands.EndRendering();
     };
@@ -565,7 +565,6 @@ void ShadowPass::Execute(GpuCommandList& commands, const Scene& scene, const Cam
     UpdateLightMatrices(scene, camera);
 
     if (!EnsureShadowResources()) return;
-    commands.SetGraphicsPipeline(m_ShadowPipeline.get());
     commands.SetViewport(0.0f, 0.0f, static_cast<float>(m_ShadowMapSize),
                          static_cast<float>(m_ShadowMapSize));
 
@@ -573,7 +572,10 @@ void ShadowPass::Execute(GpuCommandList& commands, const Scene& scene, const Cam
         RenderingAttachment depth; depth.view = view; depth.loadOp = RHILoadOp::Clear;
         depth.storeOp = RHIStoreOp::Store; depth.clearDepth = 1.0f;
         RenderingInfo info; info.depth = &depth; info.width = m_ShadowMapSize; info.height = m_ShadowMapSize;
-        commands.BeginRendering(info); DrawShadowScene(commands, scene, matrix); commands.EndRendering();
+        commands.BeginRendering(info);
+        commands.SetGraphicsPipeline(m_ShadowPipeline.get());
+        DrawShadowScene(commands, scene, matrix);
+        commands.EndRendering();
     };
     const RHIResourceState before = m_ShadowResourcesInShaderState
         ? RHIResourceState::ShaderResource : RHIResourceState::Undefined;

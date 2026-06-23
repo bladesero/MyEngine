@@ -12,11 +12,30 @@
 #endif
 
 namespace fs=std::filesystem;
-namespace { void Err(std::string* e,std::string v){if(e)*e=std::move(v);} std::string Lower(std::string v){for(char&c:v)c=char(std::tolower((unsigned char)c));return v;} }
+namespace {
+void Err(std::string* e,std::string v){if(e)*e=std::move(v);}
+std::string Lower(std::string v){for(char&c:v)c=char(std::tolower((unsigned char)c));return v;}
+bool ValidArchitecture(const std::string& value)
+{
+    return value == "x64" || value == "arm64" || value == "universal";
+}
+std::string HostArchitecture()
+{
+#if defined(__APPLE__) && defined(__aarch64__)
+    return "arm64";
+#elif defined(__APPLE__) && defined(__x86_64__)
+    return "x64";
+#elif defined(_M_ARM64) || defined(__aarch64__)
+    return "arm64";
+#else
+    return "x64";
+#endif
+}
+}
 bool RuntimeDependencyManifest::Save(const fs::path& path,std::string* error)const{
     try{nlohmann::json list=nlohmann::json::array();for(const auto&f:files)list.push_back({{"file",f.file},{"architecture",f.architecture},{"size",f.size},{"hash",f.hash}});std::ofstream out(path);out<<nlohmann::json{{"version",kVersion},{"files",list}}.dump(2)<<'\n';if(!out){Err(error,"failed to write runtime dependency manifest");return false;}return true;}catch(const std::exception&e){Err(error,e.what());return false;}}
 bool RuntimeDependencyManifest::Load(const fs::path& path,RuntimeDependencyManifest& result,std::string* error){
-    try{std::ifstream in(path);if(!in){Err(error,"RuntimeDependencies.json is missing");return false;}nlohmann::json j;in>>j;if(j.value("version",0)!=kVersion||!j.contains("files")||!j["files"].is_array()){Err(error,"invalid runtime dependency manifest");return false;}RuntimeDependencyManifest m;std::unordered_set<std::string> names;Sha256::Digest d{};for(const auto&i:j["files"]){RuntimeDependencyEntry f{i.value("file",std::string{}),i.value("architecture",std::string{}),i.value("size",uint64_t{}),i.value("hash",std::string{})};if(f.file.empty()||fs::path(f.file).filename()!=fs::path(f.file)||f.architecture!="x64"||!Sha256::FromHex(f.hash,d)||!names.insert(Lower(f.file)).second){Err(error,"invalid runtime dependency entry");return false;}m.files.push_back(std::move(f));}result=std::move(m);return true;}catch(const std::exception&e){Err(error,e.what());return false;}}
+    try{std::ifstream in(path);if(!in){Err(error,"RuntimeDependencies.json is missing");return false;}nlohmann::json j;in>>j;if(j.value("version",0)!=kVersion||!j.contains("files")||!j["files"].is_array()){Err(error,"invalid runtime dependency manifest");return false;}RuntimeDependencyManifest m;std::unordered_set<std::string> names;Sha256::Digest d{};for(const auto&i:j["files"]){RuntimeDependencyEntry f{i.value("file",std::string{}),i.value("architecture",std::string{}),i.value("size",uint64_t{}),i.value("hash",std::string{})};if(f.file.empty()||fs::path(f.file).filename()!=fs::path(f.file)||!ValidArchitecture(f.architecture)||!Sha256::FromHex(f.hash,d)||!names.insert(Lower(f.file)).second){Err(error,"invalid runtime dependency entry");return false;}m.files.push_back(std::move(f));}result=std::move(m);return true;}catch(const std::exception&e){Err(error,e.what());return false;}}
 bool RuntimeDependencyManifest::ValidateFiles(const fs::path& root,std::string* error)const{for(const auto&f:files){std::error_code ec;const fs::path p=root/f.file;if(!fs::is_regular_file(p,ec)||ec||fs::file_size(p,ec)!=f.size){Err(error,"runtime dependency missing or wrong size: "+f.file);return false;}std::string he;if(Sha256::HashFile(p,&he)!=f.hash||!he.empty()){Err(error,"runtime dependency hash mismatch: "+f.file);return false;}}return true;}
 
 #ifdef _WIN32
@@ -70,4 +89,48 @@ bool WindowsRuntimeDependencyCollector::Collect(const fs::path& binaries,const f
 
 bool WindowsRuntimeDependencyCollector::Collect(const fs::path& binaries,const fs::path& staging,RuntimeDependencyManifest& manifest,std::string* error){
     return Collect(binaries, staging, manifest, "MyEnginePlayer.exe", error);
+}
+
+bool HostRuntimeDependencyCollector::Collect(const fs::path& binaries,
+                                             const fs::path& staging,
+                                             RuntimeDependencyManifest& manifest,
+                                             const std::vector<std::string>& fileNames,
+                                             std::string* error)
+{
+    manifest = {};
+    const std::string architecture = HostArchitecture();
+    std::unordered_set<std::string> copied;
+    for (const auto& fileName : fileNames) {
+        if (!copied.insert(Lower(fileName)).second) continue;
+        const fs::path source = binaries / fileName;
+        std::error_code ec;
+        if (!fs::is_regular_file(source, ec) || ec) {
+            Err(error, "required runtime file is missing: " + source.string());
+            return false;
+        }
+        const fs::path destination = staging / fileName;
+        fs::copy_file(source, destination, fs::copy_options::overwrite_existing, ec);
+        if (ec) {
+            Err(error, "failed to copy runtime dependency: " + source.string());
+            return false;
+        }
+        std::string hashError;
+        const std::string hash = Sha256::HashFile(destination, &hashError);
+        if (!hashError.empty()) {
+            Err(error, hashError);
+            return false;
+        }
+        const auto size = fs::file_size(destination, ec);
+        if (ec) {
+            Err(error, "failed to stat runtime dependency: " + destination.string());
+            return false;
+        }
+        manifest.files.push_back({destination.filename().string(),
+                                  architecture,
+                                  size,
+                                  hash});
+    }
+    std::sort(manifest.files.begin(), manifest.files.end(),
+              [](const auto& a, const auto& b) { return Lower(a.file) < Lower(b.file); });
+    return true;
 }

@@ -48,8 +48,8 @@ size_t EstimateAssetCpuBytes(const Asset& a) {
         case AssetType::Shader: {
             const auto& shader = static_cast<const ShaderAsset&>(a);
             size_t bytes = 512;
-            for (size_t backend = 0; backend < 2; ++backend)
-                for (size_t stage = 0; stage < 3; ++stage)
+                for (size_t backend = 0; backend < kShaderBackendCount; ++backend)
+                    for (size_t stage = 0; stage < kShaderStageCount; ++stage)
                     bytes += shader.GetBytecode(static_cast<ShaderBackend>(backend),
                                                 static_cast<ShaderStage>(stage)).size();
             return bytes;

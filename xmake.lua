@@ -61,12 +61,13 @@ add_requires("joltphysics v5.5.0", { configs = {
     cross_platform_deterministic = false
 } })
 add_requires("angelscript 2.38.0")
+add_requires("slang v2025.6.3", { configs = { slangc = true, gfx = false, slangd = false, slangrt = false } })
 
 -- Must live in rule after_build: root xmake.lua locals use project-scope `os` (no os.cp).
 rule("copy_game_content")
     after_build(function (target)
         local destdir = target:targetdir()
-        for _, name in ipairs({"Content", "EngineContent"}) do
+        for _, name in ipairs({"Content", "EngineContent", "ProjectTemplates"}) do
             local src = path.absolute(path.join(os.projectdir(), name))
             if os.isdir(src) then
                 local dest = path.join(destdir, name)
@@ -75,6 +76,78 @@ rule("copy_game_content")
                 end
                 os.cp(src, destdir)
             end
+        end
+    end)
+rule_end()
+
+rule("copy_slang_tool")
+    after_build(function (target)
+        local pkg = target:pkg("slang")
+        if not pkg then
+            return
+        end
+        local installdir = pkg:installdir()
+        local destdir = target:targetdir()
+        local exe = is_plat("windows") and "slangc.exe" or "slangc"
+        local slangc = path.join(installdir, "bin", exe)
+        if os.isfile(slangc) then
+            os.cp(slangc, destdir)
+        end
+        if is_plat("windows") then
+            for _, dll in ipairs(os.files(path.join(installdir, "bin", "*.dll"))) do
+                os.cp(dll, destdir)
+            end
+        elseif is_plat("macosx") then
+            for _, dylib in ipairs(os.files(path.join(installdir, "lib", "*.dylib"))) do
+                os.cp(dylib, destdir)
+            end
+            for _, dylib in ipairs(os.files(path.join(installdir, "bin", "*.dylib"))) do
+                os.cp(dylib, destdir)
+            end
+        end
+    end)
+rule_end()
+
+rule("copy_sdl_runtime")
+    after_build(function (target)
+        local pkg = target:pkg("libsdl3")
+        if not pkg then
+            return
+        end
+        local destdir = target:targetdir()
+        if is_plat("windows") then
+            local bindir = path.join(pkg:installdir(), "bin")
+            if os.isdir(bindir) then
+                for _, dll in ipairs(os.files(path.join(bindir, "*.dll"))) do
+                    os.cp(dll, destdir)
+                end
+            end
+        elseif is_plat("macosx") then
+            local libdir = path.join(pkg:installdir(), "lib")
+            if os.isdir(libdir) then
+                for _, dylib in ipairs(os.files(path.join(libdir, "libSDL3*.dylib"))) do
+                    os.cp(dylib, destdir)
+                end
+            end
+        end
+    end)
+rule_end()
+
+rule("copy_runtime_library")
+    after_build(function (target)
+        local rt = target:dep("MyEngineRuntime")
+        if not rt then
+            return
+        end
+        local runtime = rt:targetfile()
+        if not os.isfile(runtime) then
+            return
+        end
+        local destdir = target:targetdir()
+        local dest = path.join(destdir, path.filename(runtime))
+        -- Same output dir as MyEngineRuntime: copying onto itself fails.
+        if path.normalize(path.absolute(runtime)) ~= path.normalize(path.absolute(dest)) then
+            os.cp(runtime, destdir)
         end
     end)
 rule_end()
@@ -107,6 +180,7 @@ target_end()
 target("MyEngineRuntime")
     set_kind("shared")
     set_basename("runtime")
+    add_rules("copy_sdl_runtime", "copy_slang_tool")
     add_files(
         "src/Runtime/RuntimeModule.cpp",
         "src/Runtime/Project/ProjectConfig.cpp",
@@ -177,6 +251,7 @@ target("MyEngineRuntime")
         "src/Runtime/Renderer/ScreenUIPass.cpp",
         "src/Runtime/Renderer/EnvironmentPass.cpp",
         "src/Runtime/Renderer/ShaderManager.cpp",
+        "src/Runtime/Renderer/ShaderCompilerSlang.cpp",
         "src/Runtime/Renderer/ShaderCompilerD3D11.cpp",
         "src/Runtime/Renderer/ShaderCompilerD3D12.cpp",
         "src/Runtime/Renderer/MainPass.cpp",
@@ -233,6 +308,7 @@ target("MyEngineRuntime")
     add_packages("tinyobjloader")
     add_packages("joltphysics", { public = true })
     add_packages("angelscript", { public = true })
+    add_packages("slang")
     add_includedirs("thirdparty")
     add_packages("imgui", { public = true })
 
@@ -264,20 +340,6 @@ target("MyEngineRuntime")
         add_defines("MYENGINE_COMPILER_GCC", { public = true })
     end
 
-    after_build(function (target)
-        if not is_plat("windows") then
-            return
-        end
-        local pkg = target:pkg("libsdl3")
-        if pkg then
-            local bindir = path.join(pkg:installdir(), "bin")
-            if os.isdir(bindir) then
-                for _, dll in ipairs(os.files(path.join(bindir, "*.dll"))) do
-                    os.cp(dll, target:targetdir())
-                end
-            end
-        end
-    end)
 target_end()
 
 target("MyEngineIconTool")
@@ -304,7 +366,7 @@ target_end()
 
 target("MyEngineEditor")
     set_kind("binary")
-    add_rules("copy_game_content")
+    add_rules("copy_game_content", "copy_sdl_runtime", "copy_slang_tool", "copy_runtime_library")
     add_files("main.cpp")
     add_files(
         "src/Editor/EditorAssetRegistry.cpp",
@@ -355,6 +417,7 @@ target("MyEngineEditor")
     add_deps("MyEngineIconTool")
     add_deps("Lua")
     add_packages("tinyobjloader")
+    add_packages("slang")
     add_defines("MYENGINE_ENABLE_IMGUI")
     add_defines("MYENGINE_BUILD_ID=dev_0_1_0")
     if is_mode("release") then
@@ -366,79 +429,33 @@ target("MyEngineEditor")
         add_files("src/Runtime/Miscs/Resources/MyEngineEditor.rc")
         add_cxflags("/utf-8", { toolset = "msvc" })
         add_syslinks("dxgi")
+    elseif is_plat("macosx") then
+        add_files("src/Editor/EditorImGuiMetalBridge.mm")
+        add_deps("imgui_metal")
     end
     set_rundir("$(projectdir)")
-    after_build(function (target)
-        if not is_plat("windows") then
-            return
-        end
-        local pkg = target:pkg("libsdl3")
-        if pkg then
-            local bindir = path.join(pkg:installdir(), "bin")
-            if os.isdir(bindir) then
-                for _, dll in ipairs(os.files(path.join(bindir, "*.dll"))) do
-                    os.cp(dll, target:targetdir())
-                end
-            end
-        end
-        local rt = target:dep("MyEngineRuntime")
-        if rt then
-            local dll = rt:targetfile()
-            if os.isfile(dll) then
-                local destdir = target:targetdir()
-                local dest = path.join(destdir, path.filename(dll))
-                -- Same output dir as MyEngineRuntime: copying onto itself fails (often "busy" if loaded).
-                if path.normalize(path.absolute(dll)) ~= path.normalize(path.absolute(dest)) then
-                    os.cp(dll, destdir)
-                end
-            end
-        end
-    end)
 target_end()
 
 target("MyEnginePlayer")
     set_kind("binary")
-    add_rules("copy_game_content")
+    add_rules("copy_game_content", "copy_sdl_runtime", "copy_slang_tool", "copy_runtime_library")
     add_files("player_main.cpp")
     add_includedirs("src")
     add_deps("MyEngineRuntime")
     add_deps("MyEngineIconTool")
     add_packages("libsdl3")
+    add_packages("slang")
     add_defines("MYENGINE_ENABLE_IMGUI")
     if is_plat("windows") then
         add_files("src/Runtime/Miscs/Resources/MyEnginePlayer.rc")
         add_cxflags("/utf-8", { toolset = "msvc" })
     end
     set_rundir("$(projectdir)")
-    after_build(function (target)
-        if not is_plat("windows") then
-            return
-        end
-        local pkg = target:pkg("libsdl3")
-        if pkg then
-            local bindir = path.join(pkg:installdir(), "bin")
-            if os.isdir(bindir) then
-                for _, dll in ipairs(os.files(path.join(bindir, "*.dll"))) do
-                    os.cp(dll, target:targetdir())
-                end
-            end
-        end
-        local rt = target:dep("MyEngineRuntime")
-        if rt then
-            local dll = rt:targetfile()
-            if os.isfile(dll) then
-                local destdir = target:targetdir()
-                local dest = path.join(destdir, path.filename(dll))
-                if path.normalize(path.absolute(dll)) ~= path.normalize(path.absolute(dest)) then
-                    os.cp(dll, destdir)
-                end
-            end
-        end
-    end)
 target_end()
 
 target("MyEngineCooker")
     set_kind("binary")
+    add_rules("copy_slang_tool", "copy_runtime_library")
     add_files(
         "cooker_main.cpp",
         "src/Editor/ProjectPublisher.cpp",
@@ -448,6 +465,7 @@ target("MyEngineCooker")
     add_deps("MyEngineRuntime")
     add_deps("MyEngineIconTool")
     add_packages("nlohmann_json")
+    add_packages("slang")
     add_defines("MYENGINE_BUILD_ID=dev_0_1_0")
     if is_mode("release") then
         add_defines("MYENGINE_BUILD_CONFIGURATION=release")
@@ -474,7 +492,7 @@ target_end()
 
 target("MyEngineTests")
     set_kind("binary")
-    add_rules("copy_game_content")
+    add_rules("copy_game_content", "copy_sdl_runtime", "copy_slang_tool", "copy_runtime_library")
     add_files(
         "tests/AssetsTests.cpp",
         "tests/EditorTests.cpp",
@@ -532,6 +550,7 @@ target("MyEngineTests")
     add_deps("Lua")
     add_options("mem_stats", "mem_tracking", "mem_guard")
     add_packages("tinyobjloader")
+    add_packages("slang")
     add_defines("MYENGINE_ENABLE_IMGUI")
     add_defines("MYENGINE_BUILD_ID=dev_0_1_0")
     if is_mode("release") then
@@ -542,30 +561,8 @@ target("MyEngineTests")
     if is_plat("windows") then
         add_cxflags("/utf-8", { toolset = "msvc" })
         add_syslinks("dxgi")
+    elseif is_plat("macosx") then
+        add_files("src/Editor/EditorImGuiMetalBridge.mm")
+        add_deps("imgui_metal")
     end
-    after_build(function (target)
-        if not is_plat("windows") then
-            return
-        end
-        local pkg = target:pkg("libsdl3")
-        if pkg then
-            local bindir = path.join(pkg:installdir(), "bin")
-            if os.isdir(bindir) then
-                for _, dll in ipairs(os.files(path.join(bindir, "*.dll"))) do
-                    os.cp(dll, target:targetdir())
-                end
-            end
-        end
-        local rt = target:dep("MyEngineRuntime")
-        if rt then
-            local dll = rt:targetfile()
-            if os.isfile(dll) then
-                local destdir = target:targetdir()
-                local dest = path.join(destdir, path.filename(dll))
-                if path.normalize(path.absolute(dll)) ~= path.normalize(path.absolute(dest)) then
-                    os.cp(dll, destdir)
-                end
-            end
-        end
-    end)
 target_end()

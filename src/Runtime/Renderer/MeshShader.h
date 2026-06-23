@@ -45,10 +45,10 @@ struct VSOut {
 };
 
 vertex VSOut VSMain(VSIn in [[stage_in]],
-                    constant PerDraw& perDraw [[buffer(1)]])
+                    constant PerDraw& PerDraw [[buffer(1)]])
 {
     VSOut out;
-    out.position = perDraw.g_MVP * float4(in.position, 1.0);
+    out.position = PerDraw.g_MVP * float4(in.position, 1.0);
     out.normal   = in.normal;
     out.tangent  = in.tangent;
     out.uv       = in.uv;
@@ -56,11 +56,11 @@ vertex VSOut VSMain(VSIn in [[stage_in]],
 }
 
 fragment float4 PSMain(VSOut in [[stage_in]],
-                        constant PerDraw& perDraw [[buffer(1)]])
+                        constant PerDraw& PerDraw [[buffer(1)]])
 {
     float d = saturate(dot(in.normal, normalize(float3(0.0, 1.0, 1.0))));
     d += dot(in.tangent, float3(1.0, 1.0, 1.0)) * 1e-10f;
-    return 0.5 + 0.5 * perDraw.g_BaseColor * d;
+    return 0.5 + 0.5 * PerDraw.g_BaseColor * d;
 }
 
 )MSL";

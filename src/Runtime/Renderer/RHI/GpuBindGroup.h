@@ -19,20 +19,21 @@ public:
 
     bool SetConstants(const std::string& name, const void* data, uint32_t byteSize) {
         const auto* binding = Find(name, ShaderBindingType::ConstantBuffer);
-        if (!binding || !data || binding->byteSize != byteSize) return false;
+        if ((!binding && HasReflection()) || !data) return false;
+        if (binding && binding->byteSize != 0 && binding->byteSize != byteSize) return false;
         auto& bytes = m_Constants[name]; bytes.resize(byteSize);
         std::memcpy(bytes.data(), data, byteSize); return true;
     }
     bool SetTexture(const std::string& name, std::shared_ptr<GpuTextureView> view) {
-        if (!Find(name, ShaderBindingType::Texture) || !view) return false;
+        if ((!Find(name, ShaderBindingType::Texture) && HasReflection()) || !view) return false;
         m_Textures[name] = std::move(view); return true;
     }
     bool SetSampler(const std::string& name, std::shared_ptr<GpuSampler> sampler) {
-        if (!Find(name, ShaderBindingType::Sampler) || !sampler) return false;
+        if ((!Find(name, ShaderBindingType::Sampler) && HasReflection()) || !sampler) return false;
         m_Samplers[name] = std::move(sampler); return true;
     }
     bool SetStorageBuffer(const std::string& name, std::shared_ptr<GpuBufferView> view) {
-        if (!Find(name, ShaderBindingType::StorageBuffer) || !view) return false;
+        if ((!Find(name, ShaderBindingType::StorageBuffer) && HasReflection()) || !view) return false;
         m_StorageBuffers[name] = std::move(view); return true;
     }
     bool Validate(std::string* error = nullptr) const {
@@ -53,6 +54,9 @@ public:
     const auto& GetStorageBuffers() const { return m_StorageBuffers; }
 
 private:
+    bool HasReflection() const {
+        return m_Shader && !m_Shader->reflection.bindings.empty();
+    }
     const ShaderBindingDesc* Find(const std::string& name, ShaderBindingType type) const {
         if (!m_Shader) return nullptr;
         const auto* binding = m_Shader->reflection.Find(name);

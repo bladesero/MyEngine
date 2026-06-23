@@ -6,6 +6,7 @@
 #include "Assets/ShaderAsset.h"
 #include "Renderer/ShaderCompilerD3D11.h"
 #include "Renderer/ShaderCompilerD3D12.h"
+#include "Renderer/ShaderCompilerSlang.h"
 #include "Project/RuntimeCompatibility.h"
 #include "Project/RuntimeDependencies.h"
 #include "Project/ContentPathPolicy.h"
@@ -15,6 +16,7 @@
 #include <cctype>
 #include <fstream>
 #include <future>
+#include <iterator>
 #include <unordered_set>
 
 namespace fs = std::filesystem;
@@ -45,6 +47,18 @@ bool CopyRequired(const fs::path& source, const fs::path& destination,
         return false;
     }
     return true;
+}
+
+std::vector<ShaderBackend> ShaderBackendsForTarget(const std::string& target)
+{
+    if (target == PublishTargets::kMacOSArm64.id) return {ShaderBackend::Metal};
+    return {ShaderBackend::D3D11, ShaderBackend::D3D12, ShaderBackend::Metal};
+}
+
+std::vector<std::string> RequiredBackendNamesForTarget(const std::string& target)
+{
+    if (target == PublishTargets::kMacOSArm64.id) return {"metal"};
+    return {"d3d11", "d3d12", "metal"};
 }
 
 bool IsWithin(const fs::path& path, const fs::path& parent) {
@@ -107,8 +121,47 @@ bool ValidateShaderIncludes(const fs::path& source, const fs::path& allowedRoot,
     return true;
 }
 
+bool CompileShaderStageForBackend(const fs::path& hlsl,
+                                  const ShaderStageSource& sourceStage,
+                                  ShaderStage stage,
+                                  ShaderBackend backend,
+                                  const std::vector<std::string>& defines,
+                                  std::vector<uint8_t>& outBlob,
+                                  std::string* error) {
+    if (ShaderCompilerSlang::CompileStageFromFile(
+            hlsl, sourceStage.entry, stage, backend, outBlob, defines, error)) {
+        return true;
+    }
+
+#ifdef MYENGINE_PLATFORM_WINDOWS
+    if (backend == ShaderBackend::D3D11 || backend == ShaderBackend::D3D12) {
+        std::vector<unsigned char> fallback;
+        const size_t stageIndex = static_cast<size_t>(stage);
+        const char* profiles11[] = {"vs_5_0", "ps_5_0", "cs_5_0"};
+        const char* profiles12[] = {"vs_5_1", "ps_5_1", "cs_5_1"};
+        const bool ok = backend == ShaderBackend::D3D12
+            ? ShaderCompilerD3D12::CompileStageFromFile(
+                hlsl.string(), sourceStage.entry, profiles12[stageIndex],
+                fallback, defines)
+            : ShaderCompilerD3D11::CompileStageFromFile(
+                hlsl.string(), sourceStage.entry, profiles11[stageIndex],
+                fallback, defines);
+        if (ok) {
+            outBlob.assign(fallback.begin(), fallback.end());
+            return true;
+        }
+    }
+#endif
+
+    if (error && error->empty()) {
+        *error = "shader compile failed: " + hlsl.string();
+    }
+    return false;
+}
+
 bool CompileCookedShader(const fs::path& source, const fs::path& destination,
                          const fs::path& allowedRoot,
+                         const std::vector<ShaderBackend>& backends,
                          std::string* error) {
     auto description = LoadShaderAssetFromFile(source.string());
     if (!description || description->IsCooked()) {
@@ -126,9 +179,14 @@ bool CompileCookedShader(const fs::path& source, const fs::path& destination,
     std::sort(dependencies.begin(),dependencies.end());
     Sha256 cacheKey;
     const std::string cookerContract=std::string(RuntimeCompatibility::kBuildId)+
-        "|shader-cooker-v1|d3d11-sm5.0|d3d12-sm5.1|"+
+        "|shader-cooker-v2|"+
+        ShaderCompilerSlang::GetVersionString()+"|"+
         std::to_string(description->GetSourceHash());
     cacheKey.Update(cookerContract.data(),cookerContract.size());
+    for (ShaderBackend backend : backends) {
+        const std::string backendText = std::to_string(static_cast<int>(backend));
+        cacheKey.Update(backendText.data(), backendText.size());
+    }
     for(const auto& dependency:dependencies) {
         std::string hashError;
         const std::string hash=Sha256::HashFile(dependency,&hashError);
@@ -146,19 +204,20 @@ bool CompileCookedShader(const fs::path& source, const fs::path& destination,
         if(!ec)return true;
     }
 
-    std::array<std::array<std::vector<uint8_t>, 3>, 2> blobs{};
+    std::array<std::array<std::vector<uint8_t>, kShaderStageCount>, kShaderBackendCount> blobs{};
     for (size_t stageIndex = 0; stageIndex < 3; ++stageIndex) {
         if ((description->GetStageMask() & (1u << stageIndex)) == 0) continue;
         const auto stage = static_cast<ShaderStage>(stageIndex);
         const auto& sourceStage = description->GetStage(stage);
         const fs::path hlsl = description->ResolveSource(stage);
-        const char* profiles11[] = {"vs_5_0", "ps_5_0", "cs_5_0"};
-        const char* profiles12[] = {"vs_5_1", "ps_5_1", "cs_5_1"};
-        if (!ShaderCompilerD3D11::CompileStageFromFile(hlsl.string(), sourceStage.entry,
-                profiles11[stageIndex], blobs[0][stageIndex], description->GetDefines()) ||
-            !ShaderCompilerD3D12::CompileStageFromFile(hlsl.string(), sourceStage.entry,
-                profiles12[stageIndex], blobs[1][stageIndex], description->GetDefines())) {
-            SetError(error, "shader cook failed: " + source.string()); return false;
+        for (ShaderBackend backend : backends) {
+            const size_t backendIndex = static_cast<size_t>(backend);
+            if (!CompileShaderStageForBackend(
+                    hlsl, sourceStage, stage, backend, description->GetDefines(),
+                    blobs[backendIndex][stageIndex], error)) {
+                if (error && error->empty()) *error = "shader cook failed: " + source.string();
+                return false;
+            }
         }
     }
     ShaderAsset cooked(destination.string());
@@ -172,6 +231,7 @@ bool CompileCookedShader(const fs::path& source, const fs::path& destination,
 }
 
 bool CookTree(const fs::path& sourceRoot, const fs::path& destinationRoot,
+              const std::vector<ShaderBackend>& shaderBackends,
               std::string* error) {
     std::error_code ec; std::vector<ContentFileInfo> files; uint64_t total=0;
     if(!ContentPathPolicy::Enumerate(sourceRoot,files,total,error)) return false;
@@ -189,10 +249,10 @@ bool CookTree(const fs::path& sourceRoot, const fs::path& destinationRoot,
         if (extension == ".shader") {
             const fs::path shaderSource=file.absolute;
             shaderTasks.emplace_back(std::async(std::launch::async,
-                [shaderSource,destination,sourceRoot] {
+                [shaderSource,destination,sourceRoot,shaderBackends] {
                     std::string taskError;
                     const bool result=CompileCookedShader(
-                        shaderSource,destination,sourceRoot,&taskError);
+                        shaderSource,destination,sourceRoot,shaderBackends,&taskError);
                     return std::make_pair(result,std::move(taskError));
                 }));
         } else {
@@ -227,11 +287,8 @@ bool ProjectPublisher::Publish(const ProjectConfig& project,
         SetError(error, "unsupported publish target: " + settings.target);
         return false;
     }
-#ifndef _WIN32
-    SetError(error, std::string(PublishTargets::kDefaultTargetId) +
-        " publishing is only available on Windows");
-    return false;
-#endif
+    const std::vector<ShaderBackend> shaderBackends =
+        ShaderBackendsForTarget(settings.target);
     std::error_code ec;
     if (!fs::is_directory(project.GetRoot() / "Content", ec) || ec) {
         SetError(error, "project Content directory is missing");
@@ -283,7 +340,7 @@ bool ProjectPublisher::Publish(const ProjectConfig& project,
 #ifdef _WIN32
     const char* required[] = {"MyEnginePlayer.exe", "runtime.dll", "SDL3.dll"};
 #elif defined(__APPLE__)
-    const char* required[] = {"MyEnginePlayer", "libruntime.dylib", "libSDL3.dylib"};
+    const char* required[] = {"MyEnginePlayer", "libruntime.dylib", "libSDL3.dylib", "libSDL3.0.dylib"};
 #else
     const char* required[] = {"MyEnginePlayer", "libruntime.so", "libSDL3.so"};
 #endif
@@ -308,10 +365,19 @@ bool ProjectPublisher::Publish(const ProjectConfig& project,
     }
 
     RuntimeDependencyManifest runtimeDependencies;
+#ifdef _WIN32
     if(!WindowsRuntimeDependencyCollector::Collect(engineBinaryDirectory,staging,runtimeDependencies,error) ||
        !runtimeDependencies.Save(staging/RuntimeDependencyManifest::kFileName,error)) {
         Cleanup(staging); return false;
     }
+#else
+    if(!HostRuntimeDependencyCollector::Collect(
+           engineBinaryDirectory, staging, runtimeDependencies,
+           std::vector<std::string>(std::begin(required), std::end(required)), error) ||
+       !runtimeDependencies.Save(staging/RuntimeDependencyManifest::kFileName,error)) {
+        Cleanup(staging); return false;
+    }
+#endif
     const std::string runtimeDependenciesHash=Sha256::HashFile(
         staging/RuntimeDependencyManifest::kFileName,error);
     if(runtimeDependenciesHash.empty()){Cleanup(staging);return false;}
@@ -324,8 +390,8 @@ bool ProjectPublisher::Publish(const ProjectConfig& project,
     const fs::path archive = staging / ContentArchive::kFileName;
     const fs::path cookedContent = staging / ".cooked-content";
     fs::create_directories(cookedContent / "Engine", ec);
-    if (ec || !CookTree(engineContent, cookedContent / "Engine", error) ||
-        !CookTree(project.GetRoot() / "Content", cookedContent, error) ||
+    if (ec || !CookTree(engineContent, cookedContent / "Engine", shaderBackends, error) ||
+        !CookTree(project.GetRoot() / "Content", cookedContent, shaderBackends, error) ||
         !ContentArchive::Create(cookedContent, archive, &entries, error)) {
         Cleanup(staging);
         return false;
@@ -350,7 +416,7 @@ bool ProjectPublisher::Publish(const ProjectConfig& project,
     manifest.contentSchemaVersion=RuntimeCompatibility::kContentSchemaVersion;
     manifest.archiveFormatVersion=RuntimeCompatibility::kArchiveFormatVersion;
     manifest.configuration=RuntimeCompatibility::kConfiguration;
-    manifest.requiredBackends={"d3d11","d3d12"};
+    manifest.requiredBackends=RequiredBackendNamesForTarget(settings.target);
     manifest.runtimeDependenciesHash=runtimeDependenciesHash;
     manifest.target = settings.target;
     manifest.startupScene = project.GetStartupScene();

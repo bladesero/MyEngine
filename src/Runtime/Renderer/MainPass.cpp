@@ -844,7 +844,9 @@ void MainPass::Execute(GpuCommandList& commands, const Scene& scene, const Camer
             auto bindings = Device()->CreateBindGroup(
                 m_MainShaderHandle ? m_MainShaderHandle->shader : nullptr);
             if (bindings) {
-                bindings->SetConstants("PerDraw", &constants, sizeof(constants));
+                if (!bindings->SetConstants("PerDraw", &constants, sizeof(constants))) {
+                    Logger::Error("[MainPass] Failed to bind PerDraw constants");
+                }
                 bindings->SetTexture("g_BaseColorMap", GetTextureView(baseColorTexture));
                 bindings->SetSampler("g_Sampler", m_LinearSampler);
                 commands.SetBindGroup(0, bindings.get());

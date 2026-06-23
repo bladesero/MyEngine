@@ -5,6 +5,7 @@
 #ifdef MYENGINE_PLATFORM_MACOS
 
 #include "Renderer/IRenderContext.h"
+#include <cstddef>
 #include <memory>
 
 // Forward declarations – avoids pulling in Objective-C headers from C++ code.
@@ -31,8 +32,10 @@ public:
     void BeginFrame(float r, float g, float b, float a = 1.0f) override;
     void EndFrame()  override;
     GpuSwapChain* GetSwapChain() override;
+    GpuTextureView* GetCurrentBackBufferView() override;
     GpuCommandList* GetGraphicsCommandList() override;
     RHIBackend GetBackend() const override { return RHIBackend::Metal; }
+    ImGuiBackendHandles GetImGuiBackendHandles() override;
 
     std::shared_ptr<GpuBuffer> CreateVertexBuffer(
         const void* data, uint32_t byteSize, uint32_t strideBytes) override;
@@ -48,6 +51,15 @@ public:
         const std::string& psEntry,
         const VertexElement* layout,
         uint32_t            layoutCount) override;
+    std::shared_ptr<GpuShader> CreateShaderFromBytecode(
+        const void* vsBytecode,
+        size_t vsSize,
+        const void* psBytecode,
+        size_t psSize,
+        const VertexElement* layout,
+        uint32_t layoutCount) override;
+    std::shared_ptr<GpuShader> CreateComputeShaderFromBytecode(
+        const void* bytecode, size_t byteSize) override;
 
     void BindShader      (GpuShader* shader);
     void BindVertexBuffer(GpuBuffer* buffer);
@@ -58,10 +70,25 @@ public:
     void Draw       (uint32_t vertexCount, uint32_t startVertex = 0);
     void DrawIndexed(uint32_t indexCount,  uint32_t startIndex  = 0,
                      uint32_t baseVertex   = 0);
+    void DrawInstanced(uint32_t vertexCount, uint32_t instanceCount,
+                       uint32_t startVertex = 0);
+    void DrawIndexedInstanced(uint32_t indexCount, uint32_t instanceCount,
+                              uint32_t startIndex = 0,
+                              uint32_t baseVertex = 0);
 
     void SetViewport(float x, float y, float w, float h);
+    void BeginRendering(const RenderingInfo& info);
+    void EndRendering();
+    std::shared_ptr<GpuGraphicsPipeline> CreateGraphicsPipeline(
+        const GraphicsPipelineDesc& desc) override;
+    void SetGraphicsPipeline(GpuGraphicsPipeline* pipeline);
+    void SetBindGroup(GpuBindGroup* group);
     std::shared_ptr<GpuTexture> UploadTexture2D(
         const void* rgba8Data, int width, int height) override;
+    std::shared_ptr<GpuTexture> CreateTexture(const RHITextureDesc& desc) override;
+    std::shared_ptr<GpuTextureView> CreateTextureView(
+        const std::shared_ptr<GpuTexture>& texture, const RHITextureViewDesc& desc) override;
+    std::shared_ptr<GpuSampler> CreateSampler(const RHISamplerDesc& desc) override;
     void BindPSTexture(uint32_t slot, GpuTexture* tex);
 
     // Metal-specific accessors.

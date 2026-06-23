@@ -32,19 +32,25 @@ template<class T> void Write(std::ostream& out, const T& value) {
 std::shared_ptr<ShaderAsset> LoadCooked(const std::string& path, std::ifstream& input) {
     uint32_t version = 0, mask = 0;
     uint64_t sourceHash = 0;
-    if (!Read(input, version) || version != ShaderAsset::kFormatVersion ||
+    if (!Read(input, version) ||
+        (version != ShaderAsset::kLegacyCookedFormatVersion &&
+         version != ShaderAsset::kCookedFormatVersion) ||
         !Read(input, mask) || !Read(input, sourceHash)) return {};
     if (mask != ShaderAsset::kComputeMask && mask != (ShaderAsset::kVertexMask | ShaderAsset::kPixelMask)) return {};
-    std::array<std::array<std::vector<uint8_t>, 3>, 2> blobs{};
-    for (auto& backend : blobs) {
-        for (size_t stage = 0; stage < 3; ++stage) {
+    std::array<std::array<std::vector<uint8_t>, kShaderStageCount>, kShaderBackendCount> blobs{};
+    const size_t storedBackendCount =
+        version == ShaderAsset::kLegacyCookedFormatVersion ? 2 : kShaderBackendCount;
+    for (size_t backendIndex = 0; backendIndex < storedBackendCount; ++backendIndex) {
+        auto& backend = blobs[backendIndex];
+        for (size_t stage = 0; stage < kShaderStageCount; ++stage) {
             uint64_t size = 0;
             if (!Read(input, size) || size > (256ull << 20)) return {};
             const uint32_t bit = 1u << stage;
             if ((mask & bit) == 0 && size != 0) return {};
             backend[stage].resize(static_cast<size_t>(size));
             if (size && !input.read(reinterpret_cast<char*>(backend[stage].data()), static_cast<std::streamsize>(size))) return {};
-            if ((mask & bit) != 0 && size == 0) return {};
+            if (version == ShaderAsset::kLegacyCookedFormatVersion &&
+                (mask & bit) != 0 && size == 0) return {};
         }
     }
     if (input.peek() != std::char_traits<char>::eof()) return {};
@@ -66,7 +72,7 @@ void ShaderAsset::SetDescription(uint32_t mask, std::array<ShaderStageSource, 3>
     m_Defines = std::move(defines); m_SourceHash = hash;
 }
 void ShaderAsset::SetCooked(uint32_t mask, uint64_t hash,
-                            std::array<std::array<std::vector<uint8_t>, 3>, 2> blobs) {
+                            std::array<std::array<std::vector<uint8_t>, kShaderStageCount>, kShaderBackendCount> blobs) {
     m_Cooked = true; m_StageMask = mask; m_SourceHash = hash; m_Bytecode = std::move(blobs);
 }
 bool ShaderAsset::ReloadFrom(const Asset& source) {
@@ -91,7 +97,8 @@ std::shared_ptr<ShaderAsset> LoadShaderAssetFromFile(const std::string& path) {
             if (first != std::string::npos && jsonText.find(stageName, first + std::strlen(stageName)) != std::string::npos) return {};
         }
         nlohmann::json data = nlohmann::json::parse(jsonText);
-        if (data.value("type", std::string()) != "Shader" || data.value("version", 0u) != ShaderAsset::kFormatVersion) return {};
+        if (data.value("type", std::string()) != "Shader" ||
+            data.value("version", 0u) != ShaderAsset::kDescriptionVersion) return {};
         const auto stages = data.find("stages");
         if (stages == data.end() || !stages->is_object()) return {};
         for (auto it = stages->begin(); it != stages->end(); ++it)
@@ -122,12 +129,14 @@ std::shared_ptr<ShaderAsset> LoadShaderAssetFromFile(const std::string& path) {
 bool SaveCookedShaderAsset(const ShaderAsset& shader, const std::filesystem::path& path, std::string* error) {
     std::ofstream output(path, std::ios::binary | std::ios::trunc);
     if (!output) { if (error) *error = "cannot write cooked shader: " + path.string(); return false; }
-    output.write(kMagic, sizeof(kMagic)); Write(output, ShaderAsset::kFormatVersion);
+    output.write(kMagic, sizeof(kMagic)); Write(output, ShaderAsset::kCookedFormatVersion);
     Write(output, shader.GetStageMask()); Write(output, shader.GetSourceHash());
-    for (size_t backend = 0; backend < 2; ++backend) for (size_t stage = 0; stage < 3; ++stage) {
+    for (size_t backend = 0; backend < kShaderBackendCount; ++backend) {
+        for (size_t stage = 0; stage < kShaderStageCount; ++stage) {
         const auto& blob = shader.GetBytecode(static_cast<ShaderBackend>(backend), static_cast<ShaderStage>(stage));
         const uint64_t size = blob.size(); Write(output, size);
         if (size) output.write(reinterpret_cast<const char*>(blob.data()), static_cast<std::streamsize>(size));
+        }
     }
     if (!output) { if (error) *error = "failed writing cooked shader: " + path.string(); return false; }
     return true;

@@ -25,6 +25,12 @@ bool SafeContentPath(const std::string& value) {
     }
     return true;
 }
+
+std::vector<std::string> ExpectedRequiredBackends(const std::string& target)
+{
+    if (target == PublishTargets::kMacOSArm64.id) return {"metal"};
+    return {"d3d11", "d3d12", "metal"};
+}
 }
 
 bool CookManifest::Validate(std::string* error) const {
@@ -45,12 +51,13 @@ bool CookManifest::Validate(std::string* error) const {
        !Sha256::FromHex(runtimeDependenciesHash,digest)) {
         SetError(error,"Cook manifest compatibility contract is invalid"); return false;
     }
-    if(requiredBackends != std::vector<std::string>{"d3d11","d3d12"}) {
-        SetError(error,"Cook manifest requiredBackends must be d3d11,d3d12"); return false;
-    }
     if (!PublishTargets::IsSupported(target)) {
         SetError(error, "unsupported Cook target: " + target);
         return false;
+    }
+    const auto expectedBackends = ExpectedRequiredBackends(target);
+    if(requiredBackends != expectedBackends) {
+        SetError(error,"Cook manifest requiredBackends do not match target: " + target); return false;
     }
     if (!SafeContentPath(startupScene)) {
         SetError(error, "Cook manifest startupScene must be a safe Content path");

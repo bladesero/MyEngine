@@ -78,7 +78,7 @@ bool TestShaderAssetFormats() {
     for (size_t i = 0; i < std::size(invalid); ++i)
         if (!Check(!LoadShaderAssetFromFile(write(("Invalid" + std::to_string(i) + ".shader").c_str(), invalid[i]).string()),
                    "invalid shader description was accepted")) return false;
-    std::array<std::array<std::vector<uint8_t>, 3>, 2> blobs{};
+    std::array<std::array<std::vector<uint8_t>, kShaderStageCount>, kShaderBackendCount> blobs{};
     for (auto& backend : blobs) { backend[0] = {1,2,3}; backend[1] = {4,5}; }
     ShaderAsset cooked(graphics.string());
     cooked.SetCooked(ShaderAsset::kVertexMask | ShaderAsset::kPixelMask, 42, std::move(blobs));

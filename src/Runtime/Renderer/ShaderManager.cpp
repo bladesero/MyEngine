@@ -6,6 +6,7 @@
 #include "Renderer/ShaderCompilerD3D11.h"
 #include "Renderer/ShaderCompilerD3D12.h"
 #endif
+#include "Renderer/ShaderCompilerSlang.h"
 #include <fstream>
 #include <sstream>
 
@@ -28,8 +29,9 @@ std::shared_ptr<GpuShader> ShaderManager::CompileRecord(const ShaderRecord& rec)
     if (!m_Device || !rec.asset.IsValid()) return {};
     const ShaderAsset& asset = *rec.asset;
     const RHIBackend activeBackend = m_Device->GetBackend();
-    const ShaderBackend backend = activeBackend == RHIBackend::D3D12
-        ? ShaderBackend::D3D12 : ShaderBackend::D3D11;
+    const ShaderBackend backend = activeBackend == RHIBackend::Metal
+        ? ShaderBackend::Metal
+        : (activeBackend == RHIBackend::D3D12 ? ShaderBackend::D3D12 : ShaderBackend::D3D11);
     if (asset.IsCooked()) {
         if (rec.compute) {
             const auto& cs = asset.GetBytecode(backend, ShaderStage::Compute);
@@ -41,14 +43,81 @@ std::shared_ptr<GpuShader> ShaderManager::CompileRecord(const ShaderRecord& rec)
         return m_Device->CreateShaderFromBytecode(vs.data(), vs.size(), ps.data(), ps.size(),
             rec.layout.data(), static_cast<uint32_t>(rec.layout.size()));
     }
-    if (activeBackend != RHIBackend::D3D11 && activeBackend != RHIBackend::D3D12) {
-        if (rec.compute) return {};
-        std::ifstream input(asset.ResolveSource(ShaderStage::Vertex), std::ios::binary);
-        std::ostringstream source; source << input.rdbuf();
-        return input ? m_Device->CreateShader(source.str(), asset.GetStage(ShaderStage::Vertex).entry,
-            asset.GetStage(ShaderStage::Pixel).entry, rec.layout.data(), static_cast<uint32_t>(rec.layout.size())) : nullptr;
+    if (activeBackend == RHIBackend::Metal) {
+        if (rec.compute) {
+            std::vector<uint8_t> cs;
+            std::string error;
+            const auto& stage = asset.GetStage(ShaderStage::Compute);
+            if (!ShaderCompilerSlang::CompileStageFromFile(
+                    asset.ResolveSource(ShaderStage::Compute), stage.entry,
+                    ShaderStage::Compute, ShaderBackend::Metal, cs, asset.GetDefines(), &error)) {
+                Logger::Error("[ShaderManager] ", error);
+                return {};
+            }
+            return m_Device->CreateComputeShaderFromBytecode(cs.data(), cs.size());
+        }
+        std::vector<uint8_t> vs, ps;
+        std::string error;
+        const auto& vsStage = asset.GetStage(ShaderStage::Vertex);
+        const auto& psStage = asset.GetStage(ShaderStage::Pixel);
+        if (!ShaderCompilerSlang::CompileStageFromFile(
+                asset.ResolveSource(ShaderStage::Vertex), vsStage.entry,
+                ShaderStage::Vertex, ShaderBackend::Metal, vs, asset.GetDefines(), &error) ||
+            !ShaderCompilerSlang::CompileStageFromFile(
+                asset.ResolveSource(ShaderStage::Pixel), psStage.entry,
+                ShaderStage::Pixel, ShaderBackend::Metal, ps, asset.GetDefines(), &error)) {
+            Logger::Error("[ShaderManager] ", error);
+            return {};
+        }
+        return m_Device->CreateShaderFromBytecode(vs.data(), vs.size(), ps.data(), ps.size(),
+            rec.layout.data(), static_cast<uint32_t>(rec.layout.size()));
     }
+#ifndef MYENGINE_PLATFORM_WINDOWS
+    if (activeBackend != RHIBackend::Metal) {
+        if (rec.compute) {
+            const uint8_t dummyBytecode = 0;
+            return m_Device->CreateComputeShaderFromBytecode(&dummyBytecode, sizeof(dummyBytecode));
+        }
+        std::ostringstream source;
+        const auto& vsStage = asset.GetStage(ShaderStage::Vertex);
+        const auto& psStage = asset.GetStage(ShaderStage::Pixel);
+        for (ShaderStage stage : {ShaderStage::Vertex, ShaderStage::Pixel}) {
+            std::ifstream input(asset.ResolveSource(stage), std::ios::binary);
+            if (input) source << input.rdbuf() << '\n';
+        }
+        return m_Device->CreateShader(source.str(), vsStage.entry, psStage.entry,
+            rec.layout.data(), static_cast<uint32_t>(rec.layout.size()));
+    }
+#endif
 #ifdef MYENGINE_PLATFORM_WINDOWS
+    if (ShaderCompilerSlang::IsAvailable()) {
+        if (rec.compute) {
+            std::vector<uint8_t> cs;
+            std::string error;
+            const auto& stage = asset.GetStage(ShaderStage::Compute);
+            if (ShaderCompilerSlang::CompileStageFromFile(
+                    asset.ResolveSource(ShaderStage::Compute), stage.entry,
+                    ShaderStage::Compute, backend, cs, asset.GetDefines(), &error)) {
+                return m_Device->CreateComputeShaderFromBytecode(cs.data(), cs.size());
+            }
+            Logger::Warn("[ShaderManager] Slang compile failed; falling back to D3D compiler: ", error);
+        } else {
+            std::vector<uint8_t> vs, ps;
+            std::string error;
+            const auto& vsStage = asset.GetStage(ShaderStage::Vertex);
+            const auto& psStage = asset.GetStage(ShaderStage::Pixel);
+            if (ShaderCompilerSlang::CompileStageFromFile(
+                    asset.ResolveSource(ShaderStage::Vertex), vsStage.entry,
+                    ShaderStage::Vertex, backend, vs, asset.GetDefines(), &error) &&
+                ShaderCompilerSlang::CompileStageFromFile(
+                    asset.ResolveSource(ShaderStage::Pixel), psStage.entry,
+                    ShaderStage::Pixel, backend, ps, asset.GetDefines(), &error)) {
+                return m_Device->CreateShaderFromBytecode(vs.data(), vs.size(), ps.data(), ps.size(),
+                    rec.layout.data(), static_cast<uint32_t>(rec.layout.size()));
+            }
+            Logger::Warn("[ShaderManager] Slang compile failed; falling back to D3D compiler: ", error);
+        }
+    }
     if (rec.compute) {
         std::vector<unsigned char> cs;
         const auto& stage = asset.GetStage(ShaderStage::Compute);
@@ -69,11 +138,7 @@ std::shared_ptr<GpuShader> ShaderManager::CompileRecord(const ShaderRecord& rec)
     return ok ? m_Device->CreateShaderFromBytecode(vs.data(), vs.size(), ps.data(), ps.size(),
         rec.layout.data(), static_cast<uint32_t>(rec.layout.size())) : nullptr;
 #else
-    if (rec.compute) return {};
-    std::ifstream input(asset.ResolveSource(ShaderStage::Vertex), std::ios::binary);
-    std::ostringstream source; source << input.rdbuf();
-    return input ? m_Device->CreateShader(source.str(), asset.GetStage(ShaderStage::Vertex).entry,
-        asset.GetStage(ShaderStage::Pixel).entry, rec.layout.data(), static_cast<uint32_t>(rec.layout.size())) : nullptr;
+    return {};
 #endif
 }
 

@@ -49,17 +49,20 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
     GpuUploadQueue::Get().Process(*m_Device);
 
     m_FrameContext->BeginFrame(0.12f, 0.12f, 0.18f);
+    const auto endFrameOnFailure = [this, present]() {
+        if (present) m_FrameContext->EndFrame();
+    };
     GpuCommandList* commandList = m_FrameContext->GetGraphicsCommandList();
     if (!commandList) {
         Logger::Error("[Renderer] RHI returned no graphics command list");
-        m_FrameContext->EndFrame();
+        endFrameOnFailure();
         return;
     }
 
     m_RenderGraph->Reset();
     if (!m_ShadowPass->PrepareGraphResources(scene, camera)) {
         Logger::Error("[Renderer] ShadowPass failed to prepare graph resources");
-        m_FrameContext->EndFrame();
+        endFrameOnFailure();
         return;
     }
     const auto shadowResources = m_ShadowPass->GetGraphResources();
@@ -120,8 +123,10 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
             }, RenderGraph::PassFlags::ManualRenderingScope |
                RenderGraph::PassFlags::ManualResourceTransitions);
     }
-    const bool useOffscreen = m_Device->GetBackend() == RHIBackend::D3D11 ||
-                              m_Device->GetBackend() == RHIBackend::D3D12;
+    const bool backendSupportsPostProcess = m_Device->GetBackend() == RHIBackend::D3D11 ||
+                                            m_Device->GetBackend() == RHIBackend::D3D12 ||
+                                            m_Device->GetBackend() == RHIBackend::Metal;
+    const bool useOffscreen = backendSupportsPostProcess || m_OutputOffscreen;
     m_MainPass->SetHdrPassthrough(useOffscreen);
     const uint32_t cascadeCount = m_ShadowPass->GetCascadeCount();
     Mat4 cascades[3] = {
@@ -141,7 +146,7 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
         m_EnvironmentPass->GetSH2Coefficients());
     if (useOffscreen) {
         if (!m_PostProcessPass->PrepareGraphResources()) {
-            m_FrameContext->EndFrame();
+            endFrameOnFailure();
             return;
         }
         const auto postResources = m_PostProcessPass->GetGraphResources();
@@ -169,7 +174,7 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
             backBufferView = m_FrameContext->GetCurrentBackBufferView();
             if (!backBufferView || !backBufferView->texture) {
                 Logger::Error("[Renderer] RHI returned no current backbuffer view");
-                m_FrameContext->EndFrame();
+                endFrameOnFailure();
                 return;
             }
             auto backBufferSharedView =
@@ -253,7 +258,7 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
         GpuTextureView* backBufferView = m_FrameContext->GetCurrentBackBufferView();
         if (!backBufferView || !backBufferView->texture) {
             Logger::Error("[Renderer] RHI returned no current backbuffer view for main pass");
-            m_FrameContext->EndFrame();
+            endFrameOnFailure();
             return;
         }
         auto backBufferSharedView =
@@ -289,7 +294,7 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
     }
     if (!m_RenderGraph->Execute(*commandList)) {
         Logger::Error("[Renderer] RenderGraph execution failed: ", m_RenderGraph->GetLastError());
-        m_FrameContext->EndFrame();
+        endFrameOnFailure();
         return;
     }
     if (useOffscreen) {

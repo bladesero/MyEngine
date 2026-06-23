@@ -93,10 +93,12 @@ VSOut VSMain(VSIn v, uint instanceId : SV_InstanceID)
         localNormal = mul(float4(localNormal, 0.0f), skin).xyz;
         localTangent = mul(float4(localTangent, 0.0f), skin).xyz;
     }
-    row_major float4x4 world = g_DrawInfo.x > 0.5f
-        ? g_InstanceWorld[instanceId] : g_World;
-    row_major float4x4 normalMatrix = g_DrawInfo.x > 0.5f
-        ? g_InstanceNormal[instanceId] : g_NormalMatrix;
+    row_major float4x4 world = g_World;
+    row_major float4x4 normalMatrix = g_NormalMatrix;
+    if (g_DrawInfo.x > 0.5f) {
+        world = g_InstanceWorld[instanceId];
+        normalMatrix = g_InstanceNormal[instanceId];
+    }
     float4 worldPos = mul(localPosition, world);
     o.pos      = mul(worldPos, g_ViewProj);
     o.lightPos = mul(worldPos, g_LightViewProj);

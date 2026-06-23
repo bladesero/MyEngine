@@ -79,7 +79,11 @@ bool TestPublishHardeningPrimitives() {
     manifest.contentSchemaVersion = RuntimeCompatibility::kContentSchemaVersion;
     manifest.archiveFormatVersion = RuntimeCompatibility::kArchiveFormatVersion;
     manifest.configuration = RuntimeCompatibility::kConfiguration;
-    manifest.requiredBackends = {"d3d11", "d3d12"};
+#if defined(__APPLE__)
+    manifest.requiredBackends = {"metal"};
+#else
+    manifest.requiredBackends = {"d3d11", "d3d12", "metal"};
+#endif
     manifest.runtimeDependenciesHash = std::string(64, '0');
     manifest.archiveHash = std::string(64, '1');
     manifest.startupScene = "Content/Scenes/Main.scene.json";
@@ -277,7 +281,7 @@ bool TestWorkspaceCookAndPublish() {
 #ifdef _WIN32
     const char* runtimeFiles[] = {"MyEnginePlayer.exe", "runtime.dll", "SDL3.dll"};
 #elif defined(__APPLE__)
-    const char* runtimeFiles[] = {"MyEnginePlayer", "libruntime.dylib", "libSDL3.dylib"};
+    const char* runtimeFiles[] = {"MyEnginePlayer", "libruntime.dylib", "libSDL3.dylib", "libSDL3.0.dylib"};
 #else
     const char* runtimeFiles[] = {"MyEnginePlayer", "libruntime.so", "libSDL3.so"};
 #endif
@@ -406,10 +410,19 @@ bool TestWorkspaceCookAndPublish() {
                "cooked Content files were not restored")) return false;
     auto cookedShader = LoadShaderAssetFromFile(
         (extracted / "Content/Engine/Shaders/Mesh.shader").string());
+#if defined(__APPLE__)
+    if (!Check(cookedShader && cookedShader->IsCooked() &&
+               cookedShader->GetBytecode(ShaderBackend::D3D11, ShaderStage::Vertex).empty() &&
+               cookedShader->GetBytecode(ShaderBackend::D3D12, ShaderStage::Pixel).empty() &&
+               !cookedShader->GetBytecode(ShaderBackend::Metal, ShaderStage::Vertex).empty(),
+               "published macOS shader does not contain the expected Metal backend")) return false;
+#else
     if (!Check(cookedShader && cookedShader->IsCooked() &&
                !cookedShader->GetBytecode(ShaderBackend::D3D11, ShaderStage::Vertex).empty() &&
-               !cookedShader->GetBytecode(ShaderBackend::D3D12, ShaderStage::Pixel).empty(),
-               "published shader does not contain both D3D backends")) return false;
+               !cookedShader->GetBytecode(ShaderBackend::D3D12, ShaderStage::Pixel).empty() &&
+               !cookedShader->GetBytecode(ShaderBackend::Metal, ShaderStage::Vertex).empty(),
+               "published shader does not contain all RHI backends")) return false;
+#endif
     std::ifstream payload(extracted / "Content/Data/payload.bin", std::ios::binary);
     std::string payloadText((std::istreambuf_iterator<char>(payload)),
                             std::istreambuf_iterator<char>());

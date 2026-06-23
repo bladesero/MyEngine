@@ -25,6 +25,7 @@ bool EnvironmentPass::EnsureResources()
 {
     auto* device = Device();
     if (!device) return false;
+    if (device->GetBackend() == RHIBackend::Unknown) return false;
     auto resetResources = [&]() {
         m_Environment.reset();
         m_EnvironmentSrv.reset();
@@ -77,9 +78,6 @@ bool EnvironmentPass::EnsureResources()
         return resourcesComplete();
         }
     }
-#ifndef MYENGINE_PLATFORM_WINDOWS
-    return false;
-#else
     RHITextureDesc textureDesc;
     textureDesc.width = kCubeSize;
     textureDesc.height = kCubeSize;
@@ -184,7 +182,6 @@ bool EnvironmentPass::EnsureResources()
         return false;
     }
     return true;
-#endif
 }
 
 void EnvironmentPass::RenderCubemap(GpuCommandList& commands)

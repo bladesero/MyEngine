@@ -15,6 +15,9 @@ struct ImGuiBackendHandles {
     void* backBufferRtvPtr = nullptr;  // D3D11 ID3D11RenderTargetView*
     void* backBufferDsvPtr = nullptr;  // D3D11 ID3D11DepthStencilView*
     void* commandList = nullptr;       // D3D12 ID3D12GraphicsCommandList*
+    void* commandBuffer = nullptr;     // Metal id<MTLCommandBuffer>
+    void* commandEncoder = nullptr;    // Metal id<MTLRenderCommandEncoder>
+    void* renderPassDescriptor = nullptr; // Metal MTLRenderPassDescriptor*
 };
 
 class IEditorImGuiRHIInterop {

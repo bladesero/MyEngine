@@ -134,8 +134,10 @@ bool PostProcessPass::EnsureResources() {
                 pipeline.depthStencil.depthTestEnable = false;
                 pipeline.depthStencil.depthWriteEnable = false;
                 pipeline.rasterizer.cullMode = RHICullMode::None;
-                pipeline.shader = m_FXAAShader; pipeline.colorFormats = {RHIFormat::RGBA8UNorm};
-                m_FXAAOffscreenPipeline = device->CreateGraphicsPipeline(pipeline);
+                const RHIFormat backbufferFormat = device->GetBackend() == RHIBackend::Metal
+                    ? RHIFormat::BGRA8UNorm : RHIFormat::RGBA8UNorm;
+                pipeline.shader = m_FXAAShader; pipeline.colorFormats = {backbufferFormat};
+                m_FXAABackbufferPipeline = device->CreateGraphicsPipeline(pipeline);
                 pipeline.colorFormats = {RHIFormat::RGBA16Float};
                 m_FXAAOffscreenPipeline = device->CreateGraphicsPipeline(pipeline);
                 pipeline.shader = m_SSAOShader; pipeline.colorFormats = {RHIFormat::R8UNorm};
@@ -215,7 +217,9 @@ bool PostProcessPass::EnsureResources() {
     pipeline.depthStencil.depthTestEnable = false;
     pipeline.depthStencil.depthWriteEnable = false;
     pipeline.rasterizer.cullMode = RHICullMode::None;
-    pipeline.shader = m_FXAAShader; pipeline.colorFormats = {RHIFormat::RGBA8UNorm};
+    const RHIFormat backbufferFormat = device->GetBackend() == RHIBackend::Metal
+        ? RHIFormat::BGRA8UNorm : RHIFormat::RGBA8UNorm;
+    pipeline.shader = m_FXAAShader; pipeline.colorFormats = {backbufferFormat};
     m_FXAABackbufferPipeline = device->CreateGraphicsPipeline(pipeline);
     pipeline.colorFormats = {RHIFormat::RGBA16Float};
     m_FXAAOffscreenPipeline = device->CreateGraphicsPipeline(pipeline);

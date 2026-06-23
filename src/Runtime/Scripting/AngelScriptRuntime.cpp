@@ -41,17 +41,17 @@ std::string ActorGetName()
     return actor ? actor->GetName() : std::string{};
 }
 
-void ActorSetPosition(Vec3 value)
+void ActorSetPosition(const Vec3& value)
 {
     if (Actor* actor = ActiveActor()) actor->GetTransform().position = value;
 }
 
-void ActorTranslate(Vec3 value)
+void ActorTranslate(const Vec3& value)
 {
     if (Actor* actor = ActiveActor()) actor->GetTransform().position += value;
 }
 
-void ActorRotate(Vec3 value)
+void ActorRotate(const Vec3& value)
 {
     if (Actor* actor = ActiveActor()) actor->GetTransform().rotation += value;
 }
@@ -62,14 +62,14 @@ RigidBodyComponent* ActiveBody()
     return actor ? actor->GetComponent<RigidBodyComponent>() : nullptr;
 }
 
-void BodySetVelocity(Vec3 value) { if (auto* body = ActiveBody()) body->SetVelocity(value); }
-void BodyAddForce(Vec3 value) { if (auto* body = ActiveBody()) body->AddForce(value); }
-void BodySetAngularVelocity(Vec3 value) { if (auto* body = ActiveBody()) body->SetAngularVelocity(value); }
-void BodyAddTorque(Vec3 value) { if (auto* body = ActiveBody()) body->AddTorque(value); }
-void BodyAddImpulse(Vec3 value) { if (auto* body = ActiveBody()) body->AddImpulse(value); }
-void BodyAddAngularImpulse(Vec3 value) { if (auto* body = ActiveBody()) body->AddAngularImpulse(value); }
-void BodyTeleport(Vec3 position, Vec3 rotation) { if (auto* body = ActiveBody()) body->Teleport(position, rotation); }
-void BodySetKinematicTarget(Vec3 position, Vec3 rotation) { if (auto* body = ActiveBody()) body->SetKinematicTarget(position, rotation); }
+void BodySetVelocity(const Vec3& value) { if (auto* body = ActiveBody()) body->SetVelocity(value); }
+void BodyAddForce(const Vec3& value) { if (auto* body = ActiveBody()) body->AddForce(value); }
+void BodySetAngularVelocity(const Vec3& value) { if (auto* body = ActiveBody()) body->SetAngularVelocity(value); }
+void BodyAddTorque(const Vec3& value) { if (auto* body = ActiveBody()) body->AddTorque(value); }
+void BodyAddImpulse(const Vec3& value) { if (auto* body = ActiveBody()) body->AddImpulse(value); }
+void BodyAddAngularImpulse(const Vec3& value) { if (auto* body = ActiveBody()) body->AddAngularImpulse(value); }
+void BodyTeleport(const Vec3& position, const Vec3& rotation) { if (auto* body = ActiveBody()) body->Teleport(position, rotation); }
+void BodySetKinematicTarget(const Vec3& position, const Vec3& rotation) { if (auto* body = ActiveBody()) body->SetKinematicTarget(position, rotation); }
 
 bool InputActionDown(const std::string& action) { return Input::IsActionDown(action); }
 bool InputActionPressed(const std::string& action) { return Input::IsActionPressed(action); }
@@ -85,7 +85,7 @@ struct ScriptRaycastHit {
     bool hit = false;
 };
 
-ScriptRaycastHit PhysicsRaycast(Vec3 origin, Vec3 direction, float distance, uint32_t mask)
+ScriptRaycastHit PhysicsRaycast(const Vec3& origin, const Vec3& direction, float distance, uint32_t mask)
 {
     ScriptRaycastHit result;
     Actor* actor = ActiveActor();
@@ -119,6 +119,12 @@ void ConstructVec3(void* memory) { new (memory) Vec3(); }
 void ConstructVec3(float x, float y, float z, void* memory) { new (memory) Vec3{x, y, z}; }
 void ConstructRaycastHit(void* memory) { new (memory) ScriptRaycastHit(); }
 void ConstructCollisionEvent(void* memory) { new (memory) ScriptCollisionEvent(); }
+Math::Vec2 Vec2Add(const Math::Vec2& self, const Math::Vec2& other) { return self + other; }
+Math::Vec2 Vec2Sub(const Math::Vec2& self, const Math::Vec2& other) { return self - other; }
+Math::Vec2 Vec2Mul(const Math::Vec2& self, float scalar) { return self * scalar; }
+Vec3 Vec3Add(const Vec3& self, const Vec3& other) { return self + other; }
+Vec3 Vec3Sub(const Vec3& self, const Vec3& other) { return self - other; }
+Vec3 Vec3Mul(const Vec3& self, float scalar) { return self * scalar; }
 
 bool Check(int result)
 {
@@ -309,25 +315,34 @@ void ApplyProperties(asIScriptObject& object, asITypeInfo& type,
 void RegisterVec2(asIScriptEngine& engine)
 {
     Check(engine.RegisterObjectType("Vec2", sizeof(Math::Vec2),
-        asOBJ_VALUE | asOBJ_POD | asGetTypeTraits<Math::Vec2>()));
+        asOBJ_VALUE | asOBJ_POD | asOBJ_APP_CLASS_ALLFLOATS | asGetTypeTraits<Math::Vec2>()));
     Check(engine.RegisterObjectBehaviour("Vec2", asBEHAVE_CONSTRUCT, "void f()",
         asFUNCTIONPR(ConstructVec2, (void*), void), asCALL_CDECL_OBJLAST));
     Check(engine.RegisterObjectBehaviour("Vec2", asBEHAVE_CONSTRUCT, "void f(float, float)",
         asFUNCTIONPR(ConstructVec2, (float, float, void*), void), asCALL_CDECL_OBJLAST));
     Check(engine.RegisterObjectProperty("Vec2", "float x", asOFFSET(Math::Vec2, x)));
     Check(engine.RegisterObjectProperty("Vec2", "float y", asOFFSET(Math::Vec2, y)));
+#ifdef MYENGINE_PLATFORM_WINDOWS
     Check(engine.RegisterObjectMethod("Vec2", "Vec2 opAdd(const Vec2 &in) const",
         asMETHODPR(Math::Vec2, operator+, (const Math::Vec2&) const, Math::Vec2), asCALL_THISCALL));
     Check(engine.RegisterObjectMethod("Vec2", "Vec2 opSub(const Vec2 &in) const",
         asMETHODPR(Math::Vec2, operator-, (const Math::Vec2&) const, Math::Vec2), asCALL_THISCALL));
     Check(engine.RegisterObjectMethod("Vec2", "Vec2 opMul(float) const",
         asMETHODPR(Math::Vec2, operator*, (float) const, Math::Vec2), asCALL_THISCALL));
+#else
+    Check(engine.RegisterObjectMethod("Vec2", "Vec2 opAdd(const Vec2 &in) const",
+        asFUNCTION(Vec2Add), asCALL_CDECL_OBJFIRST));
+    Check(engine.RegisterObjectMethod("Vec2", "Vec2 opSub(const Vec2 &in) const",
+        asFUNCTION(Vec2Sub), asCALL_CDECL_OBJFIRST));
+    Check(engine.RegisterObjectMethod("Vec2", "Vec2 opMul(float) const",
+        asFUNCTION(Vec2Mul), asCALL_CDECL_OBJFIRST));
+#endif
 }
 
 void RegisterVec3(asIScriptEngine& engine)
 {
     Check(engine.RegisterObjectType("Vec3", sizeof(Vec3),
-        asOBJ_VALUE | asOBJ_POD | asGetTypeTraits<Vec3>()));
+        asOBJ_VALUE | asOBJ_POD | asOBJ_APP_CLASS_ALLFLOATS | asGetTypeTraits<Vec3>()));
     Check(engine.RegisterObjectBehaviour("Vec3", asBEHAVE_CONSTRUCT, "void f()",
         asFUNCTIONPR(ConstructVec3, (void*), void), asCALL_CDECL_OBJLAST));
     Check(engine.RegisterObjectBehaviour("Vec3", asBEHAVE_CONSTRUCT, "void f(float, float, float)",
@@ -335,12 +350,21 @@ void RegisterVec3(asIScriptEngine& engine)
     Check(engine.RegisterObjectProperty("Vec3", "float x", asOFFSET(Vec3, x)));
     Check(engine.RegisterObjectProperty("Vec3", "float y", asOFFSET(Vec3, y)));
     Check(engine.RegisterObjectProperty("Vec3", "float z", asOFFSET(Vec3, z)));
+#ifdef MYENGINE_PLATFORM_WINDOWS
     Check(engine.RegisterObjectMethod("Vec3", "Vec3 opAdd(const Vec3 &in) const",
         asMETHODPR(Vec3, operator+, (const Vec3&) const, Vec3), asCALL_THISCALL));
     Check(engine.RegisterObjectMethod("Vec3", "Vec3 opSub(const Vec3 &in) const",
         asMETHODPR(Vec3, operator-, (const Vec3&) const, Vec3), asCALL_THISCALL));
     Check(engine.RegisterObjectMethod("Vec3", "Vec3 opMul(float) const",
         asMETHODPR(Vec3, operator*, (float) const, Vec3), asCALL_THISCALL));
+#else
+    Check(engine.RegisterObjectMethod("Vec3", "Vec3 opAdd(const Vec3 &in) const",
+        asFUNCTION(Vec3Add), asCALL_CDECL_OBJFIRST));
+    Check(engine.RegisterObjectMethod("Vec3", "Vec3 opSub(const Vec3 &in) const",
+        asFUNCTION(Vec3Sub), asCALL_CDECL_OBJFIRST));
+    Check(engine.RegisterObjectMethod("Vec3", "Vec3 opMul(float) const",
+        asFUNCTION(Vec3Mul), asCALL_CDECL_OBJFIRST));
+#endif
 }
 
 void RegisterScriptTypes(asIScriptEngine& engine)
@@ -391,29 +415,29 @@ void RegisterScriptBindings(asIScriptEngine& engine)
         asFUNCTION(ActorGetName), asCALL_CDECL));
     Check(engine.RegisterGlobalFunction("Vec3 GetPosition()",
         asFUNCTION(ReadActorPosition), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetPosition(Vec3)",
+    Check(engine.RegisterGlobalFunction("void SetPosition(const Vec3 &in)",
         asFUNCTION(ActorSetPosition), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void Translate(Vec3)",
+    Check(engine.RegisterGlobalFunction("void Translate(const Vec3 &in)",
         asFUNCTION(ActorTranslate), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void Rotate(Vec3)",
+    Check(engine.RegisterGlobalFunction("void Rotate(const Vec3 &in)",
         asFUNCTION(ActorRotate), asCALL_CDECL));
 
     engine.SetDefaultNamespace("RigidBody");
-    Check(engine.RegisterGlobalFunction("void SetVelocity(Vec3)",
+    Check(engine.RegisterGlobalFunction("void SetVelocity(const Vec3 &in)",
         asFUNCTION(BodySetVelocity), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void AddForce(Vec3)",
+    Check(engine.RegisterGlobalFunction("void AddForce(const Vec3 &in)",
         asFUNCTION(BodyAddForce), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetAngularVelocity(Vec3)",
+    Check(engine.RegisterGlobalFunction("void SetAngularVelocity(const Vec3 &in)",
         asFUNCTION(BodySetAngularVelocity), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void AddTorque(Vec3)",
+    Check(engine.RegisterGlobalFunction("void AddTorque(const Vec3 &in)",
         asFUNCTION(BodyAddTorque), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void AddImpulse(Vec3)",
+    Check(engine.RegisterGlobalFunction("void AddImpulse(const Vec3 &in)",
         asFUNCTION(BodyAddImpulse), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void AddAngularImpulse(Vec3)",
+    Check(engine.RegisterGlobalFunction("void AddAngularImpulse(const Vec3 &in)",
         asFUNCTION(BodyAddAngularImpulse), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void Teleport(Vec3, Vec3)",
+    Check(engine.RegisterGlobalFunction("void Teleport(const Vec3 &in, const Vec3 &in)",
         asFUNCTION(BodyTeleport), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetKinematicTarget(Vec3, Vec3)",
+    Check(engine.RegisterGlobalFunction("void SetKinematicTarget(const Vec3 &in, const Vec3 &in)",
         asFUNCTION(BodySetKinematicTarget), asCALL_CDECL));
 
     engine.SetDefaultNamespace("Input");
@@ -429,7 +453,7 @@ void RegisterScriptBindings(asIScriptEngine& engine)
         asFUNCTION(InputAxis2), asCALL_CDECL));
 
     engine.SetDefaultNamespace("Physics");
-    Check(engine.RegisterGlobalFunction("RaycastHit Raycast(Vec3, Vec3, float distance = 1000.0f, uint mask = 0xffffffff)",
+    Check(engine.RegisterGlobalFunction("RaycastHit Raycast(const Vec3 &in, const Vec3 &in, float distance = 1000.0f, uint mask = 0xffffffff)",
         asFUNCTION(PhysicsRaycast), asCALL_CDECL));
     engine.SetDefaultNamespace("");
 }

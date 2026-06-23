@@ -37,3 +37,12 @@ public:
                         RuntimeDependencyManifest& manifest,
                         std::string* error=nullptr);
 };
+
+class HostRuntimeDependencyCollector {
+public:
+    static bool Collect(const std::filesystem::path& binaryDirectory,
+                        const std::filesystem::path& stagingDirectory,
+                        RuntimeDependencyManifest& manifest,
+                        const std::vector<std::string>& fileNames,
+                        std::string* error=nullptr);
+};

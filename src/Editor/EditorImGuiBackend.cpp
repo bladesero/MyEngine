@@ -2,6 +2,7 @@
 
 #include "Core/Logger.h"
 #include "Core/Window.h"
+#include "Editor/EditorImGuiMetalBridge.h"
 #include "Renderer/RHI/GpuTextureView.h"
 #include "Renderer/RHI/RHITypes.h"
 
@@ -74,19 +75,31 @@ bool EditorImGuiBackend::Init() {
         }
     }
 #elif defined(MYENGINE_PLATFORM_MACOS)
-    // Metal backend placeholder
-    Logger::Error("[EditorImGuiBackend] Metal ImGui backend not yet migrated");
-    return false;
+    if (handles.backend != RHIBackend::Metal || !handles.device) {
+        Logger::Error("[EditorImGuiBackend] Missing Metal ImGui handles");
+        return false;
+    }
+    if (!ImGui_ImplSDL3_InitForMetal(m_Window->GetSDLWindow())) {
+        Logger::Error("[EditorImGuiBackend] ImGui_ImplSDL3_InitForMetal failed");
+        return false;
+    }
+    if (!EditorImGuiMetal_Init(handles.device)) {
+        ImGui_ImplSDL3_Shutdown();
+        Logger::Error("[EditorImGuiBackend] ImGui_ImplMetal_Init failed");
+        return false;
+    }
 #else
     Logger::Error("[EditorImGuiBackend] No ImGui backend for this platform");
     return false;
 #endif
 
+#if defined(MYENGINE_PLATFORM_WINDOWS)
     if (handles.backend == RHIBackend::D3D11) {
         m_Interop->SetSwapChainResizeCallback([]() {
             ImGui_ImplDX11_InvalidateDeviceObjects();
         });
     }
+#endif
     m_Initialized = true;
     return true;
 #else
@@ -105,6 +118,10 @@ void EditorImGuiBackend::Shutdown() {
         ImGui_ImplDX12_Shutdown();
     } else {
         ImGui_ImplDX11_Shutdown();
+    }
+#elif defined(MYENGINE_PLATFORM_MACOS)
+    if (backend == RHIBackend::Metal) {
+        EditorImGuiMetal_Shutdown();
     }
 #endif
 
@@ -144,6 +161,10 @@ void EditorImGuiBackend::BeginFrame() {
         }
         ImGui_ImplDX11_NewFrame();
     }
+#elif defined(MYENGINE_PLATFORM_MACOS)
+    if (handles.backend == RHIBackend::Metal && handles.renderPassDescriptor) {
+        EditorImGuiMetal_NewFrame(handles.renderPassDescriptor);
+    }
 #endif
 
     ImGui_ImplSDL3_NewFrame();
@@ -162,6 +183,12 @@ void EditorImGuiBackend::RenderDrawData(ImDrawData* drawData) {
         if (cmdList) ImGui_ImplDX12_RenderDrawData(drawData, cmdList);
     } else {
         ImGui_ImplDX11_RenderDrawData(drawData);
+    }
+#elif defined(MYENGINE_PLATFORM_MACOS)
+    if (handles.backend == RHIBackend::Metal &&
+        handles.commandBuffer && handles.commandEncoder) {
+        EditorImGuiMetal_RenderDrawData(
+            drawData, handles.commandBuffer, handles.commandEncoder);
     }
 #endif
 #endif
