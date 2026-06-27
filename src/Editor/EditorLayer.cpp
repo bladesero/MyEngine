@@ -996,11 +996,13 @@ void EditorLayer::OnRender() {
     }
     ImGui::Render();
     if (m_ImGuiBackend) m_ImGuiBackend->RenderDrawData(ImGui::GetDrawData());
-    if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
-        ImGui::UpdatePlatformWindows();
-        ImGui::RenderPlatformWindowsDefault();
-    }
+    const bool renderPlatformWindowsAfterMainFrame =
+        m_RenderContext->GetBackend() == RHIBackend::Vulkan;
+    if (m_ImGuiBackend && !renderPlatformWindowsAfterMainFrame)
+        m_ImGuiBackend->RenderPlatformWindows();
     m_RenderContext->EndFrame();
+    if (m_ImGuiBackend && renderPlatformWindowsAfterMainFrame)
+        m_ImGuiBackend->RenderPlatformWindows();
 #endif
 }
 

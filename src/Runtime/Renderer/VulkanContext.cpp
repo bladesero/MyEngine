@@ -98,6 +98,7 @@ struct VulkanTextureView final : GpuTextureView {
     VkDevice device = VK_NULL_HANDLE;
     VkImageView imageView = VK_NULL_HANDLE;
     VkImageLayout imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    VkImageAspectFlags aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     VkSampler imguiSampler = VK_NULL_HANDLE;
 
     ~VulkanTextureView() override {
@@ -123,6 +124,37 @@ struct VulkanSampler final : GpuSampler {
     }
 };
 
+struct VulkanReadbackTicket final : GpuReadbackTicket {
+    VkDevice device = VK_NULL_HANDLE;
+    std::shared_ptr<VulkanBuffer> staging;
+    VkFence fence = VK_NULL_HANDLE;
+    bool ownsFence = false;
+    uint32_t size = 0;
+
+    ~VulkanReadbackTicket() override {
+        if (device && ownsFence && fence) vkDestroyFence(device, fence, nullptr);
+    }
+
+    bool IsReady() const override {
+        if (!device || !staging || !staging->memory || !fence) return false;
+        return vkGetFenceStatus(device, fence) == VK_SUCCESS;
+    }
+
+    bool Read(std::vector<uint8_t>& data) override {
+        if (!IsReady()) return false;
+        data.resize(size);
+        if (size == 0) return true;
+        void* mapped = nullptr;
+        if (vkMapMemory(device, staging->memory, 0, size, 0, &mapped) != VK_SUCCESS)
+            return false;
+        std::memcpy(data.data(), mapped, size);
+        vkUnmapMemory(device, staging->memory);
+        return true;
+    }
+
+    uint32_t GetSize() const override { return size; }
+};
+
 struct VulkanShader final : GpuShader {
     VkDevice device = VK_NULL_HANDLE;
     VkShaderModule vertexModule = VK_NULL_HANDLE;
@@ -146,6 +178,7 @@ struct VulkanGraphicsPipeline final : GpuGraphicsPipeline {
     VkPipeline pipeline = VK_NULL_HANDLE;
     VkPipelineLayout layout = VK_NULL_HANDLE;
     VkPrimitiveTopology topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    std::vector<VkFormat> colorFormats;
 
     ~VulkanGraphicsPipeline() override {
         if (device && pipeline) vkDestroyPipeline(device, pipeline, nullptr);
@@ -211,6 +244,14 @@ VkImageAspectFlags AspectMask(RHIFormat format) {
     case RHIFormat::D32Float: return VK_IMAGE_ASPECT_DEPTH_BIT;
     default: return VK_IMAGE_ASPECT_COLOR_BIT;
     }
+}
+
+VkImageAspectFlags ViewAspectMask(RHIFormat format, RHIResourceUsage usage) {
+    const VkImageAspectFlags aspect = AspectMask(format);
+    if ((aspect & VK_IMAGE_ASPECT_DEPTH_BIT) == 0) return aspect;
+    if (HasUsage(usage, RHIResourceUsage::ShaderResource))
+        return VK_IMAGE_ASPECT_DEPTH_BIT;
+    return aspect;
 }
 
 bool IsDepthStencilFormat(RHIFormat format) {
@@ -437,11 +478,12 @@ VkShaderStageFlags ToVulkanShaderStages(uint8_t stages) {
 void AddOrMergeBinding(ShaderReflection& reflection, const ShaderBindingDesc& binding) {
     if (binding.name.empty()) return;
     for (auto& existing : reflection.bindings) {
-        if (existing.name == binding.name && existing.type == binding.type &&
-            existing.bindPoint == binding.bindPoint) {
+        if (existing.name == binding.name) {
             existing.stages |= binding.stages;
+            existing.type = binding.type;
+            existing.bindPoint = binding.bindPoint;
             existing.bindCount = (std::max)(existing.bindCount, binding.bindCount);
-            if (existing.byteSize == 0) existing.byteSize = binding.byteSize;
+            if (binding.byteSize != 0) existing.byteSize = binding.byteSize;
             return;
         }
     }
@@ -574,7 +616,8 @@ void ReflectSpirvStage(const void* bytecode, size_t byteSize, uint8_t stage,
         constexpr uint32_t kStorageStorageBuffer = 12;
         if (value.second.storageClass == kStorageUniform ||
             value.second.storageClass == kStorageStorageBuffer) {
-            binding.type = value.second.storageClass == kStorageStorageBuffer
+            binding.type = value.second.storageClass == kStorageStorageBuffer ||
+                    binding.bindPoint >= 16
                 ? ShaderBindingType::StorageBuffer
                 : ShaderBindingType::ConstantBuffer;
         } else if (value.second.storageClass == kStorageUniformConstant) {
@@ -646,6 +689,21 @@ void ImageBarrier(VkCommandBuffer cmd, VkImage image, RHIFormat format,
     range.baseArrayLayer = 0;
     range.layerCount = VK_REMAINING_ARRAY_LAYERS;
     ImageBarrier(cmd, image, format, before, after, range);
+}
+
+const char* ShaderBindingTypeName(ShaderBindingType type) {
+    switch (type) {
+    case ShaderBindingType::ConstantBuffer: return "constant-buffer";
+    case ShaderBindingType::Texture: return "texture";
+    case ShaderBindingType::Sampler: return "sampler";
+    case ShaderBindingType::StorageBuffer: return "storage-buffer";
+    }
+    return "unknown";
+}
+
+void WarnOnce(const std::string& key, const std::string& message) {
+    static std::set<std::string> warned;
+    if (warned.insert(key).second) Logger::Warn(message);
 }
 
 void BufferBarrier(VkCommandBuffer cmd, VkBuffer buffer, RHIResourceState before,
@@ -739,6 +797,7 @@ struct VulkanContext::Impl {
     std::vector<VkImage> swapchainImages;
     std::vector<std::shared_ptr<VulkanTexture>> backBufferTextures;
     std::vector<std::shared_ptr<VulkanTextureView>> backBufferViews;
+    std::vector<VkSemaphore> imageRenderFinished;
     VkCommandPool commandPool = VK_NULL_HANDLE;
     std::array<VkCommandBuffer, kFramesInFlight> commandBuffers{};
     std::array<VkSemaphore, kFramesInFlight> imageAvailable{};
@@ -917,7 +976,7 @@ public:
         auto* native = dynamic_cast<VulkanTexture*>(texture);
         if (!native || !native->image || !m_Impl.frameOpen) return;
         VkImageSubresourceRange nativeRange{};
-        nativeRange.aspectMask = AspectMask(native->desc.format);
+        nativeRange.aspectMask = ViewAspectMask(native->desc.format, range.usage);
         nativeRange.baseMipLevel = range.firstMip;
         nativeRange.levelCount = range.mipCount;
         nativeRange.baseArrayLayer = range.firstLayer;
@@ -944,6 +1003,7 @@ public:
         }
         VkRenderingAttachmentInfo depth{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
         VkRenderingAttachmentInfo* depthPtr = nullptr;
+        VkRenderingAttachmentInfo* stencilPtr = nullptr;
         if (info.depth && info.depth->view) {
             auto* view = dynamic_cast<VulkanTextureView*>(info.depth->view);
             if (view && view->imageView) {
@@ -953,6 +1013,8 @@ public:
                 depth.storeOp = ToStoreOp(info.depth->storeOp);
                 depth.clearValue.depthStencil = {info.depth->clearDepth, info.depth->clearStencil};
                 depthPtr = &depth;
+                if (view->aspectMask & VK_IMAGE_ASPECT_STENCIL_BIT)
+                    stencilPtr = &depth;
             }
         }
         VkRenderingInfo rendering{VK_STRUCTURE_TYPE_RENDERING_INFO};
@@ -963,7 +1025,7 @@ public:
         rendering.colorAttachmentCount = info.colorCount;
         rendering.pColorAttachments = colors.data();
         rendering.pDepthAttachment = depthPtr;
-        rendering.pStencilAttachment = depthPtr;
+        rendering.pStencilAttachment = stencilPtr;
         vkCmdBeginRendering(m_Impl.commandBuffers[m_Impl.frameIndex], &rendering);
         const float width = static_cast<float>(rendering.renderArea.extent.width);
         const float height = static_cast<float>(rendering.renderArea.extent.height);
@@ -1035,7 +1097,18 @@ public:
         BindPendingDescriptorSet();
         vkCmdDispatch(CommandBuffer(), x, y, z);
     }
-    void CopyBuffer(GpuBuffer*, uint32_t, GpuBuffer*, uint32_t, uint32_t) override {}
+    void CopyBuffer(GpuBuffer* dst, uint32_t dstOffset, GpuBuffer* src,
+                    uint32_t srcOffset, uint32_t byteSize) override {
+        if (!m_Impl.frameOpen || byteSize == 0) return;
+        auto* nativeDst = dynamic_cast<VulkanBuffer*>(dst);
+        auto* nativeSrc = dynamic_cast<VulkanBuffer*>(src);
+        if (!nativeDst || !nativeDst->buffer || !nativeSrc || !nativeSrc->buffer) return;
+        VkBufferCopy copy{};
+        copy.srcOffset = srcOffset;
+        copy.dstOffset = dstOffset;
+        copy.size = byteSize;
+        vkCmdCopyBuffer(CommandBuffer(), nativeSrc->buffer, nativeDst->buffer, 1, &copy);
+    }
     void CopyTexture(GpuTexture*, GpuTexture*) override {}
     void CopyTexture(GpuTexture*, const RHITextureRegion&, GpuTexture*, const RHITextureRegion&) override {}
     void DrawIndirect(GpuBuffer* args, uint64_t offset = 0) override {
@@ -1120,11 +1193,32 @@ private:
             write.pImageInfo = image;
             writes.push_back(write);
         };
+        auto warnBindingSkip = [&](const std::string& name, ShaderBindingType expected,
+                                   const std::string& reason) {
+            const auto* binding = shader->reflection.Find(name);
+            std::string message = "[Vulkan] Skipped descriptor '" + name + "': " + reason;
+            if (binding) {
+                message += " (reflected type=";
+                message += ShaderBindingTypeName(binding->type);
+                message += " binding=" + std::to_string(binding->bindPoint);
+                message += ", expected=";
+                message += ShaderBindingTypeName(expected);
+                message += ")";
+            } else {
+                message += " (not found in reflection, expected=";
+                message += ShaderBindingTypeName(expected);
+                message += ")";
+            }
+            WarnOnce("descriptor:" + name + ":" + reason, message);
+        };
 
         for (const auto& value : group.GetConstants()) {
             const auto* binding = shader->reflection.Find(value.first);
-            if (!binding || binding->type != ShaderBindingType::ConstantBuffer || value.second.empty())
+            if (!binding || binding->type != ShaderBindingType::ConstantBuffer || value.second.empty()) {
+                warnBindingSkip(value.first, ShaderBindingType::ConstantBuffer,
+                                value.second.empty() ? "empty constants" : "binding mismatch");
                 continue;
+            }
             const uint32_t size = static_cast<uint32_t>((value.second.size() + 255u) & ~255u);
             auto& buffer = group.constantBuffers[value.first];
             if (!buffer || buffer->desc.size < size) {
@@ -1149,13 +1243,12 @@ private:
         for (const auto& value : group.GetTextures()) {
             const auto* binding = shader->reflection.Find(value.first);
             auto* view = dynamic_cast<VulkanTextureView*>(value.second.get());
-            if (!binding || binding->type != ShaderBindingType::Texture || !view || !view->imageView)
+            if (!binding || binding->type != ShaderBindingType::Texture || !view || !view->imageView) {
+                warnBindingSkip(value.first, ShaderBindingType::Texture,
+                                (!view || !view->imageView) ? "invalid texture view" : "binding mismatch");
                 continue;
-            VkImageLayout layout = view->imageLayout;
-            if (auto texture = std::dynamic_pointer_cast<VulkanTexture>(view->texture)) {
-                if (texture->layout != VK_IMAGE_LAYOUT_UNDEFINED) layout = texture->layout;
             }
-            imageInfos.push_back({VK_NULL_HANDLE, view->imageView, layout});
+            imageInfos.push_back({VK_NULL_HANDLE, view->imageView, view->imageLayout});
             addWrite(binding->bindPoint, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
                      nullptr, &imageInfos.back());
             group.keepAlive.push_back(value.second);
@@ -1164,7 +1257,10 @@ private:
         for (const auto& value : group.GetSamplers()) {
             const auto* binding = shader->reflection.Find(value.first);
             auto* sampler = dynamic_cast<VulkanSampler*>(value.second.get());
-            if (!binding || binding->type != ShaderBindingType::Sampler) continue;
+            if (!binding || binding->type != ShaderBindingType::Sampler) {
+                warnBindingSkip(value.first, ShaderBindingType::Sampler, "binding mismatch");
+                continue;
+            }
             const VkSampler vkSampler = sampler && sampler->sampler
                 ? sampler->sampler
                 : m_Impl.defaultSampler;
@@ -1178,6 +1274,9 @@ private:
             auto* view = dynamic_cast<VulkanBufferView*>(value.second.get());
             if (!binding || binding->type != ShaderBindingType::StorageBuffer ||
                 !view || !view->nativeBuffer || !view->nativeBuffer->buffer) {
+                warnBindingSkip(value.first, ShaderBindingType::StorageBuffer,
+                                (!view || !view->nativeBuffer || !view->nativeBuffer->buffer)
+                                    ? "invalid buffer view" : "binding mismatch");
                 continue;
             }
             const uint64_t stride = (std::max)(view->nativeBuffer->desc.stride, 1u);
@@ -1312,13 +1411,25 @@ bool VulkanContext::Init(IWindow* window) {
     VkPhysicalDeviceDynamicRenderingFeatures dynamicRendering{
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES};
     dynamicRendering.dynamicRendering = VK_TRUE;
-    const char* deviceExtensions[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+    uint32_t selectedExtensionCount = 0;
+    vkEnumerateDeviceExtensionProperties(m_Impl->physicalDevice, nullptr,
+                                         &selectedExtensionCount, nullptr);
+    std::vector<VkExtensionProperties> selectedExtensions(selectedExtensionCount);
+    if (selectedExtensionCount) {
+        vkEnumerateDeviceExtensionProperties(m_Impl->physicalDevice, nullptr,
+                                             &selectedExtensionCount,
+                                             selectedExtensions.data());
+    }
+    std::vector<const char*> deviceExtensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+    if (HasExtension(selectedExtensions, VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME)) {
+        deviceExtensions.push_back(VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME);
+    }
     VkDeviceCreateInfo deviceInfo{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
     deviceInfo.pNext = &dynamicRendering;
     deviceInfo.queueCreateInfoCount = static_cast<uint32_t>(queues.size());
     deviceInfo.pQueueCreateInfos = queues.data();
-    deviceInfo.enabledExtensionCount = static_cast<uint32_t>(std::size(deviceExtensions));
-    deviceInfo.ppEnabledExtensionNames = deviceExtensions;
+    deviceInfo.enabledExtensionCount = static_cast<uint32_t>(deviceExtensions.size());
+    deviceInfo.ppEnabledExtensionNames = deviceExtensions.data();
     if (vkCreateDevice(m_Impl->physicalDevice, &deviceInfo, nullptr, &m_Impl->device) != VK_SUCCESS) {
         m_LastDeviceError = "vkCreateDevice failed";
         Logger::Error("[Vulkan] ", m_LastDeviceError);
@@ -1468,6 +1579,8 @@ bool VulkanContext::RecreateSwapchain(uint32_t requestedWidth, uint32_t requeste
 
     std::vector<std::shared_ptr<VulkanTexture>> textures(imageCount);
     std::vector<std::shared_ptr<VulkanTextureView>> views(imageCount);
+    std::vector<VkSemaphore> renderFinished(imageCount, VK_NULL_HANDLE);
+    VkSemaphoreCreateInfo semaphoreInfo{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
     for (uint32_t i = 0; i < imageCount; ++i) {
         auto texture = std::make_shared<VulkanTexture>();
         texture->device = m_Impl->device;
@@ -1496,9 +1609,22 @@ bool VulkanContext::RecreateSwapchain(uint32_t requestedWidth, uint32_t requeste
         }
         textures[i] = texture;
         views[i] = view;
+        if (vkCreateSemaphore(m_Impl->device, &semaphoreInfo, nullptr,
+                              &renderFinished[i]) != VK_SUCCESS) {
+            for (VkSemaphore semaphore : renderFinished) {
+                if (semaphore) vkDestroySemaphore(m_Impl->device, semaphore, nullptr);
+            }
+            vkDestroySwapchainKHR(m_Impl->device, newSwapchain, nullptr);
+            Logger::Error("[Vulkan] vkCreateSemaphore failed for swapchain image");
+            return false;
+        }
     }
 
     for (auto& keepAlive : m_Impl->frameKeepAlive) keepAlive.clear();
+    for (VkSemaphore semaphore : m_Impl->imageRenderFinished) {
+        if (semaphore) vkDestroySemaphore(m_Impl->device, semaphore, nullptr);
+    }
+    m_Impl->imageRenderFinished.clear();
     m_Impl->backBufferViews.clear();
     m_Impl->backBufferTextures.clear();
     if (oldSwapchain) vkDestroySwapchainKHR(m_Impl->device, oldSwapchain, nullptr);
@@ -1509,6 +1635,7 @@ bool VulkanContext::RecreateSwapchain(uint32_t requestedWidth, uint32_t requeste
     m_Impl->swapchainImages = std::move(images);
     m_Impl->backBufferTextures = std::move(textures);
     m_Impl->backBufferViews = std::move(views);
+    m_Impl->imageRenderFinished = std::move(renderFinished);
     m_Impl->imageIndex = 0;
     m_Impl->swapchainOutOfDate = false;
     m_Impl->swapchainSuboptimal = false;
@@ -1520,6 +1647,10 @@ void VulkanContext::Shutdown() {
     if (!m_Impl || !m_Impl->instance) return;
     if (m_Impl->device) vkDeviceWaitIdle(m_Impl->device);
     for (auto& keepAlive : m_Impl->frameKeepAlive) keepAlive.clear();
+    for (VkSemaphore semaphore : m_Impl->imageRenderFinished) {
+        if (m_Impl->device && semaphore) vkDestroySemaphore(m_Impl->device, semaphore, nullptr);
+    }
+    m_Impl->imageRenderFinished.clear();
     m_Impl->backBufferViews.clear();
     m_Impl->backBufferTextures.clear();
     if (m_Impl->device && m_Impl->defaultSampler) vkDestroySampler(m_Impl->device, m_Impl->defaultSampler, nullptr);
@@ -1610,6 +1741,14 @@ void VulkanContext::EndFrame() {
         return;
     }
     VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    if (m_Impl->imageIndex >= m_Impl->imageRenderFinished.size() ||
+        !m_Impl->imageRenderFinished[m_Impl->imageIndex]) {
+        m_LastDeviceError = "missing swapchain image render-finished semaphore";
+        Logger::Error("[Vulkan] ", m_LastDeviceError);
+        m_Impl->frameOpen = false;
+        return;
+    }
+    VkSemaphore renderFinished = m_Impl->imageRenderFinished[m_Impl->imageIndex];
     VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
     submit.waitSemaphoreCount = 1;
     submit.pWaitSemaphores = &m_Impl->imageAvailable[m_Impl->frameIndex];
@@ -1617,7 +1756,7 @@ void VulkanContext::EndFrame() {
     submit.commandBufferCount = 1;
     submit.pCommandBuffers = &cmd;
     submit.signalSemaphoreCount = 1;
-    submit.pSignalSemaphores = &m_Impl->renderFinished[m_Impl->frameIndex];
+    submit.pSignalSemaphores = &renderFinished;
     const VkResult submitResult =
         vkQueueSubmit(m_Impl->graphicsQueue, 1, &submit, m_Impl->inFlight[m_Impl->frameIndex]);
     if (submitResult != VK_SUCCESS) {
@@ -1629,7 +1768,7 @@ void VulkanContext::EndFrame() {
     }
     VkPresentInfoKHR present{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
     present.waitSemaphoreCount = 1;
-    present.pWaitSemaphores = &m_Impl->renderFinished[m_Impl->frameIndex];
+    present.pWaitSemaphores = &renderFinished;
     present.swapchainCount = 1;
     present.pSwapchains = &m_Impl->swapchain;
     present.pImageIndices = &m_Impl->imageIndex;
@@ -1667,7 +1806,7 @@ ImGuiBackendHandles VulkanContext::GetImGuiBackendHandles() {
     handles.queueFamily = m_Impl->graphicsFamily;
     handles.descriptorPool = m_Impl->imguiDescriptorPool;
     handles.imageCount = static_cast<uint32_t>(m_Impl->swapchainImages.size());
-    handles.minImageCount = std::min<uint32_t>(2, handles.imageCount);
+    handles.minImageCount = std::max<uint32_t>(2, handles.imageCount);
     handles.colorFormat = static_cast<uint32_t>(m_Impl->swapchainFormat);
     handles.width = m_Impl->swapchainExtent.width;
     handles.height = m_Impl->swapchainExtent.height;
@@ -1940,11 +2079,12 @@ std::shared_ptr<GpuTextureView> VulkanContext::CreateTextureView(
         : (HasUsage(resolved.usage, RHIResourceUsage::DepthStencil)
             ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
             : ToLayout(RHIResourceState::ShaderResource, native->desc.format));
+    view->aspectMask = ViewAspectMask(native->desc.format, resolved.usage);
     VkImageViewCreateInfo create{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
     create.image = native->image;
     create.viewType = ToVulkanImageViewType(native->desc, resolved);
     create.format = ToVulkanFormat(native->desc.format);
-    create.subresourceRange.aspectMask = AspectMask(native->desc.format);
+    create.subresourceRange.aspectMask = view->aspectMask;
     create.subresourceRange.baseMipLevel = resolved.firstMip;
     create.subresourceRange.levelCount = resolved.mipCount;
     create.subresourceRange.baseArrayLayer = resolved.firstLayer;
@@ -2108,16 +2248,16 @@ std::shared_ptr<GpuGraphicsPipeline> VulkanContext::CreateGraphicsPipeline(
     dynamic.dynamicStateCount = static_cast<uint32_t>(std::size(dynamicStates));
     dynamic.pDynamicStates = dynamicStates;
 
-    std::vector<VkFormat> colorFormats;
-    colorFormats.reserve(desc.colorFormats.size());
+    pipeline->colorFormats.clear();
+    pipeline->colorFormats.reserve(desc.colorFormats.size());
     for (RHIFormat format : desc.colorFormats) {
         VkFormat native = ToVulkanFormat(format);
         if (native == VK_FORMAT_UNDEFINED) return nullptr;
-        colorFormats.push_back(native);
+        pipeline->colorFormats.push_back(native);
     }
     VkPipelineRenderingCreateInfo rendering{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
-    rendering.colorAttachmentCount = static_cast<uint32_t>(colorFormats.size());
-    rendering.pColorAttachmentFormats = colorFormats.data();
+    rendering.colorAttachmentCount = static_cast<uint32_t>(pipeline->colorFormats.size());
+    rendering.pColorAttachmentFormats = pipeline->colorFormats.data();
     rendering.depthAttachmentFormat = desc.depthFormat == RHIFormat::Unknown
         ? VK_FORMAT_UNDEFINED
         : ToVulkanFormat(desc.depthFormat);
@@ -2196,8 +2336,82 @@ bool VulkanContext::IsFormatSupported(RHIFormat format, RHIResourceUsage) const 
 }
 
 std::shared_ptr<GpuReadbackTicket> VulkanContext::ReadbackBufferAsync(
-    const std::shared_ptr<GpuBuffer>&) {
-    return nullptr;
+    const std::shared_ptr<GpuBuffer>& buffer) {
+    auto native = std::dynamic_pointer_cast<VulkanBuffer>(buffer);
+    if (!m_Impl || !m_Impl->device || !native || !native->buffer || native->desc.size == 0)
+        return nullptr;
+    const uint64_t readbackSize64 = native->desc.size;
+    if (readbackSize64 > (std::numeric_limits<uint32_t>::max)()) {
+        Logger::Error("[Vulkan] ReadbackBufferAsync failed: buffer too large");
+        return nullptr;
+    }
+    RHIBufferDesc stagingDesc{};
+    stagingDesc.size = static_cast<uint32_t>(readbackSize64);
+    stagingDesc.stride = 1;
+    stagingDesc.usage = RHIResourceUsage::CopyDestination;
+    stagingDesc.debugName = "VulkanReadback";
+    auto staging = CreateVulkanBuffer(
+        m_Impl->device, m_Impl->physicalDevice, stagingDesc,
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    if (!staging || !staging->buffer) return nullptr;
+
+    auto ticket = std::make_shared<VulkanReadbackTicket>();
+    ticket->device = m_Impl->device;
+    ticket->staging = staging;
+    ticket->size = stagingDesc.size;
+
+    auto recordCopy = [&](VkCommandBuffer cmd) {
+        BufferBarrier(cmd, native->buffer, RHIResourceState::UnorderedAccess,
+                      RHIResourceState::CopySource);
+        VkBufferCopy copy{};
+        copy.srcOffset = 0;
+        copy.dstOffset = 0;
+        copy.size = stagingDesc.size;
+        vkCmdCopyBuffer(cmd, native->buffer, staging->buffer, 1, &copy);
+    };
+
+    if (m_Impl->frameOpen) {
+        recordCopy(m_Impl->commandBuffers[m_Impl->frameIndex]);
+        ticket->fence = m_Impl->inFlight[m_Impl->frameIndex];
+        ticket->ownsFence = false;
+        m_Impl->frameKeepAlive[m_Impl->frameIndex].push_back(staging);
+        return ticket;
+    }
+
+    VkCommandBufferAllocateInfo alloc{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+    alloc.commandPool = m_Impl->commandPool;
+    alloc.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    alloc.commandBufferCount = 1;
+    VkCommandBuffer cmd = VK_NULL_HANDLE;
+    if (vkAllocateCommandBuffers(m_Impl->device, &alloc, &cmd) != VK_SUCCESS) return nullptr;
+    VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+    begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    vkBeginCommandBuffer(cmd, &begin);
+    recordCopy(cmd);
+    vkEndCommandBuffer(cmd);
+
+    VkFenceCreateInfo fenceInfo{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+    VkFence fence = VK_NULL_HANDLE;
+    if (vkCreateFence(m_Impl->device, &fenceInfo, nullptr, &fence) != VK_SUCCESS) {
+        vkFreeCommandBuffers(m_Impl->device, m_Impl->commandPool, 1, &cmd);
+        return nullptr;
+    }
+    VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+    submit.commandBufferCount = 1;
+    submit.pCommandBuffers = &cmd;
+    const VkResult submitted = vkQueueSubmit(m_Impl->graphicsQueue, 1, &submit, fence);
+    if (submitted != VK_SUCCESS) {
+        Logger::Error("[Vulkan] vkQueueSubmit failed during buffer readback: ", VkResultName(submitted));
+        vkDestroyFence(m_Impl->device, fence, nullptr);
+        vkFreeCommandBuffers(m_Impl->device, m_Impl->commandPool, 1, &cmd);
+        return nullptr;
+    }
+    vkWaitForFences(m_Impl->device, 1, &fence, VK_TRUE, UINT64_MAX);
+    vkFreeCommandBuffers(m_Impl->device, m_Impl->commandPool, 1, &cmd);
+    ticket->fence = fence;
+    ticket->ownsFence = true;
+    return ticket;
 }
 
 std::shared_ptr<GpuTextureReadbackTicket> VulkanContext::ReadbackTextureAsync(

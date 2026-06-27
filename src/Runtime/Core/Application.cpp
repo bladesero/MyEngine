@@ -3,6 +3,7 @@
 #include "CrashHandler.h"
 #include "Assets/AssetManager.h"
 #include "Input/Input.h"
+#include "Miscs/IconsManager.h"
 #include "Renderer/ShaderManager.h"
 
 Application::Application(ApplicationConfig config)
@@ -37,6 +38,7 @@ int Application::Run() {
     // 5. Release layers before backend teardown so renderer-owned GPU resources
     //    are destroyed while the render context is still alive.
     m_Engine.ClearLayers();
+    IconsManager::Get().Clear();
     ShaderManager::Get().Clear();
     AssetManager::Get().Clear();
 

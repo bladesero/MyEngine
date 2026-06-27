@@ -125,6 +125,10 @@ void EditorImGuiBackend::Shutdown() {
 
     const ImGuiBackendHandles handles = m_Interop ? m_Interop->GetImGuiBackendHandles() : ImGuiBackendHandles{};
     const RHIBackend backend = handles.backend;
+    if (ImGui::GetCurrentContext() &&
+        (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable)) {
+        ImGui::DestroyPlatformWindows();
+    }
 #if defined(MYENGINE_PLATFORM_WINDOWS)
     if (backend == RHIBackend::Vulkan) {
         if (m_Interop) m_Interop->SetImGuiTextureInteropReady(false);
@@ -211,6 +215,24 @@ void EditorImGuiBackend::RenderDrawData(ImDrawData* drawData) {
             drawData, handles.commandBuffer, handles.commandEncoder);
     }
 #endif
+#endif
+}
+
+void EditorImGuiBackend::RenderPlatformWindows() {
+#if defined(MYENGINE_ENABLE_IMGUI)
+    if (!m_Initialized) return;
+    if ((ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable) == 0) return;
+
+    const ImGuiBackendHandles handles = m_Interop ? m_Interop->GetImGuiBackendHandles() : ImGuiBackendHandles{};
+#if defined(MYENGINE_PLATFORM_WINDOWS)
+    if (handles.backend == RHIBackend::Vulkan) {
+        EditorImGuiVulkan_RenderPlatformWindows();
+        return;
+    }
+#endif
+
+    ImGui::UpdatePlatformWindows();
+    ImGui::RenderPlatformWindowsDefault();
 #endif
 }
 

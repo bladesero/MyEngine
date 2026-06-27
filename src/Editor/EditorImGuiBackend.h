@@ -27,6 +27,7 @@ public:
     void ProcessSDLEvent(const SDL_Event& event);
     void BeginFrame();
     void RenderDrawData(ImDrawData* drawData);
+    void RenderPlatformWindows();
     bool RebuildFontTexture();
     bool SupportsRuntimeFontTextureRebuild() const;
     void* GetTextureId(GpuTextureView* view);

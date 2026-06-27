@@ -1,0 +1,1045 @@
+Validation Warning: [ WARNING-vkGetDeviceProcAddr-device ] | MessageID = 0x22b1fbac
+vkGetDeviceProcAddr(): pName is trying to grab vkDestroySurfaceKHR which is an instance level function
+
+Validation Warning: [ WARNING-vkGetDeviceProcAddr-device ] | MessageID = 0x22b1fbac
+vkGetDeviceProcAddr(): pName is trying to grab vkGetPhysicalDeviceMemoryProperties which is an instance level function
+
+Validation Warning: [ WARNING-vkGetDeviceProcAddr-device ] | MessageID = 0x22b1fbac
+vkGetDeviceProcAddr(): pName is trying to grab vkGetPhysicalDeviceSurfaceCapabilitiesKHR which is an instance level function
+
+Validation Warning: [ WARNING-vkGetDeviceProcAddr-device ] | MessageID = 0x22b1fbac
+vkGetDeviceProcAddr(): pName is trying to grab vkGetPhysicalDeviceSurfaceFormatsKHR which is an instance level function
+
+Validation Warning: [ WARNING-vkGetDeviceProcAddr-device ] | MessageID = 0x22b1fbac
+vkGetDeviceProcAddr(): pName is trying to grab vkGetPhysicalDeviceSurfacePresentModesKHR which is an instance level function
+
+Validation Warning: [ WARNING-vkGetDeviceProcAddr-device ] | MessageID = 0x22b1fbac
+vkGetDeviceProcAddr(): pName is trying to grab vkGetPhysicalDeviceSurfaceSupportKHR which is an instance level function
+
+Validation Error: [ VUID-VkImageCreateInfo-imageCreateMaxMipLevels-02251 ] | MessageID = 0xbebcae79
+vkCreateImage(): The following VkImageCreateInfo returned VK_ERROR_FORMAT_NOT_SUPPORTED when calling vkGetPhysicalDeviceImageFormatProperties2
+format (VK_FORMAT_D24_UNORM_S8_UINT)
+type (VK_IMAGE_TYPE_2D)
+tiling (VK_IMAGE_TILING_OPTIMAL)
+usage (VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT|VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_STORAGE_BIT|VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
+flags (VkImageCreateFlags(0))
+VkImageCreateInfo::pNext is NULL.
+The Vulkan spec states: Each of the following values (as described in Image Creation Limits) must not be undefined : imageCreateMaxMipLevels, imageCreateMaxArrayLayers, imageCreateMaxExtent, and imageCreateSampleCounts (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-VkImageCreateInfo-imageCreateMaxMipLevels-02251)
+
+Validation Error: [ VUID-VkImageCreateInfo-imageCreateMaxMipLevels-02251 ] | MessageID = 0xbebcae79
+vkCreateImage(): The following VkImageCreateInfo returned VK_ERROR_FORMAT_NOT_SUPPORTED when calling vkGetPhysicalDeviceImageFormatProperties2
+format (VK_FORMAT_D24_UNORM_S8_UINT)
+type (VK_IMAGE_TYPE_2D)
+tiling (VK_IMAGE_TILING_OPTIMAL)
+usage (VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT|VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_STORAGE_BIT|VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
+flags (VkImageCreateFlags(0))
+VkImageCreateInfo::pNext is NULL.
+The Vulkan spec states: Each of the following values (as described in Image Creation Limits) must not be undefined : imageCreateMaxMipLevels, imageCreateMaxArrayLayers, imageCreateMaxExtent, and imageCreateSampleCounts (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-VkImageCreateInfo-imageCreateMaxMipLevels-02251)
+
+Validation Error: [ VUID-VkImageCreateInfo-imageCreateMaxMipLevels-02251 ] | MessageID = 0xbebcae79
+vkCreateImage(): The following VkImageCreateInfo returned VK_ERROR_FORMAT_NOT_SUPPORTED when calling vkGetPhysicalDeviceImageFormatProperties2
+format (VK_FORMAT_D24_UNORM_S8_UINT)
+type (VK_IMAGE_TYPE_2D)
+tiling (VK_IMAGE_TILING_OPTIMAL)
+usage (VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT|VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_STORAGE_BIT|VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
+flags (VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT)
+VkImageCreateInfo::pNext is NULL.
+The Vulkan spec states: Each of the following values (as described in Image Creation Limits) must not be undefined : imageCreateMaxMipLevels, imageCreateMaxArrayLayers, imageCreateMaxExtent, and imageCreateSampleCounts (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-VkImageCreateInfo-imageCreateMaxMipLevels-02251)
+
+Validation Error: [ VUID-VkImageViewCreateInfo-usage-02275 ] | MessageID = 0x618ab1e7
+vkCreateImageView(): pCreateInfo->format VK_FORMAT_D24_UNORM_S8_UINT with tiling VK_IMAGE_TILING_OPTIMAL doesn't support VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT.
+(supported features: VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_BIT|VK_FORMAT_FEATURE_2_DEPTH_STENCIL_ATTACHMENT_BIT|VK_FORMAT_FEATURE_2_BLIT_SRC_BIT|VK_FORMAT_FEATURE_2_BLIT_DST_BIT|VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_LINEAR_BIT|VK_FORMAT_FEATURE_2_TRANSFER_SRC_BIT|VK_FORMAT_FEATURE_2_TRANSFER_DST_BIT|VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_MINMAX_BIT|VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_DEPTH_COMPARISON_BIT|VK_FORMAT_FEATURE_2_DEPTH_COPY_ON_COMPUTE_QUEUE_BIT_KHR|VK_FORMAT_FEATURE_2_DEPTH_COPY_ON_TRANSFER_QUEUE_BIT_KHR|VK_FORMAT_FEATURE_2_STENCIL_COPY_ON_COMPUTE_QUEUE_BIT_KHR|VK_FORMAT_FEATURE_2_STENCIL_COPY_ON_TRANSFER_QUEUE_BIT_KHR|VK_FORMAT_FEATURE_2_COPY_IMAGE_INDIRECT_DST_BIT_KHR).
+The Vulkan spec states: If usage contains VK_IMAGE_USAGE_STORAGE_BIT, then the image view's format features must contain VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-VkImageViewCreateInfo-usage-02275)
+Objects: 1
+    [0] VkImage 0x1f000000001f
+
+Validation Error: [ VUID-VkImageViewCreateInfo-usage-02275 ] | MessageID = 0x618ab1e7
+vkCreateImageView(): pCreateInfo->format VK_FORMAT_D24_UNORM_S8_UINT with tiling VK_IMAGE_TILING_OPTIMAL doesn't support VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT.
+(supported features: VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_BIT|VK_FORMAT_FEATURE_2_DEPTH_STENCIL_ATTACHMENT_BIT|VK_FORMAT_FEATURE_2_BLIT_SRC_BIT|VK_FORMAT_FEATURE_2_BLIT_DST_BIT|VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_LINEAR_BIT|VK_FORMAT_FEATURE_2_TRANSFER_SRC_BIT|VK_FORMAT_FEATURE_2_TRANSFER_DST_BIT|VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_MINMAX_BIT|VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_DEPTH_COMPARISON_BIT|VK_FORMAT_FEATURE_2_DEPTH_COPY_ON_COMPUTE_QUEUE_BIT_KHR|VK_FORMAT_FEATURE_2_DEPTH_COPY_ON_TRANSFER_QUEUE_BIT_KHR|VK_FORMAT_FEATURE_2_STENCIL_COPY_ON_COMPUTE_QUEUE_BIT_KHR|VK_FORMAT_FEATURE_2_STENCIL_COPY_ON_TRANSFER_QUEUE_BIT_KHR|VK_FORMAT_FEATURE_2_COPY_IMAGE_INDIRECT_DST_BIT_KHR).
+The Vulkan spec states: If usage contains VK_IMAGE_USAGE_STORAGE_BIT, then the image view's format features must contain VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-VkImageViewCreateInfo-usage-02275)
+Objects: 1
+    [0] VkImage 0x1f000000001f
+
+Validation Error: [ VUID-VkImageViewCreateInfo-usage-02275 ] | MessageID = 0x618ab1e7
+vkCreateImageView(): pCreateInfo->format VK_FORMAT_D24_UNORM_S8_UINT with tiling VK_IMAGE_TILING_OPTIMAL doesn't support VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT.
+(supported features: VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_BIT|VK_FORMAT_FEATURE_2_DEPTH_STENCIL_ATTACHMENT_BIT|VK_FORMAT_FEATURE_2_BLIT_SRC_BIT|VK_FORMAT_FEATURE_2_BLIT_DST_BIT|VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_LINEAR_BIT|VK_FORMAT_FEATURE_2_TRANSFER_SRC_BIT|VK_FORMAT_FEATURE_2_TRANSFER_DST_BIT|VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_MINMAX_BIT|VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_DEPTH_COMPARISON_BIT|VK_FORMAT_FEATURE_2_DEPTH_COPY_ON_COMPUTE_QUEUE_BIT_KHR|VK_FORMAT_FEATURE_2_DEPTH_COPY_ON_TRANSFER_QUEUE_BIT_KHR|VK_FORMAT_FEATURE_2_STENCIL_COPY_ON_COMPUTE_QUEUE_BIT_KHR|VK_FORMAT_FEATURE_2_STENCIL_COPY_ON_TRANSFER_QUEUE_BIT_KHR|VK_FORMAT_FEATURE_2_COPY_IMAGE_INDIRECT_DST_BIT_KHR).
+The Vulkan spec states: If usage contains VK_IMAGE_USAGE_STORAGE_BIT, then the image view's format features must contain VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-VkImageViewCreateInfo-usage-02275)
+Objects: 1
+    [0] VkImage 0x1f000000001f
+
+Validation Error: [ VUID-VkImageViewCreateInfo-usage-02275 ] | MessageID = 0x618ab1e7
+vkCreateImageView(): pCreateInfo->format VK_FORMAT_D24_UNORM_S8_UINT with tiling VK_IMAGE_TILING_OPTIMAL doesn't support VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT.
+(supported features: VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_BIT|VK_FORMAT_FEATURE_2_DEPTH_STENCIL_ATTACHMENT_BIT|VK_FORMAT_FEATURE_2_BLIT_SRC_BIT|VK_FORMAT_FEATURE_2_BLIT_DST_BIT|VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_LINEAR_BIT|VK_FORMAT_FEATURE_2_TRANSFER_SRC_BIT|VK_FORMAT_FEATURE_2_TRANSFER_DST_BIT|VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_MINMAX_BIT|VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_DEPTH_COMPARISON_BIT|VK_FORMAT_FEATURE_2_DEPTH_COPY_ON_COMPUTE_QUEUE_BIT_KHR|VK_FORMAT_FEATURE_2_DEPTH_COPY_ON_TRANSFER_QUEUE_BIT_KHR|VK_FORMAT_FEATURE_2_STENCIL_COPY_ON_COMPUTE_QUEUE_BIT_KHR|VK_FORMAT_FEATURE_2_STENCIL_COPY_ON_TRANSFER_QUEUE_BIT_KHR|VK_FORMAT_FEATURE_2_COPY_IMAGE_INDIRECT_DST_BIT_KHR).
+The Vulkan spec states: If usage contains VK_IMAGE_USAGE_STORAGE_BIT, then the image view's format features must contain VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-VkImageViewCreateInfo-usage-02275)
+Objects: 1
+    [0] VkImage 0x210000000021
+
+Validation Error: [ VUID-VkImageViewCreateInfo-usage-02275 ] | MessageID = 0x618ab1e7
+vkCreateImageView(): pCreateInfo->format VK_FORMAT_D24_UNORM_S8_UINT with tiling VK_IMAGE_TILING_OPTIMAL doesn't support VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT.
+(supported features: VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_BIT|VK_FORMAT_FEATURE_2_DEPTH_STENCIL_ATTACHMENT_BIT|VK_FORMAT_FEATURE_2_BLIT_SRC_BIT|VK_FORMAT_FEATURE_2_BLIT_DST_BIT|VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_LINEAR_BIT|VK_FORMAT_FEATURE_2_TRANSFER_SRC_BIT|VK_FORMAT_FEATURE_2_TRANSFER_DST_BIT|VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_MINMAX_BIT|VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_DEPTH_COMPARISON_BIT|VK_FORMAT_FEATURE_2_DEPTH_COPY_ON_COMPUTE_QUEUE_BIT_KHR|VK_FORMAT_FEATURE_2_DEPTH_COPY_ON_TRANSFER_QUEUE_BIT_KHR|VK_FORMAT_FEATURE_2_STENCIL_COPY_ON_COMPUTE_QUEUE_BIT_KHR|VK_FORMAT_FEATURE_2_STENCIL_COPY_ON_TRANSFER_QUEUE_BIT_KHR|VK_FORMAT_FEATURE_2_COPY_IMAGE_INDIRECT_DST_BIT_KHR).
+The Vulkan spec states: If usage contains VK_IMAGE_USAGE_STORAGE_BIT, then the image view's format features must contain VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-VkImageViewCreateInfo-usage-02275)
+Objects: 1
+    [0] VkImage 0x230000000023
+
+Validation Error: [ VUID-VkImageViewCreateInfo-usage-02275 ] | MessageID = 0x618ab1e7
+vkCreateImageView(): pCreateInfo->format VK_FORMAT_D24_UNORM_S8_UINT with tiling VK_IMAGE_TILING_OPTIMAL doesn't support VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT.
+(supported features: VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_BIT|VK_FORMAT_FEATURE_2_DEPTH_STENCIL_ATTACHMENT_BIT|VK_FORMAT_FEATURE_2_BLIT_SRC_BIT|VK_FORMAT_FEATURE_2_BLIT_DST_BIT|VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_LINEAR_BIT|VK_FORMAT_FEATURE_2_TRANSFER_SRC_BIT|VK_FORMAT_FEATURE_2_TRANSFER_DST_BIT|VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_MINMAX_BIT|VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_DEPTH_COMPARISON_BIT|VK_FORMAT_FEATURE_2_DEPTH_COPY_ON_COMPUTE_QUEUE_BIT_KHR|VK_FORMAT_FEATURE_2_DEPTH_COPY_ON_TRANSFER_QUEUE_BIT_KHR|VK_FORMAT_FEATURE_2_STENCIL_COPY_ON_COMPUTE_QUEUE_BIT_KHR|VK_FORMAT_FEATURE_2_STENCIL_COPY_ON_TRANSFER_QUEUE_BIT_KHR|VK_FORMAT_FEATURE_2_COPY_IMAGE_INDIRECT_DST_BIT_KHR).
+The Vulkan spec states: If usage contains VK_IMAGE_USAGE_STORAGE_BIT, then the image view's format features must contain VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-VkImageViewCreateInfo-usage-02275)
+Objects: 1
+    [0] VkImage 0x230000000023
+
+Validation Error: [ VUID-VkImageViewCreateInfo-usage-02275 ] | MessageID = 0x618ab1e7
+vkCreateImageView(): pCreateInfo->format VK_FORMAT_D24_UNORM_S8_UINT with tiling VK_IMAGE_TILING_OPTIMAL doesn't support VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT.
+(supported features: VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_BIT|VK_FORMAT_FEATURE_2_DEPTH_STENCIL_ATTACHMENT_BIT|VK_FORMAT_FEATURE_2_BLIT_SRC_BIT|VK_FORMAT_FEATURE_2_BLIT_DST_BIT|VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_LINEAR_BIT|VK_FORMAT_FEATURE_2_TRANSFER_SRC_BIT|VK_FORMAT_FEATURE_2_TRANSFER_DST_BIT|VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_MINMAX_BIT|VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_DEPTH_COMPARISON_BIT|VK_FORMAT_FEATURE_2_DEPTH_COPY_ON_COMPUTE_QUEUE_BIT_KHR|VK_FORMAT_FEATURE_2_DEPTH_COPY_ON_TRANSFER_QUEUE_BIT_KHR|VK_FORMAT_FEATURE_2_STENCIL_COPY_ON_COMPUTE_QUEUE_BIT_KHR|VK_FORMAT_FEATURE_2_STENCIL_COPY_ON_TRANSFER_QUEUE_BIT_KHR|VK_FORMAT_FEATURE_2_COPY_IMAGE_INDIRECT_DST_BIT_KHR).
+The Vulkan spec states: If usage contains VK_IMAGE_USAGE_STORAGE_BIT, then the image view's format features must contain VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-VkImageViewCreateInfo-usage-02275)
+Objects: 1
+    [0] VkImage 0x230000000023
+
+Validation Error: [ VUID-VkImageViewCreateInfo-usage-02275 ] | MessageID = 0x618ab1e7
+vkCreateImageView(): pCreateInfo->format VK_FORMAT_D24_UNORM_S8_UINT with tiling VK_IMAGE_TILING_OPTIMAL doesn't support VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT.
+(supported features: VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_BIT|VK_FORMAT_FEATURE_2_DEPTH_STENCIL_ATTACHMENT_BIT|VK_FORMAT_FEATURE_2_BLIT_SRC_BIT|VK_FORMAT_FEATURE_2_BLIT_DST_BIT|VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_LINEAR_BIT|VK_FORMAT_FEATURE_2_TRANSFER_SRC_BIT|VK_FORMAT_FEATURE_2_TRANSFER_DST_BIT|VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_MINMAX_BIT|VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_DEPTH_COMPARISON_BIT|VK_FORMAT_FEATURE_2_DEPTH_COPY_ON_COMPUTE_QUEUE_BIT_KHR|VK_FORMAT_FEATURE_2_DEPTH_COPY_ON_TRANSFER_QUEUE_BIT_KHR|VK_FORMAT_FEATURE_2_STENCIL_COPY_ON_COMPUTE_QUEUE_BIT_KHR|VK_FORMAT_FEATURE_2_STENCIL_COPY_ON_TRANSFER_QUEUE_BIT_KHR|VK_FORMAT_FEATURE_2_COPY_IMAGE_INDIRECT_DST_BIT_KHR).
+The Vulkan spec states: If usage contains VK_IMAGE_USAGE_STORAGE_BIT, then the image view's format features must contain VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-VkImageViewCreateInfo-usage-02275)
+Objects: 1
+    [0] VkImage 0x230000000023
+
+Validation Error: [ VUID-VkImageViewCreateInfo-usage-02275 ] | MessageID = 0x618ab1e7
+vkCreateImageView(): pCreateInfo->format VK_FORMAT_D24_UNORM_S8_UINT with tiling VK_IMAGE_TILING_OPTIMAL doesn't support VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT.
+(supported features: VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_BIT|VK_FORMAT_FEATURE_2_DEPTH_STENCIL_ATTACHMENT_BIT|VK_FORMAT_FEATURE_2_BLIT_SRC_BIT|VK_FORMAT_FEATURE_2_BLIT_DST_BIT|VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_LINEAR_BIT|VK_FORMAT_FEATURE_2_TRANSFER_SRC_BIT|VK_FORMAT_FEATURE_2_TRANSFER_DST_BIT|VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_MINMAX_BIT|VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_DEPTH_COMPARISON_BIT|VK_FORMAT_FEATURE_2_DEPTH_COPY_ON_COMPUTE_QUEUE_BIT_KHR|VK_FORMAT_FEATURE_2_DEPTH_COPY_ON_TRANSFER_QUEUE_BIT_KHR|VK_FORMAT_FEATURE_2_STENCIL_COPY_ON_COMPUTE_QUEUE_BIT_KHR|VK_FORMAT_FEATURE_2_STENCIL_COPY_ON_TRANSFER_QUEUE_BIT_KHR|VK_FORMAT_FEATURE_2_COPY_IMAGE_INDIRECT_DST_BIT_KHR).
+The Vulkan spec states: If usage contains VK_IMAGE_USAGE_STORAGE_BIT, then the image view's format features must contain VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-VkImageViewCreateInfo-usage-02275)
+Objects: 1
+    [0] VkImage 0x230000000023
+
+Validation Error: [ VUID-VkImageViewCreateInfo-usage-02275 ] | MessageID = 0x618ab1e7
+(Warning - This VUID has now been reported 10 times, which is the duplicate_message_limit value, this will be the last time reporting it).
+vkCreateImageView(): pCreateInfo->format VK_FORMAT_D24_UNORM_S8_UINT with tiling VK_IMAGE_TILING_OPTIMAL doesn't support VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT.
+(supported features: VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_BIT|VK_FORMAT_FEATURE_2_DEPTH_STENCIL_ATTACHMENT_BIT|VK_FORMAT_FEATURE_2_BLIT_SRC_BIT|VK_FORMAT_FEATURE_2_BLIT_DST_BIT|VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_LINEAR_BIT|VK_FORMAT_FEATURE_2_TRANSFER_SRC_BIT|VK_FORMAT_FEATURE_2_TRANSFER_DST_BIT|VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_MINMAX_BIT|VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_DEPTH_COMPARISON_BIT|VK_FORMAT_FEATURE_2_DEPTH_COPY_ON_COMPUTE_QUEUE_BIT_KHR|VK_FORMAT_FEATURE_2_DEPTH_COPY_ON_TRANSFER_QUEUE_BIT_KHR|VK_FORMAT_FEATURE_2_STENCIL_COPY_ON_COMPUTE_QUEUE_BIT_KHR|VK_FORMAT_FEATURE_2_STENCIL_COPY_ON_TRANSFER_QUEUE_BIT_KHR|VK_FORMAT_FEATURE_2_COPY_IMAGE_INDIRECT_DST_BIT_KHR).
+The Vulkan spec states: If usage contains VK_IMAGE_USAGE_STORAGE_BIT, then the image view's format features must contain VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-VkImageViewCreateInfo-usage-02275)
+Objects: 1
+    [0] VkImage 0x230000000023
+
+Validation Error: [ VUID-VkImageCreateInfo-imageCreateMaxMipLevels-02251 ] | MessageID = 0xbebcae79
+vkCreateImage(): The following VkImageCreateInfo returned VK_ERROR_FORMAT_NOT_SUPPORTED when calling vkGetPhysicalDeviceImageFormatProperties2
+format (VK_FORMAT_R16G16B16A16_SFLOAT)
+type (VK_IMAGE_TYPE_2D)
+tiling (VK_IMAGE_TILING_OPTIMAL)
+usage (VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT|VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_STORAGE_BIT|VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
+flags (VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT)
+VkImageCreateInfo::pNext is NULL.
+The Vulkan spec states: Each of the following values (as described in Image Creation Limits) must not be undefined : imageCreateMaxMipLevels, imageCreateMaxArrayLayers, imageCreateMaxExtent, and imageCreateSampleCounts (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-VkImageCreateInfo-imageCreateMaxMipLevels-02251)
+
+Validation Error: [ VUID-VkImageViewCreateInfo-usage-02277 ] | MessageID = 0xd12b6190
+vkCreateImageView(): pCreateInfo->format VK_FORMAT_R16G16B16A16_SFLOAT with tiling VK_IMAGE_TILING_OPTIMAL doesn't support VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT.
+.(supported features: VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_BIT|VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT|VK_FORMAT_FEATURE_2_STORAGE_IMAGE_ATOMIC_BIT|VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BIT|VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BLEND_BIT|VK_FORMAT_FEATURE_2_BLIT_SRC_BIT|VK_FORMAT_FEATURE_2_BLIT_DST_BIT|VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_LINEAR_BIT|VK_FORMAT_FEATURE_2_TRANSFER_SRC_BIT|VK_FORMAT_FEATURE_2_TRANSFER_DST_BIT|VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_MINMAX_BIT|VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT|VK_FORMAT_FEATURE_2_STORAGE_WRITE_WITHOUT_FORMAT_BIT|VK_FORMAT_FEATURE_2_HOST_IMAGE_TRANSFER_BIT|VK_FORMAT_FEATURE_2_COPY_IMAGE_INDIRECT_DST_BIT_KHR).
+The Vulkan spec states: If usage contains VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, then the image view's format features must contain VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-VkImageViewCreateInfo-usage-02277)
+Objects: 1
+    [0] VkImage 0x2f000000002f
+
+Validation Error: [ VUID-VkImageViewCreateInfo-usage-02277 ] | MessageID = 0xd12b6190
+vkCreateImageView(): pCreateInfo->format VK_FORMAT_R16G16B16A16_SFLOAT with tiling VK_IMAGE_TILING_OPTIMAL doesn't support VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT.
+.(supported features: VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_BIT|VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT|VK_FORMAT_FEATURE_2_STORAGE_IMAGE_ATOMIC_BIT|VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BIT|VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BLEND_BIT|VK_FORMAT_FEATURE_2_BLIT_SRC_BIT|VK_FORMAT_FEATURE_2_BLIT_DST_BIT|VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_LINEAR_BIT|VK_FORMAT_FEATURE_2_TRANSFER_SRC_BIT|VK_FORMAT_FEATURE_2_TRANSFER_DST_BIT|VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_MINMAX_BIT|VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT|VK_FORMAT_FEATURE_2_STORAGE_WRITE_WITHOUT_FORMAT_BIT|VK_FORMAT_FEATURE_2_HOST_IMAGE_TRANSFER_BIT|VK_FORMAT_FEATURE_2_COPY_IMAGE_INDIRECT_DST_BIT_KHR).
+The Vulkan spec states: If usage contains VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, then the image view's format features must contain VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-VkImageViewCreateInfo-usage-02277)
+Objects: 1
+    [0] VkImage 0x2f000000002f
+
+Validation Error: [ VUID-VkImageViewCreateInfo-usage-02277 ] | MessageID = 0xd12b6190
+vkCreateImageView(): pCreateInfo->format VK_FORMAT_R16G16B16A16_SFLOAT with tiling VK_IMAGE_TILING_OPTIMAL doesn't support VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT.
+.(supported features: VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_BIT|VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT|VK_FORMAT_FEATURE_2_STORAGE_IMAGE_ATOMIC_BIT|VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BIT|VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BLEND_BIT|VK_FORMAT_FEATURE_2_BLIT_SRC_BIT|VK_FORMAT_FEATURE_2_BLIT_DST_BIT|VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_LINEAR_BIT|VK_FORMAT_FEATURE_2_TRANSFER_SRC_BIT|VK_FORMAT_FEATURE_2_TRANSFER_DST_BIT|VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_MINMAX_BIT|VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT|VK_FORMAT_FEATURE_2_STORAGE_WRITE_WITHOUT_FORMAT_BIT|VK_FORMAT_FEATURE_2_HOST_IMAGE_TRANSFER_BIT|VK_FORMAT_FEATURE_2_COPY_IMAGE_INDIRECT_DST_BIT_KHR).
+The Vulkan spec states: If usage contains VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, then the image view's format features must contain VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-VkImageViewCreateInfo-usage-02277)
+Objects: 1
+    [0] VkImage 0x2f000000002f
+
+Validation Error: [ VUID-VkImageViewCreateInfo-usage-02277 ] | MessageID = 0xd12b6190
+vkCreateImageView(): pCreateInfo->format VK_FORMAT_R16G16B16A16_SFLOAT with tiling VK_IMAGE_TILING_OPTIMAL doesn't support VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT.
+.(supported features: VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_BIT|VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT|VK_FORMAT_FEATURE_2_STORAGE_IMAGE_ATOMIC_BIT|VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BIT|VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BLEND_BIT|VK_FORMAT_FEATURE_2_BLIT_SRC_BIT|VK_FORMAT_FEATURE_2_BLIT_DST_BIT|VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_LINEAR_BIT|VK_FORMAT_FEATURE_2_TRANSFER_SRC_BIT|VK_FORMAT_FEATURE_2_TRANSFER_DST_BIT|VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_MINMAX_BIT|VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT|VK_FORMAT_FEATURE_2_STORAGE_WRITE_WITHOUT_FORMAT_BIT|VK_FORMAT_FEATURE_2_HOST_IMAGE_TRANSFER_BIT|VK_FORMAT_FEATURE_2_COPY_IMAGE_INDIRECT_DST_BIT_KHR).
+The Vulkan spec states: If usage contains VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, then the image view's format features must contain VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-VkImageViewCreateInfo-usage-02277)
+Objects: 1
+    [0] VkImage 0x2f000000002f
+
+Validation Error: [ VUID-VkImageViewCreateInfo-usage-02277 ] | MessageID = 0xd12b6190
+vkCreateImageView(): pCreateInfo->format VK_FORMAT_R16G16B16A16_SFLOAT with tiling VK_IMAGE_TILING_OPTIMAL doesn't support VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT.
+.(supported features: VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_BIT|VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT|VK_FORMAT_FEATURE_2_STORAGE_IMAGE_ATOMIC_BIT|VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BIT|VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BLEND_BIT|VK_FORMAT_FEATURE_2_BLIT_SRC_BIT|VK_FORMAT_FEATURE_2_BLIT_DST_BIT|VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_LINEAR_BIT|VK_FORMAT_FEATURE_2_TRANSFER_SRC_BIT|VK_FORMAT_FEATURE_2_TRANSFER_DST_BIT|VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_MINMAX_BIT|VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT|VK_FORMAT_FEATURE_2_STORAGE_WRITE_WITHOUT_FORMAT_BIT|VK_FORMAT_FEATURE_2_HOST_IMAGE_TRANSFER_BIT|VK_FORMAT_FEATURE_2_COPY_IMAGE_INDIRECT_DST_BIT_KHR).
+The Vulkan spec states: If usage contains VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, then the image view's format features must contain VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-VkImageViewCreateInfo-usage-02277)
+Objects: 1
+    [0] VkImage 0x2f000000002f
+
+Validation Error: [ VUID-VkImageViewCreateInfo-usage-02277 ] | MessageID = 0xd12b6190
+vkCreateImageView(): pCreateInfo->format VK_FORMAT_R16G16B16A16_SFLOAT with tiling VK_IMAGE_TILING_OPTIMAL doesn't support VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT.
+.(supported features: VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_BIT|VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT|VK_FORMAT_FEATURE_2_STORAGE_IMAGE_ATOMIC_BIT|VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BIT|VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BLEND_BIT|VK_FORMAT_FEATURE_2_BLIT_SRC_BIT|VK_FORMAT_FEATURE_2_BLIT_DST_BIT|VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_LINEAR_BIT|VK_FORMAT_FEATURE_2_TRANSFER_SRC_BIT|VK_FORMAT_FEATURE_2_TRANSFER_DST_BIT|VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_MINMAX_BIT|VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT|VK_FORMAT_FEATURE_2_STORAGE_WRITE_WITHOUT_FORMAT_BIT|VK_FORMAT_FEATURE_2_HOST_IMAGE_TRANSFER_BIT|VK_FORMAT_FEATURE_2_COPY_IMAGE_INDIRECT_DST_BIT_KHR).
+The Vulkan spec states: If usage contains VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, then the image view's format features must contain VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-VkImageViewCreateInfo-usage-02277)
+Objects: 1
+    [0] VkImage 0x2f000000002f
+
+Validation Error: [ VUID-VkImageViewCreateInfo-usage-02277 ] | MessageID = 0xd12b6190
+vkCreateImageView(): pCreateInfo->format VK_FORMAT_R16G16B16A16_SFLOAT with tiling VK_IMAGE_TILING_OPTIMAL doesn't support VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT.
+.(supported features: VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_BIT|VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT|VK_FORMAT_FEATURE_2_STORAGE_IMAGE_ATOMIC_BIT|VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BIT|VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BLEND_BIT|VK_FORMAT_FEATURE_2_BLIT_SRC_BIT|VK_FORMAT_FEATURE_2_BLIT_DST_BIT|VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_LINEAR_BIT|VK_FORMAT_FEATURE_2_TRANSFER_SRC_BIT|VK_FORMAT_FEATURE_2_TRANSFER_DST_BIT|VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_MINMAX_BIT|VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT|VK_FORMAT_FEATURE_2_STORAGE_WRITE_WITHOUT_FORMAT_BIT|VK_FORMAT_FEATURE_2_HOST_IMAGE_TRANSFER_BIT|VK_FORMAT_FEATURE_2_COPY_IMAGE_INDIRECT_DST_BIT_KHR).
+The Vulkan spec states: If usage contains VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, then the image view's format features must contain VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-VkImageViewCreateInfo-usage-02277)
+Objects: 1
+    [0] VkImage 0x2f000000002f
+
+Validation Error: [ VUID-VkImageViewCreateInfo-usage-02277 ] | MessageID = 0xd12b6190
+vkCreateImageView(): pCreateInfo->format VK_FORMAT_R16G16B16A16_SFLOAT with tiling VK_IMAGE_TILING_OPTIMAL doesn't support VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT.
+.(supported features: VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_BIT|VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT|VK_FORMAT_FEATURE_2_STORAGE_IMAGE_ATOMIC_BIT|VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BIT|VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BLEND_BIT|VK_FORMAT_FEATURE_2_BLIT_SRC_BIT|VK_FORMAT_FEATURE_2_BLIT_DST_BIT|VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_LINEAR_BIT|VK_FORMAT_FEATURE_2_TRANSFER_SRC_BIT|VK_FORMAT_FEATURE_2_TRANSFER_DST_BIT|VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_MINMAX_BIT|VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT|VK_FORMAT_FEATURE_2_STORAGE_WRITE_WITHOUT_FORMAT_BIT|VK_FORMAT_FEATURE_2_HOST_IMAGE_TRANSFER_BIT|VK_FORMAT_FEATURE_2_COPY_IMAGE_INDIRECT_DST_BIT_KHR).
+The Vulkan spec states: If usage contains VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, then the image view's format features must contain VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-VkImageViewCreateInfo-usage-02277)
+Objects: 1
+    [0] VkImage 0x2f000000002f
+
+Validation Error: [ VUID-VkImageViewCreateInfo-usage-02277 ] | MessageID = 0xd12b6190
+vkCreateImageView(): pCreateInfo->format VK_FORMAT_R16G16B16A16_SFLOAT with tiling VK_IMAGE_TILING_OPTIMAL doesn't support VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT.
+.(supported features: VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_BIT|VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT|VK_FORMAT_FEATURE_2_STORAGE_IMAGE_ATOMIC_BIT|VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BIT|VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BLEND_BIT|VK_FORMAT_FEATURE_2_BLIT_SRC_BIT|VK_FORMAT_FEATURE_2_BLIT_DST_BIT|VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_LINEAR_BIT|VK_FORMAT_FEATURE_2_TRANSFER_SRC_BIT|VK_FORMAT_FEATURE_2_TRANSFER_DST_BIT|VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_MINMAX_BIT|VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT|VK_FORMAT_FEATURE_2_STORAGE_WRITE_WITHOUT_FORMAT_BIT|VK_FORMAT_FEATURE_2_HOST_IMAGE_TRANSFER_BIT|VK_FORMAT_FEATURE_2_COPY_IMAGE_INDIRECT_DST_BIT_KHR).
+The Vulkan spec states: If usage contains VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, then the image view's format features must contain VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-VkImageViewCreateInfo-usage-02277)
+Objects: 1
+    [0] VkImage 0x2f000000002f
+
+Validation Error: [ VUID-VkImageViewCreateInfo-usage-02277 ] | MessageID = 0xd12b6190
+(Warning - This VUID has now been reported 10 times, which is the duplicate_message_limit value, this will be the last time reporting it).
+vkCreateImageView(): pCreateInfo->format VK_FORMAT_R16G16B16A16_SFLOAT with tiling VK_IMAGE_TILING_OPTIMAL doesn't support VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT.
+.(supported features: VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_BIT|VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT|VK_FORMAT_FEATURE_2_STORAGE_IMAGE_ATOMIC_BIT|VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BIT|VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BLEND_BIT|VK_FORMAT_FEATURE_2_BLIT_SRC_BIT|VK_FORMAT_FEATURE_2_BLIT_DST_BIT|VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_LINEAR_BIT|VK_FORMAT_FEATURE_2_TRANSFER_SRC_BIT|VK_FORMAT_FEATURE_2_TRANSFER_DST_BIT|VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_MINMAX_BIT|VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT|VK_FORMAT_FEATURE_2_STORAGE_WRITE_WITHOUT_FORMAT_BIT|VK_FORMAT_FEATURE_2_HOST_IMAGE_TRANSFER_BIT|VK_FORMAT_FEATURE_2_COPY_IMAGE_INDIRECT_DST_BIT_KHR).
+The Vulkan spec states: If usage contains VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, then the image view's format features must contain VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-VkImageViewCreateInfo-usage-02277)
+Objects: 1
+    [0] VkImage 0x2f000000002f
+
+Validation Error: [ VUID-VkShaderModuleCreateInfo-pCode-08740 ] | MessageID = 0x6e224e9
+vkCreateShaderModule(): SPIR-V Capability DrawParameters was declared, but one of the following requirements is required (VkPhysicalDeviceVulkan11Features::shaderDrawParameters OR VK_KHR_shader_draw_parameters [when using Vulkan 1.0]).
+The Vulkan spec states: If pCode is a pointer to SPIR-V code, and pCode declares any of the capabilities listed in the SPIR-V Environment appendix, one of the corresponding requirements must be satisfied (https://docs.vulkan.org/spec/latest/chapters/shaders.html#VUID-VkShaderModuleCreateInfo-pCode-08740)
+
+Validation Error: [ VUID-VkShaderModuleCreateInfo-pCode-08740 ] | MessageID = 0x6e224e9
+vkCreateShaderModule(): SPIR-V Capability DrawParameters was declared, but one of the following requirements is required (VkPhysicalDeviceVulkan11Features::shaderDrawParameters OR VK_KHR_shader_draw_parameters [when using Vulkan 1.0]).
+The Vulkan spec states: If pCode is a pointer to SPIR-V code, and pCode declares any of the capabilities listed in the SPIR-V Environment appendix, one of the corresponding requirements must be satisfied (https://docs.vulkan.org/spec/latest/chapters/shaders.html#VUID-VkShaderModuleCreateInfo-pCode-08740)
+
+Validation Error: [ VUID-VkImageCreateInfo-imageCreateMaxMipLevels-02251 ] | MessageID = 0xbebcae79
+vkCreateImage(): The following VkImageCreateInfo returned VK_ERROR_FORMAT_NOT_SUPPORTED when calling vkGetPhysicalDeviceImageFormatProperties2
+format (VK_FORMAT_R16G16B16A16_SFLOAT)
+type (VK_IMAGE_TYPE_2D)
+tiling (VK_IMAGE_TILING_OPTIMAL)
+usage (VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT|VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_STORAGE_BIT|VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
+flags (VkImageCreateFlags(0))
+VkImageCreateInfo::pNext is NULL.
+The Vulkan spec states: Each of the following values (as described in Image Creation Limits) must not be undefined : imageCreateMaxMipLevels, imageCreateMaxArrayLayers, imageCreateMaxExtent, and imageCreateSampleCounts (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-VkImageCreateInfo-imageCreateMaxMipLevels-02251)
+
+Validation Error: [ VUID-VkImageCreateInfo-imageCreateMaxMipLevels-02251 ] | MessageID = 0xbebcae79
+vkCreateImage(): The following VkImageCreateInfo returned VK_ERROR_FORMAT_NOT_SUPPORTED when calling vkGetPhysicalDeviceImageFormatProperties2
+format (VK_FORMAT_D24_UNORM_S8_UINT)
+type (VK_IMAGE_TYPE_2D)
+tiling (VK_IMAGE_TILING_OPTIMAL)
+usage (VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT|VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_STORAGE_BIT|VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
+flags (VkImageCreateFlags(0))
+VkImageCreateInfo::pNext is NULL.
+The Vulkan spec states: Each of the following values (as described in Image Creation Limits) must not be undefined : imageCreateMaxMipLevels, imageCreateMaxArrayLayers, imageCreateMaxExtent, and imageCreateSampleCounts (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-VkImageCreateInfo-imageCreateMaxMipLevels-02251)
+
+Validation Error: [ VUID-VkImageCreateInfo-imageCreateMaxMipLevels-02251 ] | MessageID = 0xbebcae79
+vkCreateImage(): The following VkImageCreateInfo returned VK_ERROR_FORMAT_NOT_SUPPORTED when calling vkGetPhysicalDeviceImageFormatProperties2
+format (VK_FORMAT_R8_UNORM)
+type (VK_IMAGE_TYPE_2D)
+tiling (VK_IMAGE_TILING_OPTIMAL)
+usage (VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT|VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_STORAGE_BIT|VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
+flags (VkImageCreateFlags(0))
+VkImageCreateInfo::pNext is NULL.
+The Vulkan spec states: Each of the following values (as described in Image Creation Limits) must not be undefined : imageCreateMaxMipLevels, imageCreateMaxArrayLayers, imageCreateMaxExtent, and imageCreateSampleCounts (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-VkImageCreateInfo-imageCreateMaxMipLevels-02251)
+
+Validation Error: [ VUID-VkImageCreateInfo-imageCreateMaxMipLevels-02251 ] | MessageID = 0xbebcae79
+vkCreateImage(): The following VkImageCreateInfo returned VK_ERROR_FORMAT_NOT_SUPPORTED when calling vkGetPhysicalDeviceImageFormatProperties2
+format (VK_FORMAT_R8_UNORM)
+type (VK_IMAGE_TYPE_2D)
+tiling (VK_IMAGE_TILING_OPTIMAL)
+usage (VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT|VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_STORAGE_BIT|VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
+flags (VkImageCreateFlags(0))
+VkImageCreateInfo::pNext is NULL.
+The Vulkan spec states: Each of the following values (as described in Image Creation Limits) must not be undefined : imageCreateMaxMipLevels, imageCreateMaxArrayLayers, imageCreateMaxExtent, and imageCreateSampleCounts (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-VkImageCreateInfo-imageCreateMaxMipLevels-02251)
+
+Validation Error: [ VUID-VkImageCreateInfo-imageCreateMaxMipLevels-02251 ] | MessageID = 0xbebcae79
+vkCreateImage(): The following VkImageCreateInfo returned VK_ERROR_FORMAT_NOT_SUPPORTED when calling vkGetPhysicalDeviceImageFormatProperties2
+format (VK_FORMAT_R16G16B16A16_SFLOAT)
+type (VK_IMAGE_TYPE_2D)
+tiling (VK_IMAGE_TILING_OPTIMAL)
+usage (VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT|VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_STORAGE_BIT|VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
+flags (VkImageCreateFlags(0))
+VkImageCreateInfo::pNext is NULL.
+The Vulkan spec states: Each of the following values (as described in Image Creation Limits) must not be undefined : imageCreateMaxMipLevels, imageCreateMaxArrayLayers, imageCreateMaxExtent, and imageCreateSampleCounts (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-VkImageCreateInfo-imageCreateMaxMipLevels-02251)
+
+Validation Error: [ VUID-VkImageCreateInfo-imageCreateMaxMipLevels-02251 ] | MessageID = 0xbebcae79
+(Warning - This VUID has now been reported 10 times, which is the duplicate_message_limit value, this will be the last time reporting it).
+vkCreateImage(): The following VkImageCreateInfo returned VK_ERROR_FORMAT_NOT_SUPPORTED when calling vkGetPhysicalDeviceImageFormatProperties2
+format (VK_FORMAT_R8G8B8A8_UNORM)
+type (VK_IMAGE_TYPE_2D)
+tiling (VK_IMAGE_TILING_OPTIMAL)
+usage (VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT|VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_STORAGE_BIT|VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
+flags (VkImageCreateFlags(0))
+VkImageCreateInfo::pNext is NULL.
+The Vulkan spec states: Each of the following values (as described in Image Creation Limits) must not be undefined : imageCreateMaxMipLevels, imageCreateMaxArrayLayers, imageCreateMaxExtent, and imageCreateSampleCounts (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-VkImageCreateInfo-imageCreateMaxMipLevels-02251)
+
+Validation Error: [ VUID-VkShaderModuleCreateInfo-pCode-08740 ] | MessageID = 0x6e224e9
+vkCreateShaderModule(): SPIR-V Capability DrawParameters was declared, but one of the following requirements is required (VkPhysicalDeviceVulkan11Features::shaderDrawParameters OR VK_KHR_shader_draw_parameters [when using Vulkan 1.0]).
+The Vulkan spec states: If pCode is a pointer to SPIR-V code, and pCode declares any of the capabilities listed in the SPIR-V Environment appendix, one of the corresponding requirements must be satisfied (https://docs.vulkan.org/spec/latest/chapters/shaders.html#VUID-VkShaderModuleCreateInfo-pCode-08740)
+
+Validation Error: [ VUID-VkShaderModuleCreateInfo-pCode-08740 ] | MessageID = 0x6e224e9
+vkCreateShaderModule(): SPIR-V Capability DrawParameters was declared, but one of the following requirements is required (VkPhysicalDeviceVulkan11Features::shaderDrawParameters OR VK_KHR_shader_draw_parameters [when using Vulkan 1.0]).
+The Vulkan spec states: If pCode is a pointer to SPIR-V code, and pCode declares any of the capabilities listed in the SPIR-V Environment appendix, one of the corresponding requirements must be satisfied (https://docs.vulkan.org/spec/latest/chapters/shaders.html#VUID-VkShaderModuleCreateInfo-pCode-08740)
+
+Validation Error: [ VUID-VkShaderModuleCreateInfo-pCode-08740 ] | MessageID = 0x6e224e9
+vkCreateShaderModule(): SPIR-V Capability DrawParameters was declared, but one of the following requirements is required (VkPhysicalDeviceVulkan11Features::shaderDrawParameters OR VK_KHR_shader_draw_parameters [when using Vulkan 1.0]).
+The Vulkan spec states: If pCode is a pointer to SPIR-V code, and pCode declares any of the capabilities listed in the SPIR-V Environment appendix, one of the corresponding requirements must be satisfied (https://docs.vulkan.org/spec/latest/chapters/shaders.html#VUID-VkShaderModuleCreateInfo-pCode-08740)
+
+Validation Warning: [ Undefined-Value-ShaderOutputNotConsumed-DynamicRendering ] | MessageID = 0x46877e3e
+vkCmdDrawIndexed(): Inside [VK_SHADER_STAGE_FRAGMENT_BIT] it writes to [Output variable, Location 0, "entryPointParam_PSMain"] but there is no VkRenderingInfo::pColorAttachments[0] and this write is unused.
+Spec information at https://docs.vulkan.org/spec/latest/chapters/interfaces.html#interfaces-fragmentoutput
+Objects: 2
+    [0] VkCommandBuffer 0x289bc042000
+    [1] VkPipeline 0x1e000000001e
+
+Validation Warning: [ Undefined-Value-ShaderOutputNotConsumed-DynamicRendering ] | MessageID = 0x46877e3e
+vkCmdDrawIndexed(): Inside [VK_SHADER_STAGE_FRAGMENT_BIT] it writes to [Output variable, Location 0, "entryPointParam_PSMain"] but there is no VkRenderingInfo::pColorAttachments[0] and this write is unused.
+Spec information at https://docs.vulkan.org/spec/latest/chapters/interfaces.html#interfaces-fragmentoutput
+Objects: 2
+    [0] VkCommandBuffer 0x289bc042000
+    [1] VkPipeline 0x1e000000001e
+
+Validation Warning: [ Undefined-Value-ShaderOutputNotConsumed-DynamicRendering ] | MessageID = 0x46877e3e
+vkCmdDrawIndexed(): Inside [VK_SHADER_STAGE_FRAGMENT_BIT] it writes to [Output variable, Location 0, "entryPointParam_PSMain"] but there is no VkRenderingInfo::pColorAttachments[0] and this write is unused.
+Spec information at https://docs.vulkan.org/spec/latest/chapters/interfaces.html#interfaces-fragmentoutput
+Objects: 2
+    [0] VkCommandBuffer 0x289bc042000
+    [1] VkPipeline 0x1e000000001e
+
+Validation Warning: [ Undefined-Value-ShaderOutputNotConsumed-DynamicRendering ] | MessageID = 0x46877e3e
+vkCmdDrawIndexed(): Inside [VK_SHADER_STAGE_FRAGMENT_BIT] it writes to [Output variable, Location 0, "entryPointParam_PSMain"] but there is no VkRenderingInfo::pColorAttachments[0] and this write is unused.
+Spec information at https://docs.vulkan.org/spec/latest/chapters/interfaces.html#interfaces-fragmentoutput
+Objects: 2
+    [0] VkCommandBuffer 0x289bc042000
+    [1] VkPipeline 0x1e000000001e
+
+Validation Warning: [ Undefined-Value-ShaderOutputNotConsumed-DynamicRendering ] | MessageID = 0x46877e3e
+vkCmdDrawIndexed(): Inside [VK_SHADER_STAGE_FRAGMENT_BIT] it writes to [Output variable, Location 0, "entryPointParam_PSMain"] but there is no VkRenderingInfo::pColorAttachments[0] and this write is unused.
+Spec information at https://docs.vulkan.org/spec/latest/chapters/interfaces.html#interfaces-fragmentoutput
+Objects: 2
+    [0] VkCommandBuffer 0x289bc042000
+    [1] VkPipeline 0x1e000000001e
+
+Validation Warning: [ Undefined-Value-ShaderOutputNotConsumed-DynamicRendering ] | MessageID = 0x46877e3e
+vkCmdDrawIndexed(): Inside [VK_SHADER_STAGE_FRAGMENT_BIT] it writes to [Output variable, Location 0, "entryPointParam_PSMain"] but there is no VkRenderingInfo::pColorAttachments[0] and this write is unused.
+Spec information at https://docs.vulkan.org/spec/latest/chapters/interfaces.html#interfaces-fragmentoutput
+Objects: 2
+    [0] VkCommandBuffer 0x289bc042000
+    [1] VkPipeline 0x1e000000001e
+
+Validation Warning: [ Undefined-Value-ShaderOutputNotConsumed-DynamicRendering ] | MessageID = 0x46877e3e
+vkCmdDrawIndexed(): Inside [VK_SHADER_STAGE_FRAGMENT_BIT] it writes to [Output variable, Location 0, "entryPointParam_PSMain"] but there is no VkRenderingInfo::pColorAttachments[0] and this write is unused.
+Spec information at https://docs.vulkan.org/spec/latest/chapters/interfaces.html#interfaces-fragmentoutput
+Objects: 2
+    [0] VkCommandBuffer 0x289bc042000
+    [1] VkPipeline 0x1e000000001e
+
+Validation Warning: [ Undefined-Value-ShaderOutputNotConsumed-DynamicRendering ] | MessageID = 0x46877e3e
+vkCmdDrawIndexed(): Inside [VK_SHADER_STAGE_FRAGMENT_BIT] it writes to [Output variable, Location 0, "entryPointParam_PSMain"] but there is no VkRenderingInfo::pColorAttachments[0] and this write is unused.
+Spec information at https://docs.vulkan.org/spec/latest/chapters/interfaces.html#interfaces-fragmentoutput
+Objects: 2
+    [0] VkCommandBuffer 0x289bc042000
+    [1] VkPipeline 0x1e000000001e
+
+Validation Warning: [ Undefined-Value-ShaderOutputNotConsumed-DynamicRendering ] | MessageID = 0x46877e3e
+vkCmdDrawIndexed(): Inside [VK_SHADER_STAGE_FRAGMENT_BIT] it writes to [Output variable, Location 0, "entryPointParam_PSMain"] but there is no VkRenderingInfo::pColorAttachments[0] and this write is unused.
+Spec information at https://docs.vulkan.org/spec/latest/chapters/interfaces.html#interfaces-fragmentoutput
+Objects: 2
+    [0] VkCommandBuffer 0x289bc042000
+    [1] VkPipeline 0x1e000000001e
+
+Validation Error: [ VUID-VkImageMemoryBarrier-oldLayout-01197 ] | MessageID = 0x124ffb34
+vkCmdPipelineBarrier(): pImageMemoryBarriers[0].image (VkImage 0x1f000000001f) cannot transition the layout of aspect=2, level=0, layer=0 from VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL when the previous known layout is VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL.
+The Vulkan spec states: If layouts are not ignored, oldLayout must be VK_IMAGE_LAYOUT_UNDEFINED or the current layout of the image subresources affected by the barrier (https://docs.vulkan.org/spec/latest/chapters/synchronization.html#VUID-VkImageMemoryBarrier-oldLayout-01197)
+Objects: 2
+    [0] VkCommandBuffer 0x289bc042000
+    [1] VkImage 0x1f000000001f
+
+Validation Error: [ VUID-VkImageMemoryBarrier-oldLayout-01197 ] | MessageID = 0x124ffb34
+vkCmdPipelineBarrier(): pImageMemoryBarriers[0].image (VkImage 0x1f000000001f) cannot transition the layout of aspect=2, level=0, layer=0 from VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL when the previous known layout is VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL.
+The Vulkan spec states: If layouts are not ignored, oldLayout must be VK_IMAGE_LAYOUT_UNDEFINED or the current layout of the image subresources affected by the barrier (https://docs.vulkan.org/spec/latest/chapters/synchronization.html#VUID-VkImageMemoryBarrier-oldLayout-01197)
+Objects: 2
+    [0] VkCommandBuffer 0x289bc042000
+    [1] VkImage 0x1f000000001f
+
+Validation Error: [ VUID-VkImageMemoryBarrier-oldLayout-01197 ] | MessageID = 0x124ffb34
+vkCmdPipelineBarrier(): pImageMemoryBarriers[0].image (VkImage 0x2f000000002f) cannot transition the layout of aspect=1, level=0, layer=0 from VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL when the previous known layout is VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL.
+The Vulkan spec states: If layouts are not ignored, oldLayout must be VK_IMAGE_LAYOUT_UNDEFINED or the current layout of the image subresources affected by the barrier (https://docs.vulkan.org/spec/latest/chapters/synchronization.html#VUID-VkImageMemoryBarrier-oldLayout-01197)
+Objects: 2
+    [0] VkCommandBuffer 0x289bc042000
+    [1] VkImage 0x2f000000002f
+
+Validation Error: [ VUID-VkImageMemoryBarrier-oldLayout-01197 ] | MessageID = 0x124ffb34
+vkCmdPipelineBarrier(): pImageMemoryBarriers[0].image (VkImage 0x2f000000002f) cannot transition the layout of aspect=1, level=0, layer=1 from VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL when the previous known layout is VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL.
+The Vulkan spec states: If layouts are not ignored, oldLayout must be VK_IMAGE_LAYOUT_UNDEFINED or the current layout of the image subresources affected by the barrier (https://docs.vulkan.org/spec/latest/chapters/synchronization.html#VUID-VkImageMemoryBarrier-oldLayout-01197)
+Objects: 2
+    [0] VkCommandBuffer 0x289bc042000
+    [1] VkImage 0x2f000000002f
+
+Validation Error: [ VUID-VkImageMemoryBarrier-oldLayout-01197 ] | MessageID = 0x124ffb34
+vkCmdPipelineBarrier(): pImageMemoryBarriers[0].image (VkImage 0x2f000000002f) cannot transition the layout of aspect=1, level=0, layer=2 from VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL when the previous known layout is VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL.
+The Vulkan spec states: If layouts are not ignored, oldLayout must be VK_IMAGE_LAYOUT_UNDEFINED or the current layout of the image subresources affected by the barrier (https://docs.vulkan.org/spec/latest/chapters/synchronization.html#VUID-VkImageMemoryBarrier-oldLayout-01197)
+Objects: 2
+    [0] VkCommandBuffer 0x289bc042000
+    [1] VkImage 0x2f000000002f
+
+Validation Error: [ VUID-VkImageMemoryBarrier-oldLayout-01197 ] | MessageID = 0x124ffb34
+vkCmdPipelineBarrier(): pImageMemoryBarriers[0].image (VkImage 0x2f000000002f) cannot transition the layout of aspect=1, level=0, layer=3 from VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL when the previous known layout is VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL.
+The Vulkan spec states: If layouts are not ignored, oldLayout must be VK_IMAGE_LAYOUT_UNDEFINED or the current layout of the image subresources affected by the barrier (https://docs.vulkan.org/spec/latest/chapters/synchronization.html#VUID-VkImageMemoryBarrier-oldLayout-01197)
+Objects: 2
+    [0] VkCommandBuffer 0x289bc042000
+    [1] VkImage 0x2f000000002f
+
+Validation Error: [ VUID-VkImageMemoryBarrier-oldLayout-01197 ] | MessageID = 0x124ffb34
+vkCmdPipelineBarrier(): pImageMemoryBarriers[0].image (VkImage 0x2f000000002f) cannot transition the layout of aspect=1, level=0, layer=4 from VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL when the previous known layout is VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL.
+The Vulkan spec states: If layouts are not ignored, oldLayout must be VK_IMAGE_LAYOUT_UNDEFINED or the current layout of the image subresources affected by the barrier (https://docs.vulkan.org/spec/latest/chapters/synchronization.html#VUID-VkImageMemoryBarrier-oldLayout-01197)
+Objects: 2
+    [0] VkCommandBuffer 0x289bc042000
+    [1] VkImage 0x2f000000002f
+
+Validation Error: [ VUID-VkImageMemoryBarrier-oldLayout-01197 ] | MessageID = 0x124ffb34
+vkCmdPipelineBarrier(): pImageMemoryBarriers[0].image (VkImage 0x2f000000002f) cannot transition the layout of aspect=1, level=0, layer=5 from VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL when the previous known layout is VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL.
+The Vulkan spec states: If layouts are not ignored, oldLayout must be VK_IMAGE_LAYOUT_UNDEFINED or the current layout of the image subresources affected by the barrier (https://docs.vulkan.org/spec/latest/chapters/synchronization.html#VUID-VkImageMemoryBarrier-oldLayout-01197)
+Objects: 2
+    [0] VkCommandBuffer 0x289bc042000
+    [1] VkImage 0x2f000000002f
+
+Validation Error: [ VUID-VkImageMemoryBarrier-oldLayout-01197 ] | MessageID = 0x124ffb34
+vkCmdPipelineBarrier(): pImageMemoryBarriers[0].image (VkImage 0x2f000000002f) cannot transition the layout of aspect=1, level=1, layer=0 from VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL when the previous known layout is VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL.
+The Vulkan spec states: If layouts are not ignored, oldLayout must be VK_IMAGE_LAYOUT_UNDEFINED or the current layout of the image subresources affected by the barrier (https://docs.vulkan.org/spec/latest/chapters/synchronization.html#VUID-VkImageMemoryBarrier-oldLayout-01197)
+Objects: 2
+    [0] VkCommandBuffer 0x289bc042000
+    [1] VkImage 0x2f000000002f
+
+Validation Error: [ VUID-VkImageMemoryBarrier-oldLayout-01197 ] | MessageID = 0x124ffb34
+(Warning - This VUID has now been reported 10 times, which is the duplicate_message_limit value, this will be the last time reporting it).
+vkCmdPipelineBarrier(): pImageMemoryBarriers[0].image (VkImage 0x2f000000002f) cannot transition the layout of aspect=1, level=1, layer=1 from VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL when the previous known layout is VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL.
+The Vulkan spec states: If layouts are not ignored, oldLayout must be VK_IMAGE_LAYOUT_UNDEFINED or the current layout of the image subresources affected by the barrier (https://docs.vulkan.org/spec/latest/chapters/synchronization.html#VUID-VkImageMemoryBarrier-oldLayout-01197)
+Objects: 2
+    [0] VkCommandBuffer 0x289bc042000
+    [1] VkImage 0x2f000000002f
+
+Validation Error: [ VUID-VkShaderModuleCreateInfo-pCode-08740 ] | MessageID = 0x6e224e9
+vkCreateShaderModule(): SPIR-V Capability DrawParameters was declared, but one of the following requirements is required (VkPhysicalDeviceVulkan11Features::shaderDrawParameters OR VK_KHR_shader_draw_parameters [when using Vulkan 1.0]).
+The Vulkan spec states: If pCode is a pointer to SPIR-V code, and pCode declares any of the capabilities listed in the SPIR-V Environment appendix, one of the corresponding requirements must be satisfied (https://docs.vulkan.org/spec/latest/chapters/shaders.html#VUID-VkShaderModuleCreateInfo-pCode-08740)
+
+Validation Error: [ VUID-VkShaderModuleCreateInfo-pCode-08740 ] | MessageID = 0x6e224e9
+vkCreateShaderModule(): SPIR-V Capability DrawParameters was declared, but one of the following requirements is required (VkPhysicalDeviceVulkan11Features::shaderDrawParameters OR VK_KHR_shader_draw_parameters [when using Vulkan 1.0]).
+The Vulkan spec states: If pCode is a pointer to SPIR-V code, and pCode declares any of the capabilities listed in the SPIR-V Environment appendix, one of the corresponding requirements must be satisfied (https://docs.vulkan.org/spec/latest/chapters/shaders.html#VUID-VkShaderModuleCreateInfo-pCode-08740)
+
+Validation Error: [ VUID-vkCmdPipelineBarrier-None-09553 ] | MessageID = 0xb6fd5768
+vkCmdPipelineBarrier(): can not be called inside a dynamic rendering instance. This can be fixed by enabling the VK_KHR_dynamic_rendering_local_read or VK_EXT_shader_tile_image features.
+The Vulkan spec states: If none of the shaderTileImageColorReadAccess, shaderTileImageStencilReadAccess, or shaderTileImageDepthReadAccess features are enabled, and the dynamicRenderingLocalRead feature is not enabled, vkCmdPipelineBarrier must not be called within a render pass instance started with vkCmdBeginRendering (https://docs.vulkan.org/spec/latest/chapters/synchronization.html#VUID-vkCmdPipelineBarrier-None-09553)
+Objects: 1
+    [0] VkCommandBuffer 0x289bc042000
+
+Validation Error: [ VUID-vkCmdPipelineBarrier-None-09554 ] | MessageID = 0xdbf37c73
+vkCmdPipelineBarrier(): can only include memory barriers, while application specify image barrier count 1 and buffer barrier count 0
+The Vulkan spec states: If the dynamicRenderingLocalRead feature is not enabled, and vkCmdPipelineBarrier is called within a render pass instance started with vkCmdBeginRendering, there must be no buffer or image memory barriers specified by this command (https://docs.vulkan.org/spec/latest/chapters/synchronization.html#VUID-vkCmdPipelineBarrier-None-09554)
+Objects: 1
+    [0] VkCommandBuffer 0x289bc042000
+
+Validation Error: [ VUID-vkCmdPipelineBarrier-srcStageMask-09556 ] | MessageID = 0xbdd4774a
+vkCmdPipelineBarrier(): srcStageMask (VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT) is restricted to framebuffer space stages (VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT|VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT|VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT|VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT).
+The Vulkan spec states: If vkCmdPipelineBarrier is called within a render pass instance started with vkCmdBeginRendering, this command must only specify framebuffer-space stages in srcStageMask and dstStageMask (https://docs.vulkan.org/spec/latest/chapters/synchronization.html#VUID-vkCmdPipelineBarrier-srcStageMask-09556)
+Objects: 1
+    [0] VkCommandBuffer 0x289bc042000
+
+Validation Error: [ VUID-vkCmdPipelineBarrier-srcStageMask-09556 ] | MessageID = 0xbdd4774a
+vkCmdPipelineBarrier(): dstStageMask (VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT) is restricted to framebuffer space stages (VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT|VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT|VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT|VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT).
+The Vulkan spec states: If vkCmdPipelineBarrier is called within a render pass instance started with vkCmdBeginRendering, this command must only specify framebuffer-space stages in srcStageMask and dstStageMask (https://docs.vulkan.org/spec/latest/chapters/synchronization.html#VUID-vkCmdPipelineBarrier-srcStageMask-09556)
+Objects: 1
+    [0] VkCommandBuffer 0x289bc042000
+
+Validation Error: [ VUID-vkCmdPipelineBarrier-oldLayout-01181 ] | MessageID = 0x5b2c982a
+vkCmdPipelineBarrier(): pImageMemoryBarriers[0] defines image layout transition (oldLayout = VK_IMAGE_LAYOUT_UNDEFINED, newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) within a render pass instance, which is not allowed.
+The Vulkan spec states: If vkCmdPipelineBarrier is called within a render pass instance, the oldLayout and newLayout members of any image memory barrier included in this command must be equal (https://docs.vulkan.org/spec/latest/chapters/synchronization.html#VUID-vkCmdPipelineBarrier-oldLayout-01181)
+Objects: 2
+    [0] VkCommandBuffer 0x289bc042000
+    [1] VkImage 0x1510000000151
+
+Validation Error: [ VUID-vkCmdCopyBufferToImage-renderpass ] | MessageID = 0x43594cd
+vkCmdCopyBufferToImage(): It is invalid to issue this call inside an active render pass instance begun with vkCmdBeginRendering.
+The Vulkan spec states: This command must only be called outside of a render pass instance (https://docs.vulkan.org/spec/latest/chapters/copies.html#VUID-vkCmdCopyBufferToImage-renderpass)
+Objects: 1
+    [0] VkCommandBuffer 0x289bc042000
+
+Validation Error: [ VUID-vkCmdPipelineBarrier-None-09553 ] | MessageID = 0xb6fd5768
+vkCmdPipelineBarrier(): can not be called inside a dynamic rendering instance. This can be fixed by enabling the VK_KHR_dynamic_rendering_local_read or VK_EXT_shader_tile_image features.
+The Vulkan spec states: If none of the shaderTileImageColorReadAccess, shaderTileImageStencilReadAccess, or shaderTileImageDepthReadAccess features are enabled, and the dynamicRenderingLocalRead feature is not enabled, vkCmdPipelineBarrier must not be called within a render pass instance started with vkCmdBeginRendering (https://docs.vulkan.org/spec/latest/chapters/synchronization.html#VUID-vkCmdPipelineBarrier-None-09553)
+Objects: 1
+    [0] VkCommandBuffer 0x289bc042000
+
+Validation Error: [ VUID-vkCmdPipelineBarrier-None-09554 ] | MessageID = 0xdbf37c73
+vkCmdPipelineBarrier(): can only include memory barriers, while application specify image barrier count 1 and buffer barrier count 0
+The Vulkan spec states: If the dynamicRenderingLocalRead feature is not enabled, and vkCmdPipelineBarrier is called within a render pass instance started with vkCmdBeginRendering, there must be no buffer or image memory barriers specified by this command (https://docs.vulkan.org/spec/latest/chapters/synchronization.html#VUID-vkCmdPipelineBarrier-None-09554)
+Objects: 1
+    [0] VkCommandBuffer 0x289bc042000
+
+Validation Error: [ VUID-vkCmdPipelineBarrier-srcStageMask-09556 ] | MessageID = 0xbdd4774a
+vkCmdPipelineBarrier(): srcStageMask (VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT) is restricted to framebuffer space stages (VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT|VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT|VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT|VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT).
+The Vulkan spec states: If vkCmdPipelineBarrier is called within a render pass instance started with vkCmdBeginRendering, this command must only specify framebuffer-space stages in srcStageMask and dstStageMask (https://docs.vulkan.org/spec/latest/chapters/synchronization.html#VUID-vkCmdPipelineBarrier-srcStageMask-09556)
+Objects: 1
+    [0] VkCommandBuffer 0x289bc042000
+
+Validation Error: [ VUID-vkCmdPipelineBarrier-srcStageMask-09556 ] | MessageID = 0xbdd4774a
+vkCmdPipelineBarrier(): dstStageMask (VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT|VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT|VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT) is restricted to framebuffer space stages (VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT|VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT|VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT|VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT).
+The Vulkan spec states: If vkCmdPipelineBarrier is called within a render pass instance started with vkCmdBeginRendering, this command must only specify framebuffer-space stages in srcStageMask and dstStageMask (https://docs.vulkan.org/spec/latest/chapters/synchronization.html#VUID-vkCmdPipelineBarrier-srcStageMask-09556)
+Objects: 1
+    [0] VkCommandBuffer 0x289bc042000
+
+Validation Error: [ VUID-vkCmdPipelineBarrier-oldLayout-01181 ] | MessageID = 0x5b2c982a
+vkCmdPipelineBarrier(): pImageMemoryBarriers[0] defines image layout transition (oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) within a render pass instance, which is not allowed.
+The Vulkan spec states: If vkCmdPipelineBarrier is called within a render pass instance, the oldLayout and newLayout members of any image memory barrier included in this command must be equal (https://docs.vulkan.org/spec/latest/chapters/synchronization.html#VUID-vkCmdPipelineBarrier-oldLayout-01181)
+Objects: 2
+    [0] VkCommandBuffer 0x289bc042000
+    [1] VkImage 0x1510000000151
+
+Validation Error: [ VUID-vkCmdPipelineBarrier-None-09553 ] | MessageID = 0xb6fd5768
+vkCmdPipelineBarrier(): can not be called inside a dynamic rendering instance. This can be fixed by enabling the VK_KHR_dynamic_rendering_local_read or VK_EXT_shader_tile_image features.
+The Vulkan spec states: If none of the shaderTileImageColorReadAccess, shaderTileImageStencilReadAccess, or shaderTileImageDepthReadAccess features are enabled, and the dynamicRenderingLocalRead feature is not enabled, vkCmdPipelineBarrier must not be called within a render pass instance started with vkCmdBeginRendering (https://docs.vulkan.org/spec/latest/chapters/synchronization.html#VUID-vkCmdPipelineBarrier-None-09553)
+Objects: 1
+    [0] VkCommandBuffer 0x289bc042000
+
+Validation Error: [ VUID-vkCmdPipelineBarrier-None-09554 ] | MessageID = 0xdbf37c73
+vkCmdPipelineBarrier(): can only include memory barriers, while application specify image barrier count 1 and buffer barrier count 0
+The Vulkan spec states: If the dynamicRenderingLocalRead feature is not enabled, and vkCmdPipelineBarrier is called within a render pass instance started with vkCmdBeginRendering, there must be no buffer or image memory barriers specified by this command (https://docs.vulkan.org/spec/latest/chapters/synchronization.html#VUID-vkCmdPipelineBarrier-None-09554)
+Objects: 1
+    [0] VkCommandBuffer 0x289bc042000
+
+Validation Error: [ VUID-vkCmdPipelineBarrier-srcStageMask-09556 ] | MessageID = 0xbdd4774a
+vkCmdPipelineBarrier(): srcStageMask (VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT) is restricted to framebuffer space stages (VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT|VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT|VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT|VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT).
+The Vulkan spec states: If vkCmdPipelineBarrier is called within a render pass instance started with vkCmdBeginRendering, this command must only specify framebuffer-space stages in srcStageMask and dstStageMask (https://docs.vulkan.org/spec/latest/chapters/synchronization.html#VUID-vkCmdPipelineBarrier-srcStageMask-09556)
+Objects: 1
+    [0] VkCommandBuffer 0x289bc042000
+
+Validation Error: [ VUID-vkCmdPipelineBarrier-srcStageMask-09556 ] | MessageID = 0xbdd4774a
+vkCmdPipelineBarrier(): dstStageMask (VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT) is restricted to framebuffer space stages (VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT|VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT|VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT|VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT).
+The Vulkan spec states: If vkCmdPipelineBarrier is called within a render pass instance started with vkCmdBeginRendering, this command must only specify framebuffer-space stages in srcStageMask and dstStageMask (https://docs.vulkan.org/spec/latest/chapters/synchronization.html#VUID-vkCmdPipelineBarrier-srcStageMask-09556)
+Objects: 1
+    [0] VkCommandBuffer 0x289bc042000
+
+Validation Error: [ VUID-vkCmdPipelineBarrier-oldLayout-01181 ] | MessageID = 0x5b2c982a
+vkCmdPipelineBarrier(): pImageMemoryBarriers[0] defines image layout transition (oldLayout = VK_IMAGE_LAYOUT_UNDEFINED, newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) within a render pass instance, which is not allowed.
+The Vulkan spec states: If vkCmdPipelineBarrier is called within a render pass instance, the oldLayout and newLayout members of any image memory barrier included in this command must be equal (https://docs.vulkan.org/spec/latest/chapters/synchronization.html#VUID-vkCmdPipelineBarrier-oldLayout-01181)
+Objects: 2
+    [0] VkCommandBuffer 0x289bc042000
+    [1] VkImage 0x1550000000155
+
+Validation Error: [ VUID-vkCmdCopyBufferToImage-renderpass ] | MessageID = 0x43594cd
+vkCmdCopyBufferToImage(): It is invalid to issue this call inside an active render pass instance begun with vkCmdBeginRendering.
+The Vulkan spec states: This command must only be called outside of a render pass instance (https://docs.vulkan.org/spec/latest/chapters/copies.html#VUID-vkCmdCopyBufferToImage-renderpass)
+Objects: 1
+    [0] VkCommandBuffer 0x289bc042000
+
+Validation Error: [ VUID-vkCmdPipelineBarrier-None-09553 ] | MessageID = 0xb6fd5768
+vkCmdPipelineBarrier(): can not be called inside a dynamic rendering instance. This can be fixed by enabling the VK_KHR_dynamic_rendering_local_read or VK_EXT_shader_tile_image features.
+The Vulkan spec states: If none of the shaderTileImageColorReadAccess, shaderTileImageStencilReadAccess, or shaderTileImageDepthReadAccess features are enabled, and the dynamicRenderingLocalRead feature is not enabled, vkCmdPipelineBarrier must not be called within a render pass instance started with vkCmdBeginRendering (https://docs.vulkan.org/spec/latest/chapters/synchronization.html#VUID-vkCmdPipelineBarrier-None-09553)
+Objects: 1
+    [0] VkCommandBuffer 0x289bc042000
+
+Validation Error: [ VUID-vkCmdPipelineBarrier-None-09554 ] | MessageID = 0xdbf37c73
+vkCmdPipelineBarrier(): can only include memory barriers, while application specify image barrier count 1 and buffer barrier count 0
+The Vulkan spec states: If the dynamicRenderingLocalRead feature is not enabled, and vkCmdPipelineBarrier is called within a render pass instance started with vkCmdBeginRendering, there must be no buffer or image memory barriers specified by this command (https://docs.vulkan.org/spec/latest/chapters/synchronization.html#VUID-vkCmdPipelineBarrier-None-09554)
+Objects: 1
+    [0] VkCommandBuffer 0x289bc042000
+
+Validation Error: [ VUID-vkCmdPipelineBarrier-srcStageMask-09556 ] | MessageID = 0xbdd4774a
+vkCmdPipelineBarrier(): srcStageMask (VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT) is restricted to framebuffer space stages (VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT|VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT|VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT|VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT).
+The Vulkan spec states: If vkCmdPipelineBarrier is called within a render pass instance started with vkCmdBeginRendering, this command must only specify framebuffer-space stages in srcStageMask and dstStageMask (https://docs.vulkan.org/spec/latest/chapters/synchronization.html#VUID-vkCmdPipelineBarrier-srcStageMask-09556)
+Objects: 1
+    [0] VkCommandBuffer 0x289bc042000
+
+Validation Error: [ VUID-vkCmdPipelineBarrier-srcStageMask-09556 ] | MessageID = 0xbdd4774a
+vkCmdPipelineBarrier(): dstStageMask (VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT|VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT|VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT) is restricted to framebuffer space stages (VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT|VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT|VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT|VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT).
+The Vulkan spec states: If vkCmdPipelineBarrier is called within a render pass instance started with vkCmdBeginRendering, this command must only specify framebuffer-space stages in srcStageMask and dstStageMask (https://docs.vulkan.org/spec/latest/chapters/synchronization.html#VUID-vkCmdPipelineBarrier-srcStageMask-09556)
+Objects: 1
+    [0] VkCommandBuffer 0x289bc042000
+
+Validation Error: [ VUID-vkCmdPipelineBarrier-oldLayout-01181 ] | MessageID = 0x5b2c982a
+vkCmdPipelineBarrier(): pImageMemoryBarriers[0] defines image layout transition (oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) within a render pass instance, which is not allowed.
+The Vulkan spec states: If vkCmdPipelineBarrier is called within a render pass instance, the oldLayout and newLayout members of any image memory barrier included in this command must be equal (https://docs.vulkan.org/spec/latest/chapters/synchronization.html#VUID-vkCmdPipelineBarrier-oldLayout-01181)
+Objects: 2
+    [0] VkCommandBuffer 0x289bc042000
+    [1] VkImage 0x1550000000155
+
+Validation Error: [ VUID-vkCmdPipelineBarrier-None-09553 ] | MessageID = 0xb6fd5768
+vkCmdPipelineBarrier(): can not be called inside a dynamic rendering instance. This can be fixed by enabling the VK_KHR_dynamic_rendering_local_read or VK_EXT_shader_tile_image features.
+The Vulkan spec states: If none of the shaderTileImageColorReadAccess, shaderTileImageStencilReadAccess, or shaderTileImageDepthReadAccess features are enabled, and the dynamicRenderingLocalRead feature is not enabled, vkCmdPipelineBarrier must not be called within a render pass instance started with vkCmdBeginRendering (https://docs.vulkan.org/spec/latest/chapters/synchronization.html#VUID-vkCmdPipelineBarrier-None-09553)
+Objects: 1
+    [0] VkCommandBuffer 0x289bc042000
+
+Validation Error: [ VUID-vkCmdPipelineBarrier-None-09554 ] | MessageID = 0xdbf37c73
+vkCmdPipelineBarrier(): can only include memory barriers, while application specify image barrier count 1 and buffer barrier count 0
+The Vulkan spec states: If the dynamicRenderingLocalRead feature is not enabled, and vkCmdPipelineBarrier is called within a render pass instance started with vkCmdBeginRendering, there must be no buffer or image memory barriers specified by this command (https://docs.vulkan.org/spec/latest/chapters/synchronization.html#VUID-vkCmdPipelineBarrier-None-09554)
+Objects: 1
+    [0] VkCommandBuffer 0x289bc042000
+
+Validation Error: [ VUID-vkCmdPipelineBarrier-srcStageMask-09556 ] | MessageID = 0xbdd4774a
+vkCmdPipelineBarrier(): srcStageMask (VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT) is restricted to framebuffer space stages (VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT|VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT|VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT|VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT).
+The Vulkan spec states: If vkCmdPipelineBarrier is called within a render pass instance started with vkCmdBeginRendering, this command must only specify framebuffer-space stages in srcStageMask and dstStageMask (https://docs.vulkan.org/spec/latest/chapters/synchronization.html#VUID-vkCmdPipelineBarrier-srcStageMask-09556)
+Objects: 1
+    [0] VkCommandBuffer 0x289bc042000
+
+Validation Error: [ VUID-vkCmdPipelineBarrier-srcStageMask-09556 ] | MessageID = 0xbdd4774a
+(Warning - This VUID has now been reported 10 times, which is the duplicate_message_limit value, this will be the last time reporting it).
+vkCmdPipelineBarrier(): dstStageMask (VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT) is restricted to framebuffer space stages (VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT|VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT|VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT|VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT).
+The Vulkan spec states: If vkCmdPipelineBarrier is called within a render pass instance started with vkCmdBeginRendering, this command must only specify framebuffer-space stages in srcStageMask and dstStageMask (https://docs.vulkan.org/spec/latest/chapters/synchronization.html#VUID-vkCmdPipelineBarrier-srcStageMask-09556)
+Objects: 1
+    [0] VkCommandBuffer 0x289bc042000
+
+Validation Error: [ VUID-vkCmdPipelineBarrier-oldLayout-01181 ] | MessageID = 0x5b2c982a
+vkCmdPipelineBarrier(): pImageMemoryBarriers[0] defines image layout transition (oldLayout = VK_IMAGE_LAYOUT_UNDEFINED, newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) within a render pass instance, which is not allowed.
+The Vulkan spec states: If vkCmdPipelineBarrier is called within a render pass instance, the oldLayout and newLayout members of any image memory barrier included in this command must be equal (https://docs.vulkan.org/spec/latest/chapters/synchronization.html#VUID-vkCmdPipelineBarrier-oldLayout-01181)
+Objects: 2
+    [0] VkCommandBuffer 0x289bc042000
+    [1] VkImage 0x1590000000159
+
+Validation Error: [ VUID-vkCmdCopyBufferToImage-renderpass ] | MessageID = 0x43594cd
+vkCmdCopyBufferToImage(): It is invalid to issue this call inside an active render pass instance begun with vkCmdBeginRendering.
+The Vulkan spec states: This command must only be called outside of a render pass instance (https://docs.vulkan.org/spec/latest/chapters/copies.html#VUID-vkCmdCopyBufferToImage-renderpass)
+Objects: 1
+    [0] VkCommandBuffer 0x289bc042000
+
+Validation Error: [ VUID-vkCmdPipelineBarrier-None-09553 ] | MessageID = 0xb6fd5768
+vkCmdPipelineBarrier(): can not be called inside a dynamic rendering instance. This can be fixed by enabling the VK_KHR_dynamic_rendering_local_read or VK_EXT_shader_tile_image features.
+The Vulkan spec states: If none of the shaderTileImageColorReadAccess, shaderTileImageStencilReadAccess, or shaderTileImageDepthReadAccess features are enabled, and the dynamicRenderingLocalRead feature is not enabled, vkCmdPipelineBarrier must not be called within a render pass instance started with vkCmdBeginRendering (https://docs.vulkan.org/spec/latest/chapters/synchronization.html#VUID-vkCmdPipelineBarrier-None-09553)
+Objects: 1
+    [0] VkCommandBuffer 0x289bc042000
+
+Validation Error: [ VUID-vkCmdPipelineBarrier-None-09554 ] | MessageID = 0xdbf37c73
+vkCmdPipelineBarrier(): can only include memory barriers, while application specify image barrier count 1 and buffer barrier count 0
+The Vulkan spec states: If the dynamicRenderingLocalRead feature is not enabled, and vkCmdPipelineBarrier is called within a render pass instance started with vkCmdBeginRendering, there must be no buffer or image memory barriers specified by this command (https://docs.vulkan.org/spec/latest/chapters/synchronization.html#VUID-vkCmdPipelineBarrier-None-09554)
+Objects: 1
+    [0] VkCommandBuffer 0x289bc042000
+
+Validation Error: [ VUID-vkCmdPipelineBarrier-oldLayout-01181 ] | MessageID = 0x5b2c982a
+vkCmdPipelineBarrier(): pImageMemoryBarriers[0] defines image layout transition (oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) within a render pass instance, which is not allowed.
+The Vulkan spec states: If vkCmdPipelineBarrier is called within a render pass instance, the oldLayout and newLayout members of any image memory barrier included in this command must be equal (https://docs.vulkan.org/spec/latest/chapters/synchronization.html#VUID-vkCmdPipelineBarrier-oldLayout-01181)
+Objects: 2
+    [0] VkCommandBuffer 0x289bc042000
+    [1] VkImage 0x1590000000159
+
+Validation Error: [ VUID-vkCmdDrawIndexed-None-08114 ] | MessageID = 0x3f6fd836
+vkCmdDrawIndexed(): the descriptor [VkDescriptorSet 0x1660000000166, Set 0, Binding 25, Index 0, variable "g_EnvironmentSH2"] is being used in draw but has never been updated via vkUpdateDescriptorSets() or a similar call.
+The Vulkan spec states: Descriptors in each bound descriptor set, specified via vkCmdBindDescriptorSets, must be valid if they are accessed as described by descriptor validity by the VkPipeline bound to the pipeline bind point used by this command and the bound VkPipeline was not created with VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT (https://docs.vulkan.org/spec/latest/chapters/drawing.html#VUID-vkCmdDrawIndexed-None-08114)
+Objects: 2
+    [0] VkPipeline 0x1500000000150
+    [1] VkDescriptorSet 0x1660000000166
+
+Validation Error: [ VUID-vkCmdDrawIndexed-None-08114 ] | MessageID = 0x3f6fd836
+vkCmdDrawIndexed(): the descriptor [VkDescriptorSet 0x1690000000169, Set 0, Binding 25, Index 0, variable "g_EnvironmentSH2"] is being used in draw but has never been updated via vkUpdateDescriptorSets() or a similar call.
+The Vulkan spec states: Descriptors in each bound descriptor set, specified via vkCmdBindDescriptorSets, must be valid if they are accessed as described by descriptor validity by the VkPipeline bound to the pipeline bind point used by this command and the bound VkPipeline was not created with VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT (https://docs.vulkan.org/spec/latest/chapters/drawing.html#VUID-vkCmdDrawIndexed-None-08114)
+Objects: 2
+    [0] VkPipeline 0x1500000000150
+    [1] VkDescriptorSet 0x1690000000169
+
+Validation Warning: [ Undefined-Value-ShaderOutputNotConsumed-DynamicRendering ] | MessageID = 0x46877e3e
+(Warning - This VUID has now been reported 10 times, which is the duplicate_message_limit value, this will be the last time reporting it).
+vkCmdDrawIndexed(): Inside [VK_SHADER_STAGE_FRAGMENT_BIT] it writes to [Output variable, Location 0, "entryPointParam_PSMain"] but there is no VkRenderingInfo::pColorAttachments[0] and this write is unused.
+Spec information at https://docs.vulkan.org/spec/latest/chapters/interfaces.html#interfaces-fragmentoutput
+Objects: 2
+    [0] VkCommandBuffer 0x289bc042000
+    [1] VkPipeline 0x1780000000178
+
+Validation Error: [ VUID-vkCmdPipelineBarrier-None-09553 ] | MessageID = 0xb6fd5768
+vkCmdPipelineBarrier(): can not be called inside a dynamic rendering instance. This can be fixed by enabling the VK_KHR_dynamic_rendering_local_read or VK_EXT_shader_tile_image features.
+The Vulkan spec states: If none of the shaderTileImageColorReadAccess, shaderTileImageStencilReadAccess, or shaderTileImageDepthReadAccess features are enabled, and the dynamicRenderingLocalRead feature is not enabled, vkCmdPipelineBarrier must not be called within a render pass instance started with vkCmdBeginRendering (https://docs.vulkan.org/spec/latest/chapters/synchronization.html#VUID-vkCmdPipelineBarrier-None-09553)
+Objects: 1
+    [0] VkCommandBuffer 0x289bc042000
+
+Validation Error: [ VUID-vkCmdPipelineBarrier-None-09554 ] | MessageID = 0xdbf37c73
+vkCmdPipelineBarrier(): can only include memory barriers, while application specify image barrier count 1 and buffer barrier count 0
+The Vulkan spec states: If the dynamicRenderingLocalRead feature is not enabled, and vkCmdPipelineBarrier is called within a render pass instance started with vkCmdBeginRendering, there must be no buffer or image memory barriers specified by this command (https://docs.vulkan.org/spec/latest/chapters/synchronization.html#VUID-vkCmdPipelineBarrier-None-09554)
+Objects: 1
+    [0] VkCommandBuffer 0x289bc042000
+
+Validation Error: [ VUID-vkCmdPipelineBarrier-oldLayout-01181 ] | MessageID = 0x5b2c982a
+vkCmdPipelineBarrier(): pImageMemoryBarriers[0] defines image layout transition (oldLayout = VK_IMAGE_LAYOUT_UNDEFINED, newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) within a render pass instance, which is not allowed.
+The Vulkan spec states: If vkCmdPipelineBarrier is called within a render pass instance, the oldLayout and newLayout members of any image memory barrier included in this command must be equal (https://docs.vulkan.org/spec/latest/chapters/synchronization.html#VUID-vkCmdPipelineBarrier-oldLayout-01181)
+Objects: 2
+    [0] VkCommandBuffer 0x289bc042000
+    [1] VkImage 0x2840000000284
+
+Validation Error: [ VUID-vkCmdCopyBufferToImage-renderpass ] | MessageID = 0x43594cd
+vkCmdCopyBufferToImage(): It is invalid to issue this call inside an active render pass instance begun with vkCmdBeginRendering.
+The Vulkan spec states: This command must only be called outside of a render pass instance (https://docs.vulkan.org/spec/latest/chapters/copies.html#VUID-vkCmdCopyBufferToImage-renderpass)
+Objects: 1
+    [0] VkCommandBuffer 0x289bc042000
+
+Validation Error: [ VUID-vkCmdPipelineBarrier-None-09553 ] | MessageID = 0xb6fd5768
+vkCmdPipelineBarrier(): can not be called inside a dynamic rendering instance. This can be fixed by enabling the VK_KHR_dynamic_rendering_local_read or VK_EXT_shader_tile_image features.
+The Vulkan spec states: If none of the shaderTileImageColorReadAccess, shaderTileImageStencilReadAccess, or shaderTileImageDepthReadAccess features are enabled, and the dynamicRenderingLocalRead feature is not enabled, vkCmdPipelineBarrier must not be called within a render pass instance started with vkCmdBeginRendering (https://docs.vulkan.org/spec/latest/chapters/synchronization.html#VUID-vkCmdPipelineBarrier-None-09553)
+Objects: 1
+    [0] VkCommandBuffer 0x289bc042000
+
+Validation Error: [ VUID-vkCmdPipelineBarrier-None-09554 ] | MessageID = 0xdbf37c73
+vkCmdPipelineBarrier(): can only include memory barriers, while application specify image barrier count 1 and buffer barrier count 0
+The Vulkan spec states: If the dynamicRenderingLocalRead feature is not enabled, and vkCmdPipelineBarrier is called within a render pass instance started with vkCmdBeginRendering, there must be no buffer or image memory barriers specified by this command (https://docs.vulkan.org/spec/latest/chapters/synchronization.html#VUID-vkCmdPipelineBarrier-None-09554)
+Objects: 1
+    [0] VkCommandBuffer 0x289bc042000
+
+Validation Error: [ VUID-vkCmdPipelineBarrier-oldLayout-01181 ] | MessageID = 0x5b2c982a
+vkCmdPipelineBarrier(): pImageMemoryBarriers[0] defines image layout transition (oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) within a render pass instance, which is not allowed.
+The Vulkan spec states: If vkCmdPipelineBarrier is called within a render pass instance, the oldLayout and newLayout members of any image memory barrier included in this command must be equal (https://docs.vulkan.org/spec/latest/chapters/synchronization.html#VUID-vkCmdPipelineBarrier-oldLayout-01181)
+Objects: 2
+    [0] VkCommandBuffer 0x289bc042000
+    [1] VkImage 0x2840000000284
+
+Validation Error: [ VUID-vkCmdDrawIndexed-None-08114 ] | MessageID = 0x3f6fd836
+vkCmdDrawIndexed(): the descriptor [VkDescriptorSet 0x2910000000291, Set 0, Binding 25, Index 0, variable "g_EnvironmentSH2"] is being used in draw but has never been updated via vkUpdateDescriptorSets() or a similar call.
+The Vulkan spec states: Descriptors in each bound descriptor set, specified via vkCmdBindDescriptorSets, must be valid if they are accessed as described by descriptor validity by the VkPipeline bound to the pipeline bind point used by this command and the bound VkPipeline was not created with VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT (https://docs.vulkan.org/spec/latest/chapters/drawing.html#VUID-vkCmdDrawIndexed-None-08114)
+Objects: 2
+    [0] VkPipeline 0x2830000000283
+    [1] VkDescriptorSet 0x2910000000291
+
+Validation Error: [ VUID-vkCmdDrawIndexed-None-08114 ] | MessageID = 0x3f6fd836
+vkCmdDrawIndexed(): the descriptor [VkDescriptorSet 0x2940000000294, Set 0, Binding 25, Index 0, variable "g_EnvironmentSH2"] is being used in draw but has never been updated via vkUpdateDescriptorSets() or a similar call.
+The Vulkan spec states: Descriptors in each bound descriptor set, specified via vkCmdBindDescriptorSets, must be valid if they are accessed as described by descriptor validity by the VkPipeline bound to the pipeline bind point used by this command and the bound VkPipeline was not created with VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT (https://docs.vulkan.org/spec/latest/chapters/drawing.html#VUID-vkCmdDrawIndexed-None-08114)
+Objects: 2
+    [0] VkPipeline 0x2830000000283
+    [1] VkDescriptorSet 0x2940000000294
+
+Validation Error: [ VUID-vkCmdDraw-None-09600 ] | MessageID = 0x46582f7b
+vkQueueSubmit(): pSubmits[0] command buffer VkCommandBuffer 0x289bc042000 expects VkImage 0x210000000021 (subresource: aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT, mipLevel = 0, arrayLayer = 0) to be in layout VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL--instead, current layout is VK_IMAGE_LAYOUT_UNDEFINED.
+The Vulkan spec states: If a descriptor with type equal to any of VK_DESCRIPTOR_TYPE_SAMPLE_WEIGHT_IMAGE_QCOM, VK_DESCRIPTOR_TYPE_BLOCK_MATCH_IMAGE_QCOM, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, or VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT is accessed as a result of this command, all image subresources identified by that descriptor must be in the image layout identified when the descriptor was written (https://docs.vulkan.org/spec/latest/chapters/drawing.html#VUID-vkCmdDraw-None-09600)
+Objects: 2
+    [0] VkCommandBuffer 0x289bc042000
+    [1] VkImage 0x210000000021
+
+Validation Error: [ VUID-vkCmdDraw-None-09600 ] | MessageID = 0x46582f7b
+vkQueueSubmit(): pSubmits[0] command buffer VkCommandBuffer 0x289bc042000 expects VkImage 0x210000000021 (subresource: aspectMask = VK_IMAGE_ASPECT_STENCIL_BIT, mipLevel = 0, arrayLayer = 0) to be in layout VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL--instead, current layout is VK_IMAGE_LAYOUT_UNDEFINED.
+The Vulkan spec states: If a descriptor with type equal to any of VK_DESCRIPTOR_TYPE_SAMPLE_WEIGHT_IMAGE_QCOM, VK_DESCRIPTOR_TYPE_BLOCK_MATCH_IMAGE_QCOM, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, or VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT is accessed as a result of this command, all image subresources identified by that descriptor must be in the image layout identified when the descriptor was written (https://docs.vulkan.org/spec/latest/chapters/drawing.html#VUID-vkCmdDraw-None-09600)
+Objects: 2
+    [0] VkCommandBuffer 0x289bc042000
+    [1] VkImage 0x210000000021
+
+Validation Error: [ VUID-vkCmdDraw-None-09600 ] | MessageID = 0x46582f7b
+vkQueueSubmit(): pSubmits[0] command buffer VkCommandBuffer 0x289bc042000 expects VkImage 0x17b000000017b (subresource: aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT, mipLevel = 0, arrayLayer = 0) to be in layout VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL--instead, current layout is VK_IMAGE_LAYOUT_UNDEFINED.
+The Vulkan spec states: If a descriptor with type equal to any of VK_DESCRIPTOR_TYPE_SAMPLE_WEIGHT_IMAGE_QCOM, VK_DESCRIPTOR_TYPE_BLOCK_MATCH_IMAGE_QCOM, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, or VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT is accessed as a result of this command, all image subresources identified by that descriptor must be in the image layout identified when the descriptor was written (https://docs.vulkan.org/spec/latest/chapters/drawing.html#VUID-vkCmdDraw-None-09600)
+Objects: 2
+    [0] VkCommandBuffer 0x289bc042000
+    [1] VkImage 0x17b000000017b
+
+Validation Error: [ VUID-vkCmdDraw-None-09600 ] | MessageID = 0x46582f7b
+vkQueueSubmit(): pSubmits[0] command buffer VkCommandBuffer 0x289bc042000 expects VkImage 0x17b000000017b (subresource: aspectMask = VK_IMAGE_ASPECT_STENCIL_BIT, mipLevel = 0, arrayLayer = 0) to be in layout VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL--instead, current layout is VK_IMAGE_LAYOUT_UNDEFINED.
+The Vulkan spec states: If a descriptor with type equal to any of VK_DESCRIPTOR_TYPE_SAMPLE_WEIGHT_IMAGE_QCOM, VK_DESCRIPTOR_TYPE_BLOCK_MATCH_IMAGE_QCOM, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, or VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT is accessed as a result of this command, all image subresources identified by that descriptor must be in the image layout identified when the descriptor was written (https://docs.vulkan.org/spec/latest/chapters/drawing.html#VUID-vkCmdDraw-None-09600)
+Objects: 2
+    [0] VkCommandBuffer 0x289bc042000
+    [1] VkImage 0x17b000000017b
+
+Validation Error: [ VUID-vkCmdDraw-None-09600 ] | MessageID = 0x46582f7b
+vkQueueSubmit(): pSubmits[0] command buffer VkCommandBuffer 0x289bc042000 expects VkImage 0x17d000000017d (subresource: aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT, mipLevel = 0, arrayLayer = 0) to be in layout VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL--instead, current layout is VK_IMAGE_LAYOUT_UNDEFINED.
+The Vulkan spec states: If a descriptor with type equal to any of VK_DESCRIPTOR_TYPE_SAMPLE_WEIGHT_IMAGE_QCOM, VK_DESCRIPTOR_TYPE_BLOCK_MATCH_IMAGE_QCOM, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, or VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT is accessed as a result of this command, all image subresources identified by that descriptor must be in the image layout identified when the descriptor was written (https://docs.vulkan.org/spec/latest/chapters/drawing.html#VUID-vkCmdDraw-None-09600)
+Objects: 2
+    [0] VkCommandBuffer 0x289bc042000
+    [1] VkImage 0x17d000000017d
+
+Validation Error: [ VUID-vkCmdDraw-None-09600 ] | MessageID = 0x46582f7b
+vkQueueSubmit(): pSubmits[0] command buffer VkCommandBuffer 0x289bc042000 expects VkImage 0x17d000000017d (subresource: aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT, mipLevel = 0, arrayLayer = 1) to be in layout VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL--instead, current layout is VK_IMAGE_LAYOUT_UNDEFINED.
+The Vulkan spec states: If a descriptor with type equal to any of VK_DESCRIPTOR_TYPE_SAMPLE_WEIGHT_IMAGE_QCOM, VK_DESCRIPTOR_TYPE_BLOCK_MATCH_IMAGE_QCOM, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, or VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT is accessed as a result of this command, all image subresources identified by that descriptor must be in the image layout identified when the descriptor was written (https://docs.vulkan.org/spec/latest/chapters/drawing.html#VUID-vkCmdDraw-None-09600)
+Objects: 2
+    [0] VkCommandBuffer 0x289bc042000
+    [1] VkImage 0x17d000000017d
+
+Validation Error: [ VUID-vkCmdDraw-None-09600 ] | MessageID = 0x46582f7b
+vkQueueSubmit(): pSubmits[0] command buffer VkCommandBuffer 0x289bc042000 expects VkImage 0x17d000000017d (subresource: aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT, mipLevel = 0, arrayLayer = 2) to be in layout VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL--instead, current layout is VK_IMAGE_LAYOUT_UNDEFINED.
+The Vulkan spec states: If a descriptor with type equal to any of VK_DESCRIPTOR_TYPE_SAMPLE_WEIGHT_IMAGE_QCOM, VK_DESCRIPTOR_TYPE_BLOCK_MATCH_IMAGE_QCOM, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, or VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT is accessed as a result of this command, all image subresources identified by that descriptor must be in the image layout identified when the descriptor was written (https://docs.vulkan.org/spec/latest/chapters/drawing.html#VUID-vkCmdDraw-None-09600)
+Objects: 2
+    [0] VkCommandBuffer 0x289bc042000
+    [1] VkImage 0x17d000000017d
+
+Validation Error: [ VUID-vkCmdDraw-None-09600 ] | MessageID = 0x46582f7b
+vkQueueSubmit(): pSubmits[0] command buffer VkCommandBuffer 0x289bc042000 expects VkImage 0x17d000000017d (subresource: aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT, mipLevel = 0, arrayLayer = 3) to be in layout VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL--instead, current layout is VK_IMAGE_LAYOUT_UNDEFINED.
+The Vulkan spec states: If a descriptor with type equal to any of VK_DESCRIPTOR_TYPE_SAMPLE_WEIGHT_IMAGE_QCOM, VK_DESCRIPTOR_TYPE_BLOCK_MATCH_IMAGE_QCOM, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, or VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT is accessed as a result of this command, all image subresources identified by that descriptor must be in the image layout identified when the descriptor was written (https://docs.vulkan.org/spec/latest/chapters/drawing.html#VUID-vkCmdDraw-None-09600)
+Objects: 2
+    [0] VkCommandBuffer 0x289bc042000
+    [1] VkImage 0x17d000000017d
+
+Validation Error: [ VUID-vkCmdDraw-None-09600 ] | MessageID = 0x46582f7b
+vkQueueSubmit(): pSubmits[0] command buffer VkCommandBuffer 0x289bc042000 expects VkImage 0x17d000000017d (subresource: aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT, mipLevel = 0, arrayLayer = 4) to be in layout VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL--instead, current layout is VK_IMAGE_LAYOUT_UNDEFINED.
+The Vulkan spec states: If a descriptor with type equal to any of VK_DESCRIPTOR_TYPE_SAMPLE_WEIGHT_IMAGE_QCOM, VK_DESCRIPTOR_TYPE_BLOCK_MATCH_IMAGE_QCOM, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, or VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT is accessed as a result of this command, all image subresources identified by that descriptor must be in the image layout identified when the descriptor was written (https://docs.vulkan.org/spec/latest/chapters/drawing.html#VUID-vkCmdDraw-None-09600)
+Objects: 2
+    [0] VkCommandBuffer 0x289bc042000
+    [1] VkImage 0x17d000000017d
+
+Validation Error: [ VUID-vkCmdDraw-None-09600 ] | MessageID = 0x46582f7b
+(Warning - This VUID has now been reported 10 times, which is the duplicate_message_limit value, this will be the last time reporting it).
+vkQueueSubmit(): pSubmits[0] command buffer VkCommandBuffer 0x289bc042000 expects VkImage 0x17d000000017d (subresource: aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT, mipLevel = 0, arrayLayer = 5) to be in layout VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL--instead, current layout is VK_IMAGE_LAYOUT_UNDEFINED.
+The Vulkan spec states: If a descriptor with type equal to any of VK_DESCRIPTOR_TYPE_SAMPLE_WEIGHT_IMAGE_QCOM, VK_DESCRIPTOR_TYPE_BLOCK_MATCH_IMAGE_QCOM, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, or VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT is accessed as a result of this command, all image subresources identified by that descriptor must be in the image layout identified when the descriptor was written (https://docs.vulkan.org/spec/latest/chapters/drawing.html#VUID-vkCmdDraw-None-09600)
+Objects: 2
+    [0] VkCommandBuffer 0x289bc042000
+    [1] VkImage 0x17d000000017d
+
+Validation Error: [ VUID-vkDestroyImage-image-01000 ] | MessageID = 0xf2d29b5a
+vkDestroyImage(): can't be called on VkImage 0x840000000084 that is currently in use by VkCommandBuffer 0x289bc042000.
+The Vulkan spec states: All submitted commands that refer to image, either directly or via a VkImageView, must have completed execution (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-vkDestroyImage-image-01000)
+
+Validation Error: [ VUID-vkDestroyPipeline-pipeline-00765 ] | MessageID = 0x6bdce5fd
+vkDestroyPipeline(): can't be called on VkPipeline 0x9d000000009d that is currently in use by VkCommandBuffer 0x289bc042000.
+The Vulkan spec states: All submitted commands that refer to pipeline must have completed execution (https://docs.vulkan.org/spec/latest/chapters/pipelines.html#VUID-vkDestroyPipeline-pipeline-00765)
+
+Validation Error: [ VUID-vkDestroyPipeline-pipeline-00765 ] | MessageID = 0x6bdce5fd
+vkDestroyPipeline(): can't be called on VkPipeline 0x9e000000009e that is currently in use by VkCommandBuffer 0x289bc042000.
+The Vulkan spec states: All submitted commands that refer to pipeline must have completed execution (https://docs.vulkan.org/spec/latest/chapters/pipelines.html#VUID-vkDestroyPipeline-pipeline-00765)
+
+Validation Error: [ VUID-vkDestroyPipeline-pipeline-00765 ] | MessageID = 0x6bdce5fd
+vkDestroyPipeline(): can't be called on VkPipeline 0x9f000000009f that is currently in use by VkCommandBuffer 0x289bc042000.
+The Vulkan spec states: All submitted commands that refer to pipeline must have completed execution (https://docs.vulkan.org/spec/latest/chapters/pipelines.html#VUID-vkDestroyPipeline-pipeline-00765)
+
+Validation Error: [ VUID-vkCmdDrawIndexed-None-08114 ] | MessageID = 0x3f6fd836
+vkCmdDrawIndexed(): the descriptor [VkDescriptorSet 0x3600000000360, Set 0, Binding 25, Index 0, variable "g_EnvironmentSH2"] is being used in draw but has never been updated via vkUpdateDescriptorSets() or a similar call.
+The Vulkan spec states: Descriptors in each bound descriptor set, specified via vkCmdBindDescriptorSets, must be valid if they are accessed as described by descriptor validity by the VkPipeline bound to the pipeline bind point used by this command and the bound VkPipeline was not created with VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT (https://docs.vulkan.org/spec/latest/chapters/drawing.html#VUID-vkCmdDrawIndexed-None-08114)
+Objects: 2
+    [0] VkPipeline 0x1500000000150
+    [1] VkDescriptorSet 0x3600000000360
+
+Validation Error: [ VUID-vkCmdDrawIndexed-None-08114 ] | MessageID = 0x3f6fd836
+vkCmdDrawIndexed(): the descriptor [VkDescriptorSet 0x3630000000363, Set 0, Binding 25, Index 0, variable "g_EnvironmentSH2"] is being used in draw but has never been updated via vkUpdateDescriptorSets() or a similar call.
+The Vulkan spec states: Descriptors in each bound descriptor set, specified via vkCmdBindDescriptorSets, must be valid if they are accessed as described by descriptor validity by the VkPipeline bound to the pipeline bind point used by this command and the bound VkPipeline was not created with VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT (https://docs.vulkan.org/spec/latest/chapters/drawing.html#VUID-vkCmdDrawIndexed-None-08114)
+Objects: 2
+    [0] VkPipeline 0x1500000000150
+    [1] VkDescriptorSet 0x3630000000363
+
+Validation Error: [ VUID-vkDestroyImage-image-01000 ] | MessageID = 0xf2d29b5a
+vkDestroyImage(): can't be called on VkImage 0x1d300000001d3 that is currently in use by VkCommandBuffer 0x289bc042000.
+The Vulkan spec states: All submitted commands that refer to image, either directly or via a VkImageView, must have completed execution (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-vkDestroyImage-image-01000)
+
+Validation Error: [ VUID-vkCmdDrawIndexed-None-08114 ] | MessageID = 0x3f6fd836
+vkCmdDrawIndexed(): the descriptor [VkDescriptorSet 0x3b000000003b0, Set 0, Binding 25, Index 0, variable "g_EnvironmentSH2"] is being used in draw but has never been updated via vkUpdateDescriptorSets() or a similar call.
+The Vulkan spec states: Descriptors in each bound descriptor set, specified via vkCmdBindDescriptorSets, must be valid if they are accessed as described by descriptor validity by the VkPipeline bound to the pipeline bind point used by this command and the bound VkPipeline was not created with VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT (https://docs.vulkan.org/spec/latest/chapters/drawing.html#VUID-vkCmdDrawIndexed-None-08114)
+Objects: 2
+    [0] VkPipeline 0x2830000000283
+    [1] VkDescriptorSet 0x3b000000003b0
+
+Validation Error: [ VUID-vkCmdDrawIndexed-None-08114 ] | MessageID = 0x3f6fd836
+vkCmdDrawIndexed(): the descriptor [VkDescriptorSet 0x3b300000003b3, Set 0, Binding 25, Index 0, variable "g_EnvironmentSH2"] is being used in draw but has never been updated via vkUpdateDescriptorSets() or a similar call.
+The Vulkan spec states: Descriptors in each bound descriptor set, specified via vkCmdBindDescriptorSets, must be valid if they are accessed as described by descriptor validity by the VkPipeline bound to the pipeline bind point used by this command and the bound VkPipeline was not created with VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT (https://docs.vulkan.org/spec/latest/chapters/drawing.html#VUID-vkCmdDrawIndexed-None-08114)
+Objects: 2
+    [0] VkPipeline 0x2830000000283
+    [1] VkDescriptorSet 0x3b300000003b3
+
+Validation Error: [ VUID-vkDestroyImageView-imageView-01026 ] | MessageID = 0x63ac21f0
+vkDestroyImageView(): can't be called on VkImageView 0x3350000000335 that is currently in use by VkDescriptorSet 0x3c200000003c2.
+The Vulkan spec states: All submitted commands that refer to imageView must have completed execution (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-vkDestroyImageView-imageView-01026)
+
+Validation Error: [ VUID-vkDestroyImage-image-01000 ] | MessageID = 0xf2d29b5a
+vkDestroyImage(): can't be called on VkImage 0x3320000000332 that is currently in use by VkCommandBuffer 0x289bc045410.
+The Vulkan spec states: All submitted commands that refer to image, either directly or via a VkImageView, must have completed execution (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-vkDestroyImage-image-01000)
+
+Validation Error: [ VUID-vkDestroyPipeline-pipeline-00765 ] | MessageID = 0x6bdce5fd
+vkDestroyPipeline(): can't be called on VkPipeline 0x33f000000033f that is currently in use by VkCommandBuffer 0x289bc045410.
+The Vulkan spec states: All submitted commands that refer to pipeline must have completed execution (https://docs.vulkan.org/spec/latest/chapters/pipelines.html#VUID-vkDestroyPipeline-pipeline-00765)
+
+Validation Error: [ VUID-vkDestroyPipeline-pipeline-00765 ] | MessageID = 0x6bdce5fd
+vkDestroyPipeline(): can't be called on VkPipeline 0x3400000000340 that is currently in use by VkCommandBuffer 0x289bc045410.
+The Vulkan spec states: All submitted commands that refer to pipeline must have completed execution (https://docs.vulkan.org/spec/latest/chapters/pipelines.html#VUID-vkDestroyPipeline-pipeline-00765)
+
+Validation Error: [ VUID-vkDestroyPipeline-pipeline-00765 ] | MessageID = 0x6bdce5fd
+vkDestroyPipeline(): can't be called on VkPipeline 0x3410000000341 that is currently in use by VkCommandBuffer 0x289bc045410.
+The Vulkan spec states: All submitted commands that refer to pipeline must have completed execution (https://docs.vulkan.org/spec/latest/chapters/pipelines.html#VUID-vkDestroyPipeline-pipeline-00765)
+
+Validation Error: [ VUID-vkCmdDrawIndexed-None-08114 ] | MessageID = 0x3f6fd836
+vkCmdDrawIndexed(): the descriptor [VkDescriptorSet 0x4060000000406, Set 0, Binding 25, Index 0, variable "g_EnvironmentSH2"] is being used in draw but has never been updated via vkUpdateDescriptorSets() or a similar call.
+The Vulkan spec states: Descriptors in each bound descriptor set, specified via vkCmdBindDescriptorSets, must be valid if they are accessed as described by descriptor validity by the VkPipeline bound to the pipeline bind point used by this command and the bound VkPipeline was not created with VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT (https://docs.vulkan.org/spec/latest/chapters/drawing.html#VUID-vkCmdDrawIndexed-None-08114)
+Objects: 2
+    [0] VkPipeline 0x1500000000150
+    [1] VkDescriptorSet 0x4060000000406
+
+Validation Error: [ VUID-vkCmdDrawIndexed-None-08114 ] | MessageID = 0x3f6fd836
+(Warning - This VUID has now been reported 10 times, which is the duplicate_message_limit value, this will be the last time reporting it).
+vkCmdDrawIndexed(): the descriptor [VkDescriptorSet 0x4090000000409, Set 0, Binding 25, Index 0, variable "g_EnvironmentSH2"] is being used in draw but has never been updated via vkUpdateDescriptorSets() or a similar call.
+The Vulkan spec states: Descriptors in each bound descriptor set, specified via vkCmdBindDescriptorSets, must be valid if they are accessed as described by descriptor validity by the VkPipeline bound to the pipeline bind point used by this command and the bound VkPipeline was not created with VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT (https://docs.vulkan.org/spec/latest/chapters/drawing.html#VUID-vkCmdDrawIndexed-None-08114)
+Objects: 2
+    [0] VkPipeline 0x1500000000150
+    [1] VkDescriptorSet 0x4090000000409
+
+Validation Error: [ VUID-vkDestroyImageView-imageView-01026 ] | MessageID = 0x63ac21f0
+vkDestroyImageView(): can't be called on VkImageView 0x3850000000385 that is currently in use by VkDescriptorSet 0x3c300000003c3.
+The Vulkan spec states: All submitted commands that refer to imageView must have completed execution (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-vkDestroyImageView-imageView-01026)
+
+Validation Error: [ VUID-vkDestroyImage-image-01000 ] | MessageID = 0xf2d29b5a
+vkDestroyImage(): can't be called on VkImage 0x3820000000382 that is currently in use by VkCommandBuffer 0x289bc045410.
+The Vulkan spec states: All submitted commands that refer to image, either directly or via a VkImageView, must have completed execution (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-vkDestroyImage-image-01000)
+
+Validation Error: [ VUID-vkDestroyPipeline-pipeline-00765 ] | MessageID = 0x6bdce5fd
+vkDestroyPipeline(): can't be called on VkPipeline 0x38f000000038f that is currently in use by VkCommandBuffer 0x289bc045410.
+The Vulkan spec states: All submitted commands that refer to pipeline must have completed execution (https://docs.vulkan.org/spec/latest/chapters/pipelines.html#VUID-vkDestroyPipeline-pipeline-00765)
+
+Validation Error: [ VUID-vkDestroyPipeline-pipeline-00765 ] | MessageID = 0x6bdce5fd
+vkDestroyPipeline(): can't be called on VkPipeline 0x3900000000390 that is currently in use by VkCommandBuffer 0x289bc045410.
+The Vulkan spec states: All submitted commands that refer to pipeline must have completed execution (https://docs.vulkan.org/spec/latest/chapters/pipelines.html#VUID-vkDestroyPipeline-pipeline-00765)
+
+Validation Error: [ VUID-vkDestroyPipeline-pipeline-00765 ] | MessageID = 0x6bdce5fd
+vkDestroyPipeline(): can't be called on VkPipeline 0x3910000000391 that is currently in use by VkCommandBuffer 0x289bc045410.
+The Vulkan spec states: All submitted commands that refer to pipeline must have completed execution (https://docs.vulkan.org/spec/latest/chapters/pipelines.html#VUID-vkDestroyPipeline-pipeline-00765)
+
+Validation Error: [ VUID-vkQueueSubmit-pSignalSemaphores-00067 ] | MessageID = 0x539277af
+vkQueueSubmit(): pSubmits[0].pSignalSemaphores[0] (VkSemaphore 0x40000000004) is being signaled by VkQueue 0x289b996cdf0, but it may still be in use by VkSwapchainKHR 0xd000000000d.
+Most recently acquired image indices: [0], 1, 1.
+(Brackets mark the last use of VkSemaphore 0x40000000004 in a presentation operation.)
+Swapchain image 0 was presented but was not re-acquired, so VkSemaphore 0x40000000004 may still be in use and cannot be safely reused with image index 1.
+Hint: See https://docs.vulkan.org/guide/latest/swapchain_semaphore_reuse.html for details on swapchain semaphore reuse. Examples of possible approaches:
+   a) Use a separate semaphore per swapchain image. Index these semaphores using the index of the acquired image.
+   b) Consider the VK_KHR_swapchain_maintenance1 extension. It allows using a VkFence with the presentation operation.
+The Vulkan spec states: Each binary semaphore element of the pSignalSemaphores member of any element of pSubmits must be unsignaled when the semaphore signal operation it defines is executed on the device (https://docs.vulkan.org/spec/latest/chapters/cmdbuffers.html#VUID-vkQueueSubmit-pSignalSemaphores-00067)
+Objects: 2
+    [0] VkSemaphore 0x40000000004
+    [1] VkQueue 0x289b996cdf0
+
+Validation Error: [ VUID-vkQueueSubmit-pSignalSemaphores-00067 ] | MessageID = 0x539277af
+vkQueueSubmit(): pSubmits[0].pSignalSemaphores[0] (VkSemaphore 0x70000000007) is being signaled by VkQueue 0x289b996cdf0, but it may still be in use by VkSwapchainKHR 0xd000000000d.
+Most recently acquired image indices: 0, 1, 1, [1], 0, 2.
+(Brackets mark the last use of VkSemaphore 0x70000000007 in a presentation operation.)
+Swapchain image 1 was presented but was not re-acquired, so VkSemaphore 0x70000000007 may still be in use and cannot be safely reused with image index 2.
+Hint: See https://docs.vulkan.org/guide/latest/swapchain_semaphore_reuse.html for details on swapchain semaphore reuse. Examples of possible approaches:
+   a) Use a separate semaphore per swapchain image. Index these semaphores using the index of the acquired image.
+   b) Consider the VK_KHR_swapchain_maintenance1 extension. It allows using a VkFence with the presentation operation.
+The Vulkan spec states: Each binary semaphore element of the pSignalSemaphores member of any element of pSubmits must be unsignaled when the semaphore signal operation it defines is executed on the device (https://docs.vulkan.org/spec/latest/chapters/cmdbuffers.html#VUID-vkQueueSubmit-pSignalSemaphores-00067)
+Objects: 2
+    [0] VkSemaphore 0x70000000007
+    [1] VkQueue 0x289b996cdf0
+
+Validation Error: [ VUID-vkQueueSubmit-pSignalSemaphores-00067 ] | MessageID = 0x539277af
+vkQueueSubmit(): pSubmits[0].pSignalSemaphores[0] (VkSemaphore 0x40000000004) is being signaled by VkQueue 0x289b996cdf0, but it may still be in use by VkSwapchainKHR 0xd000000000d.
+Most recently acquired image indices: 0, 1, 1, 1, [0], 2, 1.
+(Brackets mark the last use of VkSemaphore 0x40000000004 in a presentation operation.)
+Swapchain image 0 was presented but was not re-acquired, so VkSemaphore 0x40000000004 may still be in use and cannot be safely reused with image index 1.
+Hint: See https://docs.vulkan.org/guide/latest/swapchain_semaphore_reuse.html for details on swapchain semaphore reuse. Examples of possible approaches:
+   a) Use a separate semaphore per swapchain image. Index these semaphores using the index of the acquired image.
+   b) Consider the VK_KHR_swapchain_maintenance1 extension. It allows using a VkFence with the presentation operation.
+The Vulkan spec states: Each binary semaphore element of the pSignalSemaphores member of any element of pSubmits must be unsignaled when the semaphore signal operation it defines is executed on the device (https://docs.vulkan.org/spec/latest/chapters/cmdbuffers.html#VUID-vkQueueSubmit-pSignalSemaphores-00067)
+Objects: 2
+    [0] VkSemaphore 0x40000000004
+    [1] VkQueue 0x289b996cdf0
+
+Validation Error: [ VUID-vkDestroyBuffer-buffer-00922 ] | MessageID = 0xe4549c11
+vkDestroyBuffer(): can't be called on VkBuffer 0xd916000000d916 that is currently in use by VkCommandBuffer 0x289bc045410.
+The Vulkan spec states: All submitted commands that refer to buffer, either directly or via a VkBufferView, must have completed execution (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-vkDestroyBuffer-buffer-00922)
+
+Validation Error: [ VUID-vkDestroyBuffer-buffer-00922 ] | MessageID = 0xe4549c11
+vkDestroyBuffer(): can't be called on VkBuffer 0xd918000000d918 that is currently in use by VkCommandBuffer 0x289bc045410.
+The Vulkan spec states: All submitted commands that refer to buffer, either directly or via a VkBufferView, must have completed execution (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-vkDestroyBuffer-buffer-00922)
+
+Validation Error: [ VUID-vkDestroyBuffer-buffer-00922 ] | MessageID = 0xe4549c11
+vkDestroyBuffer(): can't be called on VkBuffer 0xd9de000000d9de that is currently in use by VkCommandBuffer 0x289bc042000.
+The Vulkan spec states: All submitted commands that refer to buffer, either directly or via a VkBufferView, must have completed execution (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-vkDestroyBuffer-buffer-00922)
+
+Validation Error: [ VUID-vkDestroyBuffer-buffer-00922 ] | MessageID = 0xe4549c11
+vkDestroyBuffer(): can't be called on VkBuffer 0xd9e0000000d9e0 that is currently in use by VkCommandBuffer 0x289bc042000.
+The Vulkan spec states: All submitted commands that refer to buffer, either directly or via a VkBufferView, must have completed execution (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-vkDestroyBuffer-buffer-00922)
+
+Validation Error: [ VUID-vkFreeDescriptorSets-pDescriptorSets-00309 ] | MessageID = 0xbfce1114
+vkFreeDescriptorSets(): pDescriptorSets[0] can't be called on VkDescriptorSet 0x2a700000002a7 that is currently in use by VkCommandBuffer 0x289bc042000.
+The Vulkan spec states: All submitted commands that refer to any element of pDescriptorSets must have completed execution (https://docs.vulkan.org/spec/latest/chapters/descriptorsets.html#VUID-vkFreeDescriptorSets-pDescriptorSets-00309)
+
+Validation Error: [ VUID-vkDestroyPipeline-pipeline-00765 ] | MessageID = 0x6bdce5fd
+(Warning - This VUID has now been reported 10 times, which is the duplicate_message_limit value, this will be the last time reporting it).
+vkDestroyPipeline(): can't be called on VkPipeline 0x190000000019 that is currently in use by VkCommandBuffer 0x289bc042000.
+The Vulkan spec states: All submitted commands that refer to pipeline must have completed execution (https://docs.vulkan.org/spec/latest/chapters/pipelines.html#VUID-vkDestroyPipeline-pipeline-00765)
+
+Validation Error: [ VUID-vkDestroyImageView-imageView-01026 ] | MessageID = 0x63ac21f0
+vkDestroyImageView(): can't be called on VkImageView 0x42b000000042b that is currently in use by VkDescriptorSet 0x4690000000469.
+The Vulkan spec states: All submitted commands that refer to imageView must have completed execution (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-vkDestroyImageView-imageView-01026)
+
+Validation Error: [ VUID-vkDestroyImage-image-01000 ] | MessageID = 0xf2d29b5a
+vkDestroyImage(): can't be called on VkImage 0x4280000000428 that is currently in use by VkCommandBuffer 0x289bc042000.
+The Vulkan spec states: All submitted commands that refer to image, either directly or via a VkImageView, must have completed execution (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-vkDestroyImage-image-01000)
+
+Validation Error: [ VUID-vkDestroyImage-image-01000 ] | MessageID = 0xf2d29b5a
+vkDestroyImage(): can't be called on VkImage 0x1890000000189 that is currently in use by VkImageView 0x2900000000290.
+The Vulkan spec states: All submitted commands that refer to image, either directly or via a VkImageView, must have completed execution (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-vkDestroyImage-image-01000)
+
+Validation Error: [ VUID-vkDestroyImage-image-01000 ] | MessageID = 0xf2d29b5a
+vkDestroyImage(): can't be called on VkImage 0x17d000000017d that is currently in use by VkCommandBuffer 0x289bc042000.
+The Vulkan spec states: All submitted commands that refer to image, either directly or via a VkImageView, must have completed execution (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-vkDestroyImage-image-01000)
+
+Validation Error: [ VUID-vkDestroyImage-image-01000 ] | MessageID = 0xf2d29b5a
+vkDestroyImage(): can't be called on VkImage 0x17b000000017b that is currently in use by VkCommandBuffer 0x289bc042000.
+The Vulkan spec states: All submitted commands that refer to image, either directly or via a VkImageView, must have completed execution (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-vkDestroyImage-image-01000)
+
+Validation Error: [ VUID-vkDestroyImage-image-01000 ] | MessageID = 0xf2d29b5a
+vkDestroyImage(): can't be called on VkImage 0x1790000000179 that is currently in use by VkCommandBuffer 0x289bc042000.
+The Vulkan spec states: All submitted commands that refer to image, either directly or via a VkImageView, must have completed execution (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-vkDestroyImage-image-01000)
+
+Validation Error: [ VUID-vkDestroyImageView-imageView-01026 ] | MessageID = 0x63ac21f0
+vkDestroyImageView(): can't be called on VkImageView 0x3db00000003db that is currently in use by VkDescriptorSet 0x4680000000468.
+The Vulkan spec states: All submitted commands that refer to imageView must have completed execution (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-vkDestroyImageView-imageView-01026)
+
+Validation Error: [ VUID-vkDestroyImage-image-01000 ] | MessageID = 0xf2d29b5a
+(Warning - This VUID has now been reported 10 times, which is the duplicate_message_limit value, this will be the last time reporting it).
+vkDestroyImage(): can't be called on VkImage 0x3d800000003d8 that is currently in use by VkCommandBuffer 0x289bc042000.
+The Vulkan spec states: All submitted commands that refer to image, either directly or via a VkImageView, must have completed execution (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-vkDestroyImage-image-01000)
+
+Validation Error: [ VUID-vkDestroyImageView-imageView-01026 ] | MessageID = 0x63ac21f0
+vkDestroyImageView(): can't be called on VkImageView 0x2ae00000002ae that is currently in use by VkDescriptorSet 0x2af00000002af.
+The Vulkan spec states: All submitted commands that refer to imageView must have completed execution (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-vkDestroyImageView-imageView-01026)
+
+Validation Error: [ VUID-vkDestroyImageView-imageView-01026 ] | MessageID = 0x63ac21f0
+vkDestroyImageView(): can't be called on VkImageView 0x2ba00000002ba that is currently in use by VkDescriptorSet 0x2bb00000002bb.
+The Vulkan spec states: All submitted commands that refer to imageView must have completed execution (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-vkDestroyImageView-imageView-01026)
+
+Validation Error: [ VUID-vkDestroyImageView-imageView-01026 ] | MessageID = 0x63ac21f0
+vkDestroyImageView(): can't be called on VkImageView 0x2b400000002b4 that is currently in use by VkDescriptorSet 0x2b500000002b5.
+The Vulkan spec states: All submitted commands that refer to imageView must have completed execution (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-vkDestroyImageView-imageView-01026)
+
+Validation Error: [ VUID-vkDestroyImageView-imageView-01026 ] | MessageID = 0x63ac21f0
+vkDestroyImageView(): can't be called on VkImageView 0x2f200000002f2 that is currently in use by VkDescriptorSet 0x2f300000002f3.
+The Vulkan spec states: All submitted commands that refer to imageView must have completed execution (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-vkDestroyImageView-imageView-01026)
+
+Validation Error: [ VUID-vkDestroyImageView-imageView-01026 ] | MessageID = 0x63ac21f0
+vkDestroyImageView(): can't be called on VkImageView 0x2c000000002c0 that is currently in use by VkDescriptorSet 0x2c100000002c1.
+The Vulkan spec states: All submitted commands that refer to imageView must have completed execution (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-vkDestroyImageView-imageView-01026)
+
+Validation Error: [ VUID-vkDestroyImageView-imageView-01026 ] | MessageID = 0x63ac21f0
+(Warning - This VUID has now been reported 10 times, which is the duplicate_message_limit value, this will be the last time reporting it).
+vkDestroyImageView(): can't be called on VkImageView 0x2da00000002da that is currently in use by VkDescriptorSet 0x2db00000002db.
+The Vulkan spec states: All submitted commands that refer to imageView must have completed execution (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-vkDestroyImageView-imageView-01026)
+
+Validation Error: [ VUID-vkDestroyBuffer-buffer-00922 ] | MessageID = 0xe4549c11
+vkDestroyBuffer(): can't be called on VkBuffer 0xa200000000a2 that is currently in use by VkCommandBuffer 0x289bc042000.
+The Vulkan spec states: All submitted commands that refer to buffer, either directly or via a VkBufferView, must have completed execution (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-vkDestroyBuffer-buffer-00922)
+
+Validation Error: [ VUID-vkDestroyBuffer-buffer-00922 ] | MessageID = 0xe4549c11
+vkDestroyBuffer(): can't be called on VkBuffer 0xa000000000a0 that is currently in use by VkCommandBuffer 0x289bc042000.
+The Vulkan spec states: All submitted commands that refer to buffer, either directly or via a VkBufferView, must have completed execution (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-vkDestroyBuffer-buffer-00922)
+
+Validation Error: [ VUID-vkDestroyBuffer-buffer-00922 ] | MessageID = 0xe4549c11
+vkDestroyBuffer(): can't be called on VkBuffer 0xac00000000ac that is currently in use by VkCommandBuffer 0x289bc042000.
+The Vulkan spec states: All submitted commands that refer to buffer, either directly or via a VkBufferView, must have completed execution (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-vkDestroyBuffer-buffer-00922)
+
+Validation Error: [ VUID-vkDestroyBuffer-buffer-00922 ] | MessageID = 0xe4549c11
+vkDestroyBuffer(): can't be called on VkBuffer 0xaa00000000aa that is currently in use by VkCommandBuffer 0x289bc042000.
+The Vulkan spec states: All submitted commands that refer to buffer, either directly or via a VkBufferView, must have completed execution (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-vkDestroyBuffer-buffer-00922)
+
+[02:58:42][Info] [CrashHandler] Installed; reports directory: logs
+[02:58:42][Info] SDLWindow created: MyEngine Editor - Scene + MeshRenderer (1920x1080)
+[02:58:42][Info] [Vulkan] Initialized - GPU: NVIDIA GeForce RTX 4070 SUPER
+[02:58:42][Info] [SceneLayer] 'SceneRenderLayer' attached — scene: 'Untitled'
+[02:58:42][Info] [SceneRenderLayer] attached (1920x1080)
+[02:58:42][Info] [AssetManager] Clearing all assets (0)
+[02:58:42][Info] [Editor] Loaded input config: E:\gitrepo\MyEngine\Content\Config\Input.input.json
+[02:58:42][Info] [AssetManager] Imported model 'monkey' (11808 verts, 11808 indices, 1 materials)
+[02:58:43][Info] [AssetManager] Loaded [Model] 'monkey' uuid=4d0f3598-f8b3-4a45-ac95-2fb97c7aa923
+[02:58:43][Info] [AssetManager] Loaded [Material] 'NewMaterial' uuid=130ddf87-a6a0-4847-9264-828d43aab4db
+[02:58:43][Info] SceneSerializer: loaded 'Untitled' ← E:\gitrepo\MyEngine\Content\Scenes\Main.scene.json  (14 actors)
+[02:58:43][Info] [Editor] Opened project: E:\gitrepo\MyEngine
+[02:58:43][Info] [Memory] MemoryService initialized (linear arena capacity 4194304 bytes)
+[02:58:43][Info] Init Engine: MyEngine
+[02:58:43][Info] [Audio] Initialized miniaudio engine
+[02:58:43][Info] Main loop started, target FPS = 60
+[02:58:43][Info] [RmlUi] Loaded font face 'LatoLatin' [regular] from 'memory'.
+[02:58:43][Info] [RmlUi] Loaded font face 'LatoLatin' [bold] from 'memory'.
+[02:58:43][Info] [AssetManager] Loaded [Shader] 'ShadowDepth' uuid=1cac36f7-dfde-4db7-99bb-8a5e4571e068
+[02:58:43][Info] [AssetManager] Loaded [Shader] 'AtmosphereCubemap' uuid=3226b35d-3399-48af-a494-c762990d2905
+[02:58:44][Info] [AssetManager] Loaded [Shader] 'EnvironmentMipmap' uuid=9bceaaba-f020-47bf-9cf1-6535a2589057
+[02:58:44][Info] [AssetManager] Loaded [Shader] 'AtmosphereSH' uuid=a5960e3a-428c-4470-b5c1-94f4fb2d03eb
+[02:58:44][Info] [AssetManager] Loaded [Shader] 'PostProcessFXAA' uuid=5a4d9e10-7c31-4f82-a611-000000000001
+[02:58:45][Info] [AssetManager] Loaded [Shader] 'PostProcessSSAO' uuid=5a4d9e10-7c31-4f82-a611-000000000002
+[02:58:45][Info] [AssetManager] Loaded [Shader] 'PostProcessSSAOBlur' uuid=5a4d9e10-7c31-4f82-a611-000000000003
+[02:58:46][Info] [AssetManager] Loaded [Shader] 'ShadowedMainPass' uuid=5a4d9e10-7c31-4f82-a611-000000000004
+[02:58:47][Info] [AssetManager] Loaded [Shader] 'ProceduralSky' uuid=ca58cec1-d627-4787-a4db-6cde6daa05b7
+[02:58:58][Info] Quit event received
+[02:58:58][Info] [Memory] MemoryService::Shutdown
+[02:58:58][Info] [Memory]   liveAllocs=0 totalBytes=0 lifetimeAllocs=0 lifetimeFrees=0
+[02:58:58][Info] [Memory] Leak detail skipped (MYENGINE_MEM_TRACKING disabled). Live count=0
+[02:58:58][Info] [Memory] MemoryService shutdown
+[02:58:58][Info] Shutdown Engine
+[02:58:58][Info] [SceneLayer] 'SceneRenderLayer' detached
+[02:58:58][Info] [AssetManager] Clearing all assets (16)
+[02:58:58][Info] [Vulkan] Shutdown
+[02:58:58][Info] SDLWindow destroyed

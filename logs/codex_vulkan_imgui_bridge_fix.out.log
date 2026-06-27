@@ -1,0 +1,38 @@
+[03:22:27][Info] [CrashHandler] Installed; reports directory: logs
+[03:22:27][Info] SDLWindow created: MyEngine Editor - Scene + MeshRenderer (1920x1080)
+[03:22:27][Info] [Vulkan] Initialized - GPU: NVIDIA GeForce RTX 4070 SUPER
+[03:22:27][Info] [SceneLayer] 'SceneRenderLayer' attached — scene: 'Untitled'
+[03:22:27][Info] [SceneRenderLayer] attached (1920x1080)
+[03:22:27][Info] [EditorImGuiVulkanBridge] Init colorFormat=44 imageCount=3 minImageCount=3
+[03:22:27][Info] [AssetManager] Clearing all assets (0)
+[03:22:27][Info] [Editor] Loaded input config: E:\gitrepo\MyEngine\Content\Config\Input.input.json
+[03:22:27][Info] [AssetManager] Imported model 'monkey' (11808 verts, 11808 indices, 1 materials)
+[03:22:27][Info] [AssetManager] Loaded [Model] 'monkey' uuid=4d0f3598-f8b3-4a45-ac95-2fb97c7aa923
+[03:22:27][Info] [AssetManager] Loaded [Material] 'NewMaterial' uuid=130ddf87-a6a0-4847-9264-828d43aab4db
+[03:22:27][Info] SceneSerializer: loaded 'Untitled' ← E:\gitrepo\MyEngine\Content\Scenes\Main.scene.json  (14 actors)
+[03:22:27][Info] [Editor] Opened project: E:\gitrepo\MyEngine
+[03:22:27][Info] [Memory] MemoryService initialized (linear arena capacity 4194304 bytes)
+[03:22:27][Info] Init Engine: MyEngine
+[03:22:27][Info] [Audio] Initialized miniaudio engine
+[03:22:27][Info] Main loop started, target FPS = 60
+[03:22:27][Info] [RmlUi] Loaded font face 'LatoLatin' [regular] from 'memory'.
+[03:22:27][Info] [RmlUi] Loaded font face 'LatoLatin' [bold] from 'memory'.
+[03:22:27][Info] [AssetManager] Loaded [Shader] 'ShadowDepth' uuid=1cac36f7-dfde-4db7-99bb-8a5e4571e068
+[03:22:28][Info] [AssetManager] Loaded [Shader] 'AtmosphereCubemap' uuid=3226b35d-3399-48af-a494-c762990d2905
+[03:22:28][Info] [AssetManager] Loaded [Shader] 'EnvironmentMipmap' uuid=9bceaaba-f020-47bf-9cf1-6535a2589057
+[03:22:28][Info] [AssetManager] Loaded [Shader] 'AtmosphereSH' uuid=a5960e3a-428c-4470-b5c1-94f4fb2d03eb
+[03:22:29][Info] [AssetManager] Loaded [Shader] 'PostProcessFXAA' uuid=5a4d9e10-7c31-4f82-a611-000000000001
+[03:22:29][Info] [AssetManager] Loaded [Shader] 'PostProcessSSAO' uuid=5a4d9e10-7c31-4f82-a611-000000000002
+[03:22:30][Info] [AssetManager] Loaded [Shader] 'PostProcessSSAOBlur' uuid=5a4d9e10-7c31-4f82-a611-000000000003
+[03:22:30][Info] [AssetManager] Loaded [Shader] 'ShadowedMainPass' uuid=5a4d9e10-7c31-4f82-a611-000000000004
+[03:22:31][Info] [AssetManager] Loaded [Shader] 'ProceduralSky' uuid=ca58cec1-d627-4787-a4db-6cde6daa05b7
+[03:22:34][Info] Quit event received
+[03:22:34][Info] [Memory] MemoryService::Shutdown
+[03:22:34][Info] [Memory]   liveAllocs=0 totalBytes=0 lifetimeAllocs=0 lifetimeFrees=0
+[03:22:34][Info] [Memory] Leak detail skipped (MYENGINE_MEM_TRACKING disabled). Live count=0
+[03:22:34][Info] [Memory] MemoryService shutdown
+[03:22:34][Info] Shutdown Engine
+[03:22:34][Info] [SceneLayer] 'SceneRenderLayer' detached
+[03:22:34][Info] [AssetManager] Clearing all assets (16)
+[03:22:34][Info] [Vulkan] Shutdown
+[03:22:34][Info] SDLWindow destroyed

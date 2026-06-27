@@ -84,7 +84,7 @@
             "transform": {
                 "position": [
                     0.0,
-                    2.2522361278533936,
+                    0.08203548192977905,
                     0.0
                 ],
                 "rotation": [
@@ -681,8 +681,41 @@
                     1.0
                 ]
             }
+        },
+        {
+            "active": true,
+            "components": [
+                {
+                    "data": {
+                        "material": "Content/Materials/NewMaterial.mat",
+                        "mesh": "Content/Mesh/monkey.obj#mesh"
+                    },
+                    "enabled": true,
+                    "type": "MeshRenderer"
+                }
+            ],
+            "id": 15,
+            "name": "monkey",
+            "parentID": 0,
+            "transform": {
+                "position": [
+                    -1.9829041957855225,
+                    -0.8556805849075317,
+                    -0.38024741411209106
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    -0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            }
         }
     ],
     "name": "Untitled",
-    "nextID": 15
+    "nextID": 16
 }

@@ -13,6 +13,7 @@ bool EditorImGuiVulkan_Init(const ImGuiBackendHandles& handles);
 void EditorImGuiVulkan_Shutdown();
 void EditorImGuiVulkan_NewFrame();
 void EditorImGuiVulkan_RenderDrawData(ImDrawData* drawData, const ImGuiBackendHandles& handles);
+void EditorImGuiVulkan_RenderPlatformWindows();
 bool EditorImGuiVulkan_CreateFontsTexture();
 void EditorImGuiVulkan_DestroyFontsTexture();
 void* EditorImGuiVulkan_CreateTexture(const ImGuiNativeTextureInfo& info);
