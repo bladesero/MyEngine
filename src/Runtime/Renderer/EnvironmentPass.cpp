@@ -276,8 +276,21 @@ void EnvironmentPass::ConsumeReadback()
 {
     if (!m_Readback || !m_Readback->IsReady()) return;
     std::vector<uint8_t> bytes;
-    if (m_Readback->Read(bytes) && bytes.size() >= sizeof(m_SH2))
+    if (m_Readback->Read(bytes) && bytes.size() >= sizeof(m_SH2)) {
         std::memcpy(m_SH2, bytes.data(), sizeof(m_SH2));
+        bool allZero = true;
+        const float* values = &m_SH2[0][0];
+        for (size_t i = 0; i < 9 * 4; ++i) {
+            if (values[i] != 0.0f) {
+                allZero = false;
+                break;
+            }
+        }
+        if (allZero && !m_LoggedZeroSHReadback) {
+            Logger::Warn("[EnvironmentPass] SH readback returned all zero coefficients");
+            m_LoggedZeroSHReadback = true;
+        }
+    }
     m_Readback.reset();
 }
 

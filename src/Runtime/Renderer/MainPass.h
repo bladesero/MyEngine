@@ -86,6 +86,8 @@ private:
     GpuTexture* m_EnvironmentCubemap = nullptr;
     std::shared_ptr<GpuBufferView> m_EnvironmentSH2Buffer;
     float m_EnvironmentSH2[9][4] = {};
+    bool m_LoggedEnvironmentState = false;
+    bool m_LoggedEnvironmentSHBindingFailure = false;
     Mat4 m_LightViewProj = Mat4::Identity();
     Mat4 m_LightViewProjCascade[3] = { Mat4::Identity(), Mat4::Identity(), Mat4::Identity() };
     float m_CascadeSplits[4] = {};

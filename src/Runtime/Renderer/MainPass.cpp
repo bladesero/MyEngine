@@ -838,8 +838,21 @@ void MainPass::Execute(GpuCommandList& commands, const Scene& scene, const Camer
                     bindings->SetTexture(textureNames[slot], GetTextureView(namedTextures[slot]));
                     bindings->SetSampler(samplerNames[slot], slot == 1 ? m_ShadowSampler : m_LinearSampler);
                 }
-                if (m_EnvironmentSH2Buffer)
-                    bindings->SetStorageBuffer("g_EnvironmentSH2", m_EnvironmentSH2Buffer);
+                if (!m_LoggedEnvironmentState) {
+                    Logger::Info("[MainPass] Environment IBL state: cube=",
+                                 (m_EnvironmentCubemap && m_EnvironmentCubemap->IsCube()) ? 1 : 0,
+                                 " shView=", m_EnvironmentSH2Buffer ? 1 : 0,
+                                 " iblEnabled=", iblEnabled > 0.5f ? 1 : 0);
+                    m_LoggedEnvironmentState = true;
+                }
+                if (!bindings->SetStorageBuffer("g_EnvironmentSH2", m_EnvironmentSH2Buffer)) {
+                    if (!m_LoggedEnvironmentSHBindingFailure) {
+                        Logger::Error("[MainPass] Failed to bind g_EnvironmentSH2: shaderMode=",
+                                      static_cast<int>(m_ShaderMode),
+                                      " environmentView=", m_EnvironmentSH2Buffer ? 1 : 0);
+                        m_LoggedEnvironmentSHBindingFailure = true;
+                    }
+                }
                 commands.SetBindGroup(0, bindings.get());
             }
 

@@ -69,4 +69,5 @@ private:
     std::shared_ptr<GpuReadbackTicket> m_Readback;
     bool m_EnvironmentInShaderState = false;
     bool m_SHBufferInShaderState = false;
+    bool m_LoggedZeroSHReadback = false;
 };

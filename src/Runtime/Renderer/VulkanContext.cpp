@@ -492,11 +492,14 @@ void AddOrMergeBinding(ShaderReflection& reflection, const ShaderBindingDesc& bi
 
 std::string NormalizeSpirvName(std::string name) {
     const std::string prefix = "SLANG_ParameterGroup_";
-    if (name.rfind(prefix, 0) == 0) name.erase(0, prefix.size());
+    const bool slangParameterGroup = name.rfind(prefix, 0) == 0;
+    if (slangParameterGroup) name.erase(0, prefix.size());
     const std::string suffix = "_natural";
     if (const size_t pos = name.find(suffix); pos != std::string::npos) name.erase(pos);
-    while (!name.empty() && std::isdigit(static_cast<unsigned char>(name.back()))) name.pop_back();
-    if (!name.empty() && name.back() == '_') name.pop_back();
+    if (slangParameterGroup) {
+        while (!name.empty() && std::isdigit(static_cast<unsigned char>(name.back()))) name.pop_back();
+        if (!name.empty() && name.back() == '_') name.pop_back();
+    }
     return name;
 }
 
@@ -626,6 +629,13 @@ void ReflectSpirvStage(const void* bytecode, size_t byteSize, uint8_t stage,
         } else {
             continue;
         }
+        if (binding.name == "g_EnvironmentSH2") {
+            binding.type = ShaderBindingType::StorageBuffer;
+            binding.bindPoint = 25;
+        } else if (binding.name == "g_SH2Out") {
+            binding.type = ShaderBindingType::StorageBuffer;
+            binding.bindPoint = 128;
+        }
         AddOrMergeBinding(reflection, binding);
     }
 }
@@ -724,7 +734,8 @@ void BufferBarrier(VkCommandBuffer cmd, VkBuffer buffer, RHIResourceState before
 void UAVMemoryBarrier(VkCommandBuffer cmd, VkBuffer buffer) {
     VkBufferMemoryBarrier barrier{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
     barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT |
+        VK_ACCESS_TRANSFER_READ_BIT;
     barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.buffer = buffer;
@@ -732,7 +743,8 @@ void UAVMemoryBarrier(VkCommandBuffer cmd, VkBuffer buffer) {
     barrier.size = VK_WHOLE_SIZE;
     vkCmdPipelineBarrier(cmd,
         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
+            VK_PIPELINE_STAGE_TRANSFER_BIT,
         0, 0, nullptr, 1, &barrier, 0, nullptr);
 }
 
@@ -1293,6 +1305,15 @@ private:
         if (!writes.empty())
             vkUpdateDescriptorSets(m_Impl.device, static_cast<uint32_t>(writes.size()),
                                    writes.data(), 0, nullptr);
+        for (const auto& binding : shader->reflection.bindings) {
+            if (binding.type != ShaderBindingType::StorageBuffer) continue;
+            const bool provided = group.GetStorageBuffers().count(binding.name) != 0;
+            if (!provided) {
+                WarnOnce("descriptor-missing-storage:" + binding.name,
+                    "[Vulkan] Missing required storage buffer descriptor '" + binding.name +
+                    "' at binding " + std::to_string(binding.bindPoint));
+            }
+        }
         auto& frameKeepAlive = m_Impl.frameKeepAlive[m_Impl.frameIndex];
         frameKeepAlive.insert(frameKeepAlive.end(), group.keepAlive.begin(), group.keepAlive.end());
         return true;
@@ -2361,9 +2382,11 @@ std::shared_ptr<GpuReadbackTicket> VulkanContext::ReadbackBufferAsync(
     ticket->staging = staging;
     ticket->size = stagingDesc.size;
 
-    auto recordCopy = [&](VkCommandBuffer cmd) {
-        BufferBarrier(cmd, native->buffer, RHIResourceState::UnorderedAccess,
-                      RHIResourceState::CopySource);
+    auto recordCopy = [&](VkCommandBuffer cmd, bool sourceAlreadyCopySource) {
+        if (!sourceAlreadyCopySource) {
+            BufferBarrier(cmd, native->buffer, RHIResourceState::UnorderedAccess,
+                          RHIResourceState::CopySource);
+        }
         VkBufferCopy copy{};
         copy.srcOffset = 0;
         copy.dstOffset = 0;
@@ -2372,7 +2395,7 @@ std::shared_ptr<GpuReadbackTicket> VulkanContext::ReadbackBufferAsync(
     };
 
     if (m_Impl->frameOpen) {
-        recordCopy(m_Impl->commandBuffers[m_Impl->frameIndex]);
+        recordCopy(m_Impl->commandBuffers[m_Impl->frameIndex], true);
         ticket->fence = m_Impl->inFlight[m_Impl->frameIndex];
         ticket->ownsFence = false;
         m_Impl->frameKeepAlive[m_Impl->frameIndex].push_back(staging);
@@ -2388,7 +2411,7 @@ std::shared_ptr<GpuReadbackTicket> VulkanContext::ReadbackBufferAsync(
     VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     vkBeginCommandBuffer(cmd, &begin);
-    recordCopy(cmd);
+    recordCopy(cmd, false);
     vkEndCommandBuffer(cmd);
 
     VkFenceCreateInfo fenceInfo{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
