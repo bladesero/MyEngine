@@ -354,11 +354,18 @@ void SceneViewportPanel::DrawContent()
         static_cast<int>(imageSize.x), static_cast<int>(imageSize.y));
     sceneViewport->SetInputEnabled(hovered);
 
+    bool drewImage = false;
     if (GpuTextureView* view = sceneViewport->GetOutputView()) {
         void* texture = nullptr;
         if (auto* backend = context->GetImGuiBackend())
             texture = backend->GetTextureId(view);
-        if (texture) ImGui::Image(reinterpret_cast<ImTextureID>(texture), imageSize);
+        if (texture) {
+            ImGui::Image(reinterpret_cast<ImTextureID>(texture), imageSize);
+            drewImage = true;
+        }
+    }
+    if (!drewImage) {
+        ImGui::Dummy(imageSize);
     }
 
     if (context->CanEditScene() && ImGui::BeginDragDropTarget()) {

@@ -34,12 +34,14 @@ std::shared_ptr<ShaderAsset> LoadCooked(const std::string& path, std::ifstream& 
     uint64_t sourceHash = 0;
     if (!Read(input, version) ||
         (version != ShaderAsset::kLegacyCookedFormatVersion &&
+         version != ShaderAsset::kCookedFormatVersionWithMetal &&
          version != ShaderAsset::kCookedFormatVersion) ||
         !Read(input, mask) || !Read(input, sourceHash)) return {};
     if (mask != ShaderAsset::kComputeMask && mask != (ShaderAsset::kVertexMask | ShaderAsset::kPixelMask)) return {};
     std::array<std::array<std::vector<uint8_t>, kShaderStageCount>, kShaderBackendCount> blobs{};
     const size_t storedBackendCount =
-        version == ShaderAsset::kLegacyCookedFormatVersion ? 2 : kShaderBackendCount;
+        version == ShaderAsset::kLegacyCookedFormatVersion ? 2 :
+        (version == ShaderAsset::kCookedFormatVersionWithMetal ? 3 : kShaderBackendCount);
     for (size_t backendIndex = 0; backendIndex < storedBackendCount; ++backendIndex) {
         auto& backend = blobs[backendIndex];
         for (size_t stage = 0; stage < kShaderStageCount; ++stage) {

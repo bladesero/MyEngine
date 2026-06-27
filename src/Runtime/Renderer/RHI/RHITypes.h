@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <string>
 
-enum class RHIBackend : uint8_t { Unknown, D3D11, D3D12, Metal };
+enum class RHIBackend : uint8_t { Unknown, D3D11, D3D12, Metal, Vulkan };
 
 enum class RHIFormat : uint8_t {
     Unknown,

@@ -69,6 +69,9 @@ protected:
         case RenderBackend::D3D12:
             m_RenderContext = CreateD3D12Context();
             break;
+        case RenderBackend::Vulkan:
+            m_RenderContext = CreateVulkanContext();
+            break;
         case RenderBackend::D3D11:
         default:
             m_RenderContext = CreateD3D11Context();
@@ -146,8 +149,9 @@ static bool ParseBackend(const std::string& value, ApplicationConfig& cfg) {
 #ifdef MYENGINE_PLATFORM_WINDOWS
     if (value == "d3d11" || value == "11") cfg.backend = RenderBackend::D3D11;
     else if (value == "d3d12" || value == "12") cfg.backend = RenderBackend::D3D12;
+    else if (value == "vulkan" || value == "vk") cfg.backend = RenderBackend::Vulkan;
     else {
-        Logger::Error("Unknown backend: ", value, " (use d3d11/d3d12)");
+        Logger::Error("Unknown backend: ", value, " (use d3d11/d3d12/vulkan)");
         return false;
     }
 #else

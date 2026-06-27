@@ -52,13 +52,13 @@ bool CopyRequired(const fs::path& source, const fs::path& destination,
 std::vector<ShaderBackend> ShaderBackendsForTarget(const std::string& target)
 {
     if (target == PublishTargets::kMacOSArm64.id) return {ShaderBackend::Metal};
-    return {ShaderBackend::D3D11, ShaderBackend::D3D12};
+    return {ShaderBackend::D3D11, ShaderBackend::D3D12, ShaderBackend::Vulkan};
 }
 
 std::vector<std::string> RequiredBackendNamesForTarget(const std::string& target)
 {
     if (target == PublishTargets::kMacOSArm64.id) return {"metal"};
-    return {"d3d11", "d3d12"};
+    return {"d3d11", "d3d12", "vulkan"};
 }
 
 const char* ShaderBackendName(ShaderBackend backend)
@@ -67,6 +67,7 @@ const char* ShaderBackendName(ShaderBackend backend)
     case ShaderBackend::D3D11: return "d3d11";
     case ShaderBackend::D3D12: return "d3d12";
     case ShaderBackend::Metal: return "metal";
+    case ShaderBackend::Vulkan: return "vulkan";
     }
     return "unknown";
 }
@@ -150,7 +151,7 @@ bool CompileShaderStageForBackend(const fs::path& hlsl,
                                   const std::vector<std::string>& defines,
                                   std::vector<uint8_t>& outBlob,
                                   std::string* error) {
-    if (backend == ShaderBackend::Metal) {
+    if (backend == ShaderBackend::Metal || backend == ShaderBackend::Vulkan) {
         return ShaderCompilerSlang::CompileStageFromFile(
             hlsl, sourceStage.entry, stage, backend, outBlob, defines, error);
     }
@@ -200,8 +201,9 @@ bool CompileCookedShader(const fs::path& source, const fs::path& destination,
     }
     std::vector<std::string> dependencies(dependencySet.begin(),dependencySet.end());
     std::sort(dependencies.begin(),dependencies.end());
-    const bool usesSlang = std::find(backends.begin(), backends.end(),
-                                     ShaderBackend::Metal) != backends.end();
+    const bool usesSlang =
+        std::find(backends.begin(), backends.end(), ShaderBackend::Metal) != backends.end() ||
+        std::find(backends.begin(), backends.end(), ShaderBackend::Vulkan) != backends.end();
     Sha256 cacheKey;
     const std::string cookerContract=std::string(RuntimeCompatibility::kBuildId)+
         "|shader-cooker-v2|"+

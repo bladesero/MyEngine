@@ -459,8 +459,8 @@ void EditorLayer::OpenProjectSettings() {
                  config.GetInputSettings().config.c_str(),
                  m_InputConfigPath.size() - 1);
     m_InputConfigPath.back() = '\0';
-    m_GraphicsBackendIndex =
-        config.GetGraphicsSettings().backend == "d3d12" ? 1 : 0;
+    const std::string& backend = config.GetGraphicsSettings().backend;
+    m_GraphicsBackendIndex = backend == "vulkan" ? 2 : (backend == "d3d12" ? 1 : 0);
     m_ProjectSettingsRequested = true;
 }
 
@@ -666,11 +666,12 @@ void EditorLayer::DrawProjectSettingsTab() {
 
 void EditorLayer::DrawGraphicsSettingsTab() {
 #if defined(MYENGINE_ENABLE_IMGUI)
-    static constexpr const char* kBackends[] = {"DirectX 11", "DirectX 12"};
+    static constexpr const char* kBackends[] = {"DirectX 11", "DirectX 12", "Vulkan"};
     ImGui::Combo("Backend", &m_GraphicsBackendIndex, kBackends,
-                 2);
+                 3);
     const RHIBackend active = m_RenderContext ? m_RenderContext->GetBackend() : RHIBackend::Unknown;
-    const char* activeLabel = active == RHIBackend::D3D12 ? "DirectX 12" :
+    const char* activeLabel = active == RHIBackend::Vulkan ? "Vulkan" :
+                              active == RHIBackend::D3D12 ? "DirectX 12" :
                               active == RHIBackend::D3D11 ? "DirectX 11" : "Unknown";
     ImGui::LabelText("Active backend", "%s", activeLabel);
     ImGui::LabelText("Apply", "%s", "next launch");
@@ -678,7 +679,8 @@ void EditorLayer::DrawGraphicsSettingsTab() {
         auto& editable = m_Project.GetConfig();
         const ProjectConfig previous = editable;
         editable.GetGraphicsSettings().backend =
-            m_GraphicsBackendIndex == 1 ? "d3d12" : "d3d11";
+            m_GraphicsBackendIndex == 2 ? "vulkan" :
+            (m_GraphicsBackendIndex == 1 ? "d3d12" : "d3d11");
         std::string error;
         if (editable.Save(&error)) {
             Logger::Info("[Editor] Graphics settings saved");

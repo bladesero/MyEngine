@@ -82,7 +82,7 @@ bool TestPublishHardeningPrimitives() {
 #if defined(__APPLE__)
     manifest.requiredBackends = {"metal"};
 #else
-    manifest.requiredBackends = {"d3d11", "d3d12"};
+    manifest.requiredBackends = {"d3d11", "d3d12", "vulkan"};
 #endif
     manifest.runtimeDependenciesHash = std::string(64, '0');
     manifest.archiveHash = std::string(64, '1');
@@ -93,12 +93,12 @@ bool TestPublishHardeningPrimitives() {
     if (!Check(!manifest.Validate(&error) && error.find("unsupported") != std::string::npos,
                "legacy Manifest v1 was not rejected explicitly")) return false;
     manifest.version = CookManifest::kCurrentVersion;
-    manifest.requiredBackends = {"d3d11"};
-    if (!Check(!manifest.Validate(&error), "manifest with missing D3D12 backend was accepted")) return false;
+    manifest.requiredBackends = {"d3d11", "d3d12"};
+    if (!Check(!manifest.Validate(&error), "manifest with missing Vulkan backend was accepted")) return false;
 #if defined(__APPLE__)
     manifest.requiredBackends = {"metal"};
 #else
-    manifest.requiredBackends = {"d3d11", "d3d12"};
+    manifest.requiredBackends = {"d3d11", "d3d12", "vulkan"};
 #endif
 
     fs::create_directories(root / "Runtime");
@@ -198,6 +198,8 @@ bool TestProjectConfigAndPortableAssetPaths() {
     if (!Check(!loaded.SetInputConfigPath("../Outside.input.json", &error),
                "traversal input config path was accepted")) return false;
     loaded.GetGraphicsSettings().backend = "vulkan";
+    if (!Check(loaded.Save(&error), "supported Vulkan graphics backend was rejected")) return false;
+    loaded.GetGraphicsSettings().backend = "opengl";
     if (!Check(!loaded.Save(&error),
                "unsupported graphics backend was accepted")) return false;
     loaded.GetGraphicsSettings().backend = "d3d11";
@@ -445,14 +447,16 @@ bool TestWorkspaceCookAndPublish() {
     if (!Check(cookedShader && cookedShader->IsCooked() &&
                cookedShader->GetBytecode(ShaderBackend::D3D11, ShaderStage::Vertex).empty() &&
                cookedShader->GetBytecode(ShaderBackend::D3D12, ShaderStage::Pixel).empty() &&
-               !cookedShader->GetBytecode(ShaderBackend::Metal, ShaderStage::Vertex).empty(),
+               !cookedShader->GetBytecode(ShaderBackend::Metal, ShaderStage::Vertex).empty() &&
+               cookedShader->GetBytecode(ShaderBackend::Vulkan, ShaderStage::Vertex).empty(),
                "published macOS shader does not contain the expected Metal backend")) return false;
 #else
     if (!Check(cookedShader && cookedShader->IsCooked() &&
                !cookedShader->GetBytecode(ShaderBackend::D3D11, ShaderStage::Vertex).empty() &&
                !cookedShader->GetBytecode(ShaderBackend::D3D12, ShaderStage::Pixel).empty() &&
+               !cookedShader->GetBytecode(ShaderBackend::Vulkan, ShaderStage::Vertex).empty() &&
                cookedShader->GetBytecode(ShaderBackend::Metal, ShaderStage::Vertex).empty(),
-               "published Windows shader does not contain the expected D3D backends")) return false;
+               "published Windows shader does not contain the expected D3D/Vulkan backends")) return false;
 #endif
     std::ifstream payload(extracted / "Content/Data/payload.bin", std::ios::binary);
     std::string payloadText((std::istreambuf_iterator<char>(payload)),

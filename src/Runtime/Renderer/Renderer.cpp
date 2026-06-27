@@ -54,7 +54,6 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
     };
     GpuCommandList* commandList = m_FrameContext->GetGraphicsCommandList();
     if (!commandList) {
-        Logger::Error("[Renderer] RHI returned no graphics command list");
         endFrameOnFailure();
         return;
     }
@@ -125,7 +124,8 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
     }
     const bool backendSupportsPostProcess = m_Device->GetBackend() == RHIBackend::D3D11 ||
                                             m_Device->GetBackend() == RHIBackend::D3D12 ||
-                                            m_Device->GetBackend() == RHIBackend::Metal;
+                                            m_Device->GetBackend() == RHIBackend::Metal ||
+                                            m_Device->GetBackend() == RHIBackend::Vulkan;
     const bool useOffscreen = backendSupportsPostProcess || m_OutputOffscreen;
     m_MainPass->SetHdrPassthrough(useOffscreen);
     const uint32_t cascadeCount = m_ShadowPass->GetCascadeCount();

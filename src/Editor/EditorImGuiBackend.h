@@ -5,7 +5,9 @@
 #include "Renderer/RHI/IEditorImGuiRHIInterop.h"
 #include "Renderer/RHI/GpuTextureView.h"
 
+#include <cstdint>
 #include <memory>
+#include <unordered_map>
 
 class IWindow;
 struct ImDrawData;
@@ -32,10 +34,19 @@ public:
     bool IsInitialized() const { return m_Initialized; }
 
 private:
+    struct CachedVulkanTexture {
+        void* descriptor = nullptr;
+        void* imageView = nullptr;
+        void* sampler = nullptr;
+        uint32_t imageLayout = 0;
+    };
+
     bool RebuildFontTextureNow();
+    void ClearVulkanTextureCache();
 
     IEditorImGuiRHIInterop* m_Interop = nullptr;
     IWindow* m_Window = nullptr;
+    std::unordered_map<GpuTextureView*, CachedVulkanTexture> m_VulkanTextureCache;
     bool m_Initialized = false;
     bool m_FontTextureRebuildPending = false;
 };

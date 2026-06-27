@@ -99,7 +99,10 @@ bool SvgIcon(EditorContext& context, const char* icon, float size, IconColor col
     GpuTextureView* view = IconsManager::Get().GetOrUpload(
         *renderContext, icon, static_cast<int>(size + 0.5f), color);
     void* texture = view ? backend->GetTextureId(view) : nullptr;
-    if (!texture) return false;
+    if (!texture) {
+        ImGui::Dummy({size, size});
+        return false;
+    }
     ImGui::Image(reinterpret_cast<ImTextureID>(texture), {size, size});
     return true;
 #else

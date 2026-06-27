@@ -151,38 +151,6 @@
             "components": [
                 {
                     "data": {
-                        "material": "Content/Materials/NewMaterial.mat"
-                    },
-                    "enabled": true,
-                    "type": "MeshRenderer"
-                }
-            ],
-            "id": 3,
-            "name": "monkey",
-            "parentID": 0,
-            "transform": {
-                "position": [
-                    -1.266559362411499,
-                    -0.5912749171257019,
-                    -2.128021001815796
-                ],
-                "rotation": [
-                    0.0,
-                    -0.0,
-                    -0.0
-                ],
-                "scale": [
-                    1.0,
-                    1.0,
-                    1.0
-                ]
-            }
-        },
-        {
-            "active": true,
-            "components": [
-                {
-                    "data": {
                         "material": "__builtin__/Default",
                         "mesh": "__builtin__/Cube"
                     },

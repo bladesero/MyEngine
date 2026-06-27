@@ -61,6 +61,30 @@ add_requires("joltphysics v5.5.0", { configs = {
     cross_platform_deterministic = false
 } })
 add_requires("angelscript 2.38.0")
+
+function add_vulkan_loader_link()
+    add_syslinks("vulkan-1")
+    local sdk = os.getenv("VULKAN_SDK")
+    if sdk and sdk ~= "" then
+        local libdir = path.join(sdk, "Lib")
+        if os.isdir(libdir) then
+            add_linkdirs(libdir)
+            return
+        end
+    end
+    local roots = os.dirs("C:/VulkanSDK/*")
+    if roots then
+        table.sort(roots)
+        local selected = roots[#roots]
+        if selected then
+            local libdir = path.join(selected, "Lib")
+            if os.isdir(libdir) then
+                add_linkdirs(libdir)
+            end
+        end
+    end
+end
+
 -- Must live in rule after_build: root xmake.lua locals use project-scope `os` (no os.cp).
 rule("copy_game_content")
     after_build(function (target)
@@ -160,7 +184,8 @@ rule("copy_runtime_library")
 rule_end()
 
 if is_plat("windows") then
-    add_requires("imgui", { version = "v1.91.3-docking", configs = { sdl3 = true, dx11 = true, dx12 = true } })
+    add_requires("vulkan-headers 1.4.335+0")
+    add_requires("imgui", { version = "v1.91.3-docking", configs = { sdl3 = true, dx11 = true, dx12 = true, vulkan = true } })
 else
     add_requires("imgui", { version = "v1.91.3-docking", configs = { sdl3 = true } })
 end
@@ -287,7 +312,11 @@ target("MyEngineRuntime")
         "src/Runtime/Math/Mat4Inverse.cpp"
     )
     if is_plat("windows") then
-        add_files("src/Runtime/Renderer/D3D11Context.cpp", "src/Runtime/Renderer/D3D12Context.cpp")
+        add_files(
+            "src/Runtime/Renderer/D3D11Context.cpp",
+            "src/Runtime/Renderer/D3D12Context.cpp",
+            "src/Runtime/Renderer/VulkanContext.cpp"
+        )
     elseif is_plat("macosx") then
         add_files("src/Runtime/Renderer/MetalContext.mm")
     end
@@ -298,6 +327,7 @@ target("MyEngineRuntime")
     if is_plat("windows") then
         add_rules("utils.symbols.export_all")
         add_syslinks("d3d11", "d3d12", "dxgi", "d3dcompiler", "comdlg32", "user32")
+        add_vulkan_loader_link()
         add_cxflags("/utf-8", { toolset = "msvc" })
     elseif is_plat("macosx") then
         add_deps("imgui_metal")
@@ -332,6 +362,7 @@ target("MyEngineRuntime")
 
     if is_plat("windows") then
         add_defines("MYENGINE_PLATFORM_WINDOWS", { public = true })
+        add_packages("vulkan-headers", { public = true })
     elseif is_plat("macosx") then
         add_defines("MYENGINE_PLATFORM_MACOS", { public = true })
     elseif is_plat("linux") then
@@ -415,6 +446,7 @@ target("MyEngineEditor")
         "src/Editor/Panels/AssetBrowserPanel.cpp",
         "src/Editor/Panels/LogPanel.cpp",
         "src/Editor/EditorImGuiBackend.cpp",
+        "src/Editor/EditorImGuiVulkanBridge.cpp",
         "src/Editor/EditorResourceOperator.cpp",
         "thirdparty/ImGuizmo/ImGuizmo.cpp", { warnings = "none" }
     )
@@ -434,6 +466,8 @@ target("MyEngineEditor")
         add_files("src/Runtime/Miscs/Resources/MyEngineEditor.rc")
         add_cxflags("/utf-8", { toolset = "msvc" })
         add_syslinks("dxgi")
+        add_vulkan_loader_link()
+        add_packages("vulkan-headers")
     elseif is_plat("macosx") then
         add_files("src/Editor/EditorImGuiMetalBridge.mm")
         add_deps("imgui_metal")
@@ -545,6 +579,7 @@ target("MyEngineTests")
         "src/Editor/Panels/AssetBrowserPanel.cpp",
         "src/Editor/Panels/LogPanel.cpp",
         "src/Editor/EditorImGuiBackend.cpp",
+        "src/Editor/EditorImGuiVulkanBridge.cpp",
         "src/Editor/EditorResourceOperator.cpp",
         "thirdparty/ImGuizmo/ImGuizmo.cpp", { warnings = "none" }
     )
@@ -563,6 +598,8 @@ target("MyEngineTests")
     if is_plat("windows") then
         add_cxflags("/utf-8", { toolset = "msvc" })
         add_syslinks("dxgi")
+        add_vulkan_loader_link()
+        add_packages("vulkan-headers")
     elseif is_plat("macosx") then
         add_files("src/Editor/EditorImGuiMetalBridge.mm")
         add_deps("imgui_metal")

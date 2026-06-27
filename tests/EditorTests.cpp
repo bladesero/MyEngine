@@ -575,6 +575,7 @@ bool TestEditorStatusBarTextAndActionRouting() {
                "status bar asset selection mismatch")) return false;
     if (!Check(Editor::UI::EditorStatusBar::FormatBackendText(RHIBackend::D3D12) == "D3D12" &&
                Editor::UI::EditorStatusBar::FormatBackendText(RHIBackend::D3D11) == "D3D11" &&
+               Editor::UI::EditorStatusBar::FormatBackendText(RHIBackend::Vulkan) == "Vulkan" &&
                Editor::UI::EditorStatusBar::FormatBackendText(RHIBackend::Unknown) == "Unknown",
                "status bar backend text mismatch")) return false;
 

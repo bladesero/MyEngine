@@ -9,8 +9,8 @@
 #include <vector>
 
 enum class ShaderStage : uint8_t { Vertex = 0, Pixel = 1, Compute = 2 };
-enum class ShaderBackend : uint8_t { D3D11 = 0, D3D12 = 1, Metal = 2 };
-inline constexpr size_t kShaderBackendCount = 3;
+enum class ShaderBackend : uint8_t { D3D11 = 0, D3D12 = 1, Metal = 2, Vulkan = 3 };
+inline constexpr size_t kShaderBackendCount = 4;
 inline constexpr size_t kShaderStageCount = 3;
 
 struct ShaderStageSource {
@@ -21,7 +21,8 @@ struct ShaderStageSource {
 class ShaderAsset final : public Asset {
 public:
     static constexpr uint32_t kDescriptionVersion = 1;
-    static constexpr uint32_t kCookedFormatVersion = 2;
+    static constexpr uint32_t kCookedFormatVersion = 3;
+    static constexpr uint32_t kCookedFormatVersionWithMetal = 2;
     static constexpr uint32_t kLegacyCookedFormatVersion = 1;
     static constexpr uint32_t kFormatVersion = kDescriptionVersion;
     static constexpr uint32_t kVertexMask = 1u << 0;

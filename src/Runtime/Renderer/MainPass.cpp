@@ -357,7 +357,8 @@ GpuShader* MainPass::GetOrCreateShader()
 
 #ifdef MYENGINE_PLATFORM_WINDOWS
     const bool supportsWindowsPbr = Device()->GetBackend() == RHIBackend::D3D11 ||
-                                    Device()->GetBackend() == RHIBackend::D3D12;
+                                    Device()->GetBackend() == RHIBackend::D3D12 ||
+                                    Device()->GetBackend() == RHIBackend::Vulkan;
     if (supportsWindowsPbr) {
         if (!m_MainShaderHandle) {
             m_MainShaderHandle = ShaderManager::Get().GetOrCreate(

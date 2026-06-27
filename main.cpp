@@ -38,7 +38,11 @@ bool ApplyBackendValue(const std::string& value, ApplicationConfig& cfg) {
         cfg.backend = RenderBackend::D3D12;
         return true;
     }
-    Logger::Warn("Unknown backend: ", value, " (use d3d11/d3d12)");
+    if (value == "vulkan" || value == "vk") {
+        cfg.backend = RenderBackend::Vulkan;
+        return true;
+    }
+    Logger::Warn("Unknown backend: ", value, " (use d3d11/d3d12/vulkan)");
 #else
     Logger::Warn("--backend flag ignored: not on Windows (got: ", value, ")");
 #endif
@@ -85,7 +89,7 @@ void ApplyProjectBackend(const std::filesystem::path& projectRoot,
 // --------------------------------------------------------------------------
 // MyApp bootstraps the platform render context and pushes layers.
 //
-//  Windows : D3D11 (default) or D3D12 (--backend d3d12)
+//  Windows : D3D11 (default), D3D12, or Vulkan
 //  macOS   : Metal
 // --------------------------------------------------------------------------
 class MyApp : public Application {
@@ -104,6 +108,9 @@ protected:
         switch (m_Backend) {
         case RenderBackend::D3D12:
             m_RenderContext = CreateD3D12Context();
+            break;
+        case RenderBackend::Vulkan:
+            m_RenderContext = CreateVulkanContext();
             break;
         case RenderBackend::D3D11:
         default:
@@ -164,7 +171,7 @@ static int RunEditor(int argc, char* argv[]) {
         AssetManager::Get().SetEngineContentRoot(bundledEngineContent);
     }
 
-    // Optional: --backend d3d11 | d3d12  (Windows only)
+    // Optional: --backend d3d11 | d3d12 | vulkan  (Windows only)
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
         if (arg == "--project" && i + 1 < argc) {

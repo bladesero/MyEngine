@@ -32,6 +32,7 @@ using IRenderContext = IRHIContext;
 #ifdef MYENGINE_PLATFORM_WINDOWS
 std::unique_ptr<IRenderContext> CreateD3D11Context();
 std::unique_ptr<IRenderContext> CreateD3D12Context();
+std::unique_ptr<IRenderContext> CreateVulkanContext();
 #endif
 
 #ifdef MYENGINE_PLATFORM_MACOS

@@ -12,6 +12,7 @@ enum class RenderBackend : uint8_t {
     D3D11  = 0,
     D3D12  = 1,
     Metal  = 2,
+    Vulkan = 3,
 };
 
 // Choose a sensible compile-time default for each platform.

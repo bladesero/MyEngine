@@ -72,12 +72,13 @@ const char* TargetName(ShaderBackend backend) {
     case ShaderBackend::D3D11: return "dxbc";
     case ShaderBackend::D3D12: return "dxbc";
     case ShaderBackend::Metal: return "metal";
+    case ShaderBackend::Vulkan: return "spirv";
     }
     return "";
 }
 
 const char* ProfileName(ShaderStage stage, ShaderBackend backend) {
-    if (backend == ShaderBackend::Metal) return "";
+    if (backend == ShaderBackend::Metal || backend == ShaderBackend::Vulkan) return "";
     if (backend == ShaderBackend::D3D12) {
         switch (stage) {
         case ShaderStage::Vertex: return "vs_5_1";
@@ -122,7 +123,11 @@ std::string ReadText(const std::filesystem::path& path) {
 }
 
 bool RunCommand(const std::string& command) {
+#ifdef _WIN32
+    return std::system(("cmd.exe /S /C \"" + command + "\"").c_str()) == 0;
+#else
     return std::system(command.c_str()) == 0;
+#endif
 }
 }
 
@@ -164,7 +169,9 @@ bool ShaderCompilerSlang::CompileStageFromFile(
         return false;
     }
 
-    const auto output = TempPath(backend == ShaderBackend::Metal ? ".metal" : ".bin");
+    const auto output = TempPath(
+        backend == ShaderBackend::Metal ? ".metal" :
+        (backend == ShaderBackend::Vulkan ? ".spv" : ".bin"));
     const auto diag = TempPath(".txt");
     std::ostringstream command;
     command << Quote(SlangcPath())
@@ -173,6 +180,13 @@ bool ShaderCompilerSlang::CompileStageFromFile(
             << " -stage " << StageName(stage)
             << " -target " << target;
     command << " -matrix-layout-row-major";
+    if (backend == ShaderBackend::Vulkan) {
+        command << " -fvk-use-dx-layout"
+                << " -fvk-b-shift 0 0"
+                << " -fvk-t-shift 16 0"
+                << " -fvk-s-shift 64 0"
+                << " -fvk-u-shift 128 0";
+    }
     if (*profile) command << " -profile " << profile;
     command << " -o " << Quote(output.string());
     for (const auto& define : defines) command << " -D" << Quote(define);

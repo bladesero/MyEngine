@@ -108,7 +108,7 @@ try {
     $cookManifest = Get-Content -Raw (Join-Path $package "CookManifest.json") |
         ConvertFrom-Json
     if ($cookManifest.version -ne 2 -or $cookManifest.hashAlgorithm -ne "sha256" -or
-        (@($cookManifest.requiredBackends) -join ",") -ne "d3d11,d3d12") {
+        (@($cookManifest.requiredBackends) -join ",") -ne "d3d11,d3d12,vulkan") {
         throw "CookManifest v2 compatibility contract is incomplete"
     }
     foreach ($dependency in $runtimeManifest.files) {
@@ -126,9 +126,10 @@ try {
         throw "CookManifest contains shader source files"
     }
 
-    Write-Output "==> Launch D3D11 and D3D12"
+    Write-Output "==> Launch D3D11, D3D12, and Vulkan"
     Assert-PlayerRuns $package "d3d11" "Content/Scenes/Main.scene.json"
     Assert-PlayerRuns $package "d3d12"
+    Assert-PlayerRuns $package "vulkan"
 
     Write-Output "==> Validate failure paths"
     $corrupt = Copy-Package $package "CorruptArchive"

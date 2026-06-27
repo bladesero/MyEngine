@@ -93,6 +93,7 @@ std::string EditorStatusBar::FormatBackendText(RHIBackend backend)
         case RHIBackend::D3D11: return "D3D11";
         case RHIBackend::D3D12: return "D3D12";
         case RHIBackend::Metal: return "Metal";
+        case RHIBackend::Vulkan: return "Vulkan";
         default: return "Unknown";
     }
 }

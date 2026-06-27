@@ -31,7 +31,9 @@ std::shared_ptr<GpuShader> ShaderManager::CompileRecord(const ShaderRecord& rec)
     const RHIBackend activeBackend = m_Device->GetBackend();
     const ShaderBackend backend = activeBackend == RHIBackend::Metal
         ? ShaderBackend::Metal
-        : (activeBackend == RHIBackend::D3D12 ? ShaderBackend::D3D12 : ShaderBackend::D3D11);
+        : (activeBackend == RHIBackend::Vulkan
+            ? ShaderBackend::Vulkan
+            : (activeBackend == RHIBackend::D3D12 ? ShaderBackend::D3D12 : ShaderBackend::D3D11));
     if (asset.IsCooked()) {
         if (rec.compute) {
             const auto& cs = asset.GetBytecode(backend, ShaderStage::Compute);
@@ -43,14 +45,14 @@ std::shared_ptr<GpuShader> ShaderManager::CompileRecord(const ShaderRecord& rec)
         return m_Device->CreateShaderFromBytecode(vs.data(), vs.size(), ps.data(), ps.size(),
             rec.layout.data(), static_cast<uint32_t>(rec.layout.size()));
     }
-    if (activeBackend == RHIBackend::Metal) {
+    if (activeBackend == RHIBackend::Metal || activeBackend == RHIBackend::Vulkan) {
         if (rec.compute) {
             std::vector<uint8_t> cs;
             std::string error;
             const auto& stage = asset.GetStage(ShaderStage::Compute);
             if (!ShaderCompilerSlang::CompileStageFromFile(
                     asset.ResolveSource(ShaderStage::Compute), stage.entry,
-                    ShaderStage::Compute, ShaderBackend::Metal, cs, asset.GetDefines(), &error)) {
+                    ShaderStage::Compute, backend, cs, asset.GetDefines(), &error)) {
                 Logger::Error("[ShaderManager] ", error);
                 return {};
             }
@@ -62,10 +64,10 @@ std::shared_ptr<GpuShader> ShaderManager::CompileRecord(const ShaderRecord& rec)
         const auto& psStage = asset.GetStage(ShaderStage::Pixel);
         if (!ShaderCompilerSlang::CompileStageFromFile(
                 asset.ResolveSource(ShaderStage::Vertex), vsStage.entry,
-                ShaderStage::Vertex, ShaderBackend::Metal, vs, asset.GetDefines(), &error) ||
+                ShaderStage::Vertex, backend, vs, asset.GetDefines(), &error) ||
             !ShaderCompilerSlang::CompileStageFromFile(
                 asset.ResolveSource(ShaderStage::Pixel), psStage.entry,
-                ShaderStage::Pixel, ShaderBackend::Metal, ps, asset.GetDefines(), &error)) {
+                ShaderStage::Pixel, backend, ps, asset.GetDefines(), &error)) {
             Logger::Error("[ShaderManager] ", error);
             return {};
         }

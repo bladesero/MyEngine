@@ -23,7 +23,7 @@ bool ProjectConfig::IsWithin(const fs::path& path, const fs::path& parent)
 
 bool ProjectConfig::IsSupportedGraphicsBackend(std::string_view backend)
 {
-    return backend == "d3d11" || backend == "d3d12";
+    return backend == "d3d11" || backend == "d3d12" || backend == "vulkan";
 }
 
 bool ProjectConfig::Open(fs::path projectRoot, bool allowMissing, std::string* error)

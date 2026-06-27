@@ -158,13 +158,25 @@ bool PostProcessPass::EnsureResources() {
         RHITextureDesc desc; desc.width = m_Width; desc.height = m_Height;
         desc.format = format; desc.usage = usage; desc.debugName = name;
         texture = device->CreateTexture(desc);
+        if (!texture) {
+            Logger::Error("[PostProcessPass] Failed to create texture: ", name);
+            return false;
+        }
         RHITextureViewDesc outDesc;
         outDesc.usage = HasUsage(usage, RHIResourceUsage::DepthStencil)
             ? RHIResourceUsage::DepthStencil : RHIResourceUsage::RenderTarget;
         output = device->CreateTextureView(texture, outDesc);
+        if (!output) {
+            Logger::Error("[PostProcessPass] Failed to create output view: ", name);
+            return false;
+        }
         RHITextureViewDesc inDesc; inDesc.usage = RHIResourceUsage::ShaderResource;
         input = device->CreateTextureView(texture, inDesc);
-        return texture && output && input;
+        if (!input) {
+            Logger::Error("[PostProcessPass] Failed to create shader-resource view: ", name);
+            return false;
+        }
+        return true;
     };
     if (!makeTexture("SceneColor", RHIFormat::RGBA16Float,
             RHIResourceUsage::RenderTarget | RHIResourceUsage::ShaderResource,
@@ -192,14 +204,29 @@ bool PostProcessPass::EnsureResources() {
     RHISamplerDesc noise; noise.filter = RHIFilter::Point;
     noise.addressU = noise.addressV = noise.addressW = RHIAddressMode::Repeat;
     m_NoiseSampler = device->CreateSampler(noise);
+    if (!m_LinearClamp || !m_PointClamp || !m_NoiseSampler) {
+        Logger::Error("[PostProcessPass] Failed to create post-process samplers");
+        resetResources();
+        return false;
+    }
     uint8_t pixels[4 * 4 * 4]; std::mt19937 rng(17); std::uniform_int_distribution<int> d(0, 255);
     for (size_t i = 0; i < sizeof(pixels); i += 4) {
         pixels[i] = static_cast<uint8_t>(d(rng)); pixels[i + 1] = static_cast<uint8_t>(d(rng));
         pixels[i + 2] = 128; pixels[i + 3] = 255;
     }
     m_Noise = device->UploadTexture2D(pixels, 4, 4);
+    if (!m_Noise) {
+        Logger::Error("[PostProcessPass] Failed to upload SSAO noise texture");
+        resetResources();
+        return false;
+    }
     RHITextureViewDesc noiseView; noiseView.usage = RHIResourceUsage::ShaderResource;
     m_NoiseSrv = device->CreateTextureView(m_Noise, noiseView);
+    if (!m_NoiseSrv) {
+        Logger::Error("[PostProcessPass] Failed to create SSAO noise texture view");
+        resetResources();
+        return false;
+    }
 
     m_FXAAHandle = ShaderManager::Get().GetOrCreate(
         "Content/Engine/Shaders/PostProcessFXAA.shader", nullptr, 0);
@@ -210,6 +237,11 @@ bool PostProcessPass::EnsureResources() {
     m_FXAAShader = m_FXAAHandle ? m_FXAAHandle->shader : nullptr;
     m_SSAOShader = m_SSAOHandle ? m_SSAOHandle->shader : nullptr;
     m_BlurShader = m_BlurHandle ? m_BlurHandle->shader : nullptr;
+    if (!m_FXAAShader || !m_SSAOShader || !m_BlurShader) {
+        Logger::Error("[PostProcessPass] Failed to load post-process shaders");
+        resetResources();
+        return false;
+    }
     m_FXAAVersion = m_FXAAHandle ? m_FXAAHandle->version : 0;
     m_SSAOVersion = m_SSAOHandle ? m_SSAOHandle->version : 0;
     m_BlurVersion = m_BlurHandle ? m_BlurHandle->version : 0;
@@ -221,14 +253,18 @@ bool PostProcessPass::EnsureResources() {
         ? RHIFormat::BGRA8UNorm : RHIFormat::RGBA8UNorm;
     pipeline.shader = m_FXAAShader; pipeline.colorFormats = {backbufferFormat};
     m_FXAABackbufferPipeline = device->CreateGraphicsPipeline(pipeline);
+    if (!m_FXAABackbufferPipeline) Logger::Error("[PostProcessPass] Failed to create FXAA backbuffer pipeline");
     pipeline.colorFormats = {RHIFormat::RGBA16Float};
     m_FXAAOffscreenPipeline = device->CreateGraphicsPipeline(pipeline);
+    if (!m_FXAAOffscreenPipeline) Logger::Error("[PostProcessPass] Failed to create FXAA offscreen pipeline");
     pipeline.shader = m_SSAOShader; pipeline.colorFormats = {RHIFormat::R8UNorm};
     pipeline.rasterizer.cullMode = RHICullMode::None;
     m_SSAOPipeline = device->CreateGraphicsPipeline(pipeline);
+    if (!m_SSAOPipeline) Logger::Error("[PostProcessPass] Failed to create SSAO pipeline");
     pipeline.shader = m_BlurShader;
     pipeline.rasterizer.cullMode = RHICullMode::None;
     m_BlurPipeline = device->CreateGraphicsPipeline(pipeline);
+    if (!m_BlurPipeline) Logger::Error("[PostProcessPass] Failed to create SSAO blur pipeline");
     if (!resourcesComplete()) {
         resetResources();
         return false;
