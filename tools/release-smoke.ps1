@@ -1,5 +1,6 @@
 param(
-    [string]$Project = (Resolve-Path (Join-Path $PSScriptRoot ".."))
+    [string]$Project = (Resolve-Path (Join-Path $PSScriptRoot "..")),
+    [switch]$Vulkan
 )
 
 $ErrorActionPreference = "Stop"
@@ -72,7 +73,9 @@ try {
     if (-not $xmake) { throw "xmake was not found on PATH." }
 
     Write-Output "==> Configure and build release Player/Cooker"
-    & $xmake.Source f -m release
+    $configureArgs = @("f", "-m", "release")
+    if ($Vulkan) { $configureArgs += "--vulkan=y" }
+    & $xmake.Source @configureArgs
     if ($LASTEXITCODE -ne 0) { throw "xmake release configure failed." }
     & $xmake.Source build MyEnginePlayer
     if ($LASTEXITCODE -ne 0) { throw "release Player build failed." }
@@ -107,8 +110,9 @@ try {
     }
     $cookManifest = Get-Content -Raw (Join-Path $package "CookManifest.json") |
         ConvertFrom-Json
+    $expectedBackends = if ($Vulkan) { "d3d11,d3d12,vulkan" } else { "d3d11,d3d12" }
     if ($cookManifest.version -ne 2 -or $cookManifest.hashAlgorithm -ne "sha256" -or
-        (@($cookManifest.requiredBackends) -join ",") -ne "d3d11,d3d12,vulkan") {
+        (@($cookManifest.requiredBackends) -join ",") -ne $expectedBackends) {
         throw "CookManifest v2 compatibility contract is incomplete"
     }
     foreach ($dependency in $runtimeManifest.files) {
@@ -126,10 +130,13 @@ try {
         throw "CookManifest contains shader source files"
     }
 
-    Write-Output "==> Launch D3D11, D3D12, and Vulkan"
+    Write-Output "==> Launch D3D11 and D3D12"
     Assert-PlayerRuns $package "d3d11" "Content/Scenes/Main.scene.json"
     Assert-PlayerRuns $package "d3d12"
-    Assert-PlayerRuns $package "vulkan"
+    if ($Vulkan) {
+        Write-Output "==> Launch Vulkan"
+        Assert-PlayerRuns $package "vulkan"
+    }
 
     Write-Output "==> Validate failure paths"
     $corrupt = Copy-Package $package "CorruptArchive"

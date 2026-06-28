@@ -39,10 +39,19 @@ bool ApplyBackendValue(const std::string& value, ApplicationConfig& cfg) {
         return true;
     }
     if (value == "vulkan" || value == "vk") {
+#if defined(MYENGINE_ENABLE_VULKAN)
         cfg.backend = RenderBackend::Vulkan;
         return true;
+#else
+        Logger::Warn("Vulkan backend is not compiled in; use xmake f -m debug --vulkan=y");
+        return false;
+#endif
     }
-    Logger::Warn("Unknown backend: ", value, " (use d3d11/d3d12/vulkan)");
+    Logger::Warn("Unknown backend: ", value, " (use d3d11/d3d12"
+#if defined(MYENGINE_ENABLE_VULKAN)
+                 "/vulkan"
+#endif
+                 ")");
 #else
     Logger::Warn("--backend flag ignored: not on Windows (got: ", value, ")");
 #endif
@@ -59,9 +68,15 @@ void ApplyProjectBackend(const std::filesystem::path& projectRoot,
             Logger::Warn("[App] Failed to read project graphics settings: ", error);
             return false;
         }
-        ApplyBackendValue(project.GetGraphicsSettings().backend, cfg);
-        Logger::Info("[App] Using project graphics backend '",
-                     project.GetGraphicsSettings().backend, "' from ", root.string());
+        if (ApplyBackendValue(project.GetGraphicsSettings().backend, cfg)) {
+            Logger::Info("[App] Using project graphics backend '",
+                         project.GetGraphicsSettings().backend, "' from ", root.string());
+        } else {
+            cfg.backend = kDefaultRenderBackend;
+            Logger::Warn("[App] Project graphics backend '",
+                         project.GetGraphicsSettings().backend,
+                         "' is unavailable; falling back to D3D11");
+        }
         return true;
     };
 
@@ -89,7 +104,7 @@ void ApplyProjectBackend(const std::filesystem::path& projectRoot,
 // --------------------------------------------------------------------------
 // MyApp bootstraps the platform render context and pushes layers.
 //
-//  Windows : D3D11 (default), D3D12, or Vulkan
+//  Windows : D3D11 (default), D3D12, or optional Vulkan
 //  macOS   : Metal
 // --------------------------------------------------------------------------
 class MyApp : public Application {
@@ -109,9 +124,15 @@ protected:
         case RenderBackend::D3D12:
             m_RenderContext = CreateD3D12Context();
             break;
+#if defined(MYENGINE_ENABLE_VULKAN)
         case RenderBackend::Vulkan:
             m_RenderContext = CreateVulkanContext();
             break;
+#else
+        case RenderBackend::Vulkan:
+            Logger::Error("[App] Vulkan backend is not compiled in");
+            return false;
+#endif
         case RenderBackend::D3D11:
         default:
             m_RenderContext = CreateD3D11Context();

@@ -69,9 +69,15 @@ protected:
         case RenderBackend::D3D12:
             m_RenderContext = CreateD3D12Context();
             break;
+#if defined(MYENGINE_ENABLE_VULKAN)
         case RenderBackend::Vulkan:
             m_RenderContext = CreateVulkanContext();
             break;
+#else
+        case RenderBackend::Vulkan:
+            Logger::Error("[Player] Vulkan backend is not compiled in");
+            return false;
+#endif
         case RenderBackend::D3D11:
         default:
             m_RenderContext = CreateD3D11Context();
@@ -149,9 +155,20 @@ static bool ParseBackend(const std::string& value, ApplicationConfig& cfg) {
 #ifdef MYENGINE_PLATFORM_WINDOWS
     if (value == "d3d11" || value == "11") cfg.backend = RenderBackend::D3D11;
     else if (value == "d3d12" || value == "12") cfg.backend = RenderBackend::D3D12;
-    else if (value == "vulkan" || value == "vk") cfg.backend = RenderBackend::Vulkan;
+    else if (value == "vulkan" || value == "vk") {
+#if defined(MYENGINE_ENABLE_VULKAN)
+        cfg.backend = RenderBackend::Vulkan;
+#else
+        Logger::Error("Vulkan backend is not compiled in; use xmake f -m debug --vulkan=y");
+        return false;
+#endif
+    }
     else {
-        Logger::Error("Unknown backend: ", value, " (use d3d11/d3d12/vulkan)");
+        Logger::Error("Unknown backend: ", value, " (use d3d11/d3d12"
+#if defined(MYENGINE_ENABLE_VULKAN)
+                      "/vulkan"
+#endif
+                      ")");
         return false;
     }
 #else
@@ -179,6 +196,9 @@ static void ApplyProjectBackend(const std::filesystem::path& projectRoot,
     }
     if (!ParseBackend(project.GetGraphicsSettings().backend, cfg)) {
         cfg.backend = kDefaultRenderBackend;
+        Logger::Warn("[Player] Project graphics backend '",
+                     project.GetGraphicsSettings().backend,
+                     "' is unavailable; falling back to D3D11");
     }
 #else
     (void)projectRoot;

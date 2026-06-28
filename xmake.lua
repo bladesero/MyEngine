@@ -37,6 +37,17 @@ option("mem_guard", function()
     add_defines("MYENGINE_MEM_GUARD")
 end)
 
+option("vulkan", function()
+    set_default(false)
+    set_showmenu(true)
+    set_category("rendering")
+    set_description("Compile the optional Windows Vulkan backend")
+end)
+
+function myengine_enable_vulkan()
+    return is_plat("windows") and get_config("vulkan") == true
+end
+
 add_requires("libsdl3 3.2.14", { configs = { shared = true } })
 -- imgui pulls libsdl3 as a transitive dep; without this, that instance defaults to static and you get
 -- SDL3-static.lib + SDL3.lib together (LNK2005 duplicate symbols on MSVC).
@@ -314,9 +325,11 @@ target("MyEngineRuntime")
     if is_plat("windows") then
         add_files(
             "src/Runtime/Renderer/D3D11Context.cpp",
-            "src/Runtime/Renderer/D3D12Context.cpp",
-            "src/Runtime/Renderer/VulkanContext.cpp"
+            "src/Runtime/Renderer/D3D12Context.cpp"
         )
+        if myengine_enable_vulkan() then
+            add_files("src/Runtime/Renderer/VulkanContext.cpp")
+        end
     elseif is_plat("macosx") then
         add_files("src/Runtime/Renderer/MetalContext.mm")
     end
@@ -327,7 +340,9 @@ target("MyEngineRuntime")
     if is_plat("windows") then
         add_rules("utils.symbols.export_all")
         add_syslinks("d3d11", "d3d12", "dxgi", "d3dcompiler", "comdlg32", "user32")
-        add_vulkan_loader_link()
+        if myengine_enable_vulkan() then
+            add_vulkan_loader_link()
+        end
         add_cxflags("/utf-8", { toolset = "msvc" })
     elseif is_plat("macosx") then
         add_deps("imgui_metal")
@@ -348,7 +363,7 @@ target("MyEngineRuntime")
     add_includedirs("thirdparty")
     add_packages("imgui", { public = true })
 
-    add_options("mem_stats", "mem_tracking", "mem_guard")
+    add_options("mem_stats", "mem_tracking", "mem_guard", "vulkan")
 
     add_defines("MYENGINE_ENABLE_IMGUI")
     add_defines("MYENGINE_BUILD_ID=dev_0_1_0")
@@ -362,7 +377,10 @@ target("MyEngineRuntime")
 
     if is_plat("windows") then
         add_defines("MYENGINE_PLATFORM_WINDOWS", { public = true })
-        add_packages("vulkan-headers", { public = true })
+        if myengine_enable_vulkan() then
+            add_defines("MYENGINE_ENABLE_VULKAN", { public = true })
+            add_packages("vulkan-headers", { public = true })
+        end
     elseif is_plat("macosx") then
         add_defines("MYENGINE_PLATFORM_MACOS", { public = true })
     elseif is_plat("linux") then
@@ -446,7 +464,6 @@ target("MyEngineEditor")
         "src/Editor/Panels/AssetBrowserPanel.cpp",
         "src/Editor/Panels/LogPanel.cpp",
         "src/Editor/EditorImGuiBackend.cpp",
-        "src/Editor/EditorImGuiVulkanBridge.cpp",
         "src/Editor/EditorResourceOperator.cpp",
         "thirdparty/ImGuizmo/ImGuizmo.cpp", { warnings = "none" }
     )
@@ -454,6 +471,7 @@ target("MyEngineEditor")
     add_deps("MyEngineRuntime")
     add_deps("MyEngineIconTool")
     add_deps("Lua")
+    add_options("vulkan")
     add_packages("tinyobjloader")
     add_packages("libsdl3")
     add_packages("nlohmann_json")
@@ -473,8 +491,12 @@ target("MyEngineEditor")
         add_files("src/Runtime/Miscs/Resources/MyEngineEditor.rc")
         add_cxflags("/utf-8", { toolset = "msvc" })
         add_syslinks("dxgi")
-        add_vulkan_loader_link()
-        add_packages("vulkan-headers")
+        if myengine_enable_vulkan() then
+            add_files("src/Editor/EditorImGuiVulkanBridge.cpp")
+            add_defines("MYENGINE_ENABLE_VULKAN")
+            add_vulkan_loader_link()
+            add_packages("vulkan-headers")
+        end
     elseif is_plat("macosx") then
         add_files("src/Editor/EditorImGuiMetalBridge.mm")
         add_deps("imgui_metal")
@@ -489,11 +511,15 @@ target("MyEnginePlayer")
     add_includedirs("src")
     add_deps("MyEngineRuntime")
     add_deps("MyEngineIconTool")
+    add_options("vulkan")
     add_packages("libsdl3")
     add_defines("MYENGINE_ENABLE_IMGUI")
     if is_plat("windows") then
         add_files("src/Runtime/Miscs/Resources/MyEnginePlayer.rc")
         add_cxflags("/utf-8", { toolset = "msvc" })
+        if myengine_enable_vulkan() then
+            add_defines("MYENGINE_ENABLE_VULKAN")
+        end
     end
     set_rundir("$(projectdir)")
 target_end()
@@ -509,6 +535,7 @@ target("MyEngineCooker")
     add_includedirs("src", "src/Editor")
     add_deps("MyEngineRuntime")
     add_deps("MyEngineIconTool")
+    add_options("vulkan")
     add_packages("nlohmann_json")
     add_defines("MYENGINE_BUILD_ID=dev_0_1_0")
     if is_mode("release") then
@@ -519,6 +546,9 @@ target("MyEngineCooker")
     if is_plat("windows") then
         add_files("src/Runtime/Miscs/Resources/MyEngineCooker.rc")
         add_cxflags("/utf-8", { toolset = "msvc" })
+        if myengine_enable_vulkan() then
+            add_defines("MYENGINE_ENABLE_VULKAN")
+        end
     end
     set_rundir("$(projectdir)")
 target_end()
@@ -586,14 +616,13 @@ target("MyEngineTests")
         "src/Editor/Panels/AssetBrowserPanel.cpp",
         "src/Editor/Panels/LogPanel.cpp",
         "src/Editor/EditorImGuiBackend.cpp",
-        "src/Editor/EditorImGuiVulkanBridge.cpp",
         "src/Editor/EditorResourceOperator.cpp",
         "thirdparty/ImGuizmo/ImGuizmo.cpp", { warnings = "none" }
     )
     add_includedirs("src", "src/Runtime", "src/Editor", "thirdparty/ImGuizmo")
     add_deps("MyEngineRuntime")
     add_deps("Lua")
-    add_options("mem_stats", "mem_tracking", "mem_guard")
+    add_options("mem_stats", "mem_tracking", "mem_guard", "vulkan")
     add_packages("tinyobjloader")
     add_packages("libsdl3")
     add_packages("nlohmann_json")
@@ -612,8 +641,12 @@ target("MyEngineTests")
     if is_plat("windows") then
         add_cxflags("/utf-8", { toolset = "msvc" })
         add_syslinks("dxgi")
-        add_vulkan_loader_link()
-        add_packages("vulkan-headers")
+        if myengine_enable_vulkan() then
+            add_files("src/Editor/EditorImGuiVulkanBridge.cpp")
+            add_defines("MYENGINE_ENABLE_VULKAN")
+            add_vulkan_loader_link()
+            add_packages("vulkan-headers")
+        end
     elseif is_plat("macosx") then
         add_files("src/Editor/EditorImGuiMetalBridge.mm")
         add_deps("imgui_metal")

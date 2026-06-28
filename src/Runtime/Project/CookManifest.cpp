@@ -29,7 +29,11 @@ bool SafeContentPath(const std::string& value) {
 std::vector<std::string> ExpectedRequiredBackends(const std::string& target)
 {
     if (target == PublishTargets::kMacOSArm64.id) return {"metal"};
+#if defined(MYENGINE_ENABLE_VULKAN)
     return {"d3d11", "d3d12", "vulkan"};
+#else
+    return {"d3d11", "d3d12"};
+#endif
 }
 }
 

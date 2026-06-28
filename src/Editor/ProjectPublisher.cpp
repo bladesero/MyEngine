@@ -52,13 +52,21 @@ bool CopyRequired(const fs::path& source, const fs::path& destination,
 std::vector<ShaderBackend> ShaderBackendsForTarget(const std::string& target)
 {
     if (target == PublishTargets::kMacOSArm64.id) return {ShaderBackend::Metal};
+#if defined(MYENGINE_ENABLE_VULKAN)
     return {ShaderBackend::D3D11, ShaderBackend::D3D12, ShaderBackend::Vulkan};
+#else
+    return {ShaderBackend::D3D11, ShaderBackend::D3D12};
+#endif
 }
 
 std::vector<std::string> RequiredBackendNamesForTarget(const std::string& target)
 {
     if (target == PublishTargets::kMacOSArm64.id) return {"metal"};
+#if defined(MYENGINE_ENABLE_VULKAN)
     return {"d3d11", "d3d12", "vulkan"};
+#else
+    return {"d3d11", "d3d12"};
+#endif
 }
 
 const char* ShaderBackendName(ShaderBackend backend)
