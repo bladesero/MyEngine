@@ -41,6 +41,7 @@ struct TextureDesc {
     TextureWrap   wrapU    = TextureWrap::Repeat;
     TextureWrap   wrapV    = TextureWrap::Repeat;
     bool          sRGB     = true;   // gamma-correct sampling
+    bool          generateCompressedMips = false;
 };
 
 struct TextureMipData {
@@ -70,6 +71,7 @@ public:
         static const std::vector<uint8_t> empty;
         return level < m_Mips.size() ? m_Mips[level].bc1 : empty;
     }
+    void GenerateCompressedMips();
 
     int  GetWidth()     const { return m_Desc.width;  }
     int  GetHeight()    const { return m_Desc.height; }

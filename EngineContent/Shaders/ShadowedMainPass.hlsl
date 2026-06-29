@@ -22,6 +22,7 @@ cbuffer PerDraw : register(b0)
     float4 g_LightInfo;
     float4 g_PointShadowPosition;
     float4 g_ShadowInfo;
+    float4 g_ShadowIntensity;
     float4 g_PostProcess;
     float4 g_PostProcess2;
     row_major float4x4 g_InstanceWorld[64];
@@ -56,6 +57,8 @@ StructuredBuffer<float4> g_EnvironmentSH2 : register(t9);
 
 #include "PBR_BRDF.hlsli"
 #include "EnvironmentRadiance.hlsli"
+
+static const float DIRECT_SHADOW_MIN_VISIBILITY = 0.03f;
 
 struct VSIn
 {
@@ -151,7 +154,7 @@ float SampleProjectedShadow(Texture2D shadowMap, SamplerState shadowSampler,
 
     float bias = max(0.0020f, 0.0100f * (1.0f - nDotL));
     float shadowDepth = shadowMap.Sample(shadowSampler, uv).r;
-    return ((proj.z - bias) <= shadowDepth) ? 1.0f : 0.35f;
+    return ((proj.z - bias) <= shadowDepth) ? 1.0f : DIRECT_SHADOW_MIN_VISIBILITY;
 }
 
 float SampleDirectionalCascade(float3 worldPos, float nDotL, uint cascade)
@@ -179,7 +182,7 @@ float SampleDirectionalCascade(float3 worldPos, float nDotL, uint cascade)
                 g_ShadowSampler, float3(offsetUv, (float)cascade), compareDepth);
         }
     }
-    return lerp(0.35f, 1.0f, shadow / 9.0f);
+    return lerp(DIRECT_SHADOW_MIN_VISIBILITY, 1.0f, shadow / 9.0f);
 }
 
 float SampleDirectionalShadow(float3 worldPos, float nDotL)
@@ -214,7 +217,7 @@ float SamplePointShadow(float3 worldPos, float nDotL)
     float sampledDepth = g_PointShadowMap.Sample(
         g_PointShadowSampler, lightToFragment).r;
     float bias = max(0.0030f, 0.0150f * (1.0f - nDotL));
-    return ((currentDepth - bias) <= sampledDepth) ? 1.0f : 0.35f;
+    return ((currentDepth - bias) <= sampledDepth) ? 1.0f : DIRECT_SHADOW_MIN_VISIBILITY;
 }
 
 float4 PSMain(VSOut p) : SV_TARGET
@@ -249,7 +252,8 @@ float4 PSMain(VSOut p) : SV_TARGET
 
     float shadow = 1.0f;
     if (g_ShadowInfo.x > 0.5f) {
-        shadow = SampleDirectionalShadow(p.worldPos, NdotL);
+        shadow = lerp(1.0f, SampleDirectionalShadow(p.worldPos, NdotL),
+            saturate(g_ShadowIntensity.x));
     }
 
     float3 direct = PbrDirectLighting(
@@ -271,7 +275,8 @@ float4 PSMain(VSOut p) : SV_TARGET
         float pointNdotL = saturate(dot(N, pointL));
         float pointShadow = 1.0f;
         if ((int)g_ShadowInfo.z == (int)lightIndex) {
-            pointShadow = SamplePointShadow(p.worldPos, pointNdotL);
+            pointShadow = lerp(1.0f, SamplePointShadow(p.worldPos, pointNdotL),
+                saturate(g_ShadowIntensity.z));
         }
         direct += PbrDirectLighting(
             albedo, metallic, roughness, N, V, pointL,
@@ -305,8 +310,9 @@ float4 PSMain(VSOut p) : SV_TARGET
         float spotShadow = 1.0f;
         if ((int)g_ShadowInfo.y == (int)spotIndex) {
             float4 spotLightPos = mul(float4(p.worldPos, 1.0f), g_SpotLightViewProj);
-            spotShadow = SampleProjectedShadow(
-                g_SpotShadowMap, g_SpotShadowSampler, spotLightPos, spotNdotL);
+            spotShadow = lerp(1.0f, SampleProjectedShadow(
+                g_SpotShadowMap, g_SpotShadowSampler, spotLightPos, spotNdotL),
+                saturate(g_ShadowIntensity.y));
         }
         direct += PbrDirectLighting(
             albedo, metallic, roughness, N, V, spotL,
@@ -326,9 +332,10 @@ float4 PSMain(VSOut p) : SV_TARGET
             albedo, metallic, roughness, ao, N, V, irradiance, prefilteredColor) *
             max(g_LightInfo.y, 0.0f) * max(g_IBLInfo.y, 0.0f);
     } else {
-        float3 environmentDiffuse = EnvironmentRadiance(N) / ENV_PI;
+        float3 sunDirection = normalize(-g_LightDirection.xyz);
+        float3 environmentDiffuse = EnvironmentRadiance(N, sunDirection) / ENV_PI;
         float3 environmentSpecular = EnvironmentRadiance(
-            normalize(lerp(reflectionDirection, N, roughness * roughness)));
+            normalize(lerp(reflectionDirection, N, roughness * roughness)), sunDirection);
         ambient = PbrEnvironmentLighting(
             albedo, metallic, roughness, ao, N, V, environmentDiffuse, environmentSpecular) *
             max(g_LightInfo.y, 0.0f);

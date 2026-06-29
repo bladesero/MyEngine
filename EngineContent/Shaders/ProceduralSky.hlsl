@@ -3,6 +3,7 @@ cbuffer SkyConstants : register(b0)
     float4 g_Forward;
     float4 g_Right;
     float4 g_Up;
+    float4 g_SunDirection;
     float4 g_Parameters;
 };
 
@@ -38,7 +39,7 @@ float4 PSMain(VSOut input) : SV_TARGET
         input.ndc.y * g_Parameters.x);
     float3 direction = normalize(
         g_Forward.xyz + g_Right.xyz * rayOffset.x + g_Up.xyz * rayOffset.y);
-    float3 hdrColor = EnvironmentRadiance(direction) * g_Parameters.z;
+    float3 hdrColor = EnvironmentRadiance(direction, g_SunDirection.xyz) * g_Parameters.z;
     if (g_Parameters.w > 0.5f)
         return float4(hdrColor, 1.0f);
 

@@ -27,6 +27,7 @@
 #endif
 
 #include <algorithm>
+#include <chrono>
 #include <cstring>
 #include <filesystem>
 #include <vector>
@@ -144,7 +145,9 @@ void EditorLayer::OnAttach() {
     m_Context.SetCommandStack(&m_CommandStack);
     m_Context.SetAssetRegistry(&m_AssetRegistry);
     m_Context.SetProject(&m_Project);
+    m_Context.SetProfiler(&m_Profiler);
     m_Context.SetShortcutMap(&m_Workspace.GetShortcuts());
+    m_AssetRegistry.SetProfiler(&m_Profiler);
     if (const char* basePath = SDL_GetBasePath()) {
         m_Workspace.SetTemplateRoot(std::filesystem::path(basePath) / "ProjectTemplates" / "Default");
     }
@@ -162,6 +165,7 @@ void EditorLayer::OnAttach() {
 }
 
 bool EditorLayer::OpenProject(const std::filesystem::path& root) {
+    const auto openStart = std::chrono::steady_clock::now();
     if (m_ProjectOpen) return false;
     if (!m_Project.Open(root, false)) {
         m_ProjectError = m_Project.GetLastError().empty()
@@ -184,7 +188,9 @@ bool EditorLayer::OpenProject(const std::filesystem::path& root) {
     AssetManager::Get().SetProjectRoot(m_Project.GetRoot());
     LoadProjectInputConfig();
     m_Context.SetProjectRoot(m_Project.GetRoot());
+    m_Context.SetProfiler(&m_Profiler);
     m_AssetRegistry.SetRoot(m_Project.GetContentRoot());
+    m_AssetRegistry.SetProfiler(&m_Profiler);
     m_AssetRegistry.Refresh();
     RegisterServices();
     RegisterPanels();
@@ -207,10 +213,23 @@ bool EditorLayer::OpenProject(const std::filesystem::path& root) {
         std::string error;
         m_Project.GetConfig().ResolveStartupScene(scenePath, &error);
     }
-    if (!scenePath.empty() && m_SceneLayer->LoadScene(scenePath.string())) {
+    bool loadedScene = false;
+    if (!scenePath.empty()) {
+        const auto sceneLoadStart = std::chrono::steady_clock::now();
+        loadedScene = m_SceneLayer->LoadScene(scenePath.string());
+        const double sceneLoadMs = std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - sceneLoadStart).count();
+        m_Profiler.RecordEvent("Editor", "Scene Load", sceneLoadMs,
+                               scenePath.generic_string());
+    }
+    if (loadedScene) {
         m_CommandStack.Clear();
         m_Context.GetSelection().Clear();
     }
+    const double openMs = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - openStart).count();
+    m_Profiler.RecordEvent("Editor", "OpenProject", openMs,
+                           m_Project.GetRoot().string());
     Logger::Info("[Editor] Opened project: ", m_Project.GetRoot().string());
     return true;
 }
@@ -352,6 +371,7 @@ void EditorLayer::RegisterPanels() {
     m_Panels.push_back(std::make_unique<SceneHierarchyPanel>());
     m_Panels.push_back(std::make_unique<InspectorPanel>(gizmo));
     m_Panels.push_back(std::make_unique<LogPanel>());
+    m_Panels.push_back(std::make_unique<ProfilerPanel>());
     m_Panels.push_back(std::make_unique<AssetBrowserPanel>());
     for (size_t index = 0; index < m_Panels.size(); ++index) {
         const auto& state = m_Project.GetState();

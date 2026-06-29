@@ -260,6 +260,7 @@ bool TestSceneSerializationRegression() {
     light->SetDirection({ 0.0f, -1.0f, 0.0f });
     light->SetInnerConeAngle(18.0f);
     light->SetOuterConeAngle(32.0f);
+    light->SetShadowIntensity(0.42f);
     auto* post = parent->AddComponent<PostProcessComponent>();
     post->SetExposure(1.4f);
     post->SetGamma(2.0f);
@@ -305,6 +306,7 @@ bool TestSceneSerializationRegression() {
                NearlyEqual(loadedLight->GetRange(), 12.0f) &&
                NearlyEqual(loadedLight->GetInnerConeAngle(), 18.0f) &&
                NearlyEqual(loadedLight->GetOuterConeAngle(), 32.0f) &&
+               NearlyEqual(loadedLight->GetShadowIntensity(), 0.42f) &&
                NearlyEqual(loadedLight->GetColor().z, 1.0f),
                "Light fields mismatch after deserialize")) return false;
     auto* loadedPost = loadedParent->GetComponent<PostProcessComponent>();
@@ -2471,9 +2473,13 @@ bool TestTextureDerivedData() {
                "texture mip chain was not generated")) return false;
     if (!Check(texture->GetMips()[1].width == 2 && texture->GetMips()[2].width == 1,
                "texture mip dimensions are invalid")) return false;
+    if (!Check(texture->GetCompressedMip(0).empty() &&
+               texture->GetCompressedMip(2).empty(),
+               "BC1 texture compression should be explicit for runtime imports")) return false;
+    texture->GenerateCompressedMips();
     return Check(texture->GetCompressedMip(0).size() == 8 &&
                  texture->GetCompressedMip(2).size() == 8,
-                 "BC1 texture compression output size mismatch");
+                 "explicit BC1 texture compression output size mismatch");
 }
 
 bool TestMemoryLinearAllocator() {

@@ -1,6 +1,8 @@
 #include "Editor/EditorAssetRegistry.h"
+#include "Editor/EditorProfiler.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cctype>
 #include <map>
 #include <unordered_map>
@@ -102,6 +104,7 @@ EditorAssetType EditorAssetRegistry::Classify(const std::filesystem::path& path)
     return EditorAssetType::Unknown;
 }
 void EditorAssetRegistry::Refresh() {
+    const auto start = std::chrono::steady_clock::now();
     m_Assets.clear();
     m_Folders.clear();
     std::error_code error;
@@ -186,6 +189,13 @@ void EditorAssetRegistry::Refresh() {
     for (auto& [path, folder] : folders) m_Folders.push_back(std::move(folder));
     std::sort(m_Folders.begin(), m_Folders.end(),
               [](const auto& a, const auto& b) { return a.relativePath < b.relativePath; });
+    const double ms = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - start).count();
+    if (m_Profiler) {
+        m_Profiler->RecordEvent("Editor", "AssetRegistry Refresh", ms,
+            "assets=" + std::to_string(m_Assets.size()) +
+            " folders=" + std::to_string(m_Folders.size()));
+    }
 }
 bool EditorAssetRegistry::WatchForChanges() {
     std::vector<EditorAssetInfo> before = m_Assets;

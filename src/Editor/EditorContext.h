@@ -12,6 +12,7 @@ class EditorActionRegistry;
 class EditorCommandStack;
 class EditorImGuiBackend;
 class EditorProject;
+class EditorProfiler;
 class EditorService;
 class EditorShortcutMap;
 class Engine;
@@ -65,6 +66,8 @@ public:
     EditorAssetRegistry* GetAssetRegistry() const { return m_AssetRegistry; }
     void SetProject(EditorProject* value) { m_Project = value; }
     EditorProject* GetProject() const { return m_Project; }
+    void SetProfiler(EditorProfiler* value) { m_Profiler = value; }
+    EditorProfiler* GetProfiler() const { return m_Profiler; }
     void SetActionRegistry(EditorActionRegistry* value) { m_ActionRegistry = value; }
     EditorActionRegistry* GetActionRegistry() const { return m_ActionRegistry; }
     void SetShortcutMap(EditorShortcutMap* value) { m_ShortcutMap = value; }
@@ -93,6 +96,7 @@ private:
     EditorCommandStack* m_CommandStack = nullptr;
     EditorAssetRegistry* m_AssetRegistry = nullptr;
     EditorProject* m_Project = nullptr;
+    EditorProfiler* m_Profiler = nullptr;
     EditorActionRegistry* m_ActionRegistry = nullptr;
     EditorShortcutMap* m_ShortcutMap = nullptr;
     EditorImGuiBackend* m_ImGuiBackend = nullptr;

@@ -21,6 +21,8 @@ public:
         uint32_t culledSubMeshes = 0;
         uint32_t bindGroupCreates = 0;
         uint32_t textureUploads = 0;
+        uint64_t textureUploadBytes = 0;
+        float textureUploadMs = 0.0f;
     };
 
     explicit MainPass(IRHIDevice* device);
@@ -50,6 +52,7 @@ public:
     void SetEnvironmentInput(GpuTexture* environmentCubemap,
                              std::shared_ptr<GpuBufferView> sh2Buffer,
                              const float* sh2Coefficients);
+    void SetSunDirection(const Vec3& direction);
     const Stats& GetLastStats() const { return m_LastStats; }
 
 private:
@@ -118,6 +121,7 @@ private:
     float m_CascadeSplits[4] = {};
     Mat4 m_SpotLightViewProj = Mat4::Identity();
     Vec3 m_LightDirection = Vec3{ -0.55f, -1.0f, -0.45f }.Normalized();
+    Vec3 m_SunDirection = Vec3{0.35f, 0.72f, 0.25f}.Normalized();
     bool m_DirectionalShadowEnabled = false;
     Vec3 m_PointShadowPosition = Vec3::Zero();
     float m_PointShadowRange = 1.0f;

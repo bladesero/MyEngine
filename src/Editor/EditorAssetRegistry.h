@@ -6,6 +6,8 @@
 
 #include "Assets/AssetDatabase.h"
 
+class EditorProfiler;
+
 enum class EditorAssetType { Unknown, Model, Texture, Material, Scene, Prefab, Script, Shader, Audio, UI };
 struct EditorAssetInfo {
     std::filesystem::path absolutePath;
@@ -30,6 +32,7 @@ class EditorAssetRegistry {
 public:
     static EditorAssetType Classify(const std::filesystem::path& path);
     void SetRoot(std::filesystem::path root) { m_Root = std::move(root); }
+    void SetProfiler(EditorProfiler* profiler) { m_Profiler = profiler; }
     void Refresh();
     bool WatchForChanges();
     std::vector<EditorAssetInfo> GetAssets(EditorAssetType filter = EditorAssetType::Unknown) const;
@@ -41,6 +44,7 @@ public:
     const std::filesystem::path& GetRoot() const { return m_Root; }
 private:
     std::filesystem::path m_Root;
+    EditorProfiler* m_Profiler = nullptr;
     std::vector<EditorAssetInfo> m_Assets;
     std::vector<EditorAssetFolderInfo> m_Folders;
 };

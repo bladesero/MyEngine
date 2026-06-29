@@ -18,6 +18,7 @@ bool EditorProjectState::IsPanelVisible(const std::string& panelID) const {
     if (panelID == "inspector") return showInspector;
     if (panelID == "assetBrowser") return showAssetBrowser;
     if (panelID == "log") return showLog;
+    if (panelID == "profiler") return true;
     return true;
 }
 
@@ -99,7 +100,8 @@ bool EditorProject::LoadState(std::string* error) {
         {"gameViewport", true},
         {"inspector", m_State.showInspector},
         {"assetBrowser", m_State.showAssetBrowser},
-        {"log", m_State.showLog}
+        {"log", m_State.showLog},
+        {"profiler", true}
     };
     const auto visibility = json.find("panelVisibility");
     if (visibility != json.end() && visibility->is_object()) {

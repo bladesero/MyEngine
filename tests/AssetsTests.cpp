@@ -450,6 +450,127 @@ bool TestGltfImportAndStableMeta() {
     return true;
 }
 
+bool TestGltfImporterDeduplicatesSharedTextures() {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "myengine_gltf_texture_dedupe_test";
+    std::error_code ec;
+    fs::remove_all(root, ec);
+    fs::create_directories(root);
+    const fs::path gltfPath = root / "shared_texture.gltf";
+    const fs::path binPath = root / "shared_texture.bin";
+    const fs::path imagePath = root / "shared.ppm";
+
+    std::vector<uint8_t> binary;
+    AppendBinary(binary, std::vector<float>{
+        0,0,0, 1,0,0, 0,1,0
+    });
+    AppendBinary(binary, std::vector<float>{
+        0,0,1, 0,0,1, 0,0,1
+    });
+    AppendBinary(binary, std::vector<float>{
+        0,0, 1,0, 0,1
+    });
+    AppendBinary(binary, std::vector<uint16_t>{ 0,1,2 });
+    {
+        std::ofstream output(binPath, std::ios::binary);
+        output.write(reinterpret_cast<const char*>(binary.data()),
+                     static_cast<std::streamsize>(binary.size()));
+    }
+    {
+        std::ofstream output(imagePath, std::ios::binary);
+        output << "P6\n2 2\n255\n";
+        const unsigned char pixels[12] = {
+            255, 0, 0, 0, 255, 0,
+            0, 0, 255, 255, 255, 255
+        };
+        output.write(reinterpret_cast<const char*>(pixels), sizeof(pixels));
+    }
+
+    nlohmann::json gltf;
+    gltf["asset"] = { { "version", "2.0" }, { "generator", "MyEngineTests" } };
+    gltf["buffers"] = nlohmann::json::array({
+        { { "uri", "shared_texture.bin" }, { "byteLength", binary.size() } }
+    });
+    gltf["bufferViews"] = nlohmann::json::array({
+        { { "buffer",0 }, { "byteOffset",0 },  { "byteLength",36 } },
+        { { "buffer",0 }, { "byteOffset",36 }, { "byteLength",36 } },
+        { { "buffer",0 }, { "byteOffset",72 }, { "byteLength",24 } },
+        { { "buffer",0 }, { "byteOffset",96 }, { "byteLength",6 } },
+    });
+    gltf["accessors"] = nlohmann::json::array({
+        { { "bufferView",0 }, { "componentType",5126 }, { "count",3 }, { "type","VEC3" },
+          { "min", nlohmann::json::array({0,0,0}) }, { "max", nlohmann::json::array({1,1,0}) } },
+        { { "bufferView",1 }, { "componentType",5126 }, { "count",3 }, { "type","VEC3" } },
+        { { "bufferView",2 }, { "componentType",5126 }, { "count",3 }, { "type","VEC2" } },
+        { { "bufferView",3 }, { "componentType",5123 }, { "count",3 }, { "type","SCALAR" } },
+    });
+    gltf["images"] = nlohmann::json::array({
+        { { "uri", "shared.ppm" }, { "name", "SharedImage" } }
+    });
+    gltf["textures"] = nlohmann::json::array({
+        { { "source", 0 } }
+    });
+    gltf["materials"] = nlohmann::json::array({
+        {
+            { "name","MatA" },
+            { "pbrMetallicRoughness", {
+                { "baseColorTexture", { { "index", 0 } } }
+            }}
+        },
+        {
+            { "name","MatB" },
+            { "pbrMetallicRoughness", {
+                { "baseColorTexture", { { "index", 0 } } }
+            }}
+        }
+    });
+    gltf["meshes"] = nlohmann::json::array({
+        {
+            { "name","TwoMaterials" },
+            { "primitives", nlohmann::json::array({
+                {
+                    { "attributes", { { "POSITION",0 }, { "NORMAL",1 }, { "TEXCOORD_0",2 } }},
+                    { "indices",3 }, { "material",0 }
+                },
+                {
+                    { "attributes", { { "POSITION",0 }, { "NORMAL",1 }, { "TEXCOORD_0",2 } }},
+                    { "indices",3 }, { "material",1 }
+                }
+            })}
+        }
+    });
+    gltf["nodes"] = nlohmann::json::array({ { { "mesh",0 } } });
+    gltf["scenes"] = nlohmann::json::array({
+        { { "nodes",nlohmann::json::array({0}) } }
+    });
+    gltf["scene"] = 0;
+    {
+        std::ofstream output(gltfPath);
+        output << gltf.dump(2);
+    }
+
+    AssetManager& manager = AssetManager::Get();
+    manager.Clear();
+    ModelHandle model = manager.Load<ModelAsset>(gltfPath.string());
+    if (!Check(model.IsValid(), "shared-texture glTF import failed")) return false;
+    if (!Check(model->MaterialCount() == 2,
+               "shared-texture glTF material count mismatch")) return false;
+    TextureHandle first = model->GetMaterial(0)->GetTexture("BaseColorMap");
+    TextureHandle second = model->GetMaterial(1)->GetTexture("BaseColorMap");
+    if (!Check(first.IsValid() && second.IsValid(),
+               "shared-texture glTF did not import material textures")) return false;
+    if (!Check(first.Get() == second.Get(),
+               "glTF importer created duplicate TextureAsset instances for one image")) return false;
+    if (!Check(first->GetPath() == gltfPath.string() + "#texture-0-srgb",
+               "glTF imported texture subasset path is not stable")) return false;
+    if (!Check(manager.GetByPath<TextureAsset>(gltfPath.string() + "#texture-0-srgb").Get() == first.Get(),
+               "stable glTF texture subasset path was not registered")) return false;
+
+    manager.Clear();
+    fs::remove_all(root, ec);
+    return true;
+}
+
 bool TestAssetAsyncLoadingAndHotReload() {
     namespace fs = std::filesystem;
     const fs::path root = fs::temp_directory_path() / "myengine_asset_reload_test";
@@ -600,9 +721,13 @@ bool TestTextureDerivedData() {
                "texture mip chain was not generated")) return false;
     if (!Check(texture->GetMips()[1].width == 2 && texture->GetMips()[2].width == 1,
                "texture mip dimensions are invalid")) return false;
+    if (!Check(texture->GetCompressedMip(0).empty() &&
+               texture->GetCompressedMip(2).empty(),
+               "BC1 texture compression should be explicit for runtime imports")) return false;
+    texture->GenerateCompressedMips();
     return Check(texture->GetCompressedMip(0).size() == 8 &&
                  texture->GetCompressedMip(2).size() == 8,
-                 "BC1 texture compression output size mismatch");
+                 "explicit BC1 texture compression output size mismatch");
 }
 
 bool TestTextureSamplerSettingsFromAssetDatabase() {
@@ -667,6 +792,7 @@ MYENGINE_REGISTER_TEST("Assets", "TestAssetManagerSharedAcrossRuntimeBoundary", 
 MYENGINE_REGISTER_TEST("Assets", "TestAssetFileImporters", TestAssetFileImporters);
 MYENGINE_REGISTER_TEST("Assets", "TestAudioClipAssetLoader", TestAudioClipAssetLoader);
 MYENGINE_REGISTER_TEST("Assets", "TestGltfImportAndStableMeta", TestGltfImportAndStableMeta);
+MYENGINE_REGISTER_TEST("Assets", "TestGltfImporterDeduplicatesSharedTextures", TestGltfImporterDeduplicatesSharedTextures);
 MYENGINE_REGISTER_TEST("Assets", "TestAssetAsyncLoadingAndHotReload", TestAssetAsyncLoadingAndHotReload);
 MYENGINE_REGISTER_TEST("Assets", "TestAssetManagerFailureRollback", TestAssetManagerFailureRollback);
 MYENGINE_REGISTER_TEST("Assets", "TestMeshDerivedData", TestMeshDerivedData);

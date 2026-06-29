@@ -37,6 +37,9 @@ public:
     bool CastsShadows() const { return m_CastShadows; }
     void SetCastShadows(bool enabled) { m_CastShadows = enabled; }
 
+    float GetShadowIntensity() const { return m_ShadowIntensity; }
+    void SetShadowIntensity(float intensity);
+
     void Serialize(nlohmann::json& data) const override;
     void Deserialize(const nlohmann::json& data) override;
 
@@ -49,4 +52,5 @@ private:
     float m_OuterConeAngle = 35.0f;
     Vec3 m_Direction = Vec3{ -0.55f, -1.0f, -0.45f }.Normalized();
     bool m_CastShadows = true;
+    float m_ShadowIntensity = 1.0f;
 };

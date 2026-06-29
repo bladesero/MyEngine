@@ -6,12 +6,14 @@ static const float ENV_PI = 3.14159265359f;
 // Analytical atmosphere sky model.
 // direction: world-space view direction (Y-up, +Z forward, left-handed).
 // Returns HDR radiance in the given direction.
-float3 EnvironmentRadiance(float3 direction)
+float3 EnvironmentRadiance(float3 direction, float3 sunDirection)
 {
-    float3 sunDirection = normalize(float3(0.35f, 0.72f, 0.25f));
+    sunDirection = normalize(sunDirection);
     float mu = dot(direction, sunDirection);
-    float viewHeight = saturate(direction.y * 0.5f + 0.5f);
-    float horizonAirMass = 1.0f / max(direction.y + 0.08f, 0.08f);
+    float skyMask = smoothstep(-0.025f, 0.025f, direction.y);
+    float horizonMask = 1.0f - smoothstep(0.015f, 0.18f, abs(direction.y));
+    float skyHeight = saturate(max(direction.y, 0.0f));
+    float horizonAirMass = 1.0f / max(skyHeight + 0.08f, 0.08f);
     horizonAirMass = min(horizonAirMass, 12.0f);
 
     float3 betaRayleigh = float3(5.8e-3f, 13.5e-3f, 33.1e-3f);
@@ -31,15 +33,18 @@ float3 EnvironmentRadiance(float3 direction)
         sunTransmittance * horizonAirMass * 35.0f;
 
     float3 extinction = exp(-(betaRayleigh + betaMie) * horizonAirMass);
-    float3 groundBounce = float3(0.025f, 0.028f, 0.030f) * (1.0f - viewHeight) *
+    float3 groundRadiance = float3(0.010f, 0.012f, 0.014f) *
+        (0.35f + 0.65f * sunHeight);
+    float3 horizonHaze = float3(0.055f, 0.075f, 0.105f) * horizonMask *
         (0.35f + 0.65f * sunHeight);
 
     float sunDisc = smoothstep(0.99980f, 0.99996f, mu);
     float sunGlow = pow(saturate(mu), 2048.0f);
     float3 solarRadiance = float3(24.0f, 20.0f, 14.0f) * sunTransmittance;
 
-    return inscatter * (1.0f - extinction * 0.45f) + groundBounce +
+    float3 skyRadiance = inscatter * (1.0f - extinction * 0.45f) +
         solarRadiance * (sunDisc + sunGlow * 0.35f);
+    return lerp(groundRadiance + horizonHaze, skyRadiance + horizonHaze, skyMask);
 }
 
 // ACES filmic tone mapping (Narkowicz fit).

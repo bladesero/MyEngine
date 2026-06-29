@@ -18,7 +18,7 @@
 namespace {
 constexpr const char* kDockSpaceName = "EditorDockSpace";
 constexpr const char* kRequiredPanels[] = {
-    "toolbar", "sceneHierarchy", "viewport", "gameViewport", "inspector", "assetBrowser", "log"
+    "toolbar", "sceneHierarchy", "viewport", "gameViewport", "inspector", "assetBrowser", "log", "profiler"
 };
 
 void SetError(std::string* error, std::string message)
@@ -62,7 +62,8 @@ EditorLayoutConfig EditorLayoutConfig::CreateDefault()
         {"gameViewport", "Game View", "center"},
         {"inspector", "Inspector", "right"},
         {"assetBrowser", "Asset Browser", "bottomLeft"},
-        {"log", "Log Output", "bottomCenter"}
+        {"log", "Log Output", "bottomCenter"},
+        {"profiler", "Profiler", "bottomCenter"}
     };
     return config;
 }

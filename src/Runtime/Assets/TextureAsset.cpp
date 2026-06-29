@@ -1,5 +1,4 @@
 #include "Assets/TextureAsset.h"
-
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -121,7 +120,6 @@ void TextureAsset::RebuildDerivedData()
     level.height = m_Desc.height;
     level.rgba8 = m_PixelData;
     while (true) {
-        level.bc1 = CompressBc1(level.rgba8, level.width, level.height);
         m_Mips.push_back(level);
         if (level.width == 1 && level.height == 1) break;
 
@@ -151,4 +149,15 @@ void TextureAsset::RebuildDerivedData()
         level = std::move(next);
     }
     m_Desc.mipLevels = static_cast<int>(m_Mips.size());
+    if (m_Desc.generateCompressedMips) GenerateCompressedMips();
+}
+
+void TextureAsset::GenerateCompressedMips()
+{
+    for (TextureMipData& level : m_Mips) {
+        if (level.bc1.empty() && !level.rgba8.empty() &&
+            level.width > 0 && level.height > 0) {
+            level.bc1 = CompressBc1(level.rgba8, level.width, level.height);
+        }
+    }
 }

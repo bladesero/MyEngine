@@ -76,3 +76,10 @@ class LogPanel final:public EditorPanel {
 public:LogPanel();
 protected:void DrawContent() override;
 };
+class ProfilerPanel final:public EditorPanel {
+public:ProfilerPanel();
+protected:void DrawContent() override;
+private:
+    char m_CategoryFilter[64] = {};
+    float m_MinDurationMs = 0.0f;
+};

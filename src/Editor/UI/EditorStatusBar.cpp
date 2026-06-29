@@ -46,7 +46,7 @@ float EditorStatusBar::Draw(EditorContext& context,
             ImGui::SameLine();
         }
         const RendererFrameStats& renderer = stats.renderer;
-        ImGui::Text("Ready | Selected: %s | %s | %.1f FPS / %.2f ms | R %.2f ms S %.2f M %.2f AO %.2f C %.2f | Draw %u (%u/%u/%u) BG %u TexUp %u | Project: %s",
+        ImGui::Text("Ready | Selected: %s | %s | %.1f FPS / %.2f ms | R %.2f ms S %.2f M %.2f AO %.2f C %.2f | Draw %u (%u/%u/%u) BG %u TexUp %u %.1fMB %.2fms | Project: %s",
                     FormatSelectedText(context).c_str(),
                     FormatBackendText(renderContext).c_str(),
                     stats.fps,
@@ -62,6 +62,8 @@ float EditorStatusBar::Draw(EditorContext& context,
                     renderer.fullscreenDrawCalls,
                     renderer.bindGroupCreates,
                     renderer.textureUploads,
+                    static_cast<double>(renderer.textureUploadBytes) / (1024.0 * 1024.0),
+                    renderer.textureUploadMs,
                     FormatProjectText(project).c_str());
     }
     ImGui::End();

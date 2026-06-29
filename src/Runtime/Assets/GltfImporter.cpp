@@ -7,6 +7,8 @@
 #include "stb_image.h"
 
 #include <algorithm>
+#include <chrono>
+#include <cstdint>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -15,6 +17,57 @@
 #include <unordered_map>
 
 namespace {
+
+using Clock = std::chrono::steady_clock;
+
+double MsSince(Clock::time_point start)
+{
+    return std::chrono::duration<double, std::milli>(
+        Clock::now() - start).count();
+}
+
+struct DecodedImage {
+    int width = 0;
+    int height = 0;
+    std::vector<uint8_t> rgba;
+};
+
+struct GltfImportStats {
+    double parseMs = 0.0;
+    double bufferMs = 0.0;
+    double meshMs = 0.0;
+    double materialMs = 0.0;
+    double textureReadMs = 0.0;
+    double textureDecodeMs = 0.0;
+    double textureMipMs = 0.0;
+    int textureRequests = 0;
+    int textureCacheHits = 0;
+    int imageReads = 0;
+    int imageDecodes = 0;
+    int texturesCreated = 0;
+};
+
+struct GltfImportContext {
+    const cgltf_data& data;
+    const std::filesystem::path& sourcePath;
+    GltfImportStats stats;
+    std::unordered_map<const cgltf_image*, std::vector<uint8_t>> encodedImages;
+    std::unordered_map<const cgltf_image*, DecodedImage> decodedImages;
+    std::unordered_map<uintptr_t, TextureHandle> textures;
+
+    ptrdiff_t ImageIndex(const cgltf_image* image) const {
+        if (!image || !data.images || image < data.images ||
+            image >= data.images + data.images_count) {
+            return -1;
+        }
+        return image - data.images;
+    }
+
+    uintptr_t TextureKey(const cgltf_image* image, bool srgb) const {
+        return (static_cast<uintptr_t>(ImageIndex(image) + 1) << 1) |
+            static_cast<uintptr_t>(srgb ? 1 : 0);
+    }
+};
 
 const cgltf_accessor* FindAttribute(
     const cgltf_primitive& primitive, cgltf_attribute_type type, int index = 0)
@@ -136,51 +189,81 @@ bool GetImageBytes(const cgltf_image& image, const std::filesystem::path& source
     return !bytes.empty();
 }
 
-TextureHandle ImportTexture(const cgltf_texture_view& view,
-                            const std::filesystem::path& sourcePath, bool srgb)
+TextureHandle ImportTexture(GltfImportContext& context,
+                            const cgltf_texture_view& view, bool srgb)
 {
     if (!view.texture || !view.texture->image) return {};
     const cgltf_image* image = view.texture->image;
-    std::vector<uint8_t> encoded;
-    if (!GetImageBytes(*image, sourcePath, encoded)) return {};
+    ++context.stats.textureRequests;
+    const uintptr_t key = context.TextureKey(image, srgb);
+    const auto cachedTexture = context.textures.find(key);
+    if (cachedTexture != context.textures.end()) {
+        ++context.stats.textureCacheHits;
+        return cachedTexture->second;
+    }
 
-    int width = 0, height = 0, components = 0;
-    stbi_uc* pixels = stbi_load_from_memory(
-        encoded.data(), static_cast<int>(encoded.size()),
-        &width, &height, &components, 4);
-    if (!pixels) return {};
-    std::vector<uint8_t> rgba(
-        pixels, pixels + static_cast<size_t>(width) * static_cast<size_t>(height) * 4);
-    stbi_image_free(pixels);
+    auto encodedIt = context.encodedImages.find(image);
+    if (encodedIt == context.encodedImages.end()) {
+        std::vector<uint8_t> encoded;
+        const auto readStart = Clock::now();
+        if (!GetImageBytes(*image, context.sourcePath, encoded)) return {};
+        context.stats.textureReadMs += MsSince(readStart);
+        ++context.stats.imageReads;
+        encodedIt = context.encodedImages.emplace(image, std::move(encoded)).first;
+    }
 
-    const ptrdiff_t imageIndex = image - view.texture->image +
-        (view.texture->image - image); // keep identity independent of pointer address
-    const ptrdiff_t textureIndex = view.texture - view.texture;
-    (void)imageIndex;
-    (void)textureIndex;
+    auto decodedIt = context.decodedImages.find(image);
+    if (decodedIt == context.decodedImages.end()) {
+        int width = 0, height = 0, components = 0;
+        const auto decodeStart = Clock::now();
+        stbi_uc* pixels = stbi_load_from_memory(
+            encodedIt->second.data(), static_cast<int>(encodedIt->second.size()),
+            &width, &height, &components, 4);
+        context.stats.textureDecodeMs += MsSince(decodeStart);
+        if (!pixels) return {};
+        DecodedImage decoded;
+        decoded.width = width;
+        decoded.height = height;
+        decoded.rgba.assign(
+            pixels, pixels + static_cast<size_t>(width) * static_cast<size_t>(height) * 4);
+        stbi_image_free(pixels);
+        ++context.stats.imageDecodes;
+        decodedIt = context.decodedImages.emplace(image, std::move(decoded)).first;
+    }
+
+    const DecodedImage& decoded = decodedIt->second;
+    const ptrdiff_t imageIndex = context.ImageIndex(image);
     const std::string suffix = image->name ? image->name :
         (image->uri ? std::filesystem::path(image->uri).stem().string() : "embedded");
     auto texture = std::make_shared<TextureAsset>(
-        sourcePath.string() + "#texture-" + suffix + (srgb ? "-srgb" : "-linear"));
+        context.sourcePath.string() + "#texture-" +
+        (imageIndex >= 0 ? std::to_string(imageIndex) : suffix) +
+        (srgb ? "-srgb" : "-linear"));
     texture->SetName(suffix);
     TextureDesc desc;
-    desc.width = width;
-    desc.height = height;
+    desc.width = decoded.width;
+    desc.height = decoded.height;
     desc.sRGB = srgb;
-    texture->SetPixelData(std::move(rgba), desc);
-    return AssetManager::Get().Register(std::move(texture));
+    const auto mipStart = Clock::now();
+    texture->SetPixelData(decoded.rgba, desc);
+    context.stats.textureMipMs += MsSince(mipStart);
+    ++context.stats.texturesCreated;
+    TextureHandle handle = AssetManager::Get().Register(std::move(texture));
+    context.textures[key] = handle;
+    return handle;
 }
 
 std::vector<MaterialHandle> ImportMaterials(
-    const cgltf_data& data, const std::filesystem::path& sourcePath)
+    GltfImportContext& context)
 {
     std::vector<MaterialHandle> materials;
+    const cgltf_data& data = context.data;
     for (cgltf_size i = 0; i < data.materials_count; ++i) {
         const cgltf_material& source = data.materials[i];
         const std::string materialName = source.name
             ? source.name : "Material" + std::to_string(i);
         auto material = MaterialAsset::CreateDefaultAtPath(
-            sourcePath.string() + "#material-" + std::to_string(i), materialName);
+            context.sourcePath.string() + "#material-" + std::to_string(i), materialName);
         if (source.has_pbr_metallic_roughness) {
             const cgltf_pbr_metallic_roughness& pbr = source.pbr_metallic_roughness;
             material->SetParam("BaseColor", MaterialParam::FromVec4(
@@ -188,10 +271,10 @@ std::vector<MaterialHandle> ImportMaterials(
                 pbr.base_color_factor[2], pbr.base_color_factor[3]));
             material->SetParam("Metallic", MaterialParam::FromFloat(pbr.metallic_factor));
             material->SetParam("Roughness", MaterialParam::FromFloat(pbr.roughness_factor));
-            if (auto texture = ImportTexture(pbr.base_color_texture, sourcePath, true)) {
+            if (auto texture = ImportTexture(context, pbr.base_color_texture, true)) {
                 material->SetTexture("BaseColorMap", texture);
             }
-            if (auto texture = ImportTexture(pbr.metallic_roughness_texture, sourcePath, false)) {
+            if (auto texture = ImportTexture(context, pbr.metallic_roughness_texture, false)) {
                 material->SetTexture("MetallicRoughnessMap", texture);
             }
         }
@@ -204,13 +287,13 @@ std::vector<MaterialHandle> ImportMaterials(
             material->SetBlendMode(BlendMode::AlphaTest);
             material->SetAlphaThreshold(source.alpha_cutoff);
         }
-        if (auto texture = ImportTexture(source.normal_texture, sourcePath, false)) {
+        if (auto texture = ImportTexture(context, source.normal_texture, false)) {
             material->SetTexture("NormalMap", texture);
         }
-        if (auto texture = ImportTexture(source.occlusion_texture, sourcePath, false)) {
+        if (auto texture = ImportTexture(context, source.occlusion_texture, false)) {
             material->SetTexture("OcclusionMap", texture);
         }
-        if (auto texture = ImportTexture(source.emissive_texture, sourcePath, true)) {
+        if (auto texture = ImportTexture(context, source.emissive_texture, true)) {
             material->SetTexture("EmissiveMap", texture);
         }
         materials.push_back(AssetManager::Get().Register(std::move(material)));
@@ -316,7 +399,10 @@ std::shared_ptr<ModelAsset> LoadModelAssetFromGltf(const std::string& path)
 {
     cgltf_options options = {};
     cgltf_data* data = nullptr;
+    const auto parseStart = Clock::now();
     cgltf_result result = cgltf_parse_file(&options, path.c_str(), &data);
+    GltfImportStats stats;
+    stats.parseMs = MsSince(parseStart);
     if (result != cgltf_result_success) {
         Logger::Error("[glTF] Parse failed: ", path, " code=", static_cast<int>(result));
         return {};
@@ -325,7 +411,9 @@ std::shared_ptr<ModelAsset> LoadModelAssetFromGltf(const std::string& path)
         cgltf_data* data;
         ~DataGuard() { cgltf_free(data); }
     } guard{ data };
+    const auto bufferStart = Clock::now();
     result = cgltf_load_buffers(&options, data, path.c_str());
+    stats.bufferMs = MsSince(bufferStart);
     if (result != cgltf_result_success) {
         Logger::Error("[glTF] Buffer load failed: ", path, " code=", static_cast<int>(result));
         return {};
@@ -340,6 +428,7 @@ std::shared_ptr<ModelAsset> LoadModelAssetFromGltf(const std::string& path)
     std::vector<SkinWeight> skinWeights;
     bool needsTangents = false;
 
+    const auto meshStart = Clock::now();
     for (cgltf_size meshIndex = 0; meshIndex < data->meshes_count; ++meshIndex) {
         const cgltf_mesh& mesh = data->meshes[meshIndex];
         for (cgltf_size primitiveIndex = 0;
@@ -420,8 +509,13 @@ std::shared_ptr<ModelAsset> LoadModelAssetFromGltf(const std::string& path)
         return {};
     }
     if (needsTangents) GenerateTangents(vertices, indices);
+    stats.meshMs = MsSince(meshStart);
 
     const std::filesystem::path sourcePath(path);
+    GltfImportContext context{ *data, sourcePath };
+    context.stats.parseMs = stats.parseMs;
+    context.stats.bufferMs = stats.bufferMs;
+    context.stats.meshMs = stats.meshMs;
     auto mesh = std::make_shared<MeshAsset>(path + "#mesh");
     mesh->SetName(sourcePath.stem().string());
     mesh->SetGeometry(std::move(vertices), std::move(indices), std::move(subMeshes));
@@ -429,7 +523,9 @@ std::shared_ptr<ModelAsset> LoadModelAssetFromGltf(const std::string& path)
     auto model = std::make_shared<ModelAsset>(path);
     model->SetName(sourcePath.stem().string());
     model->SetMesh(AssetManager::Get().Register(std::move(mesh)));
-    model->SetMaterials(ImportMaterials(*data, sourcePath));
+    const auto materialStart = Clock::now();
+    model->SetMaterials(ImportMaterials(context));
+    context.stats.materialMs = MsSince(materialStart);
 
     std::vector<ModelNode> nodes(data->nodes_count);
     for (cgltf_size i = 0; i < data->nodes_count; ++i) {

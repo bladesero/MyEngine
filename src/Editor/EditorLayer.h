@@ -11,6 +11,7 @@
 #include "Editor/EditorLogService.h"
 #include "Editor/EditorLayoutManager.h"
 #include "Editor/EditorLuaScriptService.h"
+#include "Editor/EditorProfiler.h"
 #include "Editor/EditorProject.h"
 #include "Editor/EditorShaderWatchService.h"
 #include "Editor/EditorService.h"
@@ -105,6 +106,7 @@ private:
     EditorImportService m_ImportService;
     EditorLuaScriptService m_LuaScriptService;
     EditorShaderWatchService m_ShaderWatchService;
+    EditorProfiler m_Profiler;
     EditorServiceCollection m_ServiceCollection;
     EditorActionRegistry m_ActionRegistry;
     EditorLayoutManager m_LayoutManager;

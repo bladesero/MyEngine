@@ -8,7 +8,14 @@
 #include <vector>
 
 namespace {
-struct AtmosphereFaceConstants { float faceInfo[4]; };
+struct AtmosphereFaceConstants {
+    float faceInfo[4];
+    float sunDirection[4];
+};
+
+struct EnvironmentMipmapConstants {
+    float faceInfo[4];
+};
 }
 
 EnvironmentPass::EnvironmentPass(IRHIDevice* device, IRHIReadbackService* readbackService)
@@ -20,6 +27,35 @@ EnvironmentPass::EnvironmentPass(IRHIDevice* device, IRHIReadbackService* readba
 }
 
 void EnvironmentPass::Resize(uint32_t, uint32_t) {}
+
+Vec3 EnvironmentPass::DefaultSunDirection()
+{
+    return Vec3{0.35f, 0.72f, 0.25f}.Normalized();
+}
+
+void EnvironmentPass::MarkDirty()
+{
+    m_Generated = false;
+    m_EnvironmentInShaderState = false;
+    m_SHBufferInShaderState = false;
+    m_Readback.reset();
+}
+
+void EnvironmentPass::SetSunDirection(const Vec3& direction)
+{
+    Vec3 normalized = direction.LengthSq() > 1e-8f
+        ? direction.Normalized()
+        : DefaultSunDirection();
+    const Vec3 referenceDirection = m_Generated ? m_GeneratedSunDirection : m_SunDirection;
+    if ((normalized - referenceDirection).LengthSq() < 1e-6f) {
+        m_SunDirection = normalized;
+        return;
+    }
+    m_SunDirection = normalized;
+    if (m_Generated) {
+        MarkDirty();
+    }
+}
 
 bool EnvironmentPass::EnsureResources()
 {
@@ -41,9 +77,7 @@ bool EnvironmentPass::EnsureResources()
         m_SHUav.reset();
         m_SH2Srv.reset();
         m_Readback.reset();
-        m_Generated = false;
-        m_EnvironmentInShaderState = false;
-        m_SHBufferInShaderState = false;
+        MarkDirty();
     };
     auto resourcesComplete = [&]() {
         bool valid = m_Environment && m_EnvironmentSrv && m_LinearClamp &&
@@ -73,7 +107,7 @@ bool EnvironmentPass::EnsureResources()
             m_AtmosphereVersion = m_AtmosphereHandle->version;
             m_MipmapVersion = m_MipmapHandle->version;
             m_SHVersion = m_SHHandle->version;
-            m_Generated = false;
+            MarkDirty();
         }
         return resourcesComplete();
         }
@@ -202,7 +236,10 @@ void EnvironmentPass::RenderCubemap(GpuCommandList& commands)
             commands.EndRendering();
             return;
         }
-        AtmosphereFaceConstants constants{{static_cast<float>(face), 0, 0, 0}};
+        AtmosphereFaceConstants constants{
+            {static_cast<float>(face), 0, 0, 0},
+            {m_SunDirection.x, m_SunDirection.y, m_SunDirection.z, 0.0f}
+        };
         bindings->SetConstants("AtmosphereFaceConstants", &constants, sizeof(constants));
         commands.SetBindGroup(0, bindings.get());
         commands.Draw(3);
@@ -230,8 +267,8 @@ void EnvironmentPass::RenderCubemap(GpuCommandList& commands)
                 commands.EndRendering();
                 return;
             }
-            AtmosphereFaceConstants constants{{static_cast<float>(face),
-                                                static_cast<float>(mip - 1), 0, 0}};
+            EnvironmentMipmapConstants constants{{static_cast<float>(face),
+                                                  static_cast<float>(mip - 1), 0, 0}};
             bindings->SetConstants("EnvironmentMipmapConstants", &constants, sizeof(constants));
             bindings->SetTexture("g_SourceCube", m_MipSrvs[mip - 1]);
             bindings->SetSampler("g_SourceSampler", m_LinearClamp);
@@ -321,6 +358,7 @@ void EnvironmentPass::ExecuteGraphManaged(GpuCommandList& commands)
     RenderCubemap(commands);
     ProjectSH(commands);
     m_Generated = true;
+    m_GeneratedSunDirection = m_SunDirection;
 }
 
 void EnvironmentPass::MarkGraphResourcesShaderResource()
@@ -337,6 +375,7 @@ void EnvironmentPass::Execute(GpuCommandList& commands, const Scene&, const Came
     RenderCubemap(commands);
     ProjectSH(commands);
     m_Generated = true;
+    m_GeneratedSunDirection = m_SunDirection;
     m_EnvironmentInShaderState = true;
     m_SHBufferInShaderState = true;
 }

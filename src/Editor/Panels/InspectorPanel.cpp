@@ -23,6 +23,35 @@
 namespace {
 std::string ReadTextFile(const std::filesystem::path& path){std::ifstream input(path,std::ios::binary);return {std::istreambuf_iterator<char>(input),std::istreambuf_iterator<char>()};}
 bool WriteTextFile(const std::filesystem::path& path,const std::string& text){std::ofstream output(path,std::ios::binary|std::ios::trunc);output.write(text.data(),static_cast<std::streamsize>(text.size()));return output.good();}
+
+#if defined(MYENGINE_ENABLE_IMGUI)
+bool ShouldCaptureInspectorEditSnapshot(bool hasActorSelection,
+                                        bool canEditSelection,
+                                        bool transactionActive)
+{
+    if (!hasActorSelection || !canEditSelection || transactionActive) return false;
+    if (!ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
+        !ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows)) {
+        return false;
+    }
+
+    const ImGuiIO& io = ImGui::GetIO();
+    return ImGui::IsAnyItemActive() ||
+        ImGui::IsMouseClicked(ImGuiMouseButton_Left) ||
+        ImGui::IsMouseClicked(ImGuiMouseButton_Right) ||
+        ImGui::IsMouseClicked(ImGuiMouseButton_Middle) ||
+        io.InputQueueCharacters.Size > 0 ||
+        ImGui::IsKeyPressed(ImGuiKey_Backspace) ||
+        ImGui::IsKeyPressed(ImGuiKey_Delete) ||
+        ImGui::IsKeyPressed(ImGuiKey_Enter) ||
+        ImGui::IsKeyPressed(ImGuiKey_Space) ||
+        ImGui::IsKeyPressed(ImGuiKey_Tab) ||
+        ImGui::IsKeyPressed(ImGuiKey_LeftArrow) ||
+        ImGui::IsKeyPressed(ImGuiKey_RightArrow) ||
+        ImGui::IsKeyPressed(ImGuiKey_UpArrow) ||
+        ImGui::IsKeyPressed(ImGuiKey_DownArrow);
+}
+#endif
 }
 
 InspectorPanel::InspectorPanel(std::shared_ptr<EditorGizmoState> state)
@@ -73,10 +102,14 @@ void InspectorPanel::DrawContent()
     Actor* actor = m_SelectedObject.IsActor()
         ? context->GetSelection().ResolveActor(*scene) : nullptr;
     const uint64_t selection = actor ? actor->GetID() : 0;
-    const std::string before = actor ? SceneSerializer::SaveToString(*scene) : std::string{};
     bool directCommand=false;
 
     const bool canEditSelection = context->CanEditSelection();
+    const bool captureInspectorSnapshot = ShouldCaptureInspectorEditSnapshot(
+        actor != nullptr, canEditSelection, m_Transaction.IsActive());
+    const std::string before = captureInspectorSnapshot
+        ? SceneSerializer::SaveToString(*scene) : std::string{};
+
     if (m_SelectedObject.IsActor() &&
         m_SelectedObject.GetWorldKind() == EditorSelectionWorldKind::Play) {
         ImGui::TextColored({1.0f, 0.75f, 0.25f, 1.0f},
@@ -89,12 +122,13 @@ void InspectorPanel::DrawContent()
         ImGui::Text("Prefab: %s",actor->GetPrefabAssetPath().c_str());
         std::string error;bool refreshed=false;
         if(ImGui::Button("Apply All")){
+            const std::string commandBefore = SceneSerializer::SaveToString(*scene);
             const auto sourcePath=PrefabSystem::ResolvePrefabPath(actor->GetPrefabAssetPath());const std::string sourceBefore=ReadTextFile(sourcePath);
             refreshed=PrefabSystem::ApplyAll(*actor,&error);
             if(!refreshed)Logger::Warn("[Editor] Apply prefab failed: ",error);
-            else {const std::string sourceAfter=ReadTextFile(sourcePath),sceneAfter=SceneSerializer::SaveToString(*scene);WriteTextFile(sourcePath,sourceBefore);SceneSerializer::LoadFromString(*scene,before);
+            else {const std::string sourceAfter=ReadTextFile(sourcePath),sceneAfter=SceneSerializer::SaveToString(*scene);WriteTextFile(sourcePath,sourceBefore);SceneSerializer::LoadFromString(*scene,commandBefore);
                 auto apply=[sourcePath,sourceAfter,sceneAfter,selection](EditorContext& value){if(!WriteTextFile(sourcePath,sourceAfter)||!value.GetScene()||!SceneSerializer::LoadFromString(*value.GetScene(),sceneAfter))return false;value.GetSelection().SelectActorID(selection);return true;};
-                auto undo=[sourcePath,sourceBefore,before,selection](EditorContext& value){if(!WriteTextFile(sourcePath,sourceBefore)||!value.GetScene()||!SceneSerializer::LoadFromString(*value.GetScene(),before))return false;value.GetSelection().SelectActorID(selection);return true;};
+                auto undo=[sourcePath,sourceBefore,commandBefore,selection](EditorContext& value){if(!WriteTextFile(sourcePath,sourceBefore)||!value.GetScene()||!SceneSerializer::LoadFromString(*value.GetScene(),commandBefore))return false;value.GetSelection().SelectActorID(selection);return true;};
                 directCommand=context->GetCommandStack()->ExecuteCommand(std::make_unique<LambdaEditorCommand>("Apply Prefab",apply,undo),*context);refreshed=directCommand;
             }
         }
@@ -118,14 +152,14 @@ void InspectorPanel::DrawContent()
     }
     ImGui::EndDisabled();
 
-    if (actor) {
+    if (actor && captureInspectorSnapshot) {
         const std::string after = SceneSerializer::SaveToString(*scene);
         if (!directCommand && before != after && !m_Transaction.IsActive()) {
             m_Transaction.Begin("Inspector Edit", before, selection);
         }
-        if (m_Transaction.IsActive() && !ImGui::IsAnyItemActive()) {
-            m_Transaction.Commit(*context);
-        }
+    }
+    if (actor && m_Transaction.IsActive() && !ImGui::IsAnyItemActive()) {
+        m_Transaction.Commit(*context);
     }
 #endif
 }

@@ -2,6 +2,7 @@
 
 #include "Assets/AssetManager.h"
 #include "Camera/Camera.h"
+#include "Renderer/EnvironmentPass.h"
 #include "Renderer/GpuUploadQueue.h"
 #include "Renderer/LightComponent.h"
 #include "Renderer/RenderGraph.h"
@@ -818,6 +819,166 @@ bool TestRenderGraphDescriptorKeyedPooling() {
                  "RenderGraph let a culled transient pollute the descriptor pool");
 }
 
+bool TestEnvironmentRadianceHorizonContract() {
+    const char* candidates[] = {
+        "EngineContent/Shaders/EnvironmentRadiance.hlsli",
+        "../../../EngineContent/Shaders/EnvironmentRadiance.hlsli",
+        "../../../../EngineContent/Shaders/EnvironmentRadiance.hlsli",
+        "../../../../../EngineContent/Shaders/EnvironmentRadiance.hlsli",
+    };
+    std::string source;
+    for (const char* path : candidates) {
+        std::ifstream file(path, std::ios::binary);
+        if (!file) continue;
+        std::ostringstream contents;
+        contents << file.rdbuf();
+        source = contents.str();
+        break;
+    }
+    if (!Check(!source.empty(), "EnvironmentRadiance shader source was not found")) {
+        return false;
+    }
+    if (!Check(source.find("float3 EnvironmentRadiance(float3 direction, float3 sunDirection)") !=
+                   std::string::npos,
+               "environment radiance does not accept runtime sun direction")) {
+        return false;
+    }
+    if (!Check(source.find("float3 sunDirection = normalize(float3(") == std::string::npos,
+               "environment radiance still hard-codes sun direction")) {
+        return false;
+    }
+    if (!Check(source.find("float skyMask = smoothstep") != std::string::npos,
+               "environment radiance does not mask sky scattering at the horizon")) {
+        return false;
+    }
+    if (!Check(source.find("max(direction.y, 0.0f)") != std::string::npos,
+               "environment radiance still allows negative-Y air mass")) {
+        return false;
+    }
+    if (!Check(source.find("float3 groundRadiance") != std::string::npos &&
+               source.find("float3 skyRadiance") != std::string::npos,
+               "environment radiance does not separate ground and sky hemispheres")) {
+        return false;
+    }
+    return Check(source.find("lerp(groundRadiance + horizonHaze, skyRadiance + horizonHaze, skyMask)") !=
+                     std::string::npos,
+                 "environment radiance does not blend ground and sky by skyMask");
+}
+
+bool TestEnvironmentPassSunDirectionDirtyState() {
+    const char* candidates[] = {
+        "src/Runtime/Renderer/EnvironmentPass.cpp",
+        "../../../src/Runtime/Renderer/EnvironmentPass.cpp",
+        "../../../../src/Runtime/Renderer/EnvironmentPass.cpp",
+        "../../../../../src/Runtime/Renderer/EnvironmentPass.cpp",
+    };
+    std::string source;
+    for (const char* path : candidates) {
+        std::ifstream file(path, std::ios::binary);
+        if (!file) continue;
+        std::ostringstream contents;
+        contents << file.rdbuf();
+        source = contents.str();
+        break;
+    }
+    if (!Check(!source.empty(), "EnvironmentPass source was not found")) return false;
+    if (!Check(source.find("void EnvironmentPass::MarkDirty()") != std::string::npos &&
+               source.find("m_Generated = false;") != std::string::npos &&
+               source.find("m_EnvironmentInShaderState = false;") != std::string::npos &&
+               source.find("m_SHBufferInShaderState = false;") != std::string::npos,
+               "environment dirty path does not reset generated shader state")) {
+        return false;
+    }
+    if (!Check(source.find("void EnvironmentPass::SetSunDirection(const Vec3& direction)") !=
+                   std::string::npos &&
+               source.find("direction.Normalized()") != std::string::npos &&
+               source.find("DefaultSunDirection()") != std::string::npos,
+               "environment pass does not normalize or default sun direction")) {
+        return false;
+    }
+    if (!Check(source.find("referenceDirection") != std::string::npos &&
+               source.find("LengthSq() < 1e-6f") != std::string::npos &&
+               source.find("return;") != std::string::npos,
+               "environment pass does not preserve generated state for unchanged sun direction")) {
+        return false;
+    }
+    return Check(source.find("if (m_Generated)") != std::string::npos &&
+                 source.find("MarkDirty();") != std::string::npos &&
+                 source.find("m_GeneratedSunDirection = m_SunDirection;") != std::string::npos,
+                 "environment pass does not dirty generated resources after sun direction changes");
+}
+
+bool TestRendererSynchronizesEnvironmentSunBeforePrepare() {
+    const char* candidates[] = {
+        "src/Runtime/Renderer/Renderer.cpp",
+        "../../../src/Runtime/Renderer/Renderer.cpp",
+        "../../../../src/Runtime/Renderer/Renderer.cpp",
+        "../../../../../src/Runtime/Renderer/Renderer.cpp",
+    };
+    std::string source;
+    for (const char* path : candidates) {
+        std::ifstream file(path, std::ios::binary);
+        if (!file) continue;
+        std::ostringstream contents;
+        contents << file.rdbuf();
+        source = contents.str();
+        break;
+    }
+    if (!Check(!source.empty(), "Renderer source was not found")) return false;
+    const size_t collect = source.find("CollectEnvironmentSunDirection(scene)");
+    const size_t environmentSet = source.find("m_EnvironmentPass->SetSunDirection(environmentSunDirection)");
+    const size_t mainSet = source.find("m_MainPass->SetSunDirection(environmentSunDirection)");
+    const size_t prepare = source.find("m_EnvironmentPass->PrepareGraphResources()");
+    return Check(collect != std::string::npos &&
+                 environmentSet != std::string::npos &&
+                 mainSet != std::string::npos &&
+                 prepare != std::string::npos &&
+                 collect < environmentSet &&
+                 environmentSet < prepare &&
+                 mainSet < prepare,
+                 "renderer does not synchronize sun direction before preparing environment graph resources");
+}
+
+bool TestShadowedMainPassDirectShadowVisibilityContract() {
+    const char* candidates[] = {
+        "EngineContent/Shaders/ShadowedMainPass.hlsl",
+        "../../../EngineContent/Shaders/ShadowedMainPass.hlsl",
+        "../../../../EngineContent/Shaders/ShadowedMainPass.hlsl",
+        "../../../../../EngineContent/Shaders/ShadowedMainPass.hlsl",
+    };
+    std::string source;
+    for (const char* path : candidates) {
+        std::ifstream file(path, std::ios::binary);
+        if (!file) continue;
+        std::ostringstream contents;
+        contents << file.rdbuf();
+        source = contents.str();
+        break;
+    }
+    if (!Check(!source.empty(), "ShadowedMainPass shader source was not found")) {
+        return false;
+    }
+    if (!Check(source.find("DIRECT_SHADOW_MIN_VISIBILITY = 0.03f") != std::string::npos,
+               "direct shadow minimum visibility should stay near fully occluded")) {
+        return false;
+    }
+    if (!Check(source.find("? 1.0f : 0.35f") == std::string::npos &&
+               source.find("lerp(0.35f, 1.0f") == std::string::npos,
+               "direct shadows still preserve 35 percent direct lighting")) {
+        return false;
+    }
+    if (!Check(source.find("float4 g_ShadowIntensity;") != std::string::npos &&
+               source.find("saturate(g_ShadowIntensity.x)") != std::string::npos &&
+               source.find("saturate(g_ShadowIntensity.y)") != std::string::npos &&
+               source.find("saturate(g_ShadowIntensity.z)") != std::string::npos,
+               "shadowed shader does not expose per-light shadow intensity")) {
+        return false;
+    }
+    return Check(source.find("g_LightColor.rgb * max(g_LightDirection.w, 0.0f) * shadow") !=
+                     std::string::npos,
+                 "directional direct light is not multiplied by shadow visibility");
+}
+
 bool TestHeadlessRendering() {
     AssetManager::Get().Clear();
     Scene scene("HeadlessRender");
@@ -1096,6 +1257,10 @@ MYENGINE_REGISTER_TEST("Renderer", "TestRenderGraphComputeBufferDependencies", T
 MYENGINE_REGISTER_TEST("Renderer", "TestRenderGraphTextureSubresourceAccess", TestRenderGraphTextureSubresourceAccess);
 MYENGINE_REGISTER_TEST("Renderer", "TestRenderGraphPassCullingAndLifetime", TestRenderGraphPassCullingAndLifetime);
 MYENGINE_REGISTER_TEST("Renderer", "TestRenderGraphDescriptorKeyedPooling", TestRenderGraphDescriptorKeyedPooling);
+MYENGINE_REGISTER_TEST("Renderer", "TestEnvironmentRadianceHorizonContract", TestEnvironmentRadianceHorizonContract);
+MYENGINE_REGISTER_TEST("Renderer", "TestEnvironmentPassSunDirectionDirtyState", TestEnvironmentPassSunDirectionDirtyState);
+MYENGINE_REGISTER_TEST("Renderer", "TestRendererSynchronizesEnvironmentSunBeforePrepare", TestRendererSynchronizesEnvironmentSunBeforePrepare);
+MYENGINE_REGISTER_TEST("Renderer", "TestShadowedMainPassDirectShadowVisibilityContract", TestShadowedMainPassDirectShadowVisibilityContract);
 MYENGINE_REGISTER_TEST("Renderer", "TestHeadlessRendering", TestHeadlessRendering);
 MYENGINE_REGISTER_TEST("Renderer", "TestMeshRendererSubMeshMaterialSlotDraws", TestMeshRendererSubMeshMaterialSlotDraws);
 MYENGINE_REGISTER_TEST("Renderer", "TestRendererOffscreenGraphPostProcessPath", TestRendererOffscreenGraphPostProcessPath);

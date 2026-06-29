@@ -39,6 +39,11 @@
       "id": "log",
       "title": "Log Output",
       "area": "bottomCenter"
+    },
+    {
+      "id": "profiler",
+      "title": "Profiler",
+      "area": "bottomCenter"
     }
   ]
 }

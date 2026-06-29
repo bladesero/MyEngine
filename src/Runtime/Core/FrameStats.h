@@ -18,6 +18,8 @@ struct RendererFrameStats {
     uint32_t subMeshCount = 0;
     uint32_t bindGroupCreates = 0;
     uint32_t textureUploads = 0;
+    uint64_t textureUploadBytes = 0;
+    float textureUploadMs = 0.0f;
     bool gpuTimingAvailable = false;
 };
 

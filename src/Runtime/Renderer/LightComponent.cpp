@@ -73,6 +73,11 @@ void LightComponent::SetDirection(const Vec3& direction)
     m_Direction = direction.Normalized();
 }
 
+void LightComponent::SetShadowIntensity(float intensity)
+{
+    m_ShadowIntensity = std::clamp(intensity, 0.0f, 1.0f);
+}
+
 void LightComponent::Serialize(nlohmann::json& data) const
 {
     data["type"] = LightTypeToString(m_Type);
@@ -83,6 +88,7 @@ void LightComponent::Serialize(nlohmann::json& data) const
     data["outerConeAngle"] = m_OuterConeAngle;
     data["direction"] = VecToJson(m_Direction);
     data["castShadows"] = m_CastShadows;
+    data["shadowIntensity"] = m_ShadowIntensity;
 }
 
 void LightComponent::Deserialize(const nlohmann::json& data)
@@ -97,4 +103,5 @@ void LightComponent::Deserialize(const nlohmann::json& data)
         SetDirection(VecFromJson(data["direction"], m_Direction));
     }
     SetCastShadows(data.value("castShadows", true));
+    SetShadowIntensity(data.value("shadowIntensity", 1.0f));
 }

@@ -4,6 +4,7 @@
 #include "Core/FrameStats.h"
 #include "Core/Logger.h"
 #include "Renderer/EnvironmentPass.h"
+#include "Renderer/LightComponent.h"
 #include "Renderer/MainPass.h"
 #include "Renderer/PostProcessPass.h"
 #include "Renderer/PostProcessComponent.h"
@@ -35,6 +36,26 @@ PostProcessRuntimeOptions CollectPostProcessOptions(const Scene& scene)
         found = true;
     });
     return options;
+}
+
+Vec3 CollectEnvironmentSunDirection(const Scene& scene)
+{
+    Vec3 sunDirection = EnvironmentPass::DefaultSunDirection();
+    bool found = false;
+    scene.ForEach([&](Actor& actor) {
+        if (found || !actor.IsActive()) return;
+        auto* light = actor.GetComponent<LightComponent>();
+        if (!light || !light->IsEnabled() ||
+            light->GetLightType() != LightType::Directional) {
+            return;
+        }
+        const Vec3 lightDirection = light->GetDirection();
+        if (lightDirection.LengthSq() > 1e-8f) {
+            sunDirection = (-lightDirection).Normalized();
+            found = true;
+        }
+    });
+    return sunDirection;
 }
 
 float ElapsedMs(std::chrono::steady_clock::time_point start,
@@ -93,6 +114,9 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
     }
 
     m_RenderGraph->Reset();
+    const Vec3 environmentSunDirection = CollectEnvironmentSunDirection(scene);
+    m_EnvironmentPass->SetSunDirection(environmentSunDirection);
+    m_MainPass->SetSunDirection(environmentSunDirection);
     if (!m_ShadowPass->PrepareGraphResources(scene, camera)) {
         Logger::Error("[Renderer] ShadowPass failed to prepare graph resources");
         endFrameOnFailure();
@@ -258,6 +282,8 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
                 stats.subMeshCount = mainStats.submittedSubMeshes;
                 stats.bindGroupCreates += mainStats.bindGroupCreates;
                 stats.textureUploads += mainStats.textureUploads;
+                stats.textureUploadBytes += mainStats.textureUploadBytes;
+                stats.textureUploadMs += mainStats.textureUploadMs;
                 FrameStatsProvider::SetRendererStats(stats);
             });
         if (postOptions.ssaoEnabled) {
@@ -376,6 +402,8 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
                 stats.subMeshCount = mainStats.submittedSubMeshes;
                 stats.bindGroupCreates += mainStats.bindGroupCreates;
                 stats.textureUploads += mainStats.textureUploads;
+                stats.textureUploadBytes += mainStats.textureUploadBytes;
+                stats.textureUploadMs += mainStats.textureUploadMs;
                 FrameStatsProvider::SetRendererStats(stats);
             });
         if (m_UIDrawList && !m_UIDrawList->Empty()) {

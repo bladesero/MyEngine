@@ -8,6 +8,7 @@
 #include "Editor/EditorImportService.h"
 #include "Editor/EditorInspectorSection.h"
 #include "Editor/EditorLayoutManager.h"
+#include "Editor/EditorProfiler.h"
 #include "Editor/EditorProject.h"
 #include "Editor/EditorSelection.h"
 #include "Editor/EditorService.h"
@@ -34,6 +35,7 @@
 #include <filesystem>
 #include <fstream>
 #include <nlohmann/json.hpp>
+#include <sstream>
 #include <thread>
 #include <unordered_set>
 #include <vector>
@@ -672,6 +674,81 @@ bool TestEditorInspectorSelectionRouting() {
                  "generic asset selection routing mismatch");
 }
 
+bool TestInspectorPanelSnapshotsAreInputGated() {
+    const char* candidates[] = {
+        "src/Editor/Panels/InspectorPanel.cpp",
+        "../../../src/Editor/Panels/InspectorPanel.cpp",
+        "../../../../src/Editor/Panels/InspectorPanel.cpp",
+        "../../../../../src/Editor/Panels/InspectorPanel.cpp",
+    };
+    std::string source;
+    for (const char* path : candidates) {
+        std::ifstream file(path, std::ios::binary);
+        if (!file) continue;
+        std::ostringstream contents;
+        contents << file.rdbuf();
+        source = contents.str();
+        break;
+    }
+    if (!Check(!source.empty(), "InspectorPanel source was not found")) return false;
+    if (!Check(source.find("ShouldCaptureInspectorEditSnapshot") != std::string::npos,
+               "InspectorPanel does not gate edit snapshots behind input state")) return false;
+    if (!Check(source.find("const std::string before = actor ? SceneSerializer::SaveToString(*scene)") ==
+                   std::string::npos,
+               "InspectorPanel still snapshots the whole scene for idle actor selection")) return false;
+    if (!Check(source.find("captureInspectorSnapshot") != std::string::npos &&
+               source.find("SceneSerializer::SaveToString(*scene) : std::string{}") != std::string::npos,
+               "InspectorPanel snapshot capture is not guarded by an explicit gate")) return false;
+    return Check(source.find("m_Transaction.Commit(*context)") != std::string::npos,
+                 "InspectorPanel no longer commits inspector edit transactions");
+}
+
+bool TestEditorProfilerBufferAndSourceContracts() {
+    EditorProfiler profiler(2);
+    profiler.RecordEvent("Editor", "First", 1.0, "a", 1);
+    profiler.RecordEvent("Editor", "Second", 2.0, "b", 2);
+    profiler.RecordEvent("Runtime", "Third", 3.0, "c", 3);
+    auto events = profiler.Snapshot();
+    if (!Check(events.size() == 2 &&
+               events[0].name == "Second" &&
+               events[1].name == "Third",
+               "EditorProfiler did not keep the newest events")) return false;
+    profiler.SetEnabled(false);
+    profiler.RecordEvent("Editor", "Paused", 4.0);
+    if (!Check(profiler.Snapshot().size() == 2,
+               "EditorProfiler recorded events while disabled")) return false;
+    profiler.Clear();
+    if (!Check(profiler.Snapshot().empty(),
+               "EditorProfiler clear did not remove events")) return false;
+
+    const auto readSource = [](const char* relativePath) {
+        const char* prefixes[] = {"", "../../../", "../../../../", "../../../../../"};
+        for (const char* prefix : prefixes) {
+            std::ifstream file(std::string(prefix) + relativePath, std::ios::binary);
+            if (!file) continue;
+            std::ostringstream contents;
+            contents << file.rdbuf();
+            return contents.str();
+        }
+        return std::string{};
+    };
+    const std::string editorLayer = readSource("src/Editor/EditorLayer.cpp");
+    const std::string assetRegistry = readSource("src/Editor/EditorAssetRegistry.cpp");
+    const std::string sceneSerializer = readSource("src/Runtime/Scene/SceneSerializer.cpp");
+    if (!Check(!editorLayer.empty() && !assetRegistry.empty() && !sceneSerializer.empty(),
+               "profiler source contract files were not found")) return false;
+    if (!Check(editorLayer.find("ProfilerPanel") != std::string::npos &&
+               editorLayer.find("RecordEvent(\"Editor\", \"OpenProject\"") != std::string::npos &&
+               editorLayer.find("RecordEvent(\"Editor\", \"Scene Load\"") != std::string::npos,
+               "EditorLayer does not register profiler panel and editor load events")) return false;
+    if (!Check(assetRegistry.find("RecordEvent(\"Editor\", \"AssetRegistry Refresh\"") != std::string::npos &&
+               assetRegistry.find("Logger::Info(\"[EditorAssetRegistry] Refresh") == std::string::npos,
+               "EditorAssetRegistry refresh timing still logs or is not profiled")) return false;
+    return Check(sceneSerializer.find("EditorProfiler") == std::string::npos &&
+                 sceneSerializer.find("loadMs=") == std::string::npos,
+                 "SceneSerializer should not depend on editor profiler or log load timing");
+}
+
 bool TestEditorLayoutConfigAndStatePersistence() {
     namespace fs = std::filesystem;
     EditorLayoutConfig config = EditorLayoutConfig::CreateDefault();
@@ -681,7 +758,7 @@ bool TestEditorLayoutConfigAndStatePersistence() {
     std::unordered_set<std::string> ids;
     for (const auto& panel : config.panels) ids.insert(panel.panelID);
     for (const char* required : {"toolbar", "sceneHierarchy", "viewport", "gameViewport",
-                                 "inspector", "assetBrowser", "log"}) {
+                                 "inspector", "assetBrowser", "log", "profiler"}) {
         if (!Check(ids.count(required) == 1,
                    std::string("default layout missing panel: ") + required)) return false;
     }
@@ -716,7 +793,8 @@ bool TestEditorLayoutConfigAndStatePersistence() {
             {"viewport", true},
             {"inspector", true},
             {"assetBrowser", false},
-            {"log", true}
+            {"log", true},
+            {"profiler", true}
         }}
     };
     std::ofstream(root / ".myengine_editor_state.json") << legacyState.dump(2);
@@ -726,6 +804,7 @@ bool TestEditorLayoutConfigAndStatePersistence() {
     if (!Check(!project.GetState().IsPanelVisible("sceneHierarchy") &&
                project.GetState().IsPanelVisible("gameViewport") &&
                !project.GetState().IsPanelVisible("assetBrowser") &&
+               project.GetState().IsPanelVisible("profiler") &&
                project.GetLastScenePath() == "Content/Scenes/Legacy.scene.json" &&
                project.GetState().selectedAssetPath == "Content/Models/Legacy.gltf",
                "legacy panel visibility migration failed")) return false;
@@ -743,6 +822,7 @@ bool TestEditorLayoutConfigAndStatePersistence() {
         reloaded.GetState().IsPanelVisible("gameViewport") &&
         !reloaded.GetState().IsPanelVisible("assetBrowser") &&
         !reloaded.GetState().IsPanelVisible("log") &&
+        reloaded.GetState().IsPanelVisible("profiler") &&
         reloaded.GetState().imguiLayoutIni.find("Scene View###viewport") != std::string::npos;
     std::error_code ec;
     fs::remove_all(root, ec);
@@ -978,6 +1058,8 @@ MYENGINE_REGISTER_TEST("Editor", "TestEditorShortcutMapAndWorkspacePersistence",
 MYENGINE_REGISTER_TEST("Editor", "TestEditorAppearancePreferencesAndScale", TestEditorAppearancePreferencesAndScale);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorStatusBarTextAndActionRouting", TestEditorStatusBarTextAndActionRouting);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorInspectorSelectionRouting", TestEditorInspectorSelectionRouting);
+MYENGINE_REGISTER_TEST("Editor", "TestInspectorPanelSnapshotsAreInputGated", TestInspectorPanelSnapshotsAreInputGated);
+MYENGINE_REGISTER_TEST("Editor", "TestEditorProfilerBufferAndSourceContracts", TestEditorProfilerBufferAndSourceContracts);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorLayoutConfigAndStatePersistence", TestEditorLayoutConfigAndStatePersistence);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorProjectAndAssetRegistry", TestEditorProjectAndAssetRegistry);
 MYENGINE_REGISTER_TEST("Editor", "TestProductionAssetDatabaseAndImportPipeline", TestProductionAssetDatabaseAndImportPipeline);

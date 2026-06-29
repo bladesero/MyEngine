@@ -1,6 +1,7 @@
 cbuffer AtmosphereFaceConstants : register(b0)
 {
     float4 g_FaceInfo;
+    float4 g_SunDirection;
 };
 
 #include "EnvironmentRadiance.hlsli"
@@ -42,5 +43,5 @@ float4 PSMain(VSOut input) : SV_TARGET
     float2 uv = input.ndc * 0.5f + 0.5f;
     uint face = (uint)g_FaceInfo.x;
     float3 direction = DirectionFromCubeFace(face, uv);
-    return float4(EnvironmentRadiance(direction), 1.0f);
+    return float4(EnvironmentRadiance(direction, g_SunDirection.xyz), 1.0f);
 }

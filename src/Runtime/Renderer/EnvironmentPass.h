@@ -22,6 +22,7 @@ public:
     };
 
     EnvironmentPass(IRHIDevice* device, IRHIReadbackService* readbackService);
+    static Vec3 DefaultSunDirection();
 
     void Execute(GpuCommandList& commands, const Scene& scene,
                  const Camera& camera) override;
@@ -30,6 +31,7 @@ public:
     GraphResources GetGraphResources() const;
     void ExecuteGraphManaged(GpuCommandList& commands);
     void MarkGraphResourcesShaderResource();
+    void SetSunDirection(const Vec3& direction);
 
     GpuTexture* GetEnvironmentCubemap() const { return m_Environment.get(); }
     std::shared_ptr<GpuBufferView> GetSH2BufferView() const { return m_SH2Srv; }
@@ -40,11 +42,14 @@ private:
     void RenderCubemap(GpuCommandList& commands);
     void ProjectSH(GpuCommandList& commands);
     void ConsumeReadback();
+    void MarkDirty();
 
     static constexpr uint32_t kCubeSize = 64;
     static constexpr uint32_t kCubeMipLevels = 7;
     float m_SH2[9][4] = {};
     bool m_Generated = false;
+    Vec3 m_SunDirection = DefaultSunDirection();
+    Vec3 m_GeneratedSunDirection = DefaultSunDirection();
 
     std::shared_ptr<GpuTexture> m_Environment;
     std::shared_ptr<GpuTextureView> m_EnvironmentSrv;

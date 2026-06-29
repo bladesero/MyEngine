@@ -975,23 +975,43 @@ public:
         }
         DrawEnabled(*light);
 
+        bool changed = false;
         int type = static_cast<int>(light->GetLightType());
         if (ImGui::Combo("Type", &type, "Directional\0Point\0Spot\0")) {
             light->SetLightType(static_cast<LightType>(type));
+            changed = true;
         }
         Vec3 color = light->GetColor();
         float values[3] = {color.x, color.y, color.z};
         if (ImGui::ColorEdit3("Color", values)) {
             light->SetColor({values[0], values[1], values[2]});
+            changed = true;
         }
         float intensity = light->GetIntensity();
         if (ImGui::DragFloat("Intensity", &intensity, 0.05f, 0.0f, 1000.0f)) {
             light->SetIntensity(intensity);
+            changed = true;
+        }
+        bool castShadows = light->CastsShadows();
+        if (ImGui::Checkbox("Cast Shadows", &castShadows)) {
+            light->SetCastShadows(castShadows);
+            changed = true;
+        }
+        float shadowIntensity = light->GetShadowIntensity();
+        if (ImGui::SliderFloat("Shadow Intensity", &shadowIntensity, 0.0f, 1.0f)) {
+            light->SetShadowIntensity(shadowIntensity);
+            changed = true;
         }
         Vec3 direction = light->GetDirection();
-        if (DrawVec3("Direction", direction, 0.02f)) light->SetDirection(direction);
-        if (EditorWidgets::IconButton("RemoveLight", "X", "Remove Light"))
+        if (DrawVec3("Direction", direction, 0.02f)) {
+            light->SetDirection(direction);
+            changed = true;
+        }
+        if (EditorWidgets::IconButton("RemoveLight", "X", "Remove Light")) {
             actor->RemoveComponent<LightComponent>();
+            changed = true;
+        }
+        if (changed) context.MarkSceneDirty();
         ImGui::PopID();
     }
 };

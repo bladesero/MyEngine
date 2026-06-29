@@ -246,6 +246,7 @@ target("MyEngineEditor")
         "src/Editor/EditorLogService.cpp",
         "src/Editor/EditorLuaScriptService.cpp",
         "src/Editor/EditorPanel.cpp",
+        "src/Editor/EditorProfiler.cpp",
         "src/Editor/EditorProject.cpp",
         "src/Editor/EditorSelection.cpp",
         "src/Editor/EditorService.cpp",
@@ -270,6 +271,7 @@ target("MyEngineEditor")
         "src/Editor/Panels/InspectorPanel.cpp",
         "src/Editor/Panels/AssetBrowserPanel.cpp",
         "src/Editor/Panels/LogPanel.cpp",
+        "src/Editor/Panels/ProfilerPanel.cpp",
         "src/Editor/EditorImGuiBackend.cpp",
         "src/Editor/EditorResourceOperator.cpp",
         "thirdparty/ImGuizmo/ImGuizmo.cpp", { warnings = "none" }
@@ -398,6 +400,7 @@ target("MyEngineTests")
         "src/Editor/EditorLogService.cpp",
         "src/Editor/EditorLuaScriptService.cpp",
         "src/Editor/EditorPanel.cpp",
+        "src/Editor/EditorProfiler.cpp",
         "src/Editor/EditorProject.cpp",
         "src/Editor/EditorSelection.cpp",
         "src/Editor/EditorService.cpp",
@@ -422,6 +425,7 @@ target("MyEngineTests")
         "src/Editor/Panels/InspectorPanel.cpp",
         "src/Editor/Panels/AssetBrowserPanel.cpp",
         "src/Editor/Panels/LogPanel.cpp",
+        "src/Editor/Panels/ProfilerPanel.cpp",
         "src/Editor/EditorImGuiBackend.cpp",
         "src/Editor/EditorResourceOperator.cpp",
         "thirdparty/ImGuizmo/ImGuizmo.cpp", { warnings = "none" }

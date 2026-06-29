@@ -14,6 +14,7 @@
 #include "Math/Mat4Inverse.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <cstdint>
@@ -53,6 +54,7 @@ struct ShadowedPerDrawConstants {
     float lightInfo[4];
     float pointShadowPosition[4];
     float shadowInfo[4];
+    float shadowIntensity[4];
     float postProcess[4];
     float postProcess2[4];
     float instanceWorld[64][16];
@@ -69,6 +71,7 @@ struct SkyConstants {
     float forward[4];
     float right[4];
     float up[4];
+    float sunDirection[4];
     float parameters[4];
 };
 
@@ -119,6 +122,7 @@ struct ScenePointLight {
     Vec3 color = Vec3::One();
     float intensity = 1.0f;
     float range = 8.0f;
+    float shadowIntensity = 1.0f;
 };
 
 struct SceneSpotLight {
@@ -129,12 +133,14 @@ struct SceneSpotLight {
     float range = 8.0f;
     float innerConeCos = 0.9f;
     float outerConeCos = 0.8f;
+    float shadowIntensity = 1.0f;
 };
 
 struct SceneLightData {
     Vec3 direction = Vec3{ -0.55f, -1.0f, -0.45f }.Normalized();
     Vec3 color = Vec3::One();
     float directionalIntensity = 0.0f;
+    float directionalShadowIntensity = 1.0f;
     float ambientIntensity = 1.0f;
     std::vector<ScenePointLight> pointLights;
     std::vector<SceneSpotLight> spotLights;
@@ -220,6 +226,7 @@ SceneLightData CollectSceneLights(const Scene& scene)
                 out.direction = light->GetDirection();
                 out.color = light->GetColor();
                 out.directionalIntensity = light->GetIntensity();
+                out.directionalShadowIntensity = light->GetShadowIntensity();
                 foundDirectional = true;
             }
             return;
@@ -231,6 +238,7 @@ SceneLightData CollectSceneLights(const Scene& scene)
             point.color = light->GetColor();
             point.intensity = light->GetIntensity();
             point.range = light->GetRange();
+            point.shadowIntensity = light->GetShadowIntensity();
             out.pointLights.push_back(point);
             return;
         }
@@ -244,6 +252,7 @@ SceneLightData CollectSceneLights(const Scene& scene)
             spot.range = light->GetRange();
             spot.innerConeCos = std::cos(light->GetInnerConeAngle() * kDeg2Rad);
             spot.outerConeCos = std::cos(light->GetOuterConeAngle() * kDeg2Rad);
+            spot.shadowIntensity = light->GetShadowIntensity();
             out.spotLights.push_back(spot);
         }
     });
@@ -348,6 +357,12 @@ void MainPass::SetEnvironmentInput(GpuTexture* environmentCubemap,
     }
 }
 
+void MainPass::SetSunDirection(const Vec3& direction)
+{
+    if (direction.LengthSq() < 1e-8f) return;
+    m_SunDirection = direction.Normalized();
+}
+
 void MainPass::EnsureMeshUploaded(MeshAsset* mesh)
 {
     if (!mesh || mesh->IsUploaded() || !Device()) return;
@@ -384,6 +399,7 @@ void MainPass::EnsureTextureUploaded(TextureAsset* tex)
     desc.debugName = tex->GetName();
     std::vector<RHITextureSubresourceData> subresources;
     subresources.reserve(mips.size());
+    uint64_t uploadBytes = 0;
     for (uint32_t mip = 0; mip < mips.size(); ++mip) {
         const TextureMipData& mipData = mips[mip];
         if (mipData.rgba8.empty() || mipData.width <= 0 || mipData.height <= 0) return;
@@ -394,12 +410,18 @@ void MainPass::EnsureTextureUploaded(TextureAsset* tex)
         source.mipLevel = mip;
         source.arrayLayer = 0;
         subresources.push_back(source);
+        uploadBytes += mipData.rgba8.size();
     }
 
+    const auto uploadStart = std::chrono::steady_clock::now();
     auto gpuTex = Device()->UploadTexture(
         desc, subresources.data(), static_cast<uint32_t>(subresources.size()));
     if (gpuTex) {
+        const float uploadMs = static_cast<float>(std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - uploadStart).count());
         ++m_LastStats.textureUploads;
+        m_LastStats.textureUploadBytes += uploadBytes;
+        m_LastStats.textureUploadMs += uploadMs;
         tex->SetGpuHandle(gpuTex.get());
         m_TexCache[tex] = std::move(gpuTex);
     }
@@ -712,6 +734,10 @@ void MainPass::RenderSky(const Camera& camera, GpuCommandList& cmd)
     constants.up[0] = up.x;
     constants.up[1] = up.y;
     constants.up[2] = up.z;
+    constants.sunDirection[0] = m_SunDirection.x;
+    constants.sunDirection[1] = m_SunDirection.y;
+    constants.sunDirection[2] = m_SunDirection.z;
+    constants.sunDirection[3] = 0.0f;
     constants.parameters[0] = std::tan(camera.GetFovY() * kDeg2Rad * 0.5f);
     constants.parameters[1] = camera.GetAspect();
     constants.parameters[2] = 1.0f;
@@ -1024,6 +1050,22 @@ void MainPass::Execute(GpuCommandList& commands, const Scene& scene, const Camer
             constants.shadowInfo[1] = static_cast<float>(m_SpotShadowIndex);
             constants.shadowInfo[2] = static_cast<float>(m_PointShadowIndex);
             constants.shadowInfo[3] = 0.05f;
+            constants.shadowIntensity[0] = sceneLights.directionalShadowIntensity;
+            if (m_SpotShadowIndex >= 0 &&
+                static_cast<size_t>(m_SpotShadowIndex) < sceneLights.spotLights.size()) {
+                constants.shadowIntensity[1] =
+                    sceneLights.spotLights[static_cast<size_t>(m_SpotShadowIndex)].shadowIntensity;
+            } else {
+                constants.shadowIntensity[1] = 1.0f;
+            }
+            if (m_PointShadowIndex >= 0 &&
+                static_cast<size_t>(m_PointShadowIndex) < sceneLights.pointLights.size()) {
+                constants.shadowIntensity[2] =
+                    sceneLights.pointLights[static_cast<size_t>(m_PointShadowIndex)].shadowIntensity;
+            } else {
+                constants.shadowIntensity[2] = 1.0f;
+            }
+            constants.shadowIntensity[3] = 1.0f;
             constants.postProcess[0] = postProcess.exposure;
             constants.postProcess[1] = postProcess.gamma;
             constants.postProcess[2] = postProcess.toneMapping;
