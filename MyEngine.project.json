@@ -1,6 +1,6 @@
 {
   "graphics": {
-    "backend": "d3d12"
+    "backend": "vulkan"
   },
   "input": {
     "config": "Content/Config/Input.input.json"
