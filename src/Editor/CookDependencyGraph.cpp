@@ -1,5 +1,6 @@
 #include "Editor/CookDependencyGraph.h"
 
+#include "Assets/AssetDatabase.h"
 #include "Project/ContentPathPolicy.h"
 #include <fstream>
 #include <nlohmann/json.hpp>
@@ -8,6 +9,52 @@
 
 namespace fs = std::filesystem;
 namespace {
+PublishIssueCode ToPublishIssue(AssetDatabaseValidationIssueCode code) {
+    switch (code) {
+    case AssetDatabaseValidationIssueCode::MissingSource:
+    case AssetDatabaseValidationIssueCode::MissingArtifact:
+    case AssetDatabaseValidationIssueCode::UnknownDependency:
+        return PublishIssueCode::MissingDependency;
+    case AssetDatabaseValidationIssueCode::ArtifactHashMismatch:
+    case AssetDatabaseValidationIssueCode::StateNotReady:
+    case AssetDatabaseValidationIssueCode::DependencyCycle:
+        return PublishIssueCode::Compatibility;
+    default:
+        return PublishIssueCode::InvalidAsset;
+    }
+}
+
+void ValidateAssetDatabase(const fs::path& projectRoot, PublishPreflightReport& report) {
+    const fs::path databasePath = projectRoot / ".myengine" / "AssetDatabase.json";
+    const bool hasImportState =
+        fs::exists(databasePath) || fs::exists(projectRoot / "SourceAssets") ||
+        fs::exists(projectRoot / "Library");
+    if (!hasImportState) return;
+    if (!fs::exists(databasePath)) {
+        report.errors.push_back({PublishIssueCode::MissingDependency,
+            databasePath.generic_string(), {}, {}, "asset database is missing"});
+        return;
+    }
+    AssetDatabase database;
+    std::string error;
+    if (!database.Open(databasePath, &error)) {
+        report.errors.push_back({PublishIssueCode::InvalidAsset,
+            databasePath.generic_string(), {}, {}, error});
+        return;
+    }
+    AssetDatabaseValidationReport validation;
+    database.ValidateAgainstProject(projectRoot, validation);
+    for (const auto& issue : validation.issues) {
+        report.errors.push_back({ToPublishIssue(issue.code), issue.path, {}, {issue.uuid},
+                                 issue.message});
+    }
+    for (const AssetRecord& record : database.GetAll()) {
+        if (record.alwaysCook && !record.artifactPath.empty()) {
+            report.visitedAssets.push_back(record.artifactPath);
+        }
+    }
+}
+
 struct Scanner {
     fs::path projectRoot, contentRoot;
     PublishPreflightReport* report = nullptr;
@@ -114,6 +161,7 @@ std::string PublishPreflightReport::Summary() const {
 }
 bool CookDependencyGraph::Validate(const fs::path& projectRoot, PublishPreflightReport& report) {
     report={}; Scanner scanner{projectRoot,projectRoot/"Content",&report};
+    ValidateAssetDatabase(projectRoot, report);
     std::vector<ContentFileInfo> files; std::string error;
     if(!ContentPathPolicy::Enumerate(scanner.contentRoot,files,report.totalContentBytes,&error)) {
         report.errors.push_back({PublishIssueCode::ContentLimit,{}, {}, {}, error}); return false;

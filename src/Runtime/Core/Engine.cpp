@@ -95,6 +95,7 @@ void Engine::RunLoop() {
         m_FrameStats.updateMs = updateCost.count();
         m_FrameStats.renderMs = renderCost.count();
         m_FrameStats.frameMs = frameCost.count();
+        m_FrameStats.renderer = FrameStatsProvider::GetRendererStats();
         m_FrameStats.smoothedFrameMs = m_FrameStats.smoothedFrameMs == 0.0f
             ? m_FrameStats.frameMs
             : m_FrameStats.smoothedFrameMs * 0.9f + m_FrameStats.frameMs * 0.1f;

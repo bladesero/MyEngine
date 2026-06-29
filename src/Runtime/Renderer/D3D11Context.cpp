@@ -667,7 +667,7 @@ void D3D11Context::BeginFrame(float r, float g, float b, float a) {
 }
 
 void D3D11Context::EndFrame() {
-    PresentSwapChain(true);
+    PresentSwapChain(m_VSyncEnabled);
 }
 
 GpuSwapChain* D3D11Context::GetSwapChain() {

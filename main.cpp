@@ -58,6 +58,19 @@ bool ApplyBackendValue(const std::string& value, ApplicationConfig& cfg) {
     return false;
 }
 
+bool ApplyVSyncValue(const std::string& value, ApplicationConfig& cfg) {
+    if (value == "on" || value == "true" || value == "1") {
+        cfg.window.vsync = true;
+        return true;
+    }
+    if (value == "off" || value == "false" || value == "0") {
+        cfg.window.vsync = false;
+        return true;
+    }
+    Logger::Warn("Unknown vsync value: ", value, " (use on/off)");
+    return false;
+}
+
 void ApplyProjectBackend(const std::filesystem::path& projectRoot,
                          ApplicationConfig& cfg) {
 #ifdef MYENGINE_PLATFORM_WINDOWS
@@ -113,6 +126,7 @@ public:
           EditorAutomationConfig automation)
         : Application(cfg)
         , m_Backend(cfg.backend)
+        , m_VSyncEnabled(cfg.window.vsync)
         , m_ProjectRoot(std::move(projectRoot))
         , m_Automation(std::move(automation)) {}
 
@@ -148,6 +162,7 @@ protected:
         if (!m_RenderContext->Init(&GetWindow())) {
             return false; // error already logged
         }
+        m_RenderContext->SetVSyncEnabled(m_VSyncEnabled);
 
         auto& win = GetWindow();
         auto* sceneLayer = new SceneRenderLayer(m_RenderContext.get(),
@@ -169,6 +184,7 @@ protected:
 private:
     std::unique_ptr<IRenderContext> m_RenderContext;
     RenderBackend m_Backend = kDefaultRenderBackend;
+    bool m_VSyncEnabled = false;
     std::filesystem::path m_ProjectRoot;
     EditorAutomationConfig m_Automation;
 };
@@ -225,6 +241,12 @@ static int RunEditor(int argc, char* argv[]) {
         else if (arg.rfind("--backend=", 0) == 0) {
             const std::string b = arg.substr(std::string("--backend=").size());
             backendOverridden = ApplyBackendValue(b, cfg);
+        }
+        else if (arg == "--vsync" && i + 1 < argc) {
+            ApplyVSyncValue(argv[++i], cfg);
+        }
+        else if (arg.rfind("--vsync=", 0) == 0) {
+            ApplyVSyncValue(arg.substr(std::string("--vsync=").size()), cfg);
         }
     }
 

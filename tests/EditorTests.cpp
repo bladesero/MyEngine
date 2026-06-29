@@ -24,6 +24,7 @@
 #include "Editor/EditorWorkspace.h"
 #include "Editor/InspectorSections.h"
 #include "Game/SceneRenderLayer.h"
+#include "Core/Sha256.h"
 #include "Physics/BoxColliderComponent.h"
 #include "Scene/Scene.h"
 #include "Scene/SceneSerializer.h"
@@ -757,11 +758,14 @@ bool TestEditorProjectAndAssetRegistry() {
     std::filesystem::create_directories(content / "Textures");
     std::filesystem::create_directories(content / "Materials");
     std::filesystem::create_directories(content / "Audio");
+    std::filesystem::create_directories(content / "Empty");
+    std::filesystem::create_directories(root / "SourceAssets" / "Raw");
     std::ofstream(content / "Models" / "test.gltf") << "{}";
     std::ofstream(content / "Textures" / "test.png") << "png";
     std::ofstream(content / "Materials" / "test.mat") << "{}";
     std::ofstream(content / "Audio" / "test.wav") << "wav";
     std::ofstream(content / "Models" / "test.gltf.meta") << "{}";
+    std::ofstream(root / "SourceAssets" / "Raw" / "raw.dat") << "raw";
 
     EditorAssetRegistry registry;
     registry.SetRoot(content);
@@ -774,8 +778,33 @@ bool TestEditorProjectAndAssetRegistry() {
                "asset registry material classification failed")) return false;
     if (!Check(registry.GetAssets(EditorAssetType::Audio).size() == 1,
                "asset registry audio classification failed")) return false;
-    if (!Check(registry.GetAssets().size() == 4,
+    if (!Check(registry.GetAssets().size() == 5,
                "asset registry exposed metadata files")) return false;
+    const auto folders = registry.GetFolders();
+    const auto findFolder = [&](const std::string& path) {
+        return std::find_if(folders.begin(), folders.end(),
+            [&path](const EditorAssetFolderInfo& info) {
+                return info.relativePath == path;
+            });
+    };
+    if (!Check(findFolder("Content") != folders.end() &&
+               findFolder("Content/Models") != folders.end() &&
+               findFolder("Content/Empty") != folders.end() &&
+               findFolder("SourceAssets") != folders.end() &&
+               findFolder("SourceAssets/Raw") != folders.end(),
+               "asset registry folder index missed Content or SourceAssets folders")) return false;
+    if (!Check(findFolder("Content/Empty")->assetCount == 0 &&
+               findFolder("Content/Models")->assetCount == 1 &&
+               findFolder("Content/Models")->directAssetCount == 1 &&
+               findFolder("Content")->assetCount == 4 &&
+               findFolder("SourceAssets")->assetCount == 1,
+               "asset registry folder counts are incorrect")) return false;
+    const auto modelFolderAssets = registry.GetAssetsInFolder("Content/Models", true);
+    if (!Check(modelFolderAssets.size() == 1 &&
+               modelFolderAssets.front().relativePath == "Models/test.gltf",
+               "asset registry folder query returned the wrong Content assets")) return false;
+    if (!Check(registry.GetAssetsInFolder("SourceAssets", true).size() == 1,
+               "asset registry folder query returned the wrong SourceAssets assets")) return false;
 
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
     std::ofstream(content / "Models" / "test.gltf", std::ios::app) << " ";
@@ -854,6 +883,8 @@ bool TestProductionAssetDatabaseAndImportPipeline() {
     material.sourcePath = (root / "Project/Content/Test.mat").generic_string();
     material.type = "material";
     material.dependencies = {first.record.uuid};
+    fs::create_directories(root / "Project/Content");
+    std::ofstream(material.sourcePath) << "{}";
     if (!Check(imports.GetDatabase().Upsert(material, &error) &&
                imports.GetDatabase().Save(&error),
                "asset database dependency update failed: " + error)) return false;
@@ -866,8 +897,74 @@ bool TestProductionAssetDatabaseAndImportPipeline() {
     const AssetRecord* restored = reopened.FindByUuid(first.record.uuid);
     const bool valid = restored && restored->artifactHash == first.record.artifactHash &&
         reopened.GetReferencers(first.record.uuid).size() == 1;
+    if (!Check(valid, "asset database round trip lost identity or dependencies")) return false;
+
+    AssetDatabaseValidationReport validation;
+    if (!Check(reopened.ValidateAgainstProject(root / "Project", validation),
+               "valid asset database failed project validation: " + validation.Summary())) return false;
+
+    std::ofstream(first.record.artifactPath, std::ios::binary | std::ios::trunc) << "tampered";
+    reopened.ValidateAgainstProject(root / "Project", validation);
+    const bool detectedHashMismatch = std::any_of(
+        validation.issues.begin(), validation.issues.end(),
+        [](const AssetDatabaseValidationIssue& issue) {
+            return issue.code == AssetDatabaseValidationIssueCode::ArtifactHashMismatch;
+        });
+    if (!Check(detectedHashMismatch,
+               "asset database validation missed an artifact hash mismatch")) return false;
+
+    fs::remove(first.record.sourcePath);
+    const AssetImportReport missing = imports.Reimport(first.record.uuid, &error);
+    if (!Check(!missing.succeeded &&
+               missing.record.state == AssetImportState::MissingSource &&
+               missing.record.artifactPath == first.record.artifactPath,
+               "failed reimport did not retain previous artifact record")) return false;
+
+    AssetRecord cycleA;
+    cycleA.uuid = "cycle-a";
+    cycleA.sourcePath = (root / "Project/Content/CycleA.asset").generic_string();
+    cycleA.dependencies = {"cycle-b"};
+    std::ofstream(cycleA.sourcePath) << "a";
+    AssetRecord cycleB;
+    cycleB.uuid = "cycle-b";
+    cycleB.sourcePath = (root / "Project/Content/CycleB.asset").generic_string();
+    cycleB.dependencies = {"cycle-a"};
+    std::ofstream(cycleB.sourcePath) << "b";
+    if (!Check(imports.GetDatabase().Upsert(cycleA, &error) &&
+               imports.GetDatabase().Upsert(cycleB, &error),
+               "failed to add cycle validation records: " + error)) return false;
+    imports.GetDatabase().ValidateAgainstProject(root / "Project", validation);
+    const bool detectedCycle = std::any_of(
+        validation.issues.begin(), validation.issues.end(),
+        [](const AssetDatabaseValidationIssue& issue) {
+            return issue.code == AssetDatabaseValidationIssueCode::DependencyCycle;
+        });
+    if (!Check(detectedCycle, "asset database validation missed a dependency cycle")) return false;
+
+    EditorAssetRegistry registry;
+    registry.SetRoot(root / "Project/Content");
+    registry.Refresh();
+    const auto assets = registry.GetAssets();
+    const auto sourceFolderAssets = registry.GetAssetsInFolder("SourceAssets", true);
+    const bool registrySawImport = std::any_of(
+        assets.begin(), assets.end(),
+        [&first](const EditorAssetInfo& info) {
+            return info.uuid == first.record.uuid && info.imported &&
+                   !info.artifactPath.empty() && !info.diagnostics.empty();
+        });
+    const bool sourceFolderSawImport = std::any_of(
+        sourceFolderAssets.begin(), sourceFolderAssets.end(),
+        [&first](const EditorAssetInfo& info) {
+            return info.uuid == first.record.uuid && info.imported &&
+                   !info.diagnostics.empty();
+        });
+    if (!Check(registrySawImport,
+               "asset registry did not surface database import state or diagnostics")) return false;
+    if (!Check(sourceFolderSawImport,
+               "asset registry folder query did not surface SourceAssets diagnostics")) return false;
+
     fs::remove_all(root, ec);
-    return Check(valid, "asset database round trip lost identity or dependencies");
+    return true;
 }
 
 MYENGINE_REGISTER_TEST("Editor", "TestEditorCommandStackAndSelection", TestEditorCommandStackAndSelection);

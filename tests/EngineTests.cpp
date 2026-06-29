@@ -2948,33 +2948,53 @@ bool TestSceneColdLoadsModelSubAssetReferences() {
     const auto objPath = models / "triangle.obj";
     const auto mtlPath = models / "triangle.mtl";
     std::ofstream(mtlPath)
-        << "newmtl TestMat\n"
-        << "Kd 0.2 0.6 0.9\n";
+        << "newmtl TestMatA\n"
+        << "Kd 0.2 0.6 0.9\n"
+        << "newmtl TestMatB\n"
+        << "Kd 0.9 0.4 0.2\n";
     std::ofstream(objPath)
         << "mtllib triangle.mtl\n"
         << "v 0 0 0\n"
         << "v 1 0 0\n"
         << "v 0 1 0\n"
-        << "usemtl TestMat\n"
-        << "f 1 2 3\n";
+        << "v 1 1 0\n"
+        << "g First\n"
+        << "usemtl TestMatA\n"
+        << "f 1 2 3\n"
+        << "g Second\n"
+        << "usemtl TestMatB\n"
+        << "f 2 4 3\n";
 
     AssetManager& assets = AssetManager::Get();
     assets.Clear();
     assets.SetProjectRoot(root);
     const ModelHandle model = assets.Load<ModelAsset>(objPath.string());
-    if (!Check(model && model->GetMesh() && model->GetMaterial(0),
+    if (!Check(model && model->GetMesh() && model->GetMaterial(0) &&
+               model->GetMaterial(1),
                "model fixture failed to import")) return false;
+    if (!Check(model->GetMesh()->GetSubMeshes().size() == 2 &&
+               model->MaterialCount() == 2 &&
+               model->GetMesh()->GetSubMeshes()[0].materialSlot == 0 &&
+               model->GetMesh()->GetSubMeshes()[1].materialSlot == 1,
+               "OBJ import did not preserve submesh material slots")) return false;
 
     Scene source("ColdSubAssets");
     Actor* actor = source.CreateActor("ImportedModel");
     auto* renderer = actor->AddComponent<MeshRendererComponent>();
     renderer->SetMesh(model->GetMesh());
-    renderer->SetMaterial(model->GetMaterial(0));
+    renderer->SetMaterials(model->GetMaterials());
     const std::string serialized = SceneSerializer::SaveToString(source);
     const nlohmann::json saved = nlohmann::json::parse(serialized);
     const auto& savedData = saved["actors"][0]["components"][0]["data"];
     if (!Check(savedData.value("mesh", std::string{}) ==
                    "Content/Models/triangle.obj#mesh" &&
+               savedData.contains("materials") &&
+               savedData["materials"].is_array() &&
+               savedData["materials"].size() == 2 &&
+               savedData["materials"][0].get<std::string>() ==
+                   "Content/Models/triangle.obj#material-0" &&
+               savedData["materials"][1].get<std::string>() ==
+                   "Content/Models/triangle.obj#material-1" &&
                savedData.value("material", std::string{}) ==
                    "Content/Models/triangle.obj#material-0",
                "model sub-assets were not serialized as stable project-relative paths")) {
@@ -2989,12 +3009,13 @@ bool TestSceneColdLoadsModelSubAssetReferences() {
     auto* loadedRenderer = loadedActor
         ? loadedActor->GetComponent<MeshRendererComponent>() : nullptr;
     if (!Check(loadedRenderer && loadedRenderer->GetMesh().IsValid() &&
-               loadedRenderer->GetMaterial().IsValid(),
-               "cold scene load lost imported mesh or material reference")) return false;
+               loadedRenderer->GetMaterialForSlot(0).IsValid() &&
+               loadedRenderer->GetMaterialForSlot(1).IsValid(),
+               "cold scene load lost imported mesh or material slot references")) return false;
 
     SkinnedMeshRendererComponent skinned;
     skinned.SetSourceMesh(loadedRenderer->GetMesh());
-    skinned.SetMaterial(loadedRenderer->GetMaterial());
+    skinned.SetMaterial(loadedRenderer->GetMaterialForSlot(0));
     nlohmann::json skinnedData;
     skinned.Serialize(skinnedData);
     assets.Clear();
@@ -3007,7 +3028,8 @@ bool TestSceneColdLoadsModelSubAssetReferences() {
     nlohmann::json legacy = nlohmann::json::parse(serialized);
     for (auto& component : legacy["actors"][0]["components"]) {
         if (component.value("type", std::string{}) == "MeshRenderer") {
-            component["data"]["material"] = "__builtin__/TestMat";
+            component["data"]["material"] = "__builtin__/TestMatA";
+            component["data"].erase("materials");
         }
     }
     assets.Clear();
@@ -3019,7 +3041,7 @@ bool TestSceneColdLoadsModelSubAssetReferences() {
         ? legacyActor->GetComponent<MeshRendererComponent>() : nullptr;
     const bool legacyResolved = legacyRenderer && legacyRenderer->GetMesh().IsValid() &&
         legacyRenderer->GetMaterial().IsValid() &&
-        legacyRenderer->GetMaterial()->GetName() == "TestMat";
+        legacyRenderer->GetMaterial()->GetName() == "TestMatA";
 
     assets.Clear();
     assets.SetProjectRoot({});

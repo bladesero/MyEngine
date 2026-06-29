@@ -12,6 +12,7 @@
 #include "Editor/EditorContext.h"
 #include "Editor/EditorAssetRegistry.h"
 #include "Editor/EditorInspectorSection.h"
+#include "Editor/EditorImportService.h"
 #include "Editor/EditorPanelHelpers.h"
 #include "Editor/EditorUndoUtil.h"
 #include "Editor/UI/EditorIcons.h"
@@ -444,6 +445,20 @@ public:
     const char* GetID() const override { return "textureAsset"; }
     int GetOrder() const override { return -4; }
 
+    static const char* FilterName(TextureFilter filter) {
+        switch (filter) {
+            case TextureFilter::Nearest: return "Nearest";
+            default: return "Linear";
+        }
+    }
+
+    static const char* WrapName(TextureWrap wrap) {
+        switch (wrap) {
+            case TextureWrap::Clamp: return "Clamp";
+            default: return "Repeat";
+        }
+    }
+
     void Draw(EditorContext& context) override {
         const std::string& path = context.GetSelection().GetAssetPath();
         if (path.empty()) return;
@@ -468,6 +483,69 @@ public:
         ImGui::Text("Size: %d x %d", w, h);
         ImGui::Text("Mips: %d", tex->GetMipLevels());
         ImGui::Text("Format: SRGB=%s", tex->GetDesc().sRGB ? "Yes" : "No");
+
+        TextureFilter filter = tex->GetFilter();
+        TextureWrap wrapU = tex->GetWrapU();
+        TextureWrap wrapV = tex->GetWrapV();
+        bool changed = false;
+        ImGui::Separator();
+        ImGui::TextUnformatted("Sampler");
+        if (ImGui::BeginCombo("Filter", FilterName(filter))) {
+            if (ImGui::Selectable("Nearest", filter == TextureFilter::Nearest)) {
+                filter = TextureFilter::Nearest;
+                changed = true;
+            }
+            if (ImGui::Selectable("Linear", filter != TextureFilter::Nearest)) {
+                filter = TextureFilter::Linear;
+                changed = true;
+            }
+            ImGui::EndCombo();
+        }
+        if (ImGui::BeginCombo("Wrap U", WrapName(wrapU))) {
+            if (ImGui::Selectable("Repeat", wrapU != TextureWrap::Clamp)) {
+                wrapU = TextureWrap::Repeat;
+                changed = true;
+            }
+            if (ImGui::Selectable("Clamp", wrapU == TextureWrap::Clamp)) {
+                wrapU = TextureWrap::Clamp;
+                changed = true;
+            }
+            ImGui::EndCombo();
+        }
+        if (ImGui::BeginCombo("Wrap V", WrapName(wrapV))) {
+            if (ImGui::Selectable("Repeat", wrapV != TextureWrap::Clamp)) {
+                wrapV = TextureWrap::Repeat;
+                changed = true;
+            }
+            if (ImGui::Selectable("Clamp", wrapV == TextureWrap::Clamp)) {
+                wrapV = TextureWrap::Clamp;
+                changed = true;
+            }
+            ImGui::EndCombo();
+        }
+        if (changed) {
+            tex->SetSampler(filter, wrapU, wrapV);
+            const EditorAssetRegistry* registry = context.GetAssetRegistry();
+            const EditorAssetInfo* info = registry ? registry->GetAssetInfo(path) : nullptr;
+            if (info && info->imported && !info->uuid.empty()) {
+                const auto filterText = filter == TextureFilter::Nearest
+                    ? std::string("nearest") : std::string("linear");
+                const auto wrapText = [](TextureWrap wrap) {
+                    return wrap == TextureWrap::Clamp
+                        ? std::string("clamp") : std::string("repeat");
+                };
+                const nlohmann::json settings = {
+                    {"textureSampler", {
+                        {"filter", filterText},
+                        {"wrapU", wrapText(wrapU)},
+                        {"wrapV", wrapText(wrapV)}
+                    }}
+                };
+                if (auto* importer = context.GetService<EditorImportService>()) {
+                    importer->ReimportWithSettings(info->uuid, settings.dump());
+                }
+            }
+        }
 
         // Texture thumbnail (requires ImGui GPU backend integration for preview)\n        if (tex->GetGpuHandle()) {\n            ImGui::TextColored(ImVec4(0.3f, 0.8f, 0.3f, 1.0f), "(GPU resident)");\n        } else {\n            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "(preview not available)");\n        }
 
@@ -604,16 +682,50 @@ public:
         std::vector<std::string> materials {"__builtin__/Default"};
         extra = AssetManager::Get().GetCachedPathsByType(AssetType::Material);
         materials.insert(materials.end(), extra.begin(), extra.end());
-        const std::string materialPath = renderer->GetMaterial()
-            ? renderer->GetMaterial()->GetPath() : "";
-        if (ImGui::BeginCombo("Material", materialPath.empty() ? "(none)" : materialPath.c_str())) {
+        const std::string materialPath = renderer->GetMaterialForSlot(0)
+            ? renderer->GetMaterialForSlot(0)->GetPath() : "";
+        if (ImGui::BeginCombo("Default Slot / Slot 0",
+                              materialPath.empty() ? "(none)" : materialPath.c_str())) {
             for (const std::string& path : materials) {
                 if (ImGui::Selectable(path.c_str(), path == materialPath)) {
                     const MaterialHandle material = ResolveMaterial(path);
-                    if (material.IsValid()) renderer->SetMaterial(material);
+                    if (material.IsValid()) renderer->SetMaterialSlot(0, material);
                 }
             }
             ImGui::EndCombo();
+        }
+
+        size_t slotCount = renderer->GetMaterials().size();
+        if (MeshAsset* mesh = renderer->GetMesh().Get()) {
+            for (const SubMesh& subMesh : mesh->GetSubMeshes()) {
+                if (subMesh.materialSlot >= 0) {
+                    slotCount = (std::max)(slotCount,
+                        static_cast<size_t>(subMesh.materialSlot) + 1);
+                }
+            }
+        }
+        if (slotCount > 1) {
+            ImGui::TextDisabled("Material Slots");
+            for (size_t slot = 0; slot < slotCount; ++slot) {
+                ImGui::PushID(static_cast<int>(slot));
+                const MaterialHandle current = renderer->GetMaterialForSlot(
+                    static_cast<int>(slot));
+                const std::string currentPath = current ? current->GetPath() : "";
+                const std::string label = "Slot " + std::to_string(slot);
+                if (ImGui::BeginCombo(label.c_str(),
+                                      currentPath.empty() ? "(none)" : currentPath.c_str())) {
+                    for (const std::string& path : materials) {
+                        if (ImGui::Selectable(path.c_str(), path == currentPath)) {
+                            const MaterialHandle material = ResolveMaterial(path);
+                            if (material.IsValid()) {
+                                renderer->SetMaterialSlot(slot, material);
+                            }
+                        }
+                    }
+                    ImGui::EndCombo();
+                }
+                ImGui::PopID();
+            }
         }
 
         if (EditorWidgets::IconButton("RemoveMeshRenderer", "X", "Remove Mesh Renderer")) {

@@ -1564,7 +1564,7 @@ void D3D12Context::EndFrame() {
     ID3D12CommandList* cmdLists[] = { m_CommandList.Get() };
     m_CommandQueue->ExecuteCommandLists(1, cmdLists);
 
-    PresentSwapChain(true);
+    PresentSwapChain(m_VSyncEnabled);
     if (m_DeviceLost) {
         if (m_DeferredReleaseQueue) m_DeferredReleaseQueue->AbandonSubmittedFrame();
         m_IsRecording = false;

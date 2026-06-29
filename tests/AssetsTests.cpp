@@ -242,6 +242,9 @@ bool TestAssetFileImporters() {
     if (!Check(tex.IsValid(), "texture import should succeed")) return false;
     if (!Check(tex->GetWidth() == 2 && tex->GetHeight() == 2, "texture dimensions mismatch")) return false;
     if (!Check(tex->GetPixelData().size() == 16, "texture pixel data size mismatch")) return false;
+    if (!Check(tex->GetMipLevels() == 2 && tex->GetMips().size() == 2 &&
+               tex->GetMips()[1].width == 1 && tex->GetMips()[1].height == 1,
+               "imported texture mip chain mismatch")) return false;
 
     auto model = am.Load<ModelAsset>(objPath.string());
     if (!Check(model.IsValid(), "model import should succeed")) return false;
@@ -602,6 +605,61 @@ bool TestTextureDerivedData() {
                  "BC1 texture compression output size mismatch");
 }
 
+bool TestTextureSamplerSettingsFromAssetDatabase() {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "myengine_texture_sampler_settings_test";
+    std::error_code ec;
+    fs::remove_all(root, ec);
+    fs::create_directories(root / "SourceAssets");
+    fs::create_directories(root / ".myengine");
+    const fs::path texturePath = root / "SourceAssets" / "tile.ppm";
+    {
+        std::ofstream output(texturePath, std::ios::binary);
+        output << "P6\n1 1\n255\n";
+        const unsigned char pixel[3] = { 255, 255, 255 };
+        output.write(reinterpret_cast<const char*>(pixel), 3);
+    }
+    const nlohmann::json settings = {
+        {"textureSampler", {
+            {"filter", "nearest"},
+            {"wrapU", "clamp"},
+            {"wrapV", "clamp"}
+        }}
+    };
+    const nlohmann::json database = {
+        {"version", 1},
+        {"assets", nlohmann::json::array({
+            {
+                {"uuid", "texture-sampler-test"},
+                {"sourcePath", texturePath.generic_string()},
+                {"artifactPath", ""},
+                {"type", "texture"},
+                {"importer", "passthrough"},
+                {"importerVersion", 1},
+                {"sourceHash", "test"},
+                {"artifactHash", ""},
+                {"settings", settings.dump()},
+                {"dependencies", nlohmann::json::array()},
+                {"state", "ready"},
+                {"diagnostics", nlohmann::json::array()},
+                {"alwaysCook", false}
+            }
+        })}
+    };
+    std::ofstream(root / ".myengine" / "AssetDatabase.json") << database.dump(2);
+
+    AssetManager& manager = AssetManager::Get();
+    manager.Clear();
+    TextureHandle texture = manager.Load<TextureAsset>(texturePath.string());
+    const bool ok = texture.IsValid() &&
+        texture->GetFilter() == TextureFilter::Nearest &&
+        texture->GetWrapU() == TextureWrap::Clamp &&
+        texture->GetWrapV() == TextureWrap::Clamp;
+    manager.Clear();
+    fs::remove_all(root, ec);
+    return Check(ok, "texture sampler settings were not restored from AssetDatabase");
+}
+
 MYENGINE_REGISTER_TEST("Assets", "TestShaderAssetFormats", TestShaderAssetFormats);
 MYENGINE_REGISTER_TEST("Assets", "TestPbrMaterialParameters", TestPbrMaterialParameters);
 MYENGINE_REGISTER_TEST("Assets", "TestMaterialAssetFileRoundTrip", TestMaterialAssetFileRoundTrip);
@@ -613,5 +671,6 @@ MYENGINE_REGISTER_TEST("Assets", "TestAssetAsyncLoadingAndHotReload", TestAssetA
 MYENGINE_REGISTER_TEST("Assets", "TestAssetManagerFailureRollback", TestAssetManagerFailureRollback);
 MYENGINE_REGISTER_TEST("Assets", "TestMeshDerivedData", TestMeshDerivedData);
 MYENGINE_REGISTER_TEST("Assets", "TestTextureDerivedData", TestTextureDerivedData);
+MYENGINE_REGISTER_TEST("Assets", "TestTextureSamplerSettingsFromAssetDatabase", TestTextureSamplerSettingsFromAssetDatabase);
 
 } // namespace

@@ -157,8 +157,10 @@ void SceneViewportPanel::DropModel(const std::string& path, float screenX, float
     Actor* actor = scene->CreateActor(actorName.empty() ? "Mesh" : actorName);
     auto* renderer = actor->AddComponent<MeshRendererComponent>();
     renderer->SetMesh(model->GetMesh());
-    const MaterialHandle material = model->GetMaterial(0);
-    renderer->SetMaterial(material ? material : AssetManager::Get().GetDefaultMaterial());
+    renderer->SetMaterials(model->GetMaterials());
+    if (renderer->GetMaterials().empty()) {
+        renderer->SetMaterial(AssetManager::Get().GetDefaultMaterial());
+    }
 
     Math::Ray ray {};
     float distance = 0.0f;

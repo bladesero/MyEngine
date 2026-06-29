@@ -1,6 +1,7 @@
 #include "TestHarness.h"
 
 #include "Assets/AssetManager.h"
+#include "Assets/AssetDatabase.h"
 #include "Assets/ShaderAsset.h"
 #include "Core/Sha256.h"
 #include "Editor/CookDependencyGraph.h"
@@ -70,6 +71,25 @@ bool TestPublishHardeningPrimitives() {
     if (!Check(std::find(preflight.visitedAssets.begin(), preflight.visitedAssets.end(),
                          "Content/Audio/beep.wav") != preflight.visitedAssets.end(),
                "publish preflight did not visit audio clip dependency")) return false;
+
+    AssetDatabase database;
+    const auto dbPath = root / ".myengine" / "AssetDatabase.json";
+    if (!Check(database.Open(dbPath, &error),
+               "asset database open failed: " + error)) return false;
+    AssetRecord stale;
+    stale.uuid = "stale-asset";
+    stale.sourcePath = (root / "SourceAssets" / "missing.png").generic_string();
+    stale.artifactPath = (root / "Library/windows-x64/stale-asset/missing.png").generic_string();
+    stale.type = "texture";
+    stale.state = AssetImportState::MissingSource;
+    if (!Check(database.Upsert(stale, &error) && database.Save(&error),
+               "asset database stale record save failed: " + error)) return false;
+    preflight = {};
+    if (!Check(!CookDependencyGraph::Validate(root, preflight) &&
+               !preflight.errors.empty() &&
+               preflight.Summary().find("asset source is missing") != std::string::npos,
+               "publish preflight accepted a stale asset database")) return false;
+    fs::remove_all(root / ".myengine", ec);
 
     CookManifest manifest;
     manifest.project = "ContractTest";

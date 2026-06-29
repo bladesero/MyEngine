@@ -6,7 +6,7 @@ A `.shader` source asset is JSON version 1 with either `vertex` plus `pixel` sta
 
 In Editor builds, `ShaderManager` compiles the referenced HLSL and retains the previous GPU object when hot reload fails. Its cache identity includes the ShaderAsset ID/version, active RHI backend, and vertex-layout values.
 
-Windows publishing stages project and engine content, compiles every stage for D3D11 (`*_5_0`) and D3D12 (`*_5_0`) through the platform D3DCompile/FXC path, and writes a versioned binary container at the original `.shader` logical path. Windows cooked packages require only the `d3d11,d3d12` backends; Slang is not part of the Windows D3D shader compile path. HLSL and HLSLI source files are not archived. A compile failure aborts staging before the previous package is replaced.
+Windows publishing stages project and engine content, compiles every stage for D3D11 (`*_5_0`) and D3D12 (`*_5_0`) through the platform D3DCompile/FXC path, and writes a versioned binary container at the original `.shader` logical path. A normal Windows build requires `d3d11,d3d12`; a build configured with `xmake f --vulkan=y` also requires `vulkan` and cooks Vulkan SPIR-V payloads through Slang. HLSL and HLSLI source files are not archived. A compile failure aborts staging before the previous package is replaced.
 
 macOS Metal publishing is experimental and uses Slang to produce Metal shader payloads. A macOS package must declare only the `metal` backend in `CookManifest.requiredBackends`.
 

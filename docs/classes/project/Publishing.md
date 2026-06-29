@@ -15,7 +15,7 @@ The supported publish target matrix is intentionally narrow:
 
 | Target | Support level | Runtime backend | Shader compiler |
 | --- | --- | --- | --- |
-| `windows-x64` | release-ready | D3D11, D3D12 | D3DCompile/FXC |
+| `windows-x64` | release-ready | D3D11, D3D12; optional Vulkan when built with `--vulkan=y` | D3DCompile/FXC, Slang for Vulkan |
 | `macos-arm64` | experimental, unverified on this host | Metal | Slang |
 | Linux | future target only | none in-repository | none |
 
@@ -32,7 +32,9 @@ not a pruning pass.
 
 The v2 `CookManifest` records the engine/build/content/archive compatibility
 contract, required backends, project identity and SHA-256 hashes. Windows
-packages require exactly `d3d11,d3d12`; macOS packages require exactly `metal`.
+packages require exactly `d3d11,d3d12` for normal builds and
+`d3d11,d3d12,vulkan` when `MYENGINE_ENABLE_VULKAN` is compiled in; macOS
+packages require exactly `metal`.
 A Windows PE collector recursively resolves non-system imports from the build
 output or the x64 MSVC Redistributable and writes `RuntimeDependencies.json`.
 The staged package is fully re-read and extracted before the previous package
@@ -54,3 +56,5 @@ and rebuilds missing or modified cached files automatically.
 package dependency manifest, launches D3D11 and D3D12, and verifies corrupt
 archive, missing scene, missing direct/transitive DLL, tampered dependency
 manifest, and invalid-config failures.
+Pass `-Vulkan` to build with `--vulkan=y`, require Vulkan shader payloads in the
+manifest, and launch the published Player with `--backend vulkan`.

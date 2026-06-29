@@ -89,6 +89,9 @@ public:
     void Dispatch(uint32_t x, uint32_t y = 1, uint32_t z = 1);
     std::shared_ptr<GpuTexture> UploadTexture2D(
         const void* rgba8Data, int width, int height) override;
+    std::shared_ptr<GpuTexture> UploadTexture(
+        const RHITextureDesc& desc, const RHITextureSubresourceData* data,
+        uint32_t subresourceCount) override;
     std::shared_ptr<GpuTexture> CreateTexture(const RHITextureDesc& desc) override;
     std::shared_ptr<GpuTextureView> CreateTextureView(
         const std::shared_ptr<GpuTexture>& texture, const RHITextureViewDesc& desc) override;

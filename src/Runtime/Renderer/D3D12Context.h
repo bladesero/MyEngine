@@ -137,6 +137,8 @@ public:
         if (m_RenderFrameIndex >= kFrameCount) return nullptr;
         return m_BackBufferViews[m_RenderFrameIndex].get();
     }
+    void SetVSyncEnabled(bool enabled) override { m_VSyncEnabled = enabled; }
+    bool IsVSyncEnabled() const override { return m_VSyncEnabled; }
     RHIBackend GetBackend() const override { return RHIBackend::D3D12; }
     ImGuiBackendHandles GetImGuiBackendHandles() override;
 
@@ -313,6 +315,7 @@ private:
     bool m_IsRecording = false;
     bool m_FrameCommandListClosed = true;
     bool m_DeviceLost = false;
+    bool m_VSyncEnabled = true;
     bool m_DredDumped = false;
     bool m_DeviceLossSuppressionLogged = false;
     bool m_DepthOnlyBound = false;

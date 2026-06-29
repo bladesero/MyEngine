@@ -24,4 +24,6 @@ public:
     virtual GpuQueue* GetGraphicsQueue() { return nullptr; }
     virtual GpuSwapChain* GetSwapChain() { return nullptr; }
     virtual GpuTextureView* GetCurrentBackBufferView() { return nullptr; }
+    virtual void SetVSyncEnabled(bool enabled) { (void)enabled; }
+    virtual bool IsVSyncEnabled() const { return true; }
 };

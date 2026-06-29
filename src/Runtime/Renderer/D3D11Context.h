@@ -81,6 +81,8 @@ public:
     GpuCommandList* GetGraphicsCommandList() override;
     GpuQueue* GetGraphicsQueue() override { return m_GraphicsQueue.get(); }
     GpuTextureView* GetCurrentBackBufferView() override { return m_BackBufferView.get(); }
+    void SetVSyncEnabled(bool enabled) override { m_VSyncEnabled = enabled; }
+    bool IsVSyncEnabled() const override { return m_VSyncEnabled; }
     RHIBackend GetBackend() const override { return RHIBackend::D3D11; }
     ImGuiBackendHandles GetImGuiBackendHandles() override;
 
@@ -183,6 +185,7 @@ private:
     uint32_t                       m_SwapChainWidth = 0;
     uint32_t                       m_SwapChainHeight = 0;
     bool                           m_DeviceLost = false;
+    bool                           m_VSyncEnabled = true;
     std::string                    m_LastDeviceError;
     SwapChainResizeCallback        m_ResizeCallback = nullptr;
     std::unique_ptr<GpuSwapChain>  m_SwapChainInterface;

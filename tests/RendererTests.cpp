@@ -181,8 +181,14 @@ public:
         std::memcpy(bufferBytes.data() + offset, data, static_cast<size_t>(size)); return true;
     }
     std::shared_ptr<GpuTexture> UploadTexture(
-        const RHITextureDesc& desc, const RHITextureSubresourceData*, uint32_t count) override {
+        const RHITextureDesc& desc, const RHITextureSubresourceData* data, uint32_t count) override {
         if (!count) return nullptr;
+        ++textureUploads;
+        uploadedTextureDescs.push_back(desc);
+        uploadedSubresourceCounts.push_back(count);
+        for (uint32_t i = 0; data && i < count; ++i) {
+            uploadedSubresources.push_back(data[i]);
+        }
         auto texture = std::make_shared<MockTexture>(); texture->desc = desc; return texture;
     }
     RHIDeviceCapabilities GetCapabilities() const override {
@@ -200,12 +206,16 @@ public:
         const std::shared_ptr<GpuTexture>& texture,
         const RHITextureViewDesc& desc) override {
         ++textureViewCreates;
+        textureViewDescs.push_back(desc);
         auto view = std::make_shared<MockTextureView>();
         view->texture = texture; view->desc = desc; return view;
     }
-    std::shared_ptr<GpuSampler> CreateSampler(const RHISamplerDesc&) override {
+    std::shared_ptr<GpuSampler> CreateSampler(const RHISamplerDesc& desc) override {
         ++samplerCreates;
-        return std::make_shared<MockSampler>();
+        samplerDescs.push_back(desc);
+        auto sampler = std::make_shared<MockSampler>();
+        sampler->desc = desc;
+        return sampler;
     }
     std::shared_ptr<GpuBuffer> CreateBuffer(
         const RHIBufferDesc& desc, const void* initialData = nullptr) override {
@@ -236,6 +246,11 @@ public:
         lastReadback = ticket;
         return ticket;
     }
+    std::shared_ptr<GpuBindGroup> CreateBindGroup(
+        const std::shared_ptr<GpuShader>& shader) override {
+        ++bindGroupCreates;
+        return shader ? std::make_shared<GpuBindGroup>(shader) : nullptr;
+    }
 
     MockCommandList commands;
     RHIBackend backend = RHIBackend::Unknown;
@@ -245,11 +260,17 @@ public:
     int indexUploads = 0;
     int shaderCreates = 0;
     int textureUploads = 0;
+    std::vector<RHITextureDesc> uploadedTextureDescs;
+    std::vector<uint32_t> uploadedSubresourceCounts;
+    std::vector<RHITextureSubresourceData> uploadedSubresources;
     int graphTextureCreates = 0;
     int textureViewCreates = 0;
+    std::vector<RHITextureViewDesc> textureViewDescs;
     int samplerCreates = 0;
+    std::vector<RHISamplerDesc> samplerDescs;
     int bufferCreates = 0;
     int computeShaderCreates = 0;
+    int bindGroupCreates = 0;
     std::vector<uint8_t> bufferBytes;
     std::shared_ptr<MockReadbackTicket> lastReadback;
     std::shared_ptr<MockTexture> backBufferTexture;
@@ -842,6 +863,19 @@ bool TestHeadlessRendering() {
                "headless texture uploads missing material or named-binding fallback")) return false;
     if (!Check(context.commands.drawCalls == 3,
                "frustum culling emitted an unexpected draw count")) return false;
+    const auto hasSampler = [&](RHIFilter filter, RHIAddressMode addressMode) {
+        return std::find_if(context.samplerDescs.begin(), context.samplerDescs.end(),
+            [filter, addressMode](const RHISamplerDesc& desc) {
+                return desc.filter == filter &&
+                       desc.addressU == addressMode &&
+                       desc.addressV == addressMode &&
+                       desc.addressW == addressMode;
+            }) != context.samplerDescs.end();
+    };
+    if (!Check(hasSampler(RHIFilter::Linear, RHIAddressMode::Repeat),
+               "main material texture sampler did not default to repeat wrap mode")) return false;
+    if (!Check(hasSampler(RHIFilter::ComparisonLinear, RHIAddressMode::Clamp),
+               "shadow comparison sampler should remain clamp wrap mode")) return false;
     const auto transparentPipeline = std::find(
         context.commands.pipelineBlendEnabled.begin(),
         context.commands.pipelineBlendEnabled.end(), true);
@@ -850,6 +884,109 @@ bool TestHeadlessRendering() {
                  std::count(context.commands.pipelineBlendEnabled.begin(),
                             context.commands.pipelineBlendEnabled.end(), true) == 1,
                  "opaque/transparent render ordering or blend state mismatch");
+}
+
+bool TestMeshRendererSubMeshMaterialSlotDraws() {
+    AssetManager& assets = AssetManager::Get();
+    assets.Clear();
+
+    std::vector<MeshVertex> vertices(4);
+    vertices[0].position = { -1.0f, -1.0f, 0.0f };
+    vertices[1].position = {  1.0f, -1.0f, 0.0f };
+    vertices[2].position = { -1.0f,  1.0f, 0.0f };
+    vertices[3].position = {  1.0f,  1.0f, 0.0f };
+    std::vector<uint32_t> indices { 0, 1, 2, 1, 3, 2, 0, 2, 3 };
+    std::vector<SubMesh> subMeshes {
+        SubMesh{ 0, 3, 0, 0, "OpaqueTri" },
+        SubMesh{ 3, 3, 0, 1, "TransparentTri" },
+        SubMesh{ 6, 3, 0, 0, "OpaqueTriReuseMaterial" },
+    };
+    auto mesh = std::make_shared<MeshAsset>("__test__/TwoSubMeshes");
+    mesh->SetGeometry(std::move(vertices), std::move(indices), std::move(subMeshes));
+    MeshHandle meshHandle = assets.Register(std::move(mesh));
+
+    auto opaqueMaterial = MaterialAsset::CreateDefault("OpaqueSlot");
+    auto clampTexture = std::make_shared<TextureAsset>("__test__/ClampTexture");
+    TextureDesc textureDesc;
+    textureDesc.width = 4;
+    textureDesc.height = 4;
+    std::vector<uint8_t> clampPixels(4 * 4 * 4, 255);
+    clampTexture->SetPixelData(std::move(clampPixels), textureDesc);
+    clampTexture->SetSampler(TextureFilter::Nearest, TextureWrap::Clamp, TextureWrap::Clamp);
+    TextureHandle clampTextureHandle = assets.Register(std::move(clampTexture));
+    opaqueMaterial->SetTexture("BaseColorMap", clampTextureHandle);
+    MaterialHandle opaqueHandle = assets.Register(opaqueMaterial);
+    auto transparentMaterial = MaterialAsset::CreateDefault("TransparentSlot");
+    transparentMaterial->SetBlendMode(BlendMode::Transparent);
+    MaterialHandle transparentHandle = assets.Register(transparentMaterial);
+
+    Scene scene("SubMeshSlots");
+    Actor* actor = scene.CreateActor("TwoSlotMesh");
+    auto* renderer = actor->AddComponent<MeshRendererComponent>();
+    renderer->SetMesh(meshHandle);
+    renderer->SetMaterials({ opaqueHandle, transparentHandle });
+
+    Camera camera;
+    camera.LookAt({ 0.0f, 0.0f, -4.0f }, Vec3::Zero());
+    camera.SetPerspective(60.0f, 16.0f / 9.0f);
+
+    MockRenderContext context;
+    Renderer rendererSystem(&context, &context, &context);
+    rendererSystem.RenderScene(scene, camera, true);
+
+    if (!Check(context.vertexUploads == 1 && context.indexUploads == 1,
+               "submesh slot mesh was not uploaded once")) return false;
+    if (!Check(context.commands.drawCalls == 4,
+               "submesh slot renderer did not emit sky plus one draw per submesh")) return false;
+    if (!Check(context.bindGroupCreates == 3,
+               "main pass did not reuse cached material bind groups across same-material submeshes")) return false;
+    const bool uploadedClampTextureMips = std::find_if(
+        context.uploadedTextureDescs.begin(), context.uploadedTextureDescs.end(),
+        [](const RHITextureDesc& desc) {
+            return desc.width == 4 && desc.height == 4 && desc.mipLevels == 3;
+        }) != context.uploadedTextureDescs.end();
+    if (!Check(uploadedClampTextureMips,
+               "texture upload did not include the generated mip chain")) return false;
+    const bool uploadedThreeSubresources =
+        std::find(context.uploadedSubresourceCounts.begin(),
+                  context.uploadedSubresourceCounts.end(), 3u) !=
+        context.uploadedSubresourceCounts.end();
+    if (!Check(uploadedThreeSubresources,
+               "texture upload subresource count did not match mip count")) return false;
+    const bool hasExpectedMipPitches =
+        std::find_if(context.uploadedSubresources.begin(), context.uploadedSubresources.end(),
+            [](const RHITextureSubresourceData& data) {
+                return data.mipLevel == 0 && data.rowPitch == 16 && data.slicePitch == 64;
+            }) != context.uploadedSubresources.end() &&
+        std::find_if(context.uploadedSubresources.begin(), context.uploadedSubresources.end(),
+            [](const RHITextureSubresourceData& data) {
+                return data.mipLevel == 1 && data.rowPitch == 8 && data.slicePitch == 16;
+            }) != context.uploadedSubresources.end() &&
+        std::find_if(context.uploadedSubresources.begin(), context.uploadedSubresources.end(),
+            [](const RHITextureSubresourceData& data) {
+                return data.mipLevel == 2 && data.rowPitch == 4 && data.slicePitch == 4;
+            }) != context.uploadedSubresources.end();
+    if (!Check(hasExpectedMipPitches,
+               "texture mip subresources used unexpected row or slice pitches")) return false;
+    const bool hasMipView = std::find_if(
+        context.textureViewDescs.begin(), context.textureViewDescs.end(),
+        [](const RHITextureViewDesc& desc) { return desc.mipCount == 3; }) !=
+        context.textureViewDescs.end();
+    if (!Check(hasMipView,
+               "texture view did not expose the full mip chain")) return false;
+    const bool hasNearestClampSampler = std::find_if(
+        context.samplerDescs.begin(), context.samplerDescs.end(),
+        [](const RHISamplerDesc& desc) {
+            return desc.filter == RHIFilter::Point &&
+                   desc.addressU == RHIAddressMode::Clamp &&
+                   desc.addressV == RHIAddressMode::Clamp &&
+                   desc.addressW == RHIAddressMode::Repeat;
+        }) != context.samplerDescs.end();
+    if (!Check(hasNearestClampSampler,
+               "texture-specific sampler settings were not bound for material texture")) return false;
+    return Check(std::count(context.commands.pipelineBlendEnabled.begin(),
+                            context.commands.pipelineBlendEnabled.end(), true) == 1,
+                 "submesh material slots did not classify transparent material independently");
 }
 
 bool TestRendererOffscreenGraphPostProcessPath() {
@@ -960,6 +1097,7 @@ MYENGINE_REGISTER_TEST("Renderer", "TestRenderGraphTextureSubresourceAccess", Te
 MYENGINE_REGISTER_TEST("Renderer", "TestRenderGraphPassCullingAndLifetime", TestRenderGraphPassCullingAndLifetime);
 MYENGINE_REGISTER_TEST("Renderer", "TestRenderGraphDescriptorKeyedPooling", TestRenderGraphDescriptorKeyedPooling);
 MYENGINE_REGISTER_TEST("Renderer", "TestHeadlessRendering", TestHeadlessRendering);
+MYENGINE_REGISTER_TEST("Renderer", "TestMeshRendererSubMeshMaterialSlotDraws", TestMeshRendererSubMeshMaterialSlotDraws);
 MYENGINE_REGISTER_TEST("Renderer", "TestRendererOffscreenGraphPostProcessPath", TestRendererOffscreenGraphPostProcessPath);
 MYENGINE_REGISTER_TEST("Renderer", "TestRendererBackbufferCompositeGraphTarget", TestRendererBackbufferCompositeGraphTarget);
 MYENGINE_REGISTER_TEST("Renderer", "TestRendererGraphHasNoEmptyCompatibilityPasses", TestRendererGraphHasNoEmptyCompatibilityPasses);

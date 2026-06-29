@@ -1,11 +1,13 @@
 # MeshRendererComponent
 
-## 角色
+## Role
 
-网格渲染组件，桥接 Scene 与 Renderer。
+Scene component that binds one mesh to one or more material slots for the renderer.
 
-## 关键职责
+## Responsibilities
 
-- 持有 `MeshHandle` 与 `MaterialHandle`
-- 为渲染阶段提供可绘制资源引用
-- 参与序列化/反序列化
+- Holds one `MeshHandle` and a material slot array (`std::vector<MaterialHandle>`).
+- Keeps `GetMaterial()` / `SetMaterial()` as slot 0 compatibility APIs.
+- Resolves `SubMesh::materialSlot` through `GetMaterialForSlot(slot)`, then falls back to slot 0 and the default material.
+- Serializes new scenes with `materials: [...]` and still reads the legacy `material` field into slot 0.
+- Keeps embedded legacy `materialData` behavior scoped to slot 0.

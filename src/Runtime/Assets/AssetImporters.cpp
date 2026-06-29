@@ -2,6 +2,8 @@
 
 #include "stb_image.h"
 
+#include <nlohmann/json.hpp>
+
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
@@ -34,6 +36,71 @@ std::string NormalizeSeparators(std::string s) {
         if (c == '\\') c = '/';
     }
     return s;
+}
+
+std::string NormalizePath(const std::filesystem::path& path)
+{
+    return std::filesystem::absolute(path).lexically_normal().generic_string();
+}
+
+TextureFilter ParseTextureFilter(const std::string& value)
+{
+    std::string lower = value;
+    std::transform(lower.begin(), lower.end(), lower.begin(),
+        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return lower == "nearest" ? TextureFilter::Nearest : TextureFilter::Linear;
+}
+
+TextureWrap ParseTextureWrap(const std::string& value)
+{
+    std::string lower = value;
+    std::transform(lower.begin(), lower.end(), lower.begin(),
+        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return lower == "clamp" ? TextureWrap::Clamp : TextureWrap::Repeat;
+}
+
+void ApplyTextureImportSettings(const std::string& texturePath, TextureDesc& desc)
+{
+    std::filesystem::path cursor =
+        std::filesystem::absolute(std::filesystem::path(texturePath)).parent_path();
+    while (!cursor.empty() && cursor != cursor.root_path()) {
+        const std::filesystem::path databasePath =
+            cursor / ".myengine" / "AssetDatabase.json";
+        if (std::filesystem::is_regular_file(databasePath)) {
+            try {
+                std::ifstream input(databasePath);
+                nlohmann::json database;
+                input >> database;
+                const std::string normalized = NormalizePath(texturePath);
+                for (const auto& record : database.value("assets", nlohmann::json::array())) {
+                    const std::string source = record.value("sourcePath", std::string{});
+                    const std::string artifact = record.value("artifactPath", std::string{});
+                    if ((!source.empty() && NormalizePath(source) == normalized) ||
+                        (!artifact.empty() && NormalizePath(artifact) == normalized)) {
+                        const std::string settingsJson =
+                            record.value("settings", std::string("{}"));
+                        const nlohmann::json settings = nlohmann::json::parse(settingsJson);
+                        const auto sampler = settings.find("textureSampler");
+                        if (sampler != settings.end() && sampler->is_object()) {
+                            desc.filter = ParseTextureFilter(
+                                sampler->value("filter", std::string("linear")));
+                            desc.wrapU = ParseTextureWrap(
+                                sampler->value("wrapU", std::string("repeat")));
+                            desc.wrapV = ParseTextureWrap(
+                                sampler->value("wrapV", std::string("repeat")));
+                        }
+                        return;
+                    }
+                }
+            } catch (...) {
+                return;
+            }
+            return;
+        }
+        const auto parent = cursor.parent_path();
+        if (parent == cursor) break;
+        cursor = parent;
+    }
 }
 
 std::string Trim(const std::string& s) {
@@ -200,6 +267,7 @@ std::shared_ptr<TextureAsset> LoadTextureAssetFromFile(const std::string& path) 
     desc.height = height;
     desc.format = TextureFormat::RGBA8;
     desc.sRGB   = true;
+    ApplyTextureImportSettings(path, desc);
     tex->SetPixelData(std::move(data), desc);
 
     Logger::Info("[AssetManager] Imported texture '", tex->GetName(),
@@ -247,9 +315,13 @@ std::shared_ptr<ModelAsset> LoadModelAssetFromObj(const std::string& path) {
             currentSubMesh = {};
         };
 
-        auto beginSubMesh = [&](const std::string& name, int materialSlot) {
+        auto beginSubMesh = [&](const std::string& name, int materialSlot,
+                                const std::string& materialName) {
             flushSubMesh();
             currentSubMesh.name = name.empty() ? StemFromPath(path) : name;
+            if (!materialName.empty()) {
+                currentSubMesh.name += "/" + materialName;
+            }
             currentSubMesh.materialSlot = materialSlot;
             currentSubMesh.indexOffset = static_cast<uint32_t>(indices.size());
             currentSubMesh.vertexOffset = 0;
@@ -322,7 +394,8 @@ std::shared_ptr<ModelAsset> LoadModelAssetFromObj(const std::string& path) {
             }
             else if (cmd == "f" && tokens.size() >= 4) {
                 if (!hasCurrentSubMesh) {
-                    beginSubMesh(currentObject, materialSlotForName(currentMaterialName));
+                    beginSubMesh(currentObject, materialSlotForName(currentMaterialName),
+                                 currentMaterialName);
                 }
 
                 std::vector<ObjIndex> face;

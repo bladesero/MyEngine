@@ -8,9 +8,34 @@
 
 enum class AssetImportState { Ready, Importing, Failed, Stale, MissingSource };
 
+enum class AssetDatabaseValidationIssueCode {
+    DuplicateUuid,
+    DuplicateSourcePath,
+    MissingSource,
+    MissingArtifact,
+    ArtifactHashMismatch,
+    UnknownDependency,
+    DependencyCycle,
+    StateNotReady,
+    IncompleteRecord
+};
+
 struct AssetDiagnostic {
     std::string severity;
     std::string message;
+};
+
+struct AssetDatabaseValidationIssue {
+    AssetDatabaseValidationIssueCode code = AssetDatabaseValidationIssueCode::IncompleteRecord;
+    std::string uuid;
+    std::string path;
+    std::string message;
+};
+
+struct AssetDatabaseValidationReport {
+    std::vector<AssetDatabaseValidationIssue> issues;
+    bool Passed() const { return issues.empty(); }
+    std::string Summary() const;
 };
 
 struct AssetRecord {
@@ -45,6 +70,8 @@ public:
     std::vector<const AssetRecord*> GetReferencers(const std::string& uuid) const;
     std::vector<AssetRecord> GetAll() const;
     bool Validate(std::string* error = nullptr) const;
+    bool ValidateAgainstProject(const std::filesystem::path& projectRoot,
+                                AssetDatabaseValidationReport& report) const;
 
     const std::filesystem::path& GetPath() const { return m_Path; }
 
@@ -56,4 +83,5 @@ private:
     std::unordered_map<std::string, AssetRecord> m_Records;
     std::unordered_map<std::string, std::string> m_SourceToUuid;
     std::unordered_map<std::string, std::vector<std::string>> m_Referencers;
+    std::vector<AssetDatabaseValidationIssue> m_LoadIssues;
 };

@@ -37,7 +37,7 @@ struct TextureDesc {
     int           height   = 0;
     int           mipLevels = 1;     // 1 = no mips
     TextureFormat format   = TextureFormat::RGBA8;
-    TextureFilter filter   = TextureFilter::Trilinear;
+    TextureFilter filter   = TextureFilter::Linear;
     TextureWrap   wrapU    = TextureWrap::Repeat;
     TextureWrap   wrapV    = TextureWrap::Repeat;
     bool          sRGB     = true;   // gamma-correct sampling
@@ -75,6 +75,14 @@ public:
     int  GetHeight()    const { return m_Desc.height; }
     int  GetMipLevels() const { return m_Desc.mipLevels; }
     TextureFormat GetFormat() const { return m_Desc.format; }
+    TextureFilter GetFilter() const { return m_Desc.filter; }
+    TextureWrap GetWrapU() const { return m_Desc.wrapU; }
+    TextureWrap GetWrapV() const { return m_Desc.wrapV; }
+    void SetSampler(TextureFilter filter, TextureWrap wrapU, TextureWrap wrapV) {
+        m_Desc.filter = filter;
+        m_Desc.wrapU = wrapU;
+        m_Desc.wrapV = wrapV;
+    }
 
     // ---- GPU 句柄（由渲染后端填写，类型擦除为 void*）----------------------
     // 具体后端（D3D11/Vulkan 等）转换时自行 reinterpret_cast

@@ -35,6 +35,7 @@ struct SubMesh {
     uint32_t vertexOffset = 0;
     int      materialSlot = 0;  // 对应 ModelAsset::m_Materials[i]
     std::string name;
+    AABB bounds;
 };
 
 struct MeshLod {
@@ -65,6 +66,7 @@ public:
         m_Indices   = std::move(indices);
         m_SubMeshes = std::move(subMeshes);
         RebuildAABB();
+        RebuildSubMeshBounds();
         RebuildDerivedData();
         InvalidateGpuBuffers();
         SetState(AssetState::Ready);
@@ -118,6 +120,7 @@ private:
         for (const auto& v : m_Vertices) m_AABB.Expand(v.position);
     }
     void RebuildDerivedData();
+    void RebuildSubMeshBounds();
 
     std::vector<MeshVertex> m_Vertices;
     std::vector<uint32_t>   m_Indices;

@@ -64,8 +64,11 @@ private:
     void DeleteSelectedAsset();
     void DuplicateSelectedAsset();
     void RenameSelectedAsset();
+    void EnsureSelectedFolder();
+    std::filesystem::path CurrentContentDirectory(const char* fallback) const;
     char m_Filter[128]={};
     char m_RenameBuffer[256]={};
+    std::string m_SelectedFolder = "Content";
     bool m_PendingRename = false;
     bool m_PendingDelete = false;
 };

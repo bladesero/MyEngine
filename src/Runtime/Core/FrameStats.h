@@ -2,6 +2,39 @@
 
 #include <cstdint>
 
+struct RendererFrameStats {
+    float shadowCpuMs = 0.0f;
+    float mainCpuMs = 0.0f;
+    float ssaoCpuMs = 0.0f;
+    float compositeCpuMs = 0.0f;
+    float shadowGpuMs = 0.0f;
+    float mainGpuMs = 0.0f;
+    float ssaoGpuMs = 0.0f;
+    float compositeGpuMs = 0.0f;
+    uint32_t drawCalls = 0;
+    uint32_t shadowDrawCalls = 0;
+    uint32_t mainDrawCalls = 0;
+    uint32_t fullscreenDrawCalls = 0;
+    uint32_t subMeshCount = 0;
+    uint32_t bindGroupCreates = 0;
+    uint32_t textureUploads = 0;
+    bool gpuTimingAvailable = false;
+};
+
+class FrameStatsProvider {
+public:
+    static RendererFrameStats GetRendererStats() { return RendererStatsStorage(); }
+    static void SetRendererStats(const RendererFrameStats& stats) {
+        RendererStatsStorage() = stats;
+    }
+
+private:
+    static RendererFrameStats& RendererStatsStorage() {
+        static RendererFrameStats stats;
+        return stats;
+    }
+};
+
 struct FrameStats {
     uint64_t frameNumber = 0;
     float fps = 0.0f;
@@ -9,4 +42,5 @@ struct FrameStats {
     float updateMs = 0.0f;
     float renderMs = 0.0f;
     float smoothedFrameMs = 0.0f;
+    RendererFrameStats renderer;
 };

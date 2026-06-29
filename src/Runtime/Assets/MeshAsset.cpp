@@ -2,6 +2,43 @@
 #include <algorithm>
 #include <cmath>
 
+void MeshAsset::RebuildSubMeshBounds()
+{
+    for (SubMesh& subMesh : m_SubMeshes) {
+        bool initialized = false;
+        auto expandVertex = [&](uint32_t vertexIndex) {
+            if (vertexIndex >= m_Vertices.size()) return;
+            const Vec3& position = m_Vertices[vertexIndex].position;
+            if (!initialized) {
+                subMesh.bounds.min = subMesh.bounds.max = position;
+                initialized = true;
+            } else {
+                subMesh.bounds.Expand(position);
+            }
+        };
+
+        if (!m_Indices.empty()) {
+            const uint32_t end = (std::min)(
+                subMesh.indexOffset + subMesh.indexCount,
+                static_cast<uint32_t>(m_Indices.size()));
+            for (uint32_t index = subMesh.indexOffset; index < end; ++index) {
+                expandVertex(m_Indices[index]);
+            }
+        } else {
+            const uint32_t end = (std::min)(
+                subMesh.vertexOffset + subMesh.indexCount,
+                static_cast<uint32_t>(m_Vertices.size()));
+            for (uint32_t vertex = subMesh.vertexOffset; vertex < end; ++vertex) {
+                expandVertex(vertex);
+            }
+        }
+
+        if (!initialized) {
+            subMesh.bounds = m_AABB;
+        }
+    }
+}
+
 void MeshAsset::RebuildDerivedData()
 {
     m_Lods.clear();

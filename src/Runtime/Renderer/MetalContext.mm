@@ -1272,13 +1272,43 @@ std::shared_ptr<GpuTexture> MetalContext::UploadTexture2D(
     desc.height = static_cast<uint32_t>(height);
     desc.format = RHIFormat::RGBA8UNorm;
     desc.usage = RHIResourceUsage::ShaderResource;
+    RHITextureSubresourceData data;
+    data.data = rgba8Data;
+    data.rowPitch = desc.width * 4;
+    data.slicePitch = data.rowPitch * desc.height;
+    return UploadTexture(desc, &data, 1);
+}
+
+std::shared_ptr<GpuTexture> MetalContext::UploadTexture(
+    const RHITextureDesc& desc, const RHITextureSubresourceData* data,
+    uint32_t subresourceCount)
+{
+    if (!data || subresourceCount == 0 || !m_Impl || !m_Impl->device ||
+        desc.format != RHIFormat::RGBA8UNorm ||
+        subresourceCount != desc.mipLevels * desc.arrayLayers) {
+        return nullptr;
+    }
     auto texture = std::dynamic_pointer_cast<MetalGpuTexture>(CreateTexture(desc));
     if (!texture || !texture->texture) return nullptr;
-    MTLRegion region = MTLRegionMake2D(0, 0, width, height);
-    [texture->texture replaceRegion:region
-                         mipmapLevel:0
-                           withBytes:rgba8Data
-                         bytesPerRow:static_cast<NSUInteger>(width) * 4u];
+    for (uint32_t i = 0; i < subresourceCount; ++i) {
+        const auto& src = data[i];
+        if (!src.data || src.mipLevel >= desc.mipLevels ||
+            src.arrayLayer >= desc.arrayLayers) {
+            return nullptr;
+        }
+        const uint32_t mipWidth = (std::max)(1u, desc.width >> src.mipLevel);
+        const uint32_t mipHeight = (std::max)(1u, desc.height >> src.mipLevel);
+        const uint32_t rowPitch = src.rowPitch ? src.rowPitch : mipWidth * 4;
+        if (rowPitch < mipWidth * 4) return nullptr;
+        MTLRegion region = MTLRegionMake2D(0, 0, mipWidth, mipHeight);
+        [texture->texture replaceRegion:region
+                             mipmapLevel:src.mipLevel
+                                   slice:src.arrayLayer
+                               withBytes:src.data
+                             bytesPerRow:static_cast<NSUInteger>(rowPitch)
+                           bytesPerImage:static_cast<NSUInteger>(
+                               src.slicePitch ? src.slicePitch : rowPitch * mipHeight)];
+    }
     return texture;
 }
 

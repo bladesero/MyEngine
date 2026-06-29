@@ -13,6 +13,10 @@ and `.myengine/AssetDatabase.json` are local generated data and are not committe
 and artifact paths, hashes, import state, diagnostics and forward dependencies.
 It also provides reverse-reference queries. Failed reimports retain the previous
 artifact record and publish diagnostics instead of replacing valid runtime data.
+When `SourceAssets/`, `Library/`, or `.myengine/AssetDatabase.json` exists,
+publish preflight treats the database as the imported-asset source of truth and
+rejects missing sources, missing or tampered artifacts, unknown dependencies,
+dependency cycles, and non-ready import states.
 
 `AssetManager` consumes source or imported artifacts and accepts explicit UUID
 registration for generated artifacts. Asset changes are synchronously reported

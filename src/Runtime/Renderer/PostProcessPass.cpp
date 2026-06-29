@@ -85,6 +85,8 @@ void PostProcessPass::Resize(uint32_t width, uint32_t height) {
     width = (std::max)(1u, width); height = (std::max)(1u, height);
     if (width == m_Width && height == m_Height) return;
     m_Width = width; m_Height = height;
+    m_SSAOWidth = (std::max)(1u, static_cast<uint32_t>(m_Width * m_SSAOScale));
+    m_SSAOHeight = (std::max)(1u, static_cast<uint32_t>(m_Height * m_SSAOScale));
     m_SceneColor.reset(); m_SceneDepth.reset(); m_SSAO.reset();
     m_SSAOBlur.reset(); m_Composite.reset();
     m_SceneColorRtv.reset(); m_SceneColorSrv.reset();
@@ -93,6 +95,39 @@ void PostProcessPass::Resize(uint32_t width, uint32_t height) {
     m_CompositeRtv.reset(); m_CompositeSrv.reset();
     m_SceneColorState = m_SceneDepthState = m_SSAOState =
         m_SSAOBlurState = m_CompositeState = RHIResourceState::Undefined;
+}
+
+void PostProcessPass::SetSSAOEnabled(bool enabled)
+{
+    if (m_SSAOEnabled == enabled) return;
+    m_SSAOEnabled = enabled;
+    m_SSAO.reset();
+    m_SSAOBlur.reset();
+    m_Noise.reset();
+    m_SSAORtv.reset();
+    m_SSAOSrv.reset();
+    m_SSAOBlurRtv.reset();
+    m_SSAOBlurSrv.reset();
+    m_NoiseSrv.reset();
+    m_SSAOState = RHIResourceState::Undefined;
+    m_SSAOBlurState = RHIResourceState::Undefined;
+}
+
+void PostProcessPass::SetSSAOScale(float scale)
+{
+    const float normalized = scale <= 0.75f ? 0.5f : 1.0f;
+    if (std::abs(m_SSAOScale - normalized) < 0.001f) return;
+    m_SSAOScale = normalized;
+    m_SSAOWidth = (std::max)(1u, static_cast<uint32_t>(m_Width * m_SSAOScale));
+    m_SSAOHeight = (std::max)(1u, static_cast<uint32_t>(m_Height * m_SSAOScale));
+    m_SSAO.reset();
+    m_SSAOBlur.reset();
+    m_SSAORtv.reset();
+    m_SSAOSrv.reset();
+    m_SSAOBlurRtv.reset();
+    m_SSAOBlurSrv.reset();
+    m_SSAOState = RHIResourceState::Undefined;
+    m_SSAOBlurState = RHIResourceState::Undefined;
 }
 
 bool PostProcessPass::EnsureResources() {
@@ -110,14 +145,16 @@ bool PostProcessPass::EnsureResources() {
             m_SSAOBlurState = m_CompositeState = RHIResourceState::Undefined;
     };
     auto resourcesComplete = [&]() {
-        return m_SceneColor && m_SceneColorRtv && m_SceneColorSrv &&
+        const bool baseComplete = m_SceneColor && m_SceneColorRtv && m_SceneColorSrv &&
             m_SceneDepth && m_SceneDepthDsv && m_SceneDepthSrv &&
-            m_SSAO && m_SSAORtv && m_SSAOSrv &&
-            m_SSAOBlur && m_SSAOBlurRtv && m_SSAOBlurSrv &&
             m_Composite && m_CompositeRtv && m_CompositeSrv &&
-            m_LinearClamp && m_PointClamp && m_NoiseSampler &&
-            m_Noise && m_NoiseSrv &&
-            m_FXAABackbufferPipeline && m_FXAAOffscreenPipeline &&
+            m_LinearClamp && m_PointClamp &&
+            m_FXAABackbufferPipeline && m_FXAAOffscreenPipeline;
+        if (!baseComplete) return false;
+        if (!m_SSAOEnabled) return true;
+        return m_SSAO && m_SSAORtv && m_SSAOSrv &&
+            m_SSAOBlur && m_SSAOBlurRtv && m_SSAOBlurSrv &&
+            m_NoiseSampler && m_Noise && m_NoiseSrv &&
             m_SSAOPipeline && m_BlurPipeline;
     };
     if (m_SceneColor) {
@@ -125,11 +162,14 @@ bool PostProcessPass::EnsureResources() {
             resetResources();
         } else {
             const bool changed = (m_FXAAHandle && m_FXAAHandle->version != m_FXAAVersion) ||
-                (m_SSAOHandle && m_SSAOHandle->version != m_SSAOVersion) ||
-                (m_BlurHandle && m_BlurHandle->version != m_BlurVersion);
+                (m_SSAOEnabled && m_SSAOHandle && m_SSAOHandle->version != m_SSAOVersion) ||
+                (m_SSAOEnabled && m_BlurHandle && m_BlurHandle->version != m_BlurVersion);
             if (changed) {
-                m_FXAAShader = m_FXAAHandle->shader; m_SSAOShader = m_SSAOHandle->shader;
-                m_BlurShader = m_BlurHandle->shader;
+                m_FXAAShader = m_FXAAHandle->shader;
+                if (m_SSAOEnabled) {
+                    m_SSAOShader = m_SSAOHandle->shader;
+                    m_BlurShader = m_BlurHandle->shader;
+                }
                 GraphicsPipelineDesc pipeline;
                 pipeline.depthStencil.depthTestEnable = false;
                 pipeline.depthStencil.depthWriteEnable = false;
@@ -140,13 +180,15 @@ bool PostProcessPass::EnsureResources() {
                 m_FXAABackbufferPipeline = device->CreateGraphicsPipeline(pipeline);
                 pipeline.colorFormats = {RHIFormat::RGBA16Float};
                 m_FXAAOffscreenPipeline = device->CreateGraphicsPipeline(pipeline);
-                pipeline.shader = m_SSAOShader; pipeline.colorFormats = {RHIFormat::R8UNorm};
-                pipeline.rasterizer.cullMode = RHICullMode::None;
-                m_SSAOPipeline = device->CreateGraphicsPipeline(pipeline);
-                pipeline.shader = m_BlurShader; m_BlurPipeline = device->CreateGraphicsPipeline(pipeline);
+                if (m_SSAOEnabled) {
+                    pipeline.shader = m_SSAOShader; pipeline.colorFormats = {RHIFormat::R8UNorm};
+                    pipeline.rasterizer.cullMode = RHICullMode::None;
+                    m_SSAOPipeline = device->CreateGraphicsPipeline(pipeline);
+                    pipeline.shader = m_BlurShader; m_BlurPipeline = device->CreateGraphicsPipeline(pipeline);
+                    m_SSAOVersion = m_SSAOHandle->version;
+                    m_BlurVersion = m_BlurHandle->version;
+                }
                 m_FXAAVersion = m_FXAAHandle->version;
-                m_SSAOVersion = m_SSAOHandle->version;
-                m_BlurVersion = m_BlurHandle->version;
             }
             return resourcesComplete();
         }
@@ -154,8 +196,11 @@ bool PostProcessPass::EnsureResources() {
     auto makeTexture = [&](const char* name, RHIFormat format, RHIResourceUsage usage,
                            std::shared_ptr<GpuTexture>& texture,
                            std::shared_ptr<GpuTextureView>& output,
-                           std::shared_ptr<GpuTextureView>& input) {
-        RHITextureDesc desc; desc.width = m_Width; desc.height = m_Height;
+                           std::shared_ptr<GpuTextureView>& input,
+                           uint32_t width = 0, uint32_t height = 0) {
+        RHITextureDesc desc;
+        desc.width = width ? width : m_Width;
+        desc.height = height ? height : m_Height;
         desc.format = format; desc.usage = usage; desc.debugName = name;
         texture = device->CreateTexture(desc);
         if (!texture) {
@@ -184,15 +229,19 @@ bool PostProcessPass::EnsureResources() {
         !makeTexture("SceneDepth", RHIFormat::D24S8,
             RHIResourceUsage::DepthStencil | RHIResourceUsage::ShaderResource,
             m_SceneDepth, m_SceneDepthDsv, m_SceneDepthSrv) ||
-        !makeTexture("SSAO", RHIFormat::R8UNorm,
-            RHIResourceUsage::RenderTarget | RHIResourceUsage::ShaderResource,
-            m_SSAO, m_SSAORtv, m_SSAOSrv) ||
-        !makeTexture("SSAOBlur", RHIFormat::R8UNorm,
-            RHIResourceUsage::RenderTarget | RHIResourceUsage::ShaderResource,
-            m_SSAOBlur, m_SSAOBlurRtv, m_SSAOBlurSrv) ||
         !makeTexture("Composite", RHIFormat::RGBA16Float,
             RHIResourceUsage::RenderTarget | RHIResourceUsage::ShaderResource,
             m_Composite, m_CompositeRtv, m_CompositeSrv)) {
+        resetResources();
+        return false;
+    }
+    if (m_SSAOEnabled &&
+        (!makeTexture("SSAO", RHIFormat::R8UNorm,
+             RHIResourceUsage::RenderTarget | RHIResourceUsage::ShaderResource,
+             m_SSAO, m_SSAORtv, m_SSAOSrv, m_SSAOWidth, m_SSAOHeight) ||
+         !makeTexture("SSAOBlur", RHIFormat::R8UNorm,
+             RHIResourceUsage::RenderTarget | RHIResourceUsage::ShaderResource,
+             m_SSAOBlur, m_SSAOBlurRtv, m_SSAOBlurSrv, m_SSAOWidth, m_SSAOHeight))) {
         resetResources();
         return false;
     }
@@ -201,43 +250,49 @@ bool PostProcessPass::EnsureResources() {
     m_LinearClamp = device->CreateSampler(linear);
     RHISamplerDesc point = linear; point.filter = RHIFilter::Point;
     m_PointClamp = device->CreateSampler(point);
-    RHISamplerDesc noise; noise.filter = RHIFilter::Point;
-    noise.addressU = noise.addressV = noise.addressW = RHIAddressMode::Repeat;
-    m_NoiseSampler = device->CreateSampler(noise);
-    if (!m_LinearClamp || !m_PointClamp || !m_NoiseSampler) {
+    if (m_SSAOEnabled) {
+        RHISamplerDesc noise; noise.filter = RHIFilter::Point;
+        noise.addressU = noise.addressV = noise.addressW = RHIAddressMode::Repeat;
+        m_NoiseSampler = device->CreateSampler(noise);
+    }
+    if (!m_LinearClamp || !m_PointClamp || (m_SSAOEnabled && !m_NoiseSampler)) {
         Logger::Error("[PostProcessPass] Failed to create post-process samplers");
         resetResources();
         return false;
     }
-    uint8_t pixels[4 * 4 * 4]; std::mt19937 rng(17); std::uniform_int_distribution<int> d(0, 255);
-    for (size_t i = 0; i < sizeof(pixels); i += 4) {
-        pixels[i] = static_cast<uint8_t>(d(rng)); pixels[i + 1] = static_cast<uint8_t>(d(rng));
-        pixels[i + 2] = 128; pixels[i + 3] = 255;
-    }
-    m_Noise = device->UploadTexture2D(pixels, 4, 4);
-    if (!m_Noise) {
-        Logger::Error("[PostProcessPass] Failed to upload SSAO noise texture");
-        resetResources();
-        return false;
-    }
-    RHITextureViewDesc noiseView; noiseView.usage = RHIResourceUsage::ShaderResource;
-    m_NoiseSrv = device->CreateTextureView(m_Noise, noiseView);
-    if (!m_NoiseSrv) {
-        Logger::Error("[PostProcessPass] Failed to create SSAO noise texture view");
-        resetResources();
-        return false;
+    if (m_SSAOEnabled) {
+        uint8_t pixels[4 * 4 * 4]; std::mt19937 rng(17); std::uniform_int_distribution<int> d(0, 255);
+        for (size_t i = 0; i < sizeof(pixels); i += 4) {
+            pixels[i] = static_cast<uint8_t>(d(rng)); pixels[i + 1] = static_cast<uint8_t>(d(rng));
+            pixels[i + 2] = 128; pixels[i + 3] = 255;
+        }
+        m_Noise = device->UploadTexture2D(pixels, 4, 4);
+        if (!m_Noise) {
+            Logger::Error("[PostProcessPass] Failed to upload SSAO noise texture");
+            resetResources();
+            return false;
+        }
+        RHITextureViewDesc noiseView; noiseView.usage = RHIResourceUsage::ShaderResource;
+        m_NoiseSrv = device->CreateTextureView(m_Noise, noiseView);
+        if (!m_NoiseSrv) {
+            Logger::Error("[PostProcessPass] Failed to create SSAO noise texture view");
+            resetResources();
+            return false;
+        }
     }
 
     m_FXAAHandle = ShaderManager::Get().GetOrCreate(
         "Content/Engine/Shaders/PostProcessFXAA.shader", nullptr, 0);
-    m_SSAOHandle = ShaderManager::Get().GetOrCreate(
-        "Content/Engine/Shaders/PostProcessSSAO.shader", nullptr, 0);
-    m_BlurHandle = ShaderManager::Get().GetOrCreate(
-        "Content/Engine/Shaders/PostProcessSSAOBlur.shader", nullptr, 0);
     m_FXAAShader = m_FXAAHandle ? m_FXAAHandle->shader : nullptr;
-    m_SSAOShader = m_SSAOHandle ? m_SSAOHandle->shader : nullptr;
-    m_BlurShader = m_BlurHandle ? m_BlurHandle->shader : nullptr;
-    if (!m_FXAAShader || !m_SSAOShader || !m_BlurShader) {
+    if (m_SSAOEnabled) {
+        m_SSAOHandle = ShaderManager::Get().GetOrCreate(
+            "Content/Engine/Shaders/PostProcessSSAO.shader", nullptr, 0);
+        m_BlurHandle = ShaderManager::Get().GetOrCreate(
+            "Content/Engine/Shaders/PostProcessSSAOBlur.shader", nullptr, 0);
+        m_SSAOShader = m_SSAOHandle ? m_SSAOHandle->shader : nullptr;
+        m_BlurShader = m_BlurHandle ? m_BlurHandle->shader : nullptr;
+    }
+    if (!m_FXAAShader || (m_SSAOEnabled && (!m_SSAOShader || !m_BlurShader))) {
         Logger::Error("[PostProcessPass] Failed to load post-process shaders");
         resetResources();
         return false;
@@ -257,14 +312,16 @@ bool PostProcessPass::EnsureResources() {
     pipeline.colorFormats = {RHIFormat::RGBA16Float};
     m_FXAAOffscreenPipeline = device->CreateGraphicsPipeline(pipeline);
     if (!m_FXAAOffscreenPipeline) Logger::Error("[PostProcessPass] Failed to create FXAA offscreen pipeline");
-    pipeline.shader = m_SSAOShader; pipeline.colorFormats = {RHIFormat::R8UNorm};
-    pipeline.rasterizer.cullMode = RHICullMode::None;
-    m_SSAOPipeline = device->CreateGraphicsPipeline(pipeline);
-    if (!m_SSAOPipeline) Logger::Error("[PostProcessPass] Failed to create SSAO pipeline");
-    pipeline.shader = m_BlurShader;
-    pipeline.rasterizer.cullMode = RHICullMode::None;
-    m_BlurPipeline = device->CreateGraphicsPipeline(pipeline);
-    if (!m_BlurPipeline) Logger::Error("[PostProcessPass] Failed to create SSAO blur pipeline");
+    if (m_SSAOEnabled) {
+        pipeline.shader = m_SSAOShader; pipeline.colorFormats = {RHIFormat::R8UNorm};
+        pipeline.rasterizer.cullMode = RHICullMode::None;
+        m_SSAOPipeline = device->CreateGraphicsPipeline(pipeline);
+        if (!m_SSAOPipeline) Logger::Error("[PostProcessPass] Failed to create SSAO pipeline");
+        pipeline.shader = m_BlurShader;
+        pipeline.rasterizer.cullMode = RHICullMode::None;
+        m_BlurPipeline = device->CreateGraphicsPipeline(pipeline);
+        if (!m_BlurPipeline) Logger::Error("[PostProcessPass] Failed to create SSAO blur pipeline");
+    }
     if (!resourcesComplete()) {
         resetResources();
         return false;
@@ -305,8 +362,8 @@ void PostProcessPass::MarkGraphResourcesShaderResource(bool compositeWritten) {
     m_SceneRendering = false;
     m_SceneColorState = RHIResourceState::ShaderResource;
     m_SceneDepthState = RHIResourceState::ShaderResource;
-    m_SSAOState = RHIResourceState::ShaderResource;
-    m_SSAOBlurState = RHIResourceState::ShaderResource;
+    if (m_SSAO) m_SSAOState = RHIResourceState::ShaderResource;
+    if (m_SSAOBlur) m_SSAOBlurState = RHIResourceState::ShaderResource;
     if (compositeWritten) {
         m_CompositeState = RHIResourceState::ShaderResource;
     }
@@ -358,10 +415,10 @@ void PostProcessPass::RenderSSAO(GpuCommandList& commands, const Scene& scene, c
 
 void PostProcessPass::DrawSSAOOcclusion(GpuCommandList& commands, const Scene& scene,
                                         const Camera& camera) {
-    if (!m_SSAOPipeline || !m_SSAOShader) return;
+    if (!m_SSAOEnabled || !m_SSAOPipeline || !m_SSAOShader) return;
     auto ssaoBindings = Device()->CreateBindGroup(m_SSAOShader);
     if (!ssaoBindings) return;
-    SSAOConstants constants = BuildSSAOConstants(scene, camera, m_Width, m_Height);
+    SSAOConstants constants = BuildSSAOConstants(scene, camera, m_SSAOWidth, m_SSAOHeight);
     ssaoBindings->SetConstants("SSAOParams", &constants, sizeof(constants));
     ssaoBindings->SetTexture("g_DepthTex", m_SceneDepthSrv);
     ssaoBindings->SetSampler("g_DepthSampler", m_PointClamp);
@@ -373,9 +430,9 @@ void PostProcessPass::DrawSSAOOcclusion(GpuCommandList& commands, const Scene& s
 }
 
 void PostProcessPass::DrawSSAOBlurHorizontal(GpuCommandList& commands) {
-    if (!m_BlurPipeline || !m_BlurShader) return;
+    if (!m_SSAOEnabled || !m_BlurPipeline || !m_BlurShader) return;
     SSAOBlurConstants blur{};
-    blur.texelSize[0] = 1.0f / m_Width; blur.texelSize[2] = 1.0f / m_Height;
+    blur.texelSize[0] = 1.0f / m_SSAOWidth; blur.texelSize[2] = 1.0f / m_SSAOHeight;
     auto horizontal = Device()->CreateBindGroup(m_BlurShader);
     if (!horizontal) return;
     horizontal->SetConstants("BlurParams", &blur, sizeof(blur));
@@ -387,9 +444,9 @@ void PostProcessPass::DrawSSAOBlurHorizontal(GpuCommandList& commands) {
 }
 
 void PostProcessPass::DrawSSAOBlurVertical(GpuCommandList& commands) {
-    if (!m_BlurPipeline || !m_BlurShader) return;
+    if (!m_SSAOEnabled || !m_BlurPipeline || !m_BlurShader) return;
     SSAOBlurConstants blur{};
-    blur.texelSize[0] = 1.0f / m_Width; blur.texelSize[2] = 1.0f / m_Height;
+    blur.texelSize[0] = 1.0f / m_SSAOWidth; blur.texelSize[2] = 1.0f / m_SSAOHeight;
     blur.texelSize[1] = 1.0f;
     auto vertical = Device()->CreateBindGroup(m_BlurShader);
     if (!vertical) return;

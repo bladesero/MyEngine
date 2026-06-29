@@ -62,6 +62,11 @@ void PostProcessComponent::SetSSAOIntensity(float intensity)
     m_SSAOIntensity = std::clamp(intensity, 0.0f, 4.0f);
 }
 
+void PostProcessComponent::SetSSAOScale(float scale)
+{
+    m_SSAOScale = scale <= 0.75f ? 0.5f : 1.0f;
+}
+
 void PostProcessComponent::Serialize(nlohmann::json& data) const
 {
     data["toneMapping"] = m_ToneMapping;
@@ -78,6 +83,7 @@ void PostProcessComponent::Serialize(nlohmann::json& data) const
     data["ssaoBias"] = m_SSAOBias;
     data["ssaoPower"] = m_SSAOPower;
     data["ssaoIntensity"] = m_SSAOIntensity;
+    data["ssaoScale"] = m_SSAOScale;
 }
 
 void PostProcessComponent::Deserialize(const nlohmann::json& data)
@@ -96,4 +102,5 @@ void PostProcessComponent::Deserialize(const nlohmann::json& data)
     SetSSAOBias(data.value("ssaoBias", 0.025f));
     SetSSAOPower(data.value("ssaoPower", 1.5f));
     SetSSAOIntensity(data.value("ssaoIntensity", 0.0f));
+    SetSSAOScale(data.value("ssaoScale", 1.0f));
 }

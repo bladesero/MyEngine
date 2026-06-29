@@ -56,6 +56,9 @@ public:
     }
     void SetCompositeToBackbuffer(bool enabled) { m_CompositeToBackbuffer = enabled; }
     bool IsCompositeToBackbuffer() const { return m_CompositeToBackbuffer; }
+    void SetSSAOEnabled(bool enabled);
+    bool IsSSAOEnabled() const { return m_SSAOEnabled; }
+    void SetSSAOScale(float scale);
 
 private:
     bool EnsureResources();
@@ -66,6 +69,10 @@ private:
 
     uint32_t m_Width = 1;
     uint32_t m_Height = 1;
+    uint32_t m_SSAOWidth = 1;
+    uint32_t m_SSAOHeight = 1;
+    float m_SSAOScale = 1.0f;
+    bool m_SSAOEnabled = true;
     bool m_CompositeToBackbuffer = true;
     bool m_SceneRendering = false;
 

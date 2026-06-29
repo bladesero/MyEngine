@@ -1970,42 +1970,67 @@ std::shared_ptr<GpuTexture> VulkanContext::UploadTexture(
     const RHITextureDesc& desc, const RHITextureSubresourceData* data, uint32_t subresourceCount) {
     if (!m_Impl || !m_Impl->device || !data || subresourceCount == 0 ||
         !data[0].data || desc.format != RHIFormat::RGBA8UNorm ||
-        desc.mipLevels != 1 || desc.arrayLayers != 1 || desc.cube) {
-        Logger::Warn("[Vulkan] UploadTexture supports RGBA8 2D single-subresource textures only");
+        desc.arrayLayers != 1 || desc.cube ||
+        subresourceCount != desc.mipLevels * desc.arrayLayers) {
+        Logger::Warn("[Vulkan] UploadTexture supports RGBA8 2D full-mip textures only");
         return nullptr;
     }
     auto texture = std::dynamic_pointer_cast<VulkanTexture>(CreateTexture(desc));
     if (!texture || !texture->image) return nullptr;
 
-    const uint32_t tightRowPitch = desc.width * 4;
-    const uint64_t uploadSize = static_cast<uint64_t>(tightRowPitch) * desc.height;
+    std::vector<uint64_t> offsets(subresourceCount, 0);
+    std::vector<VkBufferImageCopy> copies;
+    copies.reserve(subresourceCount);
+    uint64_t uploadSize = 0;
+    for (uint32_t i = 0; i < subresourceCount; ++i) {
+        const auto& src = data[i];
+        if (!src.data || src.mipLevel >= desc.mipLevels || src.arrayLayer >= desc.arrayLayers)
+            return nullptr;
+        const uint32_t mipWidth = (std::max)(1u, desc.width >> src.mipLevel);
+        const uint32_t mipHeight = (std::max)(1u, desc.height >> src.mipLevel);
+        const uint32_t tightRowPitch = mipWidth * 4;
+        if (src.rowPitch && src.rowPitch < tightRowPitch) return nullptr;
+        offsets[i] = uploadSize;
+        uploadSize += static_cast<uint64_t>(tightRowPitch) * mipHeight;
+
+        VkBufferImageCopy copy{};
+        copy.bufferOffset = offsets[i];
+        copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        copy.imageSubresource.mipLevel = src.mipLevel;
+        copy.imageSubresource.baseArrayLayer = src.arrayLayer;
+        copy.imageSubresource.layerCount = 1;
+        copy.imageExtent = {mipWidth, mipHeight, 1};
+        copies.push_back(copy);
+    }
     auto staging = std::dynamic_pointer_cast<VulkanBuffer>(
         CreateBuffer({static_cast<uint32_t>(uploadSize), 1, RHIResourceUsage::CopySource, "TextureUpload"}, nullptr));
     if (!staging || !staging->buffer) return nullptr;
 
     void* mapped = nullptr;
     if (vkMapMemory(m_Impl->device, staging->memory, 0, uploadSize, 0, &mapped) != VK_SUCCESS) return nullptr;
-    const uint8_t* source = static_cast<const uint8_t*>(data[0].data);
-    const uint32_t sourcePitch = data[0].rowPitch ? data[0].rowPitch : tightRowPitch;
     auto* destination = static_cast<uint8_t*>(mapped);
-    for (uint32_t y = 0; y < desc.height; ++y) {
-        std::memcpy(destination + static_cast<uint64_t>(y) * tightRowPitch,
-                    source + static_cast<uint64_t>(y) * sourcePitch,
-                    tightRowPitch);
+    for (uint32_t i = 0; i < subresourceCount; ++i) {
+        const auto& src = data[i];
+        const uint32_t mipWidth = (std::max)(1u, desc.width >> src.mipLevel);
+        const uint32_t mipHeight = (std::max)(1u, desc.height >> src.mipLevel);
+        const uint32_t tightRowPitch = mipWidth * 4;
+        const uint32_t sourcePitch = src.rowPitch ? src.rowPitch : tightRowPitch;
+        const uint8_t* source = static_cast<const uint8_t*>(src.data);
+        uint8_t* target = destination + offsets[i];
+        for (uint32_t y = 0; y < mipHeight; ++y) {
+            std::memcpy(target + static_cast<uint64_t>(y) * tightRowPitch,
+                        source + static_cast<uint64_t>(y) * sourcePitch,
+                        tightRowPitch);
+        }
     }
     vkUnmapMemory(m_Impl->device, staging->memory);
 
     auto recordUpload = [&](VkCommandBuffer cmd) {
         ImageBarrier(cmd, texture->image, texture->desc.format,
                      RHIResourceState::Undefined, RHIResourceState::CopyDestination);
-        VkBufferImageCopy copy{};
-        copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        copy.imageSubresource.mipLevel = 0;
-        copy.imageSubresource.baseArrayLayer = 0;
-        copy.imageSubresource.layerCount = 1;
-        copy.imageExtent = {desc.width, desc.height, 1};
         vkCmdCopyBufferToImage(cmd, staging->buffer, texture->image,
-                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                               static_cast<uint32_t>(copies.size()), copies.data());
         ImageBarrier(cmd, texture->image, texture->desc.format,
                      RHIResourceState::CopyDestination, RHIResourceState::ShaderResource);
         texture->layout = ToLayout(RHIResourceState::ShaderResource, texture->desc.format);

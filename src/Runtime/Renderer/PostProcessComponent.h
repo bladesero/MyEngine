@@ -48,6 +48,9 @@ public:
     float GetSSAOIntensity() const { return m_SSAOIntensity; }
     void SetSSAOIntensity(float intensity);
 
+    float GetSSAOScale() const { return m_SSAOScale; }
+    void SetSSAOScale(float scale);
+
     void Serialize(nlohmann::json& data) const override;
     void Deserialize(const nlohmann::json& data) override;
 
@@ -66,4 +69,5 @@ private:
     float m_SSAOBias = 0.025f;
     float m_SSAOPower = 1.5f;
     float m_SSAOIntensity = 0.0f;
+    float m_SSAOScale = 1.0f;
 };

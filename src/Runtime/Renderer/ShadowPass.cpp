@@ -55,6 +55,37 @@ static void EnsureMeshUploaded(IRHIDevice* device, MeshAsset* mesh)
     }
 }
 
+static bool AABBIntersectsClip(const AABB& worldBounds, const Mat4& viewProj)
+{
+    const Vec3 corners[8] = {
+        { worldBounds.min.x, worldBounds.min.y, worldBounds.min.z },
+        { worldBounds.max.x, worldBounds.min.y, worldBounds.min.z },
+        { worldBounds.min.x, worldBounds.max.y, worldBounds.min.z },
+        { worldBounds.max.x, worldBounds.max.y, worldBounds.min.z },
+        { worldBounds.min.x, worldBounds.min.y, worldBounds.max.z },
+        { worldBounds.max.x, worldBounds.min.y, worldBounds.max.z },
+        { worldBounds.min.x, worldBounds.max.y, worldBounds.max.z },
+        { worldBounds.max.x, worldBounds.max.y, worldBounds.max.z },
+    };
+    bool outsideLeft = true;
+    bool outsideRight = true;
+    bool outsideBottom = true;
+    bool outsideTop = true;
+    bool outsideNear = true;
+    bool outsideFar = true;
+    for (const Vec3& corner : corners) {
+        const Vec4 clip = viewProj.Transform(Vec4{corner.x, corner.y, corner.z, 1.0f});
+        outsideLeft = outsideLeft && clip.x < -clip.w;
+        outsideRight = outsideRight && clip.x > clip.w;
+        outsideBottom = outsideBottom && clip.y < -clip.w;
+        outsideTop = outsideTop && clip.y > clip.w;
+        outsideNear = outsideNear && clip.z < 0.0f;
+        outsideFar = outsideFar && clip.z > clip.w;
+    }
+    return !(outsideLeft || outsideRight || outsideBottom || outsideTop ||
+             outsideNear || outsideFar);
+}
+
 static MeshAsset* GetRenderMesh(Actor& actor,
                                 SkinnedMeshRendererComponent** outSkin = nullptr,
                                 MaterialAsset** outMaterial = nullptr)
@@ -485,9 +516,20 @@ void ShadowPass::DrawShadowScene(GpuCommandList& commands, const Scene& scene,
     scene.ForEach([&](Actor& actor) {
         if (!actor.IsActive()) return;
         SkinnedMeshRendererComponent* skin = nullptr;
-        MaterialAsset* material = nullptr;
-        MeshAsset* mesh = GetRenderMesh(actor, &skin, &material);
-        if (!mesh || (material && material->GetBlendMode() == BlendMode::Transparent)) return;
+        MeshAsset* mesh = nullptr;
+        MeshRendererComponent* renderer = nullptr;
+        MaterialAsset* skinnedMaterial = nullptr;
+        if (auto* skinned = actor.GetComponent<SkinnedMeshRendererComponent>()) {
+            if (!skinned->IsEnabled() || !skinned->IsValid()) return;
+            skin = skinned;
+            mesh = skinned->GetRenderMesh();
+            skinnedMaterial = skinned->GetMaterial().Get();
+        } else if (auto* meshRenderer = actor.GetComponent<MeshRendererComponent>()) {
+            if (!meshRenderer->IsEnabled() || !meshRenderer->IsValid()) return;
+            renderer = meshRenderer;
+            mesh = meshRenderer->GetMesh().Get();
+        }
+        if (!mesh) return;
         EnsureMeshUploaded(Device(), mesh);
         if (!mesh->GetVertexBuffer()) return;
         ShadowPerDrawConstants constants{};
@@ -503,21 +545,37 @@ void ShadowPass::DrawShadowScene(GpuCommandList& commands, const Scene& scene,
         }
         commands.SetVertexBuffer(mesh->GetVertexBuffer());
         commands.SetIndexBuffer(mesh->GetIndexBuffer());
+        ++m_LastStats.bindGroupCreates;
         auto bindings = Device()->CreateBindGroup(m_ShadowShaderHandle->shader);
         if (bindings && bindings->SetConstants(
                 "ShadowPerDraw", &constants, sizeof(constants)))
             commands.SetBindGroup(0, bindings.get());
         for (const auto& sm : mesh->GetSubMeshes()) {
-            if (mesh->GetIndexBuffer())
+            if (!AABBIntersectsClip(TransformAABB(sm.bounds, actor.GetWorldMatrix()), lightViewProj)) {
+                ++m_LastStats.culledSubMeshes;
+                continue;
+            }
+            MaterialAsset* material = skinnedMaterial;
+            if (renderer) {
+                material = renderer->GetMaterialForSlot(sm.materialSlot).Get();
+            }
+            if (material && material->GetBlendMode() == BlendMode::Transparent) {
+                continue;
+            }
+            ++m_LastStats.submittedSubMeshes;
+            if (mesh->GetIndexBuffer()) {
                 commands.DrawIndexed(sm.indexCount, sm.indexOffset, static_cast<uint32_t>(sm.vertexOffset));
-            else
+            } else {
                 commands.Draw(sm.indexCount, sm.vertexOffset);
+            }
+            ++m_LastStats.drawCalls;
         }
     });
 }
 
 void ShadowPass::ExecuteGraphManaged(GpuCommandList& commands, const Scene& scene)
 {
+    m_LastStats = {};
     if (!Device() || !m_ShadowPipeline) return;
     commands.SetViewport(0.0f, 0.0f, static_cast<float>(m_ShadowMapSize),
                          static_cast<float>(m_ShadowMapSize));
@@ -558,6 +616,7 @@ void ShadowPass::ExecuteGraphManaged(GpuCommandList& commands, const Scene& scen
 
 void ShadowPass::Execute(GpuCommandList& commands, const Scene& scene, const Camera& camera)
 {
+    m_LastStats = {};
     if (!Device()) return;
     EnsureShadowShader();
     if (!m_ShadowShaderHandle || !m_ShadowShaderHandle->shader || !m_ShadowPipeline) return;

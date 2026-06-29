@@ -16,6 +16,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <cstdint>
+#include <string>
 #include <vector>
 
 #ifdef MYENGINE_PLATFORM_WINDOWS
@@ -93,9 +95,23 @@ bool GetRenderable(Actor& actor, MeshAsset*& mesh, MaterialAsset*& material,
 struct RenderItem {
     Actor* actor = nullptr;
     MeshAsset* mesh = nullptr;
+    const SubMesh* subMesh = nullptr;
+    uint32_t subMeshIndex = 0;
     MaterialAsset* material = nullptr;
     SkinnedMeshRendererComponent* skin = nullptr;
     float distanceSq = 0.0f;
+};
+
+constexpr uint32_t kMainTextureSlotCount = 9;
+const char* kMainTextureNames[kMainTextureSlotCount] = {
+    "g_BaseColorMap", "g_ShadowMap", "g_NormalMap",
+    "g_MetallicRoughnessMap", "g_OcclusionMap", "g_EmissiveMap",
+    "g_SpotShadowMap", "g_PointShadowMap", "g_IBLCubemap"
+};
+const char* kMainSamplerNames[kMainTextureSlotCount] = {
+    "g_Sampler", "g_ShadowSampler", "g_NormalSampler",
+    "g_MetallicRoughnessSampler", "g_OcclusionSampler", "g_EmissiveSampler",
+    "g_SpotShadowSampler", "g_PointShadowSampler", "g_IBLSampler"
 };
 
 struct ScenePointLight {
@@ -143,6 +159,51 @@ void FillColorConstants(float out[4], const MaterialAsset& material,
     out[1] = color.data[1];
     out[2] = color.data[2];
     out[3] = color.data[3];
+}
+
+RHIFilter FilterForTexture(const TextureAsset& texture)
+{
+    return texture.GetFilter() == TextureFilter::Nearest ? RHIFilter::Point : RHIFilter::Linear;
+}
+
+RHIAddressMode AddressForTexture(TextureWrap wrap)
+{
+    return wrap == TextureWrap::Clamp ? RHIAddressMode::Clamp : RHIAddressMode::Repeat;
+}
+
+RHISamplerDesc SamplerDescForTexture(const TextureAsset& texture)
+{
+    RHISamplerDesc desc;
+    desc.filter = FilterForTexture(texture);
+    desc.addressU = AddressForTexture(texture.GetWrapU());
+    desc.addressV = AddressForTexture(texture.GetWrapV());
+    desc.addressW = RHIAddressMode::Repeat;
+    return desc;
+}
+
+bool SameSamplerDesc(const RHISamplerDesc& left, const RHISamplerDesc& right)
+{
+    return left.filter == right.filter &&
+           left.addressU == right.addressU &&
+           left.addressV == right.addressV &&
+           left.addressW == right.addressW;
+}
+
+void AppendPointer(std::string& out, const void* ptr)
+{
+    out += std::to_string(reinterpret_cast<uintptr_t>(ptr));
+}
+
+void AppendSamplerDesc(std::string& out, const RHISamplerDesc& desc)
+{
+    out += ':';
+    out += std::to_string(static_cast<int>(desc.filter));
+    out += ',';
+    out += std::to_string(static_cast<int>(desc.addressU));
+    out += ',';
+    out += std::to_string(static_cast<int>(desc.addressV));
+    out += ',';
+    out += std::to_string(static_cast<int>(desc.addressW));
 }
 
 SceneLightData CollectSceneLights(const Scene& scene)
@@ -310,12 +371,35 @@ void MainPass::EnsureTextureUploaded(TextureAsset* tex)
     if (tex->HasGpuHandle()) return;
     if (m_TexCache.count(tex)) return;
 
-    const auto& pixels = tex->GetPixelData();
-    if (pixels.empty()) return;
+    const auto& mips = tex->GetMips();
+    if (mips.empty()) return;
 
-    auto gpuTex = Device()->UploadTexture2D(
-        pixels.data(), tex->GetWidth(), tex->GetHeight());
+    RHITextureDesc desc;
+    desc.width = static_cast<uint32_t>(tex->GetWidth());
+    desc.height = static_cast<uint32_t>(tex->GetHeight());
+    desc.mipLevels = static_cast<uint32_t>(mips.size());
+    desc.arrayLayers = 1;
+    desc.format = RHIFormat::RGBA8UNorm;
+    desc.usage = RHIResourceUsage::ShaderResource | RHIResourceUsage::CopyDestination;
+    desc.debugName = tex->GetName();
+    std::vector<RHITextureSubresourceData> subresources;
+    subresources.reserve(mips.size());
+    for (uint32_t mip = 0; mip < mips.size(); ++mip) {
+        const TextureMipData& mipData = mips[mip];
+        if (mipData.rgba8.empty() || mipData.width <= 0 || mipData.height <= 0) return;
+        RHITextureSubresourceData source;
+        source.data = mipData.rgba8.data();
+        source.rowPitch = static_cast<uint32_t>(mipData.width * 4);
+        source.slicePitch = static_cast<uint32_t>(mipData.rgba8.size());
+        source.mipLevel = mip;
+        source.arrayLayer = 0;
+        subresources.push_back(source);
+    }
+
+    auto gpuTex = Device()->UploadTexture(
+        desc, subresources.data(), static_cast<uint32_t>(subresources.size()));
     if (gpuTex) {
+        ++m_LastStats.textureUploads;
         tex->SetGpuHandle(gpuTex.get());
         m_TexCache[tex] = std::move(gpuTex);
     }
@@ -329,9 +413,10 @@ void MainPass::EnsureNamedBindingDefaults()
     RHITextureViewDesc viewDesc; viewDesc.usage = RHIResourceUsage::ShaderResource;
     m_DefaultTextureView = Device()->CreateTextureView(m_DefaultTexture, viewDesc);
     RHISamplerDesc linear;
-    linear.addressU = linear.addressV = linear.addressW = RHIAddressMode::Clamp;
     m_LinearSampler = Device()->CreateSampler(linear);
-    RHISamplerDesc shadow = linear; shadow.filter = RHIFilter::ComparisonLinear;
+    RHISamplerDesc shadow = linear;
+    shadow.filter = RHIFilter::ComparisonLinear;
+    shadow.addressU = shadow.addressV = shadow.addressW = RHIAddressMode::Clamp;
     m_ShadowSampler = Device()->CreateSampler(shadow);
 }
 
@@ -349,6 +434,107 @@ std::shared_ptr<GpuTextureView> MainPass::GetTextureView(GpuTexture* texture)
         std::shared_ptr<GpuTexture>(texture, [](GpuTexture*) {}), desc);
     if (view) m_TextureViews[texture] = view;
     return view ? view : m_DefaultTextureView;
+}
+
+std::shared_ptr<GpuSampler> MainPass::GetSamplerForTexture(TextureAsset* texture)
+{
+    EnsureNamedBindingDefaults();
+    if (!Device() || !texture) return m_LinearSampler;
+    const RHISamplerDesc desc = SamplerDescForTexture(*texture);
+    auto found = m_TextureSamplers.find(texture);
+    if (found != m_TextureSamplers.end() &&
+        found->second && SameSamplerDesc(found->second->desc, desc)) {
+        return found->second;
+    }
+    auto sampler = Device()->CreateSampler(desc);
+    if (!sampler) return m_LinearSampler;
+    m_TextureSamplers[texture] = sampler;
+    return sampler;
+}
+
+bool MainPass::CanReuseMaterialBindGroups() const
+{
+    if (!Device()) return false;
+    const RHIBackend backend = Device()->GetBackend();
+    return backend == RHIBackend::D3D11 ||
+           backend == RHIBackend::D3D12 ||
+           backend == RHIBackend::Metal ||
+           backend == RHIBackend::Unknown;
+}
+
+std::shared_ptr<GpuBindGroup> MainPass::GetOrCreateMaterialBindGroup(
+    GpuShader* shader,
+    const MaterialAsset& material,
+    bool shadowedPbr,
+    const std::array<GpuTexture*, 9>& textures,
+    const std::array<TextureAsset*, 9>& textureAssets)
+{
+    if (!Device() || !shader) return nullptr;
+    EnsureNamedBindingDefaults();
+
+    std::string signature;
+    signature.reserve(256);
+    signature += shadowedPbr ? "pbr:" : "legacy:";
+    AppendPointer(signature, shader);
+    signature += ':';
+    AppendPointer(signature, &material);
+    signature += ':';
+    AppendPointer(signature, m_EnvironmentSH2Buffer.get());
+    signature += ':';
+    AppendPointer(signature, m_LinearSampler.get());
+    signature += ':';
+    AppendPointer(signature, m_ShadowSampler.get());
+    const uint32_t slotCount = shadowedPbr ? kMainTextureSlotCount : 1u;
+    for (uint32_t slot = 0; slot < slotCount; ++slot) {
+        signature += '|';
+        AppendPointer(signature, textures[slot]);
+        if (slot == 1 || slot == 6 || slot == 7) {
+            signature += ":shadow";
+        } else if (textureAssets[slot]) {
+            AppendSamplerDesc(signature, SamplerDescForTexture(*textureAssets[slot]));
+        } else {
+            signature += ":linear";
+        }
+    }
+
+    auto createBindGroup = [&]() -> std::shared_ptr<GpuBindGroup> {
+        ++m_LastStats.bindGroupCreates;
+        auto bindings = Device()->CreateBindGroup(
+            m_MainShaderHandle ? m_MainShaderHandle->shader : nullptr);
+        if (!bindings) return nullptr;
+        for (uint32_t slot = 0; slot < slotCount; ++slot) {
+            bindings->SetTexture(kMainTextureNames[slot], GetTextureView(textures[slot]));
+            std::shared_ptr<GpuSampler> sampler = m_LinearSampler;
+            if (slot == 1 || slot == 6 || slot == 7) {
+                sampler = m_ShadowSampler;
+            } else if (textureAssets[slot]) {
+                sampler = GetSamplerForTexture(textureAssets[slot]);
+            }
+            bindings->SetSampler(kMainSamplerNames[slot], sampler);
+        }
+        if (shadowedPbr) {
+            if (!bindings->SetStorageBuffer("g_EnvironmentSH2", m_EnvironmentSH2Buffer)) {
+                if (!m_LoggedEnvironmentSHBindingFailure) {
+                    Logger::Error("[MainPass] Failed to bind g_EnvironmentSH2: shaderMode=",
+                                  static_cast<int>(m_ShaderMode),
+                                  " environmentView=", m_EnvironmentSH2Buffer ? 1 : 0);
+                    m_LoggedEnvironmentSHBindingFailure = true;
+                }
+            }
+        }
+        return bindings;
+    };
+
+    if (!CanReuseMaterialBindGroups()) {
+        return createBindGroup();
+    }
+
+    auto& entry = m_MaterialBindGroups[&material];
+    if (!entry.bindGroup || entry.signature != signature) {
+        entry.bindGroup = createBindGroup();
+        entry.signature = signature;
+    }
+    return entry.bindGroup;
 }
 
 GpuShader* MainPass::GetOrCreateShader()
@@ -414,6 +600,7 @@ GpuShader* MainPass::GetOrCreateShader()
     if (m_MainShaderVersion != m_MainShaderHandle->version) {
         m_MainShaderVersion = m_MainShaderHandle->version;
         for (auto& pipeline : m_MainPipelines) pipeline.reset();
+        m_MaterialBindGroups.clear();
     }
     if (m_MainShaderHandle->shader && m_ShaderMode == ShaderMode::Unknown) {
         m_ShaderMode = ShaderMode::Legacy;
@@ -535,15 +722,18 @@ void MainPass::RenderSky(const Camera& camera, GpuCommandList& cmd)
     cmd.SetGraphicsPipeline(skyPipeline);
     cmd.BindVertexBuffer(nullptr);
     cmd.BindIndexBuffer(nullptr);
+    ++m_LastStats.bindGroupCreates;
     auto bindings = Device()->CreateBindGroup(
         m_SkyShaderHandle ? m_SkyShaderHandle->shader : nullptr);
     if (bindings && bindings->SetConstants("SkyConstants", &constants, sizeof(constants)))
         cmd.SetBindGroup(0, bindings.get());
     cmd.Draw(3);
+    ++m_LastStats.drawCalls;
 }
 
 void MainPass::Execute(GpuCommandList& commands, const Scene& scene, const Camera& camera)
 {
+    m_LastStats = {};
     if (!Device()) return;
 
     GpuShader* shader = GetOrCreateShader();
@@ -558,30 +748,68 @@ void MainPass::Execute(GpuCommandList& commands, const Scene& scene, const Camer
 
     std::vector<RenderItem> opaqueItems;
     std::vector<RenderItem> transparentItems;
-    scene.ForEach([&](Actor& actor) {
-        if (!actor.IsActive()) return;
-        MeshAsset* mesh = nullptr;
-        MaterialAsset* mat = nullptr;
-        SkinnedMeshRendererComponent* skin = nullptr;
-        if (!GetRenderable(actor, mesh, mat, skin)) return;
-        const Mat4 world = actor.GetWorldMatrix();
-        if (!camera.IsVisible(TransformAABB(mesh->GetAABB(), world))) return;
-
+    auto addRenderItem = [&](Actor& actor, MeshAsset* mesh, const SubMesh& subMesh,
+                             uint32_t subMeshIndex, MaterialAsset* mat,
+                             SkinnedMeshRendererComponent* skin) {
+        if (!mesh || !mat) return;
         RenderItem item;
         item.actor = &actor;
         item.mesh = mesh;
+        item.subMesh = &subMesh;
+        item.subMeshIndex = subMeshIndex;
         item.material = mat;
         item.skin = skin;
         item.distanceSq = (actor.GetWorldPosition() - camera.GetPosition()).LengthSq();
+        ++m_LastStats.submittedSubMeshes;
         if (mat->GetBlendMode() == BlendMode::Transparent) {
             transparentItems.push_back(item);
         } else {
             opaqueItems.push_back(item);
         }
+    };
+
+    scene.ForEach([&](Actor& actor) {
+        if (!actor.IsActive()) return;
+        if (auto* skinned = actor.GetComponent<SkinnedMeshRendererComponent>()) {
+            if (!skinned->IsEnabled() || !skinned->IsValid()) return;
+            MeshAsset* mesh = skinned->GetRenderMesh();
+            MaterialAsset* mat = skinned->GetMaterial().Get();
+            if (!mesh || !mat) return;
+            const Mat4 world = actor.GetWorldMatrix();
+            if (!camera.IsVisible(TransformAABB(mesh->GetAABB(), world))) return;
+            const auto& subMeshes = mesh->GetSubMeshes();
+            for (uint32_t i = 0; i < subMeshes.size(); ++i) {
+                if (!camera.IsVisible(TransformAABB(subMeshes[i].bounds, world))) {
+                    ++m_LastStats.culledSubMeshes;
+                    continue;
+                }
+                addRenderItem(actor, mesh, subMeshes[i], i, mat, skinned);
+            }
+            return;
+        }
+
+        auto* renderer = actor.GetComponent<MeshRendererComponent>();
+        if (!renderer || !renderer->IsEnabled() || !renderer->IsValid()) return;
+        MeshAsset* mesh = renderer->GetMesh().Get();
+        if (!mesh) return;
+        const Mat4 world = actor.GetWorldMatrix();
+        if (!camera.IsVisible(TransformAABB(mesh->GetAABB(), world))) return;
+        const auto& subMeshes = mesh->GetSubMeshes();
+        for (uint32_t i = 0; i < subMeshes.size(); ++i) {
+            const SubMesh& subMesh = subMeshes[i];
+            if (!camera.IsVisible(TransformAABB(subMesh.bounds, world))) {
+                ++m_LastStats.culledSubMeshes;
+                continue;
+            }
+            MaterialHandle material =
+                renderer->GetMaterialForSlot(subMesh.materialSlot);
+            addRenderItem(actor, mesh, subMesh, i, material.Get(), nullptr);
+        }
     });
     std::sort(opaqueItems.begin(), opaqueItems.end(),
         [](const RenderItem& a, const RenderItem& b) {
             if (a.mesh != b.mesh) return a.mesh < b.mesh;
+            if (a.subMeshIndex != b.subMeshIndex) return a.subMeshIndex < b.subMeshIndex;
             if (a.material != b.material) return a.material < b.material;
             return a.distanceSq < b.distanceSq;
         });
@@ -603,6 +831,7 @@ void MainPass::Execute(GpuCommandList& commands, const Scene& scene, const Camer
                    itemIndex + instanceCount < opaqueItems.size()) {
                 const RenderItem& candidate = opaqueItems[itemIndex + instanceCount];
                 if (candidate.mesh != item.mesh ||
+                    candidate.subMeshIndex != item.subMeshIndex ||
                     candidate.material != item.material ||
                     candidate.skin != nullptr ||
                     candidate.material->GetBlendMode() == BlendMode::Transparent) {
@@ -613,7 +842,9 @@ void MainPass::Execute(GpuCommandList& commands, const Scene& scene, const Camer
         }
         Actor& actor = *item.actor;
         MeshAsset* mesh = item.mesh;
+        const SubMesh* subMesh = item.subMesh;
         MaterialAsset* mat = item.material;
+        if (!subMesh) { itemIndex += instanceCount; continue; }
         if (mat->GetShaderAsset().IsValid()) {
             auto custom = ShaderManager::Get().GetOrCreate(
                 mat->GetShaderAsset()->GetPath(), k_MeshVertexLayout, k_MeshVertexLayoutCount);
@@ -650,15 +881,19 @@ void MainPass::Execute(GpuCommandList& commands, const Scene& scene, const Camer
             commands.BindVertexBuffer(mesh->GetVertexBuffer());
 
         GpuTexture* baseColorTexture = nullptr;
-        GpuTexture* namedTextures[9] = {};
+        TextureAsset* baseColorAsset = nullptr;
+        std::array<GpuTexture*, kMainTextureSlotCount> namedTextures{};
+        std::array<TextureAsset*, kMainTextureSlotCount> namedTextureAssets{};
         if (mat->HasTexture("BaseColorMap")) {
             TextureAsset* texAsset = mat->GetTexture("BaseColorMap").Get();
             if (texAsset) {
                 EnsureTextureUploaded(texAsset);
+                baseColorAsset = texAsset;
                 baseColorTexture = static_cast<GpuTexture*>(texAsset->GetGpuHandle());
             }
         }
         namedTextures[0] = baseColorTexture;
+        namedTextureAssets[0] = baseColorAsset;
 
         if (m_ShaderMode == ShaderMode::ShadowedPbr) {
             GpuTexture* shadowTexture = m_ShadowMap ? m_ShadowMap : baseColorTexture;
@@ -676,6 +911,7 @@ void MainPass::Execute(GpuCommandList& commands, const Scene& scene, const Camer
                         EnsureTextureUploaded(texture);
                         gpuTexture = static_cast<GpuTexture*>(texture->GetGpuHandle());
                         mapFlags[mapIndex] = gpuTexture ? 1.0f : 0.0f;
+                        namedTextureAssets[2 + mapIndex] = texture;
                     }
                 }
                 namedTextures[2 + mapIndex] = gpuTexture;
@@ -694,6 +930,7 @@ void MainPass::Execute(GpuCommandList& commands, const Scene& scene, const Camer
                     EnsureTextureUploaded(iblAsset);
                     iblTexture = static_cast<GpuTexture*>(iblAsset->GetGpuHandle());
                     iblEnabled = (iblTexture && iblTexture->IsCube()) ? 1.0f : 0.0f;
+                    if (iblEnabled > 0.5f) namedTextureAssets[8] = iblAsset;
                 }
             }
             namedTextures[8] = iblEnabled > 0.5f ? iblTexture : nullptr;
@@ -824,20 +1061,10 @@ void MainPass::Execute(GpuCommandList& commands, const Scene& scene, const Camer
                         sizeof(constants.normalMatrix));
 
             EnsureNamedBindingDefaults();
-            auto bindings = Device()->CreateBindGroup(
-                m_MainShaderHandle ? m_MainShaderHandle->shader : nullptr);
+            auto bindings = GetOrCreateMaterialBindGroup(
+                drawShader, *mat, true, namedTextures, namedTextureAssets);
             if (bindings) {
                 bindings->SetConstants("PerDraw", &constants, sizeof(constants));
-                const char* textureNames[9] = {"g_BaseColorMap", "g_ShadowMap", "g_NormalMap",
-                    "g_MetallicRoughnessMap", "g_OcclusionMap", "g_EmissiveMap",
-                    "g_SpotShadowMap", "g_PointShadowMap", "g_IBLCubemap"};
-                const char* samplerNames[9] = {"g_Sampler", "g_ShadowSampler", "g_NormalSampler",
-                    "g_MetallicRoughnessSampler", "g_OcclusionSampler", "g_EmissiveSampler",
-                    "g_SpotShadowSampler", "g_PointShadowSampler", "g_IBLSampler"};
-                for (uint32_t slot = 0; slot < 9; ++slot) {
-                    bindings->SetTexture(textureNames[slot], GetTextureView(namedTextures[slot]));
-                    bindings->SetSampler(samplerNames[slot], slot == 1 ? m_ShadowSampler : m_LinearSampler);
-                }
                 if (!m_LoggedEnvironmentState) {
                     Logger::Info("[MainPass] Environment IBL state: cube=",
                                  (m_EnvironmentCubemap && m_EnvironmentCubemap->IsCube()) ? 1 : 0,
@@ -845,59 +1072,45 @@ void MainPass::Execute(GpuCommandList& commands, const Scene& scene, const Camer
                                  " iblEnabled=", iblEnabled > 0.5f ? 1 : 0);
                     m_LoggedEnvironmentState = true;
                 }
-                if (!bindings->SetStorageBuffer("g_EnvironmentSH2", m_EnvironmentSH2Buffer)) {
-                    if (!m_LoggedEnvironmentSHBindingFailure) {
-                        Logger::Error("[MainPass] Failed to bind g_EnvironmentSH2: shaderMode=",
-                                      static_cast<int>(m_ShaderMode),
-                                      " environmentView=", m_EnvironmentSH2Buffer ? 1 : 0);
-                        m_LoggedEnvironmentSHBindingFailure = true;
-                    }
-                }
                 commands.SetBindGroup(0, bindings.get());
             }
 
             if (mesh->GetIndexBuffer()) {
                 commands.BindIndexBuffer(mesh->GetIndexBuffer());
-                for (const auto& sm : mesh->GetSubMeshes()) {
-                    commands.DrawIndexedInstanced(
-                        sm.indexCount, static_cast<uint32_t>(instanceCount),
-                        sm.indexOffset, static_cast<uint32_t>(sm.vertexOffset));
-                }
+                commands.DrawIndexedInstanced(
+                    subMesh->indexCount, static_cast<uint32_t>(instanceCount),
+                    subMesh->indexOffset, static_cast<uint32_t>(subMesh->vertexOffset));
+                ++m_LastStats.drawCalls;
             } else {
                 commands.BindIndexBuffer(nullptr);
-                for (const auto& sm : mesh->GetSubMeshes()) {
-                    commands.DrawInstanced(
-                        sm.indexCount, static_cast<uint32_t>(instanceCount),
-                        sm.vertexOffset);
-                }
+                commands.DrawInstanced(
+                    subMesh->indexCount, static_cast<uint32_t>(instanceCount),
+                    subMesh->vertexOffset);
+                ++m_LastStats.drawCalls;
             }
         } else {
             LegacyPerDrawConstants constants{};
             std::memcpy(constants.mvp, mvp.Data(), sizeof(constants.mvp));
             FillColorConstants(constants.baseColor, *mat, "BaseColor", Vec3::One());
             EnsureNamedBindingDefaults();
-            auto bindings = Device()->CreateBindGroup(
-                m_MainShaderHandle ? m_MainShaderHandle->shader : nullptr);
+            auto bindings = GetOrCreateMaterialBindGroup(
+                drawShader, *mat, false, namedTextures, namedTextureAssets);
             if (bindings) {
                 if (!bindings->SetConstants("PerDraw", &constants, sizeof(constants))) {
                     Logger::Error("[MainPass] Failed to bind PerDraw constants");
                 }
-                bindings->SetTexture("g_BaseColorMap", GetTextureView(baseColorTexture));
-                bindings->SetSampler("g_Sampler", m_LinearSampler);
                 commands.SetBindGroup(0, bindings.get());
             }
 
             if (mesh->GetIndexBuffer()) {
                 commands.BindIndexBuffer(mesh->GetIndexBuffer());
-                for (const auto& sm : mesh->GetSubMeshes()) {
-                    commands.DrawIndexed(sm.indexCount, sm.indexOffset,
-                                     static_cast<uint32_t>(sm.vertexOffset));
-                }
+                commands.DrawIndexed(subMesh->indexCount, subMesh->indexOffset,
+                                     static_cast<uint32_t>(subMesh->vertexOffset));
+                ++m_LastStats.drawCalls;
             } else {
                 commands.BindIndexBuffer(nullptr);
-                for (const auto& sm : mesh->GetSubMeshes()) {
-                    commands.Draw(sm.indexCount, sm.vertexOffset);
-                }
+                commands.Draw(subMesh->indexCount, subMesh->vertexOffset);
+                ++m_LastStats.drawCalls;
             }
         }
         itemIndex += instanceCount;

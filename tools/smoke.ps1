@@ -2,6 +2,7 @@ param(
     [ValidateSet("debug", "release")]
     [string]$Mode = "debug",
 
+    [switch]$Vulkan,
     [switch]$SkipBuild,
     [switch]$SkipTests
 )
@@ -68,7 +69,8 @@ Invoke-Step "Check RHI boundaries" {
 
 if (-not $SkipBuild) {
     Invoke-Step "Configure ($Mode)" {
-        & $xmake.Source f -m $Mode
+        $configureArgs = @("f", "-m", $Mode, ("--vulkan=" + ($(if ($Vulkan) { "y" } else { "n" }))))
+        & $xmake.Source @configureArgs
         if ($LASTEXITCODE -ne 0) {
             Fail-Smoke "xmake configure failed."
         }

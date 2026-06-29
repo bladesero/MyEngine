@@ -18,6 +18,8 @@
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tools\smoke.ps1
+# Optional Vulkan backend gate:
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\smoke.ps1 -Vulkan
 ```
 
 This checks that `xmake` itself starts, configures debug mode, builds, and runs `MyEngineTests`.
@@ -56,6 +58,8 @@ Run the isolated release/package/Player acceptance gate with:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tools\release-smoke.ps1
+# Optional Vulkan publish gate:
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\release-smoke.ps1 -Vulkan
 ```
 
 The output path is controlled by `publish.outputDirectory` and `publish.target`
@@ -67,7 +71,7 @@ and atomically installs or repairs a hash-versioned runtime cache. Publishing is
 release-ready on Windows x64; macOS Metal is experimental/unverified; Linux has
 no repository GPU backend.
 
-- **Windows GPU backend** (Editor/Player): optional ` --backend d3d11` or ` --backend d3d12` (see `main.cpp` / `player_main.cpp`).
+- **Windows GPU backend** (Editor/Player): optional ` --backend d3d11`, ` --backend d3d12`, or ` --backend vulkan` when configured with `xmake f --vulkan=y`. Use `--vsync on|off` to control swapchain presentation while profiling; Editor defaults off, Player defaults on (see `main.cpp` / `player_main.cpp`).
 
 ---
 

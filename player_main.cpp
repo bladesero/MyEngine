@@ -24,6 +24,7 @@ public:
               std::string sceneOverride)
         : Application(cfg)
         , m_Backend(cfg.backend)
+        , m_VSyncEnabled(cfg.window.vsync)
         , m_ProjectRoot(std::move(projectRoot))
         , m_SceneOverride(std::move(sceneOverride)) {}
 
@@ -91,6 +92,7 @@ protected:
 #endif
 
         if (!m_RenderContext->Init(&GetWindow())) return false;
+        m_RenderContext->SetVSyncEnabled(m_VSyncEnabled);
 
         auto& window = GetWindow();
         auto* sceneLayer = new SceneRenderLayer(
@@ -145,6 +147,7 @@ private:
 
     std::unique_ptr<IRenderContext> m_RenderContext;
     RenderBackend m_Backend = kDefaultRenderBackend;
+    bool m_VSyncEnabled = true;
     std::filesystem::path m_ProjectRoot;
     std::filesystem::path m_CookedEngineContentRoot;
     std::string m_SceneOverride;
@@ -175,6 +178,19 @@ static bool ParseBackend(const std::string& value, ApplicationConfig& cfg) {
     Logger::Warn("--backend flag ignored on this platform (got: ", value, ")");
 #endif
     return true;
+}
+
+static bool ParseVSync(const std::string& value, ApplicationConfig& cfg) {
+    if (value == "on" || value == "true" || value == "1") {
+        cfg.window.vsync = true;
+        return true;
+    }
+    if (value == "off" || value == "false" || value == "0") {
+        cfg.window.vsync = false;
+        return true;
+    }
+    Logger::Error("Unknown vsync value: ", value, " (use on/off)");
+    return false;
 }
 
 static std::filesystem::path ResolveExecutableDirectory() {
@@ -224,7 +240,7 @@ static int RunPlayer(int argc, char* argv[]) {
     bool backendOverridden = false;
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
-        if (arg == "--project" || arg == "--scene" || arg == "--backend") {
+        if (arg == "--project" || arg == "--scene" || arg == "--backend" || arg == "--vsync") {
             if (i + 1 >= argc) {
                 Logger::Error("Missing value for ", arg);
                 return 2;
@@ -232,9 +248,11 @@ static int RunPlayer(int argc, char* argv[]) {
             const std::string value = argv[++i];
             if (arg == "--project") projectRoot = value;
             else if (arg == "--scene") sceneOverride = value;
-            else {
+            else if (arg == "--backend") {
                 if (!ParseBackend(value, cfg)) return 2;
                 backendOverridden = true;
+            } else {
+                if (!ParseVSync(value, cfg)) return 2;
             }
         } else if (arg.rfind("--project=", 0) == 0) {
             projectRoot = arg.substr(std::string("--project=").size());
@@ -243,6 +261,8 @@ static int RunPlayer(int argc, char* argv[]) {
         } else if (arg.rfind("--backend=", 0) == 0) {
             if (!ParseBackend(arg.substr(std::string("--backend=").size()), cfg)) return 2;
             backendOverridden = true;
+        } else if (arg.rfind("--vsync=", 0) == 0) {
+            if (!ParseVSync(arg.substr(std::string("--vsync=").size()), cfg)) return 2;
         } else {
             Logger::Error("Unknown argument: ", arg);
             return 2;

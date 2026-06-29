@@ -5,6 +5,7 @@
 
 #include <memory>
 #include <array>
+#include <string>
 #include <unordered_map>
 
 class TextureAsset;
@@ -14,6 +15,14 @@ struct ShaderHandle;
 
 class MainPass final : public RenderPass {
 public:
+    struct Stats {
+        uint32_t drawCalls = 0;
+        uint32_t submittedSubMeshes = 0;
+        uint32_t culledSubMeshes = 0;
+        uint32_t bindGroupCreates = 0;
+        uint32_t textureUploads = 0;
+    };
+
     explicit MainPass(IRHIDevice* device);
 
     void Execute(GpuCommandList& commands, const Scene& scene,
@@ -41,6 +50,7 @@ public:
     void SetEnvironmentInput(GpuTexture* environmentCubemap,
                              std::shared_ptr<GpuBufferView> sh2Buffer,
                              const float* sh2Coefficients);
+    const Stats& GetLastStats() const { return m_LastStats; }
 
 private:
     enum class ShaderMode {
@@ -52,6 +62,7 @@ private:
     void EnsureMeshUploaded(MeshAsset* mesh);
     void EnsureTextureUploaded(TextureAsset* tex);
     std::shared_ptr<GpuTextureView> GetTextureView(GpuTexture* texture);
+    std::shared_ptr<GpuSampler> GetSamplerForTexture(TextureAsset* texture);
     void EnsureNamedBindingDefaults();
     GpuShader* GetOrCreateShader();
     GpuShader* GetOrCreateSkyShader();
@@ -61,8 +72,20 @@ private:
     GpuGraphicsPipeline* GetOrCreateMaterialPipeline(const MaterialAsset& material);
     GpuGraphicsPipeline* GetOrCreateSkyPipeline();
     void RenderSky(const Camera& camera, GpuCommandList& cmd);
+    bool CanReuseMaterialBindGroups() const;
+    std::shared_ptr<GpuBindGroup> GetOrCreateMaterialBindGroup(
+        GpuShader* shader,
+        const MaterialAsset& material,
+        bool shadowedPbr,
+        const std::array<GpuTexture*, 9>& textures,
+        const std::array<TextureAsset*, 9>& textureAssets);
 
 private:
+    struct MaterialBindGroupCacheEntry {
+        std::string signature;
+        std::shared_ptr<GpuBindGroup> bindGroup;
+    };
+
     ShaderMode m_ShaderMode = ShaderMode::Unknown;
 
 
@@ -76,6 +99,8 @@ private:
     uint64_t m_SkyShaderVersion = 0;
     std::unordered_map<TextureAsset*, std::shared_ptr<GpuTexture>> m_TexCache;
     std::unordered_map<GpuTexture*, std::shared_ptr<GpuTextureView>> m_TextureViews;
+    std::unordered_map<TextureAsset*, std::shared_ptr<GpuSampler>> m_TextureSamplers;
+    std::unordered_map<const MaterialAsset*, MaterialBindGroupCacheEntry> m_MaterialBindGroups;
     std::shared_ptr<GpuTexture> m_DefaultTexture;
     std::shared_ptr<GpuTextureView> m_DefaultTextureView;
     std::shared_ptr<GpuSampler> m_LinearSampler;
@@ -98,4 +123,5 @@ private:
     float m_PointShadowRange = 1.0f;
     int m_SpotShadowIndex = -1;
     int m_PointShadowIndex = -1;
+    Stats m_LastStats;
 };

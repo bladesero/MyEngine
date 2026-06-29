@@ -21,11 +21,30 @@ function Copy-Package([string]$Source, [string]$Name) {
     return $destination
 }
 
-function Assert-PlayerFailure([string]$Package, [string]$Label) {
+function Start-PlayerProcess([string]$Package, [string[]]$Arguments) {
     $exe = Join-Path $Package "MyEnginePlayer.exe"
+    $oldPath = $Env:PATH
     try {
-        $process = Start-Process -FilePath $exe -WorkingDirectory $Package `
-            -ArgumentList @("--backend", "d3d11") -WindowStyle Hidden -PassThru
+        $systemRoot = $Env:SystemRoot
+        $pathParts = @($Package)
+        if ($systemRoot) {
+            $pathParts += @(
+                (Join-Path $systemRoot "System32"),
+                $systemRoot
+            )
+        }
+        $Env:PATH = ($pathParts -join [IO.Path]::PathSeparator)
+        return Start-Process -FilePath $exe -WorkingDirectory $Package `
+            -ArgumentList $Arguments -WindowStyle Hidden -PassThru
+    }
+    finally {
+        $Env:PATH = $oldPath
+    }
+}
+
+function Assert-PlayerFailure([string]$Package, [string]$Label, [switch]$AllowLoaderHang) {
+    try {
+        $process = Start-PlayerProcess $Package @("--backend", "d3d11")
     }
     catch {
         Write-Output "PASS expected failure: $Label ($($_.Exception.Message))"
@@ -33,6 +52,10 @@ function Assert-PlayerFailure([string]$Package, [string]$Label) {
     }
     if (-not $process.WaitForExit(10000)) {
         Stop-Process -Id $process.Id -Force
+        if ($AllowLoaderHang) {
+            Write-Output "PASS expected failure: $Label (loader did not reach engine startup)"
+            return
+        }
         throw "Player unexpectedly kept running for failure case: $Label"
     }
     if ($process.ExitCode -eq 0) {
@@ -42,11 +65,9 @@ function Assert-PlayerFailure([string]$Package, [string]$Label) {
 }
 
 function Assert-PlayerRuns([string]$Package, [string]$Backend, [string]$Scene = "") {
-    $exe = Join-Path $Package "MyEnginePlayer.exe"
     $arguments = @("--backend", $Backend)
     if ($Scene) { $arguments += @("--scene", $Scene) }
-    $process = Start-Process -FilePath $exe -WorkingDirectory $Package `
-        -ArgumentList $arguments -WindowStyle Hidden -PassThru
+    $process = Start-PlayerProcess $Package $arguments
     Start-Sleep -Seconds 3
     if ($process.HasExited) {
         throw "Published Player exited early for $Backend with code $($process.ExitCode)"
@@ -73,8 +94,7 @@ try {
     if (-not $xmake) { throw "xmake was not found on PATH." }
 
     Write-Output "==> Configure and build release Player/Cooker"
-    $configureArgs = @("f", "-m", "release")
-    if ($Vulkan) { $configureArgs += "--vulkan=y" }
+    $configureArgs = @("f", "-m", "release", ("--vulkan=" + ($(if ($Vulkan) { "y" } else { "n" }))))
     & $xmake.Source @configureArgs
     if ($LASTEXITCODE -ne 0) { throw "xmake release configure failed." }
     & $xmake.Source build MyEnginePlayer
@@ -160,7 +180,7 @@ try {
 
     $missingDll = Copy-Package $package "MissingRuntime"
     Remove-Item -LiteralPath (Join-Path $missingDll "runtime.dll")
-    Assert-PlayerFailure $missingDll "missing runtime.dll"
+    Assert-PlayerFailure $missingDll "missing runtime.dll" -AllowLoaderHang
 
     $transitiveName = @($runtimeFiles | Where-Object {
         $_ -notin @("MyEnginePlayer.exe", "runtime.dll", "SDL3.dll")

@@ -4,6 +4,8 @@
 #include "Assets/MeshAsset.h"
 #include "Assets/MaterialAsset.h"
 
+#include <vector>
+
 // ==========================================================================
 // MeshRendererComponent  –  可渲染的网格 + 材质
 //
@@ -14,13 +16,17 @@
 class MeshRendererComponent : public Component {
 public:
     MeshHandle    GetMesh()    const { return m_Mesh; }
-    MaterialHandle GetMaterial() const { return m_Material; }
+    MaterialHandle GetMaterial() const { return GetMaterialForSlot(0); }
+    const std::vector<MaterialHandle>& GetMaterials() const { return m_Materials; }
+    MaterialHandle GetMaterialForSlot(int slot) const;
 
     void SetMesh(MeshHandle h)       { m_Mesh = std::move(h); }
-    void SetMaterial(MaterialHandle h) { m_Material = std::move(h); }
+    void SetMaterial(MaterialHandle h) { SetMaterialSlot(0, std::move(h)); }
+    void SetMaterials(std::vector<MaterialHandle> materials);
+    void SetMaterialSlot(size_t slot, MaterialHandle material);
 
     bool IsValid() const {
-        return m_Mesh.IsValid() && m_Material.IsValid();
+        return m_Mesh.IsValid() && GetMaterial().IsValid();
     }
 
     const char* GetTypeName() const override { return "MeshRenderer"; }
@@ -30,5 +36,5 @@ public:
 
 private:
     MeshHandle     m_Mesh;
-    MaterialHandle m_Material;
+    std::vector<MaterialHandle> m_Materials;
 };

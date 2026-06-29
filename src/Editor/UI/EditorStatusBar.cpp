@@ -45,11 +45,23 @@ float EditorStatusBar::Draw(EditorContext& context,
                                    ScaleToken(14.0f, effectiveScale))) {
             ImGui::SameLine();
         }
-        ImGui::Text("Ready | Selected: %s | %s | %.1f FPS / %.2f ms | Project: %s",
+        const RendererFrameStats& renderer = stats.renderer;
+        ImGui::Text("Ready | Selected: %s | %s | %.1f FPS / %.2f ms | R %.2f ms S %.2f M %.2f AO %.2f C %.2f | Draw %u (%u/%u/%u) BG %u TexUp %u | Project: %s",
                     FormatSelectedText(context).c_str(),
                     FormatBackendText(renderContext).c_str(),
                     stats.fps,
                     stats.smoothedFrameMs,
+                    stats.renderMs,
+                    renderer.shadowCpuMs,
+                    renderer.mainCpuMs,
+                    renderer.ssaoCpuMs,
+                    renderer.compositeCpuMs,
+                    renderer.drawCalls,
+                    renderer.shadowDrawCalls,
+                    renderer.mainDrawCalls,
+                    renderer.fullscreenDrawCalls,
+                    renderer.bindGroupCreates,
+                    renderer.textureUploads,
                     FormatProjectText(project).c_str());
     }
     ImGui::End();

@@ -17,7 +17,9 @@ bool AssetImportService::OpenProject(const std::filesystem::path& projectRoot,
     std::filesystem::create_directories(m_ProjectRoot / "SourceAssets");
     std::filesystem::create_directories(m_ProjectRoot / "Library/windows-x64");
     if (m_Importers.empty()) RegisterImporter(CreatePassthroughAssetImporter());
-    return m_Database.Open(m_ProjectRoot / ".myengine/AssetDatabase.json", error);
+    if (!m_Database.Open(m_ProjectRoot / ".myengine/AssetDatabase.json", error)) return false;
+    RefreshValidation();
+    return true;
 }
 
 void AssetImportService::RegisterImporter(std::unique_ptr<IAssetImporter> importer) {
@@ -87,7 +89,9 @@ AssetImportReport AssetImportService::ImportSource(const std::filesystem::path& 
     if (existing) previous = *existing;
     if (existing && existing->sourceHash == cacheKey &&
         std::filesystem::is_regular_file(existing->artifactPath)) {
-        report = {true, true, *existing}; return report;
+        report = {true, true, *existing};
+        RefreshValidation();
+        return report;
     }
     ImportRequest request{source, artifact, meta.uuid, settingsJson, "windows-x64"};
     ImportResult result = importer->Import(request);
@@ -110,8 +114,12 @@ AssetImportReport AssetImportService::ImportSource(const std::filesystem::path& 
     } else if (existing) {
         record.artifactPath = previous.artifactPath;
         record.artifactHash = previous.artifactHash;
+        if (record.diagnostics.empty()) {
+            record.diagnostics.push_back({"error", "import failed; retained previous artifact"});
+        }
     }
     if (!m_Database.Upsert(record, error) || !m_Database.Save(error)) return report;
+    RefreshValidation();
     if (result.succeeded)
         AssetManager::Get().RegisterPersistentIdentity(record.artifactPath, record.uuid);
     report.succeeded = result.succeeded;
@@ -125,11 +133,32 @@ AssetImportReport AssetImportService::Reimport(const std::string& uuid, std::str
     if (!std::filesystem::is_regular_file(record->sourcePath)) {
         AssetRecord missing = *record;
         missing.state = AssetImportState::MissingSource;
+        missing.diagnostics.push_back({"error", "asset source is missing"});
         m_Database.Upsert(missing);
         m_Database.Save();
-        SetError(error, "asset source is missing"); return {};
+        RefreshValidation();
+        SetError(error, "asset source is missing");
+        return {false, false, missing};
     }
     return ImportSource(record->sourcePath, record->settingsJson, uuid, error);
+}
+
+AssetImportReport AssetImportService::ReimportWithSettings(
+    const std::string& uuid, const std::string& settingsJson, std::string* error) {
+    const AssetRecord* record = m_Database.FindByUuid(uuid);
+    if (!record) { SetError(error, "asset uuid is not registered"); return {}; }
+    if (!std::filesystem::is_regular_file(record->sourcePath)) {
+        AssetRecord missing = *record;
+        missing.state = AssetImportState::MissingSource;
+        missing.settingsJson = settingsJson;
+        missing.diagnostics.push_back({"error", "asset source is missing"});
+        m_Database.Upsert(missing);
+        m_Database.Save();
+        RefreshValidation();
+        SetError(error, "asset source is missing");
+        return {false, false, missing};
+    }
+    return ImportSource(record->sourcePath, settingsJson, uuid, error);
 }
 
 size_t AssetImportService::ReimportAll(std::vector<std::string>* failures) {
@@ -140,5 +169,12 @@ size_t AssetImportService::ReimportAll(std::vector<std::string>* failures) {
         if (Reimport(record.uuid, &error).succeeded) ++succeeded;
         else if (failures) failures->push_back(record.uuid + ": " + error);
     }
+    RefreshValidation();
     return succeeded;
+}
+
+bool AssetImportService::RefreshValidation(std::string* error) {
+    const bool passed = m_Database.ValidateAgainstProject(m_ProjectRoot, m_ValidationReport);
+    if (!passed && error) *error = m_ValidationReport.Summary();
+    return passed;
 }

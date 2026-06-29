@@ -23,6 +23,8 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <functional>
+#include <vector>
 
 namespace {
 constexpr const char kModelPayload[]="MYENGINE_MODEL_PATH";
@@ -50,6 +52,31 @@ const char* IconForAssetType(EditorAssetType type)
         case EditorAssetType::UI: return EditorIcons::Input;
         default: return EditorIcons::Asset;
     }
+}
+
+const char* ImportStateText(AssetImportState state)
+{
+    switch (state) {
+        case AssetImportState::Importing: return "importing";
+        case AssetImportState::Failed: return "failed";
+        case AssetImportState::Stale: return "stale";
+        case AssetImportState::MissingSource: return "missing source";
+        default: return "ready";
+    }
+}
+
+bool StartsWithPath(const std::string& value, const std::string& prefix)
+{
+    return value == prefix ||
+        (value.size() > prefix.size() && value.compare(0, prefix.size(), prefix) == 0 &&
+         value[prefix.size()] == '/');
+}
+
+bool IsDirectChildFolder(const std::string& parent, const std::string& child)
+{
+    if (!StartsWithPath(child, parent) || child == parent) return false;
+    const std::string suffix = child.substr(parent.size() + 1);
+    return suffix.find('/') == std::string::npos;
 }
 }
 
@@ -131,32 +158,61 @@ void AssetBrowserPanel::RenameSelectedAsset() {
     m_PendingRename = false;
 }
 
+void AssetBrowserPanel::EnsureSelectedFolder() {
+    auto* context = GetContext();
+    auto* registry = context ? context->GetAssetRegistry() : nullptr;
+    if (!registry) return;
+    for (const auto& folder : registry->GetFolders()) {
+        if (folder.relativePath == m_SelectedFolder) return;
+    }
+    m_SelectedFolder = "Content";
+}
+
+std::filesystem::path AssetBrowserPanel::CurrentContentDirectory(const char* fallback) const {
+    auto* context = GetContext();
+    if (!context) return {};
+    if (StartsWithPath(m_SelectedFolder, "Content")) {
+        const std::string suffix = m_SelectedFolder == "Content"
+            ? std::string{}
+            : m_SelectedFolder.substr(std::string("Content/").size());
+        return suffix.empty()
+            ? context->GetContentRoot()
+            : context->GetContentRoot() / std::filesystem::path(suffix);
+    }
+    return context->GetContentRoot() / fallback;
+}
+
 void AssetBrowserPanel::DrawContent(){
 #if defined(MYENGINE_ENABLE_IMGUI)
     using namespace EditorPanelHelpers;auto* context=GetContext();auto* registry=context?context->GetAssetRegistry():nullptr;if(!registry)return;
+    EnsureSelectedFolder();
 
     // Toolbar: Refresh | Import | Create Material / Texture / Script
-    if(EditorWidgets::IconButton(*context, "RefreshAssets", EditorIcons::Refresh, "Refresh"))registry->Refresh();ImGui::SameLine();
+    if(EditorWidgets::IconButton(*context, "RefreshAssets", EditorIcons::Refresh, "Refresh")){registry->Refresh();EnsureSelectedFolder();}ImGui::SameLine();
     if(EditorWidgets::IconButton(*context, "ImportAsset", EditorIcons::Asset, "Import")){if(auto* dialogs=context->GetService<EditorDialogService>())dialogs->RequestImportAsset(context->GetWindow());}ImGui::SameLine();
+    if(EditorWidgets::IconButton(*context, "ReimportAllAssets", EditorIcons::Refresh, "Reimport All")){
+        if(auto* importer=context->GetService<EditorImportService>()){std::vector<std::string> failures;importer->ReimportAll(&failures);if(!failures.empty())Logger::Warn("[Editor] Reimport failures: ",failures.front());registry->Refresh();EnsureSelectedFolder();}
+    }ImGui::SameLine();
 
     if (ImGui::BeginCombo("##CreateAsset", "Create...")) {
         if (ImGui::Selectable("Material")) {
-            const auto directory=context->GetContentRoot()/"Materials";
+            const auto directory=CurrentContentDirectory("Materials");
+            std::filesystem::create_directories(directory);
             const auto path=EditorImportService::MakeUniqueContentPath(directory,"NewMaterial",".mat");
             auto material=MaterialAsset::CreateDefault(path.stem().string());
             if(SaveMaterialAssetToFile(*material,path.string())){
-                AssetManager::Get().Load<MaterialAsset>(path.string());registry->Refresh();
+                AssetManager::Get().Load<MaterialAsset>(path.string());registry->Refresh();EnsureSelectedFolder();
             }
         }
         if (ImGui::Selectable("Default Texture")) {
-            const auto directory=context->GetContentRoot()/"Textures";
+            const auto directory=CurrentContentDirectory("Textures");
             std::filesystem::create_directories(directory);
             const auto path=EditorImportService::MakeUniqueContentPath(directory,"NewTexture",".tex");
             try {
                 std::ofstream out(path);
                 out << "{}";
                 out.close();
-                registry->Refresh();
+                registry->Refresh();EnsureSelectedFolder();
             } catch (...) {}
         }
         ImGui::EndCombo();
@@ -166,11 +222,49 @@ void AssetBrowserPanel::DrawContent(){
     ImGui::SameLine();
     ImGui::InputTextWithHint("##Filter","Filter...",m_Filter,sizeof(m_Filter));ImGui::Separator();
 
+    if (ImGui::BeginChild("##AssetFolderTree", ImVec2(220.0f, 0), true)) {
+        const auto& folders = registry->GetFolders();
+        std::function<void(const EditorAssetFolderInfo&)> drawFolder =
+            [&](const EditorAssetFolderInfo& folder) {
+                bool hasChildren = false;
+                for (const auto& child : folders) {
+                    if (IsDirectChildFolder(folder.relativePath, child.relativePath)) {
+                        hasChildren = true;
+                        break;
+                    }
+                }
+                ImGui::PushID(folder.relativePath.c_str());
+                EditorWidgets::SvgIcon(*context, EditorIcons::Folder, 14.0f);
+                ImGui::SameLine();
+                ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow |
+                    ImGuiTreeNodeFlags_SpanAvailWidth;
+                if (!hasChildren) flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+                if (folder.relativePath == m_SelectedFolder) flags |= ImGuiTreeNodeFlags_Selected;
+                const std::string label = folder.displayName + " (" + std::to_string(folder.assetCount) + ")";
+                const bool open = ImGui::TreeNodeEx("##folder", flags, "%s", label.c_str());
+                if (ImGui::IsItemClicked()) m_SelectedFolder = folder.relativePath;
+                if (hasChildren && open) {
+                    for (const auto& child : folders) {
+                        if (IsDirectChildFolder(folder.relativePath, child.relativePath)) drawFolder(child);
+                    }
+                    ImGui::TreePop();
+                }
+                ImGui::PopID();
+            };
+        for (const auto& folder : folders) {
+            if (folder.relativePath == "Content" || folder.relativePath == "SourceAssets")
+                drawFolder(folder);
+        }
+    }
+    ImGui::EndChild();
+    ImGui::SameLine();
+    ImGui::BeginGroup();
+
     // Context menu detection for empty area
     bool emptyRightClick = false;
     if (EditorContextMenu::DetectWindow("##AssetCtxMenu")) emptyRightClick = true;
 
-    for(const auto& asset:registry->GetAssets()){
+    for(const auto& asset:registry->GetAssetsInFolder(m_SelectedFolder,true)){
         if(m_Filter[0]&&asset.relativePath.find(m_Filter)==std::string::npos)continue;
         const bool selected=context->GetSelection().GetAssetPath()==asset.absolutePath.string();
 
@@ -198,10 +292,25 @@ void AssetBrowserPanel::DrawContent(){
 
         EditorWidgets::SvgIcon(*context, IconForAssetType(asset.type), 14.0f);
         ImGui::SameLine();
-        if(ImGui::Selectable(asset.relativePath.c_str(),selected)){
+        std::string label=asset.relativePath;
+        if(asset.imported)label+=" ["+std::string(ImportStateText(asset.importState))+"]";
+        if(!asset.diagnostics.empty())label+=" !";
+        if(ImGui::Selectable(label.c_str(),selected)){
             context->GetSelection().Select(
                 EditorSelectObject::MakeAsset(asset.absolutePath.string()));
             if(context->GetProject())context->GetProject()->GetState().selectedAssetPath=asset.absolutePath.string();
+        }
+        if (ImGui::IsItemHovered() && (asset.imported || !asset.diagnostics.empty())) {
+            ImGui::BeginTooltip();
+            if (asset.imported) {
+                ImGui::Text("UUID: %s", asset.uuid.c_str());
+                ImGui::Text("State: %s", ImportStateText(asset.importState));
+                if (!asset.artifactPath.empty()) ImGui::Text("Artifact: %s", asset.artifactPath.string().c_str());
+            }
+            for (const auto& diagnostic : asset.diagnostics) {
+                ImGui::Text("%s: %s", diagnostic.severity.c_str(), diagnostic.message.c_str());
+            }
+            ImGui::EndTooltip();
         }
 
         // Right-click context menu per asset
@@ -211,6 +320,10 @@ void AssetBrowserPanel::DrawContent(){
             ImGui::OpenPopup("##AssetItemCtx");
         }
         if (ImGui::BeginPopup("##AssetItemCtx")) {
+            if (asset.imported && ImGui::Selectable("Reimport")) {
+                if(auto* importer=context->GetService<EditorImportService>())importer->Reimport(asset.uuid);
+                registry->Refresh();EnsureSelectedFolder();
+            }
             if (ImGui::Selectable("Delete")) { m_PendingDelete = true; }
             if (ImGui::Selectable("Duplicate")) { DuplicateSelectedAsset(); }
             if (ImGui::Selectable("Rename")) {
@@ -232,12 +345,13 @@ void AssetBrowserPanel::DrawContent(){
         ImGui::OpenPopup("##AssetCtxMenu");
     }
     if (ImGui::BeginPopup("##AssetCtxMenu")) {
-        if (ImGui::Selectable("Refresh")) registry->Refresh();
+        if (ImGui::Selectable("Refresh")) { registry->Refresh(); EnsureSelectedFolder(); }
         if (ImGui::Selectable("Import...")) {
             if(auto* dialogs=context->GetService<EditorDialogService>()) dialogs->RequestImportAsset(context->GetWindow());
         }
         ImGui::EndPopup();
     }
+    ImGui::EndGroup();
 
 #endif
 }

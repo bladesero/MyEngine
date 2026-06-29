@@ -396,8 +396,10 @@ std::shared_ptr<ModelAsset> LoadModelAssetFromGltf(const std::string& path)
             subMesh.indexOffset = static_cast<uint32_t>(indices.size());
             subMesh.vertexOffset = 0;
             subMesh.materialSlot = MaterialSlot(*data, primitive.material);
-            subMesh.name = mesh.name ? mesh.name :
-                "Primitive" + std::to_string(primitiveIndex);
+            const std::string meshName = mesh.name
+                ? mesh.name
+                : "Mesh" + std::to_string(meshIndex);
+            subMesh.name = meshName + "/Primitive" + std::to_string(primitiveIndex);
             if (primitive.indices) {
                 subMesh.indexCount = static_cast<uint32_t>(primitive.indices->count);
                 for (cgltf_size i = 0; i < primitive.indices->count; ++i) {

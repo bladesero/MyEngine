@@ -1,0 +1,99 @@
+{
+    "actors": [
+        {
+            "active": true,
+            "components": [
+                {
+                    "data": {
+                        "castShadows": true,
+                        "color": [
+                            0.9970238208770752,
+                            0.9578126668930054,
+                            0.8872324824333191
+                        ],
+                        "direction": [
+                            -0.44832655787467957,
+                            -0.8151391744613647,
+                            -0.3668126165866852
+                        ],
+                        "innerConeAngle": 25.0,
+                        "intensity": 6.28000020980835,
+                        "outerConeAngle": 35.0,
+                        "range": 8.0,
+                        "type": "directional"
+                    },
+                    "enabled": true,
+                    "type": "Light"
+                }
+            ],
+            "id": 1,
+            "name": "Light",
+            "parentID": 0,
+            "transform": {
+                "position": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            }
+        },
+        {
+            "active": true,
+            "components": [
+                {
+                    "data": {
+                        "antiAliasingStrength": 0.0,
+                        "bloomEnabled": false,
+                        "bloomIntensity": 0.0,
+                        "bloomThreshold": 1.0,
+                        "contrast": 1.0,
+                        "exposure": 1.2200000286102295,
+                        "gamma": 2.200000047683716,
+                        "saturation": 1.0,
+                        "ssaoBias": 0.02500000037252903,
+                        "ssaoIntensity": 4.0,
+                        "ssaoPower": 1.5,
+                        "ssaoRadius": 1.2000000476837158,
+                        "ssaoScale": 0.5,
+                        "toneMapping": true,
+                        "vignette": 0.0
+                    },
+                    "enabled": true,
+                    "type": "PostProcess"
+                }
+            ],
+            "id": 3,
+            "name": "PP",
+            "parentID": 0,
+            "transform": {
+                "position": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "rotation": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            }
+        }
+    ],
+    "name": "Untitled",
+    "nextID": 4
+}

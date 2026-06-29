@@ -24,10 +24,15 @@ public:
                              std::string* error = nullptr);
     AssetImportReport Reimport(const std::string& uuid,
                                std::string* error = nullptr);
+    AssetImportReport ReimportWithSettings(const std::string& uuid,
+                                           const std::string& settingsJson,
+                                           std::string* error = nullptr);
     size_t ReimportAll(std::vector<std::string>* failures = nullptr);
 
     AssetDatabase& GetDatabase() { return m_Database; }
     const AssetDatabase& GetDatabase() const { return m_Database; }
+    const AssetDatabaseValidationReport& GetValidationReport() const { return m_ValidationReport; }
+    bool RefreshValidation(std::string* error = nullptr);
 
 private:
     const IAssetImporter* FindImporter(const std::filesystem::path& path) const;
@@ -42,5 +47,6 @@ private:
 
     std::filesystem::path m_ProjectRoot;
     AssetDatabase m_Database;
+    AssetDatabaseValidationReport m_ValidationReport;
     std::vector<std::unique_ptr<IAssetImporter>> m_Importers;
 };

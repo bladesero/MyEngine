@@ -9,6 +9,13 @@ struct ShaderHandle;
 
 class ShadowPass final : public RenderPass {
 public:
+    struct Stats {
+        uint32_t drawCalls = 0;
+        uint32_t submittedSubMeshes = 0;
+        uint32_t culledSubMeshes = 0;
+        uint32_t bindGroupCreates = 0;
+    };
+
     struct GraphResources {
         std::shared_ptr<GpuTexture> directional;
         std::shared_ptr<GpuTextureView> directionalCascadeViews[3];
@@ -44,6 +51,7 @@ public:
     uint32_t GetCascadeCount() const { return m_CascadeCount; }
     const Mat4& GetCascadeViewProj(uint32_t index) const;
     const float* GetCascadeSplits() const { return m_CascadeSplits; }
+    const Stats& GetLastStats() const { return m_LastStats; }
 
 private:
     void UpdateLightMatrices(const Scene& scene, const Camera& camera);
@@ -83,4 +91,5 @@ private:
     std::shared_ptr<GpuTextureView> m_SpotShadowView;
     std::shared_ptr<GpuTextureView> m_PointShadowViews[6];
     bool m_ShadowResourcesInShaderState = false;
+    Stats m_LastStats;
 };

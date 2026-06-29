@@ -5,8 +5,10 @@
 #include <filesystem>
 #include <string>
 #include <memory>
+#include <vector>
 
 class AssetImportService;
+struct AssetDatabaseValidationReport;
 
 class EditorImportService final : public EditorService {
 public:
@@ -14,6 +16,11 @@ public:
     ~EditorImportService() override;
     void OnAttach(EditorContext& context) override;
     bool Import(const std::string& sourcePath);
+    bool Reimport(const std::string& uuid);
+    bool ReimportWithSettings(const std::string& uuid,
+                              const std::string& settingsJson);
+    size_t ReimportAll(std::vector<std::string>* failures = nullptr);
+    const AssetDatabaseValidationReport* GetValidationReport() const;
     static std::filesystem::path MakeUniqueContentPath(const std::filesystem::path& directory,
         const std::string& stem, const std::string& extension);
 private:

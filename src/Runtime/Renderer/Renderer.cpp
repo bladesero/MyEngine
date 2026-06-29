@@ -1,15 +1,48 @@
 #include "Renderer/Renderer.h"
 
 #include "Renderer/GpuUploadQueue.h"
+#include "Core/FrameStats.h"
 #include "Core/Logger.h"
 #include "Renderer/EnvironmentPass.h"
 #include "Renderer/MainPass.h"
 #include "Renderer/PostProcessPass.h"
+#include "Renderer/PostProcessComponent.h"
 #include "Renderer/ShaderManager.h"
 #include "Renderer/ShadowPass.h"
 #include "Renderer/RenderGraph.h"
 #include "Renderer/ScreenUIPass.h"
+#include "Scene/Actor.h"
 #include "UI/Render/UIDrawList.h"
+
+#include <chrono>
+
+namespace {
+struct PostProcessRuntimeOptions {
+    bool ssaoEnabled = false;
+    float ssaoScale = 1.0f;
+};
+
+PostProcessRuntimeOptions CollectPostProcessOptions(const Scene& scene)
+{
+    PostProcessRuntimeOptions options;
+    bool found = false;
+    scene.ForEach([&](Actor& actor) {
+        if (found || !actor.IsActive()) return;
+        auto* post = actor.GetComponent<PostProcessComponent>();
+        if (!post || !post->IsEnabled()) return;
+        options.ssaoEnabled = post->GetSSAOIntensity() > 0.0f;
+        options.ssaoScale = post->GetSSAOScale();
+        found = true;
+    });
+    return options;
+}
+
+float ElapsedMs(std::chrono::steady_clock::time_point start,
+                std::chrono::steady_clock::time_point end)
+{
+    return std::chrono::duration<float, std::milli>(end - start).count();
+}
+}
 
 Renderer::Renderer(IRHIDevice* device, IRHIFrameContext* frameContext,
                    IRHIReadbackService* readbackService)
@@ -44,6 +77,7 @@ void Renderer::ReleaseFrameResources()
 
 void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool present)
 {
+    FrameStatsProvider::SetRendererStats({});
     if (!m_Device || !m_FrameContext || !m_ShadowPass || !m_MainPass || !m_PostProcessPass) return;
 
     GpuUploadQueue::Get().Process(*m_Device);
@@ -90,7 +124,15 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
         },
         [this, &scene, &camera](GpuCommandList& commands, const RenderGraphResources&) {
             (void)camera;
+            const auto start = std::chrono::steady_clock::now();
             m_ShadowPass->ExecuteGraphManaged(commands, scene);
+            const auto end = std::chrono::steady_clock::now();
+            RendererFrameStats stats = FrameStatsProvider::GetRendererStats();
+            stats.shadowCpuMs += ElapsedMs(start, end);
+            const auto& shadowStats = m_ShadowPass->GetLastStats();
+            stats.shadowDrawCalls = shadowStats.drawCalls;
+            stats.bindGroupCreates += shadowStats.bindGroupCreates;
+            FrameStatsProvider::SetRendererStats(stats);
         }, RenderGraph::PassFlags::ManualRenderingScope |
            RenderGraph::PassFlags::ManualResourceTransitions);
     const bool environmentGraphReady = m_EnvironmentPass->PrepareGraphResources();
@@ -128,6 +170,9 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
                                             m_Device->GetBackend() == RHIBackend::Vulkan;
     const bool useOffscreen = backendSupportsPostProcess || m_OutputOffscreen;
     m_MainPass->SetHdrPassthrough(useOffscreen);
+    const PostProcessRuntimeOptions postOptions = CollectPostProcessOptions(scene);
+    m_PostProcessPass->SetSSAOEnabled(postOptions.ssaoEnabled);
+    m_PostProcessPass->SetSSAOScale(postOptions.ssaoScale);
     const uint32_t cascadeCount = m_ShadowPass->GetCascadeCount();
     Mat4 cascades[3] = {
         m_ShadowPass->GetCascadeViewProj(0),
@@ -156,12 +201,16 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
         const auto sceneDepth = m_RenderGraph->ImportTexture(
             "SceneDepth", postResources.sceneDepth, postResources.sceneDepthDsv,
             postResources.sceneDepthState, RHIResourceState::ShaderResource);
-        const auto ssao = m_RenderGraph->ImportTexture(
-            "SSAO", postResources.ssao, postResources.ssaoRtv,
-            postResources.ssaoState, RHIResourceState::ShaderResource);
-        const auto ssaoBlur = m_RenderGraph->ImportTexture(
-            "SSAOBlur", postResources.ssaoBlur, postResources.ssaoBlurRtv,
-            postResources.ssaoBlurState, RHIResourceState::ShaderResource);
+        RGTextureHandle ssao;
+        RGTextureHandle ssaoBlur;
+        if (postOptions.ssaoEnabled) {
+            ssao = m_RenderGraph->ImportTexture(
+                "SSAO", postResources.ssao, postResources.ssaoRtv,
+                postResources.ssaoState, RHIResourceState::ShaderResource);
+            ssaoBlur = m_RenderGraph->ImportTexture(
+                "SSAOBlur", postResources.ssaoBlur, postResources.ssaoBlurRtv,
+                postResources.ssaoBlurState, RHIResourceState::ShaderResource);
+        }
         RGTextureHandle composite;
         const bool compositeToBackbuffer = m_PostProcessPass->IsCompositeToBackbuffer();
         RGTextureHandle backBuffer;
@@ -199,33 +248,64 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
                 builder.WriteDepth(sceneDepth, RHILoadOp::Clear, RHIStoreOp::Store, 1.0f);
             },
             [this, &scene, &camera](GpuCommandList& commands, const RenderGraphResources&) {
+                const auto start = std::chrono::steady_clock::now();
                 m_MainPass->Execute(commands, scene, camera);
+                const auto end = std::chrono::steady_clock::now();
+                RendererFrameStats stats = FrameStatsProvider::GetRendererStats();
+                stats.mainCpuMs += ElapsedMs(start, end);
+                const auto& mainStats = m_MainPass->GetLastStats();
+                stats.mainDrawCalls = mainStats.drawCalls;
+                stats.subMeshCount = mainStats.submittedSubMeshes;
+                stats.bindGroupCreates += mainStats.bindGroupCreates;
+                stats.textureUploads += mainStats.textureUploads;
+                FrameStatsProvider::SetRendererStats(stats);
             });
-        m_RenderGraph->AddPass("SSAO", [sceneDepth, ssao](RenderGraphBuilder& builder) {
+        if (postOptions.ssaoEnabled) {
+            m_RenderGraph->AddPass("SSAO", [sceneDepth, ssao](RenderGraphBuilder& builder) {
                 builder.ReadTexture(sceneDepth);
                 builder.WriteColor(ssao, RHILoadOp::Clear, RHIStoreOp::Store, {1, 1, 1, 1});
             },
             [this, &scene, &camera](GpuCommandList& commands, const RenderGraphResources&) {
+                const auto start = std::chrono::steady_clock::now();
                 m_PostProcessPass->DrawSSAOOcclusion(commands, scene, camera);
+                const auto end = std::chrono::steady_clock::now();
+                RendererFrameStats stats = FrameStatsProvider::GetRendererStats();
+                stats.ssaoCpuMs += ElapsedMs(start, end);
+                ++stats.fullscreenDrawCalls;
+                FrameStatsProvider::SetRendererStats(stats);
             });
-        m_RenderGraph->AddPass("SSAOBlurH", [ssao, ssaoBlur](RenderGraphBuilder& builder) {
+            m_RenderGraph->AddPass("SSAOBlurH", [ssao, ssaoBlur](RenderGraphBuilder& builder) {
                 builder.ReadTexture(ssao);
                 builder.WriteColor(ssaoBlur, RHILoadOp::Clear, RHIStoreOp::Store, {1, 1, 1, 1});
             },
             [this](GpuCommandList& commands, const RenderGraphResources&) {
+                const auto start = std::chrono::steady_clock::now();
                 m_PostProcessPass->DrawSSAOBlurHorizontal(commands);
+                const auto end = std::chrono::steady_clock::now();
+                RendererFrameStats stats = FrameStatsProvider::GetRendererStats();
+                stats.ssaoCpuMs += ElapsedMs(start, end);
+                ++stats.fullscreenDrawCalls;
+                FrameStatsProvider::SetRendererStats(stats);
             });
-        m_RenderGraph->AddPass("SSAOBlurV", [ssaoBlur, ssao](RenderGraphBuilder& builder) {
+            m_RenderGraph->AddPass("SSAOBlurV", [ssaoBlur, ssao](RenderGraphBuilder& builder) {
                 builder.ReadTexture(ssaoBlur);
                 builder.WriteColor(ssao, RHILoadOp::Clear, RHIStoreOp::Store, {1, 1, 1, 1});
             },
             [this](GpuCommandList& commands, const RenderGraphResources&) {
+                const auto start = std::chrono::steady_clock::now();
                 m_PostProcessPass->DrawSSAOBlurVertical(commands);
+                const auto end = std::chrono::steady_clock::now();
+                RendererFrameStats stats = FrameStatsProvider::GetRendererStats();
+                stats.ssaoCpuMs += ElapsedMs(start, end);
+                ++stats.fullscreenDrawCalls;
+                FrameStatsProvider::SetRendererStats(stats);
             });
+        }
         m_RenderGraph->AddPass("Composite",
-            [sceneColor, ssao, compositeToBackbuffer, composite, backBuffer](RenderGraphBuilder& builder) {
+            [sceneColor, ssao, ssaoEnabled = postOptions.ssaoEnabled,
+             compositeToBackbuffer, composite, backBuffer](RenderGraphBuilder& builder) {
                 builder.ReadTexture(sceneColor);
-                builder.ReadTexture(ssao);
+                if (ssaoEnabled) builder.ReadTexture(ssao);
                 if (compositeToBackbuffer) {
                     builder.WriteColor(backBuffer, RHILoadOp::Clear, RHIStoreOp::Store,
                                        {0, 0, 0, 1});
@@ -235,11 +315,17 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
                 }
             },
             [this, &scene](GpuCommandList& commands, const RenderGraphResources&) {
+                const auto start = std::chrono::steady_clock::now();
                 if (m_PostProcessPass->IsCompositeToBackbuffer()) {
                     m_PostProcessPass->DrawCompositeToCurrentTarget(commands, scene);
                 } else {
                     m_PostProcessPass->DrawCompositeOffscreen(commands, scene);
                 }
+                const auto end = std::chrono::steady_clock::now();
+                RendererFrameStats stats = FrameStatsProvider::GetRendererStats();
+                stats.compositeCpuMs += ElapsedMs(start, end);
+                ++stats.fullscreenDrawCalls;
+                FrameStatsProvider::SetRendererStats(stats);
             });
         if (m_UIDrawList && !m_UIDrawList->Empty()) {
             m_RenderGraph->AddPass("ScreenUI",
@@ -280,7 +366,17 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
                                    {0.12f, 0.12f, 0.18f, 1.0f});
             },
             [this, &scene, &camera](GpuCommandList& commands, const RenderGraphResources&) {
+                const auto start = std::chrono::steady_clock::now();
                 m_MainPass->Execute(commands, scene, camera);
+                const auto end = std::chrono::steady_clock::now();
+                RendererFrameStats stats = FrameStatsProvider::GetRendererStats();
+                stats.mainCpuMs += ElapsedMs(start, end);
+                const auto& mainStats = m_MainPass->GetLastStats();
+                stats.mainDrawCalls = mainStats.drawCalls;
+                stats.subMeshCount = mainStats.submittedSubMeshes;
+                stats.bindGroupCreates += mainStats.bindGroupCreates;
+                stats.textureUploads += mainStats.textureUploads;
+                FrameStatsProvider::SetRendererStats(stats);
             });
         if (m_UIDrawList && !m_UIDrawList->Empty()) {
             m_RenderGraph->AddPass("ScreenUI",
@@ -306,6 +402,10 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
         m_ShadowPass->MarkGraphResourcesShaderResource();
         m_EnvironmentPass->MarkGraphResourcesShaderResource();
     }
+    RendererFrameStats rendererStats = FrameStatsProvider::GetRendererStats();
+    rendererStats.drawCalls = rendererStats.shadowDrawCalls +
+        rendererStats.mainDrawCalls + rendererStats.fullscreenDrawCalls;
+    FrameStatsProvider::SetRendererStats(rendererStats);
 
     if (present) {
         m_FrameContext->EndFrame();

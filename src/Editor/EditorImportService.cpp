@@ -56,3 +56,50 @@ bool EditorImportService::Import(const std::string& sourcePath) {
     if(context->GetAssetRegistry()) context->GetAssetRegistry()->Refresh();
     Logger::Info("[Editor] Imported asset: ",report.record.sourcePath); return true;
 }
+
+bool EditorImportService::Reimport(const std::string& uuid) {
+    if (uuid.empty() || !m_ImportPipeline) return false;
+    std::string error;
+    const AssetImportReport report = m_ImportPipeline->Reimport(uuid, &error);
+    if (!report.succeeded) {
+        Logger::Warn("[Editor] Reimport failed: ", error);
+        return false;
+    }
+    if (EditorContext* context = GetContext(); context && context->GetAssetRegistry()) {
+        context->GetAssetRegistry()->Refresh();
+    }
+    Logger::Info("[Editor] Reimported asset: ", report.record.sourcePath);
+    return true;
+}
+
+bool EditorImportService::ReimportWithSettings(
+    const std::string& uuid, const std::string& settingsJson) {
+    if (uuid.empty() || !m_ImportPipeline) return false;
+    std::string error;
+    const AssetImportReport report =
+        m_ImportPipeline->ReimportWithSettings(uuid, settingsJson, &error);
+    if (!report.succeeded) {
+        Logger::Warn("[Editor] Reimport with settings failed: ", error);
+        return false;
+    }
+    AssetManager::Get().RegisterPersistentIdentity(report.record.artifactPath,
+                                                   report.record.uuid);
+    if (EditorContext* context = GetContext(); context && context->GetAssetRegistry()) {
+        context->GetAssetRegistry()->Refresh();
+    }
+    Logger::Info("[Editor] Updated import settings: ", report.record.sourcePath);
+    return true;
+}
+
+size_t EditorImportService::ReimportAll(std::vector<std::string>* failures) {
+    if (!m_ImportPipeline) return 0;
+    const size_t succeeded = m_ImportPipeline->ReimportAll(failures);
+    if (EditorContext* context = GetContext(); context && context->GetAssetRegistry()) {
+        context->GetAssetRegistry()->Refresh();
+    }
+    return succeeded;
+}
+
+const AssetDatabaseValidationReport* EditorImportService::GetValidationReport() const {
+    return m_ImportPipeline ? &m_ImportPipeline->GetValidationReport() : nullptr;
+}
