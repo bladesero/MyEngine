@@ -19,6 +19,7 @@ public:
     virtual void OnAttach(EditorContext& context) { m_Context = &context; }
     virtual void OnDetach() { m_Context = nullptr; }
     virtual void OnUpdate(float deltaSeconds) { (void)deltaSeconds; }
+    virtual bool ShouldUpdateWhenHidden() const { return false; }
     virtual void OnImGui();
     const std::string& GetID() const { return m_ID; }
     const std::string& GetTitle() const { return m_Title; }

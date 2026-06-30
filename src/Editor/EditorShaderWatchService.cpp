@@ -18,6 +18,7 @@ void EditorShaderWatchService::Refresh() {
     }
 }
 void EditorShaderWatchService::OnUpdate(float deltaSeconds) {
+    if (!GetContext() || m_Paths.empty()) return;
     m_Accumulator+=deltaSeconds; if(m_Accumulator<0.5f) return; m_Accumulator=0;
     std::error_code error;
     for(const std::string& path:m_Paths) { const auto time=std::filesystem::last_write_time(path,error); if(error) continue;

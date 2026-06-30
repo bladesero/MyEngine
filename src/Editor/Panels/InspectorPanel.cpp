@@ -51,6 +51,12 @@ bool ShouldCaptureInspectorEditSnapshot(bool hasActorSelection,
         ImGui::IsKeyPressed(ImGuiKey_UpArrow) ||
         ImGui::IsKeyPressed(ImGuiKey_DownArrow);
 }
+
+bool ShouldCommitInspectorEditSnapshot(bool hasActorSelection,
+                                       bool transactionActive)
+{
+    return hasActorSelection && transactionActive && !ImGui::IsAnyItemActive();
+}
 #endif
 }
 
@@ -158,7 +164,7 @@ void InspectorPanel::DrawContent()
             m_Transaction.Begin("Inspector Edit", before, selection);
         }
     }
-    if (actor && m_Transaction.IsActive() && !ImGui::IsAnyItemActive()) {
+    if (ShouldCommitInspectorEditSnapshot(actor != nullptr, m_Transaction.IsActive())) {
         m_Transaction.Commit(*context);
     }
 #endif

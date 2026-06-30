@@ -841,6 +841,8 @@ bool TestEditorProjectAndAssetRegistry() {
     std::filesystem::create_directories(content / "Empty");
     std::filesystem::create_directories(root / "SourceAssets" / "Raw");
     std::ofstream(content / "Models" / "test.gltf") << "{}";
+    std::filesystem::create_directories(content / "Models" / "Nested");
+    std::ofstream(content / "Models" / "Nested" / "child.gltf") << "{}";
     std::ofstream(content / "Textures" / "test.png") << "png";
     std::ofstream(content / "Materials" / "test.mat") << "{}";
     std::ofstream(content / "Audio" / "test.wav") << "wav";
@@ -848,9 +850,11 @@ bool TestEditorProjectAndAssetRegistry() {
     std::ofstream(root / "SourceAssets" / "Raw" / "raw.dat") << "raw";
 
     EditorAssetRegistry registry;
+    EditorProfiler registryProfiler;
+    registry.SetProfiler(&registryProfiler);
     registry.SetRoot(content);
     registry.Refresh();
-    if (!Check(registry.GetAssets(EditorAssetType::Model).size() == 1,
+    if (!Check(registry.GetAssets(EditorAssetType::Model).size() == 2,
                "asset registry model classification failed")) return false;
     if (!Check(registry.GetAssets(EditorAssetType::Texture).size() == 1,
                "asset registry texture classification failed")) return false;
@@ -858,7 +862,7 @@ bool TestEditorProjectAndAssetRegistry() {
                "asset registry material classification failed")) return false;
     if (!Check(registry.GetAssets(EditorAssetType::Audio).size() == 1,
                "asset registry audio classification failed")) return false;
-    if (!Check(registry.GetAssets().size() == 5,
+    if (!Check(registry.GetAssets().size() == 6,
                "asset registry exposed metadata files")) return false;
     const auto folders = registry.GetFolders();
     const auto findFolder = [&](const std::string& path) {
@@ -869,22 +873,34 @@ bool TestEditorProjectAndAssetRegistry() {
     };
     if (!Check(findFolder("Content") != folders.end() &&
                findFolder("Content/Models") != folders.end() &&
+               findFolder("Content/Models/Nested") != folders.end() &&
                findFolder("Content/Empty") != folders.end() &&
                findFolder("SourceAssets") != folders.end() &&
                findFolder("SourceAssets/Raw") != folders.end(),
                "asset registry folder index missed Content or SourceAssets folders")) return false;
     if (!Check(findFolder("Content/Empty")->assetCount == 0 &&
-               findFolder("Content/Models")->assetCount == 1 &&
+               findFolder("Content/Models")->assetCount == 2 &&
                findFolder("Content/Models")->directAssetCount == 1 &&
-               findFolder("Content")->assetCount == 4 &&
+               findFolder("Content/Models/Nested")->assetCount == 1 &&
+               findFolder("Content/Models/Nested")->directAssetCount == 1 &&
+               findFolder("Content")->assetCount == 5 &&
                findFolder("SourceAssets")->assetCount == 1,
                "asset registry folder counts are incorrect")) return false;
     const auto modelFolderAssets = registry.GetAssetsInFolder("Content/Models", true);
-    if (!Check(modelFolderAssets.size() == 1 &&
-               modelFolderAssets.front().relativePath == "Models/test.gltf",
+    const bool modelFolderContainsRootAsset = std::any_of(
+        modelFolderAssets.begin(), modelFolderAssets.end(),
+        [](const EditorAssetInfo& info) {
+            return info.relativePath == "Models/test.gltf";
+        });
+    if (!Check(modelFolderAssets.size() == 2 && modelFolderContainsRootAsset,
                "asset registry folder query returned the wrong Content assets")) return false;
     if (!Check(registry.GetAssetsInFolder("SourceAssets", true).size() == 1,
                "asset registry folder query returned the wrong SourceAssets assets")) return false;
+    registryProfiler.Clear();
+    if (!Check(!registry.WatchForChanges(),
+               "asset registry reported a change when the directory snapshot was unchanged")) return false;
+    if (!Check(registryProfiler.Snapshot().empty(),
+               "asset registry refreshed during an unchanged watch pass")) return false;
 
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
     std::ofstream(content / "Models" / "test.gltf", std::ios::app) << " ";
@@ -931,6 +947,59 @@ bool TestEditorProjectAndAssetRegistry() {
     std::error_code error;
     std::filesystem::remove_all(root, error);
     return Check(stateMatches, "editor project state persistence mismatch");
+}
+
+bool TestEditorPerformanceSourceContracts() {
+    const auto readSource = [](const char* relativePath) {
+        const char* prefixes[] = {"", "../../../", "../../../../", "../../../../../"};
+        for (const char* prefix : prefixes) {
+            std::ifstream file(std::string(prefix) + relativePath, std::ios::binary);
+            if (!file) continue;
+            std::ostringstream contents;
+            contents << file.rdbuf();
+            return contents.str();
+        }
+        return std::string{};
+    };
+
+    const std::string panelHeader = readSource("src/Editor/EditorPanel.h");
+    const std::string editorLayer = readSource("src/Editor/EditorLayer.cpp");
+    const std::string assetRegistry = readSource("src/Editor/EditorAssetRegistry.cpp");
+    const std::string assetBrowser = readSource("src/Editor/Panels/AssetBrowserPanel.cpp");
+    const std::string sceneLayerHeader = readSource("src/Runtime/Game/SceneRenderLayer.h");
+    const std::string sceneLayer = readSource("src/Runtime/Game/SceneRenderLayer.cpp");
+    const std::string viewportPanel = readSource("src/Editor/Panels/ViewportPanel.cpp");
+    const std::string hierarchyPanel = readSource("src/Editor/Panels/SceneHierarchyPanel.cpp");
+    const std::string shaderWatcher = readSource("src/Editor/EditorShaderWatchService.cpp");
+
+    if (!Check(!panelHeader.empty() && !editorLayer.empty() && !assetRegistry.empty() &&
+               !assetBrowser.empty() && !sceneLayerHeader.empty() && !sceneLayer.empty() &&
+               !viewportPanel.empty() && !hierarchyPanel.empty() && !shaderWatcher.empty(),
+               "performance source contract files were not found")) return false;
+
+    if (!Check(panelHeader.find("ShouldUpdateWhenHidden") != std::string::npos &&
+               editorLayer.find("panel->IsVisible() || panel->ShouldUpdateWhenHidden()") != std::string::npos,
+               "hidden panels are not gated during update")) return false;
+    if (!Check(assetRegistry.find("BuildDirectorySnapshot") != std::string::npos &&
+               assetRegistry.find("std::vector<EditorAssetInfo> before") == std::string::npos &&
+               assetRegistry.find("AccumulateFolderCounts") != std::string::npos,
+               "asset registry watch still uses full-list copies or old folder counting")) return false;
+    if (!Check(assetBrowser.find("m_WatchAccumulator < 1.0f") != std::string::npos,
+               "asset browser watch is not throttled")) return false;
+    if (!Check(sceneLayerHeader.find("SetSceneViewportActive") != std::string::npos &&
+               sceneLayerHeader.find("SetGameViewportActive") != std::string::npos &&
+               sceneLayer.find("if (m_SceneViewportActive)") != std::string::npos &&
+               sceneLayer.find("if (m_GameViewportActive)") != std::string::npos &&
+               editorLayer.find("SetSceneViewportActive(false)") != std::string::npos &&
+               viewportPanel.find("SetSceneViewportActive(true)") != std::string::npos &&
+               viewportPanel.find("SetGameViewportActive(true)") != std::string::npos,
+               "editor viewport rendering is not controlled by active panel state")) return false;
+    if (!Check(hierarchyPanel.find("m_SearchMatches") != std::string::npos &&
+               hierarchyPanel.find("RebuildSearchCache") != std::string::npos &&
+               hierarchyPanel.find("ActorMatchesFilter") == std::string::npos,
+               "scene hierarchy search still recursively rematches per drawn actor")) return false;
+    return Check(shaderWatcher.find("m_Paths.empty()") != std::string::npos,
+                 "shader watcher does not skip empty project watch sets");
 }
 
 bool TestProductionAssetDatabaseAndImportPipeline() {
@@ -1062,6 +1131,7 @@ MYENGINE_REGISTER_TEST("Editor", "TestInspectorPanelSnapshotsAreInputGated", Tes
 MYENGINE_REGISTER_TEST("Editor", "TestEditorProfilerBufferAndSourceContracts", TestEditorProfilerBufferAndSourceContracts);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorLayoutConfigAndStatePersistence", TestEditorLayoutConfigAndStatePersistence);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorProjectAndAssetRegistry", TestEditorProjectAndAssetRegistry);
+MYENGINE_REGISTER_TEST("Editor", "TestEditorPerformanceSourceContracts", TestEditorPerformanceSourceContracts);
 MYENGINE_REGISTER_TEST("Editor", "TestProductionAssetDatabaseAndImportPipeline", TestProductionAssetDatabaseAndImportPipeline);
 
 } // namespace

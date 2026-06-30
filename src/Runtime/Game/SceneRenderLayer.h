@@ -23,6 +23,10 @@ public:
     void SetViewportInputEnabled(bool enabled);
     void SetUIInputViewport(const UIInputViewport& viewport);
     void SetSceneViewportUsesSimulationScene(bool enabled);
+    void SetSceneViewportActive(bool active) { m_SceneViewportActive = active; }
+    void SetGameViewportActive(bool active) { m_GameViewportActive = active; }
+    bool IsSceneViewportActive() const { return m_SceneViewportActive; }
+    bool IsGameViewportActive() const { return m_GameViewportActive; }
     bool GetSceneViewportUsesSimulationScene() const { return m_SceneViewportUsesSimulationScene; }
     Scene& GetSceneViewportRenderScene();
     const Scene& GetSceneViewportRenderScene() const;
@@ -52,4 +56,6 @@ private:
     UIDrawList m_UIDrawList;
     bool m_PresentEnabled = true;
     bool m_SceneViewportUsesSimulationScene = false;
+    bool m_SceneViewportActive = true;
+    bool m_GameViewportActive = true;
 };

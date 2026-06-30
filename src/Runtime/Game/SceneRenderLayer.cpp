@@ -106,8 +106,12 @@ void SceneRenderLayer::OnRender()
         m_GameViewport.Render(GetSimulationScene(), true, &m_UIDrawList);
         return;
     }
-    m_Viewport.Render(GetSceneViewportRenderScene(), false);
-    m_GameViewport.Render(GetSimulationScene(), false, &m_UIDrawList);
+    if (m_SceneViewportActive) {
+        m_Viewport.Render(GetSceneViewportRenderScene(), false);
+    }
+    if (m_GameViewportActive) {
+        m_GameViewport.Render(GetSimulationScene(), false, &m_UIDrawList);
+    }
 }
 
 void SceneRenderLayer::SetViewportInputEnabled(bool enabled)

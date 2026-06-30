@@ -412,7 +412,11 @@ void EditorLayer::OnDetach() {
 
 void EditorLayer::OnUpdate(float deltaSeconds) {
     if (m_ServicesRegistered) m_ServiceCollection.UpdateAll(deltaSeconds);
-    for (auto& panel : m_Panels) panel->OnUpdate(deltaSeconds);
+    for (auto& panel : m_Panels) {
+        if (panel && (panel->IsVisible() || panel->ShouldUpdateWhenHidden())) {
+            panel->OnUpdate(deltaSeconds);
+        }
+    }
     ProcessDialogResults();
     if (m_AutomationPending) RunAutomation();
     if (m_ProjectOpen) {
@@ -1021,6 +1025,10 @@ void EditorLayer::OnRender() {
         DrawMainMenuBar();
         const float statusHeight = DrawStatusBar();
         m_LayoutManager.BeginDockSpace(m_Panels, menuHeight, statusHeight);
+        if (m_SceneLayer) {
+            m_SceneLayer->SetSceneViewportActive(false);
+            m_SceneLayer->SetGameViewportActive(false);
+        }
         for (auto& panel : m_Panels) panel->OnImGui();
         DrawProjectSettings();
         DrawProjectResult();

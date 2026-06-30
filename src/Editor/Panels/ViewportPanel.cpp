@@ -346,11 +346,18 @@ void SceneViewportPanel::DrawContent()
 
     const ImVec2 imageMin = ImGui::GetCursorScreenPos();
     const ImVec2 imageSize = ImGui::GetContentRegionAvail();
+    if (imageSize.x <= 1.0f || imageSize.y <= 1.0f) {
+        sceneViewport->SetInputEnabled(false);
+        return;
+    }
     const bool hovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows);
     const EditorPanelRect imageRect {
         imageMin.x, imageMin.y, imageSize.x, imageSize.y
     };
 
+    if (auto* layer = context->GetSceneLayer()) {
+        layer->SetSceneViewportActive(true);
+    }
     sceneViewport->SetViewportRect(
         static_cast<int>(imageMin.x), static_cast<int>(imageMin.y),
         static_cast<int>(imageSize.x), static_cast<int>(imageSize.y));
@@ -442,7 +449,14 @@ void GameViewportPanel::DrawContent()
 
     const ImVec2 imageMin = ImGui::GetCursorScreenPos();
     const ImVec2 imageSize = ImGui::GetContentRegionAvail();
+    if (imageSize.x <= 1.0f || imageSize.y <= 1.0f) {
+        gameViewport->SetInputEnabled(false);
+        return;
+    }
     const ImVec2 imageMinLocal = ToPlatformWindowLocal(imageMin);
+    if (auto* layer = context->GetSceneLayer()) {
+        layer->SetGameViewportActive(true);
+    }
     gameViewport->SetViewportRect(
         static_cast<int>(imageMinLocal.x), static_cast<int>(imageMinLocal.y),
         static_cast<int>(imageSize.x), static_cast<int>(imageSize.y));

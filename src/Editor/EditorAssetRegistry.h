@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -43,8 +44,19 @@ public:
     const EditorAssetInfo* GetAssetInfo(const std::string& path) const;
     const std::filesystem::path& GetRoot() const { return m_Root; }
 private:
+    struct DirectorySnapshot {
+        bool valid = false;
+        uint64_t entryCount = 0;
+        std::filesystem::file_time_type newestWriteTime{};
+        std::filesystem::file_time_type databaseWriteTime{};
+    };
+
+    DirectorySnapshot BuildDirectorySnapshot() const;
+    void UpdateDirectorySnapshot();
+
     std::filesystem::path m_Root;
     EditorProfiler* m_Profiler = nullptr;
     std::vector<EditorAssetInfo> m_Assets;
     std::vector<EditorAssetFolderInfo> m_Folders;
+    DirectorySnapshot m_LastSnapshot;
 };

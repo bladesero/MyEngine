@@ -82,7 +82,13 @@ bool IsDirectChildFolder(const std::string& parent, const std::string& child)
 
 AssetBrowserPanel::AssetBrowserPanel():EditorPanel("assetBrowser","Asset Browser"){}
 void AssetBrowserPanel::OnAttach(EditorContext& context){EditorPanel::OnAttach(context);if(context.GetAssetRegistry())context.GetAssetRegistry()->Refresh();}
-void AssetBrowserPanel::OnUpdate(float dt){(void)dt;auto* registry=GetContext()?GetContext()->GetAssetRegistry():nullptr;if(registry)registry->WatchForChanges();}
+void AssetBrowserPanel::OnUpdate(float dt){
+    m_WatchAccumulator += dt;
+    if (m_WatchAccumulator < 1.0f) return;
+    m_WatchAccumulator = 0.0f;
+    auto* registry=GetContext()?GetContext()->GetAssetRegistry():nullptr;
+    if(registry)registry->WatchForChanges();
+}
 
 void AssetBrowserPanel::DeleteSelectedAsset() {
     auto* context = GetContext();

@@ -9,6 +9,7 @@
 
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 class Actor;
@@ -25,11 +26,14 @@ private:
     void DrawToolbar();
     void DrawActor(Actor* actor);
     void HandleDragDropTarget(Actor* targetParent);
+    bool RebuildSearchCache(Actor* actor);
+    bool ActorMatchesSearch(const Actor& actor) const;
     ActorHandle m_DraggedActor;
     bool m_ActorRightClicked = false;
     char m_SearchFilter[128] = {};
     char m_RenameBuffer[256] = {};
     uint64_t m_PendingRenameID = 0;
+    std::unordered_map<uint64_t, bool> m_SearchMatches;
 };
 class SceneViewportPanel final:public EditorPanel {
 public:explicit SceneViewportPanel(std::shared_ptr<EditorGizmoState> state);
@@ -71,6 +75,7 @@ private:
     std::string m_SelectedFolder = "Content";
     bool m_PendingRename = false;
     bool m_PendingDelete = false;
+    float m_WatchAccumulator = 0.0f;
 };
 class LogPanel final:public EditorPanel {
 public:LogPanel();

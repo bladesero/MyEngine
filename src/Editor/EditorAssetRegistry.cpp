@@ -66,6 +66,24 @@ void AddFolder(std::map<std::string, EditorAssetFolderInfo>& folders,
     }
 }
 
+void AccumulateFolderCounts(std::map<std::string, EditorAssetFolderInfo>& folders,
+                            const std::string& directFolder) {
+    const std::string normalized = NormalizeFolder(directFolder);
+    AddFolder(folders, normalized);
+    folders[normalized].directAssetCount += 1;
+
+    std::filesystem::path cursor = normalized;
+    while (!cursor.empty() && cursor != cursor.root_path()) {
+        const std::string key = cursor.generic_string();
+        auto found = folders.find(key);
+        if (found != folders.end()) {
+            found->second.assetCount += 1;
+        }
+        if (key == "Content" || key == "SourceAssets") break;
+        cursor = cursor.parent_path();
+    }
+}
+
 EditorAssetType TypeFromRecord(const AssetRecord& record,
                                const std::filesystem::path& sourcePath) {
     if (record.type == "model") return EditorAssetType::Model;
@@ -103,12 +121,59 @@ EditorAssetType EditorAssetRegistry::Classify(const std::filesystem::path& path)
         return EditorAssetType::UI;
     return EditorAssetType::Unknown;
 }
+
+EditorAssetRegistry::DirectorySnapshot EditorAssetRegistry::BuildDirectorySnapshot() const {
+    DirectorySnapshot snapshot;
+    std::error_code error;
+    if (m_Root.empty() || !std::filesystem::is_directory(m_Root, error) || error) {
+        return snapshot;
+    }
+
+    snapshot.valid = true;
+    std::vector<std::filesystem::path> roots = {m_Root};
+    const auto sourceRoot = m_Root.parent_path() / "SourceAssets";
+    if (std::filesystem::is_directory(sourceRoot, error) && !error) {
+        roots.push_back(sourceRoot);
+    }
+    error.clear();
+
+    for (const auto& scanRoot : roots) {
+        for (const auto& entry : std::filesystem::recursive_directory_iterator(
+                 scanRoot, std::filesystem::directory_options::skip_permission_denied, error)) {
+            if (error) {
+                error.clear();
+                continue;
+            }
+            ++snapshot.entryCount;
+            const auto writeTime = entry.last_write_time(error);
+            if (!error && writeTime > snapshot.newestWriteTime) {
+                snapshot.newestWriteTime = writeTime;
+            }
+            error.clear();
+        }
+    }
+
+    const auto databasePath = m_Root.parent_path() / ".myengine" / "AssetDatabase.json";
+    if (std::filesystem::is_regular_file(databasePath, error) && !error) {
+        const auto writeTime = std::filesystem::last_write_time(databasePath, error);
+        if (!error) snapshot.databaseWriteTime = writeTime;
+    }
+    return snapshot;
+}
+
+void EditorAssetRegistry::UpdateDirectorySnapshot() {
+    m_LastSnapshot = BuildDirectorySnapshot();
+}
+
 void EditorAssetRegistry::Refresh() {
     const auto start = std::chrono::steady_clock::now();
     m_Assets.clear();
     m_Folders.clear();
     std::error_code error;
-    if (m_Root.empty() || !std::filesystem::is_directory(m_Root, error)) return;
+    if (m_Root.empty() || !std::filesystem::is_directory(m_Root, error)) {
+        m_LastSnapshot = {};
+        return;
+    }
     std::map<std::string, EditorAssetFolderInfo> folders;
     AddFolder(folders, "Content");
     AddFolder(folders, "SourceAssets");
@@ -179,11 +244,7 @@ void EditorAssetRegistry::Refresh() {
     std::sort(m_Assets.begin(), m_Assets.end(), [](const auto& a, const auto& b) { return a.relativePath < b.relativePath; });
     for (const auto& asset : m_Assets) {
         const std::string directFolder = FolderForAsset(asset);
-        AddFolder(folders, directFolder);
-        folders[directFolder].directAssetCount += 1;
-        for (auto& [folderPath, folder] : folders) {
-            if (StartsWithPath(directFolder, folderPath)) folder.assetCount += 1;
-        }
+        AccumulateFolderCounts(folders, directFolder);
     }
     m_Folders.reserve(folders.size());
     for (auto& [path, folder] : folders) m_Folders.push_back(std::move(folder));
@@ -196,20 +257,18 @@ void EditorAssetRegistry::Refresh() {
             "assets=" + std::to_string(m_Assets.size()) +
             " folders=" + std::to_string(m_Folders.size()));
     }
+    UpdateDirectorySnapshot();
 }
 bool EditorAssetRegistry::WatchForChanges() {
-    std::vector<EditorAssetInfo> before = m_Assets;
-    std::vector<EditorAssetFolderInfo> beforeFolders = m_Folders;
+    const DirectorySnapshot current = BuildDirectorySnapshot();
+    if (current.valid == m_LastSnapshot.valid &&
+        current.entryCount == m_LastSnapshot.entryCount &&
+        current.newestWriteTime == m_LastSnapshot.newestWriteTime &&
+        current.databaseWriteTime == m_LastSnapshot.databaseWriteTime) {
+        return false;
+    }
     Refresh();
-    if (before.size() != m_Assets.size()) return true;
-    for (size_t index = 0; index < before.size(); ++index)
-        if (before[index].relativePath != m_Assets[index].relativePath || before[index].modifiedTime != m_Assets[index].modifiedTime) return true;
-    if (beforeFolders.size() != m_Folders.size()) return true;
-    for (size_t index = 0; index < beforeFolders.size(); ++index)
-        if (beforeFolders[index].relativePath != m_Folders[index].relativePath ||
-            beforeFolders[index].assetCount != m_Folders[index].assetCount ||
-            beforeFolders[index].directAssetCount != m_Folders[index].directAssetCount) return true;
-    return false;
+    return true;
 }
 std::vector<EditorAssetInfo> EditorAssetRegistry::GetAssets(EditorAssetType filter) const {
     if (filter == EditorAssetType::Unknown) return m_Assets;

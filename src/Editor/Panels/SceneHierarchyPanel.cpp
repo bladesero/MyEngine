@@ -420,16 +420,23 @@ void SceneHierarchyPanel::DrawToolbar(){
 #endif
 }
 
-namespace {
-// Recursively check if an actor or any of its children match the filter
-bool ActorMatchesFilter(const Actor& actor, const char* filter) {
-    if (!filter || !*filter) return true;
-    if (actor.GetName().find(filter) != std::string::npos) return true;
-    for (const auto* child : actor.GetChildren()) {
-        if (ActorMatchesFilter(*child, filter)) return true;
+bool SceneHierarchyPanel::RebuildSearchCache(Actor* actor)
+{
+    if (!actor) return false;
+    bool matches = m_SearchFilter[0] == '\0' ||
+        actor->GetName().find(m_SearchFilter) != std::string::npos;
+    for (Actor* child : actor->GetChildren()) {
+        matches = RebuildSearchCache(child) || matches;
     }
-    return false;
+    m_SearchMatches[actor->GetID()] = matches;
+    return matches;
 }
+
+bool SceneHierarchyPanel::ActorMatchesSearch(const Actor& actor) const
+{
+    if (m_SearchFilter[0] == '\0') return true;
+    auto found = m_SearchMatches.find(actor.GetID());
+    return found != m_SearchMatches.end() && found->second;
 }
 
 void SceneHierarchyPanel::DrawActor(Actor* actor){
@@ -437,7 +444,7 @@ void SceneHierarchyPanel::DrawActor(Actor* actor){
     if (!actor) return;
 
     // Search filter
-    if (m_SearchFilter[0] && !ActorMatchesFilter(*actor, m_SearchFilter)) return;
+    if (!ActorMatchesSearch(*actor)) return;
 
     auto* context = GetContext();
     Scene* scene = context ? context->GetScene() : nullptr;
@@ -648,6 +655,13 @@ void SceneHierarchyPanel::DrawContent(){
     m_DraggedActor={};
     m_ActorRightClicked=false;
     std::vector<Actor*> rootActors = scene->GetRootActors();
+    m_SearchMatches.clear();
+    if (m_SearchFilter[0]) {
+        m_SearchMatches.reserve(scene->ActorCount());
+        for (Actor* actor : rootActors) {
+            if (!actor->GetParent()) RebuildSearchCache(actor);
+        }
+    }
     for(Actor* actor:rootActors){if(!actor->GetParent())DrawActor(actor);}
 
     if(!m_ActorRightClicked && EditorContextMenu::DetectWindow("##EmptyCtxMenu")){
