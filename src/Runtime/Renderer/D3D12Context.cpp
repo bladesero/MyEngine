@@ -287,7 +287,10 @@ public:
         if (!group || !group->GetShader()) return;
         const auto& reflection = group->GetShader()->reflection;
         for (const auto& value : group->GetConstants()) {
-            if (reflection.Find(value.first) && !m_ComputeBinding)
+            if (!reflection.Find(value.first)) continue;
+            if (m_ComputeBinding)
+                m_Owner.SetCSConstants(value.second.data(), static_cast<uint32_t>(value.second.size()));
+            else
                 m_Owner.SetVSConstants(value.second.data(), static_cast<uint32_t>(value.second.size()));
         }
         for (const auto& value : group->GetTextures()) {
@@ -317,10 +320,16 @@ public:
             for (const auto& value : group->GetStorageBuffers()) {
                 const auto* binding = reflection.Find(value.first);
                 auto* view = dynamic_cast<D3D12BufferView*>(value.second.get());
-                if (binding && view && view->uavGpu.ptr)
+                if (!binding || !view) continue;
+                if (view->srvGpu.ptr) {
+                    m_Owner.GetCommandList()->SetComputeRootDescriptorTable(
+                        1 + binding->bindPoint * 2, view->srvGpu);
+                }
+                if (view->uavGpu.ptr) {
                     m_Owner.GetCommandList()->SetComputeRootDescriptorTable(
                         1 + D3D12Context::kTextureSlotCount * 2 + binding->bindPoint,
                         view->uavGpu);
+                }
             }
         } else {
             for (const auto& value : group->GetStorageBuffers()) {
@@ -2676,6 +2685,60 @@ void D3D12Context::SetVSConstants(const void* data, uint32_t byteSize) {
         fr.constantBufferUpload->GetGPUVirtualAddress() + alignedOffset;
     m_CommandList->SetGraphicsRootConstantBufferView(0, addr);
 
+    fr.constantBufferOffset = alignedOffset + alignedSize;
+}
+
+void D3D12Context::SetCSConstants(const void* data, uint32_t byteSize) {
+    if (!m_IsRecording || !data || byteSize == 0) return;
+
+    auto& fr = m_Frames[m_RenderFrameIndex];
+    const uint32_t alignedSize = (byteSize + 255u) & ~255u;
+    uint32_t alignedOffset = (fr.constantBufferOffset + 255u) & ~255u;
+
+    if (alignedOffset + alignedSize > fr.constantBufferCapacity) {
+        uint32_t newCap = fr.constantBufferCapacity;
+        while (newCap < alignedOffset + alignedSize) newCap *= 2;
+
+        D3D12_HEAP_PROPERTIES props = {};
+        props.Type = D3D12_HEAP_TYPE_UPLOAD;
+
+        D3D12_RESOURCE_DESC desc = {};
+        desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+        desc.Width = newCap;
+        desc.Height = 1;
+        desc.DepthOrArraySize = 1;
+        desc.MipLevels = 1;
+        desc.Format = DXGI_FORMAT_UNKNOWN;
+        desc.SampleDesc.Count = 1;
+        desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+        desc.Flags = D3D12_RESOURCE_FLAG_NONE;
+
+        ComPtr<ID3D12Resource> newRes;
+        HRESULT hr = m_Device->CreateCommittedResource(
+            &props, D3D12_HEAP_FLAG_NONE, &desc,
+            D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&newRes));
+        if (!CheckDeviceResult(hr, "CreateCommittedResource(grow compute constant buffer)") || !newRes) {
+            if (!newRes) ReportDeviceRemovedReason("Grow compute constant buffer returned null");
+            return;
+        }
+
+        uint8_t* mapped = nullptr;
+        hr = newRes->Map(0, nullptr, reinterpret_cast<void**>(&mapped));
+        if (!CheckDeviceResult(hr, "Map(grown compute constant buffer)") || !mapped) {
+            if (!mapped) ReportDeviceRemovedReason("Map(grown compute constant buffer) returned null");
+            return;
+        }
+
+        RetireD3D12Object(m_DeferredReleaseQueue, fr.constantBufferUpload);
+        fr.constantBufferUpload = newRes;
+        fr.constantBufferMapped = mapped;
+        fr.constantBufferCapacity = newCap;
+    }
+
+    std::memcpy(fr.constantBufferMapped + alignedOffset, data, byteSize);
+    const D3D12_GPU_VIRTUAL_ADDRESS addr =
+        fr.constantBufferUpload->GetGPUVirtualAddress() + alignedOffset;
+    m_CommandList->SetComputeRootConstantBufferView(0, addr);
     fr.constantBufferOffset = alignedOffset + alignedSize;
 }
 

@@ -18,6 +18,9 @@ struct ProjectInputSettings {
 struct ProjectGraphicsSettings {
     std::string backend = "d3d11";
     std::string renderPath = "forward";
+    std::string ddgiDebugView = "off";
+    bool sdfVoxel = false;
+    bool ddgi = false;
 };
 
 class ProjectConfig {
@@ -60,6 +63,7 @@ public:
     void SetName(std::string name) { m_Name = std::move(name); }
     static bool IsSupportedGraphicsBackend(std::string_view backend);
     static bool IsSupportedRenderPath(std::string_view renderPath);
+    static bool IsSupportedDDGIDebugView(std::string_view view);
 
 private:
     static void SetError(std::string* error, std::string message);

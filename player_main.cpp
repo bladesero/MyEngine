@@ -11,6 +11,7 @@
 #include "Project/CookedProjectCache.h"
 #include "Project/ProjectConfig.h"
 #include "Project/RuntimeDependencies.h"
+#include "Renderer/DDGIDebugView.h"
 #include "Renderer/IRenderContext.h"
 #include "Renderer/RenderPath.h"
 #include "Miscs/IconsManager.h"
@@ -18,6 +19,17 @@
 #include <filesystem>
 #include <memory>
 #include <string>
+
+namespace {
+
+DDGIDebugView DDGIDebugViewFromProjectValue(const std::string& value)
+{
+    if (value == "irradiance") return DDGIDebugView::Irradiance;
+    if (value == "validity") return DDGIDebugView::Validity;
+    return DDGIDebugView::Off;
+}
+
+} // namespace
 
 class PlayerApp : public Application {
 public:
@@ -103,6 +115,9 @@ protected:
             m_Project.GetGraphicsSettings().renderPath == "deferred"
                 ? RenderPath::Deferred
                 : RenderPath::Forward);
+        sceneLayer->SetDDGIEnabled(m_Project.GetGraphicsSettings().ddgi);
+        sceneLayer->SetDDGIDebugView(
+            DDGIDebugViewFromProjectValue(m_Project.GetGraphicsSettings().ddgiDebugView));
         if (!sceneLayer->LoadScene(scenePath.string())) {
             Logger::Error("[Player] Failed to load startup scene: ", scenePath.string());
             delete sceneLayer;

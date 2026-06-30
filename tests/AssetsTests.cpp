@@ -2,6 +2,7 @@
 
 #include "Assets/AssetManager.h"
 #include "Assets/AssetMeta.h"
+#include "Assets/MeshSdfVoxel.h"
 #include "Assets/ShaderAsset.h"
 #include "Animation/SkinnedMeshRendererComponent.h"
 #include "Audio/AudioClipAsset.h"
@@ -710,6 +711,55 @@ bool TestMeshDerivedData() {
                  "automatic collider bounds mismatch");
 }
 
+bool TestMeshSdfVoxelXmlRoundTripAndLazyLoad() {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "myengine_sdf_voxel_test";
+    std::error_code ec;
+    fs::remove_all(root, ec);
+    fs::create_directories(root);
+
+    auto mesh = MeshAsset::CreateCube("SdfVoxelCube");
+    MeshSdfVoxelBakeResult bake = MeshSdfVoxelBaker::BakeMedium(*mesh);
+    if (!Check(bake.succeeded && bake.data.Valid(),
+               "medium SDF/voxel bake failed: " + bake.error)) return false;
+    if (!Check(bake.data.resolution == MeshSdfVoxelData::kMediumResolution,
+               "SDF/voxel bake used the wrong resolution")) return false;
+    if (!Check(bake.data.IsVoxelOccupied(32, 32, 32),
+               "cube center voxel should be occupied")) return false;
+
+    const fs::path sidecar = root / "cube.sdfvox.xml";
+    std::string error;
+    if (!Check(MeshSdfVoxelXml::Save(sidecar, bake.data, &error),
+               "SDF/voxel XML save failed: " + error)) return false;
+
+    MeshSdfVoxelData loaded;
+    if (!Check(MeshSdfVoxelXml::Load(sidecar, loaded, &error),
+               "SDF/voxel XML load failed: " + error)) return false;
+    if (!Check(loaded.Valid() && loaded.resolution == bake.data.resolution &&
+               loaded.sdf.size() == bake.data.sdf.size() &&
+               loaded.voxels == bake.data.voxels,
+               "SDF/voxel XML round trip changed payload shape")) return false;
+
+    auto lazyMesh = MeshAsset::CreateCube("LazySdfVoxelCube");
+    lazyMesh->SetSdfVoxelPath(sidecar);
+    if (!Check(lazyMesh->HasSdfVoxelData() && lazyMesh->GetSdfVoxelData() == nullptr,
+               "MeshAsset should advertise sidecar without eager loading")) return false;
+    if (!Check(lazyMesh->LoadSdfVoxelData(&error) &&
+               lazyMesh->GetSdfVoxelData() &&
+               lazyMesh->GetSdfVoxelData()->Valid(),
+               "MeshAsset failed to lazy-load SDF/voxel data: " + error)) return false;
+
+    auto missingMesh = MeshAsset::CreateCube("MissingSdfVoxelCube");
+    missingMesh->SetSdfVoxelPath(root / "missing.sdfvox.xml");
+    if (!Check(!missingMesh->LoadSdfVoxelData(&error) &&
+               missingMesh->GetSdfVoxelData() == nullptr &&
+               missingMesh->IsReady(),
+               "missing SDF/voxel sidecar should not break mesh readiness")) return false;
+
+    fs::remove_all(root, ec);
+    return true;
+}
+
 bool TestTextureDerivedData() {
     TextureDesc desc;
     desc.width = 4;
@@ -796,6 +846,7 @@ MYENGINE_REGISTER_TEST("Assets", "TestGltfImporterDeduplicatesSharedTextures", T
 MYENGINE_REGISTER_TEST("Assets", "TestAssetAsyncLoadingAndHotReload", TestAssetAsyncLoadingAndHotReload);
 MYENGINE_REGISTER_TEST("Assets", "TestAssetManagerFailureRollback", TestAssetManagerFailureRollback);
 MYENGINE_REGISTER_TEST("Assets", "TestMeshDerivedData", TestMeshDerivedData);
+MYENGINE_REGISTER_TEST("Assets", "TestMeshSdfVoxelXmlRoundTripAndLazyLoad", TestMeshSdfVoxelXmlRoundTripAndLazyLoad);
 MYENGINE_REGISTER_TEST("Assets", "TestTextureDerivedData", TestTextureDerivedData);
 MYENGINE_REGISTER_TEST("Assets", "TestTextureSamplerSettingsFromAssetDatabase", TestTextureSamplerSettingsFromAssetDatabase);
 

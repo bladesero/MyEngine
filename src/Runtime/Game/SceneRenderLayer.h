@@ -4,6 +4,7 @@
 #include "Game/GameViewport.h"
 #include "Game/SceneViewportController.h"
 #include "Renderer/IRenderContext.h"
+#include "Renderer/DDGIDebugView.h"
 #include "Renderer/RenderPath.h"
 #include "UI/Core/UISystem.h"
 #include "UI/Render/UIDrawList.h"
@@ -28,6 +29,10 @@ public:
     void SetGameViewportActive(bool active) { m_GameViewportActive = active; }
     void SetRenderPath(RenderPath path);
     RenderPath GetRenderPath() const;
+    void SetDDGIEnabled(bool enabled);
+    bool IsDDGIEnabled() const;
+    void SetDDGIDebugView(DDGIDebugView view);
+    DDGIDebugView GetDDGIDebugView() const;
     bool IsSceneViewportActive() const { return m_SceneViewportActive; }
     bool IsGameViewportActive() const { return m_GameViewportActive; }
     bool GetSceneViewportUsesSimulationScene() const { return m_SceneViewportUsesSimulationScene; }

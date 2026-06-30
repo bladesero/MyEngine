@@ -1,7 +1,9 @@
 #include "TestHarness.h"
 
 #include "Assets/AssetManager.h"
+#include "Assets/MeshSdfVoxel.h"
 #include "Camera/Camera.h"
+#include "Renderer/DDGIPass.h"
 #include "Renderer/EnvironmentPass.h"
 #include "Renderer/DeferredLightingPass.h"
 #include "Renderer/GBufferPass.h"
@@ -21,10 +23,13 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <filesystem>
 
 namespace {
 
-struct MockBuffer final : GpuBuffer {};
+struct MockBuffer final : GpuBuffer {
+    std::vector<uint8_t> bytes;
+};
 struct MockBufferView final : GpuBufferView {};
 struct MockShader final : GpuShader {};
 struct MockTexture final : GpuTexture {};
@@ -181,8 +186,11 @@ public:
     }
     bool UpdateBuffer(const std::shared_ptr<GpuBuffer>& buffer, uint64_t offset,
                       const void* data, uint64_t size) override {
-        if (!buffer || !data || offset + size > bufferBytes.size()) return false;
-        std::memcpy(bufferBytes.data() + offset, data, static_cast<size_t>(size)); return true;
+        auto native = std::dynamic_pointer_cast<MockBuffer>(buffer);
+        if (!native || !data || offset + size > native->bytes.size()) return false;
+        std::memcpy(native->bytes.data() + offset, data, static_cast<size_t>(size));
+        bufferBytes = native->bytes;
+        return true;
     }
     std::shared_ptr<GpuTexture> UploadTexture(
         const RHITextureDesc& desc, const RHITextureSubresourceData* data, uint32_t count) override {
@@ -224,8 +232,9 @@ public:
     std::shared_ptr<GpuBuffer> CreateBuffer(
         const RHIBufferDesc& desc, const void* initialData = nullptr) override {
         auto buffer = std::make_shared<MockBuffer>(); buffer->desc = desc;
-        bufferBytes.resize(desc.size);
-        if (initialData && desc.size) std::memcpy(bufferBytes.data(), initialData, desc.size);
+        buffer->bytes.resize(desc.size);
+        if (initialData && desc.size) std::memcpy(buffer->bytes.data(), initialData, desc.size);
+        bufferBytes = buffer->bytes;
         ++bufferCreates;
         return buffer;
     }
@@ -246,7 +255,9 @@ public:
     std::shared_ptr<GpuReadbackTicket> ReadbackBufferAsync(
         const std::shared_ptr<GpuBuffer>& buffer) override {
         if (!buffer) return nullptr;
-        auto ticket = std::make_shared<MockReadbackTicket>(bufferBytes);
+        auto native = std::dynamic_pointer_cast<MockBuffer>(buffer);
+        auto ticket = std::make_shared<MockReadbackTicket>(
+            native ? native->bytes : bufferBytes);
         lastReadback = ticket;
         return ticket;
     }
@@ -1220,6 +1231,99 @@ bool TestMainPassSamplerCacheDeduplicatesTextureSamplerStates() {
                  "sampler cache test did not upload every unique material texture plus fallback");
 }
 
+bool TestSceneSdfClipmapBuildsFromImportedMeshSidecar() {
+    namespace fs = std::filesystem;
+    AssetManager::Get().Clear();
+    const fs::path root = fs::temp_directory_path() / "myengine_scene_sdf_clipmap_test";
+    std::error_code ec;
+    fs::remove_all(root, ec);
+    fs::create_directories(root, ec);
+
+    auto mesh = MeshAsset::CreateCube("__test__/DDGICube");
+    MeshSdfVoxelBakeResult bake = MeshSdfVoxelBaker::BakeMedium(*mesh);
+    if (!Check(bake.succeeded && bake.data.Valid(),
+               "test cube SDF/voxel bake failed: " + bake.error)) return false;
+    const fs::path sidecar = root / "cube.sdfvox.xml";
+    std::string error;
+    if (!Check(MeshSdfVoxelXml::Save(sidecar, bake.data, &error),
+               "test cube SDF/voxel sidecar save failed: " + error)) return false;
+    mesh->SetSdfVoxelPath(sidecar);
+    MeshHandle meshHandle = AssetManager::Get().Register(mesh);
+    MaterialHandle material = AssetManager::Get().Register(
+        MaterialAsset::CreateDefault("__test__/DDGIOpaque"));
+
+    Scene scene("SceneSdfClipmap");
+    Actor* actor = scene.CreateActor("DDGICube");
+    auto* renderer = actor->AddComponent<MeshRendererComponent>();
+    renderer->SetMesh(meshHandle);
+    renderer->SetMaterial(material);
+
+    SceneSdfClipmapBuilder builder;
+    const SceneSdfClipmapData& data = builder.Build(scene);
+    if (!Check(data.enabled && data.contributorCount == 1,
+               "clipmap did not collect the SDF-enabled cube")) return false;
+    if (!Check(data.sdf.size() == SceneSdfClipmapData::kLevelCount * 64u * 64u * 64u,
+               "clipmap SDF payload size is wrong")) return false;
+    if (!Check(!data.voxelWords.empty() && !data.metadata.empty(),
+               "clipmap metadata or voxel payload is missing")) return false;
+
+    const auto negative = std::find_if(data.sdf.begin(), data.sdf.end(),
+        [](float value) { return value <= 0.0f; });
+    if (!Check(negative != data.sdf.end(),
+               "clipmap should contain negative SDF samples for the cube")) return false;
+    const SceneSdfClipmapLevel& level = data.levels[0];
+    const auto occupiedWord = std::find_if(
+        data.voxelWords.begin() + level.voxelWordOffset,
+        data.voxelWords.begin() + level.voxelWordOffset + (64u * 64u * 64u + 31u) / 32u,
+        [](uint32_t word) { return word != 0; });
+    if (!Check(occupiedWord != data.voxelWords.begin() + level.voxelWordOffset + (64u * 64u * 64u + 31u) / 32u,
+               "clipmap did not mark occupied voxels")) return false;
+    const SceneSdfClipmapLevel& outerLevel =
+        data.levels[SceneSdfClipmapData::kLevelCount - 1];
+    const uint32_t outsideX = SceneSdfClipmapData::kSdfResolution - 2;
+    const uint32_t mid = SceneSdfClipmapData::kSdfResolution / 2;
+    const uint32_t outsideIndex =
+        (mid * SceneSdfClipmapData::kSdfResolution + mid) *
+            SceneSdfClipmapData::kSdfResolution +
+        outsideX;
+    const float outsideDistance =
+        data.sdf[outerLevel.sdfOffset + outsideIndex];
+    if (!Check(outsideDistance > 0.0f &&
+               outsideDistance < outerLevel.cellSize * 4.0f,
+               "clipmap SDF outside mesh bounds is not raymarchable near the surface")) {
+        return false;
+    }
+
+    const uint32_t rebuilds = data.rebuildCount;
+    const SceneSdfClipmapData& cached = builder.Build(scene);
+    if (!Check(cached.rebuildCount == rebuilds,
+               "clipmap rebuilt even though scene contributors were unchanged")) return false;
+    actor->GetTransform().position.x = 2.0f;
+    const SceneSdfClipmapData& moved = builder.Build(scene);
+    if (!Check(moved.rebuildCount == rebuilds + 1,
+               "clipmap did not rebuild after mesh transform changed")) return false;
+
+    auto missingSdfMesh = MeshAsset::CreateCube("__test__/DDGIMissingSidecarCube");
+    MeshHandle missingSdfMeshHandle = AssetManager::Get().Register(missingSdfMesh);
+    Actor* farActor = scene.CreateActor("DDGIFarMissingSidecarCube");
+    farActor->GetTransform().position.x = 30.0f;
+    auto* farRenderer = farActor->AddComponent<MeshRendererComponent>();
+    farRenderer->SetMesh(missingSdfMeshHandle);
+    farRenderer->SetMaterial(material);
+    const SceneSdfClipmapData& expanded = builder.Build(scene);
+    if (!Check(expanded.enabled && expanded.contributorCount == 1,
+               "mesh without SDF sidecar should extend coverage without becoming a contributor")) return false;
+    const AABB farBounds = TransformAABB(missingSdfMesh->GetAABB(), farActor->GetWorldMatrix());
+    const SceneSdfClipmapLevel& expandedOuter =
+        expanded.levels[SceneSdfClipmapData::kLevelCount - 1];
+    if (!Check(expandedOuter.bounds.Contains(farBounds.min) &&
+               expandedOuter.bounds.Contains(farBounds.max),
+               "scene SDF clipmap did not cover the full opaque mesh scene AABB")) return false;
+
+    fs::remove_all(root, ec);
+    return true;
+}
+
 bool TestDeferredPassResourceContracts() {
     MockRenderContext context;
 
@@ -1242,16 +1346,30 @@ bool TestDeferredPassResourceContracts() {
 
     AssetManager::Get().Clear();
     Scene scene("GBufferContract");
+    namespace fs = std::filesystem;
+    const fs::path ddgiRoot = fs::temp_directory_path() / "myengine_ddgi_contract_test";
+    std::error_code ddgiEc;
+    fs::remove_all(ddgiRoot, ddgiEc);
+    fs::create_directories(ddgiRoot, ddgiEc);
+    MeshHandle gbufferCube = AssetManager::Get().GetCubeMesh();
+    MeshSdfVoxelBakeResult ddgiBake = MeshSdfVoxelBaker::BakeMedium(*gbufferCube.Get());
+    if (!Check(ddgiBake.succeeded, "DDGI contract cube SDF bake failed")) return false;
+    const fs::path ddgiSidecar = ddgiRoot / "cube.sdfvox.xml";
+    std::string ddgiSidecarError;
+    if (!Check(MeshSdfVoxelXml::Save(ddgiSidecar, ddgiBake.data, &ddgiSidecarError),
+               "DDGI contract sidecar save failed: " + ddgiSidecarError)) return false;
+    gbufferCube.Get()->SetSdfVoxelPath(ddgiSidecar);
+
     Actor* opaqueActor = scene.CreateActor("Opaque");
     auto* opaqueRenderer = opaqueActor->AddComponent<MeshRendererComponent>();
-    opaqueRenderer->SetMesh(AssetManager::Get().GetCubeMesh());
+    opaqueRenderer->SetMesh(gbufferCube);
     auto opaqueMaterial = MaterialAsset::CreateDefault("GBufferOpaque");
     opaqueRenderer->SetMaterial(AssetManager::Get().Register(opaqueMaterial));
 
     Actor* transparentActor = scene.CreateActor("Transparent");
     transparentActor->GetTransform().position = { 0.0f, 0.0f, 1.0f };
     auto* transparentRenderer = transparentActor->AddComponent<MeshRendererComponent>();
-    transparentRenderer->SetMesh(AssetManager::Get().GetCubeMesh());
+    transparentRenderer->SetMesh(gbufferCube);
     auto transparentMaterial = MaterialAsset::CreateDefault("GBufferTransparent");
     transparentMaterial->SetBlendMode(BlendMode::Transparent);
     transparentRenderer->SetMaterial(AssetManager::Get().Register(transparentMaterial));
@@ -1285,8 +1403,30 @@ bool TestDeferredPassResourceContracts() {
                lightingResources.sceneColor->desc.format == RHIFormat::RGBA16Float,
                "DeferredLightingPass scene color contract is invalid")) return false;
 
+    DDGIPass ddgi(&context);
+    if (!Check(ddgi.PrepareGraphResources(scene, CollectSceneLights(scene)),
+               "DDGIPass failed to prepare graph resources")) return false;
+    const auto ddgiResources = ddgi.GetGraphResources();
+    if (!Check(ddgiResources.metadata && ddgiResources.metadataView &&
+               ddgiResources.sdf && ddgiResources.sdfView &&
+               ddgiResources.voxels && ddgiResources.voxelView &&
+               ddgiResources.probeSH2 && ddgiResources.probeSH2Srv &&
+               ddgiResources.probeSH2Uav,
+               "DDGIPass did not create all buffer resources")) return false;
+    if (!Check(ddgiResources.probeSH2->desc.usage ==
+                   (RHIResourceUsage::ShaderResource | RHIResourceUsage::UnorderedAccess),
+               "DDGI probe buffer should be shader-readable and UAV writable")) return false;
+    ddgi.Execute(context.commands, scene, camera);
+    if (!Check(context.commands.computePipelineBinds >= 1 &&
+               context.commands.dispatches >= 1 &&
+               context.commands.dispatchGroups[0] == SceneSdfClipmapData::kProbeResolution &&
+               context.commands.dispatchGroups[2] ==
+                   SceneSdfClipmapData::kLevelCount * SceneSdfClipmapData::kProbeResolution,
+               "DDGIPass did not dispatch the expected probe grid")) return false;
+
     return Check(context.graphTextureCreates == 5 && context.textureViewCreates == 10 &&
-                 context.samplerCreates >= 3 && context.shaderCreates >= 1,
+                 context.samplerCreates >= 3 && context.shaderCreates >= 1 &&
+                 context.bufferCreates >= 4,
                  "deferred resource passes created an unexpected number of resources");
 }
 
@@ -1302,25 +1442,111 @@ bool TestDeferredLightingShaderSourceContract() {
     if (!Check(source.find("g_EnvironmentSH2") != std::string::npos &&
                source.find("PbrEnvironmentLighting") != std::string::npos,
                "DeferredLightingPass does not consume environment SH/PBR lighting")) return false;
+    if (!Check(source.find("g_DDGIProbeSH2") != std::string::npos &&
+               source.find("EvaluateDDGI") != std::string::npos &&
+               source.find("ddgiIrradiance = EvaluateDDGI(worldPos, N)") != std::string::npos &&
+               source.find("g_DDGIInfo.y") != std::string::npos &&
+               source.find("return 0.0f;") != std::string::npos,
+               "DeferredLightingPass does not inject DDGI or expose debug views without sky fallback")) {
+        return false;
+    }
+#ifdef MYENGINE_PLATFORM_WINDOWS
+    const char* d3d12HeaderCandidates[] = {
+        "src/Runtime/Renderer/D3D12Context.h",
+        "../../../src/Runtime/Renderer/D3D12Context.h",
+        "../../../../src/Runtime/Renderer/D3D12Context.h",
+        "../../../../../src/Runtime/Renderer/D3D12Context.h",
+    };
+    std::string d3d12HeaderSource;
+    for (const char* path : d3d12HeaderCandidates) {
+        std::ifstream d3d12Header(path);
+        if (!d3d12Header) continue;
+        std::stringstream d3d12HeaderBuffer;
+        d3d12HeaderBuffer << d3d12Header.rdbuf();
+        d3d12HeaderSource = d3d12HeaderBuffer.str();
+        break;
+    }
+    if (!Check(d3d12HeaderSource.find("kTextureSlotCount = 16") != std::string::npos,
+               "D3D12 graphics root signature must cover DeferredLighting t11")) {
+        return false;
+    }
+    const char* d3d12SourceCandidates[] = {
+        "src/Runtime/Renderer/D3D12Context.cpp",
+        "../../../src/Runtime/Renderer/D3D12Context.cpp",
+        "../../../../src/Runtime/Renderer/D3D12Context.cpp",
+        "../../../../../src/Runtime/Renderer/D3D12Context.cpp",
+    };
+    std::string d3d12Source;
+    for (const char* path : d3d12SourceCandidates) {
+        std::ifstream d3d12File(path);
+        if (!d3d12File) continue;
+        std::stringstream d3d12Buffer;
+        d3d12Buffer << d3d12File.rdbuf();
+        d3d12Source = d3d12Buffer.str();
+        break;
+    }
+    if (!Check(d3d12Source.find("SetCSConstants") != std::string::npos &&
+               d3d12Source.find("SetComputeRootConstantBufferView") != std::string::npos &&
+               d3d12Source.find("view->srvGpu.ptr") != std::string::npos &&
+               d3d12Source.find("SetComputeRootDescriptorTable(\n                        1 + binding->bindPoint * 2") != std::string::npos,
+               "D3D12 compute bind groups must bind constants and SRV structured buffers")) {
+        return false;
+    }
+#endif
     if (!Check(source.find("SampleDirectionalShadow") != std::string::npos &&
                source.find("g_ShadowMap.SampleCmpLevelZero") != std::string::npos,
                "DeferredLightingPass does not sample directional shadows")) return false;
+    std::ifstream ddgiSourceFile("EngineContent/Shaders/DDGIProbeUpdate.hlsl");
+    std::stringstream ddgiBuffer;
+    ddgiBuffer << ddgiSourceFile.rdbuf();
+    const std::string ddgiSource = ddgiBuffer.str();
+    if (!Check(ddgiSource.find("TraceSurfaceHit") != std::string::npos &&
+               ddgiSource.find("TraceSunVisibility") != std::string::npos &&
+               ddgiSource.find("SampleSceneSdf") != std::string::npos &&
+               ddgiSource.find("SampleSceneVoxel") != std::string::npos &&
+               ddgiSource.find("accumulatedSH[coefficientIndex]") != std::string::npos &&
+               ddgiSource.find("g_DDGIProbeSH2Out[outputBase + outputIndex]") != std::string::npos &&
+               ddgiSource.find("DDGI_SURFACE_ALBEDO * DDGI_BOUNCE_SCALE / PI") != std::string::npos &&
+               ddgiSource.find("g_EnvironmentSH2") == std::string::npos &&
+               ddgiSource.find("g_DDGIProbeSH2Out") != std::string::npos,
+               "DDGIProbeUpdate shader does not project SDF/voxel lighting into SH2 without sky contribution")) {
+        return false;
+    }
+    if (!Check(source.find("EvaluateDDGINeighborhood") != std::string::npos &&
+               source.find("EvaluateDDGILevel") != std::string::npos &&
+               source.find("bestSample") != std::string::npos &&
+               source.find("saturate(g_DDGIProbeSH2[probeBase + 0].w)") != std::string::npos,
+               "DeferredLightingPass does not smooth sparse DDGI probe validity across clip levels")) return false;
     return Check(source.find("EnvironmentRadiance(viewDir") != std::string::npos,
                  "DeferredLightingPass does not include sky fallback for far depth");
 }
 
 bool TestRendererDeferredPathSubmitsGBufferLightingTransparentAndComposite() {
     AssetManager::Get().Clear();
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "myengine_deferred_ddgi_graph_test";
+    std::error_code ec;
+    fs::remove_all(root, ec);
+    fs::create_directories(root, ec);
+    MeshHandle cubeMesh = AssetManager::Get().GetCubeMesh();
+    MeshSdfVoxelBakeResult bake = MeshSdfVoxelBaker::BakeMedium(*cubeMesh.Get());
+    if (!Check(bake.succeeded, "deferred DDGI graph cube SDF bake failed")) return false;
+    const fs::path sidecar = root / "cube.sdfvox.xml";
+    std::string sidecarError;
+    if (!Check(MeshSdfVoxelXml::Save(sidecar, bake.data, &sidecarError),
+               "deferred DDGI graph sidecar save failed: " + sidecarError)) return false;
+    cubeMesh.Get()->SetSdfVoxelPath(sidecar);
+
     Scene scene("DeferredPath");
     Actor* opaqueActor = scene.CreateActor("Opaque");
     auto* opaqueRenderer = opaqueActor->AddComponent<MeshRendererComponent>();
-    opaqueRenderer->SetMesh(AssetManager::Get().GetCubeMesh());
+    opaqueRenderer->SetMesh(cubeMesh);
     opaqueRenderer->SetMaterial(AssetManager::Get().GetDefaultMaterial());
 
     Actor* transparentActor = scene.CreateActor("Transparent");
     transparentActor->GetTransform().position = {0.0f, 0.0f, 1.0f};
     auto* transparentRenderer = transparentActor->AddComponent<MeshRendererComponent>();
-    transparentRenderer->SetMesh(AssetManager::Get().GetCubeMesh());
+    transparentRenderer->SetMesh(cubeMesh);
     auto transparentMaterial = MaterialAsset::CreateDefault("DeferredTransparent");
     transparentMaterial->SetBlendMode(BlendMode::Transparent);
     transparentRenderer->SetMaterial(AssetManager::Get().Register(transparentMaterial));
@@ -1339,6 +1565,7 @@ bool TestRendererDeferredPathSubmitsGBufferLightingTransparentAndComposite() {
     Renderer renderer(&context, &context, &context);
     renderer.Resize(128, 72);
     renderer.SetRenderPath(RenderPath::Deferred);
+    renderer.SetDDGIEnabled(true);
     renderer.SetOutputOffscreen(true);
     renderer.RenderScene(scene, camera, true);
 
@@ -1349,8 +1576,12 @@ bool TestRendererDeferredPathSubmitsGBufferLightingTransparentAndComposite() {
                "deferred graph did not submit expected render scopes")) return false;
     if (!Check(context.commands.pipelineBinds >= 7 && context.commands.bindGroupBinds >= 5,
                "deferred graph did not bind GBuffer, lighting, transparent, and composite passes")) return false;
-    return Check(context.commands.drawCalls >= 5 && renderer.GetSceneColorView() != nullptr,
-                 "deferred graph did not submit expected draw calls or output view");
+    if (!Check(context.commands.computePipelineBinds >= 2 && context.commands.dispatches >= 2,
+               "deferred graph did not execute Environment and DDGI compute passes")) return false;
+    const bool ok = Check(context.commands.drawCalls >= 5 && renderer.GetSceneColorView() != nullptr,
+                          "deferred graph did not submit expected draw calls or output view");
+    fs::remove_all(root, ec);
+    return ok;
 }
 
 bool TestRendererRenderPathDefaultsToForward() {
@@ -1358,7 +1589,12 @@ bool TestRendererRenderPathDefaultsToForward() {
     Renderer renderer(&context, &context, &context);
     if (!Check(renderer.GetRenderPath() == RenderPath::Forward,
                "Renderer did not default to the forward render path")) return false;
+    if (!Check(!renderer.IsDDGIEnabled(),
+               "Renderer should default DDGI to disabled")) return false;
     renderer.SetRenderPath(RenderPath::Deferred);
+    renderer.SetDDGIEnabled(true);
+    if (!Check(renderer.IsDDGIEnabled(),
+               "Renderer DDGI setter did not persist enabled mode")) return false;
     return Check(renderer.GetRenderPath() == RenderPath::Deferred,
                  "Renderer render path setter did not persist deferred mode");
 }
@@ -1477,6 +1713,7 @@ MYENGINE_REGISTER_TEST("Renderer", "TestShadowedMainPassDirectShadowVisibilityCo
 MYENGINE_REGISTER_TEST("Renderer", "TestHeadlessRendering", TestHeadlessRendering);
 MYENGINE_REGISTER_TEST("Renderer", "TestMeshRendererSubMeshMaterialSlotDraws", TestMeshRendererSubMeshMaterialSlotDraws);
 MYENGINE_REGISTER_TEST("Renderer", "TestMainPassSamplerCacheDeduplicatesTextureSamplerStates", TestMainPassSamplerCacheDeduplicatesTextureSamplerStates);
+MYENGINE_REGISTER_TEST("Renderer", "TestSceneSdfClipmapBuildsFromImportedMeshSidecar", TestSceneSdfClipmapBuildsFromImportedMeshSidecar);
 MYENGINE_REGISTER_TEST("Renderer", "TestDeferredPassResourceContracts", TestDeferredPassResourceContracts);
 MYENGINE_REGISTER_TEST("Renderer", "TestDeferredLightingShaderSourceContract", TestDeferredLightingShaderSourceContract);
 MYENGINE_REGISTER_TEST("Renderer", "TestRendererDeferredPathSubmitsGBufferLightingTransparentAndComposite", TestRendererDeferredPathSubmitsGBufferLightingTransparentAndComposite);

@@ -1,8 +1,11 @@
 #pragma once
 
 #include "Assets/Asset.h"
+#include "Assets/MeshSdfVoxel.h"
 #include "Core/EngineMath.h"
 #include "Renderer/IRenderContext.h"
+#include <filesystem>
+#include <memory>
 #include <vector>
 #include <string>
 
@@ -79,6 +82,11 @@ public:
     const AABB&                    GetAABB()      const { return m_AABB;      }
     const std::vector<MeshLod>&    GetLods()      const { return m_Lods;      }
     const MeshColliderData&        GetColliderData() const { return m_ColliderData; }
+    void SetSdfVoxelPath(std::filesystem::path path);
+    const std::filesystem::path& GetSdfVoxelPath() const { return m_SdfVoxelPath; }
+    bool HasSdfVoxelData() const { return m_SdfVoxelData != nullptr || !m_SdfVoxelPath.empty(); }
+    bool LoadSdfVoxelData(std::string* error = nullptr);
+    const MeshSdfVoxelData* GetSdfVoxelData() const { return m_SdfVoxelData.get(); }
     const MeshLod& GetLod(size_t level) const {
         static const MeshLod empty;
         if (m_Lods.empty()) return empty;
@@ -102,6 +110,10 @@ public:
         const auto* mesh = dynamic_cast<const MeshAsset*>(&source);
         if (!mesh) return false;
         SetGeometry(mesh->m_Vertices, mesh->m_Indices, mesh->m_SubMeshes);
+        m_SdfVoxelPath = mesh->m_SdfVoxelPath;
+        m_SdfVoxelData = mesh->m_SdfVoxelData
+            ? std::make_unique<MeshSdfVoxelData>(*mesh->m_SdfVoxelData)
+            : nullptr;
         return true;
     }
 
@@ -128,6 +140,8 @@ private:
     AABB                    m_AABB;
     std::vector<MeshLod>    m_Lods;
     MeshColliderData        m_ColliderData;
+    std::filesystem::path   m_SdfVoxelPath;
+    std::unique_ptr<MeshSdfVoxelData> m_SdfVoxelData;
 
     std::shared_ptr<GpuBuffer> m_VB;
     std::shared_ptr<GpuBuffer> m_IB;

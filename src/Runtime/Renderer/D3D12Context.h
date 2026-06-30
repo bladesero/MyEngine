@@ -114,7 +114,7 @@ struct D3D12Sampler : GpuSampler {
 class D3D12Context final : public IRenderContext {
 public:
     static constexpr uint32_t kFrameCount = 2;
-    static constexpr uint32_t kTextureSlotCount = 10;
+    static constexpr uint32_t kTextureSlotCount = 16;
     static constexpr uint32_t kOffscreenRtvCount = 256;
     static constexpr uint32_t kDsvDescriptorCount = 32;
     static constexpr uint32_t kDefaultConstantBufferCapacity = 1024 * 1024;
@@ -178,6 +178,7 @@ public:
     void BindVertexBuffer(GpuBuffer* buffer);
     void BindIndexBuffer(GpuBuffer* buffer);
     void SetVSConstants(const void* data, uint32_t byteSize);
+    void SetCSConstants(const void* data, uint32_t byteSize);
 
     void Draw(uint32_t vertexCount, uint32_t startVertex = 0);
     void DrawIndexed(uint32_t indexCount, uint32_t startIndex = 0,

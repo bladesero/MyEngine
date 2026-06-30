@@ -1,5 +1,8 @@
 #include "TestHarness.h"
 
+#include "Assets/AssetManager.h"
+#include "Assets/MeshSdfVoxel.h"
+#include "Assets/ModelAsset.h"
 #include "Editor/EditorAction.h"
 #include "Editor/AssetImportService.h"
 #include "Editor/EditorAssetRegistry.h"
@@ -1150,6 +1153,31 @@ bool TestProductionAssetDatabaseAndImportPipeline() {
     fs::create_directories(root);
     const auto source = root / "external.png";
     std::ofstream(source, std::ios::binary) << "stable texture source";
+    const auto modelSource = root / "cube.obj";
+    {
+        std::ofstream obj(modelSource, std::ios::binary);
+        obj << "o Cube\n";
+        obj << "v -0.5 -0.5 -0.5\n";
+        obj << "v 0.5 -0.5 -0.5\n";
+        obj << "v 0.5 0.5 -0.5\n";
+        obj << "v -0.5 0.5 -0.5\n";
+        obj << "v -0.5 -0.5 0.5\n";
+        obj << "v 0.5 -0.5 0.5\n";
+        obj << "v 0.5 0.5 0.5\n";
+        obj << "v -0.5 0.5 0.5\n";
+        obj << "f 1 3 2\n";
+        obj << "f 1 4 3\n";
+        obj << "f 5 6 7\n";
+        obj << "f 5 7 8\n";
+        obj << "f 1 2 6\n";
+        obj << "f 1 6 5\n";
+        obj << "f 4 8 7\n";
+        obj << "f 4 7 3\n";
+        obj << "f 2 3 7\n";
+        obj << "f 2 7 6\n";
+        obj << "f 1 5 8\n";
+        obj << "f 1 8 4\n";
+    }
 
     AssetImportService imports;
     std::string error;
@@ -1161,6 +1189,139 @@ bool TestProductionAssetDatabaseAndImportPipeline() {
     if (!Check(fs::is_regular_file(first.record.sourcePath + ".meta") &&
                fs::is_regular_file(first.record.artifactPath),
                "import did not create metadata and artifact")) return false;
+
+    const AssetImportReport modelImport = imports.Import(modelSource, "{}", &error);
+    if (!Check(modelImport.succeeded && !modelImport.cacheHit &&
+               modelImport.record.type == "model",
+               "model import failed: " + error)) return false;
+    const fs::path disabledSidecarPath =
+        fs::path(modelImport.record.artifactPath).parent_path() /
+        (fs::path(modelImport.record.artifactPath).stem().string() + ".sdfvox.xml");
+    if (!Check(!fs::is_regular_file(disabledSidecarPath),
+               "model import should not create SDF/voxel XML sidecar while disabled")) return false;
+
+    imports.SetSdfVoxelBakingEnabled(true);
+    std::vector<std::string> bakeFailures;
+    if (!Check(imports.BakeSdfVoxelForImportedModels(&bakeFailures) == 1 &&
+               bakeFailures.empty(),
+               "SDF/Voxel bake toggle did not reimport the model")) return false;
+    const AssetRecord* bakedRecord = imports.GetDatabase().FindByUuid(modelImport.record.uuid);
+    if (!Check(bakedRecord != nullptr, "baked model record is missing")) return false;
+    const fs::path sidecarPath =
+        fs::path(bakedRecord->artifactPath).parent_path() /
+        (fs::path(bakedRecord->artifactPath).stem().string() + ".sdfvox.xml");
+    if (!Check(fs::is_regular_file(sidecarPath),
+               "SDF/Voxel bake toggle did not create XML sidecar")) return false;
+
+    AssetManager::Get().Clear();
+    ModelHandle importedModel =
+        AssetManager::Get().Load<ModelAsset>(bakedRecord->artifactPath);
+    MeshAsset* importedMesh = importedModel ? importedModel->GetMeshPtr() : nullptr;
+    if (!Check(importedMesh && importedMesh->HasSdfVoxelData(),
+               "imported model mesh did not discover SDF/voxel sidecar")) return false;
+    if (!Check(importedMesh->LoadSdfVoxelData(&error) &&
+               importedMesh->GetSdfVoxelData() &&
+               importedMesh->GetSdfVoxelData()->Valid() &&
+               importedMesh->GetSdfVoxelData()->resolution == MeshSdfVoxelData::kMediumResolution,
+               "imported model mesh failed to load SDF/voxel sidecar: " + error)) return false;
+    const auto sidecarWriteTime = fs::last_write_time(sidecarPath, ec);
+    const AssetImportReport cachedModel = imports.Reimport(modelImport.record.uuid, &error);
+    if (!Check(cachedModel.succeeded && cachedModel.cacheHit,
+               "model reimport did not hit cache after SDF/voxel bake")) return false;
+    const auto sidecarWriteTimeAfterCache = fs::last_write_time(sidecarPath, ec);
+    if (!Check(sidecarWriteTime == sidecarWriteTimeAfterCache,
+               "cached model reimport unexpectedly rewrote SDF/voxel sidecar")) return false;
+
+    const fs::path directContentModel = root / "Project/Content/Direct/direct.obj";
+    fs::create_directories(directContentModel.parent_path());
+    fs::copy_file(modelSource, directContentModel,
+                  fs::copy_options::overwrite_existing, ec);
+    bakeFailures.clear();
+    const size_t bakedWithDirectContent =
+        imports.BakeSdfVoxelForImportedModels(&bakeFailures);
+    const fs::path directContentSidecar =
+        directContentModel.parent_path() /
+        (directContentModel.stem().string() + ".sdfvox.xml");
+    if (!Check(bakedWithDirectContent >= 1 && bakeFailures.empty() &&
+               fs::is_regular_file(directContentSidecar),
+               "SDF/Voxel bake toggle did not discover direct Content model sources")) return false;
+
+    const fs::path directGltf = root / "Project/Content/DirectGltf/tri.gltf";
+    const fs::path directGltfBin = directGltf.parent_path() / "tri.bin";
+    fs::create_directories(directGltf.parent_path());
+    std::vector<uint8_t> gltfBinary;
+    auto appendFloat = [&gltfBinary](float value) {
+        const auto* bytes = reinterpret_cast<const uint8_t*>(&value);
+        gltfBinary.insert(gltfBinary.end(), bytes, bytes + sizeof(float));
+    };
+    auto appendU16 = [&gltfBinary](uint16_t value) {
+        const auto* bytes = reinterpret_cast<const uint8_t*>(&value);
+        gltfBinary.insert(gltfBinary.end(), bytes, bytes + sizeof(uint16_t));
+    };
+    auto align4 = [&gltfBinary]() {
+        while ((gltfBinary.size() % 4) != 0) gltfBinary.push_back(0);
+    };
+    const size_t posOffset = gltfBinary.size();
+    for (float v : {0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f}) {
+        appendFloat(v);
+    }
+    const size_t normalOffset = gltfBinary.size();
+    for (float v : {0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f}) {
+        appendFloat(v);
+    }
+    const size_t indexOffset = gltfBinary.size();
+    for (uint16_t v : {0, 1, 2}) appendU16(v);
+    align4();
+    {
+        std::ofstream bin(directGltfBin, std::ios::binary);
+        bin.write(reinterpret_cast<const char*>(gltfBinary.data()),
+                  static_cast<std::streamsize>(gltfBinary.size()));
+    }
+    nlohmann::json gltf = {
+        {"asset", {{"version", "2.0"}}},
+        {"buffers", nlohmann::json::array({{
+            {"uri", "tri.bin"},
+            {"byteLength", gltfBinary.size()}
+        }})},
+        {"bufferViews", nlohmann::json::array({
+            {{"buffer", 0}, {"byteOffset", posOffset}, {"byteLength", 36}, {"target", 34962}},
+            {{"buffer", 0}, {"byteOffset", normalOffset}, {"byteLength", 36}, {"target", 34962}},
+            {{"buffer", 0}, {"byteOffset", indexOffset}, {"byteLength", 6}, {"target", 34963}}
+        })},
+        {"accessors", nlohmann::json::array({
+            {{"bufferView", 0}, {"componentType", 5126}, {"count", 3}, {"type", "VEC3"},
+             {"min", nlohmann::json::array({0, 0, 0})},
+             {"max", nlohmann::json::array({1, 1, 0})}},
+            {{"bufferView", 1}, {"componentType", 5126}, {"count", 3}, {"type", "VEC3"}},
+            {{"bufferView", 2}, {"componentType", 5123}, {"count", 3}, {"type", "SCALAR"}}
+        })},
+        {"meshes", nlohmann::json::array({{
+            {"primitives", nlohmann::json::array({{
+                {"attributes", {{"POSITION", 0}, {"NORMAL", 1}}},
+                {"indices", 2}
+            }})}
+        }})},
+        {"nodes", nlohmann::json::array({{{"mesh", 0}}})},
+        {"scenes", nlohmann::json::array({{{"nodes", nlohmann::json::array({0})}}})},
+        {"scene", 0}
+    };
+    std::ofstream(directGltf) << gltf.dump(2);
+    bakeFailures.clear();
+    if (!Check(imports.BakeSdfVoxelForImportedModels(&bakeFailures) >= 1 &&
+               bakeFailures.empty(),
+               "SDF/Voxel bake did not process direct Content glTF dependencies")) return false;
+    const AssetRecord* gltfRecord =
+        imports.GetDatabase().FindBySourcePath(directGltf.generic_string());
+    if (!Check(gltfRecord && fs::is_regular_file(
+                   fs::path(gltfRecord->artifactPath).parent_path() / "tri.bin"),
+               "glTF artifact dependencies were not copied beside the cached artifact")) return false;
+    AssetManager::Get().Clear();
+    ModelHandle cachedGltfModel =
+        AssetManager::Get().Load<ModelAsset>(gltfRecord->artifactPath);
+    if (!Check(cachedGltfModel.IsValid() &&
+               cachedGltfModel->GetMesh() &&
+               cachedGltfModel->GetMesh()->HasSdfVoxelData(),
+               "cached glTF artifact failed to load after dependency copy")) return false;
 
     const AssetImportReport cached = imports.Reimport(first.record.uuid, &error);
     if (!Check(cached.succeeded && cached.cacheHit &&

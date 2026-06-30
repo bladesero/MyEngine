@@ -28,17 +28,21 @@ public:
                                            const std::string& settingsJson,
                                            std::string* error = nullptr);
     size_t ReimportAll(std::vector<std::string>* failures = nullptr);
+    size_t BakeSdfVoxelForImportedModels(std::vector<std::string>* failures = nullptr,
+                                         bool forceRebake = true);
 
     AssetDatabase& GetDatabase() { return m_Database; }
     const AssetDatabase& GetDatabase() const { return m_Database; }
     const AssetDatabaseValidationReport& GetValidationReport() const { return m_ValidationReport; }
     bool RefreshValidation(std::string* error = nullptr);
+    void SetSdfVoxelBakingEnabled(bool enabled) { m_SdfVoxelBakingEnabled = enabled; }
 
 private:
     const IAssetImporter* FindImporter(const std::filesystem::path& path) const;
     AssetImportReport ImportSource(const std::filesystem::path& source,
                                    const std::string& settingsJson,
                                    const std::string& existingUuid,
+                                   bool forceImport,
                                    std::string* error);
     std::string BuildCacheKey(const IAssetImporter& importer,
                               const std::filesystem::path& source,
@@ -49,4 +53,5 @@ private:
     AssetDatabase m_Database;
     AssetDatabaseValidationReport m_ValidationReport;
     std::vector<std::unique_ptr<IAssetImporter>> m_Importers;
+    bool m_SdfVoxelBakingEnabled = false;
 };

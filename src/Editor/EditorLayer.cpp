@@ -48,6 +48,27 @@ const char* ProjectValueFromRenderPathIndex(int index)
     return index == 1 ? "deferred" : "forward";
 }
 
+DDGIDebugView DDGIDebugViewFromProjectValue(const std::string& value)
+{
+    if (value == "irradiance") return DDGIDebugView::Irradiance;
+    if (value == "validity") return DDGIDebugView::Validity;
+    return DDGIDebugView::Off;
+}
+
+int DDGIDebugViewIndexFromProjectValue(const std::string& value)
+{
+    if (value == "irradiance") return 1;
+    if (value == "validity") return 2;
+    return 0;
+}
+
+const char* ProjectValueFromDDGIDebugViewIndex(int index)
+{
+    if (index == 1) return "irradiance";
+    if (index == 2) return "validity";
+    return "off";
+}
+
 std::string TrimMenuPrefix(const std::string& path, const char* topLevel)
 {
     const std::string prefix = std::string(topLevel) + "/";
@@ -217,6 +238,9 @@ bool EditorLayer::OpenProject(const std::filesystem::path& root) {
     if (m_SceneLayer) {
         m_SceneLayer->SetRenderPath(
             RenderPathFromProjectValue(projectConfig.GetGraphicsSettings().renderPath));
+        m_SceneLayer->SetDDGIEnabled(projectConfig.GetGraphicsSettings().ddgi);
+        m_SceneLayer->SetDDGIDebugView(
+            DDGIDebugViewFromProjectValue(projectConfig.GetGraphicsSettings().ddgiDebugView));
     }
     m_Context.SetProjectRoot(m_Project.GetRoot());
     m_Context.SetProfiler(&m_Profiler);
@@ -555,6 +579,10 @@ void EditorLayer::OpenProjectSettings() {
 #endif
         (backend == "d3d12" ? 1 : 0);
     m_RenderPathIndex = config.GetGraphicsSettings().renderPath == "deferred" ? 1 : 0;
+    m_DDGIDebugViewIndex =
+        DDGIDebugViewIndexFromProjectValue(config.GetGraphicsSettings().ddgiDebugView);
+    m_SdfVoxelEnabled = config.GetGraphicsSettings().sdfVoxel;
+    m_DDGIEnabled = config.GetGraphicsSettings().ddgi;
     m_ProjectSettingsRequested = true;
 }
 
@@ -774,6 +802,13 @@ void EditorLayer::DrawGraphicsSettingsTab() {
     static constexpr int kRenderPathCount = 2;
     if (m_RenderPathIndex >= kRenderPathCount) m_RenderPathIndex = 0;
     ImGui::Combo("Render Path", &m_RenderPathIndex, kRenderPaths, kRenderPathCount);
+    ImGui::Checkbox("Bake SDF/Voxel on import", &m_SdfVoxelEnabled);
+    ImGui::Checkbox("DDGI", &m_DDGIEnabled);
+    static constexpr const char* kDDGIDebugViews[] = {"Off", "Irradiance", "Validity"};
+    static constexpr int kDDGIDebugViewCount = 3;
+    if (m_DDGIDebugViewIndex >= kDDGIDebugViewCount) m_DDGIDebugViewIndex = 0;
+    ImGui::Combo("DDGI Debug View", &m_DDGIDebugViewIndex,
+                 kDDGIDebugViews, kDDGIDebugViewCount);
     const RHIBackend active = m_RenderContext ? m_RenderContext->GetBackend() : RHIBackend::Unknown;
     const char* activeLabel = active == RHIBackend::Vulkan ? "Vulkan" :
                               active == RHIBackend::D3D12 ? "DirectX 12" :
@@ -784,6 +819,14 @@ void EditorLayer::DrawGraphicsSettingsTab() {
         : RenderPath::Forward;
     ImGui::LabelText("Active render path", "%s",
                      activeRenderPath == RenderPath::Deferred ? "Deferred" : "Forward");
+    ImGui::LabelText("Active DDGI", "%s",
+                     m_SceneLayer && m_SceneLayer->IsDDGIEnabled() ? "Enabled" : "Disabled");
+    const DDGIDebugView activeDDGIDebug = m_SceneLayer
+        ? m_SceneLayer->GetDDGIDebugView()
+        : DDGIDebugView::Off;
+    ImGui::LabelText("Active DDGI debug", "%s",
+                     activeDDGIDebug == DDGIDebugView::Irradiance ? "Irradiance" :
+                     activeDDGIDebug == DDGIDebugView::Validity ? "Validity" : "Off");
     ImGui::LabelText("Apply", "%s", "backend next launch, render path immediate");
     if (ImGui::Button("Save Graphics")) {
         auto& editable = m_Project.GetConfig();
@@ -795,11 +838,31 @@ void EditorLayer::DrawGraphicsSettingsTab() {
             (m_GraphicsBackendIndex == 1 ? "d3d12" : "d3d11");
         editable.GetGraphicsSettings().renderPath =
             ProjectValueFromRenderPathIndex(m_RenderPathIndex);
+        editable.GetGraphicsSettings().ddgiDebugView =
+            ProjectValueFromDDGIDebugViewIndex(m_DDGIDebugViewIndex);
+        editable.GetGraphicsSettings().sdfVoxel = m_SdfVoxelEnabled;
+        editable.GetGraphicsSettings().ddgi = m_DDGIEnabled;
         std::string error;
         if (editable.Save(&error)) {
             if (m_SceneLayer) {
                 m_SceneLayer->SetRenderPath(
                     RenderPathFromProjectValue(editable.GetGraphicsSettings().renderPath));
+                m_SceneLayer->SetDDGIEnabled(editable.GetGraphicsSettings().ddgi);
+                m_SceneLayer->SetDDGIDebugView(DDGIDebugViewFromProjectValue(
+                    editable.GetGraphicsSettings().ddgiDebugView));
+            }
+            m_ImportService.SetSdfVoxelBakingEnabled(
+                editable.GetGraphicsSettings().sdfVoxel);
+            if (editable.GetGraphicsSettings().sdfVoxel) {
+                std::vector<std::string> failures;
+                const size_t reimported =
+                    m_ImportService.BakeSdfVoxelForImportedModels(&failures);
+                if (!failures.empty()) {
+                    Logger::Warn("[Editor] SDF/Voxel bake reimport failures: ",
+                                 failures.front());
+                }
+                Logger::Info("[Editor] SDF/Voxel bake reimported ", reimported,
+                             " model asset(s)");
             }
             Logger::Info("[Editor] Graphics settings saved");
             ShowProjectResult("Graphics settings saved.", false);

@@ -2,6 +2,27 @@
 #include <algorithm>
 #include <cmath>
 
+void MeshAsset::SetSdfVoxelPath(std::filesystem::path path)
+{
+    m_SdfVoxelPath = std::move(path);
+    m_SdfVoxelData.reset();
+}
+
+bool MeshAsset::LoadSdfVoxelData(std::string* error)
+{
+    if (m_SdfVoxelData) return true;
+    if (m_SdfVoxelPath.empty()) {
+        if (error) *error = "SDF/voxel sidecar path is empty";
+        return false;
+    }
+    auto data = std::make_unique<MeshSdfVoxelData>();
+    if (!MeshSdfVoxelXml::Load(m_SdfVoxelPath, *data, error)) {
+        return false;
+    }
+    m_SdfVoxelData = std::move(data);
+    return true;
+}
+
 void MeshAsset::RebuildSubMeshBounds()
 {
     for (SubMesh& subMesh : m_SubMeshes) {

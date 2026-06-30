@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Core/EngineMath.h"
+#include "Renderer/DDGIDebugView.h"
 #include "Renderer/RenderPass.h"
 #include "Renderer/SceneLighting.h"
 
@@ -49,6 +50,10 @@ public:
                         const float* cascadeSplits);
     void SetEnvironmentInput(GpuTexture* environmentCubemap,
                              std::shared_ptr<GpuBufferView> sh2Buffer);
+    void SetDDGIInput(std::shared_ptr<GpuBufferView> probeSH2,
+                      std::shared_ptr<GpuBufferView> metadata,
+                      bool enabled);
+    void SetDDGIDebugView(DDGIDebugView view) { m_DDGIDebugView = view; }
 
 private:
     bool EnsureResources();
@@ -92,5 +97,10 @@ private:
     int m_PointShadowIndex = -1;
     GpuTexture* m_EnvironmentCubemap = nullptr;
     std::shared_ptr<GpuBufferView> m_EnvironmentSH2Buffer;
+    std::shared_ptr<GpuBufferView> m_DDGIProbeSH2Buffer;
+    std::shared_ptr<GpuBufferView> m_DDGIMetadataBuffer;
+    bool m_DDGIEnabled = false;
+    DDGIDebugView m_DDGIDebugView = DDGIDebugView::Off;
     bool m_LoggedMissingEnvironmentSH = false;
+    bool m_LoggedMissingDDGI = false;
 };

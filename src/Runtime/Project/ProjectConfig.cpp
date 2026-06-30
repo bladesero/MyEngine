@@ -31,6 +31,11 @@ bool ProjectConfig::IsSupportedRenderPath(std::string_view renderPath)
     return renderPath == "forward" || renderPath == "deferred";
 }
 
+bool ProjectConfig::IsSupportedDDGIDebugView(std::string_view view)
+{
+    return view == "off" || view == "irradiance" || view == "validity";
+}
+
 bool ProjectConfig::Open(fs::path projectRoot, bool allowMissing, std::string* error)
 {
     if (error) error->clear();
@@ -95,6 +100,13 @@ bool ProjectConfig::Open(fs::path projectRoot, bool allowMissing, std::string* e
                 graphics->value("backend", std::string{ProjectGraphicsSettings{}.backend});
             m_GraphicsSettings.renderPath =
                 graphics->value("renderPath", std::string{ProjectGraphicsSettings{}.renderPath});
+            m_GraphicsSettings.ddgiDebugView =
+                graphics->value("ddgiDebugView",
+                                std::string{ProjectGraphicsSettings{}.ddgiDebugView});
+            m_GraphicsSettings.sdfVoxel =
+                graphics->value("sdfVoxel", ProjectGraphicsSettings{}.sdfVoxel);
+            m_GraphicsSettings.ddgi =
+                graphics->value("ddgi", ProjectGraphicsSettings{}.ddgi);
         }
     }
     catch (const std::exception& exception) {
@@ -138,6 +150,10 @@ bool ProjectConfig::Open(fs::path projectRoot, bool allowMissing, std::string* e
         SetError(error, "unsupported render path: " + m_GraphicsSettings.renderPath);
         return false;
     }
+    if (!IsSupportedDDGIDebugView(m_GraphicsSettings.ddgiDebugView)) {
+        SetError(error, "unsupported DDGI debug view: " + m_GraphicsSettings.ddgiDebugView);
+        return false;
+    }
     return true;
 }
 
@@ -176,6 +192,10 @@ bool ProjectConfig::Save(std::string* error)
         SetError(error, "unsupported render path: " + m_GraphicsSettings.renderPath);
         return false;
     }
+    if (!IsSupportedDDGIDebugView(m_GraphicsSettings.ddgiDebugView)) {
+        SetError(error, "unsupported DDGI debug view: " + m_GraphicsSettings.ddgiDebugView);
+        return false;
+    }
 
     try {
         nlohmann::json json;
@@ -193,6 +213,9 @@ bool ProjectConfig::Save(std::string* error)
         json["graphics"] = {
             {"backend", m_GraphicsSettings.backend},
             {"renderPath", m_GraphicsSettings.renderPath},
+            {"ddgiDebugView", m_GraphicsSettings.ddgiDebugView},
+            {"sdfVoxel", m_GraphicsSettings.sdfVoxel},
+            {"ddgi", m_GraphicsSettings.ddgi},
         };
         std::ofstream output(m_ManifestPath);
         if (!output) {

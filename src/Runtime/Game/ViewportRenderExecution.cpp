@@ -65,6 +65,26 @@ RenderPath ViewportRenderExecution::GetRenderPath() const
     return m_Renderer.GetRenderPath();
 }
 
+void ViewportRenderExecution::SetDDGIEnabled(bool enabled)
+{
+    m_Renderer.SetDDGIEnabled(enabled);
+}
+
+bool ViewportRenderExecution::IsDDGIEnabled() const
+{
+    return m_Renderer.IsDDGIEnabled();
+}
+
+void ViewportRenderExecution::SetDDGIDebugView(DDGIDebugView view)
+{
+    m_Renderer.SetDDGIDebugView(view);
+}
+
+DDGIDebugView ViewportRenderExecution::GetDDGIDebugView() const
+{
+    return m_Renderer.GetDDGIDebugView();
+}
+
 void ViewportRenderExecution::SetCommandViewport(const RenderViewport& viewport,
                                                  bool presentToSwapchain)
 {

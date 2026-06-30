@@ -132,6 +132,9 @@ private:
     std::array<char, 1024> m_InputConfigPath{};
     int m_GraphicsBackendIndex = 0;
     int m_RenderPathIndex = 0;
+    int m_DDGIDebugViewIndex = 0;
+    bool m_SdfVoxelEnabled = false;
+    bool m_DDGIEnabled = false;
     std::string m_ProjectError;
     std::string m_ProjectResult;
     std::string m_CapturingShortcutAction;

@@ -3,6 +3,7 @@
 #include "Camera/Camera.h"
 #include "Game/ViewportRenderExecution.h"
 #include "Math/Ray.h"
+#include "Renderer/DDGIDebugView.h"
 #include "Renderer/RenderPath.h"
 
 struct GpuTextureView;
@@ -34,6 +35,10 @@ public:
     void ReleaseFrameResources();
     void SetRenderPath(RenderPath path);
     RenderPath GetRenderPath() const;
+    void SetDDGIEnabled(bool enabled);
+    bool IsDDGIEnabled() const;
+    void SetDDGIDebugView(DDGIDebugView view);
+    DDGIDebugView GetDDGIDebugView() const;
 
     virtual Camera& GetCamera() = 0;
     virtual const Camera& GetCamera() const = 0;

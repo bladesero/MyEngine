@@ -20,6 +20,9 @@ public:
     bool ReimportWithSettings(const std::string& uuid,
                               const std::string& settingsJson);
     size_t ReimportAll(std::vector<std::string>* failures = nullptr);
+    size_t BakeSdfVoxelForImportedModels(std::vector<std::string>* failures = nullptr,
+                                         bool forceRebake = true);
+    void SetSdfVoxelBakingEnabled(bool enabled);
     const AssetDatabaseValidationReport* GetValidationReport() const;
     static std::filesystem::path MakeUniqueContentPath(const std::filesystem::path& directory,
         const std::string& stem, const std::string& extension);

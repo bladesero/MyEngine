@@ -105,6 +105,26 @@ RenderPath RenderViewport::GetRenderPath() const
     return m_RenderExecution.GetRenderPath();
 }
 
+void RenderViewport::SetDDGIEnabled(bool enabled)
+{
+    m_RenderExecution.SetDDGIEnabled(enabled);
+}
+
+bool RenderViewport::IsDDGIEnabled() const
+{
+    return m_RenderExecution.IsDDGIEnabled();
+}
+
+void RenderViewport::SetDDGIDebugView(DDGIDebugView view)
+{
+    m_RenderExecution.SetDDGIDebugView(view);
+}
+
+DDGIDebugView RenderViewport::GetDDGIDebugView() const
+{
+    return m_RenderExecution.GetDDGIDebugView();
+}
+
 void RenderViewport::UpdateCameraAspect(Camera& camera)
 {
     if (m_VpW > 0 && m_VpH > 0) camera.SetAspect(GetAspect());

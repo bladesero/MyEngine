@@ -484,6 +484,12 @@ std::shared_ptr<ModelAsset> LoadModelAssetFromObj(const std::string& path) {
         auto mesh = std::make_shared<MeshAsset>(path + "#mesh");
         mesh->SetName(StemFromPath(path));
         mesh->SetGeometry(std::move(vertices), std::move(indices), std::move(subMeshes));
+        const std::filesystem::path sdfVoxelPath =
+            std::filesystem::path(path).parent_path() /
+            (std::filesystem::path(path).stem().string() + ".sdfvox.xml");
+        if (std::filesystem::is_regular_file(sdfVoxelPath)) {
+            mesh->SetSdfVoxelPath(sdfVoxelPath);
+        }
 
         auto model = std::make_shared<ModelAsset>(path);
         model->SetName(StemFromPath(path));

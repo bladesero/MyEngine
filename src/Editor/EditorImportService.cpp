@@ -9,6 +9,7 @@
 #include "Core/Logger.h"
 #include "Editor/EditorAssetRegistry.h"
 #include "Editor/EditorContext.h"
+#include "Editor/EditorProject.h"
 
 #include <algorithm>
 #include <cctype>
@@ -33,6 +34,20 @@ void EditorImportService::OnAttach(EditorContext& context) {
     std::string error;
     if (!m_ImportPipeline->OpenProject(context.GetProjectRoot(), &error))
         Logger::Warn("[Editor] Asset import pipeline unavailable: ", error);
+    if (EditorProject* project = context.GetProject()) {
+        SetSdfVoxelBakingEnabled(project->GetConfig().GetGraphicsSettings().sdfVoxel);
+        if (project->GetConfig().GetGraphicsSettings().sdfVoxel) {
+            std::vector<std::string> failures;
+            const size_t baked = BakeSdfVoxelForImportedModels(&failures, false);
+            if (baked > 0) {
+                Logger::Info("[Editor] SDF/Voxel bake generated missing data for ",
+                             baked, " model asset(s)");
+            }
+            for (const std::string& failure : failures) {
+                Logger::Warn("[Editor] SDF/Voxel bake failed: ", failure);
+            }
+        }
+    }
 }
 
 bool EditorImportService::Import(const std::string& sourcePath) {
@@ -100,6 +115,23 @@ size_t EditorImportService::ReimportAll(std::vector<std::string>* failures) {
     return succeeded;
 }
 
+size_t EditorImportService::BakeSdfVoxelForImportedModels(std::vector<std::string>* failures,
+                                                          bool forceRebake) {
+    if (!m_ImportPipeline) return 0;
+    const size_t succeeded =
+        m_ImportPipeline->BakeSdfVoxelForImportedModels(failures, forceRebake);
+    if (EditorContext* context = GetContext(); context && context->GetAssetRegistry()) {
+        context->GetAssetRegistry()->Refresh();
+    }
+    return succeeded;
+}
+
 const AssetDatabaseValidationReport* EditorImportService::GetValidationReport() const {
     return m_ImportPipeline ? &m_ImportPipeline->GetValidationReport() : nullptr;
+}
+
+void EditorImportService::SetSdfVoxelBakingEnabled(bool enabled) {
+    if (m_ImportPipeline) {
+        m_ImportPipeline->SetSdfVoxelBakingEnabled(enabled);
+    }
 }

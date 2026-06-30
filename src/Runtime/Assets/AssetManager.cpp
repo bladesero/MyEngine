@@ -33,6 +33,10 @@ size_t EstimateAssetCpuBytes(const Asset& a) {
             }
             bytes += m.GetColliderData().vertices.size() * sizeof(Vec3) +
                 m.GetColliderData().indices.size() * sizeof(uint32_t);
+            if (const MeshSdfVoxelData* sdfVoxel = m.GetSdfVoxelData()) {
+                bytes += sizeof(MeshSdfVoxelData) +
+                    sdfVoxel->sdf.size() * sizeof(int16_t) + sdfVoxel->voxels.size();
+            }
             return bytes;
         }
         case AssetType::Material: {

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Renderer/Renderer.h"
+#include "Renderer/DDGIDebugView.h"
 #include "Renderer/RenderPath.h"
 
 class Camera;
@@ -26,6 +27,10 @@ public:
     GpuTextureView* GetOutputView() const;
     void SetRenderPath(RenderPath path);
     RenderPath GetRenderPath() const;
+    void SetDDGIEnabled(bool enabled);
+    bool IsDDGIEnabled() const;
+    void SetDDGIDebugView(DDGIDebugView view);
+    DDGIDebugView GetDDGIDebugView() const;
 
 private:
     void SetCommandViewport(const RenderViewport& viewport, bool presentToSwapchain);

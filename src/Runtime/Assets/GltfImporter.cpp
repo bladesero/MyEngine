@@ -519,6 +519,11 @@ std::shared_ptr<ModelAsset> LoadModelAssetFromGltf(const std::string& path)
     auto mesh = std::make_shared<MeshAsset>(path + "#mesh");
     mesh->SetName(sourcePath.stem().string());
     mesh->SetGeometry(std::move(vertices), std::move(indices), std::move(subMeshes));
+    const std::filesystem::path sdfVoxelPath =
+        sourcePath.parent_path() / (sourcePath.stem().string() + ".sdfvox.xml");
+    if (std::filesystem::is_regular_file(sdfVoxelPath)) {
+        mesh->SetSdfVoxelPath(sdfVoxelPath);
+    }
 
     auto model = std::make_shared<ModelAsset>(path);
     model->SetName(sourcePath.stem().string());

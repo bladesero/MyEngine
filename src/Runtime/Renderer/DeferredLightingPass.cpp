@@ -31,6 +31,7 @@ struct DeferredLightingConstants {
     float shadowInfo[4];
     float shadowIntensity[4];
     float iblInfo[4];
+    float ddgiInfo[4];
     float screenSize[4];
 };
 
@@ -114,6 +115,15 @@ void DeferredLightingPass::SetEnvironmentInput(GpuTexture* environmentCubemap,
 {
     m_EnvironmentCubemap = environmentCubemap;
     m_EnvironmentSH2Buffer = std::move(sh2Buffer);
+}
+
+void DeferredLightingPass::SetDDGIInput(std::shared_ptr<GpuBufferView> probeSH2,
+                                        std::shared_ptr<GpuBufferView> metadata,
+                                        bool enabled)
+{
+    m_DDGIProbeSH2Buffer = std::move(probeSH2);
+    m_DDGIMetadataBuffer = std::move(metadata);
+    m_DDGIEnabled = enabled && m_DDGIProbeSH2Buffer && m_DDGIMetadataBuffer;
 }
 
 bool DeferredLightingPass::PrepareGraphResources()
@@ -323,6 +333,8 @@ void DeferredLightingPass::Execute(GpuCommandList& commands, const Scene&, const
     constants.iblInfo[0] =
         (m_EnvironmentCubemap && m_EnvironmentCubemap->IsCube()) ? 1.0f : 0.0f;
     constants.iblInfo[1] = 1.0f;
+    constants.ddgiInfo[0] = m_DDGIEnabled ? 1.0f : 0.0f;
+    constants.ddgiInfo[1] = static_cast<float>(static_cast<int>(m_DDGIDebugView));
     constants.screenSize[0] = 1.0f / static_cast<float>(m_Width);
     constants.screenSize[1] = 1.0f / static_cast<float>(m_Height);
     constants.screenSize[2] = static_cast<float>(m_Width);
@@ -347,6 +359,12 @@ void DeferredLightingPass::Execute(GpuCommandList& commands, const Scene&, const
         !m_LoggedMissingEnvironmentSH) {
         Logger::Error("[DeferredLightingPass] Failed to bind g_EnvironmentSH2");
         m_LoggedMissingEnvironmentSH = true;
+    }
+    if ((!bindings->SetStorageBuffer("g_DDGIProbeSH2", m_DDGIProbeSH2Buffer) ||
+         !bindings->SetStorageBuffer("g_DDGIMetadata", m_DDGIMetadataBuffer)) &&
+        m_DDGIEnabled && !m_LoggedMissingDDGI) {
+        Logger::Error("[DeferredLightingPass] Failed to bind DDGI buffers");
+        m_LoggedMissingDDGI = true;
     }
 
     commands.SetGraphicsPipeline(m_Pipeline.get());

@@ -13,6 +13,7 @@ struct ImportRequest {
     std::string uuid;
     std::string settingsJson = "{}";
     std::string targetPlatform = "windows-x64";
+    bool bakeSdfVoxel = false;
 };
 
 struct ImportResult {
@@ -32,3 +33,4 @@ public:
 };
 
 std::unique_ptr<IAssetImporter> CreatePassthroughAssetImporter();
+std::unique_ptr<IAssetImporter> CreateModelSdfVoxelAssetImporter();

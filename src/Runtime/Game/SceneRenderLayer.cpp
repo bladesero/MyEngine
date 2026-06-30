@@ -38,6 +38,28 @@ RenderPath SceneRenderLayer::GetRenderPath() const
     return m_Viewport.GetRenderPath();
 }
 
+void SceneRenderLayer::SetDDGIEnabled(bool enabled)
+{
+    m_Viewport.SetDDGIEnabled(enabled);
+    m_GameViewport.SetDDGIEnabled(enabled);
+}
+
+bool SceneRenderLayer::IsDDGIEnabled() const
+{
+    return m_Viewport.IsDDGIEnabled();
+}
+
+void SceneRenderLayer::SetDDGIDebugView(DDGIDebugView view)
+{
+    m_Viewport.SetDDGIDebugView(view);
+    m_GameViewport.SetDDGIDebugView(view);
+}
+
+DDGIDebugView SceneRenderLayer::GetDDGIDebugView() const
+{
+    return m_Viewport.GetDDGIDebugView();
+}
+
 Scene& SceneRenderLayer::GetSceneViewportRenderScene()
 {
     return m_SceneViewportUsesSimulationScene && HasPlayWorld()

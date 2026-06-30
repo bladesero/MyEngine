@@ -4,6 +4,7 @@
 #include "Core/FrameStats.h"
 #include "Core/Logger.h"
 #include "Renderer/EnvironmentPass.h"
+#include "Renderer/DDGIPass.h"
 #include "Renderer/DeferredLightingPass.h"
 #include "Renderer/GBufferPass.h"
 #include "Renderer/LightComponent.h"
@@ -78,6 +79,7 @@ Renderer::Renderer(IRHIDevice* device, IRHIFrameContext* frameContext,
     , m_MainPass(std::make_unique<MainPass>(device))
     , m_GBufferPass(std::make_unique<GBufferPass>(device))
     , m_DeferredLightingPass(std::make_unique<DeferredLightingPass>(device))
+    , m_DDGIPass(std::make_unique<DDGIPass>(device))
     , m_PostProcessPass(std::make_unique<PostProcessPass>(device))
     , m_ScreenUIPass(std::make_unique<ScreenUIPass>(device))
     , m_RenderGraph(device ? std::make_unique<RenderGraph>(*device) : nullptr)
@@ -107,7 +109,8 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
 {
     FrameStatsProvider::SetRendererStats({});
     if (!m_Device || !m_FrameContext || !m_ShadowPass || !m_MainPass ||
-        !m_GBufferPass || !m_DeferredLightingPass || !m_PostProcessPass) return;
+        !m_GBufferPass || !m_DeferredLightingPass || !m_DDGIPass ||
+        !m_PostProcessPass) return;
 
     GpuUploadQueue::Get().Process(*m_Device);
 
@@ -274,6 +277,15 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
                 endFrameOnFailure();
                 return;
             }
+            DDGIPass::GraphResources ddgiResources;
+            if (m_DDGIEnabled &&
+                !m_DDGIPass->PrepareGraphResources(scene, sceneLights)) {
+                endFrameOnFailure();
+                return;
+            }
+            if (m_DDGIEnabled) {
+                ddgiResources = m_DDGIPass->GetGraphResources();
+            }
             const auto gbufferResources = m_GBufferPass->GetGraphResources();
             const auto deferredResources = m_DeferredLightingPass->GetGraphResources();
             const auto gbufferAlbedo = m_RenderGraph->ImportTexture(
@@ -291,6 +303,24 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
             const auto deferredSceneColor = m_RenderGraph->ImportTexture(
                 "DeferredSceneColor", deferredResources.sceneColor, deferredResources.sceneColorRtv,
                 deferredResources.initialState, RHIResourceState::ShaderResource);
+            RGBufferHandle ddgiMetadata;
+            RGBufferHandle ddgiSdf;
+            RGBufferHandle ddgiVoxels;
+            RGBufferHandle ddgiProbeSH2;
+            if (m_DDGIEnabled) {
+                ddgiMetadata = m_RenderGraph->ImportBuffer(
+                    "DDGIMetadata", ddgiResources.metadata,
+                    ddgiResources.metadataState, RHIResourceState::ShaderResource);
+                ddgiSdf = m_RenderGraph->ImportBuffer(
+                    "SceneSdfClipmapSdf", ddgiResources.sdf,
+                    ddgiResources.sdfState, RHIResourceState::ShaderResource);
+                ddgiVoxels = m_RenderGraph->ImportBuffer(
+                    "SceneSdfClipmapVoxels", ddgiResources.voxels,
+                    ddgiResources.voxelState, RHIResourceState::ShaderResource);
+                ddgiProbeSH2 = m_RenderGraph->ImportBuffer(
+                    "DDGIProbeSH2", ddgiResources.probeSH2,
+                    ddgiResources.probeState, RHIResourceState::ShaderResource);
+            }
             compositeInput = deferredSceneColor;
 
             m_DeferredLightingPass->SetGBufferInput(
@@ -309,6 +339,25 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
             m_DeferredLightingPass->SetEnvironmentInput(
                 m_EnvironmentPass->GetEnvironmentCubemap(),
                 m_EnvironmentPass->GetSH2BufferView());
+            m_DeferredLightingPass->SetDDGIInput(
+                ddgiResources.probeSH2Srv, ddgiResources.metadataView,
+                m_DDGIEnabled && ddgiResources.enabled);
+            m_DeferredLightingPass->SetDDGIDebugView(m_DDGIDebugView);
+
+            if (m_DDGIEnabled && ddgiResources.enabled) {
+                m_RenderGraph->AddPass("DDGI",
+                    [ddgiMetadata, ddgiSdf, ddgiVoxels, ddgiProbeSH2](
+                        RenderGraphBuilder& builder) {
+                        builder.ReadBuffer(ddgiMetadata);
+                        builder.ReadBuffer(ddgiSdf);
+                        builder.ReadBuffer(ddgiVoxels);
+                        builder.ReadWriteUAV(ddgiProbeSH2);
+                    },
+                    [this, &scene, &camera](GpuCommandList& commands,
+                                            const RenderGraphResources&) {
+                        m_DDGIPass->Execute(commands, scene, camera);
+                    });
+            }
 
             m_RenderGraph->AddPass("GBuffer",
                 [gbufferAlbedo, gbufferNormal, gbufferMaterial, gbufferEmissive,
@@ -335,7 +384,9 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
             m_RenderGraph->AddPass("DeferredLighting",
                 [deferredSceneColor, gbufferAlbedo, gbufferNormal, gbufferMaterial,
                  gbufferEmissive, sceneDepth, directionalShadow, spotShadow, pointShadow,
-                 environmentGraphReady, environmentCube, environmentSH](
+                 environmentGraphReady, environmentCube, environmentSH,
+                 ddgiEnabled = m_DDGIEnabled && ddgiResources.enabled,
+                 ddgiMetadata, ddgiProbeSH2](
                     RenderGraphBuilder& builder) {
                     builder.ReadTexture(gbufferAlbedo);
                     builder.ReadTexture(gbufferNormal);
@@ -348,6 +399,10 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
                     if (environmentGraphReady) {
                         builder.ReadTexture(environmentCube);
                         builder.ReadBuffer(environmentSH);
+                    }
+                    if (ddgiEnabled) {
+                        builder.ReadBuffer(ddgiMetadata);
+                        builder.ReadBuffer(ddgiProbeSH2);
                     }
                     builder.WriteColor(deferredSceneColor, RHILoadOp::Clear,
                                        RHIStoreOp::Store, {0, 0, 0, 1});
@@ -569,6 +624,9 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
         if (useDeferred) {
             m_GBufferPass->MarkGraphResourcesShaderResource();
             m_DeferredLightingPass->MarkGraphResourcesShaderResource();
+            if (m_DDGIEnabled) {
+                m_DDGIPass->MarkGraphResourcesShaderResource();
+            }
         }
         m_PostProcessPass->MarkGraphResourcesShaderResource(
             !m_PostProcessPass->IsCompositeToBackbuffer());

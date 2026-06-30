@@ -2842,6 +2842,9 @@ bool TestProjectConfigAndPortableAssetPaths() {
     project.SetName("ProjectTest");
     project.GetGraphicsSettings().backend = "d3d12";
     project.GetGraphicsSettings().renderPath = "deferred";
+    project.GetGraphicsSettings().ddgiDebugView = "irradiance";
+    project.GetGraphicsSettings().sdfVoxel = true;
+    project.GetGraphicsSettings().ddgi = true;
     if (!Check(project.SetInputConfigPath("Content/Config/Input.input.json", &error),
                "project input config path save failed: " + error)) return false;
     if (!Check(project.SetStartupScene(startupPath, &error) && project.Save(&error),
@@ -2854,7 +2857,10 @@ bool TestProjectConfigAndPortableAssetPaths() {
                loaded.GetStartupScene() == "Content/Scenes/Main.scene.json" &&
                loaded.GetInputSettings().config == "Content/Config/Input.input.json" &&
                loaded.GetGraphicsSettings().backend == "d3d12" &&
-               loaded.GetGraphicsSettings().renderPath == "deferred",
+               loaded.GetGraphicsSettings().renderPath == "deferred" &&
+               loaded.GetGraphicsSettings().ddgiDebugView == "irradiance" &&
+               loaded.GetGraphicsSettings().sdfVoxel &&
+               loaded.GetGraphicsSettings().ddgi,
                "project manifest fields mismatch")) return false;
 
     fs::path resolved;
@@ -2885,6 +2891,10 @@ bool TestProjectConfigAndPortableAssetPaths() {
     if (!Check(!loaded.Save(&error),
                "unsupported render path was accepted")) return false;
     loaded.GetGraphicsSettings().renderPath = "forward";
+    loaded.GetGraphicsSettings().ddgiDebugView = "invalid";
+    if (!Check(!loaded.Save(&error),
+               "unsupported DDGI debug view was accepted")) return false;
+    loaded.GetGraphicsSettings().ddgiDebugView = "off";
     if (!Check(loaded.Save(&error), "failed to restore graphics backend")) return false;
     std::ofstream(root / ProjectConfig::kFileName)
         << R"({"version":999,"name":"Future","startupScene":"Content/Scenes/Main.scene.json"})";
