@@ -1,16 +1,23 @@
 #pragma once
 
+#include "Renderer/MaterialResourceCache.h"
 #include "Renderer/RenderPass.h"
+#include "Renderer/SceneRenderCollector.h"
 #include "Core/EngineMath.h"
 
 #include <memory>
 #include <array>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 class TextureAsset;
 class MeshAsset;
 class MaterialAsset;
+class ForwardOpaquePass;
+class ForwardTransparentPass;
+class ForwardDrawExecutor;
+class SkyPass;
 struct ShaderHandle;
 
 class MainPass final : public RenderPass {
@@ -26,9 +33,12 @@ public:
     };
 
     explicit MainPass(IRHIDevice* device);
+    ~MainPass() override;
 
     void Execute(GpuCommandList& commands, const Scene& scene,
                  const Camera& camera) override;
+    void ExecuteTransparentOnly(GpuCommandList& commands, const Scene& scene,
+                                const Camera& camera);
     void Resize(uint32_t width, uint32_t height) override;
 
 
@@ -84,6 +94,11 @@ private:
         const std::array<TextureAsset*, 9>& textureAssets);
 
 private:
+    friend class SkyPass;
+    friend class ForwardOpaquePass;
+    friend class ForwardTransparentPass;
+    friend class ForwardDrawExecutor;
+
     struct MaterialBindGroupCacheEntry {
         std::string signature;
         std::shared_ptr<GpuBindGroup> bindGroup;
@@ -100,14 +115,12 @@ private:
     std::shared_ptr<GpuGraphicsPipeline> m_SkyPipeline;
     uint64_t m_MainShaderVersion = 0;
     uint64_t m_SkyShaderVersion = 0;
-    std::unordered_map<TextureAsset*, std::shared_ptr<GpuTexture>> m_TexCache;
-    std::unordered_map<GpuTexture*, std::shared_ptr<GpuTextureView>> m_TextureViews;
-    std::unordered_map<TextureAsset*, std::shared_ptr<GpuSampler>> m_TextureSamplers;
+    SceneRenderCollector m_SceneCollector;
+    MaterialResourceCache m_ResourceCache;
+    std::unique_ptr<SkyPass> m_SkyPass;
+    std::unique_ptr<ForwardOpaquePass> m_ForwardOpaquePass;
+    std::unique_ptr<ForwardTransparentPass> m_ForwardTransparentPass;
     std::unordered_map<const MaterialAsset*, MaterialBindGroupCacheEntry> m_MaterialBindGroups;
-    std::shared_ptr<GpuTexture> m_DefaultTexture;
-    std::shared_ptr<GpuTextureView> m_DefaultTextureView;
-    std::shared_ptr<GpuSampler> m_LinearSampler;
-    std::shared_ptr<GpuSampler> m_ShadowSampler;
     GpuTexture* m_ShadowMap = nullptr;
     GpuTexture* m_SpotShadowMap = nullptr;
     GpuTexture* m_PointShadowMap = nullptr;

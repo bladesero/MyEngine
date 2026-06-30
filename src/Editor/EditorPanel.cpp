@@ -1,5 +1,11 @@
 #include "Editor/EditorPanel.h"
 
+#include "Core/Logger.h"
+#include "Editor/EditorContext.h"
+#include "Editor/EditorUI/EditorAngelScriptDomain.h"
+#include "Editor/UI/EditorNotifications.h"
+#include "Editor/UI/EditorWidgets.h"
+
 #if defined(MYENGINE_ENABLE_IMGUI)
 #include <imgui.h>
 #endif
@@ -24,6 +30,25 @@ void EditorPanel::OnImGui()
     AfterEnd();
     m_Visible = open;
 #endif
+}
+
+bool EditorPanel::TryDrawScriptedBody(const char* panelID)
+{
+    EditorContext* context = GetContext();
+    EditorAngelScriptDomain* domain = context ? context->GetEditorScriptDomain() : nullptr;
+    if (!domain || !domain->IsLoaded()) return false;
+
+    std::string error;
+    const std::string id = panelID && panelID[0] ? panelID : m_ID;
+    if (domain->ExecutePanelBody(id, *context, &error)) return true;
+    if (!error.empty()) {
+        if (domain->IsScriptOnlyDebug()) {
+            Editor::UI::EditorWidgets::InlineMessage(
+                Editor::UI::EditorNotificationType::Error, error.c_str());
+        }
+        Logger::Warn("[EditorScript] Panel body failed for ", id, ": ", error);
+    }
+    return false;
 }
 
 void EditorPanel::RegisterContextMenuHandler(ContextMenuHandler handler) {

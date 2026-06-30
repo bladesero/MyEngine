@@ -3,6 +3,7 @@
 #include "Renderer/RHI/IRHIDevice.h"
 #include "Renderer/RHI/IRHIFrameContext.h"
 #include "Renderer/RHI/IRHIReadbackService.h"
+#include "Renderer/RenderPath.h"
 #include "Scene/Scene.h"
 #include "Camera/Camera.h"
 
@@ -12,6 +13,8 @@ class ShadowPass;
 class PostProcessPass;
 class MainPass;
 class EnvironmentPass;
+class GBufferPass;
+class DeferredLightingPass;
 class ScreenUIPass;
 class RenderGraph;
 class UIDrawList;
@@ -41,6 +44,8 @@ public:
     void SetOutputOffscreen(bool enabled);
     GpuTextureView* GetSceneColorView() const;
     void ReleaseFrameResources();
+    void SetRenderPath(RenderPath path) { m_RenderPath = path; }
+    RenderPath GetRenderPath() const { return m_RenderPath; }
 
 private:
     IRHIDevice*                m_Device = nullptr;
@@ -49,9 +54,12 @@ private:
     std::unique_ptr<ShadowPass> m_ShadowPass;
     std::unique_ptr<EnvironmentPass> m_EnvironmentPass;
     std::unique_ptr<MainPass>   m_MainPass;
+    std::unique_ptr<GBufferPass> m_GBufferPass;
+    std::unique_ptr<DeferredLightingPass> m_DeferredLightingPass;
     std::unique_ptr<PostProcessPass> m_PostProcessPass;
     std::unique_ptr<ScreenUIPass> m_ScreenUIPass;
     std::unique_ptr<RenderGraph> m_RenderGraph;
+    RenderPath m_RenderPath = RenderPath::Forward;
     bool m_OutputOffscreen = false;
     const UIDrawList* m_UIDrawList = nullptr;
 };

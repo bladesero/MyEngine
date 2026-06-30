@@ -9,6 +9,8 @@
 #include "Editor/EditorPanel.h"
 #include "Editor/EditorPanels.h"
 #include "Editor/EditorShortcutMap.h"
+#include "Editor/EditorUI/EditorAngelScriptDomain.h"
+#include "Editor/EditorUI/EditorScriptConfig.h"
 #include "Editor/UI/EditorIcons.h"
 #include "Editor/UI/EditorNotifications.h"
 #include "Editor/UI/EditorStyleTokens.h"
@@ -30,11 +32,35 @@
 #include <chrono>
 #include <cstring>
 #include <filesystem>
+#include <set>
 #include <vector>
 
 namespace EditorWidgets = Editor::UI::EditorWidgets;
 
 namespace {
+RenderPath RenderPathFromProjectValue(const std::string& value)
+{
+    return value == "deferred" ? RenderPath::Deferred : RenderPath::Forward;
+}
+
+const char* ProjectValueFromRenderPathIndex(int index)
+{
+    return index == 1 ? "deferred" : "forward";
+}
+
+std::string TrimMenuPrefix(const std::string& path, const char* topLevel)
+{
+    const std::string prefix = std::string(topLevel) + "/";
+    if (path.compare(0, prefix.size(), prefix) != 0) return {};
+    return path.substr(prefix.size());
+}
+
+std::string MenuTopLevel(const std::string& path)
+{
+    const size_t slash = path.find('/');
+    return slash == std::string::npos ? path : path.substr(0, slash);
+}
+
 class EditorImGuiEventBridge final : public IPlatformEventBridge {
 public:
     explicit EditorImGuiEventBridge(class EditorImGuiBackend* backend) : m_Backend(backend) {}
@@ -147,6 +173,7 @@ void EditorLayer::OnAttach() {
     m_Context.SetProject(&m_Project);
     m_Context.SetProfiler(&m_Profiler);
     m_Context.SetShortcutMap(&m_Workspace.GetShortcuts());
+    m_Context.SetOperators(&m_Operators);
     m_AssetRegistry.SetProfiler(&m_Profiler);
     if (const char* basePath = SDL_GetBasePath()) {
         m_Workspace.SetTemplateRoot(std::filesystem::path(basePath) / "ProjectTemplates" / "Default");
@@ -187,6 +214,10 @@ bool EditorLayer::OpenProject(const std::filesystem::path& root) {
     AssetManager::Get().Clear();
     AssetManager::Get().SetProjectRoot(m_Project.GetRoot());
     LoadProjectInputConfig();
+    if (m_SceneLayer) {
+        m_SceneLayer->SetRenderPath(
+            RenderPathFromProjectValue(projectConfig.GetGraphicsSettings().renderPath));
+    }
     m_Context.SetProjectRoot(m_Project.GetRoot());
     m_Context.SetProfiler(&m_Profiler);
     m_AssetRegistry.SetRoot(m_Project.GetContentRoot());
@@ -241,6 +272,7 @@ void EditorLayer::RegisterServices() {
     m_ServiceCollection.Add(m_ImportService);
     m_ServiceCollection.Add(m_LuaScriptService);
     m_ServiceCollection.Add(m_ShaderWatchService);
+    m_ServiceCollection.Add(m_ScriptHotReloadService);
     m_ServiceCollection.AttachAll(m_Context);
     m_ServicesRegistered = true;
 }
@@ -373,6 +405,35 @@ void EditorLayer::RegisterPanels() {
     m_Panels.push_back(std::make_unique<LogPanel>());
     m_Panels.push_back(std::make_unique<ProfilerPanel>());
     m_Panels.push_back(std::make_unique<AssetBrowserPanel>());
+
+    // Script domain is intentionally sidecar-only here: C++ panels remain the
+    // only dock windows so existing layout and behavior stay unchanged.
+    m_ScriptDomain = std::make_unique<EditorAngelScriptDomain>();
+    const std::filesystem::path engineScriptRoot =
+        std::filesystem::current_path() / "EngineContent" / "Editor" / "Scripts";
+    const std::filesystem::path projectScriptRoot =
+        m_Project.GetRoot() / "Content" / "Editor" / "Scripts";
+    std::string scriptError;
+    std::string configError;
+    m_ScriptDomain->SetConfig(EditorScriptConfig::LoadFromFile(
+        m_Project.GetRoot() / "Config" / "EditorScripts.json", &configError));
+    if (!configError.empty()) {
+        Logger::Warn("[EditorScript] Invalid EditorScripts config; using defaults: ", configError);
+    }
+    if (m_ScriptDomain->Load(engineScriptRoot, projectScriptRoot, &scriptError)) {
+        m_Context.SetEditorScriptDomain(m_ScriptDomain.get());
+        m_ScriptHotReloadService.SetDomain(m_ScriptDomain.get());
+        if (m_ScriptDomain->GetConfig().enableToolPanels) {
+            for (const auto& spec : m_ScriptDomain->GetRegistry().GetPanels()) {
+                m_Panels.push_back(std::make_unique<ScriptedToolPanel>(spec));
+            }
+        }
+    } else {
+        if (!scriptError.empty()) Logger::Warn("[EditorScript] Sidecar domain disabled: ", scriptError);
+        m_Context.SetEditorScriptDomain(nullptr);
+        m_ScriptHotReloadService.SetDomain(nullptr);
+        m_ScriptDomain.reset();
+    }
     for (size_t index = 0; index < m_Panels.size(); ++index) {
         const auto& state = m_Project.GetState();
         m_Panels[index]->SetVisible(state.IsPanelVisible(m_Panels[index]->GetID()));
@@ -395,7 +456,11 @@ void EditorLayer::OnDetach() {
     }
     for (auto it = m_Panels.rbegin(); it != m_Panels.rend(); ++it) (*it)->OnDetach();
     m_Panels.clear();
+    m_Context.SetEditorScriptDomain(nullptr);
+    m_ScriptHotReloadService.SetDomain(nullptr);
+    m_ScriptDomain.reset();
     m_ActionRegistry.Clear();
+    m_Context.SetOperators(nullptr);
     m_Context.SetActionRegistry(nullptr);
     m_Context.SetShortcutMap(nullptr);
     if (m_ServicesRegistered) m_ServiceCollection.DetachAll(m_Context);
@@ -489,6 +554,7 @@ void EditorLayer::OpenProjectSettings() {
         backend == "vulkan" ? 2 :
 #endif
         (backend == "d3d12" ? 1 : 0);
+    m_RenderPathIndex = config.GetGraphicsSettings().renderPath == "deferred" ? 1 : 0;
     m_ProjectSettingsRequested = true;
 }
 
@@ -704,12 +770,21 @@ void EditorLayer::DrawGraphicsSettingsTab() {
 #endif
     ImGui::Combo("Backend", &m_GraphicsBackendIndex, kBackends,
                  kBackendCount);
+    static constexpr const char* kRenderPaths[] = {"Forward", "Deferred"};
+    static constexpr int kRenderPathCount = 2;
+    if (m_RenderPathIndex >= kRenderPathCount) m_RenderPathIndex = 0;
+    ImGui::Combo("Render Path", &m_RenderPathIndex, kRenderPaths, kRenderPathCount);
     const RHIBackend active = m_RenderContext ? m_RenderContext->GetBackend() : RHIBackend::Unknown;
     const char* activeLabel = active == RHIBackend::Vulkan ? "Vulkan" :
                               active == RHIBackend::D3D12 ? "DirectX 12" :
                               active == RHIBackend::D3D11 ? "DirectX 11" : "Unknown";
     ImGui::LabelText("Active backend", "%s", activeLabel);
-    ImGui::LabelText("Apply", "%s", "next launch");
+    const RenderPath activeRenderPath = m_SceneLayer
+        ? m_SceneLayer->GetRenderPath()
+        : RenderPath::Forward;
+    ImGui::LabelText("Active render path", "%s",
+                     activeRenderPath == RenderPath::Deferred ? "Deferred" : "Forward");
+    ImGui::LabelText("Apply", "%s", "backend next launch, render path immediate");
     if (ImGui::Button("Save Graphics")) {
         auto& editable = m_Project.GetConfig();
         const ProjectConfig previous = editable;
@@ -718,8 +793,14 @@ void EditorLayer::DrawGraphicsSettingsTab() {
             m_GraphicsBackendIndex == 2 ? "vulkan" :
 #endif
             (m_GraphicsBackendIndex == 1 ? "d3d12" : "d3d11");
+        editable.GetGraphicsSettings().renderPath =
+            ProjectValueFromRenderPathIndex(m_RenderPathIndex);
         std::string error;
         if (editable.Save(&error)) {
+            if (m_SceneLayer) {
+                m_SceneLayer->SetRenderPath(
+                    RenderPathFromProjectValue(editable.GetGraphicsSettings().renderPath));
+            }
             Logger::Info("[Editor] Graphics settings saved");
             ShowProjectResult("Graphics settings saved.", false);
         } else {
@@ -912,6 +993,64 @@ void EditorLayer::DrawProjectResult() {
 #endif
 }
 
+void EditorLayer::DrawScriptMenuItems(const char* topLevel)
+{
+#if defined(MYENGINE_ENABLE_IMGUI)
+    EditorAngelScriptDomain* domain = m_Context.GetEditorScriptDomain();
+    if (!domain || !domain->IsLoaded() ||
+        !domain->GetConfig().enableMenuExtensions) {
+        return;
+    }
+
+    for (const auto& item : domain->GetRegistry().GetMenus()) {
+        const std::string label = TrimMenuPrefix(item.path, topLevel);
+        if (label.empty() || label.find('/') != std::string::npos) continue;
+        EditorAction* action = m_ActionRegistry.Find(item.target.c_str());
+        const bool enabled = !action || action->CanExecute(m_Context);
+        if (ImGui::MenuItem(label.c_str(), nullptr, false, enabled)) {
+            if (action) {
+                m_ActionRegistry.Execute(item.target.c_str(), m_Context);
+            } else {
+                std::string error;
+                const std::string stateKey = "menu:" + item.path;
+                if (!domain->ExecuteExtension(item.target, stateKey, m_Context, &error) &&
+                    !error.empty()) {
+                    Logger::Warn("[EditorScript] Menu item failed for ", item.path, ": ", error);
+                }
+            }
+        }
+    }
+#else
+    (void)topLevel;
+#endif
+}
+
+void EditorLayer::DrawScriptTopLevelMenus()
+{
+#if defined(MYENGINE_ENABLE_IMGUI)
+    EditorAngelScriptDomain* domain = m_Context.GetEditorScriptDomain();
+    if (!domain || !domain->IsLoaded() ||
+        !domain->GetConfig().enableMenuExtensions) {
+        return;
+    }
+
+    static const std::set<std::string> kCoreMenus {
+        "File", "Project", "Edit", "Build", "Build/Debug"
+    };
+    std::set<std::string> topLevels;
+    for (const auto& item : domain->GetRegistry().GetMenus()) {
+        const std::string top = MenuTopLevel(item.path);
+        if (!top.empty() && kCoreMenus.find(top) == kCoreMenus.end()) topLevels.insert(top);
+    }
+    for (const std::string& top : topLevels) {
+        if (ImGui::BeginMenu(top.c_str())) {
+            DrawScriptMenuItems(top.c_str());
+            ImGui::EndMenu();
+        }
+    }
+#endif
+}
+
 void EditorLayer::DrawMainMenuBar() {
 #if defined(MYENGINE_ENABLE_IMGUI)
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
@@ -966,23 +1105,28 @@ void EditorLayer::DrawMainMenuBar() {
             drawAction("scene.new");
             drawAction("scene.open");
             drawAction("scene.save");
+            DrawScriptMenuItems("File");
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Project")) {
             drawAction("project.settings");
             drawAction("project.setStartup");
             drawAction("project.publish");
+            DrawScriptMenuItems("Project");
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Edit")) {
             drawAction("edit.undo");
             drawAction("edit.redo");
+            DrawScriptMenuItems("Edit");
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Build/Debug")) {
             drawAction("shader.recompile");
+            DrawScriptMenuItems("Build/Debug");
             ImGui::EndMenu();
         }
+        DrawScriptTopLevelMenus();
         ImGui::EndMenuBar();
     }
     ImGui::End();

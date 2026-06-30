@@ -339,6 +339,8 @@ bool SceneViewportPanel::DrawSceneViewOverlay(EditorContext& context,
 void SceneViewportPanel::DrawContent()
 {
 #if defined(MYENGINE_ENABLE_IMGUI)
+    if (TryDrawScriptedBody("viewport")) return;
+
     EditorContext* context = GetContext();
     if (!context || !m_State) return;
     auto* sceneViewport = context->GetSceneViewport();
@@ -442,6 +444,8 @@ void GameViewportPanel::AfterEnd()
 void GameViewportPanel::DrawContent()
 {
 #if defined(MYENGINE_ENABLE_IMGUI)
+    if (TryDrawScriptedBody("gameViewport")) return;
+
     EditorContext* context = GetContext();
     if (!context) return;
     auto* gameViewport = context->GetGameViewport();

@@ -328,6 +328,14 @@ void EditorLayoutManager::ApplyDefaultLayout(
     };
 
     for (const auto& panel : m_Config.panels) dockToArea(panel);
+    std::unordered_set<std::string> configuredPanels;
+    for (const auto& panel : m_Config.panels) configuredPanels.insert(panel.panelID);
+    for (const auto& panel : panels) {
+        if (!panel || configuredPanels.find(panel->GetID()) != configuredPanels.end()) continue;
+        const std::string area = panel->GetDefaultDockArea();
+        if (area.empty()) continue;
+        dockToArea({panel->GetID(), panel->GetTitle(), area});
+    }
     ImGui::DockBuilderFinish(dockspaceID);
 #else
     (void)panels;

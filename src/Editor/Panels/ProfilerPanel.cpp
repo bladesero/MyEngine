@@ -20,6 +20,8 @@ ProfilerPanel::ProfilerPanel()
 void ProfilerPanel::DrawContent()
 {
 #if defined(MYENGINE_ENABLE_IMGUI)
+    if (TryDrawScriptedBody("profiler")) return;
+
     EditorContext* context = GetContext();
     EditorProfiler* profiler = context ? context->GetProfiler() : nullptr;
     const FrameStats emptyStats{};

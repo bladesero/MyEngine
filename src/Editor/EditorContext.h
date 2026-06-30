@@ -9,8 +9,10 @@
 
 class EditorAssetRegistry;
 class EditorActionRegistry;
+class EditorAngelScriptDomain;
 class EditorCommandStack;
 class EditorImGuiBackend;
+class EditorOperators;
 class EditorProject;
 class EditorProfiler;
 class EditorService;
@@ -74,6 +76,10 @@ public:
     EditorShortcutMap* GetShortcutMap() const { return m_ShortcutMap; }
     void SetImGuiBackend(EditorImGuiBackend* backend) { m_ImGuiBackend = backend; }
     EditorImGuiBackend* GetImGuiBackend() const { return m_ImGuiBackend; }
+    void SetEditorScriptDomain(EditorAngelScriptDomain* value) { m_EditorScriptDomain = value; }
+    EditorAngelScriptDomain* GetEditorScriptDomain() const { return m_EditorScriptDomain; }
+    void SetOperators(EditorOperators* value) { m_Operators = value; }
+    EditorOperators* GetOperators() const { return m_Operators; }
     void SetProjectRoot(std::filesystem::path root);
     const std::filesystem::path& GetProjectRoot() const { return m_ProjectRoot; }
     const std::filesystem::path& GetContentRoot() const { return m_ContentRoot; }
@@ -100,6 +106,8 @@ private:
     EditorActionRegistry* m_ActionRegistry = nullptr;
     EditorShortcutMap* m_ShortcutMap = nullptr;
     EditorImGuiBackend* m_ImGuiBackend = nullptr;
+    EditorAngelScriptDomain* m_EditorScriptDomain = nullptr;
+    EditorOperators* m_Operators = nullptr;
     EditorWorldViewMode m_SceneViewMode = EditorWorldViewMode::EditorWorld;
     std::unordered_map<std::type_index, EditorService*> m_Services;
     std::filesystem::path m_ProjectRoot;

@@ -2841,6 +2841,7 @@ bool TestProjectConfigAndPortableAssetPaths() {
     if (!Check(project.Open(root, true, &error), "missing project should open in editor mode")) return false;
     project.SetName("ProjectTest");
     project.GetGraphicsSettings().backend = "d3d12";
+    project.GetGraphicsSettings().renderPath = "deferred";
     if (!Check(project.SetInputConfigPath("Content/Config/Input.input.json", &error),
                "project input config path save failed: " + error)) return false;
     if (!Check(project.SetStartupScene(startupPath, &error) && project.Save(&error),
@@ -2852,7 +2853,8 @@ bool TestProjectConfigAndPortableAssetPaths() {
                loaded.GetName() == "ProjectTest" &&
                loaded.GetStartupScene() == "Content/Scenes/Main.scene.json" &&
                loaded.GetInputSettings().config == "Content/Config/Input.input.json" &&
-               loaded.GetGraphicsSettings().backend == "d3d12",
+               loaded.GetGraphicsSettings().backend == "d3d12" &&
+               loaded.GetGraphicsSettings().renderPath == "deferred",
                "project manifest fields mismatch")) return false;
 
     fs::path resolved;
@@ -2879,6 +2881,10 @@ bool TestProjectConfigAndPortableAssetPaths() {
     if (!Check(!loaded.Save(&error),
                "unsupported graphics backend was accepted")) return false;
     loaded.GetGraphicsSettings().backend = "d3d11";
+    loaded.GetGraphicsSettings().renderPath = "raytraced";
+    if (!Check(!loaded.Save(&error),
+               "unsupported render path was accepted")) return false;
+    loaded.GetGraphicsSettings().renderPath = "forward";
     if (!Check(loaded.Save(&error), "failed to restore graphics backend")) return false;
     std::ofstream(root / ProjectConfig::kFileName)
         << R"({"version":999,"name":"Future","startupScene":"Content/Scenes/Main.scene.json"})";

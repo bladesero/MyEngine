@@ -8,6 +8,7 @@
 #include "Editor/EditorImportService.h"
 #include "Editor/EditorInspectorSection.h"
 #include "Editor/EditorLayoutManager.h"
+#include "Editor/EditorOperators.h"
 #include "Editor/EditorProfiler.h"
 #include "Editor/EditorProject.h"
 #include "Editor/EditorSelection.h"
@@ -15,6 +16,8 @@
 #include "Editor/EditorShortcutMap.h"
 #include "Editor/EditorThemeManager.h"
 #include "Editor/EditorUndoUtil.h"
+#include "Editor/EditorUI/EditorAngelScriptDomain.h"
+#include "Editor/EditorUI/EditorScriptRegistry.h"
 #include "Editor/EditorUIScaleManager.h"
 #include "Editor/UI/EditorFontManager.h"
 #include "Editor/UI/EditorIcons.h"
@@ -197,6 +200,58 @@ bool TestEditorSceneSnapshotCommands() {
     return Check(restoredParent && restoredParent->GetChildren().size() == 1 &&
                  restoredParent->GetChildren()[0]->GetComponent<BoxColliderComponent>() != nullptr,
                  "scene snapshot redo lost hierarchy or component");
+}
+
+bool TestEditorOperatorsSelectionAndCommands() {
+    Scene scene("EditorOperators");
+    EditorContext context(&scene);
+    EditorCommandStack stack;
+    EditorOperators operators;
+    context.SetCommandStack(&stack);
+    context.SetOperators(&operators);
+
+    const uint64_t actorID = operators.Commands().CreateActor(context, "OperatorActor");
+    Actor* actor = scene.FindByID(actorID);
+    if (!Check(actor && actor->GetName() == "OperatorActor",
+               "operator create actor failed")) return false;
+    if (!Check(context.GetSelection().GetActorID() == actorID,
+               "operator create actor did not preserve command selection semantics")) return false;
+
+    if (!Check(operators.Commands().RenameActor(context, actorID, "Renamed"),
+               "operator rename actor failed")) return false;
+    if (!Check(actor->GetName() == "Renamed",
+               "operator rename did not apply")) return false;
+    if (!Check(stack.Undo(context) && actor->GetName() == "OperatorActor",
+               "operator rename undo failed")) return false;
+    if (!Check(stack.Redo(context) && actor->GetName() == "Renamed",
+               "operator rename redo failed")) return false;
+
+    if (!Check(operators.Commands().SetActorActive(context, actorID, false),
+               "operator active toggle failed")) return false;
+    if (!Check(!actor->IsActiveSelf(),
+               "operator active toggle did not apply")) return false;
+    if (!Check(stack.Undo(context) && actor->IsActiveSelf(),
+               "operator active toggle undo failed")) return false;
+
+    if (!Check(operators.Selection().SelectAsset(context, "Content/Models/test.gltf"),
+               "operator asset selection failed")) return false;
+    const EditorSelectionSnapshot snapshot =
+        operators.Selection().GetSelectionSnapshot(context);
+    if (!Check(snapshot.hasAsset &&
+               snapshot.assetPath == std::filesystem::path("Content/Models/test.gltf").generic_string(),
+               "operator selection snapshot mismatch")) return false;
+    operators.Selection().Clear(context);
+    if (!Check(!context.GetSelection().HasActor() && !context.GetSelection().HasAsset(),
+               "operator clear selection failed")) return false;
+
+    operators.Selection().SelectActor(context, actorID);
+    if (!Check(operators.Commands().DeleteActor(context, actorID),
+               "operator delete actor failed")) return false;
+    if (!Check(scene.FindByID(actorID) == nullptr,
+               "operator delete actor did not apply")) return false;
+    if (!Check(stack.Undo(context) && scene.FindByID(actorID) != nullptr,
+               "operator delete actor undo failed")) return false;
+    return true;
 }
 
 bool TestEditorMoveActorCommandUndoRedo() {
@@ -949,6 +1004,91 @@ bool TestEditorProjectAndAssetRegistry() {
     return Check(stateMatches, "editor project state persistence mismatch");
 }
 
+bool TestEditorAssetOperatorCommandsAndWatch() {
+    namespace fs = std::filesystem;
+    const auto root = fs::temp_directory_path() /
+        ("myengine_editor_asset_operator_" + std::to_string(
+            std::chrono::steady_clock::now().time_since_epoch().count()));
+    const auto content = root / "Content";
+    std::error_code error;
+    fs::create_directories(content / "Materials", error);
+    const fs::path materialPath = content / "Materials" / "test.mat";
+    std::ofstream(materialPath) << "{}";
+
+    EditorAssetRegistry registry;
+    registry.SetRoot(content);
+    registry.Refresh();
+    Scene scene("AssetOperatorContext");
+    EditorContext context(&scene);
+    EditorCommandStack stack;
+    EditorOperators operators;
+    context.SetProjectRoot(root);
+    context.SetAssetRegistry(&registry);
+    context.SetCommandStack(&stack);
+    context.SetOperators(&operators);
+
+    float accumulator = 0.0f;
+    if (!Check(!operators.Assets().WatchIfDue(context, 0.25f, accumulator),
+               "asset operator watched before throttle interval")) {
+        fs::remove_all(root, error);
+        return false;
+    }
+    if (!Check(accumulator > 0.0f,
+               "asset operator did not accumulate watch delta")) {
+        fs::remove_all(root, error);
+        return false;
+    }
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    std::ofstream(materialPath, std::ios::app) << " ";
+    if (!Check(operators.Assets().WatchIfDue(context, 1.0f, accumulator),
+               "asset operator missed throttled registry change")) {
+        fs::remove_all(root, error);
+        return false;
+    }
+
+    if (!Check(operators.Assets().DuplicateAsset(context, materialPath.string()),
+               "asset operator duplicate failed")) {
+        fs::remove_all(root, error);
+        return false;
+    }
+    const fs::path copyPath = content / "Materials" / "test_Copy.mat";
+    if (!Check(fs::exists(copyPath),
+               "asset operator duplicate did not create copy")) {
+        fs::remove_all(root, error);
+        return false;
+    }
+    if (!Check(stack.Undo(context) && !fs::exists(copyPath),
+               "asset operator duplicate undo failed")) {
+        fs::remove_all(root, error);
+        return false;
+    }
+    if (!Check(stack.Redo(context) && fs::exists(copyPath),
+               "asset operator duplicate redo failed")) {
+        fs::remove_all(root, error);
+        return false;
+    }
+
+    if (!Check(operators.Assets().DeleteAsset(context, copyPath.string()),
+               "asset operator delete failed")) {
+        fs::remove_all(root, error);
+        return false;
+    }
+    if (!Check(!fs::exists(copyPath),
+               "asset operator delete did not remove file")) {
+        fs::remove_all(root, error);
+        return false;
+    }
+    if (!Check(stack.Undo(context) && fs::exists(copyPath),
+               "asset operator delete undo failed")) {
+        fs::remove_all(root, error);
+        return false;
+    }
+
+    fs::remove_all(root, error);
+    return true;
+}
+
 bool TestEditorPerformanceSourceContracts() {
     const auto readSource = [](const char* relativePath) {
         const char* prefixes[] = {"", "../../../", "../../../../", "../../../../../"};
@@ -984,8 +1124,8 @@ bool TestEditorPerformanceSourceContracts() {
                assetRegistry.find("std::vector<EditorAssetInfo> before") == std::string::npos &&
                assetRegistry.find("AccumulateFolderCounts") != std::string::npos,
                "asset registry watch still uses full-list copies or old folder counting")) return false;
-    if (!Check(assetBrowser.find("m_WatchAccumulator < 1.0f") != std::string::npos,
-               "asset browser watch is not throttled")) return false;
+    if (!Check(assetBrowser.find("operators->Assets().WatchIfDue") != std::string::npos,
+               "asset browser watch is not routed through the throttled asset operator")) return false;
     if (!Check(sceneLayerHeader.find("SetSceneViewportActive") != std::string::npos &&
                sceneLayerHeader.find("SetGameViewportActive") != std::string::npos &&
                sceneLayer.find("if (m_SceneViewportActive)") != std::string::npos &&
@@ -1116,7 +1256,530 @@ bool TestProductionAssetDatabaseAndImportPipeline() {
     return true;
 }
 
+bool TestEditorAngelScriptDomainRegistryOverrideAndRollback() {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "MyEngineEditorScriptDomainTest";
+    const fs::path engineScripts = root / "Engine";
+    const fs::path projectScripts = root / "Project";
+    std::error_code ec;
+    fs::remove_all(root, ec);
+    fs::create_directories(engineScripts, ec);
+    fs::create_directories(projectScripts, ec);
+
+    {
+        std::ofstream script(engineScripts / "Default.as");
+        script << R"AS(
+void RegisterEditor(EditorRegistry@ registry)
+{
+    registry.Panel("engineTool", "Engine Tool", Top, "DrawEngineTool");
+    registry.Panel("log", "Illegal Core Log", BottomCenter, "DrawLog");
+}
+void DrawEngineTool() {}
+void DrawLog() {}
+)AS";
+    }
+    {
+        std::ofstream script(projectScripts / "Override.as");
+        script << R"AS(
+void RegisterEditor(EditorRegistry@ registry)
+{
+    registry.Panel("engineTool", "Project Tool Override", Top, "DrawProjectTool");
+    registry.Panel("toolbar", "Illegal Core Toolbar", Top, "DrawProjectToolbar");
+    registry.Panel("custom", "Custom Panel", Right, "DrawCustom");
+}
+void DrawProjectTool() {}
+void DrawProjectToolbar() {}
+void DrawCustom() {}
+)AS";
+    }
+
+    EditorAngelScriptDomain domain;
+    std::string error;
+    if (!Check(domain.Load(engineScripts, projectScripts, &error),
+               "editor script domain failed to load valid scripts: " + error)) {
+        fs::remove_all(root, ec);
+        return false;
+    }
+
+    const auto& panels = domain.GetRegistry().GetPanels();
+    auto findPanel = [&](const std::string& id) -> const EditorScriptPanelSpec* {
+        for (const auto& panel : panels) {
+            if (panel.id == id) return &panel;
+        }
+        return nullptr;
+    };
+    const EditorScriptPanelSpec* engineTool = findPanel("engineTool");
+    if (!Check(engineTool && engineTool->title == "Project Tool Override" &&
+               engineTool->callback == "DrawProjectTool",
+               "project script did not override non-core tool panel by id")) {
+        fs::remove_all(root, ec);
+        return false;
+    }
+    if (!Check(findPanel("toolbar") == nullptr && findPanel("log") == nullptr,
+               "core panel ids were accepted as scripted tool panels")) {
+        fs::remove_all(root, ec);
+        return false;
+    }
+    if (!Check(findPanel("custom") != nullptr,
+               "project script did not append custom panel")) {
+        fs::remove_all(root, ec);
+        return false;
+    }
+
+    {
+        std::ofstream script(projectScripts / "Broken.as");
+        script << "void RegisterEditor(EditorRegistry@ registry) { broken script";
+    }
+    if (!Check(!domain.ReloadIfChanged(&error),
+               "invalid editor script reload unexpectedly succeeded")) {
+        fs::remove_all(root, ec);
+        return false;
+    }
+    engineTool = findPanel("engineTool");
+    const bool registryPreserved = engineTool && engineTool->title == "Project Tool Override" &&
+                                   findPanel("custom") != nullptr;
+    fs::remove_all(root, ec);
+    return Check(registryPreserved,
+                 "failed editor script reload did not preserve last valid registry");
+}
+
+bool TestEditorPanelBodyRegistrationAndProjectCoreOverridePolicy() {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "MyEngineEditorPanelBodyTest";
+    const fs::path engineScripts = root / "Engine";
+    const fs::path projectScripts = root / "Project";
+    std::error_code ec;
+    fs::remove_all(root, ec);
+    fs::create_directories(engineScripts, ec);
+    fs::create_directories(projectScripts, ec);
+
+    {
+        std::ofstream script(engineScripts / "Default.as");
+        script << R"AS(
+void RegisterEditor(EditorRegistry@ registry)
+{
+    registry.PanelBody("toolbar", "DrawEngineToolbar");
+}
+void DrawEngineToolbar() {}
+)AS";
+    }
+    {
+        std::ofstream script(projectScripts / "Project.as");
+        script << R"AS(
+void RegisterEditor(EditorRegistry@ registry)
+{
+    registry.PanelBody("toolbar", "DrawProjectToolbar");
+    registry.Panel("customPanel", "Custom Panel", Right, "DrawCustom");
+}
+void DrawProjectToolbar() {}
+void DrawCustom() {}
+)AS";
+    }
+
+    EditorAngelScriptDomain domain;
+    EditorScriptConfig config;
+    config.enabledCorePanels = {"toolbar"};
+    config.allowProjectOverrideCore = false;
+    domain.SetConfig(config);
+
+    std::string error;
+    if (!Check(domain.Load(engineScripts, projectScripts, &error),
+               "editor script domain failed to load panel body scripts: " + error)) {
+        fs::remove_all(root, ec);
+        return false;
+    }
+
+    const std::string* toolbarBody =
+        domain.GetRegistry().FindPanelBodyCallback("toolbar");
+    if (!Check(toolbarBody && *toolbarBody == "DrawEngineToolbar",
+               "project script overrode core toolbar PanelBody despite policy")) {
+        fs::remove_all(root, ec);
+        return false;
+    }
+
+    const bool hasProjectAppend = std::any_of(
+        domain.GetRegistry().GetPanels().begin(),
+        domain.GetRegistry().GetPanels().end(),
+        [](const EditorScriptPanelSpec& panel) {
+            return panel.id == "customPanel" && panel.callback == "DrawCustom";
+        });
+    if (!Check(hasProjectAppend, "project script append panel registration was lost")) {
+        fs::remove_all(root, ec);
+        return false;
+    }
+
+    Scene scene("EditorPanelBody");
+    EditorContext context(&scene);
+    if (!Check(domain.ExecutePanelBody("toolbar", context, &error),
+               "registered toolbar PanelBody did not execute: " + error)) {
+        fs::remove_all(root, ec);
+        return false;
+    }
+
+    config.corePanelMode = EditorScriptCorePanelMode::CppOnly;
+    domain.SetConfig(config);
+    if (!Check(!domain.ExecutePanelBody("toolbar", context, &error),
+               "cppOnly mode still executed a scripted panel body")) {
+        fs::remove_all(root, ec);
+        return false;
+    }
+
+    fs::remove_all(root, ec);
+    return true;
+}
+
+bool TestEditorScriptBindingsAndPanelStatePersistence() {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "MyEngineEditorBindingFacadeTest";
+    const fs::path engineScripts = root / "Engine";
+    const fs::path projectScripts = root / "Project";
+    std::error_code ec;
+    fs::remove_all(root, ec);
+    fs::create_directories(engineScripts, ec);
+    fs::create_directories(projectScripts, ec);
+
+    const fs::path scriptPath = engineScripts / "Default.as";
+    {
+        std::ofstream script(scriptPath);
+        script << R"AS(
+void RegisterEditor(EditorRegistry@ registry)
+{
+    registry.PanelBody("toolbar", "DrawToolbar");
+}
+void DrawToolbar()
+{
+    PanelState::SetString("flag", "kept");
+    string text = PanelState::GetString("flag", "");
+}
+)AS";
+    }
+
+    EditorAngelScriptDomain domain;
+    EditorScriptConfig config;
+    config.enabledCorePanels = {"toolbar"};
+    domain.SetConfig(config);
+    std::string error;
+    if (!Check(domain.Load(engineScripts, projectScripts, &error),
+               "editor binding facade script failed to compile: " + error)) {
+        fs::remove_all(root, ec);
+        return false;
+    }
+
+    Scene scene("EditorBindingFacade");
+    EditorContext context(&scene);
+    EditorCommandStack stack;
+    EditorOperators operators;
+    EditorAssetRegistry registry;
+    EditorProfiler profiler;
+    context.SetCommandStack(&stack);
+    context.SetOperators(&operators);
+    context.SetAssetRegistry(&registry);
+    context.SetProfiler(&profiler);
+    if (!Check(domain.ExecutePanelBody("toolbar", context, &error),
+               "editor binding facade script failed to execute: " + error)) {
+        fs::remove_all(root, ec);
+        return false;
+    }
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(25));
+    {
+        std::ofstream script(scriptPath, std::ios::trunc);
+        script << R"AS(
+void RegisterEditor(EditorRegistry@ registry)
+{
+    registry.PanelBody("toolbar", "DrawToolbar");
+}
+void DrawToolbar()
+{
+    if (PanelState::GetString("flag", "") == "kept")
+    {
+        Selection::SelectAsset("Content/StateKept.asset");
+    }
+}
+)AS";
+    }
+
+    if (!Check(domain.ReloadIfChanged(&error),
+               "editor binding facade reload failed: " + error)) {
+        fs::remove_all(root, ec);
+        return false;
+    }
+    if (!Check(domain.ExecutePanelBody("toolbar", context, &error),
+               "editor binding facade reloaded script failed: " + error)) {
+        fs::remove_all(root, ec);
+        return false;
+    }
+
+    const bool statePersisted =
+        context.GetSelection().GetAssetPath() ==
+        std::filesystem::path("Content/StateKept.asset").generic_string();
+    fs::remove_all(root, ec);
+    return Check(statePersisted,
+                 "PanelState did not persist across editor script reload");
+}
+
+bool TestEditorScriptExtensionPointRegistryAndExecution() {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "MyEngineEditorExtensionPointTest";
+    const fs::path engineScripts = root / "Engine";
+    const fs::path projectScripts = root / "Project";
+    std::error_code ec;
+    fs::remove_all(root, ec);
+    fs::create_directories(engineScripts, ec);
+    fs::create_directories(projectScripts, ec);
+
+    {
+        std::ofstream script(engineScripts / "Default.as");
+        script << R"AS(
+void RegisterEditor(EditorRegistry@ registry)
+{
+    registry.ToolPanel("engineTool", "Engine Tool", Right, "DrawEngineTool");
+}
+void DrawEngineTool() {}
+)AS";
+    }
+    {
+        std::ofstream script(projectScripts / "Project.as");
+        script << R"AS(
+void RegisterEditor(EditorRegistry@ registry)
+{
+    registry.ToolPanel("projectTool", "Project Tool", Left, "DrawProjectTool");
+    registry.ToolPanel("assetBrowser", "Illegal Core", Left, "DrawIllegal");
+    registry.MenuItem("Tools/Project Tool", "OpenProjectTool");
+    registry.ToolbarItem("project.run", 10, "DrawToolbarRun");
+    registry.InspectorSection("Actor", 50, "DrawActorSection");
+    registry.AssetContextMenu("*", "DrawAssetMenu");
+    registry.ActorContextMenu("DrawActorMenu");
+}
+void DrawProjectTool()
+{
+    PanelState::SetString("opened", "yes");
+    Selection::SelectAsset("Content/ProjectTool.asset");
+}
+void DrawIllegal() {}
+void OpenProjectTool() {}
+void DrawToolbarRun() {}
+void DrawActorSection() {}
+void DrawAssetMenu() {}
+void DrawActorMenu() {}
+)AS";
+    }
+
+    EditorAngelScriptDomain domain;
+    EditorScriptConfig config;
+    config.allowProjectAppend = true;
+    config.allowProjectOverrideCore = false;
+    domain.SetConfig(config);
+    std::string error;
+    if (!Check(domain.Load(engineScripts, projectScripts, &error),
+               "editor extension point script failed to compile: " + error)) {
+        fs::remove_all(root, ec);
+        return false;
+    }
+
+    const auto& registry = domain.GetRegistry();
+    const bool hasProjectTool = std::any_of(
+        registry.GetPanels().begin(), registry.GetPanels().end(),
+        [](const EditorScriptPanelSpec& panel) {
+            return panel.id == "projectTool" && panel.callback == "DrawProjectTool";
+        });
+    const bool rejectedCoreTool = std::none_of(
+        registry.GetPanels().begin(), registry.GetPanels().end(),
+        [](const EditorScriptPanelSpec& panel) {
+            return panel.id == "assetBrowser";
+        });
+    if (!Check(hasProjectTool && rejectedCoreTool,
+               "project ToolPanel registration did not preserve core panel boundary")) {
+        fs::remove_all(root, ec);
+        return false;
+    }
+    if (!Check(registry.GetMenus().size() == 1 &&
+               registry.GetToolbarItems().size() == 1 &&
+               registry.GetInspectors().size() == 1 &&
+               registry.GetAssetContextMenus().size() == 1 &&
+               registry.GetActorContextMenus().size() == 1,
+               "extension point registry did not capture every append registration")) {
+        fs::remove_all(root, ec);
+        return false;
+    }
+
+    Scene scene("EditorExtensionPoint");
+    EditorContext context(&scene);
+    EditorOperators operators;
+    context.SetOperators(&operators);
+    if (!Check(domain.ExecuteExtension("DrawProjectTool", "tool:projectTool", context, &error),
+               "scripted tool panel callback failed: " + error)) {
+        fs::remove_all(root, ec);
+        return false;
+    }
+
+    const bool executed =
+        context.GetSelection().GetAssetPath() ==
+        std::filesystem::path("Content/ProjectTool.asset").generic_string();
+    fs::remove_all(root, ec);
+    return Check(executed, "scripted extension callback did not run through facade");
+}
+
+bool TestDefaultEditorScriptCompilesAndRegistersToolbarBody() {
+    auto findRepositoryRoot = [] {
+        std::filesystem::path current = std::filesystem::current_path();
+        for (;;) {
+            if (std::filesystem::exists(current / "xmake.lua") &&
+                std::filesystem::exists(current / "EngineContent/Editor/Scripts/DefaultEditor.as")) {
+                return current;
+            }
+            if (!current.has_parent_path() || current == current.parent_path()) break;
+            current = current.parent_path();
+        }
+        return std::filesystem::path{};
+    };
+
+    const std::filesystem::path root = findRepositoryRoot();
+    EditorAngelScriptDomain domain;
+    EditorScriptConfig config;
+    config.enabledCorePanels = {"toolbar"};
+    domain.SetConfig(config);
+    std::string error;
+    if (!Check(domain.Load(root / "EngineContent/Editor/Scripts",
+                           root / "Content/Editor/Scripts", &error),
+               "default editor AngelScript failed to compile: " + error)) {
+        return false;
+    }
+    const std::string* toolbarBody =
+        domain.GetRegistry().FindPanelBodyCallback("toolbar");
+    return Check(toolbarBody && *toolbarBody == "DrawToolbar",
+                 "default editor script did not register toolbar PanelBody");
+}
+
+bool TestEditorUIFacadeDoesNotExposeRawImGuiContract() {
+    auto findRepositoryRoot = [] {
+        std::filesystem::path current = std::filesystem::current_path();
+        for (;;) {
+            if (std::filesystem::exists(current / "xmake.lua") &&
+                std::filesystem::exists(current / "src/Editor/EditorUI/EditorUIFacade.cpp")) {
+                return current;
+            }
+            if (!current.has_parent_path() || current == current.parent_path()) break;
+            current = current.parent_path();
+        }
+        return std::filesystem::path{};
+    };
+
+    const std::filesystem::path root = findRepositoryRoot();
+    std::ifstream source(root / "src/Editor/EditorUI/EditorUIFacade.cpp", std::ios::binary);
+    if (!Check(static_cast<bool>(source), "failed to open EditorUIFacade source")) return false;
+    std::stringstream buffer;
+    buffer << source.rdbuf();
+    const std::string text = buffer.str();
+    if (!Check(text.find("SetDefaultNamespace(\"UI\")") != std::string::npos,
+               "UI facade does not register the UI namespace")) return false;
+    if (!Check(text.find("SetDefaultNamespace(\"ImGui\")") == std::string::npos,
+               "UI facade exposes raw ImGui namespace to scripts")) return false;
+    if (!Check(text.find("ImGui::") != std::string::npos,
+               "UI facade source contract test did not inspect ImGui wrapper usage")) return false;
+    if (!Check(text.find("SetDefaultNamespace(\"PanelState\")") != std::string::npos &&
+               text.find("SetDefaultNamespace(\"Hierarchy\")") != std::string::npos &&
+               text.find("SetDefaultNamespace(\"AssetBrowser\")") != std::string::npos &&
+               text.find("SetDefaultNamespace(\"DragDrop\")") != std::string::npos &&
+               text.find("SetDefaultNamespace(\"Transaction\")") != std::string::npos,
+               "UI facade does not expose the editor binding namespaces")) return false;
+    if (!Check(text.find("ExecuteCommand(") == std::string::npos &&
+               text.find("WatchForChanges(") == std::string::npos &&
+               text.find("GetSelection().Select") == std::string::npos,
+               "AS facade mutating bindings bypass editor operators")) return false;
+    return true;
+}
+
+bool TestEditorLayerKeepsCppPanelsWithScriptSidecar() {
+    auto findRepositoryRoot = [] {
+        std::filesystem::path current = std::filesystem::current_path();
+        for (;;) {
+            if (std::filesystem::exists(current / "xmake.lua") &&
+                std::filesystem::exists(current / "src/Editor/EditorLayer.cpp")) {
+                return current;
+            }
+            if (!current.has_parent_path() || current == current.parent_path()) break;
+            current = current.parent_path();
+        }
+        return std::filesystem::path{};
+    };
+
+    const std::filesystem::path root = findRepositoryRoot();
+    std::ifstream source(root / "src/Editor/EditorLayer.cpp", std::ios::binary);
+    if (!Check(static_cast<bool>(source), "failed to open EditorLayer source")) return false;
+    std::stringstream buffer;
+    buffer << source.rdbuf();
+    const std::string text = buffer.str();
+    if (!Check(text.find("std::make_unique<ToolbarPanel>()") != std::string::npos,
+               "EditorLayer no longer creates the native toolbar panel")) return false;
+    if (!Check(text.find("std::make_unique<SceneViewportPanel>(gizmo)") != std::string::npos,
+               "EditorLayer no longer creates the native scene viewport panel")) return false;
+    if (!Check(text.find("std::make_unique<GameViewportPanel>()") != std::string::npos,
+               "EditorLayer no longer creates the native game viewport panel")) return false;
+    if (!Check(text.find("std::make_unique<SceneHierarchyPanel>()") != std::string::npos,
+               "EditorLayer no longer creates the native hierarchy panel")) return false;
+    if (!Check(text.find("std::make_unique<InspectorPanel>(gizmo)") != std::string::npos,
+               "EditorLayer no longer creates the native inspector panel")) return false;
+    if (!Check(text.find("std::make_unique<AssetBrowserPanel>()") != std::string::npos,
+               "EditorLayer no longer creates the native asset browser panel")) return false;
+    if (!Check(text.find("ScriptedEditorPanel") == std::string::npos,
+               "EditorLayer must not replace native panels with scripted dock panels")) return false;
+    if (!Check(text.find("std::make_unique<ScriptedToolPanel>") != std::string::npos,
+               "EditorLayer does not append scripted tool panels for extensions")) return false;
+    if (!Check(text.find("Sidecar domain") != std::string::npos,
+               "EditorLayer script domain is not documented as sidecar-only")) return false;
+    return true;
+}
+
+bool TestEditorOperatorSourceContracts() {
+    auto findRepositoryRoot = [] {
+        std::filesystem::path current = std::filesystem::current_path();
+        for (;;) {
+            if (std::filesystem::exists(current / "xmake.lua") &&
+                std::filesystem::exists(current / "src/Editor/EditorOperators.cpp")) {
+                return current;
+            }
+            if (!current.has_parent_path() || current == current.parent_path()) break;
+            current = current.parent_path();
+        }
+        return std::filesystem::path{};
+    };
+    const auto readSource = [](const std::filesystem::path& path) {
+        std::ifstream file(path, std::ios::binary);
+        std::ostringstream contents;
+        contents << file.rdbuf();
+        return contents.str();
+    };
+
+    const std::filesystem::path root = findRepositoryRoot();
+    const std::string contextHeader = readSource(root / "src/Editor/EditorContext.h");
+    const std::string operatorsSource = readSource(root / "src/Editor/EditorOperators.cpp");
+    const std::string assetBrowser = readSource(root / "src/Editor/Panels/AssetBrowserPanel.cpp");
+    const std::string uiFacade = readSource(root / "src/Editor/EditorUI/EditorUIFacade.cpp");
+    if (!Check(!contextHeader.empty() && !operatorsSource.empty() &&
+               !assetBrowser.empty() && !uiFacade.empty(),
+               "operator source contract files were not found")) return false;
+    if (!Check(contextHeader.find("GetOperators()") != std::string::npos,
+               "EditorContext does not expose editor operators")) return false;
+    if (!Check(operatorsSource.find("EditorCommandStack") != std::string::npos &&
+               operatorsSource.find("WatchForChanges()") != std::string::npos &&
+               operatorsSource.find("EditorSelectionOperator::SelectActor") != std::string::npos,
+               "EditorOperators does not centralize command/watch/selection behavior")) return false;
+    if (!Check(assetBrowser.find("registry->WatchForChanges()") == std::string::npos &&
+               assetBrowser.find("operators->Assets().WatchIfDue") != std::string::npos &&
+               assetBrowser.find("operators->Selection().SelectAsset") != std::string::npos,
+               "AssetBrowser still bypasses operator watch or selection paths")) return false;
+    if (!Check(uiFacade.find("SetDefaultNamespace(\"Commands\")") != std::string::npos &&
+               uiFacade.find("operators->Commands().CreateActor") != std::string::npos &&
+               uiFacade.find("context->GetSelection().SelectActorID(actorID)") == std::string::npos,
+               "AngelScript facade does not route command/selection bindings through operators")) {
+        return false;
+    }
+    return true;
+}
+
 MYENGINE_REGISTER_TEST("Editor", "TestEditorCommandStackAndSelection", TestEditorCommandStackAndSelection);
+MYENGINE_REGISTER_TEST("Editor", "TestEditorOperatorsSelectionAndCommands", TestEditorOperatorsSelectionAndCommands);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorSelectObjectEvents", TestEditorSelectObjectEvents);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorSceneSnapshotCommands", TestEditorSceneSnapshotCommands);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorMoveActorCommandUndoRedo", TestEditorMoveActorCommandUndoRedo);
@@ -1131,7 +1794,16 @@ MYENGINE_REGISTER_TEST("Editor", "TestInspectorPanelSnapshotsAreInputGated", Tes
 MYENGINE_REGISTER_TEST("Editor", "TestEditorProfilerBufferAndSourceContracts", TestEditorProfilerBufferAndSourceContracts);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorLayoutConfigAndStatePersistence", TestEditorLayoutConfigAndStatePersistence);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorProjectAndAssetRegistry", TestEditorProjectAndAssetRegistry);
+MYENGINE_REGISTER_TEST("Editor", "TestEditorAssetOperatorCommandsAndWatch", TestEditorAssetOperatorCommandsAndWatch);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorPerformanceSourceContracts", TestEditorPerformanceSourceContracts);
 MYENGINE_REGISTER_TEST("Editor", "TestProductionAssetDatabaseAndImportPipeline", TestProductionAssetDatabaseAndImportPipeline);
+MYENGINE_REGISTER_TEST("Editor", "TestEditorAngelScriptDomainRegistryOverrideAndRollback", TestEditorAngelScriptDomainRegistryOverrideAndRollback);
+MYENGINE_REGISTER_TEST("Editor", "TestEditorPanelBodyRegistrationAndProjectCoreOverridePolicy", TestEditorPanelBodyRegistrationAndProjectCoreOverridePolicy);
+MYENGINE_REGISTER_TEST("Editor", "TestEditorScriptBindingsAndPanelStatePersistence", TestEditorScriptBindingsAndPanelStatePersistence);
+MYENGINE_REGISTER_TEST("Editor", "TestEditorScriptExtensionPointRegistryAndExecution", TestEditorScriptExtensionPointRegistryAndExecution);
+MYENGINE_REGISTER_TEST("Editor", "TestDefaultEditorScriptCompilesAndRegistersToolbarBody", TestDefaultEditorScriptCompilesAndRegistersToolbarBody);
+MYENGINE_REGISTER_TEST("Editor", "TestEditorUIFacadeDoesNotExposeRawImGuiContract", TestEditorUIFacadeDoesNotExposeRawImGuiContract);
+MYENGINE_REGISTER_TEST("Editor", "TestEditorLayerKeepsCppPanelsWithScriptSidecar", TestEditorLayerKeepsCppPanelsWithScriptSidecar);
+MYENGINE_REGISTER_TEST("Editor", "TestEditorOperatorSourceContracts", TestEditorOperatorSourceContracts);
 
 } // namespace

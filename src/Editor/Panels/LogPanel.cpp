@@ -11,6 +11,8 @@
 LogPanel::LogPanel():EditorPanel("log","Log Output"){}
 void LogPanel::DrawContent(){
 #if defined(MYENGINE_ENABLE_IMGUI)
+    if (TryDrawScriptedBody("log")) return;
+
     auto* context = GetContext();
     auto* logs = context ? context->GetService<EditorLogService>() : nullptr;
     if (!logs) return;

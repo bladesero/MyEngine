@@ -90,6 +90,26 @@ static D3D12_RESOURCE_STATES ToD3D12State(RHIResourceState state) {
     }
 }
 
+static const char* SamplerFilterName(RHIFilter filter)
+{
+    switch (filter) {
+    case RHIFilter::Point: return "Point";
+    case RHIFilter::Linear: return "Linear";
+    case RHIFilter::ComparisonLinear: return "ComparisonLinear";
+    }
+    return "Unknown";
+}
+
+static const char* SamplerAddressName(RHIAddressMode mode)
+{
+    switch (mode) {
+    case RHIAddressMode::Repeat: return "Repeat";
+    case RHIAddressMode::Clamp: return "Clamp";
+    case RHIAddressMode::Border: return "Border";
+    }
+    return "Unknown";
+}
+
 static uint32_t RHIFormatByteSize12(RHIFormat format) {
     switch (format) {
     case RHIFormat::R8UInt: case RHIFormat::R8UNorm: return 1;
@@ -1308,6 +1328,9 @@ void D3D12Context::Shutdown() {
 
     if (m_DeferredReleaseQueue) m_DeferredReleaseQueue->ShutdownAndRelease();
 
+    m_DefaultSampler.reset();
+    m_DefaultSampLease.reset();
+    m_SamplerCache.clear();
     m_DefaultTexture.Reset();
     m_MainDepthBuffer.Reset();
     for (auto& backBuffer : m_BackBuffers) {
@@ -1356,6 +1379,7 @@ void D3D12Context::Shutdown() {
     m_NextDsvSlot = 0;
     m_NextSrvSlot = 1;
     m_NextSampSlot = 0;
+    m_UniqueSamplerDescriptorCount = 0;
     m_BoundShader = nullptr;
     m_DeviceLost = false;
     m_DredDumped = false;
@@ -2261,16 +2285,17 @@ std::shared_ptr<GpuTexture> D3D12Context::CreateDepthTexture(
     }
     m_Device->CreateShaderResourceView(tex->resource.Get(), &srvDesc, tex->srvCpu);
 
-    tex->sampCpu = AllocSampSlot(tex->sampGpu, &tex->sampLease);
-    if (tex->sampCpu.ptr == 0 || tex->sampGpu.ptr == 0) return nullptr;
-    D3D12_SAMPLER_DESC sampDesc = {};
-    sampDesc.Filter = D3D12_FILTER_COMPARISON_MIN_MAG_LINEAR_MIP_POINT;
-    sampDesc.AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
-    sampDesc.AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
-    sampDesc.AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
-    sampDesc.ComparisonFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
-    sampDesc.MaxLOD = D3D12_FLOAT32_MAX;
-    m_Device->CreateSampler(&sampDesc, tex->sampCpu);
+    {
+        RHISamplerDesc samplerDesc;
+        samplerDesc.filter = RHIFilter::ComparisonLinear;
+        samplerDesc.addressU = samplerDesc.addressV = samplerDesc.addressW = RHIAddressMode::Clamp;
+        auto sampler = std::dynamic_pointer_cast<D3D12Sampler>(CreateSampler(samplerDesc));
+        if (!sampler) return nullptr;
+        tex->sampler = sampler;
+        tex->sampCpu = sampler->cpu;
+        tex->sampGpu = sampler->gpu;
+        tex->sampLease = sampler->lease;
+    }
 
     if (cube) {
         tex->dsvFaces.resize(6);
@@ -2755,25 +2780,19 @@ void D3D12Context::EnsureDefaultResources()
     }
 
     // Default sampler
-    m_DefaultSampCpu = AllocSampSlot(m_DefaultSampGpu, &m_DefaultSampLease);
-    if (m_DefaultSampCpu.ptr == 0 || m_DefaultSampGpu.ptr == 0) {
+    RHISamplerDesc defaultSamplerDesc;
+    m_DefaultSampler = std::dynamic_pointer_cast<D3D12Sampler>(CreateSampler(defaultSamplerDesc));
+    if (!m_DefaultSampler || m_DefaultSampler->cpu.ptr == 0 || m_DefaultSampler->gpu.ptr == 0) {
         m_DefaultTexture.Reset();
         m_DefaultTexSrvCpu = {};
         m_DefaultTexSrvGpu = {};
         m_DefaultTexSrvLease.reset();
+        m_DefaultSampler.reset();
         return;
     }
-    {
-        D3D12_SAMPLER_DESC sampDesc = {};
-        sampDesc.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
-        sampDesc.AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-        sampDesc.AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-        sampDesc.AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-        sampDesc.MaxAnisotropy = 1;
-        sampDesc.ComparisonFunc = D3D12_COMPARISON_FUNC_ALWAYS;
-        sampDesc.MaxLOD = D3D12_FLOAT32_MAX;
-        m_Device->CreateSampler(&sampDesc, m_DefaultSampCpu);
-    }
+    m_DefaultSampCpu = m_DefaultSampler->cpu;
+    m_DefaultSampGpu = m_DefaultSampler->gpu;
+    m_DefaultSampLease = m_DefaultSampler->lease;
 }
 
 D3D12_CPU_DESCRIPTOR_HANDLE D3D12Context::AllocSrvSlot(
@@ -2872,7 +2891,9 @@ D3D12_CPU_DESCRIPTOR_HANDLE D3D12Context::AllocSampSlot(
     D3D12_CPU_DESCRIPTOR_HANDLE cpu{};
     if (!m_SamplerDescriptorPool ||
         !m_SamplerDescriptorPool->Allocate(m_DeferredReleaseQueue, cpu, outGpu, lease)) {
-        Logger::Error("[RHI] D3D12 sampler descriptor heap exhausted");
+        Logger::Error("[RHI] D3D12 sampler descriptor heap exhausted unique=",
+                      m_UniqueSamplerDescriptorCount, " capacity=",
+                      kDefaultSamplerDescriptorCount);
         outGpu = {};
         return {};
     }
@@ -3027,18 +3048,14 @@ std::shared_ptr<GpuTexture> D3D12Context::UploadTexture2D(
         m_Device->CreateShaderResourceView(tex->resource.Get(), &srvDesc, tex->srvCpu);
     }
 
-    tex->sampCpu = AllocSampSlot(tex->sampGpu, &tex->sampLease);
-    if (tex->sampCpu.ptr == 0 || tex->sampGpu.ptr == 0) return nullptr;
     {
-        D3D12_SAMPLER_DESC sampDesc = {};
-        sampDesc.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
-        sampDesc.AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-        sampDesc.AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-        sampDesc.AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-        sampDesc.MaxAnisotropy = 1;
-        sampDesc.ComparisonFunc = D3D12_COMPARISON_FUNC_ALWAYS;
-        sampDesc.MaxLOD = D3D12_FLOAT32_MAX;
-        m_Device->CreateSampler(&sampDesc, tex->sampCpu);
+        RHISamplerDesc samplerDesc;
+        auto sampler = std::dynamic_pointer_cast<D3D12Sampler>(CreateSampler(samplerDesc));
+        if (!sampler) return nullptr;
+        tex->sampler = sampler;
+        tex->sampCpu = sampler->cpu;
+        tex->sampGpu = sampler->gpu;
+        tex->sampLease = sampler->lease;
     }
 
     return tex;
@@ -3296,8 +3313,9 @@ std::shared_ptr<GpuTexture> D3D12Context::CreateTexture(const RHITextureDesc& de
         samplerDesc.addressU = samplerDesc.addressV = samplerDesc.addressW = RHIAddressMode::Clamp;
         auto sampler = std::dynamic_pointer_cast<D3D12Sampler>(CreateSampler(samplerDesc));
         if (!sampler) return nullptr;
+        result->sampler = sampler;
         result->sampCpu = sampler->cpu; result->sampGpu = sampler->gpu;
-        result->sampLease = std::move(sampler->lease);
+        result->sampLease = sampler->lease;
     }
     return result;
 }
@@ -3357,15 +3375,36 @@ std::shared_ptr<GpuTextureView> D3D12Context::CreateTextureView(
 
 std::shared_ptr<GpuSampler> D3D12Context::CreateSampler(const RHISamplerDesc& desc) {
     if (!CanUseDevice("CreateSampler")) return nullptr;
+    const SamplerCacheKey key{desc};
+    auto cached = m_SamplerCache.find(key);
+    if (cached != m_SamplerCache.end()) {
+        if (auto sampler = cached->second.lock()) {
+            return sampler;
+        }
+        m_SamplerCache.erase(cached);
+    }
+
     auto result = std::make_shared<D3D12Sampler>(); result->desc = desc;
     result->cpu = AllocSampSlot(result->gpu, &result->lease);
-    if (result->cpu.ptr == 0 || result->gpu.ptr == 0) return nullptr;
+    if (result->cpu.ptr == 0 || result->gpu.ptr == 0) {
+        Logger::Error("[RHI] D3D12 failed to allocate sampler descriptor desc=(",
+                      SamplerFilterName(desc.filter), ",",
+                      SamplerAddressName(desc.addressU), ",",
+                      SamplerAddressName(desc.addressV), ",",
+                      SamplerAddressName(desc.addressW), ") unique=",
+                      m_UniqueSamplerDescriptorCount, " capacity=",
+                      kDefaultSamplerDescriptorCount);
+        return nullptr;
+    }
     D3D12_SAMPLER_DESC d{};
     d.Filter = desc.filter == RHIFilter::Point ? D3D12_FILTER_MIN_MAG_MIP_POINT : desc.filter == RHIFilter::ComparisonLinear ? D3D12_FILTER_COMPARISON_MIN_MAG_LINEAR_MIP_POINT : D3D12_FILTER_MIN_MAG_MIP_LINEAR;
     auto address = [](RHIAddressMode m) { return m == RHIAddressMode::Clamp ? D3D12_TEXTURE_ADDRESS_MODE_CLAMP : m == RHIAddressMode::Border ? D3D12_TEXTURE_ADDRESS_MODE_BORDER : D3D12_TEXTURE_ADDRESS_MODE_WRAP; };
     d.AddressU = address(desc.addressU); d.AddressV = address(desc.addressV); d.AddressW = address(desc.addressW);
     d.ComparisonFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL; d.MaxLOD = D3D12_FLOAT32_MAX;
-    m_Device->CreateSampler(&d, result->cpu); return result;
+    m_Device->CreateSampler(&d, result->cpu);
+    ++m_UniqueSamplerDescriptorCount;
+    m_SamplerCache[key] = result;
+    return result;
 }
 
 std::shared_ptr<GpuReadbackTicket> D3D12Context::ReadbackBufferAsync(

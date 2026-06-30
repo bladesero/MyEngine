@@ -12,8 +12,10 @@
 #include "Editor/EditorDialogService.h"
 #include "Editor/EditorDragDrop.h"
 #include "Editor/EditorImportService.h"
+#include "Editor/EditorOperators.h"
 #include "Editor/EditorPanelHelpers.h"
 #include "Editor/EditorProject.h"
+#include "Editor/EditorUI/EditorAngelScriptDomain.h"
 #include "Editor/UI/EditorIcons.h"
 #include "Editor/UI/EditorWidgets.h"
 #if defined(MYENGINE_ENABLE_IMGUI)
@@ -65,6 +67,45 @@ const char* ImportStateText(AssetImportState state)
     }
 }
 
+const char* AssetTypeName(EditorAssetType type)
+{
+    switch (type) {
+        case EditorAssetType::Model: return "Model";
+        case EditorAssetType::Texture: return "Texture";
+        case EditorAssetType::Material: return "Material";
+        case EditorAssetType::Scene: return "Scene";
+        case EditorAssetType::Prefab: return "Prefab";
+        case EditorAssetType::Script: return "Script";
+        case EditorAssetType::Shader: return "Shader";
+        case EditorAssetType::Audio: return "Audio";
+        case EditorAssetType::UI: return "UI";
+        default: return "Unknown";
+    }
+}
+
+void DrawScriptAssetContextMenu(EditorContext& context, EditorAssetType type)
+{
+    EditorAngelScriptDomain* domain = context.GetEditorScriptDomain();
+    if (!domain || !domain->IsLoaded() ||
+        !domain->GetConfig().enableContextMenuExtensions) {
+        return;
+    }
+    const std::string typeName = AssetTypeName(type);
+    for (const auto& extension : domain->GetRegistry().GetAssetContextMenus()) {
+        if (extension.targetType != "*" && extension.targetType != "Any" &&
+            extension.targetType != typeName) {
+            continue;
+        }
+        std::string error;
+        const std::string stateKey = "assetContext:" + typeName;
+        if (!domain->ExecuteExtension(extension.callback, stateKey, context, &error) &&
+            !error.empty()) {
+            Logger::Warn("[EditorScript] Asset context menu failed for ",
+                         typeName, ": ", error);
+        }
+    }
+}
+
 bool StartsWithPath(const std::string& value, const std::string& prefix)
 {
     return value == prefix ||
@@ -83,11 +124,9 @@ bool IsDirectChildFolder(const std::string& parent, const std::string& child)
 AssetBrowserPanel::AssetBrowserPanel():EditorPanel("assetBrowser","Asset Browser"){}
 void AssetBrowserPanel::OnAttach(EditorContext& context){EditorPanel::OnAttach(context);if(context.GetAssetRegistry())context.GetAssetRegistry()->Refresh();}
 void AssetBrowserPanel::OnUpdate(float dt){
-    m_WatchAccumulator += dt;
-    if (m_WatchAccumulator < 1.0f) return;
-    m_WatchAccumulator = 0.0f;
-    auto* registry=GetContext()?GetContext()->GetAssetRegistry():nullptr;
-    if(registry)registry->WatchForChanges();
+    auto* context = GetContext();
+    auto* operators = context ? context->GetOperators() : nullptr;
+    if (operators) operators->Assets().WatchIfDue(*context, dt, m_WatchAccumulator);
 }
 
 void AssetBrowserPanel::DeleteSelectedAsset() {
@@ -95,18 +134,8 @@ void AssetBrowserPanel::DeleteSelectedAsset() {
     if (!context) return;
     const std::string& path = context->GetSelection().GetAssetPath();
     if (path.empty()) return;
-    try {
-        std::string content = ReadFileContent(path);
-        auto* stack = context->GetCommandStack();
-        if (!stack) {
-            std::filesystem::remove(path);
-            context->GetAssetRegistry()->Refresh();
-        } else {
-            stack->ExecuteCommand(std::make_unique<DeleteAssetCommand>(path, content), *context);
-            context->GetAssetRegistry()->Refresh();
-        }
-        context->GetSelection().Clear();
-    } catch (...) {
+    auto* operators = context->GetOperators();
+    if (!operators || !operators->Assets().DeleteAsset(*context, path)) {
         Logger::Warn("[Editor] Failed to delete asset: ", path);
     }
     m_PendingDelete = false;
@@ -117,22 +146,8 @@ void AssetBrowserPanel::DuplicateSelectedAsset() {
     if (!context) return;
     const std::string& path = context->GetSelection().GetAssetPath();
     if (path.empty()) return;
-    namespace fs = std::filesystem;
-    fs::path src(path);
-    fs::path dst = src.parent_path() / (src.stem().string() + "_Copy" + src.extension().string());
-    try {
-        std::string content = ReadFileContent(path);
-        auto* stack = context->GetCommandStack();
-        if (!stack) {
-            fs::copy_file(src, dst, fs::copy_options::overwrite_existing);
-            AssetManager::Get().Load<Asset>(dst.string());
-            context->GetAssetRegistry()->Refresh();
-        } else {
-            stack->ExecuteCommand(std::make_unique<CreateAssetCommand>(dst.string(), content), *context);
-            AssetManager::Get().Load<Asset>(dst.string());
-            context->GetAssetRegistry()->Refresh();
-        }
-    } catch (...) {
+    auto* operators = context->GetOperators();
+    if (!operators || !operators->Assets().DuplicateAsset(*context, path)) {
         Logger::Warn("[Editor] Failed to duplicate asset: ", path);
     }
 }
@@ -148,17 +163,8 @@ void AssetBrowserPanel::RenameSelectedAsset() {
     fs::path src(path);
     fs::path dst = src.parent_path() / newName;
     if (src == dst) { m_PendingRename = false; return; }
-    try {
-        auto* stack = context->GetCommandStack();
-        if (!stack) {
-            fs::rename(src, dst);
-            context->GetAssetRegistry()->Refresh();
-        } else {
-            stack->ExecuteCommand(std::make_unique<RenameAssetCommand>(src.string(), dst.string()), *context);
-            context->GetAssetRegistry()->Refresh();
-        }
-        context->GetSelection().Select(EditorSelectObject::MakeAsset(dst.string()));
-    } catch (...) {
+    auto* operators = context->GetOperators();
+    if (!operators || !operators->Assets().RenameAsset(*context, path, dst.string())) {
         Logger::Warn("[Editor] Failed to rename asset: ", path);
     }
     m_PendingRename = false;
@@ -190,14 +196,17 @@ std::filesystem::path AssetBrowserPanel::CurrentContentDirectory(const char* fal
 
 void AssetBrowserPanel::DrawContent(){
 #if defined(MYENGINE_ENABLE_IMGUI)
+    if (TryDrawScriptedBody("assetBrowser")) return;
+
     using namespace EditorPanelHelpers;auto* context=GetContext();auto* registry=context?context->GetAssetRegistry():nullptr;if(!registry)return;
     EnsureSelectedFolder();
 
     // Toolbar: Refresh | Import | Create Material / Texture / Script
-    if(EditorWidgets::IconButton(*context, "RefreshAssets", EditorIcons::Refresh, "Refresh")){registry->Refresh();EnsureSelectedFolder();}ImGui::SameLine();
+    auto* operators = context->GetOperators();
+    if(EditorWidgets::IconButton(*context, "RefreshAssets", EditorIcons::Refresh, "Refresh")){if(operators)operators->Assets().Refresh(*context);else registry->Refresh();EnsureSelectedFolder();}ImGui::SameLine();
     if(EditorWidgets::IconButton(*context, "ImportAsset", EditorIcons::Asset, "Import")){if(auto* dialogs=context->GetService<EditorDialogService>())dialogs->RequestImportAsset(context->GetWindow());}ImGui::SameLine();
     if(EditorWidgets::IconButton(*context, "ReimportAllAssets", EditorIcons::Refresh, "Reimport All")){
-        if(auto* importer=context->GetService<EditorImportService>()){std::vector<std::string> failures;importer->ReimportAll(&failures);if(!failures.empty())Logger::Warn("[Editor] Reimport failures: ",failures.front());registry->Refresh();EnsureSelectedFolder();}
+        if(auto* importer=context->GetService<EditorImportService>()){std::vector<std::string> failures;importer->ReimportAll(&failures);if(!failures.empty())Logger::Warn("[Editor] Reimport failures: ",failures.front());if(operators)operators->Assets().Refresh(*context);else registry->Refresh();EnsureSelectedFolder();}
     }ImGui::SameLine();
 
     if (ImGui::BeginCombo("##CreateAsset", "Create...")) {
@@ -302,9 +311,7 @@ void AssetBrowserPanel::DrawContent(){
         if(asset.imported)label+=" ["+std::string(ImportStateText(asset.importState))+"]";
         if(!asset.diagnostics.empty())label+=" !";
         if(ImGui::Selectable(label.c_str(),selected)){
-            context->GetSelection().Select(
-                EditorSelectObject::MakeAsset(asset.absolutePath.string()));
-            if(context->GetProject())context->GetProject()->GetState().selectedAssetPath=asset.absolutePath.string();
+            if(operators)operators->Selection().SelectAsset(*context,asset.absolutePath.string());
         }
         if (ImGui::IsItemHovered() && (asset.imported || !asset.diagnostics.empty())) {
             ImGui::BeginTooltip();
@@ -321,14 +328,14 @@ void AssetBrowserPanel::DrawContent(){
 
         // Right-click context menu per asset
         if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
-            context->GetSelection().Select(
-                EditorSelectObject::MakeAsset(asset.absolutePath.string()));
+            if(operators)operators->Selection().SelectAsset(*context,asset.absolutePath.string());
             ImGui::OpenPopup("##AssetItemCtx");
         }
         if (ImGui::BeginPopup("##AssetItemCtx")) {
             if (asset.imported && ImGui::Selectable("Reimport")) {
-                if(auto* importer=context->GetService<EditorImportService>())importer->Reimport(asset.uuid);
-                registry->Refresh();EnsureSelectedFolder();
+                if(operators)operators->Assets().Reimport(*context,asset.uuid);
+                else if(auto* importer=context->GetService<EditorImportService>())importer->Reimport(asset.uuid);
+                EnsureSelectedFolder();
             }
             if (ImGui::Selectable("Delete")) { m_PendingDelete = true; }
             if (ImGui::Selectable("Duplicate")) { DuplicateSelectedAsset(); }
@@ -337,6 +344,7 @@ void AssetBrowserPanel::DrawContent(){
                 std::strncpy(m_RenameBuffer, asset.relativePath.c_str(), sizeof(m_RenameBuffer)-1);
                 m_RenameBuffer[sizeof(m_RenameBuffer)-1] = '\0';
             }
+            DrawScriptAssetContextMenu(*context, asset.type);
             ImGui::EndPopup();
         }
 
@@ -351,10 +359,11 @@ void AssetBrowserPanel::DrawContent(){
         ImGui::OpenPopup("##AssetCtxMenu");
     }
     if (ImGui::BeginPopup("##AssetCtxMenu")) {
-        if (ImGui::Selectable("Refresh")) { registry->Refresh(); EnsureSelectedFolder(); }
+        if (ImGui::Selectable("Refresh")) { if(operators)operators->Assets().Refresh(*context);else registry->Refresh(); EnsureSelectedFolder(); }
         if (ImGui::Selectable("Import...")) {
             if(auto* dialogs=context->GetService<EditorDialogService>()) dialogs->RequestImportAsset(context->GetWindow());
         }
+        DrawScriptAssetContextMenu(*context, EditorAssetType::Unknown);
         ImGui::EndPopup();
     }
     ImGui::EndGroup();

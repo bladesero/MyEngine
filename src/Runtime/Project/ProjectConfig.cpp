@@ -26,6 +26,11 @@ bool ProjectConfig::IsSupportedGraphicsBackend(std::string_view backend)
     return backend == "d3d11" || backend == "d3d12" || backend == "vulkan";
 }
 
+bool ProjectConfig::IsSupportedRenderPath(std::string_view renderPath)
+{
+    return renderPath == "forward" || renderPath == "deferred";
+}
+
 bool ProjectConfig::Open(fs::path projectRoot, bool allowMissing, std::string* error)
 {
     if (error) error->clear();
@@ -88,6 +93,8 @@ bool ProjectConfig::Open(fs::path projectRoot, bool allowMissing, std::string* e
             graphics != json.end() && graphics->is_object()) {
             m_GraphicsSettings.backend =
                 graphics->value("backend", std::string{ProjectGraphicsSettings{}.backend});
+            m_GraphicsSettings.renderPath =
+                graphics->value("renderPath", std::string{ProjectGraphicsSettings{}.renderPath});
         }
     }
     catch (const std::exception& exception) {
@@ -127,6 +134,10 @@ bool ProjectConfig::Open(fs::path projectRoot, bool allowMissing, std::string* e
         SetError(error, "unsupported graphics backend: " + m_GraphicsSettings.backend);
         return false;
     }
+    if (!IsSupportedRenderPath(m_GraphicsSettings.renderPath)) {
+        SetError(error, "unsupported render path: " + m_GraphicsSettings.renderPath);
+        return false;
+    }
     return true;
 }
 
@@ -161,6 +172,10 @@ bool ProjectConfig::Save(std::string* error)
         SetError(error, "unsupported graphics backend: " + m_GraphicsSettings.backend);
         return false;
     }
+    if (!IsSupportedRenderPath(m_GraphicsSettings.renderPath)) {
+        SetError(error, "unsupported render path: " + m_GraphicsSettings.renderPath);
+        return false;
+    }
 
     try {
         nlohmann::json json;
@@ -177,6 +192,7 @@ bool ProjectConfig::Save(std::string* error)
         };
         json["graphics"] = {
             {"backend", m_GraphicsSettings.backend},
+            {"renderPath", m_GraphicsSettings.renderPath},
         };
         std::ofstream output(m_ManifestPath);
         if (!output) {

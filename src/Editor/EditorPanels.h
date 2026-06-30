@@ -4,6 +4,7 @@
 #include "Editor/EditorInspectorSection.h"
 #include "Editor/EditorSelection.h"
 #include "Editor/EditorUndoUtil.h"
+#include "Editor/EditorUI/EditorScriptRegistry.h"
 #include "Scene/ActorHandle.h"
 #include "Editor/EditorViewportControllers.h"
 
@@ -87,4 +88,13 @@ protected:void DrawContent() override;
 private:
     char m_CategoryFilter[64] = {};
     float m_MinDurationMs = 0.0f;
+};
+class ScriptedToolPanel final : public EditorPanel {
+public:
+    explicit ScriptedToolPanel(EditorScriptPanelSpec spec);
+    std::string GetDefaultDockArea() const override;
+protected:
+    void DrawContent() override;
+private:
+    EditorScriptPanelSpec m_Spec;
 };

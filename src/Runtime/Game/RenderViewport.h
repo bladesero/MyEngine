@@ -3,6 +3,7 @@
 #include "Camera/Camera.h"
 #include "Game/ViewportRenderExecution.h"
 #include "Math/Ray.h"
+#include "Renderer/RenderPath.h"
 
 struct GpuTextureView;
 class IRHIDevice;
@@ -31,6 +32,8 @@ public:
     bool BuildRayFromScreen(float screenX, float screenY, Math::Ray& outRay) const;
     GpuTextureView* GetOutputView() const;
     void ReleaseFrameResources();
+    void SetRenderPath(RenderPath path);
+    RenderPath GetRenderPath() const;
 
     virtual Camera& GetCamera() = 0;
     virtual const Camera& GetCamera() const = 0;

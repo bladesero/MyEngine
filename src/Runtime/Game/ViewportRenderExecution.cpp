@@ -55,6 +55,16 @@ GpuTextureView* ViewportRenderExecution::GetOutputView() const
     return m_Renderer.GetSceneColorView();
 }
 
+void ViewportRenderExecution::SetRenderPath(RenderPath path)
+{
+    m_Renderer.SetRenderPath(path);
+}
+
+RenderPath ViewportRenderExecution::GetRenderPath() const
+{
+    return m_Renderer.GetRenderPath();
+}
+
 void ViewportRenderExecution::SetCommandViewport(const RenderViewport& viewport,
                                                  bool presentToSwapchain)
 {

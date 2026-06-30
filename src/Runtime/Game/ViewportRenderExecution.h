@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Renderer/Renderer.h"
+#include "Renderer/RenderPath.h"
 
 class Camera;
 struct GpuTextureView;
@@ -23,6 +24,8 @@ public:
     void ReleaseFrameResources();
 
     GpuTextureView* GetOutputView() const;
+    void SetRenderPath(RenderPath path);
+    RenderPath GetRenderPath() const;
 
 private:
     void SetCommandViewport(const RenderViewport& viewport, bool presentToSwapchain);

@@ -95,6 +95,16 @@ void RenderViewport::ReleaseFrameResources()
     m_RenderExecution.ReleaseFrameResources();
 }
 
+void RenderViewport::SetRenderPath(RenderPath path)
+{
+    m_RenderExecution.SetRenderPath(path);
+}
+
+RenderPath RenderViewport::GetRenderPath() const
+{
+    return m_RenderExecution.GetRenderPath();
+}
+
 void RenderViewport::UpdateCameraAspect(Camera& camera)
 {
     if (m_VpW > 0 && m_VpH > 0) camera.SetAspect(GetAspect());

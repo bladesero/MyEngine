@@ -11,10 +11,12 @@
 #include "Editor/EditorLogService.h"
 #include "Editor/EditorLayoutManager.h"
 #include "Editor/EditorLuaScriptService.h"
+#include "Editor/EditorOperators.h"
 #include "Editor/EditorProfiler.h"
 #include "Editor/EditorProject.h"
 #include "Editor/EditorShaderWatchService.h"
 #include "Editor/EditorService.h"
+#include "Editor/EditorUI/EditorScriptHotReloadService.h"
 #include "Editor/UI/EditorStatusBar.h"
 #include "Editor/UI/EditorTheme.h"
 #include "Editor/UI/EditorUIScaleManager.h"
@@ -28,6 +30,7 @@
 #include <vector>
 
 class EditorPanel;
+class EditorAngelScriptDomain;
 class Engine;
 class IWindow;
 class SceneRenderLayer;
@@ -66,6 +69,8 @@ private:
     void DrawLayoutSettingsTab();
     void DrawAppearanceSettingsTab();
     void DrawMainMenuBar();
+    void DrawScriptMenuItems(const char* topLevel);
+    void DrawScriptTopLevelMenus();
     float DrawStatusBar();
     std::string GetSelectedStatusText() const;
     std::string GetBackendStatusText() const;
@@ -106,6 +111,8 @@ private:
     EditorImportService m_ImportService;
     EditorLuaScriptService m_LuaScriptService;
     EditorShaderWatchService m_ShaderWatchService;
+    EditorScriptHotReloadService m_ScriptHotReloadService;
+    EditorOperators m_Operators;
     EditorProfiler m_Profiler;
     EditorServiceCollection m_ServiceCollection;
     EditorActionRegistry m_ActionRegistry;
@@ -114,6 +121,7 @@ private:
     Editor::UI::EditorThemeManager m_ThemeManager;
     Editor::UI::EditorStatusBar m_StatusBar;
     std::vector<std::unique_ptr<EditorPanel>> m_Panels;
+    std::unique_ptr<EditorAngelScriptDomain> m_ScriptDomain;
     std::unique_ptr<EditorImGuiBackend> m_ImGuiBackend;
     std::unique_ptr<IPlatformEventBridge> m_ImGuiEventBridge;
     std::filesystem::path m_InitialProject;
@@ -123,6 +131,7 @@ private:
     std::array<char, 1024> m_PublishOutput{};
     std::array<char, 1024> m_InputConfigPath{};
     int m_GraphicsBackendIndex = 0;
+    int m_RenderPathIndex = 0;
     std::string m_ProjectError;
     std::string m_ProjectResult;
     std::string m_CapturingShortcutAction;

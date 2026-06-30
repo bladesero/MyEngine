@@ -17,6 +17,7 @@ struct ProjectInputSettings {
 
 struct ProjectGraphicsSettings {
     std::string backend = "d3d11";
+    std::string renderPath = "forward";
 };
 
 class ProjectConfig {
@@ -58,6 +59,7 @@ public:
 
     void SetName(std::string name) { m_Name = std::move(name); }
     static bool IsSupportedGraphicsBackend(std::string_view backend);
+    static bool IsSupportedRenderPath(std::string_view renderPath);
 
 private:
     static void SetError(std::string* error, std::string message);

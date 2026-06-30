@@ -3,10 +3,13 @@
 #include "Assets/AssetManager.h"
 #include "Camera/Camera.h"
 #include "Renderer/EnvironmentPass.h"
+#include "Renderer/DeferredLightingPass.h"
+#include "Renderer/GBufferPass.h"
 #include "Renderer/GpuUploadQueue.h"
 #include "Renderer/LightComponent.h"
 #include "Renderer/RenderGraph.h"
 #include "Renderer/Renderer.h"
+#include "Renderer/ShaderManager.h"
 #include "Scene/MeshRendererComponent.h"
 #include "Scene/Scene.h"
 
@@ -1150,6 +1153,216 @@ bool TestMeshRendererSubMeshMaterialSlotDraws() {
                  "submesh material slots did not classify transparent material independently");
 }
 
+bool TestMainPassSamplerCacheDeduplicatesTextureSamplerStates() {
+    AssetManager& assets = AssetManager::Get();
+    assets.Clear();
+
+    std::vector<MeshVertex> vertices(3);
+    vertices[0].position = { -1.0f, -1.0f, 0.0f };
+    vertices[1].position = {  1.0f, -1.0f, 0.0f };
+    vertices[2].position = {  0.0f,  1.0f, 0.0f };
+    std::vector<uint32_t> indices { 0, 1, 2 };
+    std::vector<SubMesh> subMeshes;
+    constexpr uint32_t kMaterialCount = 48;
+    subMeshes.reserve(kMaterialCount);
+    for (uint32_t i = 0; i < kMaterialCount; ++i) {
+        subMeshes.push_back(SubMesh{ 0, 3, 0, static_cast<int>(i), "SamplerCacheSubMesh" });
+    }
+    auto mesh = std::make_shared<MeshAsset>("__test__/SamplerCacheMesh");
+    mesh->SetGeometry(std::move(vertices), std::move(indices), std::move(subMeshes));
+    MeshHandle meshHandle = assets.Register(std::move(mesh));
+
+    std::vector<MaterialHandle> materials;
+    materials.reserve(kMaterialCount);
+    for (uint32_t i = 0; i < kMaterialCount; ++i) {
+        auto texture = std::make_shared<TextureAsset>(
+            "__test__/SamplerCacheTexture" + std::to_string(i));
+        TextureDesc textureDesc;
+        textureDesc.width = 1;
+        textureDesc.height = 1;
+        std::vector<uint8_t> pixels { 255, 255, 255, 255 };
+        texture->SetPixelData(std::move(pixels), textureDesc);
+        TextureHandle textureHandle = assets.Register(std::move(texture));
+
+        auto material = MaterialAsset::CreateDefault(
+            "__test__/SamplerCacheMaterial" + std::to_string(i));
+        material->SetTexture("BaseColorMap", textureHandle);
+        materials.push_back(assets.Register(std::move(material)));
+    }
+
+    Scene scene("SamplerCacheScene");
+    Actor* actor = scene.CreateActor("SamplerCacheMesh");
+    auto* meshRenderer = actor->AddComponent<MeshRendererComponent>();
+    meshRenderer->SetMesh(meshHandle);
+    meshRenderer->SetMaterials(materials);
+
+    Camera camera;
+    camera.LookAt({ 0.0f, 0.0f, -4.0f }, Vec3::Zero());
+    camera.SetPerspective(60.0f, 16.0f / 9.0f);
+
+    MockRenderContext context;
+    Renderer renderer(&context, &context, &context);
+    renderer.RenderScene(scene, camera, true);
+
+    const int linearRepeatSamplers = static_cast<int>(std::count_if(
+        context.samplerDescs.begin(), context.samplerDescs.end(),
+        [](const RHISamplerDesc& desc) {
+            return desc.filter == RHIFilter::Linear &&
+                   desc.addressU == RHIAddressMode::Repeat &&
+                   desc.addressV == RHIAddressMode::Repeat &&
+                   desc.addressW == RHIAddressMode::Repeat;
+        }));
+    if (!Check(linearRepeatSamplers == 1,
+               "main pass created duplicate Linear/Repeat samplers for texture assets")) {
+        return false;
+    }
+    return Check(context.textureUploads == static_cast<int>(kMaterialCount) + 1,
+                 "sampler cache test did not upload every unique material texture plus fallback");
+}
+
+bool TestDeferredPassResourceContracts() {
+    MockRenderContext context;
+
+    GBufferPass gbuffer(&context);
+    gbuffer.Resize(320, 180);
+    if (!Check(gbuffer.PrepareGraphResources(),
+               "GBufferPass failed to prepare graph resources")) return false;
+    const auto gbufferResources = gbuffer.GetGraphResources();
+    if (!Check(gbufferResources.albedo && gbufferResources.normal &&
+               gbufferResources.material && gbufferResources.emissive,
+               "GBufferPass did not create all GBuffer textures")) return false;
+    if (!Check(gbufferResources.albedoSrv && gbufferResources.normalSrv &&
+               gbufferResources.materialSrv && gbufferResources.emissiveSrv,
+               "GBufferPass did not create all shader-resource views")) return false;
+    if (!Check(gbufferResources.albedo->desc.format == RHIFormat::RGBA8UNorm &&
+               gbufferResources.normal->desc.format == RHIFormat::RGBA16Float &&
+               gbufferResources.material->desc.format == RHIFormat::RGBA8UNorm &&
+               gbufferResources.emissive->desc.format == RHIFormat::RGBA16Float,
+               "GBufferPass resource formats do not match the deferred contract")) return false;
+
+    AssetManager::Get().Clear();
+    Scene scene("GBufferContract");
+    Actor* opaqueActor = scene.CreateActor("Opaque");
+    auto* opaqueRenderer = opaqueActor->AddComponent<MeshRendererComponent>();
+    opaqueRenderer->SetMesh(AssetManager::Get().GetCubeMesh());
+    auto opaqueMaterial = MaterialAsset::CreateDefault("GBufferOpaque");
+    opaqueRenderer->SetMaterial(AssetManager::Get().Register(opaqueMaterial));
+
+    Actor* transparentActor = scene.CreateActor("Transparent");
+    transparentActor->GetTransform().position = { 0.0f, 0.0f, 1.0f };
+    auto* transparentRenderer = transparentActor->AddComponent<MeshRendererComponent>();
+    transparentRenderer->SetMesh(AssetManager::Get().GetCubeMesh());
+    auto transparentMaterial = MaterialAsset::CreateDefault("GBufferTransparent");
+    transparentMaterial->SetBlendMode(BlendMode::Transparent);
+    transparentRenderer->SetMaterial(AssetManager::Get().Register(transparentMaterial));
+
+    Camera camera;
+    camera.LookAt({ 0.0f, 0.0f, -4.0f }, Vec3::Zero());
+    camera.SetPerspective(60.0f, 16.0f / 9.0f);
+
+    MockRenderContext drawContext;
+    ShaderManager::Get().Clear();
+    ShaderManager::Get().SetDevice(&drawContext);
+    GBufferPass drawableGBuffer(&drawContext);
+    drawableGBuffer.Execute(drawContext.commands, scene, camera);
+    if (!Check(drawContext.shaderCreates >= 1 && drawContext.commands.pipelineBinds == 1,
+               "GBufferPass did not create a shader and graphics pipeline")) return false;
+    if (!Check(drawContext.commands.drawCalls == 1,
+               "GBufferPass should draw opaque/alpha-test geometry and skip transparent")) return false;
+    if (!Check(!drawContext.commands.pipelineBlendEnabled.empty() &&
+               !drawContext.commands.pipelineBlendEnabled.front(),
+               "GBufferPass pipeline should write material data without alpha blending")) return false;
+
+    DeferredLightingPass lighting(&context);
+    lighting.Resize(320, 180);
+    ShaderManager::Get().Clear();
+    ShaderManager::Get().SetDevice(&context);
+    if (!Check(lighting.PrepareGraphResources(),
+               "DeferredLightingPass failed to prepare graph resources")) return false;
+    const auto lightingResources = lighting.GetGraphResources();
+    if (!Check(lightingResources.sceneColor && lightingResources.sceneColorRtv &&
+               lightingResources.sceneColorSrv &&
+               lightingResources.sceneColor->desc.format == RHIFormat::RGBA16Float,
+               "DeferredLightingPass scene color contract is invalid")) return false;
+
+    return Check(context.graphTextureCreates == 5 && context.textureViewCreates == 10 &&
+                 context.samplerCreates >= 3 && context.shaderCreates >= 1,
+                 "deferred resource passes created an unexpected number of resources");
+}
+
+bool TestDeferredLightingShaderSourceContract() {
+    std::ifstream sourceFile("EngineContent/Shaders/DeferredLightingPass.hlsl");
+    std::stringstream buffer;
+    buffer << sourceFile.rdbuf();
+    const std::string source = buffer.str();
+    if (!Check(!source.empty(), "DeferredLightingPass shader source is missing")) return false;
+    if (!Check(source.find("WorldPosFromDepth") != std::string::npos &&
+               source.find("g_InvViewProj") != std::string::npos,
+               "DeferredLightingPass does not reconstruct world position from depth")) return false;
+    if (!Check(source.find("g_EnvironmentSH2") != std::string::npos &&
+               source.find("PbrEnvironmentLighting") != std::string::npos,
+               "DeferredLightingPass does not consume environment SH/PBR lighting")) return false;
+    if (!Check(source.find("SampleDirectionalShadow") != std::string::npos &&
+               source.find("g_ShadowMap.SampleCmpLevelZero") != std::string::npos,
+               "DeferredLightingPass does not sample directional shadows")) return false;
+    return Check(source.find("EnvironmentRadiance(viewDir") != std::string::npos,
+                 "DeferredLightingPass does not include sky fallback for far depth");
+}
+
+bool TestRendererDeferredPathSubmitsGBufferLightingTransparentAndComposite() {
+    AssetManager::Get().Clear();
+    Scene scene("DeferredPath");
+    Actor* opaqueActor = scene.CreateActor("Opaque");
+    auto* opaqueRenderer = opaqueActor->AddComponent<MeshRendererComponent>();
+    opaqueRenderer->SetMesh(AssetManager::Get().GetCubeMesh());
+    opaqueRenderer->SetMaterial(AssetManager::Get().GetDefaultMaterial());
+
+    Actor* transparentActor = scene.CreateActor("Transparent");
+    transparentActor->GetTransform().position = {0.0f, 0.0f, 1.0f};
+    auto* transparentRenderer = transparentActor->AddComponent<MeshRendererComponent>();
+    transparentRenderer->SetMesh(AssetManager::Get().GetCubeMesh());
+    auto transparentMaterial = MaterialAsset::CreateDefault("DeferredTransparent");
+    transparentMaterial->SetBlendMode(BlendMode::Transparent);
+    transparentRenderer->SetMaterial(AssetManager::Get().Register(transparentMaterial));
+
+    Actor* lightActor = scene.CreateActor("Sun");
+    auto* light = lightActor->AddComponent<LightComponent>();
+    light->SetLightType(LightType::Directional);
+    light->SetCastShadows(true);
+
+    Camera camera;
+    camera.LookAt({0.0f, 0.0f, -4.0f}, Vec3::Zero());
+    camera.SetPerspective(60.0f, 16.0f / 9.0f);
+
+    MockRenderContext context;
+    context.backend = RHIBackend::D3D11;
+    Renderer renderer(&context, &context, &context);
+    renderer.Resize(128, 72);
+    renderer.SetRenderPath(RenderPath::Deferred);
+    renderer.SetOutputOffscreen(true);
+    renderer.RenderScene(scene, camera, true);
+
+    if (!Check(context.beginFrames == 1 && context.endFrames == 1,
+               "deferred renderer frame lifecycle mismatch")) return false;
+    if (!Check(context.commands.renderingScopes == 0 &&
+               context.commands.renderingBeginCalls >= 7,
+               "deferred graph did not submit expected render scopes")) return false;
+    if (!Check(context.commands.pipelineBinds >= 7 && context.commands.bindGroupBinds >= 5,
+               "deferred graph did not bind GBuffer, lighting, transparent, and composite passes")) return false;
+    return Check(context.commands.drawCalls >= 5 && renderer.GetSceneColorView() != nullptr,
+                 "deferred graph did not submit expected draw calls or output view");
+}
+
+bool TestRendererRenderPathDefaultsToForward() {
+    MockRenderContext context;
+    Renderer renderer(&context, &context, &context);
+    if (!Check(renderer.GetRenderPath() == RenderPath::Forward,
+               "Renderer did not default to the forward render path")) return false;
+    renderer.SetRenderPath(RenderPath::Deferred);
+    return Check(renderer.GetRenderPath() == RenderPath::Deferred,
+                 "Renderer render path setter did not persist deferred mode");
+}
+
 bool TestRendererOffscreenGraphPostProcessPath() {
     AssetManager::Get().Clear();
     Scene scene;
@@ -1263,6 +1476,11 @@ MYENGINE_REGISTER_TEST("Renderer", "TestRendererSynchronizesEnvironmentSunBefore
 MYENGINE_REGISTER_TEST("Renderer", "TestShadowedMainPassDirectShadowVisibilityContract", TestShadowedMainPassDirectShadowVisibilityContract);
 MYENGINE_REGISTER_TEST("Renderer", "TestHeadlessRendering", TestHeadlessRendering);
 MYENGINE_REGISTER_TEST("Renderer", "TestMeshRendererSubMeshMaterialSlotDraws", TestMeshRendererSubMeshMaterialSlotDraws);
+MYENGINE_REGISTER_TEST("Renderer", "TestMainPassSamplerCacheDeduplicatesTextureSamplerStates", TestMainPassSamplerCacheDeduplicatesTextureSamplerStates);
+MYENGINE_REGISTER_TEST("Renderer", "TestDeferredPassResourceContracts", TestDeferredPassResourceContracts);
+MYENGINE_REGISTER_TEST("Renderer", "TestDeferredLightingShaderSourceContract", TestDeferredLightingShaderSourceContract);
+MYENGINE_REGISTER_TEST("Renderer", "TestRendererDeferredPathSubmitsGBufferLightingTransparentAndComposite", TestRendererDeferredPathSubmitsGBufferLightingTransparentAndComposite);
+MYENGINE_REGISTER_TEST("Renderer", "TestRendererRenderPathDefaultsToForward", TestRendererRenderPathDefaultsToForward);
 MYENGINE_REGISTER_TEST("Renderer", "TestRendererOffscreenGraphPostProcessPath", TestRendererOffscreenGraphPostProcessPath);
 MYENGINE_REGISTER_TEST("Renderer", "TestRendererBackbufferCompositeGraphTarget", TestRendererBackbufferCompositeGraphTarget);
 MYENGINE_REGISTER_TEST("Renderer", "TestRendererGraphHasNoEmptyCompatibilityPasses", TestRendererGraphHasNoEmptyCompatibilityPasses);

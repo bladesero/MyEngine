@@ -12,6 +12,7 @@
 #include "Project/ProjectConfig.h"
 #include "Project/RuntimeDependencies.h"
 #include "Renderer/IRenderContext.h"
+#include "Renderer/RenderPath.h"
 #include "Miscs/IconsManager.h"
 
 #include <filesystem>
@@ -98,6 +99,10 @@ protected:
         auto* sceneLayer = new SceneRenderLayer(
             m_RenderContext.get(), window.GetWidth(), window.GetHeight());
         sceneLayer->SetPresentEnabled(true);
+        sceneLayer->SetRenderPath(
+            m_Project.GetGraphicsSettings().renderPath == "deferred"
+                ? RenderPath::Deferred
+                : RenderPath::Forward);
         if (!sceneLayer->LoadScene(scenePath.string())) {
             Logger::Error("[Player] Failed to load startup scene: ", scenePath.string());
             delete sceneLayer;

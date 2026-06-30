@@ -13,8 +13,10 @@ public:
     struct GraphResources {
         std::shared_ptr<GpuTexture> sceneColor;
         std::shared_ptr<GpuTextureView> sceneColorRtv;
+        std::shared_ptr<GpuTextureView> sceneColorSrv;
         std::shared_ptr<GpuTexture> sceneDepth;
         std::shared_ptr<GpuTextureView> sceneDepthDsv;
+        std::shared_ptr<GpuTextureView> sceneDepthSrv;
         std::shared_ptr<GpuTexture> ssao;
         std::shared_ptr<GpuTextureView> ssaoRtv;
         std::shared_ptr<GpuTexture> ssaoBlur;
@@ -46,9 +48,13 @@ public:
     void DrawSSAOBlurHorizontal(GpuCommandList& commands);
     void DrawSSAOBlurVertical(GpuCommandList& commands);
     void DrawCompositeOffscreen(GpuCommandList& commands, const Scene& scene);
+    void DrawCompositeOffscreen(GpuCommandList& commands, const Scene& scene,
+                                GpuTextureView* sceneColorView);
     void DrawCompositeToBackbuffer(GpuCommandList& commands, const Scene& scene,
                                    GpuTextureView* backBufferView);
     void DrawCompositeToCurrentTarget(GpuCommandList& commands, const Scene& scene);
+    void DrawCompositeToCurrentTarget(GpuCommandList& commands, const Scene& scene,
+                                      GpuTextureView* sceneColorView);
 
     GpuTextureView* GetSceneColorView() const {
         return (!m_CompositeToBackbuffer && m_CompositeSrv)

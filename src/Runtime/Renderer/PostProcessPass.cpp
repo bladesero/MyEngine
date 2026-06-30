@@ -342,8 +342,10 @@ PostProcessPass::GraphResources PostProcessPass::GetGraphResources() const {
     GraphResources out;
     out.sceneColor = m_SceneColor;
     out.sceneColorRtv = m_SceneColorRtv;
+    out.sceneColorSrv = m_SceneColorSrv;
     out.sceneDepth = m_SceneDepth;
     out.sceneDepthDsv = m_SceneDepthDsv;
+    out.sceneDepthSrv = m_SceneDepthSrv;
     out.ssao = m_SSAO;
     out.ssaoRtv = m_SSAORtv;
     out.ssaoBlur = m_SSAOBlur;
@@ -479,14 +481,21 @@ void PostProcessPass::EndOffscreenAndComposite(GpuCommandList& commands, const S
 }
 
 void PostProcessPass::DrawCompositeOffscreen(GpuCommandList& commands, const Scene& scene) {
+    DrawCompositeOffscreen(commands, scene, m_SceneColorSrv.get());
+}
+
+void PostProcessPass::DrawCompositeOffscreen(GpuCommandList& commands, const Scene& scene,
+                                             GpuTextureView* sceneColorView) {
     if (!m_FXAAShader || !m_FXAAOffscreenPipeline) return;
     auto bindings = Device()->CreateBindGroup(m_FXAAShader);
-    if (!bindings) return;
+    if (!bindings || !sceneColorView) return;
     PostProcessConstants constants = CollectPostProcessParams(scene, m_Width, m_Height);
     bindings->SetConstants("PostProcessParams", &constants, sizeof(constants));
-    bindings->SetTexture("g_SceneColor", m_SceneColorSrv);
+    bindings->SetTexture("g_SceneColor",
+                         std::shared_ptr<GpuTextureView>(sceneColorView, [](GpuTextureView*) {}));
     bindings->SetSampler("g_Sampler", m_LinearClamp);
-    bindings->SetTexture("g_SSAOMap", m_SSAOSrv ? m_SSAOSrv : m_SceneColorSrv);
+    bindings->SetTexture("g_SSAOMap", m_SSAOSrv ? m_SSAOSrv :
+        std::shared_ptr<GpuTextureView>(sceneColorView, [](GpuTextureView*) {}));
     bindings->SetSampler("g_SSAOSampler", m_PointClamp);
     commands.SetGraphicsPipeline(m_FXAAOffscreenPipeline.get());
     commands.SetBindGroup(0, bindings.get());
@@ -504,14 +513,21 @@ void PostProcessPass::DrawCompositeToBackbuffer(GpuCommandList& commands, const 
 }
 
 void PostProcessPass::DrawCompositeToCurrentTarget(GpuCommandList& commands, const Scene& scene) {
+    DrawCompositeToCurrentTarget(commands, scene, m_SceneColorSrv.get());
+}
+
+void PostProcessPass::DrawCompositeToCurrentTarget(GpuCommandList& commands, const Scene& scene,
+                                                   GpuTextureView* sceneColorView) {
     if (!m_FXAAShader || !m_FXAABackbufferPipeline) return;
     auto bindings = Device()->CreateBindGroup(m_FXAAShader);
-    if (!bindings) return;
+    if (!bindings || !sceneColorView) return;
     PostProcessConstants constants = CollectPostProcessParams(scene, m_Width, m_Height);
     bindings->SetConstants("PostProcessParams", &constants, sizeof(constants));
-    bindings->SetTexture("g_SceneColor", m_SceneColorSrv);
+    bindings->SetTexture("g_SceneColor",
+                         std::shared_ptr<GpuTextureView>(sceneColorView, [](GpuTextureView*) {}));
     bindings->SetSampler("g_Sampler", m_LinearClamp);
-    bindings->SetTexture("g_SSAOMap", m_SSAOSrv ? m_SSAOSrv : m_SceneColorSrv);
+    bindings->SetTexture("g_SSAOMap", m_SSAOSrv ? m_SSAOSrv :
+        std::shared_ptr<GpuTextureView>(sceneColorView, [](GpuTextureView*) {}));
     bindings->SetSampler("g_SSAOSampler", m_PointClamp);
     commands.SetGraphicsPipeline(m_FXAABackbufferPipeline.get());
     commands.SetBindGroup(0, bindings.get());

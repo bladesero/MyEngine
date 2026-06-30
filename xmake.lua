@@ -94,11 +94,17 @@ target("MyEngineRuntime")
         "src/Runtime/Renderer/Renderer.cpp",
         "src/Runtime/Renderer/RenderGraph.cpp",
         "src/Runtime/Renderer/RHI/ShaderReflection.cpp",
+        "src/Runtime/Renderer/SceneLighting.cpp",
+        "src/Runtime/Renderer/SceneRenderCollector.cpp",
+        "src/Runtime/Renderer/MaterialResourceCache.cpp",
+        "src/Runtime/Renderer/ForwardRenderPasses.cpp",
         "src/Runtime/Renderer/GpuUploadQueue.cpp",
         "src/Runtime/Renderer/LightComponent.cpp",
         "src/Runtime/Renderer/PostProcessComponent.cpp",
         "src/Runtime/Renderer/PostProcessPass.cpp",
         "src/Runtime/Renderer/ScreenUIPass.cpp",
+        "src/Runtime/Renderer/GBufferPass.cpp",
+        "src/Runtime/Renderer/DeferredLightingPass.cpp",
         "src/Runtime/Renderer/EnvironmentPass.cpp",
         "src/Runtime/Renderer/ShaderManager.cpp",
         "src/Runtime/Renderer/ShaderCompilerSlang.cpp",
@@ -245,6 +251,7 @@ target("MyEngineEditor")
         "src/Editor/EditorLayoutManager.cpp",
         "src/Editor/EditorLogService.cpp",
         "src/Editor/EditorLuaScriptService.cpp",
+        "src/Editor/EditorOperators.cpp",
         "src/Editor/EditorPanel.cpp",
         "src/Editor/EditorProfiler.cpp",
         "src/Editor/EditorProject.cpp",
@@ -253,6 +260,11 @@ target("MyEngineEditor")
         "src/Editor/EditorShaderWatchService.cpp",
         "src/Editor/EditorShortcutMap.cpp",
         "src/Editor/EditorUndoUtil.cpp",
+        "src/Editor/EditorUI/EditorAngelScriptDomain.cpp",
+        "src/Editor/EditorUI/EditorScriptConfig.cpp",
+        "src/Editor/EditorUI/EditorScriptHotReloadService.cpp",
+        "src/Editor/EditorUI/EditorScriptRegistry.cpp",
+        "src/Editor/EditorUI/EditorUIFacade.cpp",
         "src/Editor/EditorViewportControllers.cpp",
         "src/Editor/EditorWorkspace.cpp",
         "src/Editor/UI/EditorFontManager.cpp",
@@ -272,11 +284,13 @@ target("MyEngineEditor")
         "src/Editor/Panels/AssetBrowserPanel.cpp",
         "src/Editor/Panels/LogPanel.cpp",
         "src/Editor/Panels/ProfilerPanel.cpp",
+        "src/Editor/Panels/ScriptedToolPanel.cpp",
         "src/Editor/EditorImGuiBackend.cpp",
         "src/Editor/EditorResourceOperator.cpp",
         "thirdparty/ImGuizmo/ImGuizmo.cpp", { warnings = "none" }
     )
-    add_includedirs("src", "src/Editor", "thirdparty/ImGuizmo")
+    add_includedirs("src", "src/Editor", "thirdparty/ImGuizmo",
+        "thirdparty/angelscript_addons/scriptstdstring")
     add_deps("MyEngineRuntime")
     add_deps("MyEngineIconTool")
     add_deps("Lua")
@@ -399,6 +413,7 @@ target("MyEngineTests")
         "src/Editor/EditorLayoutManager.cpp",
         "src/Editor/EditorLogService.cpp",
         "src/Editor/EditorLuaScriptService.cpp",
+        "src/Editor/EditorOperators.cpp",
         "src/Editor/EditorPanel.cpp",
         "src/Editor/EditorProfiler.cpp",
         "src/Editor/EditorProject.cpp",
@@ -407,6 +422,11 @@ target("MyEngineTests")
         "src/Editor/EditorShaderWatchService.cpp",
         "src/Editor/EditorShortcutMap.cpp",
         "src/Editor/EditorUndoUtil.cpp",
+        "src/Editor/EditorUI/EditorAngelScriptDomain.cpp",
+        "src/Editor/EditorUI/EditorScriptConfig.cpp",
+        "src/Editor/EditorUI/EditorScriptHotReloadService.cpp",
+        "src/Editor/EditorUI/EditorScriptRegistry.cpp",
+        "src/Editor/EditorUI/EditorUIFacade.cpp",
         "src/Editor/EditorViewportControllers.cpp",
         "src/Editor/EditorWorkspace.cpp",
         "src/Editor/UI/EditorFontManager.cpp",
@@ -426,11 +446,13 @@ target("MyEngineTests")
         "src/Editor/Panels/AssetBrowserPanel.cpp",
         "src/Editor/Panels/LogPanel.cpp",
         "src/Editor/Panels/ProfilerPanel.cpp",
+        "src/Editor/Panels/ScriptedToolPanel.cpp",
         "src/Editor/EditorImGuiBackend.cpp",
         "src/Editor/EditorResourceOperator.cpp",
         "thirdparty/ImGuizmo/ImGuizmo.cpp", { warnings = "none" }
     )
-    add_includedirs("src", "src/Runtime", "src/Editor", "thirdparty/ImGuizmo")
+    add_includedirs("src", "src/Runtime", "src/Editor", "thirdparty/ImGuizmo",
+        "thirdparty/angelscript_addons/scriptstdstring")
     add_deps("MyEngineRuntime")
     add_deps("Lua")
     add_options("mem_stats", "mem_tracking", "mem_guard", "vulkan")

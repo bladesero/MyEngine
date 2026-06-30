@@ -3,6 +3,7 @@
 #include "Editor/EditorContext.h"
 #include "Editor/EditorCommand.h"
 #include "Editor/EditorInspectorSection.h"
+#include "Editor/EditorUI/EditorAngelScriptDomain.h"
 #include "Editor/InspectorSections.h"
 #include "Core/Logger.h"
 #include "Scene/Actor.h"
@@ -23,6 +24,16 @@
 namespace {
 std::string ReadTextFile(const std::filesystem::path& path){std::ifstream input(path,std::ios::binary);return {std::istreambuf_iterator<char>(input),std::istreambuf_iterator<char>()};}
 bool WriteTextFile(const std::filesystem::path& path,const std::string& text){std::ofstream output(path,std::ios::binary|std::ios::trunc);output.write(text.data(),static_cast<std::streamsize>(text.size()));return output.good();}
+
+bool MatchesScriptInspectorTarget(const EditorScriptInspectorSpec& spec,
+                                  const EditorSelectObject& selected,
+                                  Actor* actor)
+{
+    if (spec.targetType == "*") return true;
+    if (spec.targetType == "Actor") return selected.IsActor();
+    if (spec.targetType == "Asset") return selected.IsAsset();
+    return actor && actor->HasComponentType(spec.targetType);
+}
 
 #if defined(MYENGINE_ENABLE_IMGUI)
 bool ShouldCaptureInspectorEditSnapshot(bool hasActorSelection,
@@ -101,6 +112,8 @@ void InspectorPanel::OnSelectionChanged(const EditorSelectionChangedEvent& event
 void InspectorPanel::DrawContent()
 {
 #if defined(MYENGINE_ENABLE_IMGUI)
+    if (TryDrawScriptedBody("inspector")) return;
+
     EditorContext* context = GetContext();
     Scene* scene = context ? context->GetInspectorScene() : nullptr;
     if (!scene) return;
@@ -155,6 +168,19 @@ void InspectorPanel::DrawContent()
 
     for (const auto& section : m_SectionRegistry.GetSections()) {
         if (section->CanDraw(m_SelectedObject, *context)) section->Draw(*context);
+    }
+    if (EditorAngelScriptDomain* domain = context->GetEditorScriptDomain();
+        domain && domain->IsLoaded() && domain->GetConfig().enableInspectorExtensions) {
+        for (const auto& section : domain->GetRegistry().GetInspectors()) {
+            if (!MatchesScriptInspectorTarget(section, m_SelectedObject, actor)) continue;
+            std::string error;
+            const std::string stateKey = "inspector:" + section.targetType;
+            if (!domain->ExecuteExtension(section.callback, stateKey, *context, &error) &&
+                !error.empty()) {
+                Logger::Warn("[EditorScript] Inspector section failed for ",
+                             section.targetType, ": ", error);
+            }
+        }
     }
     ImGui::EndDisabled();
 

@@ -1,0 +1,12 @@
+{
+  "enabled": true,
+  "corePanelMode": "cppOnly",
+  "allowProjectAppend": true,
+  "allowProjectOverrideCore": false,
+  "enableToolPanels": true,
+  "enableMenuExtensions": true,
+  "enableInspectorExtensions": true,
+  "enableContextMenuExtensions": true,
+  "enabledCorePanels": [
+  ]
+}

@@ -27,6 +27,17 @@ void SceneRenderLayer::SetSceneViewportUsesSimulationScene(bool enabled)
     m_SceneViewportUsesSimulationScene = enabled;
 }
 
+void SceneRenderLayer::SetRenderPath(RenderPath path)
+{
+    m_Viewport.SetRenderPath(path);
+    m_GameViewport.SetRenderPath(path);
+}
+
+RenderPath SceneRenderLayer::GetRenderPath() const
+{
+    return m_Viewport.GetRenderPath();
+}
+
 Scene& SceneRenderLayer::GetSceneViewportRenderScene()
 {
     return m_SceneViewportUsesSimulationScene && HasPlayWorld()

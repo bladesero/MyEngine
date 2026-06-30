@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 using Microsoft::WRL::ComPtr;
@@ -19,6 +20,7 @@ using Microsoft::WRL::ComPtr;
 class D3D12DeferredReleaseQueue;
 class D3D12DescriptorPool;
 class D3D12DescriptorLease;
+struct D3D12Sampler;
 
 struct D3D12Buffer : GpuBuffer {
     ~D3D12Buffer() override;
@@ -76,6 +78,7 @@ struct D3D12Texture : GpuTexture {
     std::shared_ptr<D3D12DescriptorLease> srvLease;
     std::shared_ptr<D3D12DescriptorLease> sampLease;
     std::shared_ptr<D3D12DescriptorLease> dsvLease;
+    std::shared_ptr<D3D12Sampler> sampler;
     std::vector<D3D12_CPU_DESCRIPTOR_HANDLE> dsvFaces;
     std::vector<std::shared_ptr<D3D12DescriptorLease>> dsvFaceLeases;
     uint32_t arraySize = 1;
@@ -116,7 +119,7 @@ public:
     static constexpr uint32_t kDsvDescriptorCount = 32;
     static constexpr uint32_t kDefaultConstantBufferCapacity = 1024 * 1024;
     static constexpr uint32_t kDefaultSrvDescriptorCount      = 1024;
-    static constexpr uint32_t kDefaultSamplerDescriptorCount  = 256;
+    static constexpr uint32_t kDefaultSamplerDescriptorCount  = 2048;
     static constexpr DXGI_FORMAT kDepthFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
     static constexpr DXGI_FORMAT kDepthTypelessFormat = DXGI_FORMAT_R24G8_TYPELESS;
 
@@ -281,6 +284,27 @@ private:
         bool hasColorTarget = false;
     };
 
+    struct SamplerCacheKey {
+        RHISamplerDesc desc;
+
+        bool operator==(const SamplerCacheKey& other) const {
+            return desc.filter == other.desc.filter &&
+                   desc.addressU == other.desc.addressU &&
+                   desc.addressV == other.desc.addressV &&
+                   desc.addressW == other.desc.addressW;
+        }
+    };
+
+    struct SamplerCacheKeyHash {
+        size_t operator()(const SamplerCacheKey& key) const {
+            size_t hash = static_cast<size_t>(key.desc.filter);
+            hash = (hash * 131u) ^ static_cast<size_t>(key.desc.addressU);
+            hash = (hash * 131u) ^ static_cast<size_t>(key.desc.addressV);
+            hash = (hash * 131u) ^ static_cast<size_t>(key.desc.addressW);
+            return hash;
+        }
+    };
+
 private:
     friend class D3D12SwapChain;
 
@@ -366,6 +390,8 @@ private:
     ComPtr<ID3D12DescriptorHeap>     m_SamplerHeap;
     uint32_t                         m_SamplerDescriptorSize = 0;
     uint32_t                         m_NextSampSlot = 0;
+    uint32_t                         m_UniqueSamplerDescriptorCount = 0;
+    std::unordered_map<SamplerCacheKey, std::weak_ptr<D3D12Sampler>, SamplerCacheKeyHash> m_SamplerCache;
 
     ComPtr<ID3D12Resource>           m_DefaultTexture;
     D3D12_CPU_DESCRIPTOR_HANDLE      m_DefaultTexSrvCpu = {};
@@ -374,6 +400,7 @@ private:
     D3D12_CPU_DESCRIPTOR_HANDLE      m_DefaultSampCpu = {};
     D3D12_GPU_DESCRIPTOR_HANDLE      m_DefaultSampGpu = {};
     std::shared_ptr<D3D12DescriptorLease> m_DefaultSampLease;
+    std::shared_ptr<D3D12Sampler>    m_DefaultSampler;
 
     ComPtr<ID3D12CommandAllocator>    m_UploadCommandAllocator;
     ComPtr<ID3D12GraphicsCommandList> m_UploadCommandList;

@@ -24,6 +24,7 @@ public:
     const std::string& GetID() const { return m_ID; }
     const std::string& GetTitle() const { return m_Title; }
     std::string GetStableWindowName() const;
+    virtual std::string GetDefaultDockArea() const { return {}; }
     bool IsVisible() const { return m_Visible; }
     void SetVisible(bool value) { m_Visible = value; }
 
@@ -31,6 +32,7 @@ public:
     void RegisterContextMenuHandler(ContextMenuHandler handler);
 
 protected:
+    bool TryDrawScriptedBody(const char* panelID = nullptr);
     virtual void DrawContent() = 0;
     virtual int GetWindowFlags() const { return 0; }
     virtual void BeforeBegin() {}

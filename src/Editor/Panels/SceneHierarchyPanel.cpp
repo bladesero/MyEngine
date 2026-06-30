@@ -4,8 +4,10 @@
 #include "Editor/EditorContext.h"
 #include "Editor/EditorAssetRegistry.h"
 #include "Editor/EditorImportService.h"
+#include "Editor/EditorOperators.h"
 #include "Editor/EditorUndoUtil.h"
 #include "Editor/EditorDragDrop.h"
+#include "Editor/EditorUI/EditorAngelScriptDomain.h"
 #include "Editor/UI/EditorIcons.h"
 #include "Editor/UI/EditorWidgets.h"
 #include "Scene/Actor.h"
@@ -103,11 +105,14 @@ bool ExecuteMoveActorDrop(EditorContext& context, Scene& scene, Actor& source,
     const uint64_t afterNextID = afterNextSibling ? afterNextSibling->GetID() : uint64_t(0);
     if (beforeParentID == afterParentID && beforeNextID == afterNextID) return false;
 
-    context.GetCommandStack()->ExecuteCommand(
+    if (EditorOperators* operators = context.GetOperators()) {
+        return operators->DragDrop().ApplyActorDrop(
+            context, source.GetID(), afterParentID, afterNextID);
+    }
+    return context.GetCommandStack()->ExecuteCommand(
         EditorUndoUtil::MakeMoveActorCommand(
             source, beforeParentID, beforeNextID, afterParentID, afterNextID),
         context);
-    return true;
 }
 
 enum class UIActorPreset {
@@ -324,8 +329,9 @@ SceneHierarchyPanel::SceneHierarchyPanel():EditorPanel("sceneHierarchy","Scene O
 
         const char* activeLabel = actor->IsActiveSelf() ? "Set Inactive" : "Set Active";
         menu.AddAction(activeLabel, [this,context,actor](){
-            context->GetCommandStack()->ExecuteCommand(
-                EditorUndoUtil::MakeSetActiveCommand(*actor, !actor->IsActiveSelf()), *context);
+            if (auto* operators = context->GetOperators()) {
+                operators->Commands().SetActorActive(*context, actor->GetID(), !actor->IsActiveSelf());
+            }
         });
 
         menu.AddSeparator();
@@ -384,6 +390,25 @@ SceneHierarchyPanel::SceneHierarchyPanel():EditorPanel("sceneHierarchy","Scene O
                 EditorUndoUtil::MakeSceneSnapshotCommand("Create Actor",before,after,oldId,newId),*context);
         });
         AddUIActorMenu(*context, *scene, nullptr, menu);
+    });
+
+    RegisterContextMenuHandler([this](const ContextMenuContext& ctx,
+                                      EditorContextMenu& menu){
+        if(ctx.target!=ContextMenuContext::Target::Actor)return;
+        auto* context=GetContext();
+        EditorAngelScriptDomain* domain=context?context->GetEditorScriptDomain():nullptr;
+        if(!context||!domain||!domain->IsLoaded()||
+           !domain->GetConfig().enableContextMenuExtensions)return;
+        const auto& extensions=domain->GetRegistry().GetActorContextMenus();
+        if(extensions.empty())return;
+        menu.AddSeparator();
+        for(const auto& extension:extensions){
+            std::string error;
+            if(!domain->ExecuteExtension(extension.callback,"actorContext",*context,&error)&&
+               !error.empty()){
+                Logger::Warn("[EditorScript] Actor context menu failed: ",error);
+            }
+        }
     });
 }
 
@@ -465,8 +490,9 @@ void SceneHierarchyPanel::DrawActor(Actor* actor){
                                              isActive ? "SetInactive" : "SetActive",
                                              isActive ? EditorIcons::Success : EditorIcons::Error,
                                              isActive ? "Set Inactive" : "Set Active")) {
-        context->GetCommandStack()->ExecuteCommand(
-            EditorUndoUtil::MakeSetActiveCommand(*actor, !isActive), *context);
+        if (auto* operators = context->GetOperators()) {
+            operators->Commands().SetActorActive(*context, actor->GetID(), !isActive);
+        }
     }
     ImGui::SameLine();
     if (context) {
@@ -481,8 +507,9 @@ void SceneHierarchyPanel::DrawActor(Actor* actor){
                               ImGuiInputTextFlags_EnterReturnsTrue)) {
             std::string newName(m_RenameBuffer);
             if (!newName.empty() && newName != actor->GetName()) {
-                context->GetCommandStack()->ExecuteCommand(
-                    EditorUndoUtil::MakeSetNameCommand(*actor, newName), *context);
+                if (auto* operators = context->GetOperators()) {
+                    operators->Commands().RenameActor(*context, actor->GetID(), newName);
+                }
             }
             m_PendingRenameID = 0;
         }
@@ -494,13 +521,14 @@ void SceneHierarchyPanel::DrawActor(Actor* actor){
 
         // Selection handling
         if (ImGui::IsItemClicked()) {
+            auto* operators = context ? context->GetOperators() : nullptr;
             if (ImGui::GetIO().KeyCtrl) {
-                context->GetSelection().Select(
-                    EditorSelectObject::MakeActor(actor->GetHandle(), actor->GetID()),
-                    EditorSelectionMode::Toggle);
+                if (operators) {
+                    operators->Selection().SelectActor(
+                        *context, actor->GetID(), EditorSelectionIntentMode::Toggle);
+                }
             } else {
-                context->GetSelection().Select(
-                    EditorSelectObject::MakeActor(actor->GetHandle(), actor->GetID()));
+                if (operators) operators->Selection().SelectActor(*context, actor->GetID());
             }
         }
 
@@ -514,8 +542,9 @@ void SceneHierarchyPanel::DrawActor(Actor* actor){
         if (EditorContextMenu::DetectItem("##ActorCtx")) {
             m_ActorRightClicked = true;
             if (!isSelected) {
-                context->GetSelection().Select(
-                    EditorSelectObject::MakeActor(actor->GetHandle(), actor->GetID()));
+                if (auto* operators = context->GetOperators()) {
+                    operators->Selection().SelectActor(*context, actor->GetID());
+                }
             }
         }
         {
@@ -646,6 +675,8 @@ void SceneHierarchyPanel::HandleDragDropTarget(Actor* targetParent){
 
 void SceneHierarchyPanel::DrawContent(){
 #if defined(MYENGINE_ENABLE_IMGUI)
+    if (TryDrawScriptedBody("sceneHierarchy")) return;
+
     auto* context=GetContext();Scene* scene=context?context->GetScene():nullptr;
     if(!scene)return;
 
