@@ -5,6 +5,7 @@
 #ifdef MYENGINE_PLATFORM_MACOS
 
 #include "Renderer/IRenderContext.h"
+#include "Renderer/RHI/IEditorImGuiRHIInterop.h"
 #include <cstddef>
 #include <memory>
 
@@ -20,7 +21,7 @@ struct SDL_Window;
 //  ObjC/Metal types are fully hidden behind a pImpl so that this header
 //  can be safely included from plain C++ translation units.
 // ============================================================================
-class MetalContext : public IRenderContext {
+class MetalContext : public IRenderContext, public IEditorImGuiRHIInterop {
 public:
     MetalContext();
     ~MetalContext() override;
@@ -35,6 +36,7 @@ public:
     GpuTextureView* GetCurrentBackBufferView() override;
     GpuCommandList* GetGraphicsCommandList() override;
     RHIBackend GetBackend() const override { return RHIBackend::Metal; }
+    IEditorImGuiRHIInterop* QueryEditorImGuiInterop() override { return this; }
     ImGuiBackendHandles GetImGuiBackendHandles() override;
 
     std::shared_ptr<GpuBuffer> CreateVertexBuffer(

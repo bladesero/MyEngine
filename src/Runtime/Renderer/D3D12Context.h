@@ -1,6 +1,7 @@
 #pragma once
 
 #include "IRenderContext.h"
+#include "Renderer/RHI/IEditorImGuiRHIInterop.h"
 
 #include <cstddef>
 
@@ -111,7 +112,7 @@ struct D3D12Sampler : GpuSampler {
 // ============================================================================
 // D3D12Context
 // ============================================================================
-class D3D12Context final : public IRenderContext {
+class D3D12Context final : public IRenderContext, public IEditorImGuiRHIInterop {
 public:
     static constexpr uint32_t kFrameCount = 2;
     static constexpr uint32_t kTextureSlotCount = 10;
@@ -143,6 +144,7 @@ public:
     void SetVSyncEnabled(bool enabled) override { m_VSyncEnabled = enabled; }
     bool IsVSyncEnabled() const override { return m_VSyncEnabled; }
     RHIBackend GetBackend() const override { return RHIBackend::D3D12; }
+    IEditorImGuiRHIInterop* QueryEditorImGuiInterop() override { return this; }
     ImGuiBackendHandles GetImGuiBackendHandles() override;
 
     std::shared_ptr<GpuBuffer> CreateVertexBuffer(

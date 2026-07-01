@@ -1,6 +1,7 @@
 #include "Renderer/EnvironmentPass.h"
 
 #include "Core/Logger.h"
+#include "Renderer/EngineShaderCatalog.h"
 #include "Renderer/ShaderManager.h"
 
 #include <algorithm>
@@ -168,11 +169,11 @@ bool EnvironmentPass::EnsureResources()
     }
 
     m_AtmosphereHandle = ShaderManager::Get().GetOrCreate(
-        "Content/Engine/Shaders/AtmosphereCubemap.shader", nullptr, 0);
+        EngineShaders::kAtmosphereCubemap, nullptr, 0);
     m_MipmapHandle = ShaderManager::Get().GetOrCreate(
-        "Content/Engine/Shaders/EnvironmentMipmap.shader", nullptr, 0);
+        EngineShaders::kEnvironmentMipmap, nullptr, 0);
     m_SHHandle = ShaderManager::Get().GetOrCreateCompute(
-        "Content/Engine/Shaders/AtmosphereSH.shader");
+        EngineShaders::kAtmosphereSH);
     m_AtmosphereShader = m_AtmosphereHandle ? m_AtmosphereHandle->shader : nullptr;
     m_MipmapShader = m_MipmapHandle ? m_MipmapHandle->shader : nullptr;
     m_AtmosphereVersion = m_AtmosphereHandle ? m_AtmosphereHandle->version : 0;

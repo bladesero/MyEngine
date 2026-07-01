@@ -4,6 +4,7 @@
 #include "Assets/MeshAsset.h"
 #include "Animation/SkinnedMeshRendererComponent.h"
 #include "Core/Logger.h"
+#include "Renderer/EngineShaderCatalog.h"
 #include "Renderer/LightComponent.h"
 #include "Renderer/ShaderManager.h"
 #include "Math/Mat4Inverse.h"
@@ -392,7 +393,7 @@ void ShadowPass::EnsureShadowShader()
     if (!Device()) return;
     if (!m_ShadowShaderHandle)
         m_ShadowShaderHandle = ShaderManager::Get().GetOrCreate(
-            "Content/Engine/Shaders/ShadowDepth.shader", k_ShadowVertexLayout, 3);
+            EngineShaders::kShadowDepth, k_ShadowVertexLayout, 3);
     if (!m_ShadowShaderHandle || !m_ShadowShaderHandle->shader) {
         Logger::Error("[ShadowPass] Failed to create shadow shader");
         m_ShadowPipeline.reset();

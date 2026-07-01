@@ -5,6 +5,7 @@
 #include "Assets/TextureAsset.h"
 #include "Animation/SkinnedMeshRendererComponent.h"
 #include "Core/Logger.h"
+#include "Renderer/EngineShaderCatalog.h"
 #include "Renderer/ForwardRenderPasses.h"
 #include "Renderer/MeshShader.h"
 #include "Renderer/SceneLighting.h"
@@ -261,7 +262,7 @@ GpuShader* MainPass::GetOrCreateShader()
     if (supportsWindowsPbr) {
         if (!m_MainShaderHandle) {
             m_MainShaderHandle = ShaderManager::Get().GetOrCreate(
-                "Content/Engine/Shaders/ShadowedMainPass.shader",
+                EngineShaders::kShadowedMainPass,
                 k_MeshVertexLayout, k_MeshVertexLayoutCount);
             m_ShaderMode = ShaderMode::ShadowedPbr;
         }
@@ -269,14 +270,14 @@ GpuShader* MainPass::GetOrCreateShader()
             m_ShaderMode == ShaderMode::ShadowedPbr) {
             Logger::Warn("[MainPass] PBR shader failed; fallback to legacy shader");
             m_MainShaderHandle = ShaderManager::Get().GetOrCreate(
-                "Content/Engine/Shaders/Mesh.shader",
+                EngineShaders::kMesh,
                 k_MeshVertexLayout, k_MeshVertexLayoutCount);
             m_ShaderMode = ShaderMode::Legacy;
         }
     } else {
         if (!m_MainShaderHandle) {
             m_MainShaderHandle = ShaderManager::Get().GetOrCreate(
-                "Content/Engine/Shaders/Mesh.shader",
+                EngineShaders::kMesh,
                 k_MeshVertexLayout, k_MeshVertexLayoutCount);
             m_ShaderMode = ShaderMode::Legacy;
         }
@@ -285,7 +286,7 @@ GpuShader* MainPass::GetOrCreateShader()
     if (Device()->GetBackend() == RHIBackend::Metal) {
         if (!m_MainShaderHandle) {
             m_MainShaderHandle = ShaderManager::Get().GetOrCreate(
-                "Content/Engine/Shaders/ShadowedMainPass.shader",
+                EngineShaders::kShadowedMainPass,
                 k_MeshVertexLayout, k_MeshVertexLayoutCount);
             m_ShaderMode = ShaderMode::ShadowedPbr;
         }
@@ -403,7 +404,7 @@ GpuShader* MainPass::GetOrCreateSkyShader()
     if (!Device()) return nullptr;
     if (!m_SkyShaderHandle) {
         m_SkyShaderHandle = ShaderManager::Get().GetOrCreate(
-            "Content/Engine/Shaders/ProceduralSky.shader", nullptr, 0);
+            EngineShaders::kProceduralSky, nullptr, 0);
     }
     return m_SkyShaderHandle ? m_SkyShaderHandle->shader.get() : nullptr;
 }

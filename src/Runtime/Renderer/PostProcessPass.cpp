@@ -3,6 +3,7 @@
 #include "Camera/Camera.h"
 #include "Core/Logger.h"
 #include "Math/Mat4Inverse.h"
+#include "Renderer/EngineShaderCatalog.h"
 #include "Renderer/PostProcessComponent.h"
 #include "Renderer/ShaderManager.h"
 #include "Scene/Actor.h"
@@ -282,13 +283,13 @@ bool PostProcessPass::EnsureResources() {
     }
 
     m_FXAAHandle = ShaderManager::Get().GetOrCreate(
-        "Content/Engine/Shaders/PostProcessFXAA.shader", nullptr, 0);
+        EngineShaders::kPostProcessFXAA, nullptr, 0);
     m_FXAAShader = m_FXAAHandle ? m_FXAAHandle->shader : nullptr;
     if (m_SSAOEnabled) {
         m_SSAOHandle = ShaderManager::Get().GetOrCreate(
-            "Content/Engine/Shaders/PostProcessSSAO.shader", nullptr, 0);
+            EngineShaders::kPostProcessSSAO, nullptr, 0);
         m_BlurHandle = ShaderManager::Get().GetOrCreate(
-            "Content/Engine/Shaders/PostProcessSSAOBlur.shader", nullptr, 0);
+            EngineShaders::kPostProcessSSAOBlur, nullptr, 0);
         m_SSAOShader = m_SSAOHandle ? m_SSAOHandle->shader : nullptr;
         m_BlurShader = m_BlurHandle ? m_BlurHandle->shader : nullptr;
     }

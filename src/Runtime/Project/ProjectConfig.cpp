@@ -1,5 +1,6 @@
 #include "Project/ProjectConfig.h"
 #include "Core/Sha256.h"
+#include "Renderer/RenderBackendRegistry.h"
 
 #include <fstream>
 #include <nlohmann/json.hpp>
@@ -23,7 +24,7 @@ bool ProjectConfig::IsWithin(const fs::path& path, const fs::path& parent)
 
 bool ProjectConfig::IsSupportedGraphicsBackend(std::string_view backend)
 {
-    return backend == "d3d11" || backend == "d3d12" || backend == "vulkan";
+    return ParseRenderBackend(backend).has_value();
 }
 
 bool ProjectConfig::IsSupportedRenderPath(std::string_view renderPath)

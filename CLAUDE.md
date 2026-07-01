@@ -7,7 +7,7 @@
 ## What this is
 
 - **C++17** game/engine codebase: **SDL3** windowing and events, **ImGui** + **ImGuizmo** editor UI, scene graph (**Scene** / **Actor** / components), **JSON** scene serialization (**nlohmann_json**), rendering via **IRenderContext** (D3D11/D3D12 on Windows, Metal on macOS).
-- **Single shared library** `MyEngineRuntime` (`runtime` basename) contains almost all engine code **including** `EditorLayer`; executables only add `main.cpp` / `player_main.cpp` / tests and link the DLL.
+- **Shared runtime library** `MyEngineRuntime` (`runtime` basename) contains Runtime code only. `MyEngineEditor` and `MyEngineTests` link the runtime DLL and compile the shared Editor source list from `xmake.lua`; `MyEnginePlayer` stays runtime-only.
 
 ---
 
@@ -90,7 +90,7 @@ no repository GPU backend.
 
 ## Conventions for changes
 
-1. **New `.cpp` files** under `src/Runtime/` or `src/Editor/` must be added to **`xmake.lua`** → target `MyEngineRuntime` → `add_files(...)`, unless they are header-only.
+1. **New `.cpp` files** under `src/Runtime/` must be added to **`xmake.lua`** → target `MyEngineRuntime` → `add_files(...)`, unless they are header-only. **New Editor `.cpp` files** under `src/Editor/` must be added once to the shared `editor_sources` list in `xmake.lua`.
 2. **Public headers** for consumers of the DLL: under `src/Runtime/`; `add_headerfiles` already globs `src/Runtime/(**.h)`.
 3. **Dependency direction**: prefer **Core → Scene/Assets/Camera → Renderer → Game**; **do not** make `Renderer` depend on `Editor`. Editor sits beside Game and uses `SceneRenderLayer*`.
 4. **Math**: row-major `Mat4`, left-handed, Y-up; align with `EngineMath.h` and existing shaders.
@@ -116,7 +116,7 @@ no repository GPU backend.
 
 ## Testing
 
-- Add or extend tests in `tests/EngineTests.cpp`; run `xmake run MyEngineTests`. Tests link `MyEngineRuntime` and may use `AssetManager`, `SceneSerializer`, etc.
+- Add or extend tests under `tests/`; run `xmake run MyEngineTests`. Tests link `MyEngineRuntime` and compile the shared Editor source list when editor coverage needs it.
 
 ---
 

@@ -6,6 +6,7 @@
 #include "Assets/TextureAsset.h"
 #include "Core/Logger.h"
 #include "Math/Mat4Inverse.h"
+#include "Renderer/EngineShaderCatalog.h"
 #include "Renderer/MeshShader.h"
 #include "Renderer/ShaderManager.h"
 #include "Scene/Actor.h"
@@ -154,7 +155,7 @@ GpuShader* GBufferPass::GetOrCreateShader()
     if (!Device()) return nullptr;
     if (!m_ShaderHandle) {
         m_ShaderHandle = ShaderManager::Get().GetOrCreate(
-            "Content/Engine/Shaders/GBufferPass.shader",
+            EngineShaders::kGBuffer,
             k_MeshVertexLayout, k_MeshVertexLayoutCount);
     }
     if (!m_ShaderHandle || !m_ShaderHandle->shader) return nullptr;

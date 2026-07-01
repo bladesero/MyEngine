@@ -43,12 +43,12 @@ MyEngine/
 
 | 目标 | 类型 | 说明 |
 |------|------|------|
-| `MyEngineRuntime` | `shared`（`runtime.dll`/`libruntime.so` 等） | 聚合 **Runtime** 全部 `.cpp`、**EditorLayer**、`ImGuizmo`；对外导出 `src/Runtime/**/*.h`（public include） |
-| `MyEngineEditor` | `binary` | 链接 `MyEngineRuntime`，入口 `main.cpp`；规则 `copy_game_content` |
+| `MyEngineRuntime` | `shared`（`runtime.dll`/`libruntime.so` 等） | 聚合 **Runtime** 全部 `.cpp`；对外导出 `src/Runtime/**/*.h`（public include） |
+| `MyEngineEditor` | `binary` | 链接 `MyEngineRuntime`，入口 `main.cpp`，并编译 `xmake.lua` 中共享的 `editor_sources` 与 `ImGuizmo`；规则 `copy_game_content` |
 | `MyEnginePlayer` | `binary` | 链接 `MyEngineRuntime`，入口 `player_main.cpp`；同样复制 `Content` |
-| `MyEngineTests` | `binary` | 链接 `MyEngineRuntime`，`tests/EngineTests.cpp`；运行时仍依赖 SDL（链接与 DLL 复制与编辑器类似） |
+| `MyEngineTests` | `binary` | 链接 `MyEngineRuntime`，编译 `tests/*.cpp` 与共享 `editor_sources`；运行时仍依赖 SDL（链接与 DLL 复制与编辑器类似） |
 
-**说明**：编辑器 UI 并非独立静态库，而是 **编译进 `MyEngineRuntime` 共享库**；可执行文件只负责入口与 `PushLayer` 组合。`MyEnginePlayer` 虽不推入 `EditorLayer`，仍定义 `MYENGINE_ENABLE_IMGUI`（与 `xmake.lua` 一致），便于将来或工具链统一。
+**说明**：编辑器 UI 不编译进 `MyEngineRuntime` 共享库；`MyEngineEditor` 与 `MyEngineTests` 通过 `xmake.lua` 的共享 `editor_sources` 列表复用同一批 Editor 源文件。`MyEnginePlayer` 不编译 Editor 源文件，保持 runtime-only。
 
 ### 2.2 第三方包（`add_requires`）
 
@@ -94,7 +94,6 @@ flowchart TB
     end
 
     subgraph runtime_dll [MyEngineRuntime 共享库]
-        Editor[Editor/EditorLayer]
         Game[Game/SceneRenderLayer 等]
         R[Renderer + RHI + Context]
         Cam[Camera]
@@ -109,6 +108,8 @@ flowchart TB
     PlayerExe --> runtime_dll
     TestsExe --> runtime_dll
 
+    EditorExe --> Editor[Editor/EditorLayer]
+    TestsExe --> Editor
     Editor --> Game
     Editor --> Core
     Game --> Sc

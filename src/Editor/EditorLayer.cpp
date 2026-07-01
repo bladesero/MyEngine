@@ -8,6 +8,7 @@
 #include "Core/Window.h"
 #include "Editor/EditorPanel.h"
 #include "Editor/EditorPanels.h"
+#include "Editor/EditorProjectSettingsController.h"
 #include "Editor/EditorShortcutMap.h"
 #include "Editor/EditorUI/EditorAngelScriptDomain.h"
 #include "Editor/EditorUI/EditorScriptConfig.h"
@@ -41,11 +42,6 @@ namespace {
 RenderPath RenderPathFromProjectValue(const std::string& value)
 {
     return value == "deferred" ? RenderPath::Deferred : RenderPath::Forward;
-}
-
-const char* ProjectValueFromRenderPathIndex(int index)
-{
-    return index == 1 ? "deferred" : "forward";
 }
 
 std::string TrimMenuPrefix(const std::string& path, const char* topLevel)
@@ -157,7 +153,13 @@ void EditorLayer::OnAttach() {
     m_UIScaleManager.BeginFrame(nullptr);
     m_ThemeManager.Apply(m_UIScaleManager.GetEffectiveScale());
     ImGuizmo::SetImGuiContext(ImGui::GetCurrentContext());
-    m_ImGuiBackend = std::make_unique<EditorImGuiBackend>(m_RenderContext, m_Window);
+    auto* imguiInterop = m_RenderContext->QueryEditorImGuiInterop();
+    if (!imguiInterop) {
+        Logger::Error("[Editor] Active render backend does not expose Editor ImGui interop");
+        ImGui::DestroyContext();
+        return;
+    }
+    m_ImGuiBackend = std::make_unique<EditorImGuiBackend>(imguiInterop, m_Window);
     if (!m_ImGuiBackend->Init()) {
         ImGui::DestroyContext();
         return;
@@ -536,26 +538,7 @@ void EditorLayer::DrawProjectSelector() {
 }
 
 void EditorLayer::OpenProjectSettings() {
-    if (!m_ProjectOpen) return;
-    const auto& config = m_Project.GetConfig();
-    std::strncpy(m_ProjectName.data(), config.GetName().c_str(), m_ProjectName.size() - 1);
-    m_ProjectName.back() = '\0';
-    std::strncpy(m_PublishOutput.data(),
-                 config.GetPublishSettings().outputDirectory.c_str(),
-                 m_PublishOutput.size() - 1);
-    m_PublishOutput.back() = '\0';
-    std::strncpy(m_InputConfigPath.data(),
-                 config.GetInputSettings().config.c_str(),
-                 m_InputConfigPath.size() - 1);
-    m_InputConfigPath.back() = '\0';
-    const std::string& backend = config.GetGraphicsSettings().backend;
-    m_GraphicsBackendIndex =
-#if defined(MYENGINE_ENABLE_VULKAN)
-        backend == "vulkan" ? 2 :
-#endif
-        (backend == "d3d12" ? 1 : 0);
-    m_RenderPathIndex = config.GetGraphicsSettings().renderPath == "deferred" ? 1 : 0;
-    m_ProjectSettingsRequested = true;
+    EditorProjectSettingsController::Open(*this);
 }
 
 void EditorLayer::ShowProjectResult(std::string message, bool error) {
@@ -617,198 +600,7 @@ void EditorLayer::CreateDefaultInputConfig() {
 }
 
 void EditorLayer::DrawProjectSettings() {
-#if defined(MYENGINE_ENABLE_IMGUI)
-    if (m_ProjectSettingsRequested) {
-        ImGui::OpenPopup("Settings");
-        m_ProjectSettingsRequested = false;
-    }
-    ImGui::SetNextWindowSize({760.0f, 520.0f}, ImGuiCond_Appearing);
-    if (!ImGui::BeginPopupModal("Settings", nullptr, ImGuiWindowFlags_NoCollapse)) return;
-
-    if (ImGui::BeginTabBar("SettingsTabs")) {
-        if (ImGui::BeginTabItem("Project")) {
-            DrawProjectSettingsTab();
-            ImGui::EndTabItem();
-        }
-        if (ImGui::BeginTabItem("Graphics")) {
-            DrawGraphicsSettingsTab();
-            ImGui::EndTabItem();
-        }
-        if (ImGui::BeginTabItem("Gameplay Input")) {
-            DrawGameplayInputSettingsTab();
-            ImGui::EndTabItem();
-        }
-        if (ImGui::BeginTabItem("Shortcuts")) {
-            DrawShortcutSettingsTab();
-            ImGui::EndTabItem();
-        }
-        if (ImGui::BeginTabItem("Appearance")) {
-            DrawAppearanceSettingsTab();
-            ImGui::EndTabItem();
-        }
-        if (ImGui::BeginTabItem("Layout")) {
-            DrawLayoutSettingsTab();
-            ImGui::EndTabItem();
-        }
-        ImGui::EndTabBar();
-    }
-    ImGui::Separator();
-    if (ImGui::Button("Close")) ImGui::CloseCurrentPopup();
-    ImGui::EndPopup();
-#endif
-}
-
-void EditorLayer::DrawLayoutSettingsTab() {
-#if defined(MYENGINE_ENABLE_IMGUI)
-    ImGui::LabelText("Default config", "%s", m_LayoutManager.GetConfigPath().string().c_str());
-    if (!m_LayoutManager.GetLastWarning().empty()) {
-        EditorWidgets::InlineMessage(EditorWidgets::MessageType::Warning,
-                                     m_LayoutManager.GetLastWarning().c_str());
-    }
-    if (ImGui::Button("Save Current")) SaveEditorLayout();
-    ImGui::SameLine();
-    if (ImGui::Button("Reset To Default")) ResetEditorLayoutToDefault();
-    ImGui::SameLine();
-    if (ImGui::Button("Reveal Config Path")) RevealEditorLayoutConfig();
-    ImGui::Separator();
-    ImGui::TextDisabled("Layout is stored in editor state and does not dirty the scene.");
-#endif
-}
-
-void EditorLayer::DrawAppearanceSettingsTab() {
-#if defined(MYENGINE_ENABLE_IMGUI)
-    float userScale = m_Workspace.GetUserUiScale();
-    ImGui::Text("Platform DPI scale: %.2f", m_UIScaleManager.GetPlatformScale());
-    ImGui::Text("Effective UI scale: %.2f", m_UIScaleManager.GetEffectiveScale());
-    ImGui::LabelText("Font root", "%s",
-                     m_UIScaleManager.GetFontManager().GetFontRoot().string().c_str());
-    if (!m_UIScaleManager.GetFontManager().GetLastWarning().empty()) {
-        EditorWidgets::InlineMessage(
-            Editor::UI::EditorNotificationType::Warning,
-            m_UIScaleManager.GetFontManager().GetLastWarning().c_str());
-    }
-    if (ImGui::SliderFloat("UI Scale", &userScale,
-                           Editor::UI::EditorUIScaleSettings::kMinUserScale,
-                           Editor::UI::EditorUIScaleSettings::kMaxUserScale, "%.2f")) {
-        m_Workspace.SetUserUiScale(userScale);
-        m_UIScaleManager.SetUserScale(userScale);
-        m_UIScaleManager.MarkFontAtlasDirty();
-        m_ThemeManager.Apply(m_UIScaleManager.GetEffectiveScale());
-        std::string error;
-        if (!m_Workspace.Save(&error)) Logger::Warn("[Editor] ", error);
-    }
-
-    static constexpr const char* kThemes[] = {"Dark"};
-    int themeIndex = 0;
-    if (ImGui::Combo("Theme", &themeIndex, kThemes, 1)) {
-        m_Workspace.SetEditorThemeId("dark");
-        m_ThemeManager.SetThemeID(m_Workspace.GetEditorThemeId());
-        m_ThemeManager.Apply(m_UIScaleManager.GetEffectiveScale());
-        std::string error;
-        if (!m_Workspace.Save(&error)) Logger::Warn("[Editor] ", error);
-    }
-    if (ImGui::Button("Reset Appearance")) {
-        m_Workspace.SetUserUiScale(1.0f);
-        m_Workspace.SetEditorThemeId("dark");
-        m_UIScaleManager.SetUserScale(m_Workspace.GetUserUiScale());
-        m_UIScaleManager.MarkFontAtlasDirty();
-        m_ThemeManager.SetThemeID(m_Workspace.GetEditorThemeId());
-        m_ThemeManager.Apply(m_UIScaleManager.GetEffectiveScale());
-        std::string error;
-        if (m_Workspace.Save(&error)) ShowProjectResult("Appearance reset.", false);
-        else ShowProjectResult("Failed to save appearance: " + error, true);
-    }
-    ImGui::Separator();
-    ImGui::TextDisabled("Appearance is stored in workspace preferences and does not dirty the scene.");
-#endif
-}
-
-void EditorLayer::DrawProjectSettingsTab() {
-#if defined(MYENGINE_ENABLE_IMGUI)
-    const auto& config = m_Project.GetConfig();
-    ImGui::InputText("Project name", m_ProjectName.data(), m_ProjectName.size());
-    ImGui::InputText("Output directory", m_PublishOutput.data(), m_PublishOutput.size());
-    ImGui::LabelText("Target", "%s", PublishTargets::kDefaultTargetLabel);
-    ImGui::LabelText("Startup scene", "%s",
-                     config.GetStartupScene().empty()
-                         ? "<not set>" : config.GetStartupScene().c_str());
-    ImGui::TextDisabled("Use Set Startup to assign the currently saved scene.");
-    if (ImGui::Button("Save")) {
-        auto& editable = m_Project.GetConfig();
-        const ProjectConfig previous = editable;
-        editable.SetName(m_ProjectName.data());
-        editable.GetPublishSettings().outputDirectory = m_PublishOutput.data();
-        editable.GetPublishSettings().target = PublishTargets::kDefaultTargetId;
-        std::string error;
-        if (!editable.SetInputConfigPath(m_InputConfigPath.data(), &error)) {
-            editable = previous;
-            ShowProjectResult("Invalid input config path: " + error, true);
-            ImGui::EndPopup();
-            return;
-        }
-        if (editable.Save(&error)) {
-            Logger::Info("[Editor] Project settings saved");
-            LoadProjectInputConfig();
-            ShowProjectResult("Project settings saved.", false);
-        } else {
-            editable = previous;
-            ShowProjectResult("Failed to save project settings: " + error, true);
-        }
-    }
-#endif
-}
-
-void EditorLayer::DrawGraphicsSettingsTab() {
-#if defined(MYENGINE_ENABLE_IMGUI)
-#if defined(MYENGINE_ENABLE_VULKAN)
-    static constexpr const char* kBackends[] = {"DirectX 11", "DirectX 12", "Vulkan"};
-    static constexpr int kBackendCount = 3;
-#else
-    static constexpr const char* kBackends[] = {"DirectX 11", "DirectX 12"};
-    static constexpr int kBackendCount = 2;
-    if (m_GraphicsBackendIndex >= kBackendCount) m_GraphicsBackendIndex = 0;
-#endif
-    ImGui::Combo("Backend", &m_GraphicsBackendIndex, kBackends,
-                 kBackendCount);
-    static constexpr const char* kRenderPaths[] = {"Forward", "Deferred"};
-    static constexpr int kRenderPathCount = 2;
-    if (m_RenderPathIndex >= kRenderPathCount) m_RenderPathIndex = 0;
-    ImGui::Combo("Render Path", &m_RenderPathIndex, kRenderPaths, kRenderPathCount);
-    const RHIBackend active = m_RenderContext ? m_RenderContext->GetBackend() : RHIBackend::Unknown;
-    const char* activeLabel = active == RHIBackend::Vulkan ? "Vulkan" :
-                              active == RHIBackend::D3D12 ? "DirectX 12" :
-                              active == RHIBackend::D3D11 ? "DirectX 11" : "Unknown";
-    ImGui::LabelText("Active backend", "%s", activeLabel);
-    const RenderPath activeRenderPath = m_SceneLayer
-        ? m_SceneLayer->GetRenderPath()
-        : RenderPath::Forward;
-    ImGui::LabelText("Active render path", "%s",
-                     activeRenderPath == RenderPath::Deferred ? "Deferred" : "Forward");
-    ImGui::LabelText("Apply", "%s", "backend next launch, render path immediate");
-    if (ImGui::Button("Save Graphics")) {
-        auto& editable = m_Project.GetConfig();
-        const ProjectConfig previous = editable;
-        editable.GetGraphicsSettings().backend =
-#if defined(MYENGINE_ENABLE_VULKAN)
-            m_GraphicsBackendIndex == 2 ? "vulkan" :
-#endif
-            (m_GraphicsBackendIndex == 1 ? "d3d12" : "d3d11");
-        editable.GetGraphicsSettings().renderPath =
-            ProjectValueFromRenderPathIndex(m_RenderPathIndex);
-        std::string error;
-        if (editable.Save(&error)) {
-            if (m_SceneLayer) {
-                m_SceneLayer->SetRenderPath(
-                    RenderPathFromProjectValue(editable.GetGraphicsSettings().renderPath));
-            }
-            Logger::Info("[Editor] Graphics settings saved");
-            ShowProjectResult("Graphics settings saved.", false);
-        } else {
-            editable = previous;
-            ShowProjectResult("Failed to save graphics settings: " + error, true);
-        }
-    }
-#endif
+    EditorProjectSettingsController::Draw(*this);
 }
 
 void EditorLayer::SaveEditorLayout() {
@@ -841,29 +633,6 @@ void EditorLayer::RevealEditorLayoutConfig() {
     if (!m_ProjectOpen) return;
     ShowProjectResult("Default editor layout config:\n" +
                       m_LayoutManager.GetConfigPath().string(), false);
-}
-
-void EditorLayer::DrawGameplayInputSettingsTab() {
-#if defined(MYENGINE_ENABLE_IMGUI)
-    ImGui::InputText("Input config", m_InputConfigPath.data(), m_InputConfigPath.size());
-    if (ImGui::Button("Create Default Input Config")) CreateDefaultInputConfig();
-    ImGui::SameLine();
-    if (ImGui::Button("Reload Input Config")) {
-        auto& editable = m_Project.GetConfig();
-        const ProjectConfig previous = editable;
-        std::string error;
-        if (!editable.SetInputConfigPath(m_InputConfigPath.data(), &error)) {
-            editable = previous;
-            ShowProjectResult("Invalid input config path: " + error, true);
-        } else if (!editable.Save(&error)) {
-            editable = previous;
-            ShowProjectResult("Failed to save project settings: " + error, true);
-        } else {
-            LoadProjectInputConfig();
-            ShowProjectResult("Input config reloaded.", false);
-        }
-    }
-#endif
 }
 
 void EditorLayer::DrawShortcutSettingsTab() {

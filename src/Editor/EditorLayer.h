@@ -31,6 +31,7 @@
 
 class EditorPanel;
 class EditorAngelScriptDomain;
+class EditorProjectSettingsController;
 class Engine;
 class IWindow;
 class SceneRenderLayer;
@@ -62,12 +63,7 @@ private:
     void DrawProjectSelector();
     void DrawProjectSettings();
     void DrawProjectResult();
-    void DrawProjectSettingsTab();
-    void DrawGraphicsSettingsTab();
-    void DrawGameplayInputSettingsTab();
     void DrawShortcutSettingsTab();
-    void DrawLayoutSettingsTab();
-    void DrawAppearanceSettingsTab();
     void DrawMainMenuBar();
     void DrawScriptMenuItems(const char* topLevel);
     void DrawScriptTopLevelMenus();
@@ -96,6 +92,8 @@ private:
                                 bool showResult = true);
     void RunAutomation();
     void FailAutomation(const std::string& message);
+
+    friend class EditorProjectSettingsController;
 
     SceneRenderLayer* m_SceneLayer = nullptr;
     IWindow* m_Window = nullptr;

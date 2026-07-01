@@ -5,12 +5,13 @@
 #ifdef MYENGINE_PLATFORM_WINDOWS
 
 #include "Renderer/IRenderContext.h"
+#include "Renderer/RHI/IEditorImGuiRHIInterop.h"
 
 #include <cstddef>
 #include <memory>
 #include <string>
 
-class VulkanContext final : public IRenderContext {
+class VulkanContext final : public IRenderContext, public IEditorImGuiRHIInterop {
 public:
     VulkanContext();
     ~VulkanContext() override;
@@ -28,6 +29,7 @@ public:
     GpuSwapChain* GetSwapChain() override;
     GpuTextureView* GetCurrentBackBufferView() override;
     RHIBackend GetBackend() const override { return RHIBackend::Vulkan; }
+    IEditorImGuiRHIInterop* QueryEditorImGuiInterop() override { return this; }
     ImGuiBackendHandles GetImGuiBackendHandles() override;
     void SetImGuiTextureInteropReady(bool ready) override;
     void SetSwapChainResizeCallback(SwapChainResizeCallback cb) override {

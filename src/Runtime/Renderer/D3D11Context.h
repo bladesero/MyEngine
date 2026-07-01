@@ -1,6 +1,7 @@
 #pragma once
 
 #include "IRenderContext.h"
+#include "Renderer/RHI/IEditorImGuiRHIInterop.h"
 
 #include <cstddef>
 #include <string>
@@ -65,7 +66,7 @@ struct D3D11GraphicsPipeline : GpuGraphicsPipeline {
 // --------------------------------------------------------------------------
 // D3D11Context
 // --------------------------------------------------------------------------
-class D3D11Context : public IRenderContext {
+class D3D11Context : public IRenderContext, public IEditorImGuiRHIInterop {
 public:
     D3D11Context();
     ~D3D11Context() override;
@@ -84,6 +85,7 @@ public:
     void SetVSyncEnabled(bool enabled) override { m_VSyncEnabled = enabled; }
     bool IsVSyncEnabled() const override { return m_VSyncEnabled; }
     RHIBackend GetBackend() const override { return RHIBackend::D3D11; }
+    IEditorImGuiRHIInterop* QueryEditorImGuiInterop() override { return this; }
     ImGuiBackendHandles GetImGuiBackendHandles() override;
 
     std::shared_ptr<GpuBuffer> CreateVertexBuffer(

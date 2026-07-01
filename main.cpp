@@ -12,6 +12,7 @@
 #include "Core/Logger.h"
 #include "Project/ProjectConfig.h"
 #include "Miscs/IconsManager.h"
+#include "Renderer/RenderBackendRegistry.h"
 
 #include <memory>
 #include <filesystem>
@@ -29,33 +30,20 @@ std::filesystem::path GetExecutableDirectory(const char* argv0) {
 }
 
 bool ApplyBackendValue(const std::string& value, ApplicationConfig& cfg) {
-#ifdef MYENGINE_PLATFORM_WINDOWS
-    if (value == "d3d11" || value == "11") {
-        cfg.backend = RenderBackend::D3D11;
-        return true;
-    }
-    if (value == "d3d12" || value == "12") {
-        cfg.backend = RenderBackend::D3D12;
-        return true;
-    }
-    if (value == "vulkan" || value == "vk") {
-#if defined(MYENGINE_ENABLE_VULKAN)
-        cfg.backend = RenderBackend::Vulkan;
-        return true;
-#else
-        Logger::Warn("Vulkan backend is not compiled in; use xmake f -m debug --vulkan=y");
+    const auto backend = ParseRenderBackend(value);
+    if (!backend) {
+        Logger::Warn("Unknown backend: ", value, " (use ",
+                     AvailableRenderBackendValues(), ")");
         return false;
-#endif
     }
-    Logger::Warn("Unknown backend: ", value, " (use d3d11/d3d12"
-#if defined(MYENGINE_ENABLE_VULKAN)
-                 "/vulkan"
-#endif
-                 ")");
-#else
-    Logger::Warn("--backend flag ignored: not on Windows (got: ", value, ")");
-#endif
-    return false;
+    if (!IsBackendCompiled(*backend)) {
+        Logger::Warn("Backend '", RenderBackendToProjectValue(*backend),
+                     "' is not compiled in; available: ",
+                     AvailableRenderBackendValues());
+        return false;
+    }
+    cfg.backend = *backend;
+    return true;
 }
 
 bool ApplyVSyncValue(const std::string& value, ApplicationConfig& cfg) {
@@ -73,7 +61,6 @@ bool ApplyVSyncValue(const std::string& value, ApplicationConfig& cfg) {
 
 void ApplyProjectBackend(const std::filesystem::path& projectRoot,
                          ApplicationConfig& cfg) {
-#ifdef MYENGINE_PLATFORM_WINDOWS
     auto tryApply = [&cfg](const std::filesystem::path& root) {
         ProjectConfig project;
         std::string error;
@@ -87,8 +74,9 @@ void ApplyProjectBackend(const std::filesystem::path& projectRoot,
         } else {
             cfg.backend = kDefaultRenderBackend;
             Logger::Warn("[App] Project graphics backend '",
-                         project.GetGraphicsSettings().backend,
-                         "' is unavailable; falling back to D3D11");
+                          project.GetGraphicsSettings().backend,
+                          "' is unavailable; falling back to ",
+                          RenderBackendToProjectValue(kDefaultRenderBackend));
         }
         return true;
     };
@@ -107,10 +95,6 @@ void ApplyProjectBackend(const std::filesystem::path& projectRoot,
     for (const auto& recent : workspace.GetRecentProjects()) {
         if (tryApply(recent)) return;
     }
-#else
-    (void)projectRoot;
-    (void)cfg;
-#endif
 }
 }
 
@@ -133,31 +117,13 @@ public:
 protected:
     bool OnInit() override {
         IconsManager::Get().ApplyWindowIcon(GetWindow(), IconsManager::kEditorIcon);
-#ifdef MYENGINE_PLATFORM_WINDOWS
-        switch (m_Backend) {
-        case RenderBackend::D3D12:
-            m_RenderContext = CreateD3D12Context();
-            break;
-#if defined(MYENGINE_ENABLE_VULKAN)
-        case RenderBackend::Vulkan:
-            m_RenderContext = CreateVulkanContext();
-            break;
-#else
-        case RenderBackend::Vulkan:
-            Logger::Error("[App] Vulkan backend is not compiled in");
+        m_RenderContext = CreateRenderContext(m_Backend);
+        if (!m_RenderContext) {
+            Logger::Error("[App] Render backend '", RenderBackendToProjectValue(m_Backend),
+                          "' is unavailable in this build; available: ",
+                          AvailableRenderBackendValues());
             return false;
-#endif
-        case RenderBackend::D3D11:
-        default:
-            m_RenderContext = CreateD3D11Context();
-            break;
         }
-#elif defined(MYENGINE_PLATFORM_MACOS)
-        m_RenderContext = CreateMetalContext();
-#else
-        Logger::Error("[App] No render backend available on this platform");
-        return false;
-#endif
 
         if (!m_RenderContext->Init(&GetWindow())) {
             return false; // error already logged

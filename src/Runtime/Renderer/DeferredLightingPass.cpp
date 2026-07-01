@@ -3,6 +3,7 @@
 #include "Camera/Camera.h"
 #include "Core/Logger.h"
 #include "Math/Mat4Inverse.h"
+#include "Renderer/EngineShaderCatalog.h"
 #include "Renderer/ShaderManager.h"
 
 #include <algorithm>
@@ -188,7 +189,7 @@ GpuShader* DeferredLightingPass::GetOrCreateShader()
     if (!Device()) return nullptr;
     if (!m_ShaderHandle) {
         m_ShaderHandle = ShaderManager::Get().GetOrCreate(
-            "Content/Engine/Shaders/DeferredLightingPass.shader", nullptr, 0);
+            EngineShaders::kDeferredLighting, nullptr, 0);
     }
     if (!m_ShaderHandle || !m_ShaderHandle->shader) return nullptr;
     if (m_ShaderVersion != m_ShaderHandle->version) {

@@ -15,6 +15,8 @@ vs2022/
 *.suo
 *.sln.docstates
 .myengine_editor_state.json
+imgui.ini
+logs/
 xcuserdata/
 *.xcworkspace/
 DerivedData/
@@ -39,3 +41,6 @@ Library/
 
 # Legacy / local deps
 _deps/
+
+# Local one-off helpers
+temp_fix_*.py

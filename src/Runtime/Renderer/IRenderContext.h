@@ -4,24 +4,24 @@
 #include "Renderer/RHI/IRHIDevice.h"
 #include "Renderer/RHI/IRHIFrameContext.h"
 #include "Renderer/RHI/IRHIReadbackService.h"
-#include "Renderer/RHI/IEditorImGuiRHIInterop.h"
 
 #include <memory>
 
 class IWindow;
+class IEditorImGuiRHIInterop;
 
 // Compatibility facade for existing code. New renderer code should depend on
 // the smallest split interface it needs: IRHIDevice, IRHIFrameContext,
-// IRHIReadbackService, or IEditorImGuiRHIInterop.
+// or IRHIReadbackService. Editor-only ImGui integration is queried explicitly.
 class IRHIContext : public IRHIDevice,
                     public IRHIFrameContext,
-                    public IRHIReadbackService,
-                    public IEditorImGuiRHIInterop {
+                    public IRHIReadbackService {
 public:
     virtual ~IRHIContext() = default;
 
     virtual bool Init(IWindow* window) = 0;
     virtual void Shutdown() = 0;
+    virtual IEditorImGuiRHIInterop* QueryEditorImGuiInterop() { return nullptr; }
 };
 
 // Backward-compatible name for existing code.

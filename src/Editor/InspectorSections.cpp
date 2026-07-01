@@ -1577,29 +1577,64 @@ public:
         ImGui::EndCombo();
     }
 };
+
+void RegisterAssetInspectorSections(std::vector<std::unique_ptr<EditorInspectorSection>>& sections)
+{
+    sections.push_back(std::make_unique<MaterialAssetInspectorSection>());
+    sections.push_back(std::make_unique<TextureAssetInspectorSection>());
+    sections.push_back(std::make_unique<GenericAssetInspectorSection>());
+}
+
+void RegisterTransformInspectorSections(std::vector<std::unique_ptr<EditorInspectorSection>>& sections)
+{
+    sections.push_back(std::make_unique<TransformInspectorSection>());
+}
+
+void RegisterRenderInspectorSections(std::vector<std::unique_ptr<EditorInspectorSection>>& sections)
+{
+    sections.push_back(std::make_unique<MeshRendererInspectorSection>());
+    sections.push_back(std::make_unique<SkinnedMeshInspectorSection>());
+    sections.push_back(std::make_unique<MaterialInspectorSection>());
+    sections.push_back(std::make_unique<CameraInspectorSection>());
+    sections.push_back(std::make_unique<LightInspectorSection>());
+    sections.push_back(std::make_unique<PostProcessInspectorSection>());
+}
+
+void RegisterAudioInspectorSections(std::vector<std::unique_ptr<EditorInspectorSection>>& sections)
+{
+    sections.push_back(std::make_unique<AudioSourceInspectorSection>());
+}
+
+void RegisterPhysicsInspectorSections(std::vector<std::unique_ptr<EditorInspectorSection>>& sections)
+{
+    sections.push_back(std::make_unique<PhysicsInspectorSection>());
+}
+
+void RegisterScriptingInspectorSections(std::vector<std::unique_ptr<EditorInspectorSection>>& sections)
+{
+    sections.push_back(std::make_unique<ScriptInspectorSection>());
+}
+
+void RegisterUIInspectorSections(std::vector<std::unique_ptr<EditorInspectorSection>>& sections)
+{
+    sections.push_back(std::make_unique<UICanvasInspectorSection>());
+    sections.push_back(std::make_unique<UIRectTransformInspectorSection>());
+    sections.push_back(std::make_unique<UIWidgetInspectorSection>());
+    sections.push_back(std::make_unique<UILayoutInspectorSection>());
+}
 } // namespace
 
 std::vector<std::unique_ptr<EditorInspectorSection>> CreateDefaultInspectorSections()
 {
     std::vector<std::unique_ptr<EditorInspectorSection>> sections;
     sections.push_back(std::make_unique<SceneSettingsInspectorSection>());
-    sections.push_back(std::make_unique<MaterialAssetInspectorSection>());
-    sections.push_back(std::make_unique<TextureAssetInspectorSection>());
-    sections.push_back(std::make_unique<GenericAssetInspectorSection>());
-    sections.push_back(std::make_unique<TransformInspectorSection>());
-    sections.push_back(std::make_unique<MeshRendererInspectorSection>());
-    sections.push_back(std::make_unique<SkinnedMeshInspectorSection>());
-    sections.push_back(std::make_unique<MaterialInspectorSection>());
-    sections.push_back(std::make_unique<AudioSourceInspectorSection>());
-    sections.push_back(std::make_unique<PhysicsInspectorSection>());
-    sections.push_back(std::make_unique<CameraInspectorSection>());
-    sections.push_back(std::make_unique<LightInspectorSection>());
-    sections.push_back(std::make_unique<PostProcessInspectorSection>());
-    sections.push_back(std::make_unique<ScriptInspectorSection>());
-    sections.push_back(std::make_unique<UICanvasInspectorSection>());
-    sections.push_back(std::make_unique<UIRectTransformInspectorSection>());
-    sections.push_back(std::make_unique<UIWidgetInspectorSection>());
-    sections.push_back(std::make_unique<UILayoutInspectorSection>());
+    RegisterAssetInspectorSections(sections);
+    RegisterTransformInspectorSections(sections);
+    RegisterRenderInspectorSections(sections);
+    RegisterAudioInspectorSections(sections);
+    RegisterPhysicsInspectorSections(sections);
+    RegisterScriptingInspectorSections(sections);
+    RegisterUIInspectorSections(sections);
     sections.push_back(std::make_unique<AddComponentInspectorSection>());
     return sections;
 }
