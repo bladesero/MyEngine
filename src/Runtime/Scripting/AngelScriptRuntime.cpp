@@ -1,6 +1,7 @@
 #include "Scripting/AngelScriptRuntime.h"
 
 #include "Input/Input.h"
+#include "Physics/CharacterControllerComponent.h"
 #include "Physics/PhysicsWorld.h"
 #include "Physics/RigidBodyComponent.h"
 #include "Scene/Actor.h"
@@ -35,6 +36,55 @@ Vec3 ReadActorPosition()
     return actor ? actor->GetTransform().position : Vec3{};
 }
 
+Vec3 ReadActorWorldPosition()
+{
+    Actor* actor = ActiveActor();
+    return actor ? actor->GetWorldPosition() : Vec3{};
+}
+
+Vec3 ReadActorRotation()
+{
+    Actor* actor = ActiveActor();
+    return actor ? actor->GetTransform().rotation : Vec3{};
+}
+
+Vec3 ReadParentRotation()
+{
+    Actor* actor = ActiveActor();
+    Actor* parent = actor ? actor->GetParent() : nullptr;
+    return parent ? parent->GetTransform().rotation : Vec3{};
+}
+
+Vec3 ActorGetForward()
+{
+    Actor* actor = ActiveActor();
+    return actor ? actor->GetWorldMatrix().TransformDir(Vec3::Forward()).Normalized()
+                 : Vec3::Forward();
+}
+
+Vec3 ActorGetRight()
+{
+    Actor* actor = ActiveActor();
+    return actor ? actor->GetWorldMatrix().TransformDir(Vec3::Right()).Normalized()
+                 : Vec3::Right();
+}
+
+Vec3 ParentGetForward()
+{
+    Actor* actor = ActiveActor();
+    Actor* parent = actor ? actor->GetParent() : nullptr;
+    return parent ? parent->GetWorldMatrix().TransformDir(Vec3::Forward()).Normalized()
+                  : Vec3::Forward();
+}
+
+Vec3 ParentGetRight()
+{
+    Actor* actor = ActiveActor();
+    Actor* parent = actor ? actor->GetParent() : nullptr;
+    return parent ? parent->GetWorldMatrix().TransformDir(Vec3::Right()).Normalized()
+                  : Vec3::Right();
+}
+
 std::string ActorGetName()
 {
     Actor* actor = ActiveActor();
@@ -44,6 +94,18 @@ std::string ActorGetName()
 void ActorSetPosition(const Vec3& value)
 {
     if (Actor* actor = ActiveActor()) actor->GetTransform().position = value;
+}
+
+void ActorSetRotation(const Vec3& value)
+{
+    if (Actor* actor = ActiveActor()) actor->GetTransform().rotation = value;
+}
+
+void ActorSetParentRotation(const Vec3& value)
+{
+    Actor* actor = ActiveActor();
+    Actor* parent = actor ? actor->GetParent() : nullptr;
+    if (parent) parent->GetTransform().rotation = value;
 }
 
 void ActorTranslate(const Vec3& value)
@@ -70,6 +132,28 @@ void BodyAddImpulse(const Vec3& value) { if (auto* body = ActiveBody()) body->Ad
 void BodyAddAngularImpulse(const Vec3& value) { if (auto* body = ActiveBody()) body->AddAngularImpulse(value); }
 void BodyTeleport(const Vec3& position, const Vec3& rotation) { if (auto* body = ActiveBody()) body->Teleport(position, rotation); }
 void BodySetKinematicTarget(const Vec3& position, const Vec3& rotation) { if (auto* body = ActiveBody()) body->SetKinematicTarget(position, rotation); }
+
+CharacterControllerComponent* ActiveCharacterController()
+{
+    Actor* actor = ActiveActor();
+    return actor ? actor->GetComponent<CharacterControllerComponent>() : nullptr;
+}
+
+void CharacterControllerMove(const Vec3& velocity)
+{
+    if (auto* controller = ActiveCharacterController()) controller->Move(velocity);
+}
+
+bool CharacterControllerIsGrounded()
+{
+    if (auto* controller = ActiveCharacterController()) return controller->IsGrounded();
+    return false;
+}
+
+void CharacterControllerSetUseGravity(bool enabled)
+{
+    if (auto* controller = ActiveCharacterController()) controller->SetUseGravity(enabled);
+}
 
 bool InputActionDown(const std::string& action) { return Input::IsActionDown(action); }
 bool InputActionPressed(const std::string& action) { return Input::IsActionPressed(action); }
@@ -415,8 +499,26 @@ void RegisterScriptBindings(asIScriptEngine& engine)
         asFUNCTION(ActorGetName), asCALL_CDECL));
     Check(engine.RegisterGlobalFunction("Vec3 GetPosition()",
         asFUNCTION(ReadActorPosition), asCALL_CDECL));
+    Check(engine.RegisterGlobalFunction("Vec3 GetWorldPosition()",
+        asFUNCTION(ReadActorWorldPosition), asCALL_CDECL));
+    Check(engine.RegisterGlobalFunction("Vec3 GetRotation()",
+        asFUNCTION(ReadActorRotation), asCALL_CDECL));
+    Check(engine.RegisterGlobalFunction("Vec3 GetParentRotation()",
+        asFUNCTION(ReadParentRotation), asCALL_CDECL));
+    Check(engine.RegisterGlobalFunction("Vec3 GetForward()",
+        asFUNCTION(ActorGetForward), asCALL_CDECL));
+    Check(engine.RegisterGlobalFunction("Vec3 GetRight()",
+        asFUNCTION(ActorGetRight), asCALL_CDECL));
+    Check(engine.RegisterGlobalFunction("Vec3 GetParentForward()",
+        asFUNCTION(ParentGetForward), asCALL_CDECL));
+    Check(engine.RegisterGlobalFunction("Vec3 GetParentRight()",
+        asFUNCTION(ParentGetRight), asCALL_CDECL));
     Check(engine.RegisterGlobalFunction("void SetPosition(const Vec3 &in)",
         asFUNCTION(ActorSetPosition), asCALL_CDECL));
+    Check(engine.RegisterGlobalFunction("void SetRotation(const Vec3 &in)",
+        asFUNCTION(ActorSetRotation), asCALL_CDECL));
+    Check(engine.RegisterGlobalFunction("void SetParentRotation(const Vec3 &in)",
+        asFUNCTION(ActorSetParentRotation), asCALL_CDECL));
     Check(engine.RegisterGlobalFunction("void Translate(const Vec3 &in)",
         asFUNCTION(ActorTranslate), asCALL_CDECL));
     Check(engine.RegisterGlobalFunction("void Rotate(const Vec3 &in)",
@@ -439,6 +541,14 @@ void RegisterScriptBindings(asIScriptEngine& engine)
         asFUNCTION(BodyTeleport), asCALL_CDECL));
     Check(engine.RegisterGlobalFunction("void SetKinematicTarget(const Vec3 &in, const Vec3 &in)",
         asFUNCTION(BodySetKinematicTarget), asCALL_CDECL));
+
+    engine.SetDefaultNamespace("CharacterController");
+    Check(engine.RegisterGlobalFunction("void Move(const Vec3 &in)",
+        asFUNCTION(CharacterControllerMove), asCALL_CDECL));
+    Check(engine.RegisterGlobalFunction("bool IsGrounded()",
+        asFUNCTION(CharacterControllerIsGrounded), asCALL_CDECL));
+    Check(engine.RegisterGlobalFunction("void SetUseGravity(bool)",
+        asFUNCTION(CharacterControllerSetUseGravity), asCALL_CDECL));
 
     engine.SetDefaultNamespace("Input");
     Check(engine.RegisterGlobalFunction("bool ActionDown(const string &in)",

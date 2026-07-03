@@ -410,6 +410,63 @@ bool TestAngelScriptFilesErrorsAndPhysicsBindings() {
     if (!Check(actor->GetTransform().position.x > 0.0f,
                "AngelScript Physics::Raycast binding failed: " + script->GetLastError())) return false;
 
+    Scene controllerScene("AngelControllerBindings");
+    Actor* player = controllerScene.CreateActor("Player");
+    player->GetTransform().position = { 0.0f, 1.0f, 0.0f };
+    auto* capsule = player->AddComponent<CapsuleColliderComponent>();
+    capsule->SetRadius(0.35f);
+    capsule->SetHalfHeight(0.55f);
+    auto* controller = player->AddComponent<CharacterControllerComponent>();
+    auto* controllerScript = player->AddComponent<ScriptComponent>();
+    controllerScript->SetSource(
+        "class Script {\n"
+        "  void Start() {\n"
+        "    CharacterController::SetUseGravity(false);\n"
+        "    Actor::SetRotation(Vec3(0, 90, 0));\n"
+        "  }\n"
+        "  void Update(float dt) {\n"
+        "    Vec2 move = Input::Axis2(\"Move\");\n"
+        "    Vec3 rotation = Actor::GetRotation();\n"
+        "    Vec3 forward = Actor::GetForward();\n"
+        "    Vec3 right = Actor::GetRight();\n"
+        "    CharacterController::Move((forward + right * move.x) * 2.0f);\n"
+        "    if (!CharacterController::IsGrounded()) Actor::SetRotation(rotation);\n"
+        "  }\n"
+        "}\n");
+    if (!Check(controllerScript->IsCompiled(),
+               "AngelScript FPS bindings should compile: " + controllerScript->GetLastError())) return false;
+    for (int i = 0; i < 30; ++i) controllerScene.OnUpdate(1.0f / 60.0f);
+    const Vec3 controllerPosition = player->GetTransform().position;
+    if (!Check(controllerPosition.x * controllerPosition.x +
+                   controllerPosition.z * controllerPosition.z > 0.1f &&
+               !controller->UsesGravity(),
+               "AngelScript CharacterController/Actor direction bindings failed: " +
+                   controllerScript->GetLastError())) return false;
+
+    Actor* cameraRig = controllerScene.CreateActor("CameraRig");
+    Actor* camera = controllerScene.CreateActor("Camera");
+    camera->SetParent(cameraRig);
+    auto* cameraScript = camera->AddComponent<ScriptComponent>();
+    cameraScript->SetSource(
+        "class Script {\n"
+        "  void Update(float dt) {\n"
+        "    Vec3 parentRotation = Actor::GetParentRotation();\n"
+        "    Vec3 parentForward = Actor::GetParentForward();\n"
+        "    Vec3 parentRight = Actor::GetParentRight();\n"
+        "    Actor::SetParentRotation(Vec3(parentRotation.x, 45, parentRotation.z));\n"
+        "    Actor::SetRotation(Vec3(-20, 0, 0));\n"
+        "    if (parentForward.z < -2 || parentRight.x < -2) Actor::SetRotation(Vec3(0, 0, 0));\n"
+        "  }\n"
+        "}\n");
+    if (!Check(cameraScript->IsCompiled(),
+               "AngelScript parent transform bindings should compile: " +
+                   cameraScript->GetLastError())) return false;
+    controllerScene.OnUpdate(1.0f / 60.0f);
+    if (!Check(NearlyEqual(cameraRig->GetTransform().rotation.y, 45.0f) &&
+               NearlyEqual(camera->GetTransform().rotation.x, -20.0f),
+               "AngelScript parent rotation bindings failed: " +
+                   cameraScript->GetLastError())) return false;
+
     script->SetSource(
         "class Script {\n"
         "  void Update(float dt) { Script@ other = null; other.Update(dt); }\n"
@@ -530,6 +587,80 @@ bool TestAngelScriptAssetsClassesAndFields() {
     fs::remove(path);
     return Check(NearlyEqual(commandActor->GetTransform().position.x, 4.0f),
                  "command-created script did not execute reflected int property");
+}
+
+bool TestProjectFPSContentSmoke() {
+    namespace fs = std::filesystem;
+    std::string error;
+
+    fs::path projectRoot;
+    for (fs::path cursor = fs::current_path(); !cursor.empty(); cursor = cursor.parent_path()) {
+        const fs::path candidate = cursor / "Builds" / "ProjectFPS";
+        if (fs::is_regular_file(candidate / ProjectConfig::kFileName)) {
+            projectRoot = candidate;
+            break;
+        }
+        if (cursor == cursor.parent_path()) break;
+    }
+    if (!Check(!projectRoot.empty(), "ProjectFPS project root should be discoverable")) return false;
+
+    ProjectConfig project;
+    if (!Check(project.Open(projectRoot, false, &error),
+               "ProjectFPS manifest should open: " + error)) return false;
+    if (!Check(project.GetName() == "ProjectFPS" &&
+               project.GetStartupScene() == "Content/Scenes/Main.scene.json",
+               "ProjectFPS manifest fields mismatch")) return false;
+
+    fs::path inputPath;
+    if (!Check(project.ResolveInputConfigPath(inputPath, true, &error),
+               "ProjectFPS input config should resolve: " + error)) return false;
+    if (!Check(Input::LoadActionMapFromFile(inputPath, &error),
+               "ProjectFPS input config should load: " + error)) return false;
+
+    fs::path scenePath;
+    if (!Check(project.ResolveStartupScene(scenePath, &error),
+               "ProjectFPS startup scene should resolve: " + error)) {
+        Input::SetDefaultActionMap();
+        return false;
+    }
+
+    AssetManager::Get().SetProjectRoot(projectRoot);
+    Scene scene("ProjectFPSSmoke");
+    const bool loaded = SceneSerializer::LoadFromFile(scene, scenePath.string());
+    bool ok = Check(loaded, "ProjectFPS startup scene should load");
+    if (loaded) {
+        Actor* player = scene.FindByName("Player");
+        Actor* camera = scene.FindByName("MainCamera");
+        Actor* weapon = scene.FindByName("WeaponRay");
+        ok = Check(player != nullptr, "ProjectFPS Player actor missing") && ok;
+        ok = Check(camera != nullptr, "ProjectFPS MainCamera actor missing") && ok;
+        ok = Check(weapon != nullptr, "ProjectFPS WeaponRay actor missing") && ok;
+        if (player) {
+            auto* script = player->GetComponent<ScriptComponent>();
+            ok = Check(player->GetComponent<CharacterControllerComponent>() != nullptr &&
+                       player->GetComponent<CapsuleColliderComponent>() != nullptr &&
+                       script && script->IsCompiled(),
+                       script ? "ProjectFPS player script failed: " + script->GetLastError()
+                              : "ProjectFPS player script missing") && ok;
+        }
+        if (camera) {
+            auto* cameraComponent = camera->GetComponent<CameraComponent>();
+            auto* script = camera->GetComponent<ScriptComponent>();
+            ok = Check(cameraComponent && cameraComponent->IsMainCamera() &&
+                       script && script->IsCompiled(),
+                       script ? "ProjectFPS camera script failed: " + script->GetLastError()
+                              : "ProjectFPS camera component/script missing") && ok;
+        }
+        if (weapon) {
+            auto* script = weapon->GetComponent<ScriptComponent>();
+            ok = Check(script && script->IsCompiled(),
+                       script ? "ProjectFPS weapon script failed: " + script->GetLastError()
+                              : "ProjectFPS weapon script missing") && ok;
+        }
+    }
+    AssetManager::Get().SetProjectRoot({});
+    Input::SetDefaultActionMap();
+    return ok;
 }
 
 bool TestEditorLuaScriptService() {
@@ -3850,6 +3981,7 @@ MYENGINE_REGISTER_TEST("Scene", "TestBuiltinSceneMaterialRoundTrip", TestBuiltin
 MYENGINE_REGISTER_TEST("Scripting", "TestScriptRuntimeLifecycle", TestScriptRuntimeLifecycle);
 MYENGINE_REGISTER_TEST("Scripting", "TestAngelScriptFilesErrorsAndPhysicsBindings", TestAngelScriptFilesErrorsAndPhysicsBindings);
 MYENGINE_REGISTER_TEST("Scripting", "TestAngelScriptAssetsClassesAndFields", TestAngelScriptAssetsClassesAndFields);
+MYENGINE_REGISTER_TEST("Project", "TestProjectFPSContentSmoke", TestProjectFPSContentSmoke);
 MYENGINE_REGISTER_TEST("Scripting", "TestEditorLuaScriptService", TestEditorLuaScriptService);
 MYENGINE_REGISTER_TEST("Scripting", "TestLegacyLuaScriptCompatibility", TestLegacyLuaScriptCompatibility);
 MYENGINE_REGISTER_TEST("Animation", "TestGpuSkinningAnimationBlend", TestGpuSkinningAnimationBlend);
