@@ -1,0 +1,125 @@
+{
+  "name": "AdventureSample",
+  "navMeshAsset": "Content/Navigation/AdventureSample.navmesh",
+  "preloadAssets": ["Content/Prefabs/AdventureEnemy.prefab.json"],
+  "mainCameraHintActorID": 2,
+  "actors": [
+    {
+      "id": 1,
+      "name": "Player",
+      "tag": "player",
+      "active": true,
+      "parentID": 0,
+      "transform": { "position": [0, 1, 0], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
+      "components": [
+        { "type": "CapsuleCollider", "enabled": true, "data": { "radius": 0.45, "halfHeight": 0.55, "layer": 1, "layerMask": 4294967295 } },
+        { "type": "CharacterController", "enabled": true, "data": { "useGravity": true, "stepOffset": 0.3, "maxSlopeAngle": 50, "jumpSpeed": 5.5, "airControl": 0.35 } },
+        { "type": "Health", "enabled": true, "data": { "maxHealth": 100, "health": 100, "resetOnPlay": true } },
+        { "type": "Hurtbox", "enabled": true, "data": { "team": 1, "damageMultiplier": 1 } },
+        { "type": "Hitbox", "enabled": true, "data": { "damage": 20, "radius": 0.9, "offset": [0, 1, 0.8], "team": 1, "layerMask": 4294967295 } },
+        { "type": "Animator", "enabled": true, "data": { "controller": { "entryState": "", "states": [] }, "floats": {}, "bools": {}, "applyRootMotion": false } },
+        { "type": "Script", "enabled": true, "data": { "language": "angelscript", "className": "ThirdPersonAdventure", "scriptPath": "Content/Scripts/ThirdPersonAdventure.as", "properties": {}, "state": {} } }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "GameplayCamera",
+      "active": true,
+      "parentID": 0,
+      "transform": { "position": [0, 3, -5], "rotation": [10, 0, 0], "scale": [1, 1, 1] },
+      "components": [
+        { "type": "Camera", "enabled": true, "data": { "isMainCamera": true, "fovYDegrees": 60, "nearClip": 0.1, "farClip": 1000, "clearColor": [0.08, 0.1, 0.14] } },
+        { "type": "ThirdPersonCamera", "enabled": true, "data": { "targetActorId": 1, "targetOffset": [0, 1.5, 0], "distance": 5, "yaw": 180, "pitch": 15, "sensitivity": 1, "collisionRadius": 0.2, "followSharpness": 12 } },
+        { "type": "AudioListener", "enabled": true, "data": { "primary": true } },
+        { "type": "PostProcess", "enabled": true, "data": { "toneMapping": true, "exposure": 1, "gamma": 2.2, "vignette": 0, "saturation": 1, "contrast": 1 } },
+        { "type": "GameplayFeedback", "enabled": true, "data": {} }
+      ]
+    },
+    {
+      "id": 3,
+      "name": "Enemy",
+      "tag": "enemy",
+      "active": true,
+      "parentID": 0,
+      "transform": { "position": [4, 1, 2], "rotation": [0, 180, 0], "scale": [1, 1, 1] },
+      "components": [
+        { "type": "CapsuleCollider", "enabled": true, "data": { "radius": 0.45, "halfHeight": 0.55, "layer": 2, "layerMask": 4294967295 } },
+        { "type": "Health", "enabled": true, "data": { "maxHealth": 50, "health": 50, "resetOnPlay": true } },
+        { "type": "Hurtbox", "enabled": true, "data": { "team": 2, "damageMultiplier": 1 } },
+        { "type": "NavAgent", "enabled": true, "data": { "speed": 2.5, "stoppingDistance": 0.4 } },
+        { "type": "EnemyAI", "enabled": true, "data": { "targetActorId": 1, "detectionRange": 12, "attackRange": 1.4, "attackDamage": 10, "attackCooldown": 1, "patrolPoints": [[4,1,2],[6,1,2]] } }
+      ]
+    },
+    {
+      "id": 4,
+      "name": "AncientKey",
+      "tag": "pickup",
+      "active": true,
+      "parentID": 0,
+      "transform": { "position": [1.5, 1, 0], "rotation": [0, 0, 0], "scale": [0.5, 0.5, 0.5] },
+      "components": [
+        { "type": "SphereCollider", "enabled": true, "data": { "radius": 0.5, "trigger": true, "layer": 3, "layerMask": 4294967295 } },
+        { "type": "Interaction", "enabled": true, "data": { "kind": 1, "prompt": "Pick up", "range": 2.5, "singleUse": true, "destroyOnUse": true, "consumed": false } },
+        { "type": "ParticleSystem", "enabled": true, "data": { "asset": "Content/Particles/PickupGlow.particle" } }
+      ]
+    },
+    {
+      "id": 5,
+      "name": "Ground",
+      "active": true,
+      "editorFlags": 1,
+      "parentID": 0,
+      "transform": { "position": [0, -0.5, 0], "rotation": [0, 0, 0], "scale": [20, 1, 20] },
+      "components": [
+        { "type": "BoxCollider", "enabled": true, "data": { "halfExtents": [10, 0.5, 10], "layer": 0, "layerMask": 4294967295 } }
+      ]
+    },
+    {
+      "id": 6,
+      "name": "HUD",
+      "active": true,
+      "parentID": 0,
+      "transform": { "position": [0,0,0], "rotation": [0,0,0], "scale": [1,1,1] },
+      "components": [
+        { "type": "UICanvas", "enabled": true, "data": { "documentPath": "Content/UI/AdventureHUD.rml", "stylePaths": ["Content/UI/AdventureHUD.rcss"], "defaultFontPaths": ["Content/UI/Fonts/LatoLatin-Regular.ttf", "Content/UI/Fonts/LatoLatin-Bold.ttf"], "sourceMode": "AssetDocument", "sortOrder": 10, "inputMode": "GameAndUI", "visible": true, "interactive": true } }
+      ]
+    },
+    {
+      "id": 7,
+      "name": "Checkpoint",
+      "tag": "checkpoint",
+      "active": true,
+      "parentID": 0,
+      "transform": { "position": [3, 1, 0], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
+      "components": [
+        { "type": "SphereCollider", "enabled": true, "data": { "radius": 0.6, "trigger": true, "layer": 3, "layerMask": 4294967295 } },
+        { "type": "Interaction", "enabled": true, "data": { "kind": 3, "prompt": "Activate checkpoint", "range": 2.5, "singleUse": false, "consumed": false } }
+      ]
+    },
+    {
+      "id": 8,
+      "name": "LockedDoor",
+      "tag": "door",
+      "active": true,
+      "parentID": 0,
+      "transform": { "position": [5, 1, 0], "rotation": [0, 0, 0], "scale": [1, 2, 0.3] },
+      "components": [
+        { "type": "BoxCollider", "enabled": true, "data": { "halfExtents": [0.5, 1, 0.2], "layer": 0, "layerMask": 4294967295 } },
+        { "type": "Interaction", "enabled": true, "data": { "kind": 2, "prompt": "Unlock door", "range": 2.5, "singleUse": true, "destroyOnUse": true, "consumed": false } }
+      ]
+    },
+    {
+      "id": 9,
+      "name": "LevelExit",
+      "tag": "exit",
+      "active": true,
+      "parentID": 0,
+      "transform": { "position": [8, 1, 0], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
+      "components": [
+        { "type": "SphereCollider", "enabled": true, "data": { "radius": 0.8, "trigger": true, "layer": 3, "layerMask": 4294967295 } },
+        { "type": "Interaction", "enabled": true, "data": { "kind": 4, "prompt": "Enter next area", "range": 2.5, "singleUse": true, "consumed": false } }
+      ]
+    }
+  ],
+  "nextID": 10
+}

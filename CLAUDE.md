@@ -71,7 +71,7 @@ and atomically installs or repairs a hash-versioned runtime cache. Publishing is
 release-ready on Windows x64; macOS Metal is experimental/unverified; Linux has
 no repository GPU backend.
 
-- **Windows GPU backend** (Editor/Player): optional ` --backend d3d11`, ` --backend d3d12`, or ` --backend vulkan` when configured with `xmake f --vulkan=y`. Use `--vsync on|off` to control swapchain presentation while profiling; Editor defaults off, Player defaults on (see `main.cpp` / `player_main.cpp`).
+- **Windows GPU backend** (Editor/Player): optional ` --backend d3d11`, ` --backend d3d12`, or ` --backend vulkan` when configured with `xmake f --vulkan=y`. Use `--vsync on|off` to control swapchain presentation while profiling; Editor defaults off, Player defaults on (see `src/Apps/EditorMain.cpp` / `src/Apps/PlayerMain.cpp`).
 
 ---
 
@@ -84,7 +84,7 @@ no repository GPU backend.
 | App loop and layers | `src/Runtime/Core/Application.cpp`, `Engine.cpp` |
 | Scene + rendering | `src/Runtime/Game/SceneRenderLayer.*`, `src/Runtime/Renderer/` |
 | Editor UI | `src/Editor/EditorLayer.*` |
-| Entry points | `main.cpp` (editor), `player_main.cpp` (player) |
+| Entry points | `src/Apps/EditorMain.cpp` (editor), `src/Apps/PlayerMain.cpp` (player) |
 
 ---
 
@@ -109,8 +109,8 @@ no repository GPU backend.
 
 ## Editor vs Player (rendering)
 
-- **Editor** (`main.cpp`): pushes `SceneRenderLayer` then `EditorLayer`; `SceneRenderLayer::SetPresentEnabled(false)` so **ImGui draws after** the 3D pass and presentation happens once.
-- **Player** (`player_main.cpp`): only `SceneRenderLayer` with `SetPresentEnabled(true)`.
+- **Editor** (`src/Apps/EditorMain.cpp`): pushes `SceneRenderLayer` then `EditorLayer`; `SceneRenderLayer::SetPresentEnabled(false)` so **ImGui draws after** the 3D pass and presentation happens once.
+- **Player** (`src/Apps/PlayerMain.cpp`): only `SceneRenderLayer` with `SetPresentEnabled(true)`.
 
 ---
 

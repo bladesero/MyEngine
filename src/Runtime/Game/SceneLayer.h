@@ -3,6 +3,7 @@
 #include "Core/Layer.h"
 #include "Scene/Scene.h"
 #include "Scene/SceneSerializer.h"
+#include "Game/SceneManager.h"
 #include <memory>
 #include <string>
 
@@ -79,6 +80,9 @@ public:
     void PausePlay();
     void ResumePlay();
     bool StepPlay();
+    SceneManager& GetSceneManager(){return m_SceneManager;}
+    const SceneManager& GetSceneManager()const{return m_SceneManager;}
+    bool RequestSceneLoad(const std::string& path){return m_SceneManager.RequestLoad(path);}
 
 protected:
     // 子类可重写，在 Scene 加载/创建完成后触发
@@ -96,4 +100,5 @@ private:
     SceneRunState m_RunState = SceneRunState::Edit;
     bool m_EditDirtySnapshot = false;
     bool m_StepRequested = false;
+    SceneManager m_SceneManager;
 };

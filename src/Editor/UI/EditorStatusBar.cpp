@@ -1,12 +1,11 @@
 #include "Editor/UI/EditorStatusBar.h"
 
-#include "Core/Engine.h"
 #include "Editor/EditorContext.h"
 #include "Editor/EditorProject.h"
 #include "Editor/UI/EditorIcons.h"
 #include "Editor/UI/EditorTheme.h"
 #include "Editor/UI/EditorWidgets.h"
-#include "Renderer/IRenderContext.h"
+#include "Game/SceneLayer.h"
 #include "Scene/Actor.h"
 #include "Scene/Scene.h"
 
@@ -20,8 +19,6 @@ namespace Editor::UI {
 
 float EditorStatusBar::Draw(EditorContext& context,
                             const EditorProject* project,
-                            IRenderContext* renderContext,
-                            Engine* engine,
                             float effectiveScale)
 {
 #if defined(MYENGINE_ENABLE_IMGUI)
@@ -39,31 +36,14 @@ float EditorStatusBar::Draw(EditorContext& context,
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,
                         {ScaleToken(8.0f, effectiveScale), ScaleToken(3.0f, effectiveScale)});
     if (ImGui::Begin("Editor Status Bar", nullptr, flags)) {
-        const FrameStats emptyStats{};
-        const FrameStats& stats = engine ? engine->GetFrameStats() : emptyStats;
         if (EditorWidgets::SvgIcon(context, EditorIcons::EngineEditor,
                                    ScaleToken(14.0f, effectiveScale))) {
             ImGui::SameLine();
         }
-        const RendererFrameStats& renderer = stats.renderer;
-        ImGui::Text("Ready | Selected: %s | %s | %.1f FPS / %.2f ms | R %.2f ms S %.2f M %.2f AO %.2f C %.2f | Draw %u (%u/%u/%u) BG %u TexUp %u %.1fMB %.2fms | Project: %s",
+        ImGui::Text("Mode: %s | Scene: %s | Selected: %s | Project: %s",
+                    FormatEditorModeText(context).c_str(),
+                    FormatSceneText(context).c_str(),
                     FormatSelectedText(context).c_str(),
-                    FormatBackendText(renderContext).c_str(),
-                    stats.fps,
-                    stats.smoothedFrameMs,
-                    stats.renderMs,
-                    renderer.shadowCpuMs,
-                    renderer.mainCpuMs,
-                    renderer.ssaoCpuMs,
-                    renderer.compositeCpuMs,
-                    renderer.drawCalls,
-                    renderer.shadowDrawCalls,
-                    renderer.mainDrawCalls,
-                    renderer.fullscreenDrawCalls,
-                    renderer.bindGroupCreates,
-                    renderer.textureUploads,
-                    static_cast<double>(renderer.textureUploadBytes) / (1024.0 * 1024.0),
-                    renderer.textureUploadMs,
                     FormatProjectText(project).c_str());
     }
     ImGui::End();
@@ -72,8 +52,6 @@ float EditorStatusBar::Draw(EditorContext& context,
 #else
     (void)context;
     (void)project;
-    (void)renderContext;
-    (void)engine;
     (void)effectiveScale;
     return 0.0f;
 #endif
@@ -95,21 +73,22 @@ std::string EditorStatusBar::FormatSelectedText(const EditorContext& context)
     return "None";
 }
 
-std::string EditorStatusBar::FormatBackendText(IRenderContext* renderContext)
+std::string EditorStatusBar::FormatEditorModeText(const EditorContext& context)
 {
-    if (!renderContext) return "Unknown";
-    return FormatBackendText(renderContext->GetBackend());
+    const SceneLayer* layer = context.GetSceneLayerBase();
+    std::string mode = !layer || layer->IsEditing() ? "Edit" :
+        (layer->IsPaused() ? "Paused" : "Play");
+    if (context.IsInspectingPlayWorld()) mode += " (Inspecting Play World)";
+    return mode;
 }
 
-std::string EditorStatusBar::FormatBackendText(RHIBackend backend)
+std::string EditorStatusBar::FormatSceneText(const EditorContext& context)
 {
-    switch (backend) {
-        case RHIBackend::D3D11: return "D3D11";
-        case RHIBackend::D3D12: return "D3D12";
-        case RHIBackend::Metal: return "Metal";
-        case RHIBackend::Vulkan: return "Vulkan";
-        default: return "Unknown";
-    }
+    const Scene* scene = context.GetSceneViewScene();
+    std::string text = scene && !scene->GetName().empty() ? scene->GetName() : "None";
+    const SceneLayer* layer = context.GetSceneLayerBase();
+    if (layer && layer->IsDirty()) text += " *";
+    return text;
 }
 
 std::string EditorStatusBar::FormatProjectText(const EditorProject* project)

@@ -3,7 +3,9 @@
 #include "Editor/EditorShortcutMap.h"
 
 #include <filesystem>
+#include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 class EditorWorkspace {
@@ -30,6 +32,11 @@ public:
     void SetUserUiScale(float value);
     const std::string& GetEditorThemeId() const { return m_EditorThemeId; }
     void SetEditorThemeId(std::string value);
+    void SetPanelStateValue(const std::string& panelID, const std::string& key,
+                            std::string value);
+    std::optional<std::string> GetPanelStateValue(const std::string& panelID,
+                                                  const std::string& key) const;
+    void ClearPanelState(const std::string& panelID);
 
 private:
     static std::filesystem::path DefaultSettingsPath();
@@ -40,4 +47,5 @@ private:
     EditorShortcutMap m_Shortcuts = EditorShortcutMap::CreateDefault();
     float m_UserUiScale = 1.0f;
     std::string m_EditorThemeId = "dark";
+    std::unordered_map<std::string, std::unordered_map<std::string, std::string>> m_PanelState;
 };

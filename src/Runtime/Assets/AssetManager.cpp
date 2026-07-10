@@ -11,7 +11,7 @@ namespace {
 
 size_t TypeIndex(AssetType t) {
     const size_t i = static_cast<size_t>(t);
-    return i < 11 ? i : 0;
+    return i < 13 ? i : 0;
 }
 
 size_t EstimateAssetCpuBytes(const Asset& a) {
@@ -182,14 +182,16 @@ std::string AssetManager::ResolvePath(const std::string& path) const {
     const std::filesystem::path input(sourcePath);
     std::filesystem::path resolved;
     const std::string generic = input.generic_string();
+    std::error_code error;
     if (!m_EngineContentRoot.empty() && generic.rfind("Content/Engine/", 0) == 0) {
         resolved = std::filesystem::absolute(
-            m_EngineContentRoot / std::filesystem::path(generic.substr(15))).lexically_normal();
+            m_EngineContentRoot / std::filesystem::path(generic.substr(15)), error).lexically_normal();
     } else if (input.is_absolute() || m_ProjectRoot.empty()) {
-        resolved = std::filesystem::absolute(input).lexically_normal();
+        resolved = std::filesystem::absolute(input, error).lexically_normal();
     } else {
-        resolved = std::filesystem::absolute(m_ProjectRoot / input).lexically_normal();
+        resolved = std::filesystem::absolute(m_ProjectRoot / input, error).lexically_normal();
     }
+    if (error) resolved = input.lexically_normal();
     return resolved.string() + fragment;
 }
 
@@ -575,6 +577,12 @@ void AssetManager::RegisterDefaultLoaders() {
     RegisterLoader("ogg", audioLoader);
     RegisterLoader("as", [](const std::string& path) -> std::shared_ptr<Asset> {
         return std::static_pointer_cast<Asset>(LoadScriptAssetFromFile(path));
+    });
+    RegisterLoader("navmesh", [](const std::string& path) -> std::shared_ptr<Asset> {
+        return std::static_pointer_cast<Asset>(LoadNavMeshAssetFromFile(path));
+    });
+    RegisterLoader("particle", [](const std::string& path) -> std::shared_ptr<Asset> {
+        return std::static_pointer_cast<Asset>(LoadParticleAssetFromFile(path));
     });
 }
 

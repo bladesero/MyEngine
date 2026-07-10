@@ -102,6 +102,7 @@ bool EditorWorkspace::Load(std::string* error) {
     m_Shortcuts.ResetDefaults();
     m_UserUiScale = 1.0f;
     m_EditorThemeId = "dark";
+    m_PanelState.clear();
     std::error_code ec;
     if (!fs::exists(m_SettingsPath, ec)) return true;
     try {
@@ -127,6 +128,17 @@ bool EditorWorkspace::Load(std::string* error) {
             json.value("userUiScale", m_UserUiScale));
         m_EditorThemeId = Editor::UI::EditorThemeManager::NormalizeThemeID(
             json.value("editorThemeId", m_EditorThemeId));
+        const auto panelState = json.find("panelState");
+        if (panelState != json.end() && panelState->is_object()) {
+            for (const auto& [panelID, state] : panelState->items()) {
+                if (!state.is_object()) continue;
+                auto& values = m_PanelState[panelID];
+                for (const auto& [key, value] : state.items()) {
+                    if (value.is_string()) values[key] = value.get<std::string>();
+                }
+                if (values.empty()) m_PanelState.erase(panelID);
+            }
+        }
     }
     catch (const std::exception& exception) {
         SetError(error, "failed to load workspace: " + std::string(exception.what()));
@@ -153,6 +165,14 @@ bool EditorWorkspace::Save(std::string* error) const {
         json["shortcuts"] = m_Shortcuts.SaveOverrides();
         json["userUiScale"] = m_UserUiScale;
         json["editorThemeId"] = m_EditorThemeId;
+        json["panelState"] = nlohmann::json::object();
+        for (const auto& [panelID, state] : m_PanelState) {
+            if (state.empty()) continue;
+            json["panelState"][panelID] = nlohmann::json::object();
+            for (const auto& [key, value] : state) {
+                json["panelState"][panelID][key] = value;
+            }
+        }
         std::ofstream output(m_SettingsPath);
         if (!output) {
             SetError(error, "failed to write workspace: " + m_SettingsPath.string());
@@ -193,6 +213,26 @@ void EditorWorkspace::SetUserUiScale(float value) {
 
 void EditorWorkspace::SetEditorThemeId(std::string value) {
     m_EditorThemeId = Editor::UI::EditorThemeManager::NormalizeThemeID(value);
+}
+
+void EditorWorkspace::SetPanelStateValue(const std::string& panelID,
+                                         const std::string& key,
+                                         std::string value) {
+    if (panelID.empty() || key.empty()) return;
+    m_PanelState[panelID][key] = std::move(value);
+}
+
+std::optional<std::string> EditorWorkspace::GetPanelStateValue(
+    const std::string& panelID, const std::string& key) const {
+    const auto panel = m_PanelState.find(panelID);
+    if (panel == m_PanelState.end()) return std::nullopt;
+    const auto value = panel->second.find(key);
+    if (value == panel->second.end()) return std::nullopt;
+    return value->second;
+}
+
+void EditorWorkspace::ClearPanelState(const std::string& panelID) {
+    if (!panelID.empty()) m_PanelState.erase(panelID);
 }
 
 bool EditorWorkspace::CreateProject(const fs::path& projectRoot,

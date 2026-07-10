@@ -19,6 +19,7 @@
 #include "Game/SceneViewportController.h"
 #include "Renderer/RHI/GpuTexture.h"
 #include "Scene/Actor.h"
+#include "Scene/ComponentRegistry.h"
 #include "Scene/Scene.h"
 #include "Scene/SceneSerializer.h"
 
@@ -31,6 +32,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <memory>
 #include <nlohmann/json.hpp>
 #include <sstream>
 #include <string>
@@ -81,6 +83,85 @@ Actor* FindActor(uint64_t actorID)
 {
     Scene* scene = EditableScene();
     return scene ? scene->FindByID(actorID) : nullptr;
+}
+
+const char* AssetTypeDisplayName(EditorAssetType type)
+{
+    switch (type) {
+        case EditorAssetType::Model: return "Model";
+        case EditorAssetType::Texture: return "Texture";
+        case EditorAssetType::Material: return "Material";
+        case EditorAssetType::Scene: return "Scene";
+        case EditorAssetType::Prefab: return "Prefab";
+        case EditorAssetType::Script: return "Script";
+        case EditorAssetType::Shader: return "Shader";
+        case EditorAssetType::Audio: return "Audio";
+        case EditorAssetType::UI: return "UI";
+        case EditorAssetType::Particle: return "Particle";
+        case EditorAssetType::Navigation: return "Navigation";
+        default: return "Unknown";
+    }
+}
+
+EditorAssetType ParseAssetType(const std::string& type)
+{
+    if (type == "Model" || type == "model") return EditorAssetType::Model;
+    if (type == "Texture" || type == "texture") return EditorAssetType::Texture;
+    if (type == "Material" || type == "material") return EditorAssetType::Material;
+    if (type == "Scene" || type == "scene") return EditorAssetType::Scene;
+    if (type == "Prefab" || type == "prefab") return EditorAssetType::Prefab;
+    if (type == "Script" || type == "script") return EditorAssetType::Script;
+    if (type == "Shader" || type == "shader") return EditorAssetType::Shader;
+    if (type == "Audio" || type == "audio") return EditorAssetType::Audio;
+    if (type == "UI" || type == "ui") return EditorAssetType::UI;
+    if (type == "Particle" || type == "particle") return EditorAssetType::Particle;
+    if (type == "Navigation" || type == "navigation" || type == "navmesh") return EditorAssetType::Navigation;
+    return EditorAssetType::Unknown;
+}
+
+std::string ComponentCategory(const std::string& type)
+{
+    if (type.find("Renderer") != std::string::npos ||
+        type == "CameraComponent" || type == "LightComponent" ||
+        type == "PostProcessComponent") return "Rendering";
+    if (type.find("Audio") != std::string::npos) return "Audio";
+    if (type.find("RigidBody") != std::string::npos ||
+        type.find("Collider") != std::string::npos ||
+        type.find("CharacterController") != std::string::npos) return "Physics";
+    if (type.find("Script") != std::string::npos) return "Scripting";
+    if (type.rfind("UI", 0) == 0) return "UI";
+    return "Gameplay";
+}
+
+std::string DisplayNameFromType(std::string type)
+{
+    const std::string suffix = "Component";
+    if (type.size() > suffix.size() &&
+        type.compare(type.size() - suffix.size(), suffix.size(), suffix) == 0) {
+        type.resize(type.size() - suffix.size());
+    }
+    std::string result;
+    for (size_t i = 0; i < type.size(); ++i) {
+        const char ch = type[i];
+        if (i > 0 && ch >= 'A' && ch <= 'Z' &&
+            (type[i - 1] >= 'a' && type[i - 1] <= 'z')) {
+            result.push_back(' ');
+        }
+        result.push_back(ch);
+    }
+    return result.empty() ? type : result;
+}
+
+std::string JsonValueTypeName(const nlohmann::json& value)
+{
+    if (value.is_boolean()) return "bool";
+    if (value.is_number_integer() || value.is_number_unsigned()) return "int";
+    if (value.is_number_float()) return "float";
+    if (value.is_string()) return "string";
+    if (value.is_array()) return "array";
+    if (value.is_object()) return "object";
+    if (value.is_null()) return "null";
+    return "unknown";
 }
 
 void UI_Text(const std::string& text)
@@ -587,6 +668,49 @@ bool Scene_SetActorName(uint64_t actorID, const std::string& name)
     return context && operators && operators->Commands().RenameActor(*context, actorID, name);
 }
 
+std::string Scene_FindActorsWithComponent(const std::string& type)
+{
+    EditorContext* context = Context();
+    Scene* scene = context ? context->GetInspectorScene() : nullptr;
+    if (!scene || type.empty()) return {};
+    std::ostringstream out;
+    bool first = true;
+    const auto appendActor = [&](auto&& self, Actor* actor) -> void {
+        if (!actor) return;
+        if (actor->HasComponentType(type)) {
+            if (!first) out << "\n";
+            first = false;
+            out << actor->GetID();
+        }
+        for (Actor* child : actor->GetChildren()) self(self, child);
+    };
+    for (Actor* root : scene->GetRootActors()) {
+        if (root && !root->GetParent()) appendActor(appendActor, root);
+    }
+    return out.str();
+}
+
+std::string Project_GetContentRoot()
+{
+    EditorContext* context = Context();
+    return context ? context->GetContentRoot().generic_string() : std::string{};
+}
+
+void Validation_ReportInfo(const std::string& message)
+{
+    Logger::Info("[EditorValidation] ", message);
+}
+
+void Validation_ReportWarning(const std::string& message)
+{
+    Logger::Warn("[EditorValidation] ", message);
+}
+
+void Validation_ReportError(const std::string& message)
+{
+    Logger::Error("[EditorValidation] ", message);
+}
+
 bool Components_Has(uint64_t actorID, const std::string& type)
 {
     Actor* actor = FindActor(actorID);
@@ -624,6 +748,60 @@ bool Components_SetJson(uint64_t actorID, const std::string& type, const std::st
     }
 }
 
+bool Components_SetFieldJson(uint64_t actorID, const std::string& type,
+                             const std::string& fieldName,
+                             const std::string& valueJsonText)
+{
+    EditorContext* context = Context();
+    Scene* scene = context ? context->GetScene() : nullptr;
+    Actor* actor = scene ? scene->FindByID(actorID) : nullptr;
+    Component* component = actor ? actor->GetComponentByTypeName(type) : nullptr;
+    EditorOperators* operators = context ? context->GetOperators() : nullptr;
+    if (!context || !scene || !actor || !component || !operators ||
+        fieldName.empty() || !context->CanEditScene()) {
+        return false;
+    }
+    try {
+        nlohmann::json before = nlohmann::json::object();
+        component->Serialize(before);
+        nlohmann::json after = before;
+        after[fieldName] = nlohmann::json::parse(valueJsonText);
+        if (before == after) return false;
+        return operators->Transactions().CommitComponentProperty(
+            *context, *actor, type, fieldName, before, after);
+    } catch (...) {
+        return false;
+    }
+}
+
+std::string Components_GetMetadata(const std::string& type)
+{
+    nlohmann::json metadata = {
+        {"type", type},
+        {"displayName", DisplayNameFromType(type)},
+        {"category", ComponentCategory(type)},
+        {"registered", ComponentRegistry::Get().IsRegistered(type)},
+        {"editable", true},
+        {"fields", nlohmann::json::array()}
+    };
+    std::unique_ptr<Component> component =
+        ComponentRegistry::Get().CreateDetached(type);
+    if (!component) return metadata.dump();
+    nlohmann::json data = nlohmann::json::object();
+    component->Serialize(data);
+    if (data.is_object()) {
+        for (auto it = data.begin(); it != data.end(); ++it) {
+            metadata["fields"].push_back({
+                {"name", it.key()},
+                {"type", JsonValueTypeName(it.value())},
+                {"defaultValue", it.value()},
+                {"editable", true}
+            });
+        }
+    }
+    return metadata.dump();
+}
+
 std::string Assets_List(const std::string& folder, bool recursive)
 {
     EditorContext* context = Context();
@@ -632,6 +810,22 @@ std::string Assets_List(const std::string& folder, bool recursive)
     std::ostringstream out;
     bool first = true;
     for (const EditorAssetInfo& asset : registry->GetAssetsInFolder(folder, recursive)) {
+        if (!first) out << "\n";
+        first = false;
+        out << asset.relativePath;
+    }
+    return out.str();
+}
+
+std::string Assets_ListByType(const std::string& type)
+{
+    EditorContext* context = Context();
+    EditorAssetRegistry* registry = context ? context->GetAssetRegistry() : nullptr;
+    if (!registry) return {};
+    const EditorAssetType filter = ParseAssetType(type);
+    std::ostringstream out;
+    bool first = true;
+    for (const EditorAssetInfo& asset : registry->GetAssets(filter)) {
         if (!first) out << "\n";
         first = false;
         out << asset.relativePath;
@@ -671,6 +865,20 @@ bool Commands_SetActorActive(uint64_t actorID, bool active)
     EditorContext* context = Context();
     EditorOperators* operators = context ? context->GetOperators() : nullptr;
     return context && operators && operators->Commands().SetActorActive(*context, actorID, active);
+}
+
+bool Commands_SetActorTag(uint64_t actorID, const std::string& tag)
+{
+    EditorContext* context = Context();
+    EditorOperators* operators = context ? context->GetOperators() : nullptr;
+    return context && operators && operators->Commands().SetActorTag(*context, actorID, tag);
+}
+
+bool Commands_SetActorLayer(uint64_t actorID, uint32_t layer)
+{
+    EditorContext* context = Context();
+    EditorOperators* operators = context ? context->GetOperators() : nullptr;
+    return context && operators && operators->Commands().SetActorLayer(*context, actorID, layer);
 }
 
 bool Commands_MoveActor(uint64_t actorID, uint64_t parentID, uint64_t nextSiblingID)
@@ -921,6 +1129,8 @@ std::string AssetTypeName(EditorAssetType type)
         case EditorAssetType::Shader: return "shader";
         case EditorAssetType::Audio: return "audio";
         case EditorAssetType::UI: return "ui";
+        case EditorAssetType::Particle: return "particle";
+        case EditorAssetType::Navigation: return "navigation";
         default: return "unknown";
     }
 }
@@ -1254,19 +1464,25 @@ void RegisterEditorContextBindings(void* scriptEngine)
     Check(engine->RegisterGlobalFunction("uint64 CreateActor(const string &in)", asFUNCTION(Scene_CreateActor), asCALL_CDECL));
     Check(engine->RegisterGlobalFunction("bool DeleteActor(uint64)", asFUNCTION(Scene_DeleteActor), asCALL_CDECL));
     Check(engine->RegisterGlobalFunction("bool SetActorName(uint64, const string &in)", asFUNCTION(Scene_SetActorName), asCALL_CDECL));
+    Check(engine->RegisterGlobalFunction("string FindActorsWithComponent(const string &in)", asFUNCTION(Scene_FindActorsWithComponent), asCALL_CDECL));
     engine->SetDefaultNamespace("Commands");
     Check(engine->RegisterGlobalFunction("bool ExecuteAction(const string &in)", asFUNCTION(Commands_ExecuteAction), asCALL_CDECL));
     Check(engine->RegisterGlobalFunction("uint64 CreateActor(const string &in)", asFUNCTION(Commands_CreateActor), asCALL_CDECL));
     Check(engine->RegisterGlobalFunction("bool DeleteActor(uint64)", asFUNCTION(Commands_DeleteActor), asCALL_CDECL));
     Check(engine->RegisterGlobalFunction("bool RenameActor(uint64, const string &in)", asFUNCTION(Commands_RenameActor), asCALL_CDECL));
     Check(engine->RegisterGlobalFunction("bool SetActorActive(uint64, bool)", asFUNCTION(Commands_SetActorActive), asCALL_CDECL));
+    Check(engine->RegisterGlobalFunction("bool SetActorTag(uint64, const string &in)", asFUNCTION(Commands_SetActorTag), asCALL_CDECL));
+    Check(engine->RegisterGlobalFunction("bool SetActorLayer(uint64, uint)", asFUNCTION(Commands_SetActorLayer), asCALL_CDECL));
     Check(engine->RegisterGlobalFunction("bool MoveActor(uint64, uint64, uint64)", asFUNCTION(Commands_MoveActor), asCALL_CDECL));
     engine->SetDefaultNamespace("Components");
     Check(engine->RegisterGlobalFunction("bool Has(uint64, const string &in)", asFUNCTION(Components_Has), asCALL_CDECL));
     Check(engine->RegisterGlobalFunction("string GetJson(uint64, const string &in)", asFUNCTION(Components_GetJson), asCALL_CDECL));
     Check(engine->RegisterGlobalFunction("bool SetJson(uint64, const string &in, const string &in)", asFUNCTION(Components_SetJson), asCALL_CDECL));
+    Check(engine->RegisterGlobalFunction("bool SetFieldJson(uint64, const string &in, const string &in, const string &in)", asFUNCTION(Components_SetFieldJson), asCALL_CDECL));
+    Check(engine->RegisterGlobalFunction("string GetMetadata(const string &in)", asFUNCTION(Components_GetMetadata), asCALL_CDECL));
     engine->SetDefaultNamespace("Assets");
     Check(engine->RegisterGlobalFunction("string List(const string &in, bool recursive = true)", asFUNCTION(Assets_List), asCALL_CDECL));
+    Check(engine->RegisterGlobalFunction("string ListByType(const string &in)", asFUNCTION(Assets_ListByType), asCALL_CDECL));
     Check(engine->RegisterGlobalFunction("void Refresh()", asFUNCTION(Assets_Refresh), asCALL_CDECL));
     Check(engine->RegisterGlobalFunction("bool Delete(const string &in)", asFUNCTION(Assets_Delete), asCALL_CDECL));
     Check(engine->RegisterGlobalFunction("bool Rename(const string &in, const string &in)", asFUNCTION(Assets_Rename), asCALL_CDECL));
@@ -1293,6 +1509,16 @@ void RegisterEditorContextBindings(void* scriptEngine)
         asFUNCTION(Viewport_SetSceneViewportRect), asCALL_CDECL));
     Check(engine->RegisterGlobalFunction("bool SetGameViewportRect(float, float, float, float)",
         asFUNCTION(Viewport_SetGameViewportRect), asCALL_CDECL));
+    engine->SetDefaultNamespace("Project");
+    Check(engine->RegisterGlobalFunction("string GetContentRoot()",
+        asFUNCTION(Project_GetContentRoot), asCALL_CDECL));
+    engine->SetDefaultNamespace("Validation");
+    Check(engine->RegisterGlobalFunction("void ReportInfo(const string &in)",
+        asFUNCTION(Validation_ReportInfo), asCALL_CDECL));
+    Check(engine->RegisterGlobalFunction("void ReportWarning(const string &in)",
+        asFUNCTION(Validation_ReportWarning), asCALL_CDECL));
+    Check(engine->RegisterGlobalFunction("void ReportError(const string &in)",
+        asFUNCTION(Validation_ReportError), asCALL_CDECL));
     engine->SetDefaultNamespace("PanelState");
     Check(engine->RegisterGlobalFunction("string GetString(const string &in, const string &in)",
         asFUNCTION(PanelState_GetString), asCALL_CDECL));

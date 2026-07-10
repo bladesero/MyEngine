@@ -29,6 +29,7 @@ bool ActorSubtreeSerializer::Serialize(const Actor& root, std::vector<PrefabNode
         node.parentLocalId = parentId;
         node.name = actor.GetName();
         node.activeSelf = actor.IsActiveSelf();
+        node.editorFlags = actor.GetEditorFlags();
         node.transform = actor.GetTransform();
         actor.ForEachComponent([&](Component& component) {
             ComponentCreateDesc desc;

@@ -79,10 +79,13 @@ public:
     const std::vector<EditorScriptToolbarItemSpec>& GetToolbarItems() const { return m_ToolbarItems; }
     const std::vector<EditorScriptContextMenuSpec>& GetAssetContextMenus() const { return m_AssetContextMenus; }
     const std::vector<EditorScriptContextMenuSpec>& GetActorContextMenus() const { return m_ActorContextMenus; }
+    const std::vector<std::string>& GetDiagnostics() const { return m_Diagnostics; }
     const std::string* FindPanelBodyCallback(const std::string& id) const;
     bool IsCorePanelID(const std::string& id) const;
 
 private:
+    void AddDiagnostic(std::string message);
+    bool RejectProjectAppend(const char* kind, const std::string& id);
     std::unordered_map<std::string, size_t> m_PanelByID;
     std::unordered_map<std::string, size_t> m_PanelBodyByID;
     std::vector<EditorScriptPanelSpec> m_Panels;
@@ -92,6 +95,7 @@ private:
     std::vector<EditorScriptToolbarItemSpec> m_ToolbarItems;
     std::vector<EditorScriptContextMenuSpec> m_AssetContextMenus;
     std::vector<EditorScriptContextMenuSpec> m_ActorContextMenus;
+    std::vector<std::string> m_Diagnostics;
     EditorScriptRegistrationLayer m_RegistrationLayer = EditorScriptRegistrationLayer::Engine;
     bool m_AllowProjectAppend = true;
     bool m_AllowProjectOverrideCore = false;

@@ -90,7 +90,68 @@ EditorAssetType TypeFromRecord(const AssetRecord& record,
     if (record.type == "texture") return EditorAssetType::Texture;
     if (record.type == "material") return EditorAssetType::Material;
     if (record.type == "shader") return EditorAssetType::Shader;
+    if (record.type == "particle") return EditorAssetType::Particle;
+    if (record.type == "navigation" || record.type == "navmesh") return EditorAssetType::Navigation;
     return EditorAssetRegistry::Classify(sourcePath);
+}
+
+const char* ValidationIssueLabel(AssetDatabaseValidationIssueCode code) {
+    switch (code) {
+        case AssetDatabaseValidationIssueCode::DuplicateUuid: return "DuplicateUuid";
+        case AssetDatabaseValidationIssueCode::DuplicateSourcePath: return "DuplicateSourcePath";
+        case AssetDatabaseValidationIssueCode::MissingSource: return "MissingSource";
+        case AssetDatabaseValidationIssueCode::MissingArtifact: return "MissingArtifact";
+        case AssetDatabaseValidationIssueCode::ArtifactHashMismatch: return "ArtifactHashMismatch";
+        case AssetDatabaseValidationIssueCode::UnknownDependency: return "UnknownDependency";
+        case AssetDatabaseValidationIssueCode::DependencyCycle: return "DependencyCycle";
+        case AssetDatabaseValidationIssueCode::StateNotReady: return "StateNotReady";
+        case AssetDatabaseValidationIssueCode::IncompleteRecord: return "IncompleteRecord";
+    }
+    return "ValidationIssue";
+}
+
+std::string ValidationDiagnosticMessage(const AssetDatabaseValidationIssue& issue) {
+    std::string message = std::string("[Validation] ") + ValidationIssueLabel(issue.code);
+    if (!issue.message.empty()) message += ": " + issue.message;
+    if (!issue.path.empty()) message += " (" + issue.path + ")";
+    return message;
+}
+
+std::string NormalizeOptionalPath(const std::string& path) {
+    if (path.empty()) return {};
+    return NormalizeKey(std::filesystem::path(path));
+}
+
+void AttachValidationDiagnostics(std::vector<EditorAssetInfo>& assets,
+                                 const AssetDatabaseValidationReport& validation) {
+    if (validation.issues.empty()) return;
+
+    std::unordered_map<std::string, size_t> byUuid;
+    std::unordered_map<std::string, size_t> byPath;
+    for (size_t i = 0; i < assets.size(); ++i) {
+        if (!assets[i].uuid.empty()) byUuid[assets[i].uuid] = i;
+        byPath[NormalizeKey(assets[i].absolutePath)] = i;
+        if (!assets[i].artifactPath.empty()) {
+            byPath[NormalizeKey(assets[i].artifactPath)] = i;
+        }
+        if (!assets[i].relativePath.empty()) {
+            byPath[NormalizeOptionalPath(assets[i].relativePath)] = i;
+        }
+    }
+
+    for (const AssetDatabaseValidationIssue& issue : validation.issues) {
+        EditorAssetInfo* info = nullptr;
+        if (!issue.uuid.empty()) {
+            auto byUuidIt = byUuid.find(issue.uuid);
+            if (byUuidIt != byUuid.end()) info = &assets[byUuidIt->second];
+        }
+        if (!info && !issue.path.empty()) {
+            auto byPathIt = byPath.find(NormalizeOptionalPath(issue.path));
+            if (byPathIt != byPath.end()) info = &assets[byPathIt->second];
+        }
+        if (!info) continue;
+        info->diagnostics.push_back({"error", ValidationDiagnosticMessage(issue)});
+    }
 }
 }
 
@@ -111,6 +172,8 @@ EditorAssetType EditorAssetRegistry::Classify(const std::filesystem::path& path)
     if (extension == ".png" || extension == ".jpg" || extension == ".jpeg" ||
         extension == ".bmp" || extension == ".tga" || extension == ".hdr") return EditorAssetType::Texture;
     if (extension == ".mat") return EditorAssetType::Material;
+    if (extension == ".particle") return EditorAssetType::Particle;
+    if (extension == ".navmesh") return EditorAssetType::Navigation;
     if (extension == ".json") return EditorAssetType::Scene;
     if (extension == ".lua" || extension == ".as") return EditorAssetType::Script;
     if (extension == ".shader" || extension == ".hlsl" || extension == ".hlsli") return EditorAssetType::Shader;
@@ -213,6 +276,8 @@ void EditorAssetRegistry::Refresh() {
     const auto databasePath = m_Root.parent_path() / ".myengine" / "AssetDatabase.json";
     AssetDatabase database;
     if (database.Open(databasePath)) {
+        AssetDatabaseValidationReport validationReport;
+        database.ValidateAgainstProject(m_Root.parent_path(), validationReport);
         for (const AssetRecord& record : database.GetAll()) {
             const std::filesystem::path sourcePath = record.sourcePath;
             const std::string key = NormalizeKey(sourcePath);
@@ -240,6 +305,7 @@ void EditorAssetRegistry::Refresh() {
             info->imported = true;
             info->type = TypeFromRecord(record, sourcePath);
         }
+        AttachValidationDiagnostics(m_Assets, validationReport);
     }
     std::sort(m_Assets.begin(), m_Assets.end(), [](const auto& a, const auto& b) { return a.relativePath < b.relativePath; });
     for (const auto& asset : m_Assets) {

@@ -30,6 +30,7 @@ struct VSIn
     float2 uv      : TEXCOORD0;
     float4 joints  : BLENDINDICES;
     float4 weights : BLENDWEIGHT;
+    float4 color   : COLOR0;
 };
 
 struct VSOut
@@ -38,6 +39,7 @@ struct VSOut
     float3 normalW  : NORMAL;
     float3 tangentW : TANGENT;
     float2 uv       : TEXCOORD0;
+    float4 color    : COLOR0;
 };
 
 struct PSOut
@@ -70,6 +72,7 @@ VSOut VSMain(VSIn v)
     o.normalW = normalize(mul(float4(localNormal, 0.0f), g_NormalMatrix).xyz);
     o.tangentW = mul(float4(localTangent, 0.0f), g_NormalMatrix).xyz;
     o.uv = v.uv;
+    o.color = v.color;
     return o;
 }
 
@@ -78,12 +81,12 @@ PSOut PSMain(VSOut p)
     PSOut o;
 
     float4 texColor = g_BaseColorMap.Sample(g_Sampler, p.uv);
-    float alpha = texColor.a * g_BaseColor.a;
+    float alpha = texColor.a * g_BaseColor.a * p.color.a;
     if (g_Emissive.w > 0.5f && alpha < g_Material.w) {
         discard;
     }
 
-    float3 albedo = pow(max(texColor.rgb * g_BaseColor.rgb, 0.0f), 2.2f);
+    float3 albedo = pow(max(texColor.rgb * g_BaseColor.rgb * p.color.rgb, 0.0f), 2.2f);
     float metallic = saturate(g_Material.x);
     float roughness = clamp(g_Material.y, 0.04f, 1.0f);
     float ao = max(g_Material.z, 0.0f);

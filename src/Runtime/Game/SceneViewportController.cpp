@@ -147,6 +147,24 @@ void SceneViewport::FrameDirection(SceneViewDirection direction,
     }
 }
 
+void SceneViewport::FrameTarget(const Vec3& target, float radius)
+{
+    radius = (std::max)(0.1f, radius);
+    const float distance = (std::max)(4.0f, radius * 4.0f);
+    Vec3 forward = m_Camera.GetForward();
+    if (forward.Length() < 1e-5f) forward = Vec3::Forward();
+    Vec3 up = std::fabs(forward.Dot(Vec3::Up())) > 0.98f
+        ? Vec3::Forward()
+        : Vec3::Up();
+
+    m_Camera.SetCameraMode(CameraMode::Fly);
+    m_Camera.LookAt(target - forward.Normalized() * distance, target, up);
+    if (IsOrthographic()) {
+        m_OrthographicWidth = (std::max)(radius * 2.0f, 2.0f);
+        ApplyOrthographicForCurrentAspect();
+    }
+}
+
 void SceneViewport::OrbitAroundFocus(const Vec3& target,
                                      float yawDegrees,
                                      float pitchDegrees)

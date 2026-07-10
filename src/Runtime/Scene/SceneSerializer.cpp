@@ -3,6 +3,8 @@
 #include "Scene/Component.h"
 #include "Scene/ComponentRegistry.h"
 #include "Scene/PrefabSystem.h"
+#include "Assets/AssetManager.h"
+#include "Assets/NavMeshAsset.h"
 #include "Core/Logger.h"
 
 #include <nlohmann/json.hpp>
@@ -56,6 +58,14 @@ static Json SceneToJson(const Scene& scene)
 {
     Json root;
     root["name"]   = scene.GetName();
+    if (scene.GetMainCameraHintActorID() != 0) {
+        root["mainCameraHintActorID"] = scene.GetMainCameraHintActorID();
+    }
+    if (scene.GetAmbientIntensity() != 1.0f) {
+        root["ambientIntensity"] = scene.GetAmbientIntensity();
+    }
+    if(!scene.GetNavMeshAssetPath().empty())root["navMeshAsset"]=scene.GetNavMeshAssetPath();
+    if(!scene.GetPreloadAssets().empty())root["preloadAssets"]=scene.GetPreloadAssets();
 
     Json actorsArr = Json::array();
 
@@ -67,6 +77,9 @@ static Json SceneToJson(const Scene& scene)
         a["id"]       = actor.GetID();
         a["name"]     = actor.GetName();
         a["active"]   = actor.IsActiveSelf();
+        if (!actor.GetTag().empty()) a["tag"] = actor.GetTag();
+        if (actor.GetLayer() != 0) a["layer"] = actor.GetLayer();
+        if (actor.GetEditorFlags() != 0) a["editorFlags"] = actor.GetEditorFlags();
         a["parentID"] = actor.GetParent() ? actor.GetParent()->GetID() : uint64_t(0);
         a["transform"] = TransformToJson(actor.GetTransform());
 
@@ -121,6 +134,12 @@ static bool JsonToScene(const Json& root, Scene& scene)
     try {
         scene.Clear();
         scene.SetName(root.value("name", "Scene"));
+        scene.SetMainCameraHintActorID(
+            root.value("mainCameraHintActorID", uint64_t{0}));
+        scene.SetAmbientIntensity(root.value("ambientIntensity", 1.0f));
+        scene.SetNavMeshAssetPath(root.value("navMeshAsset",std::string{}));
+        scene.SetPreloadAssets(root.value("preloadAssets",std::vector<std::string>{}));
+        if(!scene.GetNavMeshAssetPath().empty()){auto nav=AssetManager::Get().Load<NavMeshAsset>(scene.GetNavMeshAssetPath());if(nav)nav->Apply(scene.GetNavigationWorld());}
 
         if (!root.contains("actors")) return true; // empty scene is valid
 
@@ -154,6 +173,9 @@ static bool JsonToScene(const Json& root, Scene& scene)
                 std::string error;
                 ActorHandle handle = PrefabSystem::QueueInstantiate(scene, prefab.value("asset", std::string{}), options, &error);
                 if (!handle) throw std::runtime_error("failed to instantiate prefab: " + error);
+                if (a.contains("tag")) scene.QueueSetTag(handle, a.value("tag", std::string{}));
+                if (a.contains("layer")) scene.QueueSetLayer(handle, a.value("layer", uint32_t{0}));
+                if (a.contains("editorFlags")) scene.QueueSetEditorFlags(handle, a.value("editorFlags", uint32_t{0}));
                 handles[id] = handle;
                 continue;
             }
@@ -162,6 +184,9 @@ static bool JsonToScene(const Json& root, Scene& scene)
             desc.name = std::move(name);
             desc.persistentID = id;
             desc.activeSelf = active;
+            desc.tag = a.value("tag", std::string{});
+            desc.layer = a.value("layer", uint32_t{0});
+            desc.editorFlags = a.value("editorFlags", uint32_t{0});
             if (a.contains("transform")) desc.transform = TransformFromJson(a["transform"]);
             if (a.contains("components") && a["components"].is_array()) {
                 for (const Json& c : a["components"]) {

@@ -11,6 +11,7 @@ struct PrefabNode {
     std::string parentLocalId;
     std::string name;
     bool activeSelf = true;
+    uint32_t editorFlags = 0;
     Transform transform;
     std::vector<ComponentCreateDesc> components;
 };

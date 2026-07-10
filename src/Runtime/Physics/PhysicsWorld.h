@@ -1,9 +1,11 @@
 #pragma once
 
 #include "Core/EngineMath.h"
+#include "Scene/ActorHandle.h"
 
 #include <cstdint>
 #include <memory>
+#include <vector>
 
 class Scene;
 class Actor;
@@ -28,6 +30,8 @@ public:
     void Step(Scene& scene, float deltaSeconds);
     bool Raycast(const Scene& scene, const Ray& ray, float maxDistance,
                  uint32_t layerMask, RaycastHit& hit) const;
+    bool OverlapSphere(const Scene& scene, const Vec3& center, float radius,
+                       uint32_t layerMask, std::vector<ActorHandle>& outActors) const;
 
 private:
     class Impl;

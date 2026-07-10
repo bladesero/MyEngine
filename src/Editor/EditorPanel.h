@@ -4,6 +4,7 @@
 
 #include <functional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 class EditorContext;
@@ -20,13 +21,29 @@ public:
     virtual void OnDetach() { m_Context = nullptr; }
     virtual void OnUpdate(float deltaSeconds) { (void)deltaSeconds; }
     virtual bool ShouldUpdateWhenHidden() const { return false; }
+    virtual bool HandleEditorAction(EditorContext& context,
+                                    std::string_view actionID)
+    {
+        (void)context;
+        (void)actionID;
+        return false;
+    }
+    virtual bool CanHandleEditorAction(const EditorContext& context,
+                                       std::string_view actionID) const
+    {
+        (void)context;
+        (void)actionID;
+        return false;
+    }
     virtual void OnImGui();
     const std::string& GetID() const { return m_ID; }
     const std::string& GetTitle() const { return m_Title; }
     std::string GetStableWindowName() const;
     virtual std::string GetDefaultDockArea() const { return {}; }
     bool IsVisible() const { return m_Visible; }
+    bool IsFocused() const { return m_Focused; }
     void SetVisible(bool value) { m_Visible = value; }
+    void RequestFocus();
 
     // Register a handler that contributes items when a context menu opens.
     void RegisterContextMenuHandler(ContextMenuHandler handler);
@@ -47,6 +64,8 @@ protected:
 private:
     std::string m_ID, m_Title;
     bool m_Visible = true;
+    bool m_Focused = false;
+    bool m_FocusRequested = false;
     EditorContext* m_Context = nullptr;
     std::vector<ContextMenuHandler> m_ContextMenuHandlers;
 };

@@ -34,6 +34,7 @@ public:
 
     bool IsInitialized() const;
     bool IsSilent() const;
+    static float CalculateDistanceAttenuation(float distance, float minDistance, float maxDistance);
 
     SoundID Play(const AudioPlayDesc& desc);
     void Stop(SoundID id);
@@ -43,6 +44,9 @@ public:
     void SetSoundVolume(SoundID id, float volume);
     void SetSoundPitch(SoundID id, float pitch);
     void SetListenerTransform(const Vec3& position, const Vec3& forward, const Vec3& up);
+    const Vec3& GetListenerPosition() const;
+    const Vec3& GetListenerForward() const;
+    const Vec3& GetListenerUp() const;
 
 private:
     AudioEngine();

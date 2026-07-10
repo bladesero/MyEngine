@@ -529,6 +529,15 @@ public:
             if (found == bodies.end()) return;
             if (isCharacter) {
                 Vec3 velocity = controller->GetVelocity();
+                if (!controller->IsGrounded()) {
+                    const Vec3 current = controller->GetActualVelocity();
+                    const float control = controller->GetAirControl();
+                    velocity.x = current.x + (velocity.x - current.x) * control;
+                    velocity.z = current.z + (velocity.z - current.z) * control;
+                }
+                float jumpSpeed = 0.0f;
+                if (controller->ConsumeJump(jumpSpeed))
+                    found->second.characterVerticalVelocity = jumpSpeed;
                 if (controller->UsesGravity()) {
                     if (controller->IsGrounded() && found->second.characterVerticalVelocity < 0.0f)
                         found->second.characterVerticalVelocity = 0.0f;
@@ -537,6 +546,7 @@ public:
                 } else {
                     found->second.characterVerticalVelocity = velocity.y;
                 }
+                controller->SetActualVelocity(velocity);
                 found->second.characterObject->SetLinearVelocity(ToJolt(velocity));
             } else if (activeBody) {
                 ApplyCommands(actor, found->second, *activeBody, dt);
@@ -707,4 +717,31 @@ bool PhysicsWorld::Raycast(const Scene& scene, const Ray& ray, float maxDistance
     hit.normal = lock.Succeeded() ? FromJolt(lock.GetBody().GetWorldSpaceSurfaceNormal(result.mSubShapeID2,
         ToJoltPosition(hit.point))) : Vec3::Up();
     return true;
+}
+
+bool PhysicsWorld::OverlapSphere(const Scene& scene, const Vec3& center, float radius,
+                                 uint32_t layerMask, std::vector<ActorHandle>& outActors) const
+{
+    outActors.clear();
+    if (radius <= 0.0f) return false;
+    m_Impl->Reconcile(const_cast<Scene&>(scene), m_FixedDelta);
+
+    const SphereShape query{center, radius};
+    scene.ForEach([&](Actor& actor) {
+        if (!actor.IsActive()) return;
+        ColliderComponent* collider = Impl::FindCollider(actor);
+        if (!collider || (collider->GetLayer() & layerMask) == 0) return;
+
+        ContactManifold contact;
+        bool overlapping = false;
+        if (auto* sphere = dynamic_cast<SphereColliderComponent*>(collider)) {
+            overlapping = Collide(query, sphere->GetWorldShape(), contact);
+        } else if (auto* box = dynamic_cast<BoxColliderComponent*>(collider)) {
+            overlapping = Collide(query, box->GetWorldShape(), contact);
+        } else if (auto* capsule = dynamic_cast<CapsuleColliderComponent*>(collider)) {
+            overlapping = Collide(capsule->GetWorldShape(), query, contact);
+        }
+        if (overlapping) outActors.push_back(actor.GetHandle());
+    });
+    return !outActors.empty();
 }

@@ -1,6 +1,10 @@
 ﻿#include "Editor/EditorCommand.h"
 
+#include "Editor/EditorAssetRegistry.h"
 #include "Editor/EditorContext.h"
+#include "Editor/EditorProfiler.h"
+#include "Assets/AssetManager.h"
+#include "Assets/AssetDatabase.h"
 #include "Assets/AssetMeta.h"
 #include "Scene/Actor.h"
 #include "Scene/ActorSubtreeSerializer.h"
@@ -12,10 +16,255 @@
 #include "Core/Logger.h"
 
 #include <nlohmann/json.hpp>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 
 namespace {
+
+void RefreshAssetRegistry(EditorContext& context)
+{
+    if (EditorAssetRegistry* registry = context.GetAssetRegistry()) registry->Refresh();
+}
+
+void RefreshModifiedAsset(EditorContext& context, const std::string& path)
+{
+    if (!path.empty()) AssetManager::Get().Reload(path);
+    RefreshAssetRegistry(context);
+}
+
+void RetargetAssetSelection(EditorContext& context, const std::string& fromPath,
+                            const std::string& toPath)
+{
+    if (!context.GetSelection().HasAsset()) return;
+    const std::filesystem::path selected =
+        std::filesystem::path(context.GetSelection().GetAssetPath()).lexically_normal();
+    const std::filesystem::path from = std::filesystem::path(fromPath).lexically_normal();
+    if (selected == from) context.GetSelection().SelectAssetPath(toPath);
+}
+
+std::filesystem::path CommandProjectRoot(const EditorContext& context)
+{
+    if (!context.GetProjectRoot().empty()) return context.GetProjectRoot();
+    if (!context.GetContentRoot().empty()) return context.GetContentRoot().parent_path();
+    if (const EditorAssetRegistry* registry = context.GetAssetRegistry()) {
+        const std::filesystem::path& root = registry->GetRoot();
+        if (!root.empty()) return root.parent_path();
+    }
+    return {};
+}
+
+std::filesystem::path CommandAbsolutePath(const std::filesystem::path& path,
+                                          const std::filesystem::path& projectRoot)
+{
+    std::error_code error;
+    const std::filesystem::path value = path.is_absolute() || projectRoot.empty()
+        ? path
+        : projectRoot / path;
+    std::filesystem::path absolute = std::filesystem::absolute(value, error);
+    if (error) absolute = value;
+    return absolute.lexically_normal();
+}
+
+bool PathUnderOrEqual(const std::filesystem::path& path,
+                      const std::filesystem::path& root,
+                      std::filesystem::path& relative)
+{
+    const std::filesystem::path candidate = path.lexically_normal();
+    const std::filesystem::path base = root.lexically_normal();
+    if (candidate == base) {
+        relative.clear();
+        return true;
+    }
+    relative = candidate.lexically_relative(base);
+    if (relative.empty()) return false;
+    const auto first = *relative.begin();
+    return first != ".." && first != ".";
+}
+
+std::string DatabasePathStringFor(const std::filesystem::path& replacement,
+                                  bool wasRelative,
+                                  const std::filesystem::path& projectRoot)
+{
+    std::error_code error;
+    if (wasRelative && !projectRoot.empty()) {
+        const std::filesystem::path relative =
+            std::filesystem::relative(replacement, projectRoot, error);
+        if (!error && !relative.empty()) return relative.generic_string();
+    }
+    return replacement.lexically_normal().generic_string();
+}
+
+bool RewriteDatabasePath(std::string& value,
+                         const std::filesystem::path& oldPath,
+                         const std::filesystem::path& newPath,
+                         const std::filesystem::path& projectRoot)
+{
+    if (value.empty()) return false;
+    const std::filesystem::path original(value);
+    const bool wasRelative = !original.is_absolute();
+    const std::filesystem::path absolute =
+        CommandAbsolutePath(original, projectRoot);
+    const std::filesystem::path oldAbsolute =
+        CommandAbsolutePath(oldPath, projectRoot);
+    const std::filesystem::path newAbsolute =
+        CommandAbsolutePath(newPath, projectRoot);
+
+    std::filesystem::path relative;
+    if (!PathUnderOrEqual(absolute, oldAbsolute, relative)) return false;
+
+    const std::filesystem::path replacement = relative.empty()
+        ? newAbsolute
+        : newAbsolute / relative;
+    value = DatabasePathStringFor(replacement, wasRelative, projectRoot);
+    return true;
+}
+
+bool RetargetAssetDatabasePaths(EditorContext& context,
+                                const std::string& oldPath,
+                                const std::string& newPath)
+{
+    const std::filesystem::path projectRoot = CommandProjectRoot(context);
+    if (projectRoot.empty()) return true;
+    const std::filesystem::path databasePath =
+        projectRoot / ".myengine" / "AssetDatabase.json";
+    if (!std::filesystem::exists(databasePath)) return true;
+
+    std::string error;
+    AssetDatabase database;
+    if (!database.Open(databasePath, &error)) {
+        Logger::Warn("[EditorAsset] Failed to open asset database for path retarget: ",
+                     error);
+        return false;
+    }
+
+    bool changed = false;
+    for (AssetRecord record : database.GetAll()) {
+        bool recordChanged = false;
+        recordChanged = RewriteDatabasePath(record.sourcePath, oldPath, newPath,
+                                            projectRoot) || recordChanged;
+        recordChanged = RewriteDatabasePath(record.artifactPath, oldPath, newPath,
+                                            projectRoot) || recordChanged;
+        if (!recordChanged) continue;
+        if (!database.Upsert(std::move(record), &error)) {
+            Logger::Warn("[EditorAsset] Failed to update asset database path: ",
+                         error);
+            return false;
+        }
+        changed = true;
+    }
+
+    if (!changed) return true;
+    if (!database.Save(&error)) {
+        Logger::Warn("[EditorAsset] Failed to save asset database path retarget: ",
+                     error);
+        return false;
+    }
+    return true;
+}
+
+bool AssetDatabaseRecordMatchesPath(const AssetRecord& record,
+                                    const std::filesystem::path& targetPath,
+                                    const std::filesystem::path& projectRoot)
+{
+    auto matches = [&](const std::string& value) {
+        if (value.empty()) return false;
+        const std::filesystem::path absolute =
+            CommandAbsolutePath(std::filesystem::path(value), projectRoot);
+        std::filesystem::path relative;
+        return PathUnderOrEqual(absolute,
+                                CommandAbsolutePath(targetPath, projectRoot),
+                                relative);
+    };
+    return matches(record.sourcePath) || matches(record.artifactPath);
+}
+
+std::vector<AssetRecord> CaptureAssetDatabaseRecordsForPath(
+    EditorContext& context, const std::string& assetPath)
+{
+    const std::filesystem::path projectRoot = CommandProjectRoot(context);
+    if (projectRoot.empty()) return {};
+    const std::filesystem::path databasePath =
+        projectRoot / ".myengine" / "AssetDatabase.json";
+    if (!std::filesystem::exists(databasePath)) return {};
+
+    std::string error;
+    AssetDatabase database;
+    if (!database.Open(databasePath, &error)) {
+        Logger::Warn("[EditorAsset] Failed to open asset database for delete snapshot: ",
+                     error);
+        return {};
+    }
+
+    std::vector<AssetRecord> records;
+    for (const AssetRecord& record : database.GetAll()) {
+        if (AssetDatabaseRecordMatchesPath(record, assetPath, projectRoot)) {
+            records.push_back(record);
+        }
+    }
+    return records;
+}
+
+bool RemoveAssetDatabaseRecords(EditorContext& context,
+                                const std::vector<AssetRecord>& records)
+{
+    if (records.empty()) return true;
+    const std::filesystem::path projectRoot = CommandProjectRoot(context);
+    if (projectRoot.empty()) return true;
+    const std::filesystem::path databasePath =
+        projectRoot / ".myengine" / "AssetDatabase.json";
+    if (!std::filesystem::exists(databasePath)) return true;
+
+    std::string error;
+    AssetDatabase database;
+    if (!database.Open(databasePath, &error)) {
+        Logger::Warn("[EditorAsset] Failed to open asset database for delete: ",
+                     error);
+        return false;
+    }
+    bool changed = false;
+    for (const AssetRecord& record : records) {
+        changed = database.Remove(record.uuid) || changed;
+    }
+    if (!changed) return true;
+    if (!database.Save(&error)) {
+        Logger::Warn("[EditorAsset] Failed to save asset database after delete: ",
+                     error);
+        return false;
+    }
+    return true;
+}
+
+bool RestoreAssetDatabaseRecords(EditorContext& context,
+                                 const std::vector<AssetRecord>& records)
+{
+    if (records.empty()) return true;
+    const std::filesystem::path projectRoot = CommandProjectRoot(context);
+    if (projectRoot.empty()) return true;
+    const std::filesystem::path databasePath =
+        projectRoot / ".myengine" / "AssetDatabase.json";
+
+    std::string error;
+    AssetDatabase database;
+    if (!database.Open(databasePath, &error)) {
+        Logger::Warn("[EditorAsset] Failed to open asset database for undo delete: ",
+                     error);
+        return false;
+    }
+    for (AssetRecord record : records) {
+        if (!database.Upsert(std::move(record), &error)) {
+            Logger::Warn("[EditorAsset] Failed to restore asset database record: ",
+                         error);
+            return false;
+        }
+    }
+    if (!database.Save(&error)) {
+        Logger::Warn("[EditorAsset] Failed to save asset database after undo delete: ",
+                     error);
+        return false;
+    }
+    return true;
+}
 
 class CompositeEditorCommand final : public IEditorCommand {
 public:
@@ -60,8 +309,37 @@ private:
     std::vector<std::unique_ptr<IEditorCommand>> m_Commands;
 };
 
+bool ShouldMarkSceneDirty(const IEditorCommand& command)
+{
+    const auto* resourceCommand = dynamic_cast<const IResourceCommand*>(&command);
+    return !resourceCommand || !resourceCommand->IsResourceCommand();
+}
+
+using CommandClock = std::chrono::steady_clock;
+
+double ElapsedCommandMs(CommandClock::time_point start)
+{
+    return std::chrono::duration<double, std::milli>(CommandClock::now() - start).count();
+}
+
+void RecordCommandEvent(EditorContext& context, const char* operation,
+                        const std::string& commandName, double durationMs,
+                        bool success, bool markSceneDirty)
+{
+    if (EditorProfiler* profiler = context.GetProfiler()) {
+        std::string details = "command=" + commandName;
+        details += success ? ";success=true" : ";success=false";
+        details += markSceneDirty ? ";dirty=scene" : ";dirty=resource";
+        profiler->RecordEvent("EditorCommand", operation, durationMs, std::move(details));
+    }
+
+    if (!success) {
+        Logger::Warn("[EditorCommand] ", operation, " failed: ", commandName);
+    }
+}
+
 // Helper: serialize a single actor''s subtree as a JSON array of descriptors.
-// Each descriptor: {id, name, active, parentID_relative, transform, components[]}
+// Each descriptor: {id, name, active, editorFlags, parentID_relative, transform, components[]}
 // The root''s parentID_relative will be 0 (caller stores real parent separately).
 nlohmann::json SerializeSubtreeActors(const Actor& root) {
     nlohmann::json arr = nlohmann::json::array();
@@ -70,6 +348,7 @@ nlohmann::json SerializeSubtreeActors(const Actor& root) {
         a["id"] = actor.GetID();
         a["name"] = actor.GetName();
         a["active"] = actor.IsActiveSelf();
+        a["editorFlags"] = actor.GetEditorFlags();
         a["parentID"] = actor.GetParent() ? actor.GetParent()->GetID() : uint64_t(0);
 
         nlohmann::json t;
@@ -133,24 +412,58 @@ uint64_t FindNextID(const Scene& scene) {
 
 bool EditorCommandStack::ExecuteCommand(std::unique_ptr<IEditorCommand> command, EditorContext& context)
 {
-    if (!command || !command->Execute(context)) return false;
+    if (!command) return false;
+    const bool markSceneDirty = ShouldMarkSceneDirty(*command);
+    const std::string commandName = command->GetName() ? command->GetName() : "Command";
+    const auto start = CommandClock::now();
+    if (!command->Execute(context)) {
+        RecordCommandEvent(context, "Execute", commandName, ElapsedCommandMs(start),
+                           false, markSceneDirty);
+        return false;
+    }
+    RecordCommandEvent(context, "Execute", commandName, ElapsedCommandMs(start),
+                       true, markSceneDirty);
     if (m_InTransaction) m_TransactionCommands.push_back(std::move(command));
     else m_Undo.push_back(std::move(command));
     m_Redo.clear();
-    context.MarkSceneDirty();
+    if (markSceneDirty) context.MarkSceneDirty();
     return true;
 }
 bool EditorCommandStack::Undo(EditorContext& context) {
     if (m_InTransaction || m_Undo.empty()) return false;
     auto command = std::move(m_Undo.back()); m_Undo.pop_back();
-    if (!command->Undo(context)) { m_Undo.push_back(std::move(command)); return false; }
-    m_Redo.push_back(std::move(command)); context.MarkSceneDirty(); return true;
+    const bool markSceneDirty = ShouldMarkSceneDirty(*command);
+    const std::string commandName = command->GetName() ? command->GetName() : "Command";
+    const auto start = CommandClock::now();
+    if (!command->Undo(context)) {
+        RecordCommandEvent(context, "Undo", commandName, ElapsedCommandMs(start),
+                           false, markSceneDirty);
+        m_Undo.push_back(std::move(command));
+        return false;
+    }
+    RecordCommandEvent(context, "Undo", commandName, ElapsedCommandMs(start),
+                       true, markSceneDirty);
+    m_Redo.push_back(std::move(command));
+    if (markSceneDirty) context.MarkSceneDirty();
+    return true;
 }
 bool EditorCommandStack::Redo(EditorContext& context) {
     if (m_InTransaction || m_Redo.empty()) return false;
     auto command = std::move(m_Redo.back()); m_Redo.pop_back();
-    if (!command->Execute(context)) { m_Redo.push_back(std::move(command)); return false; }
-    m_Undo.push_back(std::move(command)); context.MarkSceneDirty(); return true;
+    const bool markSceneDirty = ShouldMarkSceneDirty(*command);
+    const std::string commandName = command->GetName() ? command->GetName() : "Command";
+    const auto start = CommandClock::now();
+    if (!command->Execute(context)) {
+        RecordCommandEvent(context, "Redo", commandName, ElapsedCommandMs(start),
+                           false, markSceneDirty);
+        m_Redo.push_back(std::move(command));
+        return false;
+    }
+    RecordCommandEvent(context, "Redo", commandName, ElapsedCommandMs(start),
+                       true, markSceneDirty);
+    m_Undo.push_back(std::move(command));
+    if (markSceneDirty) context.MarkSceneDirty();
+    return true;
 }
 void EditorCommandStack::Clear() {
     m_Undo.clear();
@@ -302,6 +615,7 @@ bool DestroyActorCommand::ReconstructSubtree(Scene& scene) {
             desc.name = name;
             desc.persistentID = id;
             desc.activeSelf = active;
+            desc.editorFlags = a.value("editorFlags", uint32_t{0});
             if (a.contains("transform")) {
                 const auto& t = a["transform"];
                 desc.transform.position = Vec3FromJsonArray(t["position"]);
@@ -550,24 +864,63 @@ ModifyAssetCommand::ModifyAssetCommand(std::string assetPath,
       m_AfterContent(std::move(afterContent)) {}
 
 bool ModifyAssetCommand::Execute(EditorContext& context) {
-    (void)context;
     std::ofstream output(m_AssetPath, std::ios::binary | std::ios::trunc);
     output.write(m_AfterContent.data(), static_cast<std::streamsize>(m_AfterContent.size()));
-    return output.good();
+    output.close();
+    if (!output.good()) return false;
+    RefreshModifiedAsset(context, m_AssetPath);
+    return true;
 }
 
 bool ModifyAssetCommand::Undo(EditorContext& context) {
-    (void)context;
     std::ofstream output(m_AssetPath, std::ios::binary | std::ios::trunc);
     output.write(m_BeforeContent.data(), static_cast<std::streamsize>(m_BeforeContent.size()));
-    return output.good();
+    output.close();
+    if (!output.good()) return false;
+    RefreshModifiedAsset(context, m_AssetPath);
+    return true;
+}
+
+ModifyAssetsCommand::ModifyAssetsCommand(std::vector<Entry> entries)
+    : m_Entries(std::move(entries))
+{
+    if (!m_Entries.empty()) m_ResourcePath = m_Entries.front().assetPath;
+}
+
+bool ModifyAssetsCommand::Execute(EditorContext& context) {
+    return Apply(context, false);
+}
+
+bool ModifyAssetsCommand::Undo(EditorContext& context) {
+    return Apply(context, true);
+}
+
+bool ModifyAssetsCommand::Apply(EditorContext& context, bool undo) {
+    std::vector<Entry> applied;
+    applied.reserve(m_Entries.size());
+    for (const Entry& entry : m_Entries) {
+        const std::string& content = undo ? entry.beforeContent : entry.afterContent;
+        std::ofstream output(entry.assetPath, std::ios::binary | std::ios::trunc);
+        output.write(content.data(), static_cast<std::streamsize>(content.size()));
+        output.close();
+        if (!output.good()) {
+            for (auto it = applied.rbegin(); it != applied.rend(); ++it) {
+                const std::string& rollback = undo ? it->afterContent : it->beforeContent;
+                std::ofstream restore(it->assetPath, std::ios::binary | std::ios::trunc);
+                restore.write(rollback.data(), static_cast<std::streamsize>(rollback.size()));
+            }
+            return false;
+        }
+        applied.push_back(entry);
+    }
+    RefreshAssetRegistry(context);
+    return true;
 }
 
 CreateAssetCommand::CreateAssetCommand(std::string assetPath, std::string content)
     : m_AssetPath(std::move(assetPath)), m_Content(std::move(content)) {}
 
 bool CreateAssetCommand::Execute(EditorContext& context) {
-    (void)context;
     std::error_code error;
     std::filesystem::create_directories(
         std::filesystem::path(m_AssetPath).parent_path(), error);
@@ -581,16 +934,17 @@ bool CreateAssetCommand::Execute(EditorContext& context) {
         m_Created = AssetMeta::Save(meta);
         if (!m_Created) std::filesystem::remove(m_AssetPath, error);
     }
+    if (m_Created) context.GetSelection().SelectAssetPath(m_AssetPath);
     return m_Created;
 }
 
 bool CreateAssetCommand::Undo(EditorContext& context) {
-    (void)context;
     if (!m_Created) return false;
     std::error_code error;
     const bool removed = std::filesystem::remove(m_AssetPath, error);
     if (error || !removed) return false;
     std::filesystem::remove(AssetMeta::MetaPathFor(m_AssetPath), error);
+    RetargetAssetSelection(context, m_AssetPath, "");
     m_Created = false;
     return true;
 }
@@ -599,7 +953,6 @@ DeleteAssetCommand::DeleteAssetCommand(std::string assetPath, std::string conten
     : m_AssetPath(std::move(assetPath)), m_Content(std::move(content)) {}
 
 bool DeleteAssetCommand::Execute(EditorContext& context) {
-    (void)context;
     std::error_code error;
     const std::string metaPath = AssetMeta::MetaPathFor(m_AssetPath);
     m_HadMeta = std::filesystem::is_regular_file(metaPath, error);
@@ -608,17 +961,27 @@ bool DeleteAssetCommand::Execute(EditorContext& context) {
         m_MetaContent.assign(std::istreambuf_iterator<char>(input),
                              std::istreambuf_iterator<char>());
     }
+    m_RemovedDatabaseRecords = CaptureAssetDatabaseRecordsForPath(context, m_AssetPath);
+    if (!RemoveAssetDatabaseRecords(context, m_RemovedDatabaseRecords)) return false;
     const bool removed = std::filesystem::remove(m_AssetPath, error);
     m_Deleted = removed && !error;
+    if (!m_Deleted) {
+        RestoreAssetDatabaseRecords(context, m_RemovedDatabaseRecords);
+        return false;
+    }
     if (m_Deleted && m_HadMeta) {
         std::filesystem::remove(metaPath, error);
-        if (error) return false;
+        if (error) {
+            RestoreAssetDatabaseRecords(context, m_RemovedDatabaseRecords);
+            return false;
+        }
     }
+    RetargetAssetSelection(context, m_AssetPath, "");
+    RefreshAssetRegistry(context);
     return m_Deleted;
 }
 
 bool DeleteAssetCommand::Undo(EditorContext& context) {
-    (void)context;
     if (!m_Deleted) return false;
     std::error_code error;
     std::filesystem::create_directories(
@@ -635,6 +998,9 @@ bool DeleteAssetCommand::Undo(EditorContext& context) {
                          static_cast<std::streamsize>(m_MetaContent.size()));
         if (!metaOutput.good()) return false;
     }
+    if (!RestoreAssetDatabaseRecords(context, m_RemovedDatabaseRecords)) return false;
+    context.GetSelection().SelectAssetPath(m_AssetPath);
+    RefreshAssetRegistry(context);
     m_Deleted = false;
     return true;
 }
@@ -643,7 +1009,6 @@ RenameAssetCommand::RenameAssetCommand(std::string oldPath, std::string newPath)
     : m_OldPath(std::move(oldPath)), m_NewPath(std::move(newPath)) {}
 
 bool RenameAssetCommand::Execute(EditorContext& context) {
-    (void)context;
     std::error_code error;
     std::filesystem::rename(m_OldPath, m_NewPath, error);
     if (!error) {
@@ -651,12 +1016,23 @@ bool RenameAssetCommand::Execute(EditorContext& context) {
         if (std::filesystem::exists(oldMeta))
             std::filesystem::rename(oldMeta, AssetMeta::MetaPathFor(m_NewPath), error);
     }
-    m_Renamed = !error;
-    return m_Renamed;
+    if (error) return false;
+    if (!RetargetAssetDatabasePaths(context, m_OldPath, m_NewPath)) {
+        std::filesystem::rename(m_NewPath, m_OldPath, error);
+        if (!error) {
+            const std::string newMeta = AssetMeta::MetaPathFor(m_NewPath);
+            if (std::filesystem::exists(newMeta))
+                std::filesystem::rename(newMeta, AssetMeta::MetaPathFor(m_OldPath), error);
+        }
+        return false;
+    }
+    m_Renamed = true;
+    RetargetAssetSelection(context, m_OldPath, m_NewPath);
+    RefreshAssetRegistry(context);
+    return true;
 }
 
 bool RenameAssetCommand::Undo(EditorContext& context) {
-    (void)context;
     if (!m_Renamed) return false;
     std::error_code error;
     std::filesystem::rename(m_NewPath, m_OldPath, error);
@@ -666,6 +1042,17 @@ bool RenameAssetCommand::Undo(EditorContext& context) {
             std::filesystem::rename(newMeta, AssetMeta::MetaPathFor(m_OldPath), error);
     }
     if (error) return false;
+    if (!RetargetAssetDatabasePaths(context, m_NewPath, m_OldPath)) {
+        std::filesystem::rename(m_OldPath, m_NewPath, error);
+        if (!error) {
+            const std::string oldMeta = AssetMeta::MetaPathFor(m_OldPath);
+            if (std::filesystem::exists(oldMeta))
+                std::filesystem::rename(oldMeta, AssetMeta::MetaPathFor(m_NewPath), error);
+        }
+        return false;
+    }
     m_Renamed = false;
+    RetargetAssetSelection(context, m_NewPath, m_OldPath);
+    RefreshAssetRegistry(context);
     return true;
 }

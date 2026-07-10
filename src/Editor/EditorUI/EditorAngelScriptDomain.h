@@ -26,6 +26,7 @@ public:
               std::string* error = nullptr);
     void SetConfig(EditorScriptConfig config) { m_Config = std::move(config); }
     const EditorScriptConfig& GetConfig() const { return m_Config; }
+    bool Reload(std::string* error = nullptr);
     bool ReloadIfChanged(std::string* error = nullptr);
 
     bool IsLoaded() const { return m_Loaded; }

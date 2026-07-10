@@ -35,6 +35,14 @@ void GameViewport::ResolveFrameCamera(const Scene& scene)
 
 const CameraComponent* GameViewport::FindMainCamera(const Scene& scene)
 {
+    if (const uint64_t hintActorID = scene.GetMainCameraHintActorID()) {
+        if (const Actor* hintedActor = scene.FindByID(hintActorID);
+            hintedActor && hintedActor->IsActive()) {
+            const auto* camera = hintedActor->GetComponent<CameraComponent>();
+            if (camera && camera->IsEnabled()) return camera;
+        }
+    }
+
     const CameraComponent* result = nullptr;
     scene.ForEach([&](Actor& actor) {
         if (result || !actor.IsActive()) return;

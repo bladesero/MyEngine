@@ -320,8 +320,16 @@ bool EditorAngelScriptDomain::Load(const std::filesystem::path& engineScriptRoot
     m_Snapshot = candidateSnapshot;
     m_LastError.clear();
     m_Loaded = true;
+    for (const std::string& diagnostic : m_Registry.GetDiagnostics()) {
+        Logger::Warn("[EditorScript] ", diagnostic);
+    }
     if (error) error->clear();
     return true;
+}
+
+bool EditorAngelScriptDomain::Reload(std::string* error)
+{
+    return Load(m_EngineScriptRoot, m_ProjectScriptRoot, error);
 }
 
 bool EditorAngelScriptDomain::ReloadIfChanged(std::string* error)

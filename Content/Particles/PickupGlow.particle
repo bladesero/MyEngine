@@ -1,0 +1,1 @@
+{"version":1,"maxParticles":64,"rate":6,"burst":8,"lifetime":1.2,"startSpeed":0.6,"startSize":0.12,"endSize":0.02,"startColor":[1,0.85,0.2],"endColor":[1,0.3,0.05],"startAlpha":1,"endAlpha":0,"loop":true,"playOnStart":true}

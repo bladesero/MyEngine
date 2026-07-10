@@ -27,6 +27,7 @@
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 class EditorPanel;
@@ -69,7 +70,6 @@ private:
     void DrawScriptTopLevelMenus();
     float DrawStatusBar();
     std::string GetSelectedStatusText() const;
-    std::string GetBackendStatusText() const;
     void OpenProjectSettings();
     void ShowProjectResult(std::string message, bool error);
     void SaveEditorLayout();
@@ -78,6 +78,10 @@ private:
     void LoadProjectInputConfig();
     void CreateDefaultInputConfig();
     void DispatchEditorShortcuts();
+    bool DispatchPanelAction(std::string_view actionID);
+    bool CanFocusedPanelHandleAction(std::string_view actionID) const;
+    bool CanVisiblePanelHandleAction(std::string_view actionID) const;
+    bool IsPanelFocused(std::string_view panelID) const;
     void RegisterServices();
     void RegisterPanels();
     void ProcessDialogResults();
@@ -85,6 +89,7 @@ private:
     void OpenSceneDialog();
     void SaveScene();
     void ImportAssetDialog();
+    void ValidateAssets();
     void SetStartupScene();
     void PublishProject();
     bool PublishProjectInternal(PublishReport* report = nullptr,

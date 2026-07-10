@@ -2,6 +2,7 @@
 
 #include "Scene/Actor.h"
 #include "Physics/PhysicsWorld.h"
+#include "Navigation/NavigationWorld.h"
 
 #include <nlohmann/json.hpp>
 #include <functional>
@@ -21,6 +22,9 @@ struct ActorCreateDesc {
     ActorHandle parent;
     Transform transform;
     bool activeSelf = true;
+    std::string tag;
+    uint32_t layer = 0;
+    uint32_t editorFlags = 0;
     uint64_t persistentID = 0;
     std::vector<ComponentCreateDesc> components;
     std::string prefabAssetPath;
@@ -40,12 +44,21 @@ public:
 
     const std::string& GetName() const { return m_Name; }
     void SetName(const std::string& name) { m_Name = name; }
+    uint64_t GetMainCameraHintActorID() const { return m_MainCameraHintActorID; }
+    void SetMainCameraHintActorID(uint64_t actorID) { m_MainCameraHintActorID = actorID; }
+    float GetAmbientIntensity() const { return m_AmbientIntensity; }
+    void SetAmbientIntensity(float intensity) {
+        m_AmbientIntensity = intensity < 0.0f ? 0.0f : intensity;
+    }
 
     ActorHandle QueueCreateActor(const ActorCreateDesc& desc = {});
     void QueueDestroyActor(ActorHandle actor);
     void QueueSetParent(ActorHandle child, ActorHandle parent);
     void QueueMoveActor(ActorHandle child, ActorHandle parent, ActorHandle beforeSibling);
     void QueueSetActive(ActorHandle actor, bool active);
+    void QueueSetTag(ActorHandle actor, const std::string& tag);
+    void QueueSetLayer(ActorHandle actor, uint32_t layer);
+    void QueueSetEditorFlags(ActorHandle actor, uint32_t flags);
     ComponentHandle QueueAddComponent(ActorHandle actor, const ComponentTypeID& type,
                                       const nlohmann::json& initialData = nlohmann::json::object());
     void QueueRemoveComponent(const ComponentHandle& component);
@@ -81,21 +94,33 @@ public:
     SceneState GetState() const { return m_State; }
     bool IsPlaying() const { return m_State == SceneState::Playing; }
     bool IsTraversing() const { return m_Traversing; }
+    void SetTimeScale(float value) { m_TimeScale = value < 0.0f ? 0.0f : value; }
+    float GetTimeScale() const { return m_TimeScale; }
 
     PhysicsWorld& GetPhysicsWorld() { return m_PhysicsWorld; }
     const PhysicsWorld& GetPhysicsWorld() const { return m_PhysicsWorld; }
+    NavigationWorld& GetNavigationWorld() { return m_NavigationWorld; }
+    const NavigationWorld& GetNavigationWorld() const { return m_NavigationWorld; }
+    void SetNavMeshAssetPath(std::string path){m_NavMeshAssetPath=std::move(path);}
+    const std::string& GetNavMeshAssetPath()const{return m_NavMeshAssetPath;}
+    void SetPreloadAssets(std::vector<std::string> paths){m_PreloadAssets=std::move(paths);}
+    const std::vector<std::string>& GetPreloadAssets()const{return m_PreloadAssets;}
+    void SetSceneManager(class SceneManager* manager){m_SceneManager=manager;}
+    class SceneManager* GetSceneManager()const{return m_SceneManager;}
 
 private:
     struct Slot { Actor* actor = nullptr; uint32_t generation = 1; bool reserved = false; };
     struct PendingCreate { ActorHandle handle; ActorCreateDesc desc; bool cancelled = false; };
-    enum class CommandKind { Destroy, SetParent, MoveActor, SetActive, AddComponent, RemoveComponent, SetComponentEnabled };
+    enum class CommandKind { Destroy, SetParent, MoveActor, SetActive, SetTag, SetLayer, SetEditorFlags, AddComponent, RemoveComponent, SetComponentEnabled };
     struct Command {
         CommandKind kind;
         ActorHandle actor;
         ActorHandle other;
         ActorHandle beforeSibling;
         ComponentTypeID componentType;
+        std::string text;
         nlohmann::json data;
+        uint32_t value = 0;
         bool flag = false;
     };
 
@@ -108,6 +133,8 @@ private:
     void FinalizeCreated(const std::vector<Actor*>& actors);
 
     std::string m_Name;
+    uint64_t m_MainCameraHintActorID = 0;
+    float m_AmbientIntensity = 1.0f;
     uint64_t m_NextID = 1;
     std::vector<std::unique_ptr<Actor>> m_Actors;
     std::unordered_map<uint64_t, Actor*> m_IDMap;
@@ -116,7 +143,12 @@ private:
     std::vector<PendingCreate> m_PendingCreates;
     std::vector<Command> m_Commands;
     PhysicsWorld m_PhysicsWorld;
+    NavigationWorld m_NavigationWorld;
+    std::string m_NavMeshAssetPath;
+    std::vector<std::string> m_PreloadAssets;
     SceneState m_State = SceneState::Edit;
     bool m_Traversing = false;
     bool m_Flushing = false;
+    float m_TimeScale = 1.0f;
+    class SceneManager* m_SceneManager = nullptr;
 };

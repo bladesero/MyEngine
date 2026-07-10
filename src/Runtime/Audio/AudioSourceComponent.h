@@ -24,9 +24,9 @@ public:
     float GetPitch() const { return m_Pitch; }
     void SetPitch(float value);
     float GetMinDistance() const { return m_MinDistance; }
-    void SetMinDistance(float value) { m_MinDistance = value; }
+    void SetMinDistance(float value);
     float GetMaxDistance() const { return m_MaxDistance; }
-    void SetMaxDistance(float value) { m_MaxDistance = value; }
+    void SetMaxDistance(float value);
 
     bool IsPlaying() const;
     bool Play();
@@ -37,6 +37,7 @@ public:
     void OnDisable() override;
     void OnEndPlay() override;
     void OnDetach() override;
+    void OnAnimationEvent(const AnimationEventData& event) override;
 
     void Serialize(nlohmann::json& data) const override;
     void Deserialize(const nlohmann::json& data) override;

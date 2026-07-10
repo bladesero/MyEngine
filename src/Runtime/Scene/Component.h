@@ -6,6 +6,7 @@
 
 // Forward declaration
 class Actor;
+struct AnimationEventData { std::string name; std::string payload; };
 
 // ==========================================================================
 // Component  –  所有组件的基类
@@ -27,6 +28,7 @@ public:
     virtual void OnFixedUpdate(float deltaSeconds) { (void)deltaSeconds; }
     virtual void OnLateUpdate(float deltaSeconds) { (void)deltaSeconds; }
     virtual void OnCollisionEvent(const CollisionEvent& event) { (void)event; }
+    virtual void OnAnimationEvent(const AnimationEventData& event) { (void)event; }
     virtual void OnDisable() {}
     virtual void OnEndPlay() {}
     virtual void OnDetach() {}

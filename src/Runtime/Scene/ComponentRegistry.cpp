@@ -1,8 +1,14 @@
 #include "Scene/ComponentRegistry.h"
 
 #include "Audio/AudioSourceComponent.h"
+#include "Audio/AudioListenerComponent.h"
 #include "Animation/SkinnedMeshRendererComponent.h"
+#include "Animation/AnimatorComponent.h"
 #include "Camera/CameraComponent.h"
+#include "Camera/ThirdPersonCameraComponent.h"
+#include "Gameplay/GameplayComponents.h"
+#include "Gameplay/EnemyAIComponent.h"
+#include "Navigation/NavAgentComponent.h"
 #include "Physics/BoxColliderComponent.h"
 #include "Physics/CapsuleColliderComponent.h"
 #include "Physics/CharacterControllerComponent.h"
@@ -10,6 +16,7 @@
 #include "Physics/SphereColliderComponent.h"
 #include "Renderer/LightComponent.h"
 #include "Renderer/PostProcessComponent.h"
+#include "Renderer/ParticleSystemComponent.h"
 #include "Scene/Actor.h"
 #include "Scene/MeshRendererComponent.h"
 #include "Scripting/ScriptComponent.h"
@@ -29,6 +36,15 @@ ComponentRegistry::ComponentRegistry()
     Register("MeshRenderer", [] { return std::make_unique<MeshRendererComponent>(); });
     Register("Camera", [] { return std::make_unique<CameraComponent>(); });
     Register("SkinnedMeshRenderer", [] { return std::make_unique<SkinnedMeshRendererComponent>(); });
+    Register("Animator", [] { return std::make_unique<AnimatorComponent>(); });
+    Register("ThirdPersonCamera", [] { return std::make_unique<ThirdPersonCameraComponent>(); });
+    Register("Health", [] { return std::make_unique<HealthComponent>(); });
+    Register("Hurtbox", [] { return std::make_unique<HurtboxComponent>(); });
+    Register("Hitbox", [] { return std::make_unique<HitboxComponent>(); });
+    Register("Interaction", [] { return std::make_unique<InteractionComponent>(); });
+    Register("GameplayFeedback", [] { return std::make_unique<GameplayFeedbackComponent>(); });
+    Register("NavAgent", [] { return std::make_unique<NavAgentComponent>(); });
+    Register("EnemyAI", [] { return std::make_unique<EnemyAIComponent>(); });
     Register("Script", [] { return std::make_unique<ScriptComponent>(); });
     Register("RigidBody", [] { return std::make_unique<RigidBodyComponent>(); });
     Register("BoxCollider", [] { return std::make_unique<BoxColliderComponent>(); });
@@ -38,6 +54,8 @@ ComponentRegistry::ComponentRegistry()
     Register("Light", [] { return std::make_unique<LightComponent>(); });
     Register("PostProcess", [] { return std::make_unique<PostProcessComponent>(); });
     Register("AudioSource", [] { return std::make_unique<AudioSourceComponent>(); });
+    Register("AudioListener", [] { return std::make_unique<AudioListenerComponent>(); });
+    Register("ParticleSystem", [] { return std::make_unique<ParticleSystemComponent>(); });
     Register("UICanvas", [] { return std::make_unique<UICanvasComponent>(); });
     Register("UIRectTransform", [] { return std::make_unique<UIRectTransformComponent>(); });
     Register("UIText", [] { return std::make_unique<UITextComponent>(); });

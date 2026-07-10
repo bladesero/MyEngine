@@ -42,6 +42,18 @@ public:
     ActorHandle        GetHandle() const { return m_Handle; }
     const std::string& GetName() const { return m_Name; }
     void               SetName(const std::string& name) { m_Name = name; }
+    const std::string& GetTag() const { return m_Tag; }
+    void SetTag(std::string tag) { m_Tag = std::move(tag); }
+    bool HasTag(const std::string& tag) const { return !tag.empty() && m_Tag == tag; }
+    uint32_t GetLayer() const { return m_Layer; }
+    void SetLayer(uint32_t layer) { m_Layer = layer; }
+    uint32_t GetEditorFlags() const { return m_EditorFlags; }
+    void SetEditorFlags(uint32_t flags) { m_EditorFlags = flags; }
+    bool IsStatic() const { return (m_EditorFlags & 1u) != 0; }
+    void SetStatic(bool value) {
+        if (value) m_EditorFlags |= 1u;
+        else m_EditorFlags &= ~1u;
+    }
 
     bool IsActive() const { return m_ActiveInHierarchy && m_State != ActorState::PendingDestroy; }
     bool IsActiveSelf() const { return m_ActiveSelf; }
@@ -169,6 +181,9 @@ private:
     uint64_t    m_ID;
     ActorHandle m_Handle;
     std::string m_Name;
+    std::string m_Tag;
+    uint32_t    m_Layer = 0;
+    uint32_t    m_EditorFlags = 0;
     bool        m_ActiveSelf = true;
     bool        m_ActiveInHierarchy = true;
     ActorState  m_State = ActorState::Constructed;

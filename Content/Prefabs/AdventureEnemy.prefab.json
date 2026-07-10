@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "uuid": "5ef6de18-45c8-4e09-a1ba-4c9c34b64065",
+  "rootLocalId": "enemy-root",
+  "nodes": [
+    {
+      "localId": "enemy-root",
+      "parentLocalId": "",
+      "name": "SpawnedEnemy",
+      "active": true,
+      "transform": { "position": [0, 0, 0], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
+      "components": [
+        { "type": "CapsuleCollider", "enabled": true, "data": { "radius": 0.45, "halfHeight": 0.55, "layer": 2, "layerMask": 4294967295 } },
+        { "type": "Health", "enabled": true, "data": { "maxHealth": 40, "health": 40, "resetOnPlay": true } },
+        { "type": "Hurtbox", "enabled": true, "data": { "team": 2, "damageMultiplier": 1 } },
+        { "type": "NavAgent", "enabled": true, "data": { "speed": 2.5, "stoppingDistance": 0.4 } },
+        { "type": "EnemyAI", "enabled": true, "data": { "targetActorId": 1, "detectionRange": 15, "attackRange": 1.4, "attackDamage": 8, "attackCooldown": 1.2, "patrolPoints": [] } }
+      ]
+    }
+  ]
+}

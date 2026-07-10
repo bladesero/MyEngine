@@ -2,12 +2,25 @@
 
 #include "Core/Logger.h"
 #include "Core/Memory/MemoryService.h"
+#include "Physics/ColliderComponent.h"
 #include "Scene/ComponentRegistry.h"
 
 #include <algorithm>
 
 Scene::Scene(std::string name) : m_Name(std::move(name)) {}
 Scene::~Scene() { Clear(); }
+
+namespace {
+void ApplyActorLayer(Actor& actor, uint32_t layer)
+{
+    actor.SetLayer(layer);
+    actor.ForEachComponent([&](Component& component) {
+        if (auto* collider = dynamic_cast<ColliderComponent*>(&component)) {
+            collider->SetLayer(layer);
+        }
+    });
+}
+}
 
 ActorHandle Scene::ReserveHandle()
 {
@@ -61,6 +74,15 @@ void Scene::QueueMoveActor(ActorHandle child, ActorHandle parent, ActorHandle be
 void Scene::QueueSetActive(ActorHandle actor, bool active)
 { Command c{CommandKind::SetActive, actor}; c.flag = active; m_Commands.push_back(std::move(c)); }
 
+void Scene::QueueSetTag(ActorHandle actor, const std::string& tag)
+{ Command c{CommandKind::SetTag, actor}; c.text = tag; m_Commands.push_back(std::move(c)); }
+
+void Scene::QueueSetLayer(ActorHandle actor, uint32_t layer)
+{ Command c{CommandKind::SetLayer, actor}; c.value = layer; m_Commands.push_back(std::move(c)); }
+
+void Scene::QueueSetEditorFlags(ActorHandle actor, uint32_t flags)
+{ Command c{CommandKind::SetEditorFlags, actor}; c.value = flags; m_Commands.push_back(std::move(c)); }
+
 ComponentHandle Scene::QueueAddComponent(ActorHandle actor, const ComponentTypeID& type,
                                          const nlohmann::json& initialData)
 {
@@ -112,6 +134,9 @@ bool Scene::FlushCommands()
     // is a no-op.
     std::unordered_map<uint64_t, size_t> lastParent;
     std::unordered_map<uint64_t, size_t> lastActive;
+    std::unordered_map<uint64_t, size_t> lastTag;
+    std::unordered_map<uint64_t, size_t> lastLayer;
+    std::unordered_map<uint64_t, size_t> lastEditorFlags;
     std::unordered_map<std::string, size_t> pendingAdds;
     std::unordered_map<uint64_t, bool> destroysActor;
     for (const Command& command : commands) if (command.kind == CommandKind::Destroy)
@@ -126,6 +151,15 @@ bool Scene::FlushCommands()
         } else if (command.kind == CommandKind::SetActive) {
             if (lastActive.count(actorKey)) skip[lastActive[actorKey]] = true;
             lastActive[actorKey] = i;
+        } else if (command.kind == CommandKind::SetTag) {
+            if (lastTag.count(actorKey)) skip[lastTag[actorKey]] = true;
+            lastTag[actorKey] = i;
+        } else if (command.kind == CommandKind::SetLayer) {
+            if (lastLayer.count(actorKey)) skip[lastLayer[actorKey]] = true;
+            lastLayer[actorKey] = i;
+        } else if (command.kind == CommandKind::SetEditorFlags) {
+            if (lastEditorFlags.count(actorKey)) skip[lastEditorFlags[actorKey]] = true;
+            lastEditorFlags[actorKey] = i;
         } else if (command.kind == CommandKind::AddComponent) {
             pendingAdds[std::to_string(actorKey) + "|" + command.componentType] = i;
         } else if (command.kind == CommandKind::RemoveComponent) {
@@ -143,6 +177,9 @@ bool Scene::FlushCommands()
         auto actor = std::make_unique<Actor>(pending.desc.name, id, pending.handle);
         Actor* raw = actor.get(); raw->m_Scene = this; raw->m_State = ActorState::Constructed;
         raw->m_ActiveSelf = pending.desc.activeSelf; raw->m_Transform = pending.desc.transform;
+        raw->m_Tag = pending.desc.tag;
+        raw->m_Layer = pending.desc.layer;
+        raw->m_EditorFlags = pending.desc.editorFlags;
         raw->m_PrefabAssetPath = pending.desc.prefabAssetPath;
         raw->m_PrefabAssetUuid = pending.desc.prefabAssetUuid;
         raw->m_PrefabLocalId = pending.desc.prefabLocalId;
@@ -179,6 +216,9 @@ bool Scene::FlushCommands()
         else if (command.kind == CommandKind::MoveActor)
             MoveActorInternal(actor, TryGetActor(command.other), TryGetActor(command.beforeSibling));
         else if (command.kind == CommandKind::SetActive) actor->m_ActiveSelf = command.flag;
+        else if (command.kind == CommandKind::SetTag) actor->m_Tag = command.text;
+        else if (command.kind == CommandKind::SetLayer) ApplyActorLayer(*actor, command.value);
+        else if (command.kind == CommandKind::SetEditorFlags) actor->m_EditorFlags = command.value;
     }
     FinalizeCreated(created);
 
@@ -198,6 +238,15 @@ bool Scene::FlushCommands()
                 actor->m_ActiveSelf = command.flag;
                 actor->RefreshActiveInHierarchy(!actor->m_Parent || actor->m_Parent->IsActiveInHierarchy(), IsPlaying());
             }
+            break;
+        case CommandKind::SetTag:
+            if (actor) actor->m_Tag = command.text;
+            break;
+        case CommandKind::SetLayer:
+            if (actor) ApplyActorLayer(*actor, command.value);
+            break;
+        case CommandKind::SetEditorFlags:
+            if (actor) actor->m_EditorFlags = command.value;
             break;
         case CommandKind::AddComponent: if (actor && !actor->HasComponentType(command.componentType)) {
             auto component = ComponentRegistry::Get().CreateDetached(command.componentType);
@@ -339,6 +388,8 @@ bool Scene::MoveActorInternal(Actor* actor, Actor* parent, Actor* beforeSibling)
 void Scene::Clear()
 {
     m_PhysicsWorld.Clear();
+    m_NavigationWorld.Clear();
+    m_NavMeshAssetPath.clear();m_PreloadAssets.clear();
     m_PendingCreates.clear(); m_Commands.clear();
     if (IsPlaying()) EndPlay();
     m_IDMap.clear(); m_IDHandles.clear();
@@ -383,6 +434,8 @@ void Scene::OnUpdate(float deltaSeconds)
     // Headless/runtime users may drive Scene directly without a SceneLayer.
     if (m_State == SceneState::Edit) BeginPlay();
     if (!IsPlaying()) return;
+    deltaSeconds *= m_TimeScale;
+    m_NavigationWorld.Update(deltaSeconds);
     FlushCommands();
     m_Traversing = true; m_PhysicsWorld.Step(*this, deltaSeconds); m_Traversing = false; FlushCommands();
     m_Traversing = true; for (Actor* actor : OrderedActors()) actor->Update(deltaSeconds); m_Traversing = false; FlushCommands();

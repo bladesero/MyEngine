@@ -31,6 +31,17 @@ void AudioSourceComponent::SetPitch(float value)
     if (m_SoundID) AudioEngine::Get().SetSoundPitch(m_SoundID, m_Pitch);
 }
 
+void AudioSourceComponent::SetMinDistance(float value)
+{
+    m_MinDistance = std::max(0.01f, value);
+    m_MaxDistance = std::max(m_MinDistance, m_MaxDistance);
+}
+
+void AudioSourceComponent::SetMaxDistance(float value)
+{
+    m_MaxDistance = std::max(m_MinDistance, value);
+}
+
 bool AudioSourceComponent::IsPlaying() const
 {
     return m_SoundID != 0 && AudioEngine::Get().IsPlaying(m_SoundID);
@@ -83,6 +94,12 @@ void AudioSourceComponent::OnUpdate(float deltaSeconds)
 
 void AudioSourceComponent::OnDisable() { Stop(); }
 void AudioSourceComponent::OnEndPlay() { Stop(); }
+
+void AudioSourceComponent::OnAnimationEvent(const AnimationEventData& event)
+{
+    if (event.name == "Audio.Play") Play();
+    else if (event.name == "Audio.Stop") Stop();
+}
 void AudioSourceComponent::OnDetach() { Stop(); }
 
 void AudioSourceComponent::Serialize(nlohmann::json& data) const

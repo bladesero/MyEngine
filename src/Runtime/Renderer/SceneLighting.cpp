@@ -10,6 +10,7 @@
 SceneLightData CollectSceneLights(const Scene& scene)
 {
     SceneLightData out;
+    out.ambientIntensity = scene.GetAmbientIntensity();
     bool foundDirectional = false;
     scene.ForEach([&](Actor& actor) {
         if (!actor.IsActive()) return;

@@ -1,6 +1,7 @@
 #include "Scripting/ScriptComponent.h"
 
 #include "Assets/AssetManager.h"
+#include "Scene/Actor.h"
 
 #include <fstream>
 #include <sstream>
@@ -37,6 +38,9 @@ void ScriptComponent::OnAttach()
 void ScriptComponent::OnDetach()
 {
     CaptureRuntimeTables();
+    ClearUIEventSubscriptions();
+    ClearScriptEventSubscriptions();
+    CancelAllTimers();
     m_Runtime.reset();
 }
 
@@ -60,6 +64,9 @@ void ScriptComponent::OnUpdate(float deltaSeconds)
     PollHotReload();
     if (!m_Compiled) return;
     Call("Update", deltaSeconds);
+    if (m_Compiled && m_Runtime && !m_Runtime->TickServices(deltaSeconds, m_LastError)) {
+        m_Compiled = false;
+    }
 }
 
 void ScriptComponent::OnFixedUpdate(float deltaSeconds)
@@ -80,12 +87,21 @@ void ScriptComponent::OnDisable()
 void ScriptComponent::OnEndPlay()
 {
     if (m_Compiled && m_Awake) Call("OnDestroy", 0.0f);
+    ClearUIEventSubscriptions();
+    ClearScriptEventSubscriptions();
+    CancelAllTimers();
 }
 
 void ScriptComponent::OnCollisionEvent(const CollisionEvent& event)
 {
     if (!m_Compiled || !m_Started || !m_Runtime) return;
     if (!m_Runtime->CallCollision(event, m_LastError)) m_Compiled = false;
+}
+
+void ScriptComponent::OnAnimationEvent(const AnimationEventData& event)
+{
+    if (!m_Compiled || !m_Started || !m_Runtime) return;
+    if (!m_Runtime->CallAnimationEvent(event.name, event.payload, m_LastError)) m_Compiled = false;
 }
 
 void ScriptComponent::SetSource(std::string source)
@@ -138,6 +154,95 @@ bool ScriptComponent::SetPropertyValue(const std::string& name, nlohmann::json v
     next[name] = std::move(value);
     SetProperties(std::move(next));
     return m_Compiled;
+}
+
+bool ScriptComponent::SubscribeUIEvent(const std::string& elementId,
+                                       const std::string& eventName,
+                                       const std::string& callbackName)
+{
+    if (!m_Runtime) return false;
+    std::string error;
+    if (m_Runtime->SubscribeUIEvent(elementId, eventName, callbackName, error)) return true;
+    if (!error.empty()) m_LastError = std::move(error);
+    return false;
+}
+
+void ScriptComponent::UnsubscribeUIEvent(const std::string& elementId,
+                                         const std::string& eventName)
+{
+    if (m_Runtime) m_Runtime->UnsubscribeUIEvent(elementId, eventName);
+}
+
+void ScriptComponent::ClearUIEventSubscriptions()
+{
+    if (m_Runtime) m_Runtime->ClearUIEventSubscriptions();
+}
+
+bool ScriptComponent::SubscribeScriptEvent(const std::string& eventName,
+                                           const std::string& callbackName)
+{
+    if (!m_Runtime) return false;
+    std::string error;
+    if (m_Runtime->SubscribeScriptEvent(eventName, callbackName, error)) return true;
+    if (!error.empty()) m_LastError = std::move(error);
+    return false;
+}
+
+void ScriptComponent::ClearScriptEventSubscriptions()
+{
+    if (m_Runtime) m_Runtime->ClearScriptEventSubscriptions();
+}
+
+bool ScriptComponent::EmitScriptEvent(const std::string& eventName,
+                                      const std::string& jsonPayload)
+{
+    if (!m_Runtime) return false;
+    return m_Runtime->EmitScriptEvent(eventName, jsonPayload);
+}
+
+uint64_t ScriptComponent::ScheduleTimer(float seconds, bool repeat,
+                                        const std::string& callbackName)
+{
+    if (!m_Runtime) return 0;
+    std::string error;
+    const uint64_t id = m_Runtime->ScheduleTimer(seconds, repeat, callbackName, error);
+    if (!error.empty()) m_LastError = std::move(error);
+    return id;
+}
+
+void ScriptComponent::CancelTimer(uint64_t timerID)
+{
+    if (m_Runtime) m_Runtime->CancelTimer(timerID);
+}
+
+void ScriptComponent::CancelAllTimers()
+{
+    if (m_Runtime) m_Runtime->CancelAllTimers();
+}
+
+void ScriptComponent::FailRuntime(std::string error)
+{
+    m_LastError = std::move(error);
+    ScriptDiagnostic diagnostic;
+    diagnostic.severity = ScriptDiagnostic::Severity::Error;
+    diagnostic.message = m_LastError;
+    diagnostic.scriptClass = m_ClassName;
+    if (Actor* actor = GetOwner()) {
+        diagnostic.actorHandle = actor->GetHandle().ToUInt64();
+        diagnostic.actorName = actor->GetName();
+    }
+    m_Diagnostics.Add(std::move(diagnostic));
+    m_Compiled = false;
+}
+
+void ScriptComponent::AddDiagnostic(ScriptDiagnostic diagnostic)
+{
+    if (diagnostic.scriptClass.empty()) diagnostic.scriptClass = m_ClassName;
+    if (Actor* actor = GetOwner()) {
+        if (diagnostic.actorHandle == 0) diagnostic.actorHandle = actor->GetHandle().ToUInt64();
+        if (diagnostic.actorName.empty()) diagnostic.actorName = actor->GetName();
+    }
+    m_Diagnostics.Add(std::move(diagnostic));
 }
 
 const nlohmann::json& ScriptComponent::GetInspectorFields() const
@@ -220,24 +325,37 @@ void ScriptComponent::Compile(bool preserveRuntimeState)
     }
     if (preserveRuntimeState) CaptureRuntimeTables();
     m_LastError.clear();
+    m_Diagnostics.Clear();
     const std::string chunkName = m_ScriptPath.empty() ? "InlineScript" : m_ScriptPath;
     m_Awake = false;
     m_Started = false;
     std::unique_ptr<AngelScriptRuntime> runtime;
     nlohmann::json inspector;
     nlohmann::json state;
+    std::vector<std::string> dependencies;
     std::string error;
     if (TryCompileSource(m_Source, chunkName, m_ClassName, m_Inspector, m_State,
-                         runtime, inspector, state, error)) {
+                         runtime, inspector, state, dependencies, error)) {
         m_Runtime = std::move(runtime);
         m_Inspector = std::move(inspector);
         m_State = std::move(state);
         m_Fields = m_Runtime->GetFields();
+        m_IncludeDependencies = std::move(dependencies);
+        bool writeTimeValid=false;const auto dependencyWriteTime=CurrentDependencyWriteTime(writeTimeValid);if(writeTimeValid){m_LastWriteTime=dependencyWriteTime;m_HasWriteTime=true;}
         m_Compiled = true;
     } else {
         m_Runtime.reset();
         m_Fields.clear();
         m_LastError = std::move(error);
+        ScriptDiagnostic diagnostic;
+        diagnostic.severity = ScriptDiagnostic::Severity::Error;
+        diagnostic.message = m_LastError;
+        diagnostic.scriptClass = m_ClassName;
+        if (Actor* actor = GetOwner()) {
+            diagnostic.actorHandle = actor->GetHandle().ToUInt64();
+            diagnostic.actorName = actor->GetName();
+        }
+        m_Diagnostics.Add(std::move(diagnostic));
         m_Compiled = false;
     }
 }
@@ -250,14 +368,21 @@ bool ScriptComponent::TryCompileSource(const std::string& source,
                                        std::unique_ptr<AngelScriptRuntime>& outRuntime,
                                        nlohmann::json& outInspector,
                                        nlohmann::json& outState,
+                                       std::vector<std::string>& outDependencies,
                                        std::string& outError)
 {
+    std::string expandedSource;
+    std::vector<std::string> dependencies;
+    if (!AngelScriptRuntime::PreprocessSource(source, chunkName, expandedSource, &dependencies, outError)) {
+        return false;
+    }
     auto runtime = std::make_unique<AngelScriptRuntime>(*this);
-    if (!runtime->Load(source, chunkName, className, inspector, state, outError)) {
+    if (!runtime->Load(expandedSource, chunkName, className, inspector, state, outError)) {
         return false;
     }
     outInspector = runtime->GetProperties();
     outState = runtime->GetState();
+    outDependencies = std::move(dependencies);
     outRuntime = std::move(runtime);
     return true;
 }
@@ -270,9 +395,9 @@ void ScriptComponent::Call(const char* functionName, float deltaSeconds)
 void ScriptComponent::PollHotReload()
 {
     if (m_ScriptPath.empty()) return;
-    std::error_code error;
-    const auto writeTime = std::filesystem::last_write_time(m_ScriptPath, error);
-    if (error) return;
+    bool valid = false;
+    const auto writeTime = CurrentDependencyWriteTime(valid);
+    if (!valid) return;
     if (!m_HasWriteTime) {
         m_LastWriteTime = writeTime;
         m_HasWriteTime = true;
@@ -288,9 +413,19 @@ void ScriptComponent::PollHotReload()
     nlohmann::json state;
     std::string compileError;
     std::unique_ptr<AngelScriptRuntime> runtime;
+    std::vector<std::string> dependencies;
     if (!TryCompileSource(source, m_ScriptPath, m_ClassName, m_Inspector, m_State,
-                          runtime, inspector, state, compileError)) {
+                          runtime, inspector, state, dependencies, compileError)) {
         m_LastError = std::move(compileError);
+        ScriptDiagnostic diagnostic;
+        diagnostic.severity = ScriptDiagnostic::Severity::Error;
+        diagnostic.message = m_LastError;
+        diagnostic.scriptClass = m_ClassName;
+        if (Actor* actor = GetOwner()) {
+            diagnostic.actorHandle = actor->GetHandle().ToUInt64();
+            diagnostic.actorName = actor->GetName();
+        }
+        m_Diagnostics.Add(std::move(diagnostic));
         return;
     }
 
@@ -298,6 +433,8 @@ void ScriptComponent::PollHotReload()
     m_Runtime = std::move(runtime);
     m_Inspector = std::move(inspector);
     m_State = std::move(state);
+    m_IncludeDependencies = std::move(dependencies);
+    bool writeTimeValid=false;const auto dependencyWriteTime=CurrentDependencyWriteTime(writeTimeValid);if(writeTimeValid){m_LastWriteTime=dependencyWriteTime;m_HasWriteTime=true;}
     m_Fields = m_Runtime->GetFields();
     m_Compiled = true;
     m_Awake = false;
@@ -323,6 +460,23 @@ bool ScriptComponent::LoadFileSource(std::string& outSource)
     m_LastWriteTime = std::filesystem::last_write_time(m_ScriptPath, error);
     m_HasWriteTime = !error;
     return true;
+}
+
+std::filesystem::file_time_type ScriptComponent::CurrentDependencyWriteTime(bool& valid) const
+{
+    valid = false;
+    std::filesystem::file_time_type newest{};
+    auto visit = [&](const std::string& path) {
+        if (path.empty()) return;
+        std::error_code error;
+        const auto writeTime = std::filesystem::last_write_time(path, error);
+        if (error) return;
+        if (!valid || writeTime > newest) newest = writeTime;
+        valid = true;
+    };
+    visit(m_ScriptPath);
+    for (const std::string& dependency : m_IncludeDependencies) visit(dependency);
+    return newest;
 }
 
 void ScriptComponent::CaptureRuntimeTables()

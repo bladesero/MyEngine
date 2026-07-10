@@ -68,6 +68,7 @@ struct VSIn
     float2 uv      : TEXCOORD0;
     float4 joints  : BLENDINDICES;
     float4 weights : BLENDWEIGHT;
+    float4 color   : COLOR0;
 };
 
 struct VSOut
@@ -78,6 +79,7 @@ struct VSOut
     float2 uv       : TEXCOORD0;
     float4 lightPos : TEXCOORD1;
     float3 worldPos : TEXCOORD2;
+    float4 color    : COLOR0;
 };
 
 VSOut VSMain(VSIn v, uint instanceId : SV_InstanceID)
@@ -109,6 +111,7 @@ VSOut VSMain(VSIn v, uint instanceId : SV_InstanceID)
     o.tangentW = mul(float4(localTangent, 0.0f), normalMatrix).xyz;
     o.uv       = v.uv;
     o.worldPos = worldPos.xyz;
+    o.color    = v.color;
     return o;
 }
 
@@ -223,10 +226,10 @@ float SamplePointShadow(float3 worldPos, float nDotL)
 float4 PSMain(VSOut p) : SV_TARGET
 {
     float4 texColor = g_BaseColorMap.Sample(g_Sampler, p.uv);
-    if (g_Emissive.w > 0.5f && texColor.a * g_BaseColor.a < g_Material.w) {
+    if (g_Emissive.w > 0.5f && texColor.a * g_BaseColor.a * p.color.a < g_Material.w) {
         discard;
     }
-    float3 albedo = pow(max(texColor.rgb * g_BaseColor.rgb, 0.0f), 2.2f);
+    float3 albedo = pow(max(texColor.rgb * g_BaseColor.rgb * p.color.rgb, 0.0f), 2.2f);
     float metallic = saturate(g_Material.x);
     float roughness = clamp(g_Material.y, 0.04f, 1.0f);
     float ao = max(g_Material.z, 0.0f);
@@ -369,5 +372,5 @@ float4 PSMain(VSOut p) : SV_TARGET
     }
 
     color += dot(p.tangentW, float3(1.0f, 1.0f, 1.0f)) * 1e-10f;
-    return float4(color, texColor.a * g_BaseColor.a);
+    return float4(color, texColor.a * g_BaseColor.a * p.color.a);
 }

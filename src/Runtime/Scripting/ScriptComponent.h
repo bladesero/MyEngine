@@ -2,6 +2,7 @@
 
 #include "Scene/Component.h"
 #include "Scripting/AngelScriptRuntime.h"
+#include "Scripting/ScriptDiagnostics.h"
 
 #include <filesystem>
 #include <memory>
@@ -24,6 +25,7 @@ public:
     void OnDisable() override;
     void OnEndPlay() override;
     void OnCollisionEvent(const CollisionEvent& event) override;
+    void OnAnimationEvent(const AnimationEventData& event) override;
 
     const char* GetTypeName() const override { return "Script"; }
 
@@ -35,6 +37,7 @@ public:
     const std::string& GetClassName() const { return m_ClassName; }
     const std::string& GetLanguage() const { return m_Language; }
     const std::string& GetLastError() const { return m_LastError; }
+    const ScriptDiagnostics& GetDiagnostics() const { return m_Diagnostics; }
     bool IsCompiled() const { return m_Compiled; }
     bool IsLegacyLua() const { return m_LegacyLua; }
 
@@ -45,6 +48,18 @@ public:
     const std::vector<ScriptFieldInfo>& GetFields() const { return m_Fields; }
     bool SetPropertyValue(const std::string& name, nlohmann::json value);
     const nlohmann::json& GetInstanceState() const;
+    bool SubscribeUIEvent(const std::string& elementId, const std::string& eventName,
+                          const std::string& callbackName);
+    void UnsubscribeUIEvent(const std::string& elementId, const std::string& eventName);
+    void ClearUIEventSubscriptions();
+    bool SubscribeScriptEvent(const std::string& eventName, const std::string& callbackName);
+    void ClearScriptEventSubscriptions();
+    bool EmitScriptEvent(const std::string& eventName, const std::string& jsonPayload);
+    uint64_t ScheduleTimer(float seconds, bool repeat, const std::string& callbackName);
+    void CancelTimer(uint64_t timerID);
+    void CancelAllTimers();
+    void FailRuntime(std::string error);
+    void AddDiagnostic(ScriptDiagnostic diagnostic);
 
     void Serialize(nlohmann::json& data) const override;
     void Deserialize(const nlohmann::json& data) override;
@@ -59,11 +74,13 @@ private:
                           std::unique_ptr<AngelScriptRuntime>& outRuntime,
                           nlohmann::json& outInspector,
                           nlohmann::json& outState,
+                          std::vector<std::string>& outDependencies,
                           std::string& outError);
     void Call(const char* functionName, float deltaSeconds);
     void PollHotReload();
     bool LoadFileSource();
     bool LoadFileSource(std::string& outSource);
+    std::filesystem::file_time_type CurrentDependencyWriteTime(bool& valid) const;
     void CaptureRuntimeTables();
     void MarkLegacyLua();
 
@@ -72,12 +89,14 @@ private:
     std::string m_Source;
     std::string m_ScriptPath;
     std::string m_LastError;
+    ScriptDiagnostics m_Diagnostics;
     nlohmann::json m_Inspector = nlohmann::json::object();
     nlohmann::json m_State = nlohmann::json::object();
     nlohmann::json m_LegacyInspector = nlohmann::json::object();
     nlohmann::json m_LegacyState = nlohmann::json::object();
     std::vector<ScriptFieldInfo> m_Fields;
     std::unique_ptr<AngelScriptRuntime> m_Runtime;
+    std::vector<std::string> m_IncludeDependencies;
     std::filesystem::file_time_type m_LastWriteTime{};
     bool m_HasWriteTime = false;
     bool m_Compiled = false;

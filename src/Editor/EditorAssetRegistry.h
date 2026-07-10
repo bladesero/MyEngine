@@ -9,7 +9,7 @@
 
 class EditorProfiler;
 
-enum class EditorAssetType { Unknown, Model, Texture, Material, Scene, Prefab, Script, Shader, Audio, UI };
+enum class EditorAssetType { Unknown, Model, Texture, Material, Scene, Prefab, Script, Shader, Audio, UI, Particle, Navigation };
 struct EditorAssetInfo {
     std::filesystem::path absolutePath;
     std::string relativePath;

@@ -20,7 +20,10 @@ public:
     bool ReimportWithSettings(const std::string& uuid,
                               const std::string& settingsJson);
     size_t ReimportAll(std::vector<std::string>* failures = nullptr);
+    bool RefreshValidation(std::string* error = nullptr);
     const AssetDatabaseValidationReport* GetValidationReport() const;
+    std::string GetValidationSummaryText() const;
+    bool HasValidationIssues() const;
     static std::filesystem::path MakeUniqueContentPath(const std::filesystem::path& directory,
         const std::string& stem, const std::string& extension);
 private:

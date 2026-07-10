@@ -35,6 +35,7 @@ struct VSIn {
     float3 normal   [[attribute(1)]];
     float3 tangent  [[attribute(2)]];
     float2 uv       [[attribute(3)]];
+    float4 color    [[attribute(6)]];
 };
 
 struct VSOut {
@@ -42,6 +43,7 @@ struct VSOut {
     float3 normal;
     float3 tangent;
     float2 uv;
+    float4 color;
 };
 
 vertex VSOut VSMain(VSIn in [[stage_in]],
@@ -52,6 +54,7 @@ vertex VSOut VSMain(VSIn in [[stage_in]],
     out.normal   = in.normal;
     out.tangent  = in.tangent;
     out.uv       = in.uv;
+    out.color    = in.color;
     return out;
 }
 
@@ -60,7 +63,7 @@ fragment float4 PSMain(VSOut in [[stage_in]],
 {
     float d = saturate(dot(in.normal, normalize(float3(0.0, 1.0, 1.0))));
     d += dot(in.tangent, float3(1.0, 1.0, 1.0)) * 1e-10f;
-    return 0.5 + 0.5 * PerDraw.g_BaseColor * d;
+    return (0.5 + 0.5 * PerDraw.g_BaseColor * d) * in.color;
 }
 
 )MSL";
@@ -82,8 +85,9 @@ inline const VertexElement k_MeshVertexLayout[] = {
     { "TEXCOORD", 0, VertexFormat::Float2, offsetof(MeshVertex, u)       },
     { "BLENDINDICES", 0, VertexFormat::Float4, offsetof(MeshVertex, boneIndices) },
     { "BLENDWEIGHT",  0, VertexFormat::Float4, offsetof(MeshVertex, boneWeights) },
+    { "COLOR", 0, VertexFormat::Float4, offsetof(MeshVertex, color) },
 };
-inline constexpr uint32_t k_MeshVertexLayoutCount = 6;
+inline constexpr uint32_t k_MeshVertexLayoutCount = 7;
 
 // Per-draw constants: Mat4 MVP + Vec4 BaseColor (80 bytes, 16-byte aligned).
 struct MeshPerDrawConstants {

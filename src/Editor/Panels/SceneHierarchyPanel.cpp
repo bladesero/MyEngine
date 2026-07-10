@@ -1,25 +1,21 @@
 ﻿#include "Editor/EditorPanels.h"
 
-#include "Editor/EditorCommand.h"
 #include "Editor/EditorContext.h"
 #include "Editor/EditorAssetRegistry.h"
 #include "Editor/EditorImportService.h"
 #include "Editor/EditorOperators.h"
-#include "Editor/EditorUndoUtil.h"
 #include "Editor/EditorDragDrop.h"
 #include "Editor/EditorUI/EditorAngelScriptDomain.h"
 #include "Editor/UI/EditorIcons.h"
 #include "Editor/UI/EditorWidgets.h"
 #include "Scene/Actor.h"
 #include "Scene/Scene.h"
-#include "Scene/SceneSerializer.h"
-#include "Scene/PrefabSystem.h"
 #include "Core/Logger.h"
 #include "UI/Core/UICanvasComponent.h"
 #include "UI/Core/UIComponents.h"
 
 #include <algorithm>
-#include <filesystem>
+#include <cctype>
 #include <vector>
 #include <cstring>
 
@@ -67,6 +63,15 @@ void DrawActorDropCue(ImVec2 min, ImVec2 max, ActorDropZone zone, bool delivery)
     const float y = zone == ActorDropZone::Before ? min.y : max.y;
     dl->AddLine(ImVec2(min.x, y), ImVec2(max.x, y), color, thickness);
 }
+
+void DrawActorFilterMatchHighlight(ImVec2 min, ImVec2 max)
+{
+    auto* dl = ImGui::GetWindowDrawList();
+    const ImU32 fill = IM_COL32(80, 160, 255, 28);
+    const ImU32 stripe = IM_COL32(80, 160, 255, 190);
+    dl->AddRectFilled(min, max, fill, 2.0f);
+    dl->AddRectFilled(min, ImVec2(min.x + 3.0f, max.y), stripe, 1.0f);
+}
 #endif
 
 Actor* GetNextSibling(Scene& scene, const Actor& actor, const Actor* exclude = nullptr)
@@ -83,12 +88,48 @@ Actor* GetNextSibling(Scene& scene, const Actor& actor, const Actor* exclude = n
     return nullptr;
 }
 
+Actor* GetPreviousSibling(Scene& scene, const Actor& actor)
+{
+    const std::vector<Actor*> siblings = actor.GetParent()
+        ? actor.GetParent()->GetChildren()
+        : scene.GetRootActors();
+    Actor* previous = nullptr;
+    for (Actor* sibling : siblings) {
+        if (sibling == &actor) return previous;
+        if (sibling) previous = sibling;
+    }
+    return nullptr;
+}
+
+Actor* ResolveSelectedActor(EditorContext& context)
+{
+    Scene* scene = context.GetScene();
+    return scene ? context.GetSelection().ResolveActor(*scene) : nullptr;
+}
+
 bool IsDescendantOf(const Actor& candidate, const Actor& ancestor)
 {
     for (Actor* parent = candidate.GetParent(); parent; parent = parent->GetParent()) {
         if (parent == &ancestor) return true;
     }
     return false;
+}
+
+std::string ToLower(std::string value)
+{
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    return value;
+}
+
+bool ContainsCaseInsensitive(std::string_view text, std::string_view filter)
+{
+    if (filter.empty()) return true;
+    std::string textString(text);
+    std::string filterString(filter);
+    return ToLower(std::move(textString)).find(ToLower(std::move(filterString))) !=
+        std::string::npos;
 }
 
 bool ExecuteMoveActorDrop(EditorContext& context, Scene& scene, Actor& source,
@@ -109,126 +150,22 @@ bool ExecuteMoveActorDrop(EditorContext& context, Scene& scene, Actor& source,
         return operators->DragDrop().ApplyActorDrop(
             context, source.GetID(), afterParentID, afterNextID);
     }
-    return context.GetCommandStack()->ExecuteCommand(
-        EditorUndoUtil::MakeMoveActorCommand(
-            source, beforeParentID, beforeNextID, afterParentID, afterNextID),
-        context);
+    EditorDragDropOperator dragDropOperator;
+    return dragDropOperator.ApplyActorDrop(
+        context, source.GetID(), afterParentID, afterNextID);
 }
 
-enum class UIActorPreset {
-    Canvas,
-    Text,
-    Image,
-    Button,
-    Slider,
-    ProgressBar,
-    ScrollView,
-    VerticalLayout,
-    HorizontalLayout,
-    GridLayout,
-};
-
-const char* UIActorName(UIActorPreset preset)
+void AddUIActorMenu(EditorContext& context, Actor* parent, EditorContextMenu& menu)
 {
-    switch (preset) {
-    case UIActorPreset::Canvas: return "UI Canvas";
-    case UIActorPreset::Text: return "Text";
-    case UIActorPreset::Image: return "Image";
-    case UIActorPreset::Button: return "Button";
-    case UIActorPreset::Slider: return "Slider";
-    case UIActorPreset::ProgressBar: return "Progress Bar";
-    case UIActorPreset::ScrollView: return "Scroll View";
-    case UIActorPreset::VerticalLayout: return "Vertical Layout";
-    case UIActorPreset::HorizontalLayout: return "Horizontal Layout";
-    case UIActorPreset::GridLayout: return "Grid Layout";
-    }
-    return "UI Actor";
-}
-
-void ConfigureDefaultRect(UIRectTransformComponent& rect, UIActorPreset preset)
-{
-    RectTransform& value = rect.GetRect();
-    if (preset == UIActorPreset::Canvas) {
-        value.anchorMin = {0.0f, 0.0f};
-        value.anchorMax = {1.0f, 1.0f};
-        value.offsetMin = {0.0f, 0.0f};
-        value.offsetMax = {0.0f, 0.0f};
-        return;
-    }
-    value.anchorMin = {0.0f, 0.0f};
-    value.anchorMax = {0.0f, 0.0f};
-    value.offsetMin = {24.0f, 24.0f};
-    value.offsetMax = {224.0f, 72.0f};
-}
-
-void AddUIPresetComponents(Actor& actor, UIActorPreset preset)
-{
-    if (auto* rect = actor.AddComponent<UIRectTransformComponent>()) {
-        ConfigureDefaultRect(*rect, preset);
-    }
-    switch (preset) {
-    case UIActorPreset::Canvas: {
-        if (auto* canvas = actor.AddComponent<UICanvasComponent>()) {
-            canvas->SetSourceMode(UICanvasSourceMode::ActorTree);
-            canvas->SetDefaultFontPaths({"Content/UI/Fonts/LatoLatin-Regular.ttf"});
-            canvas->SetGeneratedStylePaths({"Content/UI/RmlExample.rcss"});
+    auto addPreset = [&context, parent](const char* presetID) {
+        const uint64_t parentID = parent ? parent->GetID() : 0;
+        if (auto* operators = context.GetOperators()) {
+            operators->Commands().CreateUIActor(context, presetID, parentID);
         }
-        break;
-    }
-    case UIActorPreset::Text: {
-        auto* text = actor.AddComponent<UITextComponent>();
-        if (text) text->text = "Text";
-        break;
-    }
-    case UIActorPreset::Image:
-        actor.AddComponent<UIImageComponent>();
-        break;
-    case UIActorPreset::Button: {
-        auto* button = actor.AddComponent<UIButtonComponent>();
-        if (button) button->text = "Button";
-        break;
-    }
-    case UIActorPreset::Slider:
-        actor.AddComponent<UISliderComponent>();
-        break;
-    case UIActorPreset::ProgressBar:
-        actor.AddComponent<UIProgressBarComponent>();
-        break;
-    case UIActorPreset::ScrollView:
-        actor.AddComponent<UIScrollViewComponent>();
-        break;
-    case UIActorPreset::VerticalLayout:
-        actor.AddComponent<UIVerticalLayoutComponent>();
-        break;
-    case UIActorPreset::HorizontalLayout:
-        actor.AddComponent<UIHorizontalLayoutComponent>();
-        break;
-    case UIActorPreset::GridLayout:
-        actor.AddComponent<UIGridLayoutComponent>();
-        break;
-    }
-}
-
-void CreateUIActor(EditorContext& context, Scene& scene, Actor* parent, UIActorPreset preset)
-{
-    const std::string before = SceneSerializer::SaveToString(scene);
-    const uint64_t oldSelection = context.GetSelection().GetActorID();
-    Actor* actor = scene.CreateActor(UIActorName(preset), parent);
-    if (!actor) return;
-    AddUIPresetComponents(*actor, preset);
-    const uint64_t newSelection = actor->GetID();
-    const std::string after = SceneSerializer::SaveToString(scene);
-    SceneSerializer::LoadFromString(scene, before);
-    context.GetCommandStack()->ExecuteCommand(
-        EditorUndoUtil::MakeSceneSnapshotCommand("Create UI Actor", before, after,
-                                                 oldSelection, newSelection), context);
-}
-
-void AddUIActorMenu(EditorContext& context, Scene& scene, Actor* parent, EditorContextMenu& menu)
-{
+    };
     if (parent == nullptr) {
-        menu.AddAction("UI/Create Canvas", [&context, &scene]() {
-            CreateUIActor(context, scene, nullptr, UIActorPreset::Canvas);
+        menu.AddAction("UI/Create Canvas", [addPreset]() {
+            addPreset("canvas");
         });
         return;
     }
@@ -237,32 +174,32 @@ void AddUIActorMenu(EditorContext& context, Scene& scene, Actor* parent, EditorC
         return;
     }
     menu.AddSeparator();
-    menu.AddAction("UI/Text", [&context, &scene, parent]() {
-        CreateUIActor(context, scene, parent, UIActorPreset::Text);
+    menu.AddAction("UI/Text", [addPreset]() {
+        addPreset("text");
     });
-    menu.AddAction("UI/Image", [&context, &scene, parent]() {
-        CreateUIActor(context, scene, parent, UIActorPreset::Image);
+    menu.AddAction("UI/Image", [addPreset]() {
+        addPreset("image");
     });
-    menu.AddAction("UI/Button", [&context, &scene, parent]() {
-        CreateUIActor(context, scene, parent, UIActorPreset::Button);
+    menu.AddAction("UI/Button", [addPreset]() {
+        addPreset("button");
     });
-    menu.AddAction("UI/Slider", [&context, &scene, parent]() {
-        CreateUIActor(context, scene, parent, UIActorPreset::Slider);
+    menu.AddAction("UI/Slider", [addPreset]() {
+        addPreset("slider");
     });
-    menu.AddAction("UI/Progress Bar", [&context, &scene, parent]() {
-        CreateUIActor(context, scene, parent, UIActorPreset::ProgressBar);
+    menu.AddAction("UI/Progress Bar", [addPreset]() {
+        addPreset("progressBar");
     });
-    menu.AddAction("UI/Scroll View", [&context, &scene, parent]() {
-        CreateUIActor(context, scene, parent, UIActorPreset::ScrollView);
+    menu.AddAction("UI/Scroll View", [addPreset]() {
+        addPreset("scrollView");
     });
-    menu.AddAction("Layout/Vertical", [&context, &scene, parent]() {
-        CreateUIActor(context, scene, parent, UIActorPreset::VerticalLayout);
+    menu.AddAction("Layout/Vertical", [addPreset]() {
+        addPreset("verticalLayout");
     });
-    menu.AddAction("Layout/Horizontal", [&context, &scene, parent]() {
-        CreateUIActor(context, scene, parent, UIActorPreset::HorizontalLayout);
+    menu.AddAction("Layout/Horizontal", [addPreset]() {
+        addPreset("horizontalLayout");
     });
-    menu.AddAction("Layout/Grid", [&context, &scene, parent]() {
-        CreateUIActor(context, scene, parent, UIActorPreset::GridLayout);
+    menu.AddAction("Layout/Grid", [addPreset]() {
+        addPreset("gridLayout");
     });
 }
 }
@@ -278,44 +215,100 @@ SceneHierarchyPanel::SceneHierarchyPanel():EditorPanel("sceneHierarchy","Scene O
         if(!scene||!context->IsEditing())return;
 
         menu.AddAction("Create Child Actor",[this,context,scene,actor](){
-            ActorCreateDesc desc;
-            desc.name = "Actor";
-            auto cmd = EditorUndoUtil::MakeCreateActorCommand(desc, 0);
-            if (cmd) {
-                auto* createCmd = static_cast<CreateActorCommand*>(cmd.get());
-                context->GetCommandStack()->ExecuteCommand(std::move(cmd), *context);
-                if (Actor* newActor = context->GetSelection().ResolveActor(*scene)) {
-                    newActor->SetParent(actor);
-                }
+            if (auto* operators = context->GetOperators()) {
+                operators->Commands().CreateChildActor(*context, "Actor", actor->GetID());
             }
         });
 
-        AddUIActorMenu(*context, *scene, actor, menu);
+        AddUIActorMenu(*context, actor, menu);
+
+        menu.AddSeparator();
+
+        menu.AddAction("Create Empty Parent", [context, actor]() {
+            if (auto* operators = context->GetOperators()) {
+                operators->Selection().SelectActor(*context, actor->GetID());
+                operators->Commands().CreateEmptyParent(*context, actor->GetID());
+            }
+        });
+
+        if (actor->GetParent()) {
+            menu.AddAction("Unparent", [context, actor]() {
+                if (auto* operators = context->GetOperators()) {
+                    operators->Selection().SelectActor(*context, actor->GetID());
+                    operators->Commands().UnparentActor(*context, actor->GetID());
+                }
+            });
+        }
+
+        if (GetPreviousSibling(*scene, *actor)) {
+            menu.AddAction("Move Up", [context, actor]() {
+                if (auto* operators = context->GetOperators()) {
+                    operators->Selection().SelectActor(*context, actor->GetID());
+                    operators->Commands().MoveActorUp(*context, actor->GetID());
+                }
+            });
+        }
+
+        if (GetNextSibling(*scene, *actor)) {
+            menu.AddAction("Move Down", [context, actor]() {
+                if (auto* operators = context->GetOperators()) {
+                    operators->Selection().SelectActor(*context, actor->GetID());
+                    operators->Commands().MoveActorDown(*context, actor->GetID());
+                }
+            });
+        }
+
+        menu.AddSeparator();
+
+        if (actor->GetParent()) {
+            menu.AddAction("Select Parent", [context, actor]() {
+                if (auto* operators = context->GetOperators()) {
+                    operators->Selection().SelectActor(
+                        *context, actor->GetParent()->GetID());
+                }
+            });
+        }
+
+        if (Actor* previous = GetPreviousSibling(*scene, *actor)) {
+            menu.AddAction("Select Previous Sibling", [context, previous]() {
+                if (auto* operators = context->GetOperators()) {
+                    operators->Selection().SelectActor(
+                        *context, previous->GetID());
+                }
+            });
+        }
+
+        if (Actor* next = GetNextSibling(*scene, *actor)) {
+            menu.AddAction("Select Next Sibling", [context, next]() {
+                if (auto* operators = context->GetOperators()) {
+                    operators->Selection().SelectActor(*context, next->GetID());
+                }
+            });
+        }
+
+        if (!actor->GetChildren().empty()) {
+            menu.AddAction("Select Subtree", [context, actor]() {
+                if (auto* operators = context->GetOperators()) {
+                    operators->Selection().SelectActorSubtree(
+                        *context, actor->GetID(), true);
+                }
+            });
+            menu.AddAction("Select Children", [context, actor]() {
+                if (auto* operators = context->GetOperators()) {
+                    operators->Selection().SelectActorSubtree(
+                        *context, actor->GetID(), false);
+                }
+            });
+        }
 
         menu.AddSeparator();
 
         menu.AddAction("Duplicate",[this,context,scene,actor](){
-            const std::string json = EditorUndoUtil::SerializeActorSubtree(*actor);
-            uint64_t newID = 0; // auto-assign
-            ActorCreateDesc desc;
-            desc.name = actor->GetName() + " (Copy)";
-            desc.transform = actor->GetTransform();
-            if (actor->GetParent()) {
-                // Will be parented after creation
-            }
-            auto cmd = std::make_unique<CreateActorCommand>(desc, newID);
-            // Use full snapshot for subtree clone (simplest correct approach)
-            const std::string before = SceneSerializer::SaveToString(*scene);
-            const uint64_t oldId = context->GetSelection().GetActorID();
-            Actor* clone = scene->CreateActor(desc.name);
-            if (clone) {
-                clone->GetTransform() = actor->GetTransform();
-                if (actor->GetParent()) clone->SetParent(actor->GetParent());
-                const uint64_t cloneId = clone->GetID();
-                const std::string after = SceneSerializer::SaveToString(*scene);
-                SceneSerializer::LoadFromString(*scene, before);
-                context->GetCommandStack()->ExecuteCommand(
-                    EditorUndoUtil::MakeSceneSnapshotCommand("Duplicate Actor", before, after, oldId, cloneId), *context);
+            if (auto* operators = context->GetOperators()) {
+                if (!context->GetSelection().IsSelected(actor->GetID())) {
+                    operators->Selection().SelectActor(*context, actor->GetID());
+                }
+                operators->Commands().DuplicateSelection(*context);
             }
         });
 
@@ -337,38 +330,15 @@ SceneHierarchyPanel::SceneHierarchyPanel():EditorPanel("sceneHierarchy","Scene O
         menu.AddSeparator();
 
         menu.AddAction("Delete",[this,context,scene,actor](){
-            const std::string before=SceneSerializer::SaveToString(*scene);
-            const uint64_t oldId=actor->GetID();
-            scene->DestroyActor(actor);
-            const std::string after=SceneSerializer::SaveToString(*scene);
-            SceneSerializer::LoadFromString(*scene,before);
-            context->GetCommandStack()->ExecuteCommand(
-                EditorUndoUtil::MakeSceneSnapshotCommand("Delete Actor",before,after,oldId,0),*context);
+            if (auto* operators = context->GetOperators()) {
+                operators->Commands().DeleteActor(*context, actor->GetID());
+            }
         });
 
         menu.AddAction("Create Prefab",[this,context,scene,actor](){
-            const std::string before=SceneSerializer::SaveToString(*scene);
-            const uint64_t id=actor->GetID();
-            const ActorHandle parentHandle=actor->GetParent()?actor->GetParent()->GetHandle():ActorHandle{};
-            const Transform transform=actor->GetTransform();
-            const auto directory=context->GetContentRoot()/"Prefabs";
-            std::filesystem::create_directories(directory);
-            const auto path=EditorImportService::MakeUniqueContentPath(directory,actor->GetName(),".prefab.json");
-            std::string error;
-            if(PrefabSystem::SaveSubtree(*actor,path,&error)){
-                scene->QueueDestroyActor(actor->GetHandle());
-                scene->FlushCommands();
-                PrefabInstantiateOptions options;
-                options.parent=parentHandle;options.rootTransform=transform;options.persistentRootID=id;
-                Actor* instance=PrefabSystem::Instantiate(*scene,path,options,&error);
-                if(instance){
-                    const std::string after=SceneSerializer::SaveToString(*scene);
-                    SceneSerializer::LoadFromString(*scene,before);
-                    context->GetCommandStack()->ExecuteCommand(
-                        EditorUndoUtil::MakeSceneSnapshotCommand("Create Prefab",before,after,id,id),*context);
-                    if(context->GetAssetRegistry())context->GetAssetRegistry()->Refresh();
-                }else Logger::Warn("[Editor] Prefab instance creation failed: ",error);
-            }else Logger::Warn("[Editor] Prefab creation failed: ",error);
+            if (auto* operators = context->GetOperators()) {
+                operators->Prefabs().CreatePrefabFromActor(*context, actor->GetID());
+            }
         });
     });
 
@@ -380,16 +350,11 @@ SceneHierarchyPanel::SceneHierarchyPanel():EditorPanel("sceneHierarchy","Scene O
         if(!scene||!context->IsEditing())return;
 
         menu.AddAction("Create Actor",[this,context,scene](){
-            const std::string before=SceneSerializer::SaveToString(*scene);
-            const uint64_t oldId=context->GetSelection().GetActorID();
-            Actor* actor=scene->CreateActor("Actor");
-            const uint64_t newId=actor->GetID();
-            const std::string after=SceneSerializer::SaveToString(*scene);
-            SceneSerializer::LoadFromString(*scene,before);
-            context->GetCommandStack()->ExecuteCommand(
-                EditorUndoUtil::MakeSceneSnapshotCommand("Create Actor",before,after,oldId,newId),*context);
+            if (auto* operators = context->GetOperators()) {
+                operators->Commands().CreateActor(*context, "Actor");
+            }
         });
-        AddUIActorMenu(*context, *scene, nullptr, menu);
+        AddUIActorMenu(*context, nullptr, menu);
     });
 
     RegisterContextMenuHandler([this](const ContextMenuContext& ctx,
@@ -412,6 +377,221 @@ SceneHierarchyPanel::SceneHierarchyPanel():EditorPanel("sceneHierarchy","Scene O
     });
 }
 
+bool SceneHierarchyPanel::HandleEditorAction(EditorContext& context,
+                                             std::string_view actionID)
+{
+    if (actionID == "edit.delete" ||
+        actionID == "edit.duplicate" ||
+        actionID == "edit.copy" ||
+        actionID == "edit.paste") {
+        if (!context.IsEditing()) return false;
+        auto* operators = context.GetOperators();
+        if (!operators) return false;
+        if (actionID == "edit.paste") {
+            if (!operators->Commands().HasActorClipboard()) return false;
+            return operators->Commands().PasteSelection(context);
+        }
+        if (!context.GetSelection().HasActor()) return false;
+        if (actionID == "edit.delete") {
+            return operators->Commands().DeleteSelection(context);
+        }
+        if (actionID == "edit.duplicate") {
+            return operators->Commands().DuplicateSelection(context);
+        }
+        return operators->Commands().CopySelection(context);
+    }
+
+    if (actionID == "edit.selectAll") {
+        if (!context.IsEditing()) return false;
+        Scene* scene = context.GetScene();
+        if (!scene) return false;
+
+        if (m_SearchFilter[0]) {
+            m_SearchMatches.clear();
+            m_SearchMatches.reserve(scene->ActorCount());
+            for (Actor* actor : scene->GetRootActors()) {
+                if (actor && !actor->GetParent()) RebuildSearchCache(actor);
+            }
+        }
+
+        auto* operators = context.GetOperators();
+        if (!operators) return false;
+        bool selectedAny = false;
+        scene->ForEach([&](Actor& actor) {
+            if (!ActorMatchesSearch(actor)) return;
+            if (!selectedAny) {
+                operators->Selection().SelectActor(
+                    context, actor.GetID(), EditorSelectionIntentMode::Replace);
+                selectedAny = true;
+            } else {
+                operators->Selection().SelectActor(
+                    context, actor.GetID(), EditorSelectionIntentMode::Add);
+            }
+        });
+        return selectedAny;
+    }
+
+    if (actionID == "hierarchy.expandAll" ||
+        actionID == "hierarchy.collapseAll") {
+        if (!context.IsEditing() || !context.GetScene()) return false;
+        m_OpenRequest = actionID == "hierarchy.expandAll" ? 1 : -1;
+        return true;
+    }
+
+    if (actionID == "hierarchy.createEmptyParent") {
+        Actor* actor = ResolveSelectedActor(context);
+        if (!actor) return false;
+        if (auto* operators = context.GetOperators()) {
+            return operators->Commands().CreateEmptyParent(context, actor->GetID()) != 0;
+        }
+        return false;
+    }
+
+    if (actionID == "hierarchy.unparent") {
+        Actor* actor = ResolveSelectedActor(context);
+        if (!actor) return false;
+        if (auto* operators = context.GetOperators()) {
+            return operators->Commands().UnparentActor(context, actor->GetID());
+        }
+        return false;
+    }
+
+    if (actionID == "hierarchy.moveUp") {
+        Actor* actor = ResolveSelectedActor(context);
+        if (!actor) return false;
+        if (auto* operators = context.GetOperators()) {
+            return operators->Commands().MoveActorUp(context, actor->GetID());
+        }
+        return false;
+    }
+
+    if (actionID == "hierarchy.moveDown") {
+        Actor* actor = ResolveSelectedActor(context);
+        if (!actor) return false;
+        if (auto* operators = context.GetOperators()) {
+            return operators->Commands().MoveActorDown(context, actor->GetID());
+        }
+        return false;
+    }
+
+    if (actionID == "hierarchy.selectChildren") {
+        Actor* actor = ResolveSelectedActor(context);
+        if (!actor || actor->GetChildren().empty()) return false;
+        if (auto* operators = context.GetOperators()) {
+            return operators->Selection().SelectActorSubtree(
+                context, actor->GetID(), false);
+        }
+        return false;
+    }
+
+    if (actionID == "hierarchy.selectSubtree") {
+        Actor* actor = ResolveSelectedActor(context);
+        if (!actor || actor->GetChildren().empty()) return false;
+        if (auto* operators = context.GetOperators()) {
+            return operators->Selection().SelectActorSubtree(
+                context, actor->GetID(), true);
+        }
+        return false;
+    }
+
+    if (actionID == "hierarchy.selectParent") {
+        Actor* actor = ResolveSelectedActor(context);
+        Actor* parent = actor ? actor->GetParent() : nullptr;
+        if (!parent) return false;
+        if (auto* operators = context.GetOperators()) {
+            return operators->Selection().SelectActor(context, parent->GetID());
+        }
+        return false;
+    }
+
+    if (actionID == "hierarchy.selectPreviousSibling") {
+        Scene* scene = context.GetScene();
+        Actor* actor = ResolveSelectedActor(context);
+        Actor* previous = scene && actor ? GetPreviousSibling(*scene, *actor) : nullptr;
+        if (!previous) return false;
+        if (auto* operators = context.GetOperators()) {
+            return operators->Selection().SelectActor(context, previous->GetID());
+        }
+        return false;
+    }
+
+    if (actionID == "hierarchy.selectNextSibling") {
+        Scene* scene = context.GetScene();
+        Actor* actor = ResolveSelectedActor(context);
+        Actor* next = scene && actor ? GetNextSibling(*scene, *actor) : nullptr;
+        if (!next) return false;
+        if (auto* operators = context.GetOperators()) {
+            return operators->Selection().SelectActor(context, next->GetID());
+        }
+        return false;
+    }
+
+    if (actionID != "edit.rename" || !context.CanEditSelection()) return false;
+    Scene* scene = context.GetScene();
+    Actor* actor = scene ? context.GetSelection().ResolveActor(*scene) : nullptr;
+    if (!actor) return false;
+    m_PendingRenameID = actor->GetID();
+    std::strncpy(m_RenameBuffer, actor->GetName().c_str(), sizeof(m_RenameBuffer) - 1);
+    m_RenameBuffer[sizeof(m_RenameBuffer) - 1] = '\0';
+    return true;
+}
+
+bool SceneHierarchyPanel::CanHandleEditorAction(
+    const EditorContext& context, std::string_view actionID) const
+{
+    if (!context.IsEditing()) return false;
+    Scene* scene = context.GetScene();
+    Actor* actor = scene ? scene->FindByID(context.GetSelection().GetActorID()) : nullptr;
+    if (actionID == "edit.delete" ||
+        actionID == "edit.duplicate" ||
+        actionID == "edit.copy") {
+        return actor != nullptr && context.GetOperators() != nullptr;
+    }
+    if (actionID == "edit.paste") {
+        auto* operators = context.GetOperators();
+        return scene && operators && context.CanEditScene() &&
+            operators->Commands().HasActorClipboard();
+    }
+    if (actionID == "edit.selectAll") {
+        return scene && scene->ActorCount() > 0;
+    }
+    if (actionID == "hierarchy.expandAll" ||
+        actionID == "hierarchy.collapseAll") {
+        return scene != nullptr;
+    }
+    if (actionID == "edit.rename" ||
+        actionID == "hierarchy.createEmptyParent") {
+        return actor != nullptr && context.CanEditSelection();
+    }
+    if (actionID == "hierarchy.unparent") {
+        return actor && actor->GetParent() && context.CanEditSelection();
+    }
+    if (actionID == "hierarchy.moveUp") {
+        return scene && actor && GetPreviousSibling(*scene, *actor) &&
+            context.CanEditSelection();
+    }
+    if (actionID == "hierarchy.moveDown") {
+        return scene && actor && GetNextSibling(*scene, *actor) &&
+            context.CanEditSelection();
+    }
+    if (actionID == "hierarchy.selectChildren") {
+        return scene && actor && !actor->GetChildren().empty();
+    }
+    if (actionID == "hierarchy.selectSubtree") {
+        return scene && actor && !actor->GetChildren().empty();
+    }
+    if (actionID == "hierarchy.selectParent") {
+        return actor && actor->GetParent();
+    }
+    if (actionID == "hierarchy.selectPreviousSibling") {
+        return scene && actor && GetPreviousSibling(*scene, *actor);
+    }
+    if (actionID == "hierarchy.selectNextSibling") {
+        return scene && actor && GetNextSibling(*scene, *actor);
+    }
+    return false;
+}
+
 void SceneHierarchyPanel::DrawToolbar(){
 #if defined(MYENGINE_ENABLE_IMGUI)
     auto* ctx = GetContext();
@@ -422,23 +602,55 @@ void SceneHierarchyPanel::DrawToolbar(){
     ImGui::InputTextWithHint("##Search","Search...",m_SearchFilter,sizeof(m_SearchFilter));
     ImGui::SameLine();
     if (ctx && EditorWidgets::IconButton(*ctx, "CreateActor", EditorIcons::Actor, "Create Actor")) {
-        Scene* sc = ctx ? ctx->GetScene() : nullptr;
-        if (sc && ctx->IsEditing()) {
-            const std::string before = SceneSerializer::SaveToString(*sc);
-            const uint64_t old = ctx->GetSelection().GetActorID();
-            Actor* a = sc->CreateActor("Actor");
-            const uint64_t nid = a->GetID();
-            const std::string after = SceneSerializer::SaveToString(*sc);
-            SceneSerializer::LoadFromString(*sc, before);
-            ctx->GetCommandStack()->ExecuteCommand(
-                EditorUndoUtil::MakeSceneSnapshotCommand("Create Actor", before, after, old, nid), *ctx);
+        if (ctx->IsEditing()) {
+            if (auto* operators = ctx->GetOperators()) {
+                operators->Commands().CreateActor(*ctx, "Actor");
+            }
         }
     }
     ImGui::SameLine();
     if (ctx && EditorWidgets::IconButton(*ctx, "CreateUICanvas", EditorIcons::Input, "Create UI Canvas")) {
-        Scene* sc = ctx ? ctx->GetScene() : nullptr;
-        if (sc && ctx->IsEditing()) {
-            CreateUIActor(*ctx, *sc, nullptr, UIActorPreset::Canvas);
+        if (ctx->IsEditing()) {
+            if (auto* operators = ctx->GetOperators()) {
+                operators->Commands().CreateUIActor(*ctx, "canvas");
+            }
+        }
+    }
+    ImGui::SameLine();
+    if (ctx && EditorWidgets::IconButton(*ctx, "ExpandAll", "+", "Expand All")) {
+        HandleEditorAction(*ctx, "hierarchy.expandAll");
+    }
+    ImGui::SameLine();
+    if (ctx && EditorWidgets::IconButton(*ctx, "CollapseAll", "-", "Collapse All")) {
+        HandleEditorAction(*ctx, "hierarchy.collapseAll");
+    }
+    ImGui::Separator();
+
+    ImGui::TextUnformatted("Filters");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(120.0f);
+    ImGui::InputTextWithHint("##TagFilter", "Tag", m_TagFilter, sizeof(m_TagFilter));
+    ImGui::SameLine();
+    ImGui::Checkbox("Layer", &m_LayerFilterEnabled);
+    ImGui::SameLine();
+    ImGui::BeginDisabled(!m_LayerFilterEnabled);
+    ImGui::SetNextItemWidth(72.0f);
+    ImGui::InputScalar("##LayerFilter", ImGuiDataType_U32, &m_LayerFilter);
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(150.0f);
+    ImGui::InputTextWithHint("##ComponentFilter", "Component", m_ComponentFilter,
+                             sizeof(m_ComponentFilter));
+    const bool hasExtraFilters = m_TagFilter[0] || m_ComponentFilter[0] ||
+        m_LayerFilterEnabled;
+    if (hasExtraFilters) {
+        ImGui::SameLine();
+        if (ctx && EditorWidgets::IconButton(*ctx, "ClearHierarchyFilters", "x",
+                                             "Clear filters")) {
+            m_TagFilter[0] = '\0';
+            m_ComponentFilter[0] = '\0';
+            m_LayerFilter = 0;
+            m_LayerFilterEnabled = false;
         }
     }
     ImGui::Separator();
@@ -448,8 +660,7 @@ void SceneHierarchyPanel::DrawToolbar(){
 bool SceneHierarchyPanel::RebuildSearchCache(Actor* actor)
 {
     if (!actor) return false;
-    bool matches = m_SearchFilter[0] == '\0' ||
-        actor->GetName().find(m_SearchFilter) != std::string::npos;
+    bool matches = ActorMatchesOwnFilters(*actor);
     for (Actor* child : actor->GetChildren()) {
         matches = RebuildSearchCache(child) || matches;
     }
@@ -457,11 +668,55 @@ bool SceneHierarchyPanel::RebuildSearchCache(Actor* actor)
     return matches;
 }
 
+bool SceneHierarchyPanel::HasHierarchyFilters() const
+{
+    return m_SearchFilter[0] != '\0' ||
+        m_TagFilter[0] != '\0' ||
+        m_ComponentFilter[0] != '\0' ||
+        m_LayerFilterEnabled;
+}
+
+bool SceneHierarchyPanel::ActorMatchesOwnFilters(const Actor& actor) const
+{
+    if (m_SearchFilter[0] &&
+        !ContainsCaseInsensitive(actor.GetName(), m_SearchFilter)) {
+        return false;
+    }
+    if (m_TagFilter[0] && !ContainsCaseInsensitive(actor.GetTag(), m_TagFilter)) {
+        return false;
+    }
+    if (m_LayerFilterEnabled && actor.GetLayer() != m_LayerFilter) {
+        return false;
+    }
+    if (m_ComponentFilter[0]) {
+        bool hasMatchingComponent = false;
+        actor.ForEachComponent([&](const Component& component) {
+            if (ContainsCaseInsensitive(component.GetTypeName(), m_ComponentFilter)) {
+                hasMatchingComponent = true;
+            }
+        });
+        if (!hasMatchingComponent) return false;
+    }
+    return true;
+}
+
 bool SceneHierarchyPanel::ActorMatchesSearch(const Actor& actor) const
 {
-    if (m_SearchFilter[0] == '\0') return true;
+    if (!HasHierarchyFilters()) {
+        return true;
+    }
     auto found = m_SearchMatches.find(actor.GetID());
     return found != m_SearchMatches.end() && found->second;
+}
+
+void SceneHierarchyPanel::CollectVisibleActorOrder(
+    Actor* actor, std::vector<uint64_t>& order) const
+{
+    if (!actor || !ActorMatchesSearch(*actor)) return;
+    order.push_back(actor->GetID());
+    for (Actor* child : actor->GetChildren()) {
+        CollectVisibleActorOrder(child, order);
+    }
 }
 
 void SceneHierarchyPanel::DrawActor(Actor* actor){
@@ -517,18 +772,39 @@ void SceneHierarchyPanel::DrawActor(Actor* actor){
             m_PendingRenameID = 0;
         }
     } else {
+        if (hasChildren && m_OpenRequest != 0) {
+            ImGui::SetNextItemOpen(m_OpenRequest > 0, ImGuiCond_Always);
+        }
         bool open = ImGui::TreeNodeEx(actor->GetName().c_str(), flags);
+        if (HasHierarchyFilters() && ActorMatchesOwnFilters(*actor)) {
+            DrawActorFilterMatchHighlight(ImGui::GetItemRectMin(),
+                                          ImGui::GetItemRectMax());
+        }
 
         // Selection handling
         if (ImGui::IsItemClicked()) {
             auto* operators = context ? context->GetOperators() : nullptr;
-            if (ImGui::GetIO().KeyCtrl) {
+            if (operators && ImGui::GetIO().KeyShift && m_LastClickedActorID != 0) {
+                std::vector<uint64_t> order;
+                if (scene) {
+                    for (Actor* root : scene->GetRootActors()) {
+                        CollectVisibleActorOrder(root, order);
+                    }
+                }
+                if (!operators->Selection().SelectActorRange(
+                        *context, m_LastClickedActorID, actor->GetID(), order)) {
+                    operators->Selection().SelectActor(*context, actor->GetID());
+                    m_LastClickedActorID = actor->GetID();
+                }
+            } else if (ImGui::GetIO().KeyCtrl) {
                 if (operators) {
                     operators->Selection().SelectActor(
                         *context, actor->GetID(), EditorSelectionIntentMode::Toggle);
                 }
+                m_LastClickedActorID = actor->GetID();
             } else {
                 if (operators) operators->Selection().SelectActor(*context, actor->GetID());
+                m_LastClickedActorID = actor->GetID();
             }
         }
 
@@ -593,16 +869,11 @@ void SceneHierarchyPanel::DrawActor(Actor* actor){
                 }
                 if (dropZone == ActorDropZone::Into) {
                     if (const ImGuiPayload* prefabPayload = ImGui::AcceptDragDropPayload(kPrefabPayload)) {
-                        const std::string path(static_cast<const char*>(prefabPayload->Data), prefabPayload->DataSize);
-                        std::string error;
-                        PrefabInstantiateOptions opts;
-                        opts.parent = actor->GetHandle();
-                        Actor* instance = PrefabSystem::Instantiate(*scene, path, opts, &error);
-                        if (instance) {
-                            context->GetSelection().Select(EditorSelectObject::MakeActor(
-                                instance->GetHandle(), instance->GetID()));
-                        } else {
-                            Logger::Warn("[Editor] Instantiate prefab failed: ", error);
+                        if (auto* operators = context->GetOperators()) {
+                            operators->Prefabs().InstantiatePrefab(
+                                *context,
+                                static_cast<const char*>(prefabPayload->Data),
+                                actor->GetID());
                         }
                     }
                 }
@@ -653,20 +924,12 @@ void SceneHierarchyPanel::HandleDragDropTarget(Actor* targetParent){
 
         // Prefab drop: instantiate as child
         if(const ImGuiPayload* payload=ImGui::AcceptDragDropPayload(kPrefabPayload)){
-            const std::string before=SceneSerializer::SaveToString(*scene);
-            const uint64_t old=context->GetSelection().GetActorID();
-            std::string error;
-            PrefabInstantiateOptions opts;
-            opts.parent = targetParent ? targetParent->GetHandle() : ActorHandle{};
-            Actor* actor=PrefabSystem::Instantiate(*scene,static_cast<const char*>(payload->Data),opts,&error);
-            if(actor){
-                const uint64_t id=actor->GetID();
-                const std::string after=SceneSerializer::SaveToString(*scene);
-                SceneSerializer::LoadFromString(*scene,before);
-                context->GetCommandStack()->ExecuteCommand(
-                    EditorUndoUtil::MakeSceneSnapshotCommand("Instantiate Prefab",before,after,old,id),*context);
-            context->GetSelection().Select(EditorSelectObject::MakeActor(id));
-            }else Logger::Warn("[Editor] Prefab instance creation failed: ",error);
+            if (auto* operators = context->GetOperators()) {
+                operators->Prefabs().InstantiatePrefab(
+                    *context,
+                    static_cast<const char*>(payload->Data),
+                    targetParent ? targetParent->GetID() : 0);
+            }
         }
         ImGui::EndDragDropTarget();
     }
@@ -687,13 +950,14 @@ void SceneHierarchyPanel::DrawContent(){
     m_ActorRightClicked=false;
     std::vector<Actor*> rootActors = scene->GetRootActors();
     m_SearchMatches.clear();
-    if (m_SearchFilter[0]) {
+    if (HasHierarchyFilters()) {
         m_SearchMatches.reserve(scene->ActorCount());
         for (Actor* actor : rootActors) {
             if (!actor->GetParent()) RebuildSearchCache(actor);
         }
     }
     for(Actor* actor:rootActors){if(!actor->GetParent())DrawActor(actor);}
+    m_OpenRequest = 0;
 
     if(!m_ActorRightClicked && EditorContextMenu::DetectWindow("##EmptyCtxMenu")){
     }

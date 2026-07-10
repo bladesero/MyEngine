@@ -1,20 +1,34 @@
 ﻿#include "Editor/InspectorSections.h"
 
 #include "Animation/SkinnedMeshRendererComponent.h"
+#include "Animation/AnimatorComponent.h"
+#include "Audio/AudioClipAsset.h"
 #include "Audio/AudioSourceComponent.h"
+#include "Audio/AudioListenerComponent.h"
 #include "Assets/Asset.h"
+#include "Assets/AssetDatabase.h"
 #include "Assets/AssetManager.h"
 #include "Assets/MaterialAsset.h"
+#include "Assets/ModelAsset.h"
+#include "Assets/PrefabAsset.h"
 #include "Assets/ScriptAsset.h"
 #include "Assets/TextureAsset.h"
 #include "Camera/CameraComponent.h"
-#include "Editor/EditorCommand.h"
+#include "Camera/ThirdPersonCameraComponent.h"
+#include "Gameplay/GameplayComponents.h"
+#include "Gameplay/EnemyAIComponent.h"
+#include "Game/SceneRenderLayer.h"
+#include "Navigation/NavAgentComponent.h"
+#include "Renderer/ParticleSystemComponent.h"
 #include "Editor/EditorContext.h"
 #include "Editor/EditorAssetRegistry.h"
 #include "Editor/EditorInspectorSection.h"
 #include "Editor/EditorImportService.h"
+#include "Editor/EditorNavigationBakeService.h"
+#include "Editor/EditorOperators.h"
 #include "Editor/EditorPanelHelpers.h"
-#include "Editor/EditorUndoUtil.h"
+#include "Editor/EditorResourceOperator.h"
+#include "Editor/EditorWorkspace.h"
 #include "Editor/UI/EditorIcons.h"
 #include "Editor/UI/EditorWidgets.h"
 #include "Physics/BoxColliderComponent.h"
@@ -28,6 +42,7 @@
 #include "Renderer/PostProcessComponent.h"
 #include "Scene/Actor.h"
 #include "Scene/ComponentRegistry.h"
+#include "Scene/PrefabSystem.h"
 #include "Scene/MeshRendererComponent.h"
 #include "Scene/Scene.h"
 #include "Scripting/ScriptComponent.h"
@@ -40,11 +55,16 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <nlohmann/json.hpp>
 #include <string>
 #include <type_traits>
+#include <unordered_map>
+#include <utility>
+#include <vector>
 
 namespace {
 using namespace EditorPanelHelpers;
@@ -90,6 +110,571 @@ bool IsJsonAsset(const std::string& path)
     return extension == ".json";
 }
 
+const char* AssetImportStateLabel(AssetImportState state)
+{
+    switch (state) {
+        case AssetImportState::Ready: return "Ready";
+        case AssetImportState::Importing: return "Importing";
+        case AssetImportState::Failed: return "Failed";
+        case AssetImportState::Stale: return "Stale";
+        case AssetImportState::MissingSource: return "Missing Source";
+        default: return "Unknown";
+    }
+}
+
+std::string LowerCopy(std::string value)
+{
+    std::transform(value.begin(), value.end(), value.begin(),
+        [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+    return value;
+}
+
+bool ContainsCaseInsensitive(const std::string& value, const char* filter)
+{
+    if (!filter || !filter[0]) return true;
+    return LowerCopy(value).find(LowerCopy(filter)) != std::string::npos;
+}
+
+std::string ComponentDisplayName(std::string type)
+{
+    const std::string suffix = "Component";
+    if (type.size() > suffix.size() &&
+        type.compare(type.size() - suffix.size(), suffix.size(), suffix) == 0) {
+        type.resize(type.size() - suffix.size());
+    }
+    std::string result;
+    for (size_t i = 0; i < type.size(); ++i) {
+        const char ch = type[i];
+        if (i > 0 && ch >= 'A' && ch <= 'Z' &&
+            ((type[i - 1] >= 'a' && type[i - 1] <= 'z') ||
+             (i + 1 < type.size() && type[i + 1] >= 'a' && type[i + 1] <= 'z'))) {
+            result.push_back(' ');
+        }
+        result.push_back(ch);
+    }
+    return result.empty() ? type : result;
+}
+
+const char* ComponentCategory(const std::string& type)
+{
+    if (type == "MeshRenderer" || type == "SkinnedMeshRenderer" || type == "Animator" ||
+        type == "Camera" || type == "ThirdPersonCamera" || type == "Light" || type == "PostProcess") {
+        return "Rendering";
+    }
+    if (type == "AudioSource") return "Audio";
+    if (type == "RigidBody" || type == "BoxCollider" ||
+        type == "SphereCollider" || type == "CapsuleCollider" ||
+        type == "CharacterController") {
+        return "Physics";
+    }
+    if (type == "Script") return "Scripting";
+    if (type.rfind("UI", 0) == 0) return "UI";
+    return "Gameplay";
+}
+
+bool ComponentMatchesFilter(const std::string& type, const char* filter)
+{
+    return ContainsCaseInsensitive(type, filter) ||
+        ContainsCaseInsensitive(ComponentDisplayName(type), filter) ||
+        ContainsCaseInsensitive(ComponentCategory(type), filter);
+}
+
+const char* EditorAssetTypeLabel(EditorAssetType type)
+{
+    switch (type) {
+        case EditorAssetType::Model: return "Model";
+        case EditorAssetType::Texture: return "Texture";
+        case EditorAssetType::Material: return "Material";
+        case EditorAssetType::Scene: return "Scene";
+        case EditorAssetType::Prefab: return "Prefab";
+        case EditorAssetType::Script: return "Script";
+        case EditorAssetType::Shader: return "Shader";
+        case EditorAssetType::Audio: return "Audio";
+        case EditorAssetType::UI: return "UI";
+        case EditorAssetType::Particle: return "Particle";
+        case EditorAssetType::Navigation: return "Navigation";
+        default: return "Unknown";
+    }
+}
+
+std::filesystem::path AssetInspectorProjectRoot(const EditorContext& context)
+{
+    if (!context.GetProjectRoot().empty()) return context.GetProjectRoot();
+    const std::filesystem::path& contentRoot = context.GetContentRoot();
+    return contentRoot.empty() ? std::filesystem::path{} : contentRoot.parent_path();
+}
+
+bool ReadImportSettingsJson(EditorContext& context, const std::string& uuid,
+                            std::string& outSettings)
+{
+    outSettings = "{}";
+    if (uuid.empty()) return false;
+    const std::filesystem::path projectRoot = AssetInspectorProjectRoot(context);
+    if (projectRoot.empty()) return false;
+    AssetDatabase database;
+    if (!database.Open(projectRoot / ".myengine" / "AssetDatabase.json")) return false;
+    const AssetRecord* record = database.FindByUuid(uuid);
+    if (!record) return false;
+    outSettings = record->settingsJson.empty() ? std::string("{}") : record->settingsJson;
+    return true;
+}
+
+bool ParseImportSettingsJson(const std::string& text, nlohmann::json& out,
+                             std::string* error)
+{
+    try {
+        out = nlohmann::json::parse(text.empty() ? "{}" : text);
+        if (!out.is_object()) {
+            if (error) *error = "settings must be a JSON object";
+            return false;
+        }
+        return true;
+    } catch (const std::exception& exception) {
+        if (error) *error = exception.what();
+        return false;
+    }
+}
+
+std::string PrettyImportSettingsJson(const std::string& text)
+{
+    nlohmann::json value;
+    return ParseImportSettingsJson(text, value, nullptr) ? value.dump(2) : text;
+}
+
+std::string ImportSettingsWithTextureSampler(
+    EditorContext& context, const std::string& uuid,
+    TextureFilter filter, TextureWrap wrapU, TextureWrap wrapV)
+{
+    std::string current;
+    nlohmann::json settings = nlohmann::json::object();
+    if (ReadImportSettingsJson(context, uuid, current)) {
+        std::string error;
+        if (!ParseImportSettingsJson(current, settings, &error)) {
+            settings = nlohmann::json::object();
+        }
+    }
+
+    const auto filterText = filter == TextureFilter::Nearest
+        ? std::string("nearest") : std::string("linear");
+    const auto wrapText = [](TextureWrap wrap) {
+        return wrap == TextureWrap::Clamp ? std::string("clamp") : std::string("repeat");
+    };
+    settings["textureSampler"] = {
+        {"filter", filterText},
+        {"wrapU", wrapText(wrapU)},
+        {"wrapV", wrapText(wrapV)}
+    };
+    return settings.dump();
+}
+
+std::unordered_map<std::string, std::string> g_ImportSettingsEditBuffers;
+
+void DrawImportSettingsEditor(EditorContext& context, const EditorAssetInfo& info)
+{
+#if defined(MYENGINE_ENABLE_IMGUI)
+    if (!info.imported || info.uuid.empty()) return;
+
+    std::string currentSettings;
+    if (!ReadImportSettingsJson(context, info.uuid, currentSettings)) {
+        ImGui::TextDisabled("Import settings unavailable");
+        return;
+    }
+
+    auto bufferIt = g_ImportSettingsEditBuffers.find(info.uuid);
+    if (bufferIt == g_ImportSettingsEditBuffers.end()) {
+        bufferIt = g_ImportSettingsEditBuffers
+            .emplace(info.uuid, PrettyImportSettingsJson(currentSettings))
+            .first;
+    }
+    std::string& editBuffer = bufferIt->second;
+
+    if (!ImGui::TreeNodeEx("Import Settings", ImGuiTreeNodeFlags_DefaultOpen)) {
+        return;
+    }
+
+    constexpr size_t kSettingsBufferSize = 8192;
+    std::array<char, kSettingsBufferSize> buffer{};
+    std::snprintf(buffer.data(), buffer.size(), "%s", editBuffer.c_str());
+    if (ImGui::InputTextMultiline(
+            "Settings JSON", buffer.data(), buffer.size(),
+            ImVec2(0.0f, ImGui::GetTextLineHeight() * 8.0f),
+            ImGuiInputTextFlags_AllowTabInput)) {
+        editBuffer = buffer.data();
+    }
+
+    nlohmann::json parsed;
+    std::string parseError;
+    const bool valid = ParseImportSettingsJson(editBuffer, parsed, &parseError);
+    if (!valid) {
+        ImGui::TextColored({1.0f, 0.35f, 0.25f, 1.0f},
+                           "Invalid settings JSON: %s", parseError.c_str());
+    }
+
+    ImGui::BeginDisabled(!valid || parsed.dump() == currentSettings);
+    if (ImGui::Button("Apply Settings")) {
+        if (auto* operators = context.GetOperators()) {
+            if (operators->Assets().ReimportWithSettings(
+                    context, info.uuid, parsed.dump())) {
+                editBuffer = parsed.dump(2);
+            }
+        }
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (ImGui::Button("Reset Settings")) {
+        if (auto* operators = context.GetOperators()) {
+            if (operators->Assets().ReimportWithSettings(context, info.uuid, "{}")) {
+                editBuffer = "{}";
+            }
+        }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Reload Settings")) {
+        editBuffer = PrettyImportSettingsJson(currentSettings);
+    }
+
+    ImGui::TreePop();
+#else
+    (void)context;
+    (void)info;
+#endif
+}
+
+const EditorAssetInfo* SelectedAssetInfo(EditorContext& context,
+                                         const std::string& path)
+{
+    const EditorAssetRegistry* registry = context.GetAssetRegistry();
+    return registry ? registry->GetAssetInfo(path) : nullptr;
+}
+
+std::string AssetRecordDisplayPath(const AssetRecord& record)
+{
+    if (!record.sourcePath.empty()) return record.sourcePath;
+    if (!record.artifactPath.empty()) return record.artifactPath;
+    return record.uuid;
+}
+
+const char* AssetValidationIssueLabel(AssetDatabaseValidationIssueCode code)
+{
+    switch (code) {
+        case AssetDatabaseValidationIssueCode::DuplicateUuid: return "Duplicate UUID";
+        case AssetDatabaseValidationIssueCode::DuplicateSourcePath: return "Duplicate Source";
+        case AssetDatabaseValidationIssueCode::MissingSource: return "Missing Source";
+        case AssetDatabaseValidationIssueCode::MissingArtifact: return "Missing Artifact";
+        case AssetDatabaseValidationIssueCode::ArtifactHashMismatch: return "Artifact Hash";
+        case AssetDatabaseValidationIssueCode::UnknownDependency: return "Unknown Dependency";
+        case AssetDatabaseValidationIssueCode::DependencyCycle: return "Dependency Cycle";
+        case AssetDatabaseValidationIssueCode::StateNotReady: return "Import State";
+        case AssetDatabaseValidationIssueCode::IncompleteRecord: return "Incomplete Record";
+        default: return "Validation";
+    }
+}
+
+bool AssetPathMatchesIssue(const AssetRecord& record,
+                           const AssetDatabaseValidationIssue& issue)
+{
+    if (!issue.uuid.empty() && issue.uuid == record.uuid) return true;
+    if (issue.path.empty()) return false;
+    const std::string issuePath =
+        std::filesystem::path(issue.path).lexically_normal().generic_string();
+    const auto matches = [&](const std::string& path) {
+        return !path.empty() &&
+            std::filesystem::path(path).lexically_normal().generic_string() == issuePath;
+    };
+    return matches(record.sourcePath) || matches(record.artifactPath);
+}
+
+void SelectAssetRecord(EditorContext& context, const AssetRecord& record)
+{
+    const std::string path = AssetRecordDisplayPath(record);
+    if (path.empty()) return;
+    if (auto* operators = context.GetOperators()) {
+        operators->Selection().SelectAsset(context, path);
+    } else {
+        context.GetSelection().SelectAssetPath(path);
+    }
+}
+
+void DrawAssetRecordRow(EditorContext& context, const AssetRecord& record,
+                        const char* suffix)
+{
+#if defined(MYENGINE_ENABLE_IMGUI)
+    const std::string path = AssetRecordDisplayPath(record);
+    const std::string name = path.empty()
+        ? record.uuid
+        : std::filesystem::path(path).filename().string();
+    ImGui::PushID((std::string(suffix) + record.uuid + path).c_str());
+    if (ImGui::SmallButton("Select")) {
+        SelectAssetRecord(context, record);
+    }
+    ImGui::SameLine();
+    ImGui::TextWrapped("%s", name.empty() ? "(unnamed asset)" : name.c_str());
+    if (!record.type.empty()) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("[%s]", record.type.c_str());
+    }
+    if (!path.empty() && ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("%s", path.c_str());
+    }
+    if (!record.uuid.empty()) {
+        ImGui::TextDisabled("UUID: %s", record.uuid.c_str());
+    }
+    ImGui::PopID();
+#else
+    (void)context;
+    (void)record;
+    (void)suffix;
+#endif
+}
+
+void DrawAssetRecordList(EditorContext& context, const char* label,
+                         const std::vector<const AssetRecord*>& records,
+                         const char* suffix)
+{
+#if defined(MYENGINE_ENABLE_IMGUI)
+    const std::string header = std::string(label) + " (" +
+        std::to_string(records.size()) + ")";
+    if (!ImGui::TreeNodeEx(header.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
+        return;
+    }
+    if (records.empty()) {
+        ImGui::TextDisabled("None");
+    } else {
+        for (const AssetRecord* record : records) {
+            if (record) DrawAssetRecordRow(context, *record, suffix);
+        }
+    }
+    ImGui::TreePop();
+#else
+    (void)context;
+    (void)label;
+    (void)records;
+    (void)suffix;
+#endif
+}
+
+void DrawUnresolvedDependencyList(const AssetDatabase& database,
+                                  const AssetRecord& record)
+{
+#if defined(MYENGINE_ENABLE_IMGUI)
+    std::vector<std::string> unresolved;
+    for (const std::string& uuid : record.dependencies) {
+        if (!uuid.empty() && !database.FindByUuid(uuid)) unresolved.push_back(uuid);
+    }
+    if (unresolved.empty()) return;
+    const std::string header = "Unresolved Dependencies (" +
+        std::to_string(unresolved.size()) + ")";
+    if (!ImGui::TreeNodeEx(header.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
+        return;
+    }
+    for (const std::string& uuid : unresolved) {
+        ImGui::TextWrapped("Missing dependency UUID: %s", uuid.c_str());
+    }
+    ImGui::TreePop();
+#else
+    (void)database;
+    (void)record;
+#endif
+}
+
+void DrawAssetValidationIssueList(const std::vector<AssetDatabaseValidationIssue>& issues)
+{
+#if defined(MYENGINE_ENABLE_IMGUI)
+    if (issues.empty()) return;
+    const std::string header = "Validation Issues (" +
+        std::to_string(issues.size()) + ")";
+    if (!ImGui::TreeNodeEx(header.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
+        return;
+    }
+    for (const AssetDatabaseValidationIssue& issue : issues) {
+        ImGui::TextWrapped("%s: %s",
+            AssetValidationIssueLabel(issue.code), issue.message.c_str());
+        if (!issue.path.empty()) {
+            ImGui::TextDisabled("%s", issue.path.c_str());
+        }
+    }
+    ImGui::TreePop();
+#else
+    (void)issues;
+#endif
+}
+
+void DrawAssetSceneReferenceRows(
+    EditorContext& context,
+    const std::vector<EditorAssetOperator::SceneReferenceInfo>& references,
+    bool allowSelectCurrentSceneActor)
+{
+#if defined(MYENGINE_ENABLE_IMGUI)
+    auto* operators = context.GetOperators();
+    for (const auto& reference : references) {
+        ImGui::PushID(reference.scenePath.c_str());
+        ImGui::PushID(static_cast<int>(reference.actorID));
+        ImGui::PushID(reference.componentType.c_str());
+        ImGui::PushID(reference.jsonPath.c_str());
+        if (allowSelectCurrentSceneActor && operators) {
+            if (ImGui::SmallButton("Select")) {
+                operators->Selection().SelectActor(context, reference.actorID);
+                context.RequestPanelFocus("sceneHierarchy");
+            }
+            ImGui::SameLine();
+        }
+        ImGui::TextWrapped("%s", reference.actorName.empty()
+            ? "(unnamed actor)" : reference.actorName.c_str());
+        if (!reference.scenePath.empty()) {
+            ImGui::TextDisabled("%s", reference.scenePath.c_str());
+        }
+        ImGui::TextDisabled("%s %s", reference.componentType.c_str(),
+                            reference.jsonPath.c_str());
+        if (!reference.valuePreview.empty()) {
+            ImGui::TextWrapped("%s", reference.valuePreview.c_str());
+        }
+        ImGui::PopID();
+        ImGui::PopID();
+        ImGui::PopID();
+        ImGui::PopID();
+    }
+#else
+    (void)context;
+    (void)references;
+    (void)allowSelectCurrentSceneActor;
+#endif
+}
+
+void DrawAssetSceneReferenceList(EditorContext& context, const std::string& path)
+{
+#if defined(MYENGINE_ENABLE_IMGUI)
+    auto* operators = context.GetOperators();
+    if (!operators) return;
+    const auto references = operators->Assets().FindSceneReferences(context, path);
+    const std::string header = "Scene References (" +
+        std::to_string(references.size()) + ")";
+    if (!ImGui::TreeNodeEx(header.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
+        return;
+    }
+    if (references.empty()) {
+        ImGui::TextDisabled("No current scene references");
+        ImGui::TreePop();
+        return;
+    }
+    DrawAssetSceneReferenceRows(context, references, true);
+    ImGui::TreePop();
+#else
+    (void)context;
+    (void)path;
+#endif
+}
+
+void DrawAssetProjectSceneReferenceList(EditorContext& context, const std::string& path)
+{
+#if defined(MYENGINE_ENABLE_IMGUI)
+    auto* operators = context.GetOperators();
+    if (!operators) return;
+    const auto references =
+        operators->Assets().FindProjectSceneReferences(context, path);
+    const std::string header = "Project Scene References (" +
+        std::to_string(references.size()) + ")";
+    if (!ImGui::TreeNodeEx(header.c_str())) {
+        return;
+    }
+    if (references.empty()) {
+        ImGui::TextDisabled("No project scene references");
+        ImGui::TreePop();
+        return;
+    }
+    DrawAssetSceneReferenceRows(context, references, false);
+    ImGui::TreePop();
+#else
+    (void)context;
+    (void)path;
+#endif
+}
+
+void DrawAssetDependencySection(EditorContext& context, const EditorAssetInfo& info)
+{
+#if defined(MYENGINE_ENABLE_IMGUI)
+    if (info.uuid.empty()) return;
+    const std::filesystem::path projectRoot = AssetInspectorProjectRoot(context);
+    if (projectRoot.empty()) return;
+
+    AssetDatabase database;
+    std::string error;
+    if (!database.Open(projectRoot / ".myengine" / "AssetDatabase.json", &error)) {
+        ImGui::TextDisabled("Asset dependencies unavailable: %s", error.c_str());
+        return;
+    }
+
+    const AssetRecord* record = database.FindByUuid(info.uuid);
+    if (!record) {
+        ImGui::TextDisabled("Asset dependency record unavailable");
+        return;
+    }
+
+    const auto dependencies = database.GetDependencies(info.uuid);
+    const auto referencers = database.GetReferencers(info.uuid);
+    AssetDatabaseValidationReport validationReport;
+    database.ValidateAgainstProject(projectRoot, validationReport);
+    std::vector<AssetDatabaseValidationIssue> currentIssues;
+    for (const AssetDatabaseValidationIssue& issue : validationReport.issues) {
+        if (AssetPathMatchesIssue(*record, issue)) currentIssues.push_back(issue);
+    }
+
+    ImGui::Separator();
+    ImGui::TextUnformatted("Dependencies");
+    DrawAssetRecordList(context, "Dependencies", dependencies, "dependency");
+    DrawUnresolvedDependencyList(database, *record);
+    DrawAssetRecordList(context, "Referencers", referencers, "referencer");
+    DrawAssetSceneReferenceList(context, info.absolutePath.string());
+    DrawAssetProjectSceneReferenceList(context, info.absolutePath.string());
+    DrawAssetValidationIssueList(currentIssues);
+#else
+    (void)context;
+    (void)info;
+#endif
+}
+
+void DrawAssetMetadataHeader(EditorContext& context, const std::string& path,
+                             const char* fallbackTypeLabel)
+{
+#if defined(MYENGINE_ENABLE_IMGUI)
+    const EditorAssetInfo* info = SelectedAssetInfo(context, path);
+    ImGui::Separator();
+    ImGui::Text("Asset: %s", std::filesystem::path(path).filename().string().c_str());
+    ImGui::TextWrapped("Path: %s", path.c_str());
+    ImGui::Text("Type: %s", info ? EditorAssetTypeLabel(info->type) : fallbackTypeLabel);
+    if (!info) {
+        ImGui::TextDisabled("Registry metadata unavailable");
+        return;
+    }
+
+    if (!info->uuid.empty()) ImGui::Text("UUID: %s", info->uuid.c_str());
+    ImGui::Text("Import State: %s", AssetImportStateLabel(info->importState));
+    if (!info->artifactPath.empty()) {
+        ImGui::TextWrapped("Artifact: %s", info->artifactPath.string().c_str());
+    }
+    if (info->imported && !info->uuid.empty()) {
+        if (ImGui::Button("Reimport")) {
+            if (auto* operators = context.GetOperators()) {
+                operators->Assets().Reimport(context, info->uuid);
+            }
+        }
+    }
+    DrawImportSettingsEditor(context, *info);
+    DrawAssetDependencySection(context, *info);
+    if (!info->diagnostics.empty()) {
+        ImGui::Separator();
+        ImGui::TextUnformatted("Diagnostics");
+        for (const AssetDiagnostic& diagnostic : info->diagnostics) {
+            ImGui::TextWrapped("%s: %s",
+                diagnostic.severity.c_str(), diagnostic.message.c_str());
+        }
+    }
+#else
+    (void)context;
+    (void)path;
+    (void)fallbackTypeLabel;
+#endif
+}
+
 template <typename T, typename Fn>
 void CommitComponentEdit(EditorContext& context, Actor& actor, T& component,
                          const char* propertyName, Fn&& edit)
@@ -101,13 +686,98 @@ void CommitComponentEdit(EditorContext& context, Actor& actor, T& component,
     component.Serialize(after);
     if (before == after) return;
     component.Deserialize(before);
-    if (auto* stack = context.GetCommandStack()) {
-        stack->ExecuteCommand(std::make_unique<SetComponentPropertyCommand>(
-            actor.GetID(), component.GetTypeName(), propertyName, before, after), context);
+    if (auto* operators = context.GetOperators()) {
+        operators->Components().SetProperty(
+            context, actor, component.GetTypeName(), propertyName, before, after);
     } else {
-        component.Deserialize(after);
-        context.MarkSceneDirty();
+        EditorComponentOperator componentOperator;
+        componentOperator.SetProperty(
+            context, actor, component.GetTypeName(), propertyName, before, after);
     }
+}
+
+bool CommitSceneNameEdit(EditorContext& context, const std::string& beforeName,
+                         const std::string& afterName)
+{
+    if (beforeName == afterName) return false;
+    if (auto* operators = context.GetOperators()) {
+        return operators->Commands().SetSceneName(context, afterName);
+    }
+    EditorCommandOperator commandOperator;
+    return commandOperator.SetSceneName(context, afterName);
+}
+
+bool CommitSceneGravityEdit(EditorContext& context, const Vec3& beforeGravity,
+                            const Vec3& afterGravity)
+{
+    if (beforeGravity.x == afterGravity.x &&
+        beforeGravity.y == afterGravity.y &&
+        beforeGravity.z == afterGravity.z) {
+        return false;
+    }
+    if (auto* operators = context.GetOperators()) {
+        return operators->Commands().SetSceneGravity(context, afterGravity);
+    }
+    EditorCommandOperator commandOperator;
+    return commandOperator.SetSceneGravity(context, afterGravity);
+}
+
+bool CommitSceneMainCameraHintEdit(EditorContext& context, uint64_t beforeActorID,
+                                   uint64_t afterActorID)
+{
+    if (beforeActorID == afterActorID) return false;
+    if (auto* operators = context.GetOperators()) {
+        return operators->Commands().SetSceneMainCameraHint(context, afterActorID);
+    }
+    EditorCommandOperator commandOperator;
+    return commandOperator.SetSceneMainCameraHint(context, afterActorID);
+}
+
+bool CommitSceneAmbientIntensityEdit(EditorContext& context, float beforeIntensity,
+                                     float afterIntensity)
+{
+    if (afterIntensity < 0.0f) afterIntensity = 0.0f;
+    if (beforeIntensity == afterIntensity) return false;
+    if (auto* operators = context.GetOperators()) {
+        return operators->Commands().SetSceneAmbientIntensity(context, afterIntensity);
+    }
+    EditorCommandOperator commandOperator;
+    return commandOperator.SetSceneAmbientIntensity(context, afterIntensity);
+}
+
+template <typename Fn>
+bool ModifyMaterialAssetField(EditorContext& context, const std::string& path,
+                              const char* label, Fn&& edit)
+{
+    MaterialModifier modifier(
+        path, label,
+        [fn = std::forward<Fn>(edit)](MaterialAsset& target) mutable {
+            fn(target);
+            return true;
+        });
+    return modifier.Modify(context);
+}
+
+bool RemoveComponentByType(EditorContext& context, Actor& actor, const char* typeName)
+{
+    if (!typeName || !actor.HasComponentType(typeName)) return false;
+    if (auto* operators = context.GetOperators()) {
+        return operators->Components().RemoveComponent(context, actor.GetID(), typeName);
+    }
+    EditorComponentOperator componentOperator;
+    return componentOperator.RemoveComponent(context, actor.GetID(), typeName);
+}
+
+bool AddComponentByType(EditorContext& context, Actor& actor, const std::string& typeName,
+                        const nlohmann::json& initialData)
+{
+    if (typeName.empty()) return false;
+    if (auto* operators = context.GetOperators()) {
+        return operators->Components().AddComponent(
+            context, actor.GetID(), typeName, initialData);
+    }
+    EditorComponentOperator componentOperator;
+    return componentOperator.AddComponent(context, actor.GetID(), typeName, initialData);
 }
 
 bool DrawStringField(const char* label, std::string& value)
@@ -292,18 +962,63 @@ public:
         std::array<char, 128> nameBuf{};
         std::strncpy(nameBuf.data(), scene->GetName().c_str(), nameBuf.size() - 1);
         if (ImGui::InputText("Name", nameBuf.data(), nameBuf.size())) {
-            scene->SetName(nameBuf.data());
-            context.MarkSceneDirty();
+            CommitSceneNameEdit(context, scene->GetName(), nameBuf.data());
         }
 
         ImGui::Text("Actors: %zu", scene->ActorCount());
+
+        std::vector<Actor*> cameraActors;
+        scene->ForEach([&](Actor& actor) {
+            if (actor.GetComponent<CameraComponent>()) cameraActors.push_back(&actor);
+        });
+        const uint64_t currentMainCameraHint = scene->GetMainCameraHintActorID();
+        std::string mainCameraLabel = "Auto";
+        if (currentMainCameraHint != 0) {
+            Actor* hintedActor = scene->FindByID(currentMainCameraHint);
+            mainCameraLabel = hintedActor
+                ? hintedActor->GetName() + " (" + std::to_string(currentMainCameraHint) + ")"
+                : "Missing actor " + std::to_string(currentMainCameraHint);
+        }
+        if (ImGui::BeginCombo("Main Camera Hint", mainCameraLabel.c_str())) {
+            if (ImGui::Selectable("Auto", currentMainCameraHint == 0)) {
+                CommitSceneMainCameraHintEdit(context, currentMainCameraHint, 0);
+            }
+            for (Actor* cameraActor : cameraActors) {
+                if (!cameraActor) continue;
+                const uint64_t actorID = cameraActor->GetID();
+                const std::string label = cameraActor->GetName() + " (" +
+                    std::to_string(actorID) + ")";
+                if (ImGui::Selectable(label.c_str(), currentMainCameraHint == actorID)) {
+                    CommitSceneMainCameraHintEdit(context, currentMainCameraHint, actorID);
+                }
+            }
+            ImGui::EndCombo();
+        }
+
+        ImGui::Separator();
+        ImGui::TextUnformatted("Rendering Defaults");
+        float ambientIntensity = scene->GetAmbientIntensity();
+        if (ImGui::DragFloat("Ambient Intensity", &ambientIntensity, 0.05f,
+                             0.0f, 20.0f, "%.2f")) {
+            CommitSceneAmbientIntensityEdit(
+                context, scene->GetAmbientIntensity(), ambientIntensity);
+        }
 
         ImGui::Separator();
         ImGui::TextUnformatted("Physics");
         Vec3 grav = scene->GetPhysicsWorld().GetGravity();
         if (DrawVec3("Gravity", grav, 0.1f)) {
-            scene->GetPhysicsWorld().SetGravity(grav);
-            context.MarkSceneDirty();
+            CommitSceneGravityEdit(context, scene->GetPhysicsWorld().GetGravity(), grav);
+        }
+        ImGui::Separator();
+        ImGui::TextUnformatted("Navigation");
+        const NavigationWorld& navigation = scene->GetNavigationWorld();
+        ImGui::Text("Status: %s", navigation.IsBaked() ? "Baked" : "Not baked");
+        if (navigation.IsBaked()) {
+            ImGui::Text("Grid: %u x %u", navigation.GetWidth(), navigation.GetHeight());
+        }
+        if (ImGui::Button("Bake Navigation")) {
+            EditorNavigationBakeService{}.Bake(context, *scene);
         }
     }
 };
@@ -323,13 +1038,192 @@ public:
             ? registry->GetAssetInfo(object.GetAssetPath()) : nullptr;
         if (m_Type == EditorAssetType::Unknown) {
             return !info || (info->type != EditorAssetType::Material
-                && info->type != EditorAssetType::Texture);
+                && info->type != EditorAssetType::Texture
+                && info->type != EditorAssetType::Model
+                && info->type != EditorAssetType::Prefab
+                && info->type != EditorAssetType::Audio);
         }
         return info && info->type == m_Type;
     }
 
 private:
     EditorAssetType m_Type;
+};
+
+class ModelAssetInspectorSection final : public AssetInspectorSection {
+public:
+    ModelAssetInspectorSection()
+        : AssetInspectorSection(EditorAssetType::Model) {}
+    const char* GetID() const override { return "modelAsset"; }
+    int GetOrder() const override { return -7; }
+
+    void Draw(EditorContext& context) override {
+        const std::string& path = context.GetSelection().GetAssetPath();
+        if (path.empty()) return;
+
+        ImGui::Separator();
+        ImGui::PushID("ModelAsset");
+        DrawAssetMetadataHeader(context, path, "Model");
+
+        auto handle = AssetManager::Get().GetByPath<ModelAsset>(path);
+        if (!handle.IsValid()) {
+            handle = AssetManager::Get().Load<ModelAsset>(path);
+        }
+        if (!handle.IsValid()) {
+            ImGui::TextDisabled("Model not loaded: %s", path.c_str());
+            ImGui::PopID();
+            return;
+        }
+
+        const ModelAsset* model = handle.Get();
+        ImGui::Separator();
+        ImGui::Text("Model: %s", model->GetName().c_str());
+        ImGui::Text("Materials: %d", model->MaterialCount());
+        ImGui::Text("Nodes: %zu", model->GetNodes().size());
+        ImGui::Text("Bones: %zu", model->GetBones().size());
+        ImGui::Text("Animations: %zu", model->GetAnimations().size());
+
+        if (const MeshAsset* mesh = model->GetMeshPtr()) {
+            ImGui::Separator();
+            ImGui::TextUnformatted("Mesh");
+            ImGui::Text("Vertices: %u", mesh->VertexCount());
+            ImGui::Text("Indices: %u", mesh->IndexCount());
+            ImGui::Text("Submeshes: %zu", mesh->GetSubMeshes().size());
+            ImGui::Text("LODs: %zu", mesh->GetLods().size());
+            ImGui::Text("GPU Uploaded: %s", mesh->IsUploaded() ? "Yes" : "No");
+        } else {
+            ImGui::TextDisabled("Mesh unavailable");
+        }
+
+        if (!model->GetMaterials().empty() &&
+            ImGui::TreeNodeEx("Material Slots", ImGuiTreeNodeFlags_DefaultOpen)) {
+            for (size_t index = 0; index < model->GetMaterials().size(); ++index) {
+                const MaterialHandle& material = model->GetMaterials()[index];
+                ImGui::Text("%zu: %s", index,
+                    material.IsValid() ? material->GetPath().c_str() : "(missing)");
+            }
+            ImGui::TreePop();
+        }
+
+        if (!model->GetAnimations().empty() && ImGui::TreeNodeEx("Animations")) {
+            for (const AnimationClip& clip : model->GetAnimations()) {
+                ImGui::Text("%s  %.2fs  tracks=%zu",
+                    clip.name.empty() ? "(unnamed)" : clip.name.c_str(),
+                    clip.duration, clip.tracks.size());
+            }
+            ImGui::TreePop();
+        }
+
+        ImGui::PopID();
+    }
+};
+
+class PrefabAssetInspectorSection final : public AssetInspectorSection {
+public:
+    PrefabAssetInspectorSection()
+        : AssetInspectorSection(EditorAssetType::Prefab) {}
+    const char* GetID() const override { return "prefabAsset"; }
+    int GetOrder() const override { return -6; }
+
+    void Draw(EditorContext& context) override {
+        const std::string& path = context.GetSelection().GetAssetPath();
+        if (path.empty()) return;
+
+        ImGui::Separator();
+        ImGui::PushID("PrefabAsset");
+        DrawAssetMetadataHeader(context, path, "Prefab");
+
+        PrefabAsset prefab;
+        std::string error;
+        if (!PrefabAsset::Load(path, prefab, &error)) {
+            ImGui::TextColored(ImVec4(0.9f, 0.35f, 0.25f, 1.0f),
+                               "Prefab failed to load: %s", error.c_str());
+            ImGui::PopID();
+            return;
+        }
+
+        const PrefabNode* rootNode = nullptr;
+        size_t componentCount = 0;
+        size_t rootCount = 0;
+        size_t sceneInstanceCount = 0;
+        const std::filesystem::path resolvedPrefabPath =
+            PrefabSystem::ResolvePrefabPath(path).lexically_normal();
+        for (const PrefabNode& node : prefab.nodes) {
+            componentCount += node.components.size();
+            if (node.parentLocalId.empty()) ++rootCount;
+            if (node.localId == prefab.rootLocalId) rootNode = &node;
+        }
+        if (Scene* scene = context.GetScene()) {
+            scene->ForEach([&](Actor& actor) {
+                if (!actor.IsPrefabRoot() || actor.GetPrefabAssetPath().empty()) return;
+                const std::filesystem::path actorPrefabPath =
+                    PrefabSystem::ResolvePrefabPath(actor.GetPrefabAssetPath())
+                        .lexically_normal();
+                if (actorPrefabPath == resolvedPrefabPath) ++sceneInstanceCount;
+            });
+        }
+
+        ImGui::Separator();
+        ImGui::Text("Prefab UUID: %s", prefab.uuid.empty() ? "(none)" : prefab.uuid.c_str());
+        ImGui::Text("Root Local ID: %s",
+                    prefab.rootLocalId.empty() ? "(none)" : prefab.rootLocalId.c_str());
+        ImGui::Text("Root Actor: %s",
+                    rootNode ? rootNode->name.c_str() : "(missing)");
+        ImGui::Text("Nodes: %zu", prefab.nodes.size());
+        ImGui::Text("Root Nodes: %zu", rootCount);
+        ImGui::Text("Components: %zu", componentCount);
+        ImGui::Text("Scene Instances: %zu", sceneInstanceCount);
+
+        ImGui::BeginDisabled(sceneInstanceCount == 0 || !context.GetOperators());
+        if (ImGui::Button("Select Scene Instances")) {
+            context.GetOperators()->Prefabs().SelectInstances(context, path);
+        }
+        ImGui::EndDisabled();
+
+        if (!prefab.Validate(&error)) {
+            ImGui::TextColored(ImVec4(0.9f, 0.65f, 0.15f, 1.0f),
+                               "Validation: %s", error.c_str());
+        }
+
+        if (!prefab.nodes.empty() &&
+            ImGui::TreeNodeEx("Prefab Nodes", ImGuiTreeNodeFlags_DefaultOpen)) {
+            for (const PrefabNode& node : prefab.nodes) {
+                ImGui::PushID(node.localId.c_str());
+                const std::string label = node.name.empty()
+                    ? "(unnamed)###node"
+                    : node.name + "###node";
+                const bool open = ImGui::TreeNodeEx(
+                    label.c_str(),
+                    ImGuiTreeNodeFlags_SpanAvailWidth |
+                    (node.components.empty() ? ImGuiTreeNodeFlags_Leaf : 0));
+                ImGui::SameLine();
+                ImGui::TextDisabled("%s", node.localId.c_str());
+                if (open) {
+                    ImGui::Text("Parent: %s",
+                                node.parentLocalId.empty()
+                                    ? "(root)"
+                                    : node.parentLocalId.c_str());
+                    ImGui::Text("Active: %s", node.activeSelf ? "Yes" : "No");
+                    if (!node.components.empty() &&
+                        ImGui::TreeNodeEx("Components", ImGuiTreeNodeFlags_DefaultOpen)) {
+                        for (const ComponentCreateDesc& component : node.components) {
+                            ImGui::Text("%s%s",
+                                        component.type.empty()
+                                            ? "(unknown component)"
+                                            : component.type.c_str(),
+                                        component.enabled ? "" : " (disabled)");
+                        }
+                        ImGui::TreePop();
+                    }
+                    ImGui::TreePop();
+                }
+                ImGui::PopID();
+            }
+            ImGui::TreePop();
+        }
+
+        ImGui::PopID();
+    }
 };
 
 class MaterialAssetInspectorSection final : public AssetInspectorSection {
@@ -343,70 +1237,115 @@ public:
         const std::string& path = context.GetSelection().GetAssetPath();
         if (path.empty()) return;
 
+        ImGui::Separator();
+        ImGui::PushID("MaterialAsset");
+        DrawAssetMetadataHeader(context, path, "Material");
+
         auto handle = AssetManager::Get().GetByPath<MaterialAsset>(path);
         if (!handle.IsValid()) {
             handle = AssetManager::Get().Load<MaterialAsset>(path);
         }
         if (!handle.IsValid()) {
             ImGui::TextDisabled("Material not loaded: %s", path.c_str());
+            ImGui::PopID();
             return;
         }
 
         auto* mat = handle.Get();
         ImGui::Separator();
-        ImGui::PushID("MaterialAsset");
         ImGui::Text("Material: %s", mat->GetName().c_str());
-        ImGui::Text("Path: %s", path.c_str());
 
         // Blend mode
         int blendMode = static_cast<int>(mat->GetBlendMode());
         const char* blendModes[] = {"Opaque", "AlphaTest", "Transparent"};
         if (ImGui::Combo("Blend Mode", &blendMode, blendModes, 3)) {
-            mat->SetBlendMode(static_cast<BlendMode>(blendMode));
+            ModifyMaterialAssetField(
+                context, path, "Set Material Blend Mode",
+                [blendMode](MaterialAsset& target) {
+                    target.SetBlendMode(static_cast<BlendMode>(blendMode));
+                });
         }
 
         // Alpha threshold
         if (mat->GetBlendMode() == BlendMode::AlphaTest) {
             float threshold = mat->GetAlphaThreshold();
             if (ImGui::DragFloat("Alpha Threshold", &threshold, 0.01f, 0.0f, 1.0f)) {
-                mat->SetAlphaThreshold(threshold);
+                ModifyMaterialAssetField(
+                    context, path, "Set Material Alpha Threshold",
+                    [threshold](MaterialAsset& target) {
+                        target.SetAlphaThreshold(threshold);
+                    });
             }
         }
 
         // Two-sided
         bool twoSided = mat->IsTwoSided();
-        if (ImGui::Checkbox("Two Sided", &twoSided)) mat->SetTwoSided(twoSided);
+        if (ImGui::Checkbox("Two Sided", &twoSided)) {
+            ModifyMaterialAssetField(
+                context, path, "Set Material Two Sided",
+                [twoSided](MaterialAsset& target) {
+                    target.SetTwoSided(twoSided);
+                });
+        }
 
         // Wireframe
         bool wireframe = mat->IsWireframe();
-        if (ImGui::Checkbox("Wireframe", &wireframe)) mat->SetWireframe(wireframe);
+        if (ImGui::Checkbox("Wireframe", &wireframe)) {
+            ModifyMaterialAssetField(
+                context, path, "Set Material Wireframe",
+                [wireframe](MaterialAsset& target) {
+                    target.SetWireframe(wireframe);
+                });
+        }
 
         ImGui::Separator();
         ImGui::TextUnformatted("Parameters");
 
         // Material parameters
-        const auto& params = mat->GetParams();
+        std::vector<std::pair<std::string, MaterialParam>> params;
+        params.reserve(mat->GetParams().size());
+        for (const auto& [name, param] : mat->GetParams()) {
+            params.emplace_back(name, param);
+        }
         for (const auto& [name, param] : params) {
             ImGui::PushID(name.c_str());
             switch (param.type) {
                 case MaterialParam::Type::Float: {
                     float v = param.data[0];
                     if (ImGui::DragFloat(name.c_str(), &v, 0.01f)) {
-                        mat->SetParam(name, MaterialParam::FromFloat(v));
+                        ModifyMaterialAssetField(
+                            context, path, "Set Material Parameter",
+                            [name, v](MaterialAsset& target) {
+                                target.SetParam(name, MaterialParam::FromFloat(v));
+                            });
                     }
                     break;
                 }
                 case MaterialParam::Type::Vec3: {
                     Vec3 v(param.data[0], param.data[1], param.data[2]);
                     if (DrawVec3(name.c_str(), v, 0.01f)) {
-                        mat->SetParam(name, MaterialParam::FromVec3(v.x, v.y, v.z));
+                        ModifyMaterialAssetField(
+                            context, path, "Set Material Parameter",
+                            [name, v](MaterialAsset& target) {
+                                target.SetParam(name,
+                                    MaterialParam::FromVec3(v.x, v.y, v.z));
+                            });
                     }
                     break;
                 }
                 case MaterialParam::Type::Vec4: {
                     float data[4] = {param.data[0], param.data[1], param.data[2], param.data[3]};
                     if (ImGui::ColorEdit4(name.c_str(), data)) {
-                        mat->SetParam(name, MaterialParam::FromVec4(data[0], data[1], data[2], data[3]));
+                        const float x = data[0];
+                        const float y = data[1];
+                        const float z = data[2];
+                        const float w = data[3];
+                        ModifyMaterialAssetField(
+                            context, path, "Set Material Parameter",
+                            [name, x, y, z, w](MaterialAsset& target) {
+                                target.SetParam(name,
+                                    MaterialParam::FromVec4(x, y, z, w));
+                            });
                     }
                     break;
                 }
@@ -427,7 +1366,13 @@ public:
         // Save button
         ImGui::Separator();
         if (ImGui::Button("Save Material")) {
-            if (SaveMaterialAssetToFile(*mat, path)) {
+            MaterialModifier modifier(
+                path, "Modify Material",
+                [mat](MaterialAsset& target) {
+                    target.ReloadFrom(*mat);
+                    return true;
+                });
+            if (modifier.Modify(context)) {
                 Logger::Info("[Editor] Material saved: ", path);
             } else {
                 Logger::Warn("[Editor] Failed to save material: ", path);
@@ -463,20 +1408,23 @@ public:
         const std::string& path = context.GetSelection().GetAssetPath();
         if (path.empty()) return;
 
+        ImGui::Separator();
+        ImGui::PushID("TextureAsset");
+        DrawAssetMetadataHeader(context, path, "Texture");
+
         auto handle = AssetManager::Get().GetByPath<TextureAsset>(path);
         if (!handle.IsValid()) {
             handle = AssetManager::Get().Load<TextureAsset>(path);
         }
         if (!handle.IsValid()) {
             ImGui::TextDisabled("Texture not loaded: %s", path.c_str());
+            ImGui::PopID();
             return;
         }
 
         auto* tex = handle.Get();
         ImGui::Separator();
-        ImGui::PushID("TextureAsset");
         ImGui::Text("Texture: %s", tex->GetName().c_str());
-        ImGui::Text("Path: %s", path.c_str());
 
         int w = tex->GetWidth();
         int h = tex->GetHeight();
@@ -524,31 +1472,59 @@ public:
             ImGui::EndCombo();
         }
         if (changed) {
-            tex->SetSampler(filter, wrapU, wrapV);
             const EditorAssetRegistry* registry = context.GetAssetRegistry();
             const EditorAssetInfo* info = registry ? registry->GetAssetInfo(path) : nullptr;
             if (info && info->imported && !info->uuid.empty()) {
-                const auto filterText = filter == TextureFilter::Nearest
-                    ? std::string("nearest") : std::string("linear");
-                const auto wrapText = [](TextureWrap wrap) {
-                    return wrap == TextureWrap::Clamp
-                        ? std::string("clamp") : std::string("repeat");
-                };
-                const nlohmann::json settings = {
-                    {"textureSampler", {
-                        {"filter", filterText},
-                        {"wrapU", wrapText(wrapU)},
-                        {"wrapV", wrapText(wrapV)}
-                    }}
-                };
-                if (auto* importer = context.GetService<EditorImportService>()) {
-                    importer->ReimportWithSettings(info->uuid, settings.dump());
+                const std::string settingsJson = ImportSettingsWithTextureSampler(
+                    context, info->uuid, filter, wrapU, wrapV);
+                if (auto* operators = context.GetOperators()) {
+                    operators->Assets().ReimportWithSettings(context, info->uuid, settingsJson);
+                } else {
+                    EditorAssetOperator assetOperator;
+                    assetOperator.ReimportWithSettings(context, info->uuid, settingsJson);
                 }
             }
         }
 
         // Texture thumbnail (requires ImGui GPU backend integration for preview)\n        if (tex->GetGpuHandle()) {\n            ImGui::TextColored(ImVec4(0.3f, 0.8f, 0.3f, 1.0f), "(GPU resident)");\n        } else {\n            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "(preview not available)");\n        }
 
+        ImGui::PopID();
+    }
+};
+
+class AudioAssetInspectorSection final : public AssetInspectorSection {
+public:
+    AudioAssetInspectorSection()
+        : AssetInspectorSection(EditorAssetType::Audio) {}
+    const char* GetID() const override { return "audioAsset"; }
+    int GetOrder() const override { return -3; }
+
+    void Draw(EditorContext& context) override {
+        const std::string& path = context.GetSelection().GetAssetPath();
+        if (path.empty()) return;
+
+        ImGui::Separator();
+        ImGui::PushID("AudioAsset");
+        DrawAssetMetadataHeader(context, path, "Audio");
+
+        auto handle = AssetManager::Get().GetByPath<AudioClipAsset>(path);
+        if (!handle.IsValid()) {
+            handle = AssetManager::Get().Load<AudioClipAsset>(path);
+        }
+        if (!handle.IsValid()) {
+            ImGui::TextDisabled("Audio clip not loaded: %s", path.c_str());
+            ImGui::PopID();
+            return;
+        }
+
+        const AudioClipAsset* clip = handle.Get();
+        ImGui::Separator();
+        ImGui::Text("Clip: %s", clip->GetName().c_str());
+        ImGui::Text("Channels: %u", clip->GetChannels());
+        ImGui::Text("Sample Rate: %u Hz", clip->GetSampleRate());
+        ImGui::Text("Frames: %llu",
+                    static_cast<unsigned long long>(clip->GetFrameCount()));
+        ImGui::Text("Duration: %.3f seconds", clip->GetDurationSeconds());
         ImGui::PopID();
     }
 };
@@ -564,10 +1540,9 @@ public:
         const std::string& path = context.GetSelection().GetAssetPath();
         if (path.empty()) return;
 
+        DrawAssetMetadataHeader(context, path, "Asset");
+
         if (IsJsonAsset(path)) {
-            ImGui::Separator();
-            ImGui::Text("Asset: %s", std::filesystem::path(path).filename().string().c_str());
-            ImGui::Text("Path: %s", path.c_str());
             ImGui::TextUnformatted("Type: JSON");
             DrawJsonAssetPreview(path);
             return;
@@ -578,10 +1553,8 @@ public:
             handle = AssetManager::Get().Load<Asset>(path);
         }
 
-        ImGui::Separator();
         ImGui::Text("Asset: %s",
             handle.IsValid() ? handle->GetName().c_str() : "(not loaded)");
-        ImGui::Text("Path: %s", path.c_str());
 
         if (handle.IsValid()) {
             ImGui::Text("Type: %s", AssetTypeToString(handle->GetType()));
@@ -729,7 +1702,7 @@ public:
         }
 
         if (EditorWidgets::IconButton("RemoveMeshRenderer", "X", "Remove Mesh Renderer")) {
-            actor->RemoveComponent<MeshRendererComponent>();
+            RemoveComponentByType(context, *actor, "MeshRenderer");
         }
         ImGui::PopID();
     }
@@ -755,7 +1728,245 @@ public:
         DrawEnabled(*skinned);
 
         if (EditorWidgets::IconButton("RemoveSkinnedMesh", "X", "Remove Skinned Mesh")) {
-            actor->RemoveComponent<SkinnedMeshRendererComponent>();
+            RemoveComponentByType(context, *actor, "SkinnedMeshRenderer");
+        }
+        ImGui::PopID();
+    }
+};
+
+class AnimatorInspectorSection final : public ActorInspectorSection {
+public:
+    const char* GetID() const override { return "animator"; }
+    int GetOrder() const override { return 120; }
+    void Draw(EditorContext& context) override
+    {
+        Actor* actor = SelectedActor(context);
+        auto* animator = actor ? actor->GetComponent<AnimatorComponent>() : nullptr;
+        if (!animator) return;
+        ImGui::Separator();
+        ImGui::PushID("Animator");
+        if (SectionHeaderWithIcon(context, EditorIcons::Mesh, "Animator")) {
+            DrawEnabled(*animator);
+            ImGui::Text("State: %s", animator->GetCurrentState().empty() ? "(none)" : animator->GetCurrentState().c_str());
+            ImGui::Text("Normalized Time: %.3f", animator->GetNormalizedTime());
+            bool rootMotion = animator->AppliesRootMotion();
+            if (ImGui::Checkbox("Apply Root Motion", &rootMotion)) {
+                CommitComponentEdit(context, *actor, *animator, "applyRootMotion", [&] {
+                    animator->SetApplyRootMotion(rootMotion);
+                });
+            }
+            ImGui::TextDisabled("Controller states are serialized with this component in P0.");
+            if (EditorWidgets::IconButton("RemoveAnimator", "X", "Remove Animator"))
+                RemoveComponentByType(context, *actor, "Animator");
+        }
+        ImGui::PopID();
+    }
+};
+
+class ThirdPersonCameraInspectorSection final : public ActorInspectorSection {
+public:
+    const char* GetID() const override { return "thirdPersonCamera"; }
+    int GetOrder() const override { return 121; }
+    void Draw(EditorContext& context) override
+    {
+        Actor* actor = SelectedActor(context);
+        auto* camera = actor ? actor->GetComponent<ThirdPersonCameraComponent>() : nullptr;
+        if (!camera) return;
+        ImGui::Separator();
+        ImGui::PushID("ThirdPersonCamera");
+        if (SectionHeaderWithIcon(context, EditorIcons::Camera, "Third Person Camera")) {
+            DrawEnabled(*camera);
+            float distance = camera->GetDistance();
+            float sensitivity = camera->GetSensitivity();
+            float radius = camera->GetCollisionRadius();
+            float sharpness = camera->GetFollowSharpness();
+            Vec3 offset = camera->GetTargetOffset();
+            if (ImGui::DragFloat("Distance", &distance, 0.05f, 0.1f, 100.0f))
+                CommitComponentEdit(context, *actor, *camera, "distance", [&] { camera->SetDistance(distance); });
+            if (DrawVec3("Target Offset", offset, 0.02f))
+                CommitComponentEdit(context, *actor, *camera, "targetOffset", [&] { camera->SetTargetOffset(offset); });
+            if (ImGui::DragFloat("Sensitivity", &sensitivity, 0.01f, 0.0f, 10.0f))
+                CommitComponentEdit(context, *actor, *camera, "sensitivity", [&] { camera->SetSensitivity(sensitivity); });
+            if (ImGui::DragFloat("Collision Radius", &radius, 0.01f, 0.0f, 5.0f))
+                CommitComponentEdit(context, *actor, *camera, "collisionRadius", [&] { camera->SetCollisionRadius(radius); });
+            if (ImGui::DragFloat("Follow Sharpness", &sharpness, 0.1f, 0.0f, 100.0f))
+                CommitComponentEdit(context, *actor, *camera, "followSharpness", [&] { camera->SetFollowSharpness(sharpness); });
+            if (EditorWidgets::IconButton("RemoveThirdPersonCamera", "X", "Remove Third Person Camera"))
+                RemoveComponentByType(context, *actor, "ThirdPersonCamera");
+        }
+        ImGui::PopID();
+    }
+};
+
+class GameplayInspectorSection final : public ActorInspectorSection {
+public:
+    const char* GetID() const override { return "gameplay"; }
+    int GetOrder() const override { return 240; }
+
+    void Draw(EditorContext& context) override
+    {
+        Actor* actor = SelectedActor(context);
+        if (!actor) return;
+
+        auto* health = actor->GetComponent<HealthComponent>();
+        auto* hitbox = actor->GetComponent<HitboxComponent>();
+        auto* hurtbox = actor->GetComponent<HurtboxComponent>();
+        auto* interaction = actor->GetComponent<InteractionComponent>();
+        auto* particles = actor->GetComponent<ParticleSystemComponent>();
+        auto* listener = actor->GetComponent<AudioListenerComponent>();
+        auto* agent = actor->GetComponent<NavAgentComponent>();
+        auto* enemy = actor->GetComponent<EnemyAIComponent>();
+        auto* feedback = actor->GetComponent<GameplayFeedbackComponent>();
+        if (!health && !hitbox && !hurtbox && !interaction && !particles &&
+            !listener && !agent && !enemy && !feedback) {
+            return;
+        }
+
+        ImGui::Separator();
+        ImGui::PushID("GameplayComponents");
+        if (!SectionHeaderWithIcon(context, EditorIcons::Physics, "Gameplay")) {
+            ImGui::PopID();
+            return;
+        }
+
+        if (health) {
+            ImGui::TextUnformatted("Health");
+            float maxHealth = health->GetMaxHealth();
+            float value = health->GetHealth();
+            if (ImGui::DragFloat("Max Health", &maxHealth, 1.0f, 0.01f, 100000.0f)) {
+                CommitComponentEdit(context, *actor, *health, "maxHealth",
+                    [&] { health->SetMaxHealth(maxHealth, true); });
+            }
+            if (ImGui::DragFloat("Current Health", &value, 1.0f, 0.0f, 100000.0f)) {
+                CommitComponentEdit(context, *actor, *health, "health",
+                    [&] { health->SetHealth(value); });
+            }
+            if (EditorWidgets::IconButton("RemoveHealth", "X", "Remove Health")) {
+                RemoveComponentByType(context, *actor, "Health");
+            }
+        }
+
+        if (hitbox) {
+            ImGui::TextUnformatted("Hitbox");
+            float damage = hitbox->GetDamage();
+            float radius = hitbox->GetRadius();
+            uint32_t team = hitbox->GetTeam();
+            if (ImGui::DragFloat("Damage", &damage, 0.5f, 0.0f, 10000.0f)) {
+                CommitComponentEdit(context, *actor, *hitbox, "damage",
+                    [&] { hitbox->SetDamage(damage); });
+            }
+            if (ImGui::DragFloat("Hit Radius", &radius, 0.02f, 0.01f, 100.0f)) {
+                CommitComponentEdit(context, *actor, *hitbox, "radius",
+                    [&] { hitbox->SetRadius(radius); });
+            }
+            if (ImGui::InputScalar("Hit Team", ImGuiDataType_U32, &team)) {
+                CommitComponentEdit(context, *actor, *hitbox, "team",
+                    [&] { hitbox->SetTeam(team); });
+            }
+        }
+
+        if (hurtbox) {
+            ImGui::TextUnformatted("Hurtbox");
+            uint32_t team = hurtbox->GetTeam();
+            float multiplier = hurtbox->GetDamageMultiplier();
+            if (ImGui::InputScalar("Hurt Team", ImGuiDataType_U32, &team)) {
+                CommitComponentEdit(context, *actor, *hurtbox, "team",
+                    [&] { hurtbox->SetTeam(team); });
+            }
+            if (ImGui::DragFloat("Damage Multiplier", &multiplier, 0.05f, 0.0f, 10.0f)) {
+                CommitComponentEdit(context, *actor, *hurtbox, "damageMultiplier",
+                    [&] { hurtbox->SetDamageMultiplier(multiplier); });
+            }
+        }
+
+        if (interaction) {
+            ImGui::TextUnformatted("Interaction");
+            float range = interaction->GetRange();
+            bool single = interaction->IsSingleUse();
+            bool destroyOnUse = interaction->GetDestroyOnUse();
+            if (ImGui::DragFloat("Interaction Range", &range, 0.05f, 0.0f, 100.0f)) {
+                CommitComponentEdit(context, *actor, *interaction, "range",
+                    [&] { interaction->SetRange(range); });
+            }
+            if (ImGui::Checkbox("Single Use", &single)) {
+                CommitComponentEdit(context, *actor, *interaction, "singleUse",
+                    [&] { interaction->SetSingleUse(single); });
+            }
+            if (ImGui::Checkbox("Destroy On Use", &destroyOnUse)) {
+                CommitComponentEdit(context, *actor, *interaction, "destroyOnUse",
+                    [&] { interaction->SetDestroyOnUse(destroyOnUse); });
+            }
+            ImGui::Text("Prompt: %s", interaction->GetPrompt().c_str());
+        }
+
+        if (particles) {
+            ImGui::TextUnformatted("Particle System");
+            auto settings = particles->GetSettings();
+            bool changed = ImGui::InputScalar(
+                "Max Particles", ImGuiDataType_U32, &settings.maxParticles);
+            changed |= ImGui::DragFloat("Emission Rate", &settings.rate,
+                                        0.5f, 0.0f, 10000.0f);
+            changed |= ImGui::DragFloat("Lifetime", &settings.lifetime,
+                                        0.05f, 0.01f, 100.0f);
+            changed |= ImGui::DragFloat("Start Size", &settings.startSize,
+                                        0.01f, 0.0f, 100.0f);
+            if (changed) {
+                CommitComponentEdit(context, *actor, *particles, "emitter",
+                    [&] { particles->GetSettings() = settings; });
+            }
+            ImGui::Text("Alive: %zu", particles->GetAliveCount());
+        }
+
+        if (listener) {
+            bool primary = listener->IsPrimary();
+            if (ImGui::Checkbox("Primary Audio Listener", &primary)) {
+                CommitComponentEdit(context, *actor, *listener, "primary",
+                    [&] { listener->SetPrimary(primary); });
+            }
+        }
+
+        if (agent) {
+            float speed = agent->GetSpeed();
+            float stop = agent->GetStoppingDistance();
+            if (ImGui::DragFloat("Agent Speed", &speed, 0.1f, 0.0f, 100.0f)) {
+                CommitComponentEdit(context, *actor, *agent, "speed",
+                    [&] { agent->SetSpeed(speed); });
+            }
+            if (ImGui::DragFloat("Stopping Distance", &stop, 0.01f, 0.0f, 10.0f)) {
+                CommitComponentEdit(context, *actor, *agent, "stoppingDistance",
+                    [&] { agent->SetStoppingDistance(stop); });
+            }
+            ImGui::Text("Path: %s",
+                        agent->HasPath() ? "Active" :
+                        (agent->ReachedDestination() ? "Reached" : "None"));
+        }
+
+        if (enemy) {
+            float detection = enemy->GetDetectionRange();
+            float fieldOfView = enemy->GetFieldOfViewDegrees();
+            float attackRange = enemy->GetAttackRange();
+            float damage = enemy->GetAttackDamage();
+            if (ImGui::DragFloat("Detection Range", &detection, 0.1f, 0.0f, 1000.0f)) {
+                CommitComponentEdit(context, *actor, *enemy, "detectionRange",
+                    [&] { enemy->SetDetectionRange(detection); });
+            }
+            if (ImGui::DragFloat("Field Of View", &fieldOfView, 1.0f, 1.0f, 360.0f)) {
+                CommitComponentEdit(context, *actor, *enemy, "fieldOfView",
+                    [&] { enemy->SetFieldOfViewDegrees(fieldOfView); });
+            }
+            if (ImGui::DragFloat("Attack Range", &attackRange, 0.05f, 0.0f, 100.0f)) {
+                CommitComponentEdit(context, *actor, *enemy, "attackRange",
+                    [&] { enemy->SetAttackRange(attackRange); });
+            }
+            if (ImGui::DragFloat("Attack Damage", &damage, 0.5f, 0.0f, 10000.0f)) {
+                CommitComponentEdit(context, *actor, *enemy, "attackDamage",
+                    [&] { enemy->SetAttackDamage(damage); });
+            }
+            ImGui::Text("State: %d", static_cast<int>(enemy->GetState()));
+        }
+
+        if (feedback) {
+            ImGui::Text("Feedback: %s", feedback->IsActive() ? "Active" : "Idle");
         }
         ImGui::PopID();
     }
@@ -845,7 +2056,7 @@ public:
             source->SetMaxDistance(maxDistance);
 
         if (EditorWidgets::IconButton("RemoveAudioSource", "X", "Remove Audio Source"))
-            actor->RemoveComponent<AudioSourceComponent>();
+            RemoveComponentByType(context, *actor, "AudioSource");
         ImGui::PopID();
     }
 };
@@ -873,85 +2084,176 @@ public:
             ImGui::PopID();
             return;
         }
-        bool changed = false;
-
         if (rb) {
             DrawEnabled(*rb);
             int bodyType = static_cast<int>(rb->GetBodyType());
             if (ImGui::Combo("Body Type", &bodyType, "Static\0Dynamic\0Kinematic\0")) {
-                rb->SetBodyType(static_cast<BodyType>(bodyType)); changed = true;
+                CommitComponentEdit(context, *actor, *rb, "bodyType", [&] {
+                    rb->SetBodyType(static_cast<BodyType>(bodyType));
+                });
             }
             float mass = rb->GetMass();
-            if (ImGui::DragFloat("Mass", &mass, 0.1f, 0.01f, 1000.0f)) { rb->SetMass(mass); changed = true; }
+            if (ImGui::DragFloat("Mass", &mass, 0.1f, 0.01f, 1000.0f)) {
+                CommitComponentEdit(context, *actor, *rb, "mass", [&] { rb->SetMass(mass); });
+            }
             float linearDamping = rb->GetLinearDamping(), angularDamping = rb->GetAngularDamping();
-            if (ImGui::DragFloat("Linear Damping", &linearDamping, 0.01f, 0.0f, 10.0f)) { rb->SetLinearDamping(linearDamping); changed = true; }
-            if (ImGui::DragFloat("Angular Damping", &angularDamping, 0.01f, 0.0f, 10.0f)) { rb->SetAngularDamping(angularDamping); changed = true; }
+            if (ImGui::DragFloat("Linear Damping", &linearDamping, 0.01f, 0.0f, 10.0f)) {
+                CommitComponentEdit(context, *actor, *rb, "linearDamping", [&] {
+                    rb->SetLinearDamping(linearDamping);
+                });
+            }
+            if (ImGui::DragFloat("Angular Damping", &angularDamping, 0.01f, 0.0f, 10.0f)) {
+                CommitComponentEdit(context, *actor, *rb, "angularDamping", [&] {
+                    rb->SetAngularDamping(angularDamping);
+                });
+            }
             float friction = rb->GetFriction(), restitution = rb->GetRestitution();
-            if (ImGui::SliderFloat("Friction", &friction, 0.0f, 1.0f)) { rb->SetFriction(friction); changed = true; }
-            if (ImGui::SliderFloat("Restitution", &restitution, 0.0f, 1.0f)) { rb->SetRestitution(restitution); changed = true; }
+            if (ImGui::SliderFloat("Friction", &friction, 0.0f, 1.0f)) {
+                CommitComponentEdit(context, *actor, *rb, "friction", [&] {
+                    rb->SetFriction(friction);
+                });
+            }
+            if (ImGui::SliderFloat("Restitution", &restitution, 0.0f, 1.0f)) {
+                CommitComponentEdit(context, *actor, *rb, "restitution", [&] {
+                    rb->SetRestitution(restitution);
+                });
+            }
             bool gravity = rb->UsesGravity();
-            if (ImGui::Checkbox("Use Gravity", &gravity)) { rb->SetUseGravity(gravity); changed = true; }
+            if (ImGui::Checkbox("Use Gravity", &gravity)) {
+                CommitComponentEdit(context, *actor, *rb, "useGravity", [&] {
+                    rb->SetUseGravity(gravity);
+                });
+            }
             bool continuous = rb->GetCollisionDetectionMode() == CollisionDetectionMode::Continuous;
             if (ImGui::Checkbox("Continuous Collision", &continuous)) {
-                rb->SetCollisionDetectionMode(continuous ? CollisionDetectionMode::Continuous : CollisionDetectionMode::Discrete);
-                changed = true;
+                CommitComponentEdit(context, *actor, *rb, "collisionDetection", [&] {
+                    rb->SetCollisionDetectionMode(continuous
+                        ? CollisionDetectionMode::Continuous
+                        : CollisionDetectionMode::Discrete);
+                });
             }
             Vec3 velocity = rb->GetVelocity(), angularVelocity = rb->GetAngularVelocity();
-            if (DrawVec3("Velocity", velocity, 0.05f)) { rb->SetVelocity(velocity); changed = true; }
-            if (DrawVec3("Angular Velocity", angularVelocity, 0.05f)) { rb->SetAngularVelocity(angularVelocity); changed = true; }
+            if (DrawVec3("Velocity", velocity, 0.05f)) {
+                CommitComponentEdit(context, *actor, *rb, "velocity", [&] {
+                    rb->SetVelocity(velocity);
+                });
+            }
+            if (DrawVec3("Angular Velocity", angularVelocity, 0.05f)) {
+                CommitComponentEdit(context, *actor, *rb, "angularVelocity", [&] {
+                    rb->SetAngularVelocity(angularVelocity);
+                });
+            }
             Vec3 linearLocks = rb->GetLinearAxisLocks(), angularLocks = rb->GetAngularAxisLocks();
-            if (DrawVec3("Linear Axis Locks", linearLocks, 1.0f)) { rb->SetLinearAxisLocks(linearLocks); changed = true; }
-            if (DrawVec3("Angular Axis Locks", angularLocks, 1.0f)) { rb->SetAngularAxisLocks(angularLocks); changed = true; }
+            if (DrawVec3("Linear Axis Locks", linearLocks, 1.0f)) {
+                CommitComponentEdit(context, *actor, *rb, "linearAxisLocks", [&] {
+                    rb->SetLinearAxisLocks(linearLocks);
+                });
+            }
+            if (DrawVec3("Angular Axis Locks", angularLocks, 1.0f)) {
+                CommitComponentEdit(context, *actor, *rb, "angularAxisLocks", [&] {
+                    rb->SetAngularAxisLocks(angularLocks);
+                });
+            }
             if (EditorWidgets::IconButton("RemoveRigidBody", "X", "Remove RigidBody"))
-                actor->RemoveComponent<RigidBodyComponent>();
+                RemoveComponentByType(context, *actor, "RigidBody");
         }
 
         const auto drawCollider = [&](ColliderComponent& collider) {
             bool trigger = collider.IsTrigger();
-            if (ImGui::Checkbox("Trigger", &trigger)) { collider.SetTrigger(trigger); changed = true; }
+            if (ImGui::Checkbox("Trigger", &trigger)) {
+                CommitComponentEdit(context, *actor, collider, "isTrigger", [&] {
+                    collider.SetTrigger(trigger);
+                });
+            }
             uint32_t layer = collider.GetLayer(), mask = collider.GetLayerMask();
-            if (ImGui::InputScalar("Layer", ImGuiDataType_U32, &layer)) { collider.SetLayer(layer); changed = true; }
-            if (ImGui::InputScalar("Layer Mask", ImGuiDataType_U32, &mask)) { collider.SetLayerMask(mask); changed = true; }
+            if (ImGui::InputScalar("Layer", ImGuiDataType_U32, &layer)) {
+                CommitComponentEdit(context, *actor, collider, "layer", [&] {
+                    collider.SetLayer(layer);
+                });
+            }
+            if (ImGui::InputScalar("Layer Mask", ImGuiDataType_U32, &mask)) {
+                CommitComponentEdit(context, *actor, collider, "layerMask", [&] {
+                    collider.SetLayerMask(mask);
+                });
+            }
         };
 
         if (box) {
             ImGui::TextUnformatted("Box Collider");
             DrawEnabled(*box);
             Vec3 half = box->GetHalfExtents();
-            if (DrawVec3("HalfExtents", half, 0.05f)) { box->SetHalfExtents(half); changed = true; }
+            if (DrawVec3("HalfExtents", half, 0.05f)) {
+                CommitComponentEdit(context, *actor, *box, "halfExtents", [&] {
+                    box->SetHalfExtents(half);
+                });
+            }
             drawCollider(*box);
             if (EditorWidgets::IconButton("RemoveBoxCollider", "X", "Remove Box Collider"))
-                actor->RemoveComponent<BoxColliderComponent>();
+                RemoveComponentByType(context, *actor, "BoxCollider");
         }
 
         if (sphere) {
             ImGui::TextUnformatted("Sphere Collider");
             DrawEnabled(*sphere);
             float radius = sphere->GetRadius();
-            if (ImGui::DragFloat("Radius", &radius, 0.05f, 0.01f, 100.0f)) { sphere->SetRadius(radius); changed = true; }
+            if (ImGui::DragFloat("Radius", &radius, 0.05f, 0.01f, 100.0f)) {
+                CommitComponentEdit(context, *actor, *sphere, "radius", [&] {
+                    sphere->SetRadius(radius);
+                });
+            }
             drawCollider(*sphere);
             if (EditorWidgets::IconButton("RemoveSphereCollider", "X", "Remove Sphere Collider"))
-                actor->RemoveComponent<SphereColliderComponent>();
+                RemoveComponentByType(context, *actor, "SphereCollider");
         }
         if (capsule) {
             ImGui::TextUnformatted("Capsule Collider"); DrawEnabled(*capsule);
             float radius = capsule->GetRadius(), halfHeight = capsule->GetHalfHeight();
-            if (ImGui::DragFloat("Capsule Radius", &radius, 0.05f, 0.01f, 100.0f)) { capsule->SetRadius(radius); changed = true; }
-            if (ImGui::DragFloat("Capsule Half Height", &halfHeight, 0.05f, 0.0f, 100.0f)) { capsule->SetHalfHeight(halfHeight); changed = true; }
+            if (ImGui::DragFloat("Capsule Radius", &radius, 0.05f, 0.01f, 100.0f)) {
+                CommitComponentEdit(context, *actor, *capsule, "radius", [&] {
+                    capsule->SetRadius(radius);
+                });
+            }
+            if (ImGui::DragFloat("Capsule Half Height", &halfHeight, 0.05f, 0.0f, 100.0f)) {
+                CommitComponentEdit(context, *actor, *capsule, "halfHeight", [&] {
+                    capsule->SetHalfHeight(halfHeight);
+                });
+            }
             drawCollider(*capsule);
             if (EditorWidgets::IconButton("RemoveCapsuleCollider", "X", "Remove Capsule Collider"))
-                actor->RemoveComponent<CapsuleColliderComponent>();
+                RemoveComponentByType(context, *actor, "CapsuleCollider");
         }
         if (character) {
             ImGui::TextUnformatted("Character Controller"); DrawEnabled(*character);
             bool gravity = character->UsesGravity(); float step = character->GetStepOffset(), slope = character->GetMaxSlopeAngle();
-            if (ImGui::Checkbox("Character Gravity", &gravity)) { character->SetUseGravity(gravity); changed = true; }
-            if (ImGui::DragFloat("Step Offset", &step, 0.01f, 0.0f, 10.0f)) { character->SetStepOffset(step); changed = true; }
-            if (ImGui::SliderFloat("Max Slope Angle", &slope, 0.0f, 89.0f)) { character->SetMaxSlopeAngle(slope); changed = true; }
+            float jumpSpeed = character->GetJumpSpeed(), airControl = character->GetAirControl();
+            if (ImGui::Checkbox("Character Gravity", &gravity)) {
+                CommitComponentEdit(context, *actor, *character, "useGravity", [&] {
+                    character->SetUseGravity(gravity);
+                });
+            }
+            if (ImGui::DragFloat("Step Offset", &step, 0.01f, 0.0f, 10.0f)) {
+                CommitComponentEdit(context, *actor, *character, "stepOffset", [&] {
+                    character->SetStepOffset(step);
+                });
+            }
+            if (ImGui::SliderFloat("Max Slope Angle", &slope, 0.0f, 89.0f)) {
+                CommitComponentEdit(context, *actor, *character, "maxSlopeAngle", [&] {
+                    character->SetMaxSlopeAngle(slope);
+                });
+            }
+            if (ImGui::DragFloat("Jump Speed", &jumpSpeed, 0.05f, 0.0f, 100.0f)) {
+                CommitComponentEdit(context, *actor, *character, "jumpSpeed", [&] {
+                    character->SetJumpSpeed(jumpSpeed);
+                });
+            }
+            if (ImGui::SliderFloat("Air Control", &airControl, 0.0f, 1.0f)) {
+                CommitComponentEdit(context, *actor, *character, "airControl", [&] {
+                    character->SetAirControl(airControl);
+                });
+            }
             if (EditorWidgets::IconButton("RemoveCharacterController", "X", "Remove Character Controller"))
-                actor->RemoveComponent<CharacterControllerComponent>();
+                RemoveComponentByType(context, *actor, "CharacterController");
         }
-        if (changed) context.MarkSceneDirty();
         ImGui::PopID();
     }
 };
@@ -975,43 +2277,45 @@ public:
         }
         DrawEnabled(*light);
 
-        bool changed = false;
         int type = static_cast<int>(light->GetLightType());
         if (ImGui::Combo("Type", &type, "Directional\0Point\0Spot\0")) {
-            light->SetLightType(static_cast<LightType>(type));
-            changed = true;
+            CommitComponentEdit(context, *actor, *light, "type", [&] {
+                light->SetLightType(static_cast<LightType>(type));
+            });
         }
         Vec3 color = light->GetColor();
         float values[3] = {color.x, color.y, color.z};
         if (ImGui::ColorEdit3("Color", values)) {
-            light->SetColor({values[0], values[1], values[2]});
-            changed = true;
+            CommitComponentEdit(context, *actor, *light, "color", [&] {
+                light->SetColor({values[0], values[1], values[2]});
+            });
         }
         float intensity = light->GetIntensity();
         if (ImGui::DragFloat("Intensity", &intensity, 0.05f, 0.0f, 1000.0f)) {
-            light->SetIntensity(intensity);
-            changed = true;
+            CommitComponentEdit(context, *actor, *light, "intensity", [&] {
+                light->SetIntensity(intensity);
+            });
         }
         bool castShadows = light->CastsShadows();
         if (ImGui::Checkbox("Cast Shadows", &castShadows)) {
-            light->SetCastShadows(castShadows);
-            changed = true;
+            CommitComponentEdit(context, *actor, *light, "castShadows", [&] {
+                light->SetCastShadows(castShadows);
+            });
         }
         float shadowIntensity = light->GetShadowIntensity();
         if (ImGui::SliderFloat("Shadow Intensity", &shadowIntensity, 0.0f, 1.0f)) {
-            light->SetShadowIntensity(shadowIntensity);
-            changed = true;
+            CommitComponentEdit(context, *actor, *light, "shadowIntensity", [&] {
+                light->SetShadowIntensity(shadowIntensity);
+            });
         }
         Vec3 direction = light->GetDirection();
         if (DrawVec3("Direction", direction, 0.02f)) {
-            light->SetDirection(direction);
-            changed = true;
+            CommitComponentEdit(context, *actor, *light, "direction", [&] {
+                light->SetDirection(direction);
+            });
         }
-        if (EditorWidgets::IconButton("RemoveLight", "X", "Remove Light")) {
-            actor->RemoveComponent<LightComponent>();
-            changed = true;
-        }
-        if (changed) context.MarkSceneDirty();
+        if (EditorWidgets::IconButton("RemoveLight", "X", "Remove Light"))
+            RemoveComponentByType(context, *actor, "Light");
         ImGui::PopID();
     }
 };
@@ -1035,36 +2339,39 @@ public:
         }
         DrawEnabled(*camera);
 
-        bool changed = false;
         bool isMain = camera->IsMainCamera();
         if (ImGui::Checkbox("Main Camera", &isMain)) {
-            camera->SetMainCamera(isMain);
-            changed = true;
+            CommitComponentEdit(context, *actor, *camera, "isMainCamera", [&] {
+                camera->SetMainCamera(isMain);
+            });
         }
         float fov = camera->GetFovYDegrees();
         if (ImGui::DragFloat("FOV Y", &fov, 0.25f, 1.0f, 179.0f)) {
-            camera->SetFovYDegrees(fov);
-            changed = true;
+            CommitComponentEdit(context, *actor, *camera, "fovYDegrees", [&] {
+                camera->SetFovYDegrees(fov);
+            });
         }
         float nearClip = camera->GetNearClip();
         if (ImGui::DragFloat("Near", &nearClip, 0.01f, 0.001f, 1000.0f)) {
-            camera->SetNearClip(nearClip);
-            changed = true;
+            CommitComponentEdit(context, *actor, *camera, "nearClip", [&] {
+                camera->SetNearClip(nearClip);
+            });
         }
         float farClip = camera->GetFarClip();
         if (ImGui::DragFloat("Far", &farClip, 1.0f, 0.002f, 100000.0f)) {
-            camera->SetFarClip(farClip);
-            changed = true;
+            CommitComponentEdit(context, *actor, *camera, "farClip", [&] {
+                camera->SetFarClip(farClip);
+            });
         }
         Vec3 clear = camera->GetClearColor();
         float color[3] = {clear.x, clear.y, clear.z};
         if (ImGui::ColorEdit3("Clear Color", color)) {
-            camera->SetClearColor({color[0], color[1], color[2]});
-            changed = true;
+            CommitComponentEdit(context, *actor, *camera, "clearColor", [&] {
+                camera->SetClearColor({color[0], color[1], color[2]});
+            });
         }
         if (EditorWidgets::IconButton("RemoveCamera", "X", "Remove Camera"))
-            actor->RemoveComponent<CameraComponent>();
-        if (changed) context.MarkSceneDirty();
+            RemoveComponentByType(context, *actor, "Camera");
         ImGui::PopID();
     }
 };
@@ -1091,17 +2398,27 @@ public:
         float ssao = post->GetSSAOIntensity();
         float bloom = post->GetBloomIntensity();
         if (ImGui::DragFloat("Exposure", &exposure, 0.02f, 0.0f, 16.0f)) {
-            post->SetExposure(exposure);
+            CommitComponentEdit(context, *actor, *post, "exposure", [&] {
+                post->SetExposure(exposure);
+            });
         }
-        if (ImGui::DragFloat("Gamma", &gamma, 0.01f, 0.1f, 8.0f)) post->SetGamma(gamma);
+        if (ImGui::DragFloat("Gamma", &gamma, 0.01f, 0.1f, 8.0f)) {
+            CommitComponentEdit(context, *actor, *post, "gamma", [&] {
+                post->SetGamma(gamma);
+            });
+        }
         if (ImGui::DragFloat("SSAO", &ssao, 0.02f, 0.0f, 4.0f)) {
-            post->SetSSAOIntensity(ssao);
+            CommitComponentEdit(context, *actor, *post, "ssaoIntensity", [&] {
+                post->SetSSAOIntensity(ssao);
+            });
         }
         if (ImGui::DragFloat("Bloom", &bloom, 0.02f, 0.0f, 8.0f)) {
-            post->SetBloomIntensity(bloom);
+            CommitComponentEdit(context, *actor, *post, "bloomIntensity", [&] {
+                post->SetBloomIntensity(bloom);
+            });
         }
         if (EditorWidgets::IconButton("RemovePostProcess", "X", "Remove Post Process")) {
-            actor->RemoveComponent<PostProcessComponent>();
+            RemoveComponentByType(context, *actor, "PostProcess");
         }
         ImGui::PopID();
     }
@@ -1138,8 +2455,20 @@ public:
                     ? properties[field.name] : field.defaultValue;
                 nlohmann::json next;
                 if (DrawScriptFieldValue(field, current, next)) {
-                    script->SetPropertyValue(field.name, std::move(next));
-                    context.MarkSceneDirty();
+                    nlohmann::json before = nlohmann::json::object();
+                    script->Serialize(before);
+                    script->SetPropertyValue(field.name, next);
+                    nlohmann::json after = nlohmann::json::object();
+                    script->Serialize(after);
+                    script->Deserialize(before);
+                    if (auto* operators = context.GetOperators()) {
+                        operators->Components().SetProperty(
+                            context, *actor, "Script", field.name, before, after);
+                    } else {
+                        EditorComponentOperator componentOperator;
+                        componentOperator.SetProperty(
+                            context, *actor, "Script", field.name, before, after);
+                    }
                 }
                 if (!field.declaration.empty() && ImGui::IsItemHovered()) {
                     ImGui::SetTooltip("%s", field.declaration.c_str());
@@ -1147,7 +2476,7 @@ public:
                 ImGui::PopID();
             }
         }
-        if (ImGui::Button("Remove Script")) actor->RemoveComponent<ScriptComponent>();
+        if (ImGui::Button("Remove Script")) RemoveComponentByType(context, *actor, "Script");
         ImGui::PopID();
     }
 };
@@ -1170,59 +2499,62 @@ public:
             return;
         }
 
-        bool changed = false;
         bool visible = canvas->IsVisible();
         if (ImGui::Checkbox("Visible", &visible)) {
-            canvas->SetVisible(visible);
-            changed = true;
+            CommitComponentEdit(context, *actor, *canvas, "visible", [&] {
+                canvas->SetVisible(visible);
+            });
         }
         bool interactive = canvas->IsInteractive();
         if (ImGui::Checkbox("Interactive", &interactive)) {
-            canvas->SetInteractive(interactive);
-            changed = true;
+            CommitComponentEdit(context, *actor, *canvas, "interactive", [&] {
+                canvas->SetInteractive(interactive);
+            });
         }
         int sortOrder = canvas->GetSortOrder();
         if (ImGui::DragInt("Sort Order", &sortOrder, 1.0f)) {
-            canvas->SetSortOrder(sortOrder);
-            changed = true;
+            CommitComponentEdit(context, *actor, *canvas, "sortOrder", [&] {
+                canvas->SetSortOrder(sortOrder);
+            });
         }
         int inputMode = static_cast<int>(canvas->GetInputMode());
         if (ImGui::Combo("Input Mode", &inputMode, "None\0UI Only\0Game And UI\0")) {
-            canvas->SetInputMode(static_cast<UIInputMode>(inputMode));
-            changed = true;
+            CommitComponentEdit(context, *actor, *canvas, "inputMode", [&] {
+                canvas->SetInputMode(static_cast<UIInputMode>(inputMode));
+            });
         }
         int sourceMode = static_cast<int>(canvas->GetSourceMode());
         if (ImGui::Combo("Source Mode", &sourceMode, "Asset Document\0Actor Tree\0")) {
-            canvas->SetSourceMode(static_cast<UICanvasSourceMode>(sourceMode));
-            changed = true;
+            CommitComponentEdit(context, *actor, *canvas, "sourceMode", [&] {
+                canvas->SetSourceMode(static_cast<UICanvasSourceMode>(sourceMode));
+            });
         }
 
         if (canvas->GetSourceMode() == UICanvasSourceMode::AssetDocument) {
             std::array<char, 260> document{};
             std::strncpy(document.data(), canvas->GetDocumentPath().c_str(), document.size() - 1);
             if (ImGui::InputText("Document", document.data(), document.size())) {
-                canvas->SetDocumentPath(document.data());
-                changed = true;
+                CommitComponentEdit(context, *actor, *canvas, "documentPath", [&] {
+                    canvas->SetDocumentPath(document.data());
+                });
             }
         } else {
             auto generatedStyles = canvas->GetGeneratedStylePaths();
             std::string firstStyle = generatedStyles.empty() ? std::string{} : generatedStyles.front();
             if (DrawStringField("Generated Style", firstStyle)) {
-                canvas->SetGeneratedStylePaths(firstStyle.empty()
-                    ? std::vector<std::string>{}
-                    : std::vector<std::string>{firstStyle});
-                changed = true;
+                CommitComponentEdit(context, *actor, *canvas, "generatedStylePaths", [&] {
+                    canvas->SetGeneratedStylePaths(firstStyle.empty()
+                        ? std::vector<std::string>{}
+                        : std::vector<std::string>{firstStyle});
+                });
             }
         }
         if (ImGui::Button("Reload Document")) {
             canvas->Reload();
         }
         ImGui::SameLine();
-        if (EditorWidgets::IconButton("RemoveUICanvas", "X", "Remove UI Canvas")) {
-            actor->RemoveComponent<UICanvasComponent>();
-            changed = true;
-        }
-        if (changed) context.MarkSceneDirty();
+        if (EditorWidgets::IconButton("RemoveUICanvas", "X", "Remove UI Canvas"))
+            RemoveComponentByType(context, *actor, "UICanvas");
         ImGui::PopID();
     }
 };
@@ -1257,8 +2589,7 @@ public:
             });
         }
         if (EditorWidgets::IconButton("RemoveUIRectTransform", "X", "Remove UI Rect Transform")) {
-            actor->RemoveComponent<UIRectTransformComponent>();
-            context.MarkSceneDirty();
+            RemoveComponentByType(context, *actor, "UIRectTransform");
         }
         ImGui::PopID();
     }
@@ -1507,22 +2838,35 @@ public:
 
     void Draw(EditorContext& context) override
     {
+        LoadRecentComponents(context);
         Actor* actor = SelectedActor(context);
         if (!actor) return;
 
         ImGui::Separator();
+        ImGui::SetNextWindowViewport(ImGui::GetWindowViewport()->ID);
         if (!ImGui::BeginCombo("##AddComponent", "Add Component...")) return;
 
-        for (const std::string& type : ComponentRegistry::Get().GetRegisteredTypes()) {
+        ImGui::SetNextItemWidth(-1.0f);
+        ImGui::InputTextWithHint("##AddComponentSearch", "Search components...",
+                                 m_ComponentSearch, sizeof(m_ComponentSearch));
+        ImGui::Separator();
+
+        std::vector<std::string> types = ComponentRegistry::Get().GetRegisteredTypes();
+        std::sort(types.begin(), types.end(), [](const std::string& left,
+                                                 const std::string& right) {
+            const std::string leftCategory = ComponentCategory(left);
+            const std::string rightCategory = ComponentCategory(right);
+            if (leftCategory != rightCategory) return leftCategory < rightCategory;
+            return ComponentDisplayName(left) < ComponentDisplayName(right);
+        });
+
+        auto addRegisteredComponent = [&](const std::string& type) {
             const bool exists = actor->HasComponentType(type);
             if (exists) ImGui::BeginDisabled();
-            if (ImGui::Selectable(type.c_str()) && !exists) {
-                if (auto* stack = context.GetCommandStack()) {
-                    stack->ExecuteCommand(std::make_unique<AddComponentCommand>(
-                        actor->GetID(), type, nlohmann::json::object()), context);
-                } else {
-                    ComponentRegistry::Get().Create(type, *actor);
-                }
+            const std::string label = ComponentDisplayName(type);
+            if (ImGui::Selectable(label.c_str()) && !exists) {
+                AddComponentByType(context, *actor, type, nlohmann::json::object());
+                RecordRecentComponent(context, type);
                 if (auto* renderer = actor->GetComponent<MeshRendererComponent>()) {
                     if (!renderer->GetMesh()) renderer->SetMesh(AssetManager::Get().GetCubeMesh());
                     if (!renderer->GetMaterial()) {
@@ -1530,8 +2874,50 @@ public:
                     }
                 }
             }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("%s", type.c_str());
+            }
             if (exists) ImGui::EndDisabled();
+        };
+
+        if (!m_RecentComponents.empty()) {
+            if (ImGui::BeginMenu("Recently Used")) {
+                for (const std::string& type : m_RecentComponents) {
+                    if (!ComponentRegistry::Get().IsRegistered(type) ||
+                        !ComponentMatchesFilter(type, m_ComponentSearch)) {
+                        continue;
+                    }
+                    addRegisteredComponent(type);
+                }
+                ImGui::EndMenu();
+            }
+            ImGui::Separator();
         }
+
+        constexpr std::array<const char*, 6> kCategories = {
+            "Rendering", "Physics", "Audio", "Scripting", "UI", "Gameplay"
+        };
+        for (const char* category : kCategories) {
+            bool hasVisible = false;
+            for (const std::string& type : types) {
+                if (std::strcmp(ComponentCategory(type), category) == 0 &&
+                    ComponentMatchesFilter(type, m_ComponentSearch)) {
+                    hasVisible = true;
+                    break;
+                }
+            }
+            if (!hasVisible) continue;
+            if (!ImGui::BeginMenu(category)) continue;
+            for (const std::string& type : types) {
+                if (std::strcmp(ComponentCategory(type), category) != 0 ||
+                    !ComponentMatchesFilter(type, m_ComponentSearch)) {
+                    continue;
+                }
+                addRegisteredComponent(type);
+            }
+            ImGui::EndMenu();
+        }
+
         if (auto* registry = context.GetAssetRegistry()) {
             const bool hasScript = actor->HasComponent<ScriptComponent>();
             const auto scripts = registry->GetAssets(EditorAssetType::Script);
@@ -1541,8 +2927,24 @@ public:
                     auto scriptAsset = AssetManager::Get().Load<ScriptAsset>(scriptInfo.absolutePath.string());
                     if (!scriptAsset || !scriptAsset.Get()) continue;
                     const std::string scriptLabel = scriptInfo.absolutePath.stem().string();
+                    const bool scriptFileMatches =
+                        ContainsCaseInsensitive(scriptLabel, m_ComponentSearch) ||
+                        ContainsCaseInsensitive(scriptInfo.relativePath, m_ComponentSearch);
+                    bool hasMatchingClass = false;
+                    for (const auto& scriptClass : scriptAsset->GetClasses()) {
+                        if (scriptFileMatches ||
+                            ContainsCaseInsensitive(scriptClass.name, m_ComponentSearch)) {
+                            hasMatchingClass = true;
+                            break;
+                        }
+                    }
+                    if (!hasMatchingClass) continue;
                     if (ImGui::BeginMenu(scriptLabel.c_str())) {
                         for (const auto& scriptClass : scriptAsset->GetClasses()) {
+                            if (!scriptFileMatches &&
+                                !ContainsCaseInsensitive(scriptClass.name, m_ComponentSearch)) {
+                                continue;
+                            }
                             if (hasScript) ImGui::BeginDisabled();
                             if (ImGui::Selectable(scriptClass.name.c_str()) && !hasScript) {
                                 nlohmann::json properties = nlohmann::json::object();
@@ -1556,12 +2958,8 @@ public:
                                     {"properties", properties},
                                     {"state", nlohmann::json::object()}
                                 };
-                                if (auto* stack = context.GetCommandStack()) {
-                                    stack->ExecuteCommand(std::make_unique<AddComponentCommand>(
-                                        actor->GetID(), "Script", initialData), context);
-                                } else if (auto* component = actor->AddComponent<ScriptComponent>()) {
-                                    component->Deserialize(initialData);
-                                }
+                                AddComponentByType(context, *actor, "Script", initialData);
+                                RecordRecentComponent(context, "Script");
                             }
                             if (hasScript) ImGui::EndDisabled();
                         }
@@ -1576,12 +2974,71 @@ public:
         }
         ImGui::EndCombo();
     }
+
+private:
+    static constexpr const char* kInspectorPanelStateID = "inspector";
+    static constexpr const char* kRecentComponentsKey = "addComponentRecent";
+
+    void LoadRecentComponents(EditorContext& context)
+    {
+        if (m_RecentComponentsLoaded) return;
+        m_RecentComponentsLoaded = true;
+        EditorWorkspace* workspace = context.GetWorkspace();
+        if (!workspace) return;
+        const auto value = workspace->GetPanelStateValue(
+            kInspectorPanelStateID, kRecentComponentsKey);
+        if (!value) return;
+
+        size_t start = 0;
+        while (start <= value->size()) {
+            const size_t separator = value->find(';', start);
+            std::string type = value->substr(
+                start, separator == std::string::npos ? std::string::npos : separator - start);
+            if (!type.empty() && ComponentRegistry::Get().IsRegistered(type) &&
+                std::find(m_RecentComponents.begin(), m_RecentComponents.end(), type) ==
+                    m_RecentComponents.end()) {
+                m_RecentComponents.push_back(std::move(type));
+            }
+            if (separator == std::string::npos || m_RecentComponents.size() >= 5) break;
+            start = separator + 1;
+        }
+    }
+
+    void SaveRecentComponents(EditorContext& context) const
+    {
+        EditorWorkspace* workspace = context.GetWorkspace();
+        if (!workspace) return;
+        std::string serialized;
+        for (const std::string& type : m_RecentComponents) {
+            if (!serialized.empty()) serialized += ';';
+            serialized += type;
+        }
+        workspace->SetPanelStateValue(
+            kInspectorPanelStateID, kRecentComponentsKey, std::move(serialized));
+    }
+
+    void RecordRecentComponent(EditorContext& context, const std::string& type)
+    {
+        m_RecentComponents.erase(
+            std::remove(m_RecentComponents.begin(), m_RecentComponents.end(), type),
+            m_RecentComponents.end());
+        m_RecentComponents.insert(m_RecentComponents.begin(), type);
+        if (m_RecentComponents.size() > 5) m_RecentComponents.resize(5);
+        SaveRecentComponents(context);
+    }
+
+    char m_ComponentSearch[128] = {};
+    bool m_RecentComponentsLoaded = false;
+    std::vector<std::string> m_RecentComponents;
 };
 
 void RegisterAssetInspectorSections(std::vector<std::unique_ptr<EditorInspectorSection>>& sections)
 {
+    sections.push_back(std::make_unique<ModelAssetInspectorSection>());
+    sections.push_back(std::make_unique<PrefabAssetInspectorSection>());
     sections.push_back(std::make_unique<MaterialAssetInspectorSection>());
     sections.push_back(std::make_unique<TextureAssetInspectorSection>());
+    sections.push_back(std::make_unique<AudioAssetInspectorSection>());
     sections.push_back(std::make_unique<GenericAssetInspectorSection>());
 }
 
@@ -1594,6 +3051,9 @@ void RegisterRenderInspectorSections(std::vector<std::unique_ptr<EditorInspector
 {
     sections.push_back(std::make_unique<MeshRendererInspectorSection>());
     sections.push_back(std::make_unique<SkinnedMeshInspectorSection>());
+    sections.push_back(std::make_unique<AnimatorInspectorSection>());
+    sections.push_back(std::make_unique<ThirdPersonCameraInspectorSection>());
+    sections.push_back(std::make_unique<GameplayInspectorSection>());
     sections.push_back(std::make_unique<MaterialInspectorSection>());
     sections.push_back(std::make_unique<CameraInspectorSection>());
     sections.push_back(std::make_unique<LightInspectorSection>());

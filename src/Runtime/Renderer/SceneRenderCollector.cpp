@@ -6,6 +6,7 @@
 #include "Camera/Camera.h"
 #include "Scene/Actor.h"
 #include "Scene/MeshRendererComponent.h"
+#include "Renderer/ParticleSystemComponent.h"
 #include "Scene/Scene.h"
 
 #include <algorithm>
@@ -38,6 +39,9 @@ SceneRenderCollection SceneRenderCollector::Collect(
 
     scene.ForEach([&](Actor& actor) {
         if (!actor.IsActive()) return;
+        if (auto* particles=actor.GetComponent<ParticleSystemComponent>()) {
+            if(particles->IsEnabled()&&particles->GetAliveCount()>0){MeshAsset* mesh=particles->BuildBillboardMesh(camera);MaterialAsset* material=particles->GetMaterial();if(mesh&&material&&!mesh->GetSubMeshes().empty())addRenderItem(actor,mesh,mesh->GetSubMeshes().front(),0,material,nullptr);}return;
+        }
         if (auto* skinned = actor.GetComponent<SkinnedMeshRendererComponent>()) {
             if (!skinned->IsEnabled() || !skinned->IsValid()) return;
             MeshAsset* mesh = skinned->GetRenderMesh();

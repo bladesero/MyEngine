@@ -29,6 +29,13 @@ public:
                               std::string* error = nullptr);
 
     static bool CaptureOverrides(Actor& instanceRoot, std::string* error = nullptr);
+    static bool BuildOverrides(const Actor& instanceRoot, nlohmann::json& overrides,
+                               std::string* error = nullptr);
+    static bool SetInstanceOverrides(Actor& instanceRoot, nlohmann::json overrides,
+                                     std::string* error = nullptr);
+    static bool ApplyOverridesToAsset(PrefabAsset& asset,
+                                      const nlohmann::json& overrides,
+                                      std::string* error = nullptr);
     static bool ApplyAll(Actor& instanceRoot, std::string* error = nullptr);
     static bool RevertAll(Actor& instanceRoot, std::string* error = nullptr);
     static bool Unpack(Actor& instanceRoot, std::string* error = nullptr);

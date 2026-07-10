@@ -14,6 +14,9 @@ struct AudioEngine::Impl {
     ma_engine engine{};
     bool initialized = false;
     bool silent = true;
+    Vec3 listenerPosition = Vec3::Zero();
+    Vec3 listenerForward = Vec3::Forward();
+    Vec3 listenerUp = Vec3::Up();
     SoundID nextID = 1;
     std::unordered_map<SoundID, std::unique_ptr<ma_sound>> sounds;
 };
@@ -70,6 +73,15 @@ void AudioEngine::Update()
 bool AudioEngine::IsInitialized() const { return m_Impl->initialized; }
 bool AudioEngine::IsSilent() const { return m_Impl->silent; }
 
+float AudioEngine::CalculateDistanceAttenuation(float distance, float minDistance, float maxDistance)
+{
+    minDistance = (std::max)(0.01f, minDistance);
+    maxDistance = (std::max)(minDistance, maxDistance);
+    if (distance <= minDistance) return 1.0f;
+    if (distance >= maxDistance || maxDistance <= minDistance) return 0.0f;
+    return 1.0f - (distance - minDistance) / (maxDistance - minDistance);
+}
+
 AudioEngine::SoundID AudioEngine::Play(const AudioPlayDesc& desc)
 {
     if (!m_Impl->initialized || !desc.clip || !desc.clip->IsReady()) return 0;
@@ -87,6 +99,7 @@ AudioEngine::SoundID AudioEngine::Play(const AudioPlayDesc& desc)
     ma_sound_set_volume(sound.get(), (std::max)(0.0f, desc.volume));
     ma_sound_set_pitch(sound.get(), (std::max)(0.01f, desc.pitch));
     ma_sound_set_spatialization_enabled(sound.get(), desc.spatial ? MA_TRUE : MA_FALSE);
+    ma_sound_set_attenuation_model(sound.get(), ma_attenuation_model_linear);
     ma_sound_set_position(sound.get(), desc.position.x, desc.position.y, desc.position.z);
     ma_sound_set_min_distance(sound.get(), (std::max)(0.01f, desc.minDistance));
     ma_sound_set_max_distance(sound.get(), (std::max)(desc.minDistance, desc.maxDistance));
@@ -148,8 +161,15 @@ void AudioEngine::SetSoundPitch(SoundID id, float pitch)
 
 void AudioEngine::SetListenerTransform(const Vec3& position, const Vec3& forward, const Vec3& up)
 {
+    m_Impl->listenerPosition = position;
+    m_Impl->listenerForward = forward.LengthSq() > 1e-6f ? forward.Normalized() : Vec3::Forward();
+    m_Impl->listenerUp = up.LengthSq() > 1e-6f ? up.Normalized() : Vec3::Up();
     if (!m_Impl->initialized) return;
     ma_engine_listener_set_position(&m_Impl->engine, 0, position.x, position.y, position.z);
-    ma_engine_listener_set_direction(&m_Impl->engine, 0, forward.x, forward.y, forward.z);
-    ma_engine_listener_set_world_up(&m_Impl->engine, 0, up.x, up.y, up.z);
+    ma_engine_listener_set_direction(&m_Impl->engine, 0, m_Impl->listenerForward.x, m_Impl->listenerForward.y, m_Impl->listenerForward.z);
+    ma_engine_listener_set_world_up(&m_Impl->engine, 0, m_Impl->listenerUp.x, m_Impl->listenerUp.y, m_Impl->listenerUp.z);
 }
+
+const Vec3& AudioEngine::GetListenerPosition() const { return m_Impl->listenerPosition; }
+const Vec3& AudioEngine::GetListenerForward() const { return m_Impl->listenerForward; }
+const Vec3& AudioEngine::GetListenerUp() const { return m_Impl->listenerUp; }

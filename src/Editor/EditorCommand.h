@@ -2,6 +2,7 @@
 
 #include "Scene/Scene.h"
 #include "Scene/Transform.h"
+#include "Assets/AssetDatabase.h"
 #include "Assets/PrefabAsset.h"
 
 #include <nlohmann/json.hpp>
@@ -241,6 +242,27 @@ private:
     std::string m_AfterContent;
 };
 
+class ModifyAssetsCommand final : public IResourceCommand {
+public:
+    struct Entry {
+        std::string assetPath;
+        std::string beforeContent;
+        std::string afterContent;
+    };
+
+    explicit ModifyAssetsCommand(std::vector<Entry> entries);
+    bool Execute(EditorContext& context) override;
+    bool Undo(EditorContext& context) override;
+    const char* GetName() const override { return "Modify Assets"; }
+    const std::string& GetResourcePath() const override { return m_ResourcePath; }
+    bool IsResourceCommand() const override { return true; }
+
+private:
+    bool Apply(EditorContext& context, bool undo);
+    std::vector<Entry> m_Entries;
+    std::string m_ResourcePath;
+};
+
 class CreateAssetCommand final : public IResourceCommand {
 public:
     CreateAssetCommand(std::string assetPath, std::string content);
@@ -267,6 +289,7 @@ private:
     std::string m_AssetPath;
     std::string m_Content;
     std::string m_MetaContent;
+    std::vector<AssetRecord> m_RemovedDatabaseRecords;
     bool m_Deleted = false;
     bool m_HadMeta = false;
 };

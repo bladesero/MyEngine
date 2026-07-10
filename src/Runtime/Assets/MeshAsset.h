@@ -22,6 +22,7 @@ struct MeshVertex {
     Vec3  tangent  = Vec3::Right();
     float u = 0.0f, v = 0.0f;  // TEXCOORD0
     float u2= 0.0f, v2= 0.0f;  // TEXCOORD1 (lightmap / second UV)
+    Vec4 color = Vec4::One();   // COLOR0
     float boneIndices[4] = { 0, 0, 0, 0 };
     float boneWeights[4] = { 1, 0, 0, 0 };
 };

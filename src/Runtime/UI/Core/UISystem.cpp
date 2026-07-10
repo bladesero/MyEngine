@@ -5,6 +5,7 @@
 #include "Core/Logger.h"
 #include "Scene/Actor.h"
 #include "Scene/Scene.h"
+#include "Scripting/AngelScriptRuntime.h"
 #include "UI/Core/UIActorTreeBuilder.h"
 #include "UI/Core/UICanvasComponent.h"
 
@@ -15,6 +16,8 @@
 #include <cctype>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
+#include <sstream>
 #include <vector>
 
 namespace {
@@ -27,6 +30,61 @@ std::string ToLower(std::string value)
     std::transform(value.begin(), value.end(), value.begin(),
         [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     return value;
+}
+
+std::string EscapeRmlText(std::string value)
+{
+    std::string escaped;
+    escaped.reserve(value.size());
+    for (const char character : value) {
+        switch (character) {
+        case '&': escaped += "&amp;"; break;
+        case '<': escaped += "&lt;"; break;
+        case '>': escaped += "&gt;"; break;
+        default: escaped += character; break;
+        }
+    }
+    return escaped;
+}
+
+std::string DataModelValueToText(const UIDataModel::Value& value)
+{
+    return std::visit([](const auto& item) -> std::string {
+        using T = std::decay_t<decltype(item)>;
+        if constexpr (std::is_same_v<T, bool>) {
+            return item ? "true" : "false";
+        } else if constexpr (std::is_same_v<T, int>) {
+            return std::to_string(item);
+        } else if constexpr (std::is_same_v<T, float>) {
+            std::ostringstream stream;
+            stream << std::fixed << std::setprecision(1) << item;
+            return stream.str();
+        } else if constexpr (std::is_same_v<T, std::string>) {
+            return item;
+        } else if constexpr (std::is_same_v<T, Vec2>) {
+            return std::to_string(item.x) + ", " + std::to_string(item.y);
+        } else if constexpr (std::is_same_v<T, Vec3>) {
+            return std::to_string(item.x) + ", " + std::to_string(item.y) + ", " +
+                std::to_string(item.z);
+        } else {
+            return item.dump();
+        }
+    }, value);
+}
+
+bool TryGetFloat(const UIDataModel& model, const char* key, float& value)
+{
+    const auto found = model.GetValues().find(key);
+    if (found == model.GetValues().end()) return false;
+    if (const float* number = std::get_if<float>(&found->second)) {
+        value = *number;
+        return true;
+    }
+    if (const int* number = std::get_if<int>(&found->second)) {
+        value = static_cast<float>(*number);
+        return true;
+    }
+    return false;
 }
 
 bool TryParseFontFaceFromPath(const std::string& path,
@@ -112,12 +170,16 @@ bool UISystem::Initialize(IRHIDevice* device, IRHIFrameContext* frameContext)
         return false;
     }
     m_Initialized = true;
+    AngelScriptRuntime::SetUIEventBridge(GetActiveEventBridge());
+    AngelScriptRuntime::SetUISystem(this);
     return true;
 }
 
 void UISystem::Shutdown()
 {
     if (!m_Initialized) return;
+    AngelScriptRuntime::ClearUIEventBridge(GetActiveEventBridge());
+    AngelScriptRuntime::ClearUISystem(this);
     m_ContextManager.Destroy();
     m_LoadedFonts.clear();
     m_ActorTreeSignatures.clear();
@@ -206,12 +268,52 @@ void UISystem::EnsureCanvasDocuments(Scene& scene)
     });
 }
 
+void UISystem::ApplyDataModels(Scene& scene)
+{
+    if (m_DataModels.empty()) return;
+
+    scene.ForEach([&](Actor& actor) {
+        if (!actor.IsActive()) return;
+        auto* component = actor.GetComponent<UICanvasComponent>();
+        if (!component || !component->IsEnabled() || !component->IsVisible()) return;
+        Rml::ElementDocument* document = component->GetCanvas().GetDocument();
+        if (!document) return;
+
+        for (const auto& [modelName, model] : m_DataModels) {
+            (void)modelName;
+            for (const auto& [key, value] : model.GetValues()) {
+                Rml::Element* element = document->GetElementById(key);
+                if (!element) continue;
+                if (const bool* visible = std::get_if<bool>(&value)) {
+                    element->SetProperty("display", *visible ? "block" : "none");
+                    continue;
+                }
+                const std::string text = DataModelValueToText(value);
+                element->SetInnerRML(EscapeRmlText(text));
+                if (const std::string* stringValue = std::get_if<std::string>(&value)) {
+                    element->SetProperty("display", stringValue->empty() ? "none" : "block");
+                }
+            }
+
+            float health = 0.0f;
+            float maxHealth = 0.0f;
+            Rml::Element* healthFill = document->GetElementById("health-bar-fill");
+            if (healthFill && TryGetFloat(model, "health", health) &&
+                TryGetFloat(model, "maxHealth", maxHealth) && maxHealth > 0.0f) {
+                const float percent = std::clamp(health / maxHealth, 0.0f, 1.0f) * 100.0f;
+                healthFill->SetProperty("width", std::to_string(percent) + "%");
+            }
+        }
+    });
+}
+
 void UISystem::Update(Scene& scene, float dt)
 {
     (void)dt;
     if (!m_Initialized) return;
     LoadCanvasFonts(scene);
     EnsureCanvasDocuments(scene);
+    ApplyDataModels(scene);
     if (Rml::Context* context = m_ContextManager.GetContext()) {
         context->Update();
     }

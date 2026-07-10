@@ -1,0 +1,23 @@
+<rml>
+<head>
+    <title>Adventure HUD</title>
+    <link type="text/rcss" href="AdventureHUD.rcss"/>
+</head>
+<body>
+    <div id="hud-root">
+        <div class="status-panel">
+            <div class="label">HEALTH</div>
+            <div class="health-row"><span id="health">100</span><span class="divider">/</span><span id="maxHealth">100</span></div>
+            <div class="health-bar"><div id="health-bar-fill"></div></div>
+            <div class="score-row">SCORE <span id="score">0</span></div>
+        </div>
+        <div id="interactionPrompt" class="interaction-prompt"></div>
+        <button id="pause-toggle" class="pause-button">Pause</button>
+        <div id="paused" class="pause-overlay">
+            <div class="pause-title">PAUSED</div>
+            <div class="pause-hint">Press Escape or Resume</div>
+        </div>
+        <div id="sceneLoadState" class="load-state">0</div>
+    </div>
+</body>
+</rml>

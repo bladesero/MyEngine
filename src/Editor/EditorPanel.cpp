@@ -21,15 +21,28 @@ std::string EditorPanel::GetStableWindowName() const
 void EditorPanel::OnImGui()
 {
 #if defined(MYENGINE_ENABLE_IMGUI)
+    m_Focused = false;
     if (!m_Visible) return;
     bool open = true;
     BeforeBegin();
     const std::string windowName = GetStableWindowName();
-    if (ImGui::Begin(windowName.c_str(), &open, GetWindowFlags())) DrawContent();
+    if (m_FocusRequested) {
+        ImGui::SetNextWindowFocus();
+        m_FocusRequested = false;
+    }
+    const bool canDraw = ImGui::Begin(windowName.c_str(), &open, GetWindowFlags());
+    m_Focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+    if (canDraw) DrawContent();
     ImGui::End();
     AfterEnd();
     m_Visible = open;
 #endif
+}
+
+void EditorPanel::RequestFocus()
+{
+    m_Visible = true;
+    m_FocusRequested = true;
 }
 
 bool EditorPanel::TryDrawScriptedBody(const char* panelID)

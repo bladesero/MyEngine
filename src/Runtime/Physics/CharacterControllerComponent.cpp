@@ -12,6 +12,16 @@ void CharacterControllerComponent::SetMaxSlopeAngle(float degrees)
     m_MaxSlopeAngle = std::clamp(degrees, 0.0f, 89.0f);
 }
 
+void CharacterControllerComponent::SetJumpSpeed(float value)
+{
+    m_JumpSpeed = (std::max)(0.0f, value);
+}
+
+void CharacterControllerComponent::SetAirControl(float value)
+{
+    m_AirControl = std::clamp(value, 0.0f, 1.0f);
+}
+
 void CharacterControllerComponent::Serialize(nlohmann::json& data) const
 {
     data["velocity"] = nlohmann::json::array({
@@ -20,6 +30,8 @@ void CharacterControllerComponent::Serialize(nlohmann::json& data) const
     data["useGravity"] = m_UseGravity;
     data["stepOffset"] = m_StepOffset;
     data["maxSlopeAngle"] = m_MaxSlopeAngle;
+    data["jumpSpeed"] = m_JumpSpeed;
+    data["airControl"] = m_AirControl;
 }
 
 void CharacterControllerComponent::Deserialize(const nlohmann::json& data)
@@ -35,4 +47,6 @@ void CharacterControllerComponent::Deserialize(const nlohmann::json& data)
     SetUseGravity(data.value("useGravity", true));
     SetStepOffset(data.value("stepOffset", 0.3f));
     SetMaxSlopeAngle(data.value("maxSlopeAngle", 50.0f));
+    SetJumpSpeed(data.value("jumpSpeed", 5.5f));
+    SetAirControl(data.value("airControl", 0.35f));
 }

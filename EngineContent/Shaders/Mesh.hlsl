@@ -13,6 +13,7 @@ struct VSIn
     float3 normal   : NORMAL;
     float3 tangent  : TANGENT;
     float2 uv       : TEXCOORD0;
+    float4 color    : COLOR0;
 };
 
 struct VSOut
@@ -21,6 +22,7 @@ struct VSOut
     float3 normal : NORMAL;
     float3 tangent : TANGENT;
     float2 uv     : TEXCOORD0;
+    float4 color  : COLOR0;
 };
 
 VSOut VSMain(VSIn v)
@@ -30,6 +32,7 @@ VSOut VSMain(VSIn v)
     o.normal = v.normal;
     o.tangent = v.tangent;
     o.uv    = v.uv;
+    o.color = v.color;
     return o;
 }
 
@@ -39,5 +42,5 @@ float4 PSMain(VSOut p) : SV_TARGET
     float  diffuse  = 0.5f + 0.5f * saturate(dot(p.normal, normalize(float3(0.0f, 1.0f, 1.0f))));
     // Must consume tangent: dxc strips unused VS inputs and breaks CreateInputLayout vs MeshVertex.
     diffuse += dot(p.tangent, float3(1.0f, 1.0f, 1.0f)) * 1e-10f;
-    return float4(texColor.rgb * g_BaseColor.rgb * diffuse, texColor.a * g_BaseColor.a);
+    return float4(texColor.rgb * g_BaseColor.rgb * p.color.rgb * diffuse, texColor.a * g_BaseColor.a * p.color.a);
 }

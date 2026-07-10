@@ -54,9 +54,32 @@ PrefabNode* FindNode(PrefabAsset& asset, const std::string& id) {
     for (auto& node : asset.nodes) if (node.localId == id) return &node;
     return nullptr;
 }
+const PrefabNode* FindNode(const PrefabAsset& asset, const std::string& id) {
+    for (const auto& node : asset.nodes) if (node.localId == id) return &node;
+    return nullptr;
+}
 ComponentCreateDesc* FindComponent(PrefabNode& node, const std::string& type) {
     for (auto& component : node.components) if (component.type == type) return &component;
     return nullptr;
+}
+bool RemoveNodeSubtree(PrefabAsset& asset, const std::string& id) {
+    if (id.empty() || id == asset.rootLocalId || !FindNode(asset, id)) return false;
+    std::unordered_set<std::string> removeIds{id};
+    bool changed = true;
+    while (changed) {
+        changed = false;
+        for (const PrefabNode& node : asset.nodes) {
+            if (!removeIds.count(node.localId) && removeIds.count(node.parentLocalId)) {
+                removeIds.insert(node.localId);
+                changed = true;
+            }
+        }
+    }
+    const size_t before = asset.nodes.size();
+    asset.nodes.erase(std::remove_if(asset.nodes.begin(), asset.nodes.end(),
+        [&](const PrefabNode& node) { return removeIds.count(node.localId) != 0; }),
+        asset.nodes.end());
+    return asset.nodes.size() != before;
 }
 bool ApplySet(nlohmann::json& target, const std::string& path, const nlohmann::json& value) {
     try {
@@ -76,6 +99,10 @@ bool ApplyOverrides(PrefabAsset& asset, const nlohmann::json& overrides, std::st
             const std::string parentId=item.value("parentLocalId",id);
             if (!item.contains("nodes")||!item["nodes"].is_array()) continue;
             for (const auto& value:item["nodes"]) { PrefabNode added; if(!PrefabNodeFromJson(value,added,error))return false; if(added.parentLocalId.empty())added.parentLocalId=parentId; asset.nodes.push_back(std::move(added)); }
+            continue;
+        }
+        if (kind=="RemoveActorSubtree") {
+            RemoveNodeSubtree(asset, id);
             continue;
         }
         if (!node) { Logger::Warn("[Prefab] unresolved override node: ",id); continue; }
@@ -100,12 +127,41 @@ std::unordered_map<std::string,Actor*> InstanceActors(Actor& root) {
     scene->ForEach([&](Actor& actor){if(actor.GetPrefabInstanceRoot()==root.GetHandle())result[actor.GetPrefabLocalId()]=&actor;});
     return result;
 }
+std::unordered_map<std::string,const Actor*> InstanceActors(const Actor& root) {
+    std::unordered_map<std::string,const Actor*> result;
+    Scene* scene=root.GetScene(); if(!scene)return result;
+    scene->ForEach([&](Actor& actor){if(actor.GetPrefabInstanceRoot()==root.GetHandle())result[actor.GetPrefabLocalId()]=&actor;});
+    return result;
+}
 }
 
 std::filesystem::path PrefabSystem::ResolvePrefabPath(const std::filesystem::path& path)
 {
     if (path.is_absolute()) return path.lexically_normal();
     return std::filesystem::path(AssetManager::Get().ResolvePath(path.generic_string())).lexically_normal();
+}
+
+bool PrefabSystem::ApplyOverridesToAsset(PrefabAsset& asset,
+                                         const nlohmann::json& overrides,
+                                         std::string* error)
+{
+    return ApplyOverrides(asset, overrides, error);
+}
+
+bool PrefabSystem::SetInstanceOverrides(Actor& instanceRoot,
+                                        nlohmann::json overrides,
+                                        std::string* error)
+{
+    if (!instanceRoot.IsPrefabRoot()) {
+        SetError(error, "actor is not a prefab instance root");
+        return false;
+    }
+    if (!overrides.is_array()) {
+        SetError(error, "prefab overrides must be an array");
+        return false;
+    }
+    instanceRoot.m_PrefabOverrides = std::move(overrides);
+    return true;
 }
 
 bool PrefabSystem::SaveSubtree(const Actor& root, const std::filesystem::path& path, std::string* error)
@@ -136,13 +192,13 @@ ActorHandle PrefabSystem::QueueInstantiate(Scene& scene, const std::filesystem::
     const PrefabNode* rootNode=nullptr;
     for(const auto& node:asset.nodes)if(node.localId==asset.rootLocalId){rootNode=&node;break;}
     if(!rootNode){SetError(error,"prefab root node is missing");return{};}
-    ActorCreateDesc rootDesc;rootDesc.name=rootNode->name;rootDesc.transform=rootNode->transform;rootDesc.activeSelf=rootNode->activeSelf;rootDesc.components=rootNode->components;
+    ActorCreateDesc rootDesc;rootDesc.name=rootNode->name;rootDesc.transform=rootNode->transform;rootDesc.activeSelf=rootNode->activeSelf;rootDesc.editorFlags=rootNode->editorFlags;rootDesc.components=rootNode->components;
     rootDesc.prefabAssetPath=storedPath;rootDesc.prefabAssetUuid=asset.uuid;rootDesc.prefabLocalId=rootNode->localId;rootDesc.prefabOverrides=options.overrides;
     rootDesc.prefabRoot=true;rootDesc.persistentID=options.persistentRootID;if(options.rootTransform)rootDesc.transform=*options.rootTransform;
     const ActorHandle root=scene.QueueCreateActor(rootDesc);handles[rootNode->localId]=root;
     for(const auto& node:asset.nodes) {
         if(node.localId==asset.rootLocalId)continue;
-        ActorCreateDesc desc; desc.name=node.name;desc.transform=node.transform;desc.activeSelf=node.activeSelf;desc.components=node.components;
+        ActorCreateDesc desc; desc.name=node.name;desc.transform=node.transform;desc.activeSelf=node.activeSelf;desc.editorFlags=node.editorFlags;desc.components=node.components;
         desc.prefabAssetPath=storedPath;desc.prefabAssetUuid=asset.uuid;desc.prefabLocalId=node.localId;desc.prefabOverrides=nlohmann::json::array();
         desc.prefabInstanceRoot=root;handles[node.localId]=scene.QueueCreateActor(desc);
     }
@@ -164,13 +220,23 @@ Actor* PrefabSystem::Instantiate(Scene& scene, const std::filesystem::path& path
 
 bool PrefabSystem::CaptureOverrides(Actor& root, std::string* error)
 {
+    nlohmann::json overrides = nlohmann::json::array();
+    if (!BuildOverrides(root, overrides, error)) return false;
+    root.m_PrefabOverrides = std::move(overrides);
+    return true;
+}
+
+bool PrefabSystem::BuildOverrides(const Actor& root, nlohmann::json& overrides,
+                                  std::string* error)
+{
     if(!root.IsPrefabRoot()){SetError(error,"actor is not a prefab instance root");return false;}
     PrefabAsset source;if(!PrefabAsset::Load(ResolvePrefabPath(root.m_PrefabAssetPath),source,error))return false;
-    auto actors=InstanceActors(root);nlohmann::json overrides=nlohmann::json::array();
+    auto actors=InstanceActors(root);overrides=nlohmann::json::array();
     std::unordered_set<std::string> sourceIds;
-    for(const auto& node:source.nodes){sourceIds.insert(node.localId);auto found=actors.find(node.localId);if(found==actors.end())continue;Actor& actor=*found->second;
+    for(const auto& node:source.nodes){sourceIds.insert(node.localId);auto found=actors.find(node.localId);if(found==actors.end())continue;const Actor& actor=*found->second;
         if(actor.GetName()!=node.name)overrides.push_back({{"kind","SetProperty"},{"localId",node.localId},{"componentType",""},{"path","/name"},{"value",actor.GetName()}});
         if(actor.IsActiveSelf()!=node.activeSelf)overrides.push_back({{"kind","SetProperty"},{"localId",node.localId},{"componentType",""},{"path","/active"},{"value",actor.IsActiveSelf()}});
+        if(actor.GetEditorFlags()!=node.editorFlags)overrides.push_back({{"kind","SetProperty"},{"localId",node.localId},{"componentType",""},{"path","/editorFlags"},{"value",actor.GetEditorFlags()}});
         if(node.localId!=source.rootLocalId){
             if(!EqualVec3(actor.GetTransform().position,node.transform.position))overrides.push_back({{"kind","SetProperty"},{"localId",node.localId},{"componentType",""},{"path","/transform/position"},{"value",{actor.GetTransform().position.x,actor.GetTransform().position.y,actor.GetTransform().position.z}}});
             if(!EqualVec3(actor.GetTransform().rotation,node.transform.rotation))overrides.push_back({{"kind","SetProperty"},{"localId",node.localId},{"componentType",""},{"path","/transform/rotation"},{"value",{actor.GetTransform().rotation.x,actor.GetTransform().rotation.y,actor.GetTransform().rotation.z}}});
@@ -181,11 +247,18 @@ bool PrefabSystem::CaptureOverrides(Actor& root, std::string* error)
         actor.ForEachComponent([&](Component& component){const std::string type=component.GetTypeName();currentTypes.insert(type);nlohmann::json data=nlohmann::json::object();component.Serialize(data);auto it=sourceComponents.find(type);if(it==sourceComponents.end())overrides.push_back({{"kind","AddComponent"},{"localId",node.localId},{"componentType",type},{"enabled",component.IsEnabled()},{"data",data}});else{if(component.IsEnabled()!=it->second->enabled)overrides.push_back({{"kind","SetProperty"},{"localId",node.localId},{"componentType",type},{"path","/enabled"},{"value",component.IsEnabled()}});DiffJson(it->second->data,data,"",node.localId,type,overrides);}});
         for(const auto& [type,value]:sourceComponents)if(!currentTypes.count(type))overrides.push_back({{"kind","RemoveComponent"},{"localId",node.localId},{"componentType",type}});
     }
+    for(const auto& node:source.nodes){
+        if(node.localId==source.rootLocalId||actors.count(node.localId))continue;
+        const PrefabNode* parent=FindNode(source,node.parentLocalId);
+        if(!parent)continue;
+        if(parent->localId!=source.rootLocalId&&!actors.count(parent->localId))continue;
+        overrides.push_back({{"kind","RemoveActorSubtree"},{"localId",node.localId},{"parentLocalId",node.parentLocalId}});
+    }
     // Any source-missing descendant is a structural addition. Emit each added root once.
-    std::vector<Actor*> descendants;
-    std::function<void(Actor&)> collect=[&](Actor& actor){descendants.push_back(&actor);for(Actor* child:actor.GetChildren())collect(*child);};
+    std::vector<const Actor*> descendants;
+    std::function<void(const Actor&)> collect=[&](const Actor& actor){descendants.push_back(&actor);for(Actor* child:actor.GetChildren())collect(*child);};
     collect(root);
-    for(Actor* actor:descendants){const std::string id=actor->GetPrefabLocalId();if(!id.empty()&&sourceIds.count(id))continue;
+    for(const Actor* actor:descendants){const std::string id=actor->GetPrefabLocalId();if(!id.empty()&&sourceIds.count(id))continue;
         Actor* parent=actor->GetParent();if(!parent)continue;
         const std::string parentId=parent->GetPrefabLocalId();
         if(parent!=&root && (parentId.empty()||!sourceIds.count(parentId)))continue;
@@ -194,7 +267,7 @@ bool PrefabSystem::CaptureOverrides(Actor& root, std::string* error)
         const std::string attachId=parent==&root?source.rootLocalId:parentId;
         overrides.push_back({{"kind","AddActorSubtree"},{"localId",attachId},{"parentLocalId",attachId},{"nodes",std::move(values)}});
     }
-    root.m_PrefabOverrides=std::move(overrides);return true;
+    return true;
 }
 
 bool PrefabSystem::RefreshInstances(Scene& scene,const std::string& uuid,std::string* error)

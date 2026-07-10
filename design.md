@@ -10,8 +10,6 @@
 MyEngine/
 ├── xmake.lua                 # 工程与目标定义
 ├── xmake/imgui_metal.lua     # macOS：ImGui + Metal 辅助目标（imgui_metal）
-├── main.cpp                  # 编辑器入口：SDL3 + Application，推入 SceneRenderLayer 与 EditorLayer
-├── player_main.cpp           # 运行时入口：仅 SceneRenderLayer（无编辑器 UI）
 ├── design.md                 # 本文档
 ├── Content/                  # 游戏内容（构建后复制到输出目录）
 ├── tests/
@@ -19,6 +17,7 @@ MyEngine/
 ├── thirdparty/
 │   └── ImGuizmo/             # 场景视口 Gizmo（与 ImGui 配合）
 └── src/
+    ├── Apps/                 # Editor/Player/Cooker/IconTool/Packager 可执行入口
     ├── Runtime/
     │   ├── Core/             # Application、Engine、Window、Event、Layer、LayerStack、Time、Logger、Platform、EngineMath
     │   ├── Input/            # 输入快照（与 Engine 事件循环配合）
@@ -44,8 +43,8 @@ MyEngine/
 | 目标 | 类型 | 说明 |
 |------|------|------|
 | `MyEngineRuntime` | `shared`（`runtime.dll`/`libruntime.so` 等） | 聚合 **Runtime** 全部 `.cpp`；对外导出 `src/Runtime/**/*.h`（public include） |
-| `MyEngineEditor` | `binary` | 链接 `MyEngineRuntime`，入口 `main.cpp`，并编译 `xmake.lua` 中共享的 `editor_sources` 与 `ImGuizmo`；规则 `copy_game_content` |
-| `MyEnginePlayer` | `binary` | 链接 `MyEngineRuntime`，入口 `player_main.cpp`；同样复制 `Content` |
+| `MyEngineEditor` | `binary` | 链接 `MyEngineRuntime`，入口 `src/Apps/EditorMain.cpp`，并编译 `xmake.lua` 中共享的 `editor_sources` 与 `ImGuizmo`；规则 `copy_game_content` |
+| `MyEnginePlayer` | `binary` | 链接 `MyEngineRuntime`，入口 `src/Apps/PlayerMain.cpp`；同样复制 `Content` |
 | `MyEngineTests` | `binary` | 链接 `MyEngineRuntime`，编译 `tests/*.cpp` 与共享 `editor_sources`；运行时仍依赖 SDL（链接与 DLL 复制与编辑器类似） |
 
 **说明**：编辑器 UI 不编译进 `MyEngineRuntime` 共享库；`MyEngineEditor` 与 `MyEngineTests` 通过 `xmake.lua` 的共享 `editor_sources` 列表复用同一批 Editor 源文件。`MyEnginePlayer` 不编译 Editor 源文件，保持 runtime-only。
@@ -78,6 +77,7 @@ MyEngine/
 4. **Audio** — `AudioEngine` 封装 miniaudio 设备生命周期，`AudioClipAsset` 走统一资源系统，`AudioSourceComponent` 通过场景组件生命周期播放和停止声音；设备不可用时进入无声模式。
 5. **Assets** — 资源注册与加载；依赖文件系统与第三方导入库；**Mesh/AudioClip 等数据可被 Scene 组件引用**，导入路径可与 `SceneSerializer` 存储的路径字符串衔接。
 6. **Scene** — `Scene` / `Actor` / `Transform` / `Component` / `MeshRendererComponent` / `AudioSourceComponent`；**序列化**依赖 **nlohmann_json**；组件内引用 **Assets**（网格/材质/音频句柄或路径）。
+7. **Gameplay / Navigation** — 动画状态机、角色控制、Combat/Interaction、CPU billboard 粒子、AudioListener、反馈服务、网格 NavMesh/A*、NavAgent、Enemy FSM 和 `SceneManager` 全部属于 Runtime；Editor 仅提供 Inspector、NavMesh 烘焙与诊断。
 7. **Camera** — 视图投影、`CameraComponent` 与 viewport 控制器相关数学；依赖 **Math**，与 **Renderer** 的数据约定一致。
 8. **Renderer（含 RHI）** — `IRenderContext` 及 D3D11/D3D12/Metal 实现；`Renderer` / `MainPass` / `ShadowPass` 消费 **Scene + Camera + RHI**；**不反向依赖** Editor。
 9. **Game** — `SceneLayer` 持有分离的 **EditorWorld/PlayWorld**：Load/Save/Undo 等编辑入口只操作 EditorWorld，`BeginPlay()` 通过 **SceneSerializer** 克隆出临时 PlayWorld，运行时模拟只更新 PlayWorld；`SceneRenderLayer` 在 **SceneLayer** 之上组合 **IRenderContext + Renderer + SceneViewport/GameViewport**，Player 使用 simulation scene 与主 `CameraComponent`，Editor 同时输出 Scene/Game 两个 viewport。
@@ -88,8 +88,8 @@ MyEngine/
 ```mermaid
 flowchart TB
     subgraph apps [可执行入口]
-        EditorExe[main.cpp]
-        PlayerExe[player_main.cpp]
+        EditorExe[src/Apps/EditorMain.cpp]
+        PlayerExe[src/Apps/PlayerMain.cpp]
         TestsExe[EngineTests.cpp]
     end
 
@@ -126,8 +126,8 @@ flowchart TB
 
 | 组合 | `IRenderContext` | 推入的 Layer | Present 行为 |
 |------|------------------|-------------|--------------|
-| **编辑器**（`main.cpp`） | `CreateD3D11Context` / `CreateD3D12Context` / `CreateMetalContext` | 先 `SceneRenderLayer`，后 `EditorLayer` | `SceneRenderLayer::SetPresentEnabled(false)`，由编辑器在 ImGui 之后统一 `EndFrame` |
-| **玩家**（`player_main.cpp`） | 同上 | 仅 `SceneRenderLayer` | `SetPresentEnabled(true)`，场景层内 Present |
+| **编辑器**（`src/Apps/EditorMain.cpp`） | `CreateD3D11Context` / `CreateD3D12Context` / `CreateMetalContext` | 先 `SceneRenderLayer`，后 `EditorLayer` | `SceneRenderLayer::SetPresentEnabled(false)`，由编辑器在 ImGui 之后统一 `EndFrame` |
+| **玩家**（`src/Apps/PlayerMain.cpp`） | 同上 | 仅 `SceneRenderLayer` | `SetPresentEnabled(true)`，场景层内 Present |
 
 ---
 

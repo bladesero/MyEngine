@@ -8,6 +8,8 @@
 #include "Assets/ShaderAsset.h"
 #include "Assets/ScriptAsset.h"
 #include "Assets/UIAsset.h"
+#include "Assets/NavMeshAsset.h"
+#include "Assets/ParticleAsset.h"
 #include "Audio/AudioClipAsset.h"
 #include "Core/Logger.h"
 
@@ -222,7 +224,7 @@ private:
 
     size_t              m_AssetCpuBudgetBytes = 0; // 0 = no budget / no warn
     size_t              m_AssetCpuTotalBytes = 0;
-    std::array<size_t, 11> m_AssetCpuBytesByType{};
+    std::array<size_t, 13> m_AssetCpuBytesByType{};
     std::unordered_map<AssetID, std::filesystem::file_time_type> m_SourceWriteTimes;
     std::unordered_map<AssetID, std::string> m_SourceHashes;
     std::unordered_map<ListenerID, AssetChangedCallback> m_AssetChangedListeners;

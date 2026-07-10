@@ -30,20 +30,34 @@ void ProfilerPanel::DrawContent()
         : emptyStats;
     const RendererFrameStats& renderer = stats.renderer;
 
-    ImGui::Text("Frame %.2f ms (%.1f FPS)  Update %.2f ms  Render %.2f ms",
-                stats.smoothedFrameMs, stats.fps, stats.updateMs, stats.renderMs);
-    ImGui::Text("Pass CPU: Shadow %.2f  Main %.2f  SSAO %.2f  Composite %.2f",
+    ImGui::SeparatorText("Frame Timing");
+    ImGui::Text("Frame %llu  %.1f FPS  Raw %.2f ms  Smoothed %.2f ms",
+                static_cast<unsigned long long>(stats.frameNumber),
+                stats.fps, stats.frameMs, stats.smoothedFrameMs);
+    ImGui::Text("CPU: Update %.2f ms  Render %.2f ms",
+                stats.updateMs, stats.renderMs);
+    ImGui::Text("Render pass CPU: Shadow %.2f  Main %.2f  SSAO %.2f  Composite %.2f",
                 renderer.shadowCpuMs, renderer.mainCpuMs,
                 renderer.ssaoCpuMs, renderer.compositeCpuMs);
-    ImGui::Text("Draws %u  Shadow %u  Main %u  Fullscreen %u  BindGroups %u",
+    if (renderer.gpuTimingAvailable) {
+        ImGui::Text("Render pass GPU: Shadow %.2f  Main %.2f  SSAO %.2f  Composite %.2f",
+                    renderer.shadowGpuMs, renderer.mainGpuMs,
+                    renderer.ssaoGpuMs, renderer.compositeGpuMs);
+    } else {
+        ImGui::TextDisabled("Render pass GPU timing unavailable");
+    }
+
+    ImGui::SeparatorText("Renderer");
+    ImGui::Text("Draws %u  Shadow %u  Main %u  Fullscreen %u  Submeshes %u",
                 renderer.drawCalls, renderer.shadowDrawCalls,
                 renderer.mainDrawCalls, renderer.fullscreenDrawCalls,
-                renderer.bindGroupCreates);
+                renderer.subMeshCount);
+    ImGui::Text("Bind groups created %u", renderer.bindGroupCreates);
     ImGui::Text("Texture uploads %u  %.2f MB  %.2f ms",
                 renderer.textureUploads,
                 static_cast<double>(renderer.textureUploadBytes) / (1024.0 * 1024.0),
                 renderer.textureUploadMs);
-    ImGui::Separator();
+    ImGui::SeparatorText("Editor Events");
 
     if (!profiler) {
         ImGui::TextUnformatted("Profiler unavailable");

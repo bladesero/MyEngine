@@ -1,11 +1,13 @@
 #include "Game/SceneLayer.h"
 #include "Core/Logger.h"
+#include "Assets/AssetManager.h"
 
 // --------------------------------------------------------------------------
 SceneLayer::SceneLayer(const std::string& layerName)
     : Layer(layerName)
     , m_EditorScene(std::make_unique<Scene>("Untitled"))
 {
+    m_EditorScene->SetSceneManager(&m_SceneManager);
 }
 
 // --------------------------------------------------------------------------
@@ -27,6 +29,24 @@ void SceneLayer::OnDetach()
 
 void SceneLayer::OnUpdate(float dt)
 {
+    std::unique_ptr<Scene> requestedScene;
+    if (m_SceneManager.Process(requestedScene) && requestedScene) {
+        OnSceneUnloaded();
+        if (IsEditing()) {
+            m_EditorScene = std::move(requestedScene);
+            m_EditorScene->SetSceneManager(&m_SceneManager);
+            m_SceneFilePath = (AssetManager::Get().GetProjectRoot() /
+                m_SceneManager.GetRequestedPath()).string();
+            m_Dirty = false;
+        } else {
+            if (m_PlayScene) m_PlayScene->EndPlay();
+            m_PlayScene = std::move(requestedScene);
+            m_PlayScene->SetSceneManager(&m_SceneManager);
+            m_PlayScene->BeginPlay();
+            m_RunState = SceneRunState::Play;
+        }
+        OnSceneLoaded();
+    }
     if (m_RunState == SceneRunState::Play || m_StepRequested) {
         Scene* playScene = GetPlayScene();
         if (!playScene) {
@@ -56,6 +76,7 @@ void SceneLayer::NewScene(const std::string& sceneName)
     OnSceneUnloaded();
 
     m_EditorScene    = std::make_unique<Scene>(sceneName);
+    m_EditorScene->SetSceneManager(&m_SceneManager);
     m_SceneFilePath  = "";
     m_Dirty          = false;
 
@@ -66,17 +87,16 @@ void SceneLayer::NewScene(const std::string& sceneName)
 bool SceneLayer::LoadScene(const std::string& filepath)
 {
     if (!IsEditing()) StopPlay();
-    OnSceneUnloaded();
-
     auto newScene = std::make_unique<Scene>();
     if (!SceneSerializer::LoadFromFile(*newScene, filepath)) {
         // 加载失败，恢复空场景
-        m_EditorScene = std::make_unique<Scene>("Untitled");
         Logger::Error("[SceneLayer] Failed to load: ", filepath);
         return false;
     }
 
+    OnSceneUnloaded();
     m_EditorScene   = std::move(newScene);
+    m_EditorScene->SetSceneManager(&m_SceneManager);
     m_SceneFilePath = filepath;
     m_Dirty         = false;
 
@@ -139,6 +159,7 @@ bool SceneLayer::BeginPlay()
         Logger::Error("[SceneLayer] Failed to clone scene for Play mode");
         return false;
     }
+    m_PlayScene->SetSceneManager(&m_SceneManager);
     m_RunState = SceneRunState::Play;
     m_PlayScene->BeginPlay();
     m_StepRequested = false;

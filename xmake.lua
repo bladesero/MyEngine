@@ -16,6 +16,7 @@ local editor_sources = {
     "src/Editor/EditorAssetRegistry.cpp",
     "src/Editor/EditorAction.cpp",
     "src/Editor/EditorCommand.cpp",
+    "src/Editor/EditorClipboardService.cpp",
     "src/Editor/EditorContextMenu.cpp",
     "src/Editor/EditorDragDrop.cpp",
     "src/Editor/EditorContext.cpp",
@@ -27,6 +28,7 @@ local editor_sources = {
     "src/Editor/EditorLayoutManager.cpp",
     "src/Editor/EditorLogService.cpp",
     "src/Editor/EditorLuaScriptService.cpp",
+    "src/Editor/EditorNavigationBakeService.cpp",
     "src/Editor/EditorOperators.cpp",
     "src/Editor/EditorPanel.cpp",
     "src/Editor/EditorProfiler.cpp",
@@ -95,6 +97,7 @@ target("MyEngineRuntime")
     add_files(
         "src/Runtime/RuntimeModule.cpp",
         "src/Runtime/Project/ProjectConfig.cpp",
+        "src/Runtime/Project/SaveGame.cpp",
         "src/Runtime/Project/ContentArchive.cpp",
         "src/Runtime/Project/CookManifest.cpp",
         "src/Runtime/Project/CookedProjectCache.cpp",
@@ -120,6 +123,7 @@ target("MyEngineRuntime")
         "src/Runtime/Audio/AudioClipAsset.cpp",
         "src/Runtime/Audio/AudioEngine.cpp",
         "src/Runtime/Audio/AudioSourceComponent.cpp",
+        "src/Runtime/Audio/AudioListenerComponent.cpp",
         "src/Runtime/Assets/AssetManager.cpp",
         "src/Runtime/Assets/AssetDatabase.cpp",
         "src/Runtime/Assets/AssetImporter.cpp",
@@ -129,11 +133,15 @@ target("MyEngineRuntime")
         "src/Runtime/Assets/GltfImporter.cpp",
         "src/Runtime/Assets/MaterialAsset.cpp",
         "src/Runtime/Assets/ScriptAsset.cpp",
+        "src/Runtime/Assets/NavMeshAsset.cpp",
+        "src/Runtime/Assets/ParticleAsset.cpp",
         "src/Runtime/Assets/ShaderAsset.cpp",
         "src/Runtime/Assets/MeshAsset.cpp",
         "src/Runtime/Assets/TextureAsset.cpp",
         "thirdparty/angelscript_addons/scriptstdstring/scriptstdstring.cpp",
         "src/Runtime/Scripting/AngelScriptRuntime.cpp",
+        "src/Runtime/Scripting/ScriptBindingContext.cpp",
+        "src/Runtime/Scripting/ScriptProfiler.cpp",
         "src/Runtime/Scripting/ScriptComponent.cpp",
         "src/Runtime/Physics/RigidBodyComponent.cpp",
         "src/Runtime/Physics/BoxColliderComponent.cpp",
@@ -142,6 +150,8 @@ target("MyEngineRuntime")
         "src/Runtime/Physics/CharacterControllerComponent.cpp",
         "src/Runtime/Physics/CollisionShapes.cpp",
         "src/Runtime/Physics/PhysicsWorld.cpp",
+        "src/Runtime/Animation/AnimatorController.cpp",
+        "src/Runtime/Animation/AnimatorComponent.cpp",
         "src/Runtime/Animation/SkinnedMeshRendererComponent.cpp",
         "src/Runtime/Scene/Actor.cpp",
         "src/Runtime/Scene/ActorSubtreeSerializer.cpp",
@@ -152,6 +162,11 @@ target("MyEngineRuntime")
         "src/Runtime/Scene/SceneSerializer.cpp",
         "src/Runtime/Camera/Camera.cpp",
         "src/Runtime/Camera/CameraComponent.cpp",
+        "src/Runtime/Camera/ThirdPersonCameraComponent.cpp",
+        "src/Runtime/Gameplay/GameplayComponents.cpp",
+        "src/Runtime/Gameplay/EnemyAIComponent.cpp",
+        "src/Runtime/Navigation/NavigationWorld.cpp",
+        "src/Runtime/Navigation/NavAgentComponent.cpp",
         "src/Runtime/Renderer/Renderer.cpp",
         "src/Runtime/Renderer/RenderGraph.cpp",
         "src/Runtime/Renderer/RHI/ShaderReflection.cpp",
@@ -162,6 +177,7 @@ target("MyEngineRuntime")
         "src/Runtime/Renderer/GpuUploadQueue.cpp",
         "src/Runtime/Renderer/LightComponent.cpp",
         "src/Runtime/Renderer/PostProcessComponent.cpp",
+        "src/Runtime/Renderer/ParticleSystemComponent.cpp",
         "src/Runtime/Renderer/PostProcessPass.cpp",
         "src/Runtime/Renderer/ScreenUIPass.cpp",
         "src/Runtime/Renderer/GBufferPass.cpp",
@@ -179,6 +195,7 @@ target("MyEngineRuntime")
         "src/Runtime/Game/GameViewport.cpp",
         "src/Runtime/Game/TriangleLayer.cpp",
         "src/Runtime/Game/SceneLayer.cpp",
+        "src/Runtime/Game/SceneManager.cpp",
         "src/Runtime/Game/SceneViewportController.cpp",
         "src/Runtime/Game/ViewportRenderExecution.cpp",
         "src/Runtime/Game/DefaultSceneFactory.cpp",
@@ -236,7 +253,7 @@ target("MyEngineRuntime")
     add_packages("joltphysics", { public = true })
     add_packages("angelscript", { public = true })
     add_includedirs("thirdparty")
-    add_packages("imgui", { public = true })
+    add_packages("imgui")
 
     add_options("mem_stats", "mem_tracking", "mem_guard", "vulkan")
 
@@ -274,7 +291,7 @@ target_end()
 
 target("MyEngineIconTool")
     set_kind("binary")
-    add_files("icon_tool_main.cpp")
+    add_files("src/Apps/IconToolMain.cpp")
     add_includedirs("src", "src/Runtime")
     add_deps("MyEngineRuntime")
     if is_plat("windows") then
@@ -297,7 +314,7 @@ target_end()
 target("MyEngineEditor")
     set_kind("binary")
     add_rules("copy_game_content", "copy_sdl_runtime", "copy_slang_tool", "copy_runtime_library")
-    add_files("main.cpp")
+    add_files("src/Apps/EditorMain.cpp")
     add_myengine_editor_sources()
     add_includedirs("src", "src/Editor", "thirdparty/ImGuizmo",
         "thirdparty/angelscript_addons/scriptstdstring")
@@ -340,13 +357,12 @@ target_end()
 target("MyEnginePlayer")
     set_kind("binary")
     add_rules("copy_game_content", "copy_sdl_runtime", "copy_runtime_library")
-    add_files("player_main.cpp")
+    add_files("src/Apps/PlayerMain.cpp")
     add_includedirs("src")
     add_deps("MyEngineRuntime")
     add_deps("MyEngineIconTool")
     add_options("vulkan")
     add_packages("libsdl3")
-    add_defines("MYENGINE_ENABLE_IMGUI")
     if is_plat("windows") then
         add_files("src/Runtime/Miscs/Resources/MyEnginePlayer.rc")
         add_cxflags("/utf-8", { toolset = "msvc" })
@@ -361,7 +377,7 @@ target("MyEngineCooker")
     set_kind("binary")
     add_rules("copy_slang_tool", "copy_runtime_library")
     add_files(
-        "cooker_main.cpp",
+        "src/Apps/CookerMain.cpp",
         "src/Editor/ProjectPublisher.cpp",
         "src/Editor/CookDependencyGraph.cpp"
     )
@@ -388,7 +404,7 @@ target_end()
 
 target("MyEngineEditorPackager")
     set_kind("binary")
-    add_files("editor_packager_main.cpp")
+    add_files("src/Apps/EditorPackagerMain.cpp")
     add_includedirs("src")
     add_deps("MyEngineRuntime")
     if is_plat("windows") then
@@ -407,6 +423,7 @@ target("MyEngineTests")
         "tests/PhysicsTests.cpp",
         "tests/ProjectTests.cpp",
         "tests/RendererTests.cpp",
+        "tests/ScriptingTests.cpp",
         "tests/TestHarness.cpp",
         "tests/TestMain.cpp"
     )

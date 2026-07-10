@@ -1,6 +1,7 @@
 #include "Editor/EditorUI/EditorScriptRegistry.h"
 
 #include <algorithm>
+#include <utility>
 
 void EditorScriptRegistry::Clear()
 {
@@ -13,6 +14,23 @@ void EditorScriptRegistry::Clear()
     m_ToolbarItems.clear();
     m_AssetContextMenus.clear();
     m_ActorContextMenus.clear();
+    m_Diagnostics.clear();
+}
+
+void EditorScriptRegistry::AddDiagnostic(std::string message)
+{
+    if (!message.empty()) m_Diagnostics.push_back(std::move(message));
+}
+
+bool EditorScriptRegistry::RejectProjectAppend(const char* kind, const std::string& id)
+{
+    if (m_RegistrationLayer != EditorScriptRegistrationLayer::Project ||
+        m_AllowProjectAppend) {
+        return false;
+    }
+    AddDiagnostic(std::string("project editor script append disabled for ") +
+                  kind + ": " + id);
+    return true;
 }
 
 void EditorScriptRegistry::Panel(const std::string& id, const std::string& title,
@@ -25,11 +43,11 @@ void EditorScriptRegistry::ToolPanel(const std::string& id, const std::string& t
                                      int area, const std::string& callback)
 {
     if (id.empty() || callback.empty()) return;
-    if (m_RegistrationLayer == EditorScriptRegistrationLayer::Project &&
-        !m_AllowProjectAppend) {
+    if (RejectProjectAppend("ToolPanel", id)) return;
+    if (IsCorePanelID(id)) {
+        AddDiagnostic("scripted ToolPanel rejected core panel id: " + id);
         return;
     }
-    if (IsCorePanelID(id)) return;
 
     EditorScriptPanelSpec spec;
     spec.id = id;
@@ -65,6 +83,7 @@ void EditorScriptRegistry::PanelBody(const std::string& id, const std::string& c
     if (id.empty() || callback.empty()) return;
     if (m_RegistrationLayer == EditorScriptRegistrationLayer::Project &&
         IsCorePanelID(id) && !m_AllowProjectOverrideCore) {
+        AddDiagnostic("project PanelBody rejected core panel id: " + id);
         return;
     }
 
@@ -95,10 +114,7 @@ void EditorScriptRegistry::Menu(const std::string& path, const std::string& acti
 void EditorScriptRegistry::MenuItem(const std::string& path, const std::string& target)
 {
     if (path.empty() || target.empty()) return;
-    if (m_RegistrationLayer == EditorScriptRegistrationLayer::Project &&
-        !m_AllowProjectAppend) {
-        return;
-    }
+    if (RejectProjectAppend("MenuItem", path)) return;
     m_Menus.push_back({path, target});
 }
 
@@ -106,10 +122,7 @@ void EditorScriptRegistry::ToolbarItem(const std::string& id, int order,
                                        const std::string& callback)
 {
     if (id.empty() || callback.empty()) return;
-    if (m_RegistrationLayer == EditorScriptRegistrationLayer::Project &&
-        !m_AllowProjectAppend) {
-        return;
-    }
+    if (RejectProjectAppend("ToolbarItem", id)) return;
     m_ToolbarItems.push_back({id, order, callback});
     std::sort(m_ToolbarItems.begin(), m_ToolbarItems.end(),
               [](const EditorScriptToolbarItemSpec& a, const EditorScriptToolbarItemSpec& b) {
@@ -128,10 +141,7 @@ void EditorScriptRegistry::InspectorSection(const std::string& targetType, int o
                                             const std::string& callback)
 {
     if (targetType.empty() || callback.empty()) return;
-    if (m_RegistrationLayer == EditorScriptRegistrationLayer::Project &&
-        !m_AllowProjectAppend) {
-        return;
-    }
+    if (RejectProjectAppend("InspectorSection", targetType)) return;
     m_Inspectors.push_back({targetType, order, callback});
     std::sort(m_Inspectors.begin(), m_Inspectors.end(),
               [](const EditorScriptInspectorSpec& a, const EditorScriptInspectorSpec& b) {
@@ -144,19 +154,13 @@ void EditorScriptRegistry::AssetContextMenu(const std::string& assetTypeOrAny,
                                             const std::string& callback)
 {
     if (assetTypeOrAny.empty() || callback.empty()) return;
-    if (m_RegistrationLayer == EditorScriptRegistrationLayer::Project &&
-        !m_AllowProjectAppend) {
-        return;
-    }
+    if (RejectProjectAppend("AssetContextMenu", assetTypeOrAny)) return;
     m_AssetContextMenus.push_back({assetTypeOrAny, callback});
 }
 
 void EditorScriptRegistry::ActorContextMenu(const std::string& callback)
 {
     if (callback.empty()) return;
-    if (m_RegistrationLayer == EditorScriptRegistrationLayer::Project &&
-        !m_AllowProjectAppend) {
-        return;
-    }
+    if (RejectProjectAppend("ActorContextMenu", callback)) return;
     m_ActorContextMenus.push_back({"Actor", callback});
 }

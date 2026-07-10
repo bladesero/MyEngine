@@ -151,6 +151,19 @@ void EditorContext::MarkSceneDirty() const
     if (m_SceneLayer) m_SceneLayer->MarkDirty();
 }
 
+void EditorContext::SetPanelFocusRequestHandler(
+    std::function<void(std::string_view)> handler)
+{
+    m_PanelFocusRequestHandler = std::move(handler);
+}
+
+void EditorContext::RequestPanelFocus(std::string_view panelID) const
+{
+    if (m_PanelFocusRequestHandler && !panelID.empty()) {
+        m_PanelFocusRequestHandler(panelID);
+    }
+}
+
 void EditorContext::SetProjectRoot(std::filesystem::path root)
 {
     m_ProjectRoot = std::move(root);

@@ -33,6 +33,7 @@ public:
     void FrameDirection(SceneViewDirection direction,
                         const Vec3& target,
                         float distance = 10.0f);
+    void FrameTarget(const Vec3& target, float radius = 1.0f);
     void OrbitAroundFocus(const Vec3& target, float yawDegrees, float pitchDegrees);
     void ToggleProjectionMode();
     void SetProjectionMode(ProjectionMode mode);

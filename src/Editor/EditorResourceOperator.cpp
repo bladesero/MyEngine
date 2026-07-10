@@ -17,6 +17,10 @@ bool AssetModifier::Modify(EditorContext& context)
     std::string beforeContent;
     {
         std::ifstream in(m_AssetPath, std::ios::binary);
+        if (!in) {
+            Logger::Warn("[AssetModifier] Cannot read asset before edit: ", m_AssetPath);
+            return false;
+        }
         beforeContent = std::string(std::istreambuf_iterator<char>(in),
                                      std::istreambuf_iterator<char>());
     }
@@ -41,6 +45,10 @@ bool AssetModifier::Modify(EditorContext& context)
     std::string afterContent;
     {
         std::ifstream in(m_AssetPath, std::ios::binary);
+        if (!in) {
+            Logger::Warn("[AssetModifier] Cannot read asset after edit: ", m_AssetPath);
+            return false;
+        }
         afterContent = std::string(std::istreambuf_iterator<char>(in),
                                     std::istreambuf_iterator<char>());
     }
@@ -53,9 +61,19 @@ bool AssetModifier::Modify(EditorContext& context)
 
     // 5. Push undo command
     if (auto* stack = context.GetCommandStack()) {
-        stack->ExecuteCommand(
-            std::make_unique<ModifyAssetCommand>(m_AssetPath, beforeContent, afterContent),
-            context);
+        if (!stack->ExecuteCommand(
+                std::make_unique<ModifyAssetCommand>(m_AssetPath, beforeContent, afterContent),
+                context)) {
+            std::ofstream restore(m_AssetPath, std::ios::binary | std::ios::trunc);
+            restore.write(beforeContent.data(),
+                          static_cast<std::streamsize>(beforeContent.size()));
+            restore.close();
+            AssetManager::Get().Reload(m_AssetPath);
+            if (auto* registry = context.GetAssetRegistry()) registry->Refresh();
+            Logger::Warn("[AssetModifier] Failed to commit asset modification: ",
+                         m_AssetPath);
+            return false;
+        }
     }
 
     // 6. Reload in AssetManager to update GPU resources

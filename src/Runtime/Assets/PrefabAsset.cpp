@@ -18,12 +18,14 @@ nlohmann::json PrefabNodeToJson(const PrefabNode& node)
     nlohmann::json components = nlohmann::json::array();
     for (const auto& component : node.components)
         components.push_back({{"type", component.type}, {"enabled", component.enabled}, {"data", component.data}});
-    return {{"localId", node.localId}, {"parentLocalId", node.parentLocalId},
+    nlohmann::json result = {{"localId", node.localId}, {"parentLocalId", node.parentLocalId},
             {"name", node.name}, {"active", node.activeSelf},
             {"transform", {{"position", Vec3Json(node.transform.position)},
                            {"rotation", Vec3Json(node.transform.rotation)},
                            {"scale", Vec3Json(node.transform.scale)}}},
             {"components", std::move(components)}};
+    if (node.editorFlags != 0) result["editorFlags"] = node.editorFlags;
+    return result;
 }
 
 bool PrefabNodeFromJson(const nlohmann::json& json, PrefabNode& node, std::string* error)
@@ -35,6 +37,7 @@ bool PrefabNodeFromJson(const nlohmann::json& json, PrefabNode& node, std::strin
         node.parentLocalId = json.value("parentLocalId", std::string{});
         node.name = json.value("name", std::string("Actor"));
         node.activeSelf = json.value("active", true);
+        node.editorFlags = json.value("editorFlags", uint32_t{0});
         if (const auto transform = json.find("transform"); transform != json.end() && transform->is_object()) {
             node.transform.position = ReadVec3(transform->value("position", nlohmann::json::array()), node.transform.position);
             node.transform.rotation = ReadVec3(transform->value("rotation", nlohmann::json::array()), node.transform.rotation);

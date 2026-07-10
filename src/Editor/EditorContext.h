@@ -4,6 +4,8 @@
 #include "Renderer/IRenderContext.h"
 
 #include <filesystem>
+#include <functional>
+#include <string_view>
 #include <typeindex>
 #include <unordered_map>
 
@@ -17,6 +19,7 @@ class EditorProject;
 class EditorProfiler;
 class EditorService;
 class EditorShortcutMap;
+class EditorWorkspace;
 class Engine;
 class IWindow;
 class Scene;
@@ -74,12 +77,16 @@ public:
     EditorActionRegistry* GetActionRegistry() const { return m_ActionRegistry; }
     void SetShortcutMap(EditorShortcutMap* value) { m_ShortcutMap = value; }
     EditorShortcutMap* GetShortcutMap() const { return m_ShortcutMap; }
+    void SetWorkspace(EditorWorkspace* value) { m_Workspace = value; }
+    EditorWorkspace* GetWorkspace() const { return m_Workspace; }
     void SetImGuiBackend(EditorImGuiBackend* backend) { m_ImGuiBackend = backend; }
     EditorImGuiBackend* GetImGuiBackend() const { return m_ImGuiBackend; }
     void SetEditorScriptDomain(EditorAngelScriptDomain* value) { m_EditorScriptDomain = value; }
     EditorAngelScriptDomain* GetEditorScriptDomain() const { return m_EditorScriptDomain; }
     void SetOperators(EditorOperators* value) { m_Operators = value; }
     EditorOperators* GetOperators() const { return m_Operators; }
+    void SetPanelFocusRequestHandler(std::function<void(std::string_view)> handler);
+    void RequestPanelFocus(std::string_view panelID) const;
     void SetProjectRoot(std::filesystem::path root);
     const std::filesystem::path& GetProjectRoot() const { return m_ProjectRoot; }
     const std::filesystem::path& GetContentRoot() const { return m_ContentRoot; }
@@ -105,9 +112,11 @@ private:
     EditorProfiler* m_Profiler = nullptr;
     EditorActionRegistry* m_ActionRegistry = nullptr;
     EditorShortcutMap* m_ShortcutMap = nullptr;
+    EditorWorkspace* m_Workspace = nullptr;
     EditorImGuiBackend* m_ImGuiBackend = nullptr;
     EditorAngelScriptDomain* m_EditorScriptDomain = nullptr;
     EditorOperators* m_Operators = nullptr;
+    std::function<void(std::string_view)> m_PanelFocusRequestHandler;
     EditorWorldViewMode m_SceneViewMode = EditorWorldViewMode::EditorWorld;
     std::unordered_map<std::type_index, EditorService*> m_Services;
     std::filesystem::path m_ProjectRoot;

@@ -1,22 +1,14 @@
 #include "Editor/EditorPanels.h"
 
-#include "Assets/AssetManager.h"
-#include "Assets/ModelAsset.h"
 #include "Camera/Camera.h"
-#include "Core/Logger.h"
-#include "Editor/EditorCommand.h"
 #include "Editor/EditorContext.h"
 #include "Editor/EditorImGuiBackend.h"
-#include "Editor/EditorPanelHelpers.h"
-#include "Editor/EditorUndoUtil.h"
+#include "Editor/EditorOperators.h"
 #include "Game/SceneRenderLayer.h"
 #include "Game/SceneViewportController.h"
 #include "Game/GameViewport.h"
 #include "Scene/Actor.h"
-#include "Scene/MeshRendererComponent.h"
-#include "Scene/PrefabSystem.h"
 #include "Scene/Scene.h"
-#include "Scene/SceneSerializer.h"
 
 #if defined(MYENGINE_ENABLE_IMGUI)
 #include <imgui.h>
@@ -25,18 +17,10 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
-#include <filesystem>
 
 namespace {
 constexpr const char kModelPayload[] = "MYENGINE_MODEL_PATH";
 constexpr const char kPrefabPayload[] = "MYENGINE_PREFAB_PATH";
-
-Vec3 ResolveViewportFrameTarget(EditorContext& context)
-{
-    Scene* scene = context.GetInspectorScene();
-    Actor* actor = scene ? context.GetSelection().ResolveActor(*scene) : nullptr;
-    return actor ? actor->GetWorldMatrix().TransformPoint(Vec3::Zero()) : Vec3::Zero();
-}
 
 #if defined(MYENGINE_ENABLE_IMGUI)
 struct AxisGizmoEndpoint {
@@ -82,6 +66,17 @@ bool PointInCircle(const ImVec2& point, const ImVec2& center, float radius)
     return dx * dx + dy * dy <= radius * radius;
 }
 
+bool ProjectWorld(const Vec3& world,const Camera& camera,const EditorPanelRect& rect,ImVec2& screen)
+{
+    const Vec4 clip=camera.GetViewProj().Transform(Vec4::FromVec3(world,1.0f));if(clip.w<=0.0001f)return false;const float x=clip.x/clip.w,y=clip.y/clip.w,z=clip.z/clip.w;if(z<0.0f||z>1.0f)return false;screen={rect.x+(x*0.5f+0.5f)*rect.width,rect.y+(0.5f-y*0.5f)*rect.height};return true;
+}
+
+void DrawNavigationOverlay(const Scene& scene,const Camera& camera,const EditorPanelRect& rect)
+{
+    const NavigationWorld& nav=scene.GetNavigationWorld();if(!nav.IsBaked())return;const uint64_t total=static_cast<uint64_t>(nav.GetWidth())*nav.GetHeight();const uint32_t stride=static_cast<uint32_t>(std::max<uint64_t>(1,(total+4999)/5000));const auto& settings=nav.GetSettings();const auto& cells=nav.GetCells();ImDrawList* draw=ImGui::GetWindowDrawList();
+    for(uint32_t z=0;z<nav.GetHeight();z+=stride)for(uint32_t x=0;x<nav.GetWidth();x+=stride){const size_t index=static_cast<size_t>(z)*nav.GetWidth()+x;if(index>=cells.size())continue;const float size=settings.cellSize*stride;const Vec3 a(settings.bounds.min.x+x*settings.cellSize,settings.bounds.min.y+0.03f,settings.bounds.min.z+z*settings.cellSize),b=a+Vec3(size,0,0),c=a+Vec3(0,0,size);ImVec2 sa,sb,sc;if(!ProjectWorld(a,camera,rect,sa))continue;const ImU32 color=cells[index]?IM_COL32(60,210,110,105):IM_COL32(235,70,70,135);if(ProjectWorld(b,camera,rect,sb))draw->AddLine(sa,sb,color,1.0f);if(ProjectWorld(c,camera,rect,sc))draw->AddLine(sa,sc,color,1.0f);}
+}
+
 ImVec2 ToPlatformWindowLocal(const ImVec2& screenPos)
 {
     if (const ImGuiViewport* viewport = ImGui::GetWindowViewport()) {
@@ -95,15 +90,13 @@ ImVec2 ToPlatformWindowLocal(const ImVec2& screenPos)
 void SceneViewportPanel::DropPrefab(const std::string& path, float screenX, float screenY)
 {
     EditorContext* context=GetContext();if(!context||!context->CanEditScene())return;
-    Scene* scene=context->GetScene();const std::string before=SceneSerializer::SaveToString(*scene);const uint64_t old=context->GetSelection().GetActorID();
     Transform placement;Math::Ray ray{};float distance=0.0f;
     auto* sceneViewport = context->GetSceneViewport();
     if(sceneViewport&&sceneViewport->BuildRayFromScreen(screenX,screenY,ray)&&std::fabs(ray.direction.y)>1e-5f&&(distance=-ray.origin.y/ray.direction.y)>0.0f)placement.position=ray.At(distance);
     else if(sceneViewport){Camera& camera=sceneViewport->GetCamera();placement.position=camera.GetPosition()+camera.GetForward()*8.0f;}
-    PrefabInstantiateOptions options;options.rootTransform=placement;std::string error;Actor* actor=PrefabSystem::Instantiate(*scene,path,options,&error);
-    if(!actor){Logger::Warn("[Editor] Failed to instantiate prefab: ",error);return;}
-    const uint64_t id=actor->GetID();const std::string after=SceneSerializer::SaveToString(*scene);SceneSerializer::LoadFromString(*scene,before);
-    context->GetCommandStack()->ExecuteCommand(EditorUndoUtil::MakeSceneSnapshotCommand("Drop Prefab",before,after,old,id),*context);
+    if (auto* operators = context->GetOperators()) {
+        operators->Prefabs().InstantiatePrefab(*context, path, 0, placement, "Drop Prefab");
+    }
 }
 
 SceneViewportPanel::SceneViewportPanel(std::shared_ptr<EditorGizmoState> state)
@@ -138,50 +131,11 @@ void SceneViewportPanel::AfterEnd()
 
 void SceneViewportPanel::DropModel(const std::string& path, float screenX, float screenY)
 {
-    using namespace EditorPanelHelpers;
-
     EditorContext* context = GetContext();
-    if (!context || !context->CanEditScene() || !IsModel(path)) return;
-
-    ModelHandle model = AssetManager::Get().Load<ModelAsset>(path);
-    if (!model || !model->GetMesh()) {
-        Logger::Warn("[Editor] Failed to load model: ", path);
-        return;
+    if (!context || !context->CanEditScene()) return;
+    if (auto* operators = context->GetOperators()) {
+        operators->Viewport().DropModel(*context, path, screenX, screenY);
     }
-
-    Scene* scene = context->GetScene();
-    const std::string before = SceneSerializer::SaveToString(*scene);
-    const uint64_t previousSelection = context->GetSelection().GetActorID();
-
-    std::string actorName = std::filesystem::path(path).stem().string();
-    Actor* actor = scene->CreateActor(actorName.empty() ? "Mesh" : actorName);
-    auto* renderer = actor->AddComponent<MeshRendererComponent>();
-    renderer->SetMesh(model->GetMesh());
-    renderer->SetMaterials(model->GetMaterials());
-    if (renderer->GetMaterials().empty()) {
-        renderer->SetMaterial(AssetManager::Get().GetDefaultMaterial());
-    }
-
-    Math::Ray ray {};
-    float distance = 0.0f;
-    auto* sceneViewport = context->GetSceneViewport();
-    if (sceneViewport &&
-        sceneViewport->BuildRayFromScreen(screenX, screenY, ray) &&
-        std::fabs(ray.direction.y) > 1e-5f &&
-        (distance = -ray.origin.y / ray.direction.y) > 0.0f) {
-        actor->GetTransform().position = ray.At(distance);
-    } else if (sceneViewport) {
-        Camera& camera = sceneViewport->GetCamera();
-        actor->GetTransform().position = camera.GetPosition() + camera.GetForward() * 8.0f;
-    }
-
-    const uint64_t actorID = actor->GetID();
-    const std::string after = SceneSerializer::SaveToString(*scene);
-    SceneSerializer::LoadFromString(*scene, before);
-    context->GetCommandStack()->ExecuteCommand(
-        EditorUndoUtil::MakeSceneSnapshotCommand("Drop Model", before, after,
-                                                 previousSelection, actorID),
-        *context);
 }
 
 bool SceneViewportPanel::DrawSceneViewOverlay(EditorContext& context,
@@ -245,7 +199,6 @@ bool SceneViewportPanel::DrawSceneViewOverlay(EditorContext& context,
     if (ImGui::Begin("Scene View Control Gizmos###scene_view_overlay_right", nullptr, flags)) {
         hovered |= ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
 
-        const Vec3 target = ResolveViewportFrameTarget(context);
         constexpr float kGizmoSize = 112.0f;
         constexpr float kAxisLength = 34.0f;
         constexpr float kCenterRadius = 34.0f;
@@ -310,18 +263,25 @@ bool SceneViewportPanel::DrawSceneViewOverlay(EditorContext& context,
         if (itemHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
             for (auto it = endpoints.rbegin(); it != endpoints.rend(); ++it) {
                 if (PointInCircle(mouse, it->pos, it->radius + 3.0f)) {
-                    viewport.FrameDirection(it->direction, target);
+                    if (auto* operators = context.GetOperators()) {
+                        operators->Viewport().FrameDirection(context, it->direction);
+                    }
                     break;
                 }
             }
         }
         if (itemActive && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 2.0f)) {
             const ImVec2 delta = ImGui::GetIO().MouseDelta;
-            viewport.OrbitAroundFocus(target, -delta.x * 0.35f, -delta.y * 0.35f);
+            if (auto* operators = context.GetOperators()) {
+                operators->Viewport().OrbitAroundSelection(
+                    context, -delta.x * 0.35f, -delta.y * 0.35f);
+            }
         }
 
         if (ImGui::SmallButton(viewport.IsOrthographic() ? "Ortho" : "Persp")) {
-            viewport.ToggleProjectionMode();
+            if (auto* operators = context.GetOperators()) {
+                operators->Viewport().ToggleSceneProjection(context);
+            }
         }
     }
     ImGui::End();
@@ -378,6 +338,7 @@ void SceneViewportPanel::DrawContent()
     if (!drewImage) {
         ImGui::Dummy(imageSize);
     }
+    if(Scene* scene=context->GetInspectorScene())DrawNavigationOverlay(*scene,sceneViewport->GetCamera(),imageRect);
 
     if (context->CanEditScene() && ImGui::BeginDragDropTarget()) {
         if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kModelPayload)) {

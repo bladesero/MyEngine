@@ -50,6 +50,8 @@ enum class AssetType : uint8_t {
     UIPrefab,
     UIStyle,
     UIFont,
+    NavMesh,
+    Particle,
 };
 
 inline const char* AssetTypeToString(AssetType t) {
@@ -64,6 +66,8 @@ inline const char* AssetTypeToString(AssetType t) {
         case AssetType::UIPrefab: return "UIPrefab";
         case AssetType::UIStyle:  return "UIStyle";
         case AssetType::UIFont:   return "UIFont";
+        case AssetType::NavMesh:  return "NavMesh";
+        case AssetType::Particle: return "Particle";
         default:                  return "Unknown";
     }
 }

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Core/EngineMath.h"
 #include "UI/Rml/RmlAssetLoader.h"
 #include "UI/Rml/RmlContextManager.h"
 #include "UI/Rml/RmlInputAdapter.h"
@@ -13,6 +14,7 @@
 #include <unordered_map>
 #include <utility>
 #include <variant>
+#include <nlohmann/json.hpp>
 
 struct Event;
 class IRHIDevice;
@@ -21,12 +23,15 @@ class Scene;
 
 class UIDataModel {
 public:
-    using Value = std::variant<bool, int, float, std::string>;
+    using Value = std::variant<bool, int, float, std::string, Vec2, Vec3, nlohmann::json>;
 
     void SetBool(const std::string& name, bool value) { m_Values[name] = value; m_Dirty = true; }
     void SetInt(const std::string& name, int value) { m_Values[name] = value; m_Dirty = true; }
     void SetFloat(const std::string& name, float value) { m_Values[name] = value; m_Dirty = true; }
     void SetString(const std::string& name, std::string value) { m_Values[name] = std::move(value); m_Dirty = true; }
+    void SetVec2(const std::string& name, const Vec2& value) { m_Values[name] = value; m_Dirty = true; }
+    void SetVec3(const std::string& name, const Vec3& value) { m_Values[name] = value; m_Dirty = true; }
+    void SetJson(const std::string& name, nlohmann::json value) { m_Values[name] = std::move(value); m_Dirty = true; }
     const std::unordered_map<std::string, Value>& GetValues() const { return m_Values; }
     void MarkDirty() { m_Dirty = true; }
     bool ConsumeDirty() { const bool dirty = m_Dirty; m_Dirty = false; return dirty; }
@@ -58,6 +63,7 @@ public:
 private:
     void EnsureCanvasDocuments(Scene& scene);
     void LoadCanvasFonts(Scene& scene);
+    void ApplyDataModels(Scene& scene);
     UIEventBridge* GetActiveEventBridge();
     static UIDataModel* ResolveDataModel(void* user, const std::string& name);
 

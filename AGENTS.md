@@ -64,7 +64,7 @@ in `MyEngine.project.json`. The package contains Player/runtime binaries,
 the manifest and archive, then atomically installs or repairs a hash-versioned
 runtime cache. Publishing currently supports Windows x64 only.
 
-- **Windows GPU backend** (Editor/Player): optional ` --backend d3d11` or ` --backend d3d12` (see `main.cpp` / `player_main.cpp`).
+- **Windows GPU backend** (Editor/Player): optional ` --backend d3d11` or ` --backend d3d12` (see `src/Apps/EditorMain.cpp` / `src/Apps/PlayerMain.cpp`).
 
 ---
 
@@ -77,7 +77,7 @@ runtime cache. Publishing currently supports Windows x64 only.
 | App loop and layers | `src/Runtime/Core/Application.cpp`, `Engine.cpp` |
 | Scene + rendering | `src/Runtime/Game/SceneRenderLayer.*`, `src/Runtime/Renderer/` |
 | Editor UI | `src/Editor/EditorLayer.*` |
-| Entry points | `main.cpp` (editor), `player_main.cpp` (player) |
+| Entry points | `src/Apps/EditorMain.cpp` (editor), `src/Apps/PlayerMain.cpp` (player) |
 
 ---
 
@@ -102,8 +102,8 @@ runtime cache. Publishing currently supports Windows x64 only.
 
 ## Editor vs Player (rendering)
 
-- **Editor** (`main.cpp`): pushes `SceneRenderLayer` then `EditorLayer`; `SceneRenderLayer::SetPresentEnabled(false)` so **ImGui draws after** the 3D pass and presentation happens once.
-- **Player** (`player_main.cpp`): only `SceneRenderLayer` with `SetPresentEnabled(true)`.
+- **Editor** (`src/Apps/EditorMain.cpp`): pushes `SceneRenderLayer` then `EditorLayer`; `SceneRenderLayer::SetPresentEnabled(false)` so **ImGui draws after** the 3D pass and presentation happens once.
+- **Player** (`src/Apps/PlayerMain.cpp`): only `SceneRenderLayer` with `SetPresentEnabled(true)`.
 
 ---
 

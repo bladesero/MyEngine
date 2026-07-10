@@ -165,6 +165,13 @@ EditorShortcutMap EditorShortcutMap::CreateDefault()
     AddDefault(map, "project.publish", "Ctrl+Shift+P");
     AddDefault(map, "edit.undo", "Ctrl+Z");
     AddDefault(map, "edit.redo", "Ctrl+Shift+Z");
+    AddDefault(map, "edit.delete", "Delete");
+    AddDefault(map, "edit.duplicate", "Ctrl+D");
+    AddDefault(map, "edit.rename", "F2");
+    AddDefault(map, "edit.copy", "Ctrl+C");
+    AddDefault(map, "edit.paste", "Ctrl+V");
+    AddDefault(map, "edit.selectAll", "Ctrl+A");
+    AddDefault(map, "view.frameSelected", "F");
     AddDefault(map, "play.start", "F5");
     AddDefault(map, "play.stop", "Shift+F5");
     AddDefault(map, "play.pause", "F6");

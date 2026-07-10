@@ -4,12 +4,21 @@
 #include "Assets/ShaderAsset.h"
 #include "Assets/PrefabAsset.h"
 #include "Animation/SkinnedMeshRendererComponent.h"
+#include "Animation/AnimatorComponent.h"
 #include "Audio/AudioSourceComponent.h"
+#include "Audio/AudioListenerComponent.h"
 #include "Core/Memory/MemoryService.h"
 #include "Core/Memory/PoolAllocator.h"
 #include "Core/CrashHandler.h"
 #include "Camera/Camera.h"
 #include "Camera/CameraComponent.h"
+#include "Camera/ThirdPersonCameraComponent.h"
+#include "Gameplay/GameplayComponents.h"
+#include "Gameplay/EnemyAIComponent.h"
+#include "Game/SceneManager.h"
+#include "Project/SaveGame.h"
+#include "Navigation/NavAgentComponent.h"
+#include "Assets/NavMeshAsset.h"
 #include "Game/DefaultSceneFactory.h"
 #include "Game/GameViewport.h"
 #include "Game/SceneLayer.h"
@@ -32,10 +41,13 @@
 #include "Scripting/ScriptComponent.h"
 #include "Assets/ScriptAsset.h"
 #include "Renderer/Renderer.h"
+#include "Renderer/SceneLighting.h"
 #include "Renderer/RenderGraph.h"
 #include "Renderer/GpuUploadQueue.h"
 #include "Renderer/LightComponent.h"
 #include "Renderer/PostProcessComponent.h"
+#include "Renderer/ParticleSystemComponent.h"
+#include "Renderer/SceneRenderCollector.h"
 #include "Editor/EditorAction.h"
 #include "Editor/EditorAssetRegistry.h"
 #include "Editor/EditorCommand.h"
@@ -495,6 +507,188 @@ bool TestAngelScriptFilesErrorsAndPhysicsBindings() {
     std::filesystem::remove(path);
     return Check(NearlyEqual(actor->GetTransform().position.x, 4.0f),
                  "AngelScript file hot reload failed");
+}
+
+bool TestAngelScriptInputAndOverlapBindings() {
+    Input::Shutdown();
+    Input::SetDefaultActionMap();
+    Input::Flush();
+    Input::OnKeyDown(26);
+    Input::OnMouseButton(1, true);
+    Input::OnMouseMove(42, 24, 3, -2);
+
+    Scene scene("AngelInputOverlap");
+    Actor* target = scene.CreateActor("OverlapTarget");
+    target->GetTransform().position = {0.5f, 0.0f, 0.0f};
+    target->AddComponent<SphereColliderComponent>()->SetLayer(4);
+    Actor* ignored = scene.CreateActor("IgnoredOverlap");
+    ignored->GetTransform().position = {0.25f, 0.0f, 0.0f};
+    ignored->AddComponent<SphereColliderComponent>()->SetLayer(2);
+
+    Actor* actor = scene.CreateActor("Scripted");
+    auto* script = actor->AddComponent<ScriptComponent>();
+    script->SetSource(
+        "class Script {\n"
+        "  void Update(float dt) {\n"
+        "    uint score = 0;\n"
+        "    if (Input::KeyDown(26)) score += 1;\n"
+        "    if (Input::KeyPressed(26)) score += 2;\n"
+        "    if (Input::MouseDown(1)) score += 4;\n"
+        "    if (Input::MousePressed(1)) score += 8;\n"
+        "    if (Input::GamepadCount() == 0 && Input::PrimaryGamepadId() == 0) score += 16;\n"
+        "    UInt64Array@ hits = Physics::OverlapSphere(Vec3(0, 0, 0), 2.0f, 4);\n"
+        "    if (hits.Length() == 1 && hits.At(0) != 0) score += 32;\n"
+        "    Vec2 mouse = Input::MousePosition();\n"
+        "    Vec2 delta = Input::MouseDelta();\n"
+        "    Actor::SetPosition(Vec3(float(score), mouse.x, delta.x));\n"
+        "  }\n"
+        "}\n");
+    if (!Check(script->IsCompiled(),
+               "AngelScript input/overlap script should compile: " + script->GetLastError())) return false;
+    scene.OnUpdate(1.0f / 60.0f);
+
+    Input::OnKeyUp(26);
+    Input::OnMouseButton(1, false);
+    Input::Flush();
+    Input::SetDefaultActionMap();
+
+    const Vec3 position = actor->GetTransform().position;
+    return Check(NearlyEqual(position.x, 63.0f) &&
+                 NearlyEqual(position.y, 42.0f) &&
+                 NearlyEqual(position.z, 3.0f),
+                 "AngelScript raw input or overlap binding failed: " + script->GetLastError());
+}
+
+bool TestAngelScriptSceneComponentsEventsAndTimers() {
+    Scene scene("AngelSceneV2");
+    Actor* controller = scene.CreateActor("Controller");
+    controller->AddComponent<ScriptComponent>()->SetSource(
+        "class Script {\n"
+        "  int eventCount = 0;\n"
+        "  int timerCount = 0;\n"
+        "  int everyCount = 0;\n"
+        "  int stage = 0;\n"
+        "  uint64 every = 0;\n"
+        "  string payload = \"\";\n"
+        "  void Start() {\n"
+        "    ActorHandle self = Scene::GetSelf();\n"
+        "    Scene::SetName(self, \"ControllerRenamed\");\n"
+        "    ActorHandle spawned = Scene::CreateActor(\"SpawnedByScript\");\n"
+        "    Scene::SetActive(spawned, false);\n"
+        "    Components::Add(spawned, \"AudioSource\");\n"
+        "    Events::Subscribe(\"ping\", \"OnPing\");\n"
+        "    Timer::After(0.01f, \"OnTimer\");\n"
+        "    every = Timer::Every(0.01f, \"OnEvery\");\n"
+        "  }\n"
+        "  void Update(float dt) {\n"
+        "    ActorHandle found = Scene::FindByName(\"SpawnedByScript\");\n"
+        "    if (Scene::IsValid(found)) {\n"
+        "      Scene::SetActive(found, true);\n"
+        "      Actor::SetPosition(found, Vec3(2, 3, 4));\n"
+        "      ActorHandleArray@ matches = Scene::FindAllByName(\"SpawnedByScript\");\n"
+        "      if (matches.Length() == 1 && matches.At(0).IsValid()) stage = 1;\n"
+        "      if (Components::Has(found, \"AudioSource\")) {\n"
+        "        Components::SetJson(found, \"AudioSource\", \"{\\\"volume\\\":0.25,\\\"loop\\\":true,\\\"playOnStart\\\":false}\");\n"
+        "        AudioSource::SetVolume(found, 0.5f);\n"
+        "        AudioSource::SetLoop(found, true);\n"
+        "      }\n"
+        "    }\n"
+        "    Events::Emit(\"ping\", \"{\\\"ok\\\":true}\");\n"
+        "  }\n"
+        "  void OnPing(const string &in value) { eventCount += 1; payload = value; }\n"
+        "  void OnTimer() { timerCount += 1; }\n"
+        "  void OnEvery() { everyCount += 1; Timer::Cancel(every); }\n"
+        "}\n");
+    auto* script = controller->GetComponent<ScriptComponent>();
+    if (!Check(script && script->IsCompiled(),
+               "AngelScript scene v2 script should compile: " + (script ? script->GetLastError() : std::string{}))) return false;
+
+    scene.OnUpdate(1.0f / 60.0f);
+    scene.OnUpdate(1.0f / 60.0f);
+
+    Actor* renamed = scene.FindByName("ControllerRenamed");
+    Actor* spawned = scene.FindByName("SpawnedByScript");
+    if (!Check(renamed == controller && spawned,
+               "AngelScript Scene handle operations failed: renamed=" +
+               std::string(renamed == controller ? "true" : "false") +
+               " spawned=" + std::string(spawned ? "true" : "false") +
+               " lastError=" + script->GetLastError())) return false;
+    auto* audio = spawned->GetComponent<AudioSourceComponent>();
+    const nlohmann::json properties = script->GetProperties();
+    return Check(spawned->IsActiveSelf() &&
+                 NearlyEqual(spawned->GetTransform().position.x, 2.0f) &&
+                 audio && audio->GetLoop() && NearlyEqual(audio->GetVolume(), 0.5f) &&
+                 properties.value("stage", 0) == 1 &&
+                 properties.value("eventCount", 0) >= 1 &&
+                 properties.value("timerCount", 0) == 1 &&
+                 properties.value("everyCount", 0) == 1 &&
+                 properties.value("payload", std::string{}).find("\"ok\"") != std::string::npos,
+                 "AngelScript Scene/Components/Events/Timer v2 bindings failed: " + script->GetLastError());
+}
+
+bool TestAngelScriptPrefabAndTypedFacades() {
+    namespace fs = std::filesystem;
+    const fs::path project = fs::temp_directory_path() / "myengine_as_prefab_v2";
+    std::error_code ec;
+    fs::remove_all(project, ec);
+    fs::create_directories(project / "Content" / "Prefabs");
+    AssetManager::Get().SetProjectRoot(project);
+
+    Scene source("PrefabSource");
+    Actor* prefabRoot = source.CreateActor("PrefabActor");
+    prefabRoot->GetTransform().position = {1.0f, 0.0f, 0.0f};
+    const fs::path prefabPath = project / "Content" / "Prefabs" / "Unit.prefab.json";
+    std::string error;
+    if (!Check(PrefabSystem::SaveSubtree(*prefabRoot, prefabPath, &error),
+               "prefab save failed: " + error)) return false;
+
+    Scene scene("AngelPrefabV2");
+    Actor* controller = scene.CreateActor("Controller");
+    auto* script = controller->AddComponent<ScriptComponent>();
+    script->SetSource(
+        "class Script {\n"
+        "  int ok = 0;\n"
+        "  void Start() {\n"
+        "    ActorHandle prefab = Scene::InstantiatePrefab(\"Content/Prefabs/Unit.prefab.json\", Vec3(3, 4, 5), Vec3(0, 45, 0));\n"
+        "    ActorHandle bad = Scene::InstantiatePrefab(\"C:/absolute/blocked.prefab.json\", Vec3(), Vec3());\n"
+        "    ActorHandle camera = Scene::CreateActor(\"RuntimeCamera\");\n"
+        "    Components::Add(camera, \"Camera\");\n"
+        "    ActorHandle light = Scene::CreateActor(\"RuntimeLight\");\n"
+        "    Components::Add(light, \"Light\");\n"
+        "    if (prefab.IsValid() && !bad.IsValid() && Assets::Exists(\"Content/Prefabs/Unit.prefab.json\") && Assets::GetType(\"Content/Prefabs/Unit.prefab.json\") == \"Prefab\") ok = 1;\n"
+        "  }\n"
+        "  void Update(float dt) {\n"
+        "    ActorHandle camera = Scene::FindByName(\"RuntimeCamera\");\n"
+        "    if (Components::Has(camera, \"Camera\")) { Camera::SetFovY(camera, 75); }\n"
+        "    ActorHandle light = Scene::FindByName(\"RuntimeLight\");\n"
+        "    if (Components::Has(light, \"Light\")) { Light::SetIntensity(light, 6); Light::SetColor(light, Vec3(0.25f, 0.5f, 1.0f)); }\n"
+        "  }\n"
+        "}\n");
+    if (!Check(script->IsCompiled(), "AngelScript prefab script should compile: " + script->GetLastError())) return false;
+    scene.OnUpdate(1.0f / 60.0f);
+    scene.OnUpdate(1.0f / 60.0f);
+
+    Actor* instance = scene.FindByName("PrefabActor");
+    Actor* camera = scene.FindByName("RuntimeCamera");
+    Actor* light = scene.FindByName("RuntimeLight");
+    auto* cameraComponent = camera ? camera->GetComponent<CameraComponent>() : nullptr;
+    auto* lightComponent = light ? light->GetComponent<LightComponent>() : nullptr;
+    const nlohmann::json properties = script->GetProperties();
+    AssetManager::Get().SetProjectRoot({});
+    const bool ok = instance && instance->IsPrefabRoot() &&
+                 NearlyEqual(instance->GetTransform().position.x, 3.0f) &&
+                 cameraComponent && NearlyEqual(cameraComponent->GetFovYDegrees(), 75.0f) &&
+                 lightComponent && NearlyEqual(lightComponent->GetIntensity(), 6.0f) &&
+                 NearlyEqual(lightComponent->GetColor().z, 1.0f) &&
+                 properties.value("ok", 0) == 1;
+    return Check(ok,
+                 "AngelScript prefab/assets/camera/light v2 bindings failed: instance=" +
+                 std::string(instance ? "true" : "false") +
+                 " prefabRoot=" + std::string(instance && instance->IsPrefabRoot() ? "true" : "false") +
+                 " camera=" + std::string(cameraComponent ? "true" : "false") +
+                 " light=" + std::string(lightComponent ? "true" : "false") +
+                 " okProp=" + std::to_string(properties.value("ok", 0)) +
+                 " lastError=" + script->GetLastError());
 }
 
 bool TestAngelScriptAssetsClassesAndFields() {
@@ -1838,6 +2032,9 @@ bool TestCameraViewportProjectionStability() {
 
 bool TestCameraComponentAndGameViewport() {
     Scene scene("CameraViewport");
+    scene.SetAmbientIntensity(0.42f);
+    if (!Check(NearlyEqual(CollectSceneLights(scene).ambientIntensity, 0.42f),
+               "scene lighting did not use scene ambient intensity")) return false;
     GameViewport viewport(nullptr, nullptr, nullptr);
     viewport.Initialize(800, 400);
     viewport.ResolveFrameCamera(scene);
@@ -1868,16 +2065,250 @@ bool TestCameraComponentAndGameViewport() {
                NearlyEqual(viewport.GetCamera().GetFar(), 500.0f),
                "game viewport camera settings mismatch")) return false;
 
+    Actor* hinted = scene.CreateActor("HintedCamera");
+    hinted->GetTransform().position = {-2.0f, 3.0f, -8.0f};
+    auto* hintedCamera = hinted->AddComponent<CameraComponent>();
+    hintedCamera->SetMainCamera(false);
+    hintedCamera->SetFovYDegrees(45.0f);
+    scene.SetMainCameraHintActorID(hinted->GetID());
+    viewport.ResolveFrameCamera(scene);
+    if (!Check(viewport.HasMainCamera() &&
+               viewport.GetMainCameraComponent() == hintedCamera &&
+               NearlyEqual(viewport.GetCamera().GetFovY(), 45.0f),
+               "game viewport did not prioritize scene main camera hint")) return false;
+
     const std::string serialized = SceneSerializer::SaveToString(scene);
     Scene loaded("LoadedCamera");
     if (!Check(SceneSerializer::LoadFromString(loaded, serialized),
                "camera component scene load failed")) return false;
     Actor* loadedActor = loaded.FindByName("MainCamera");
     auto* loadedCamera = loadedActor ? loadedActor->GetComponent<CameraComponent>() : nullptr;
+    Actor* loadedHinted = loaded.FindByName("HintedCamera");
     return Check(loadedCamera && loadedCamera->IsMainCamera() &&
                  NearlyEqual(loadedCamera->GetFovYDegrees(), 72.0f) &&
-                 NearlyEqual(loadedCamera->GetClearColor().y, 0.3f),
-                 "camera component round trip mismatch");
+                 NearlyEqual(loadedCamera->GetClearColor().y, 0.3f) &&
+                 loadedHinted &&
+                 loaded.GetMainCameraHintActorID() == loadedHinted->GetID() &&
+                 NearlyEqual(loaded.GetAmbientIntensity(), 0.42f) &&
+                 NearlyEqual(CollectSceneLights(loaded).ambientIntensity, 0.42f),
+                 "camera component, scene ambient, or main camera hint round trip mismatch");
+}
+
+bool TestAnimatorControllerAndThirdPersonCamera()
+{
+    AnimatorController controller;
+    AnimatorState idle;
+    idle.name = "Idle";
+    idle.clip = {"IdleClip", 1.0f, true, {}};
+    idle.events.push_back({0.5f, "Footstep", "left"});
+    idle.events.push_back({0.5f, "Particle.Burst", "2"});
+    idle.events.push_back({0.5f, "Hitbox.Begin", "7"});
+    idle.transitions.push_back({"Run", 0.1f, false, 1.0f,
+        {{"Speed", AnimatorConditionMode::Greater, 0.5f}}});
+    AnimatorState run;
+    run.name = "Run";
+    run.clip = {"RunClip", 0.8f, true, {}};
+    if (!Check(controller.AddState(std::move(idle)) && controller.AddState(std::move(run)),
+               "animator controller states were not accepted")) return false;
+    controller.SetEntryState("Idle");
+
+    Scene scene("ActionP0");
+    Actor* player = scene.CreateActor("Player");
+    auto* renderer = player->AddComponent<SkinnedMeshRendererComponent>();
+    auto* animator = player->AddComponent<AnimatorComponent>();
+    animator->SetController(controller);
+    auto* eventParticles=player->AddComponent<ParticleSystemComponent>();eventParticles->GetSettings().playOnStart=false;eventParticles->GetSettings().rate=0.0f;
+    auto* eventHitbox=player->AddComponent<HitboxComponent>();
+    auto* eventScript=player->AddComponent<ScriptComponent>();
+    eventScript->SetSource("class Script { int events = 0; void OnAnimationEvent(const string &in name, const string &in payload) { events++; } }");
+
+    Actor* camera = scene.CreateActor("FollowCamera");
+    camera->AddComponent<CameraComponent>();
+    auto* follow = camera->AddComponent<ThirdPersonCameraComponent>();
+    follow->SetTarget(player->GetHandle());
+    follow->SetDistance(5.0f);
+    scene.BeginPlay();
+    scene.OnUpdate(0.55f);
+    const auto events = animator->ConsumeEvents();
+    if (!Check(events.size() == 3 && events[0].name == "Footstep" && eventParticles->GetAliveCount()==2 && eventHitbox->IsAttackActive() && eventScript->GetProperties().value("events",0)==3,
+               "animator event did not fire")) return false;
+    animator->SetFloat("Speed", 1.0f);
+    scene.OnUpdate(1.0f / 60.0f);
+    if (!Check(animator->GetCurrentState() == "Run" && renderer->GetAnimation().name == "RunClip",
+               "animator transition did not update the renderer")) return false;
+    if (!Check((camera->GetWorldPosition() - player->GetWorldPosition()).Length() > 3.0f,
+               "third-person camera did not follow its target")) return false;
+
+    const std::string serialized = SceneSerializer::SaveToString(scene);
+    Scene loaded("LoadedActionP0");
+    if (!Check(SceneSerializer::LoadFromString(loaded, serialized),
+               "P0 component scene round-trip failed")) return false;
+    Actor* loadedPlayer = loaded.FindByName("Player");
+    Actor* loadedCamera = loaded.FindByName("FollowCamera");
+    return Check(loadedPlayer && loadedPlayer->GetComponent<AnimatorComponent>() &&
+                 loadedCamera && loadedCamera->GetComponent<ThirdPersonCameraComponent>() &&
+                 ComponentRegistry::Get().IsRegistered("Animator") &&
+                 ComponentRegistry::Get().IsRegistered("ThirdPersonCamera"),
+                 "P0 components were not registered or serialized");
+}
+
+bool TestGameplayCombatAndInteractionComponents()
+{
+    Scene scene("CombatSlice");
+    Actor* attacker=scene.CreateActor("Attacker"); attacker->GetTransform().position={0,1,0};
+    auto* hitbox=attacker->AddComponent<HitboxComponent>(); hitbox->SetTeam(1); hitbox->SetRadius(2.0f); hitbox->SetOffset(Vec3::Zero());
+    Actor* target=scene.CreateActor("Target"); target->GetTransform().position={0.5f,1,0};
+    auto* capsule=target->AddComponent<CapsuleColliderComponent>(); capsule->SetRadius(0.5f); capsule->SetHalfHeight(0.5f);
+    auto* health=target->AddComponent<HealthComponent>(); health->SetMaxHealth(50.0f); health->SetHealth(50.0f);
+    auto* hurtbox=target->AddComponent<HurtboxComponent>(); hurtbox->SetTeam(2); hurtbox->SetDamageMultiplier(2.0f);
+    scene.BeginPlay();
+    hitbox->BeginAttack(5.0f);
+    for(int i=0;i<4;++i)scene.OnUpdate(1.0f/60.0f);
+    if(!Check(NearlyEqual(health->GetHealth(),40.0f),"hitbox damaged a target more than once per attack window"))return false;
+    hitbox->EndAttack(); hitbox->BeginAttack(5.0f); scene.OnUpdate(1.0f/60.0f);
+    if(!Check(NearlyEqual(health->GetHealth(),30.0f),"new attack window did not reset hit tracking"))return false;
+
+    Actor* chest=scene.CreateActor("Chest"); chest->GetTransform().position={1,1,0};
+    auto* interaction=chest->AddComponent<InteractionComponent>(); interaction->SetRange(2.0f); interaction->SetSingleUse(true); interaction->SetPrompt("Open");
+    if(!Check(interaction->Interact(attacker->GetHandle()) && !interaction->Interact(attacker->GetHandle()) && interaction->GetPrompt()=="Open",
+              "single-use interaction semantics failed"))return false;
+    nlohmann::json healthJson;health->Serialize(healthJson);HealthComponent loaded;loaded.Deserialize(healthJson);
+    return Check(NearlyEqual(loaded.GetHealth(),30.0f)&&ComponentRegistry::Get().IsRegistered("Hitbox")&&ComponentRegistry::Get().IsRegistered("Interaction"),
+                 "gameplay components did not serialize or register");
+}
+
+bool TestParticleAndAudioListenerFeedbackComponents()
+{
+    Scene scene("FeedbackP2");
+    Actor* emitter=scene.CreateActor("Emitter");
+    auto* particles=emitter->AddComponent<ParticleSystemComponent>();
+    particles->GetSettings().playOnStart=false;particles->GetSettings().rate=0.0f;particles->GetSettings().lifetime=0.5f;particles->GetSettings().startSize=0.5f;particles->GetSettings().startColor=Vec3::One();particles->GetSettings().endColor=Vec3::Zero();
+    particles->Play();particles->Emit(3);particles->OnUpdate(0.1f);
+    Camera camera;camera.LookAt({0,1,-5},{0,1,0});camera.SetPerspective(60.0f,1.0f);
+    MeshAsset* mesh=particles->BuildBillboardMesh(camera);
+    particles->OnUpdate(0.15f);particles->Emit(1);mesh=particles->BuildBillboardMesh(camera);const auto& particleVertices=mesh->GetVertices();
+    if(!Check(particles->GetAliveCount()==4&&mesh&&mesh->VertexCount()==16&&mesh->IndexCount()==24&&(particleVertices[0].color-particleVertices[12].color).LengthSq()>0.001f,"particle simulation did not build billboard geometry with per-particle color lifetime"))return false;
+    SceneRenderCollection collection=SceneRenderCollector().Collect(scene,camera);
+    if(!Check(collection.transparentItems.size()==1,"particles were not submitted to transparent rendering"))return false;
+    particles->OnUpdate(1.0f);
+    if(!Check(particles->GetAliveCount()==0,"expired particles were not removed"))return false;
+    particles->GetSettings().loop=false;particles->GetSettings().rate=10.0f;particles->Play();particles->OnUpdate(0.6f);
+    if(!Check(!particles->IsPlaying(),"non-looping particle emitter did not stop"))return false;
+
+    Actor* listenerActor=scene.CreateActor("Listener");
+    listenerActor->GetTransform().position={1,2,3};auto* listener=listenerActor->AddComponent<AudioListenerComponent>();listener->SetPrimary(true);
+    Actor* secondListenerActor=scene.CreateActor("SecondListener");secondListenerActor->GetTransform().position={8,4,2};auto* secondListener=secondListenerActor->AddComponent<AudioListenerComponent>();secondListener->SetPrimary(true);
+    auto* post=listenerActor->AddComponent<PostProcessComponent>();
+    auto* feedback=listenerActor->AddComponent<GameplayFeedbackComponent>();
+    feedback->Shake(0.1f,0.1f);feedback->Flash(0.8f,0.1f);feedback->SlowMotion(0.5f,0.15f);
+    AudioEngine::Get().Shutdown();scene.BeginPlay();scene.OnUpdate(0.1f);listener->OnLateUpdate(0.0f);
+    if(!Check(AudioEngine::Get().IsSilent()&&(AudioEngine::Get().GetListenerPosition()-listenerActor->GetWorldPosition()).LengthSq()<0.001f,"primary listener did not update in silent mode"))return false;
+    listener->SetEnabled(false);scene.OnUpdate(0.01f);secondListener->OnLateUpdate(0.0f);
+    if(!Check((AudioEngine::Get().GetListenerPosition()-secondListenerActor->GetWorldPosition()).LengthSq()<0.001f,"listener priority did not switch after disabling the primary listener"))return false;
+    if(!Check(NearlyEqual(AudioEngine::CalculateDistanceAttenuation(1.0f,1.0f,9.0f),1.0f)&&NearlyEqual(AudioEngine::CalculateDistanceAttenuation(5.0f,1.0f,9.0f),0.5f)&&NearlyEqual(AudioEngine::CalculateDistanceAttenuation(9.0f,1.0f,9.0f),0.0f),"3D audio distance attenuation contract failed"))return false;
+    AudioSourceComponent source;source.SetSpatial(true);source.SetMinDistance(3.0f);source.SetMaxDistance(2.0f);nlohmann::json sourceData;source.Serialize(sourceData);AudioSourceComponent loadedSource;loadedSource.Deserialize(sourceData);if(!Check(loadedSource.GetSpatial()&&NearlyEqual(loadedSource.GetMinDistance(),3.0f)&&NearlyEqual(loadedSource.GetMaxDistance(),3.0f),"audio source spatial distance settings did not remain valid through serialization"))return false;
+    if(!Check(scene.GetTimeScale()<1.0f&&feedback->IsActive(),"feedback service did not apply slow motion"))return false;
+    scene.OnUpdate(0.1f);
+    if(!Check(NearlyEqual(scene.GetTimeScale(),1.0f)&&NearlyEqual(post->GetVignette(),0.0f),"feedback service did not restore runtime state"))return false;
+    nlohmann::json data;listener->Serialize(data);AudioListenerComponent loaded;loaded.Deserialize(data);
+    return Check(loaded.IsPrimary()&&ComponentRegistry::Get().IsRegistered("AudioListener")&&ComponentRegistry::Get().IsRegistered("ParticleSystem")&&ComponentRegistry::Get().IsRegistered("GameplayFeedback")&&EditorAssetRegistry::Classify("Effect.particle")==EditorAssetType::Particle&&EditorAssetRegistry::Classify("Level.navmesh")==EditorAssetType::Navigation,"P2/P3 assets, feedback components, or serialization are incomplete");
+}
+
+bool TestNavigationPerceptionAndEnemyStateMachine()
+{
+    Scene scene("NavigationP3");NavigationWorld::BakeSettings settings;settings.bounds={{-5,0,-5},{5,2,5}};settings.cellSize=1.0f;settings.agentRadius=0.1f;
+    if(!Check(scene.GetNavigationWorld().Bake(settings,{{{-0.5f,0,-2},{0.5f,2,2}}}),"navigation bake failed"))return false;
+    std::vector<Vec3> path;if(!Check(scene.GetNavigationWorld().FindPath({-4,0,0},{4,0,0},path)&&path.size()>8,"A* did not route around obstacle"))return false;
+    if(!Check(!scene.GetNavigationWorld().FindPath({-20,0,0},{4,0,0},path),"navigation accepted an out-of-bounds target"))return false;
+    const std::filesystem::path navPath=std::filesystem::temp_directory_path()/"myengine_navigation_test.navmesh";NavMeshAsset baked(navPath.string());baked.Capture(scene.GetNavigationWorld());if(!Check(SaveNavMeshAssetToFile(baked,navPath.string()),"navmesh asset save failed"))return false;auto loadedNav=LoadNavMeshAssetFromFile(navPath.string());NavigationWorld restored;if(!Check(loadedNav&&loadedNav->Apply(restored)&&restored.FindPath({-4,0,0},{4,0,0},path),"navmesh asset round-trip failed")){std::filesystem::remove(navPath);return false;}std::filesystem::remove(navPath);
+
+    Actor* player=scene.CreateActor("Player");player->GetTransform().position={3,0,3};auto* playerHealth=player->AddComponent<HealthComponent>();playerHealth->SetMaxHealth(30);playerHealth->SetHealth(30);
+    Actor* enemy=scene.CreateActor("Enemy");enemy->GetTransform().position={-3,0,3};enemy->GetTransform().rotation.y=90.0f;auto* agent=enemy->AddComponent<NavAgentComponent>();agent->SetSpeed(2.0f);auto* enemyHealth=enemy->AddComponent<HealthComponent>();auto* ai=enemy->AddComponent<EnemyAIComponent>();ai->SetDetectionRange(20);ai->SetFieldOfViewDegrees(90);ai->SetAttackRange(1.2f);ai->SetAttackDamage(5);ai->SetTarget(player->GetHandle());
+    scene.BeginPlay();scene.OnUpdate(0.1f);
+    if(!Check(ai->GetState()==EnemyState::Chase&&agent->HasPath(),"enemy did not enter chase using navigation"))return false;
+    const Vec3 enemyForward=enemy->GetWorldMatrix().TransformDir(Vec3::Forward()).Normalized();player->GetTransform().position=enemy->GetWorldPosition()-enemyForward*3.0f;scene.OnUpdate(0.1f);if(!Check(ai->GetState()==EnemyState::Idle,"enemy detected a target behind its field of view"))return false;
+    player->GetTransform().position=enemy->GetWorldPosition()+enemyForward*3.0f;scene.OnUpdate(0.1f);if(!Check(ai->GetState()==EnemyState::Chase,"enemy did not reacquire a target inside its field of view"))return false;
+    const uint64_t revision=scene.GetNavigationWorld().GetRevision();const bool invalidated=scene.GetNavigationWorld().SetAreaWalkable({{-4,0,-4},{-3,2,-3}},false);scene.OnUpdate(0.05f);if(!Check(invalidated&&scene.GetNavigationWorld().GetRevision()>revision&&agent->HasPath(),"dynamic nav invalidation did not replan agent"))return false;
+    enemy->GetTransform().position=player->GetWorldPosition()-enemyForward*0.5f;scene.OnUpdate(0.1f);
+    if(!Check(ai->GetState()==EnemyState::Attack&&NearlyEqual(playerHealth->GetHealth(),25.0f),"enemy attack state did not apply damage"))return false;
+    ai->Stagger(0.2f);scene.OnUpdate(0.1f);if(!Check(ai->GetState()==EnemyState::Stagger,"enemy stagger state failed"))return false;
+    enemyHealth->ApplyDamage({player->GetHandle(),enemy->GetHandle(),1000,enemy->GetWorldPosition(),Vec3::Zero()});scene.OnUpdate(0.1f);
+    if(!Check(ai->GetState()==EnemyState::Dead,"enemy dead state failed"))return false;
+    scene.GetNavigationWorld().EmitSound(player->GetWorldPosition(),5.0f,player->GetHandle());nlohmann::json aiJson;ai->Serialize(aiJson);EnemyAIComponent loadedAI;loadedAI.Deserialize(aiJson);
+    return Check(!scene.GetNavigationWorld().QuerySounds(enemy->GetWorldPosition()).empty()&&NearlyEqual(loadedAI.GetFieldOfViewDegrees(),90.0f)&&ComponentRegistry::Get().IsRegistered("NavAgent")&&ComponentRegistry::Get().IsRegistered("EnemyAI"),"P3 perception, field of view serialization, or component registration failed");
+}
+
+bool TestSceneManagerAndVersionedSaveGame()
+{
+    namespace fs=std::filesystem;const fs::path oldRoot=AssetManager::Get().GetProjectRoot();const fs::path root=fs::temp_directory_path()/"myengine_p4_scene_save";fs::remove_all(root);fs::create_directories(root/"Content"/"Scenes");AssetManager::Get().SetProjectRoot(root);
+    Scene first("First");first.CreateActor("KeepMe");Scene second("Second");second.CreateActor("LoadedActor");
+    const fs::path firstPath=root/"Content"/"Scenes"/"First.scene.json",secondPath=root/"Content"/"Scenes"/"Second.scene.json";SceneSerializer::SaveToFile(first,firstPath.string());SceneSerializer::SaveToFile(second,secondPath.string());
+    SceneLayer layer;if(!Check(layer.LoadScene(firstPath.string()),"initial scene load failed")){AssetManager::Get().SetProjectRoot(oldRoot);return false;}
+    if(!Check(!layer.LoadScene((root/"Content"/"Scenes"/"Missing.scene.json").string())&&layer.GetEditorScene().GetName()=="First"&&layer.GetEditorScene().FindByName("KeepMe"),"failed load destroyed current scene")){AssetManager::Get().SetProjectRoot(oldRoot);return false;}
+    layer.GetSceneManager().SetPersistentValue("spawn",{{"checkpoint","gate"}});if(!Check(layer.RequestSceneLoad("Content/Scenes/Second.scene.json"),"scene request rejected valid path")){AssetManager::Get().SetProjectRoot(oldRoot);return false;}for(int attempt=0;attempt<100&&layer.GetSceneManager().GetState()!=SceneLoadState::Ready&&layer.GetSceneManager().GetState()!=SceneLoadState::Failed;++attempt){layer.OnUpdate(0.0f);std::this_thread::sleep_for(std::chrono::milliseconds(1));}
+    if(!Check(layer.GetEditorScene().GetName()=="Second"&&layer.GetSceneManager().GetPersistentValue("spawn").value("checkpoint",std::string{})=="gate","requested scene or persistent parameters failed")){AssetManager::Get().SetProjectRoot(oldRoot);return false;}
+    if(!Check(!layer.RequestSceneLoad("../Outside.scene.json"),"scene manager accepted path escape")){AssetManager::Get().SetProjectRoot(oldRoot);return false;}
+    SaveGameData save;save.checkpoint="gate";save.player={{"health",80}};save.collected={"key","coin"};save.settings={{"volume",0.5f}};std::string error;
+    if(!Check(SaveGame::Write("slot1.json",save,&error)&&SaveGame::Exists("slot1.json"),"versioned save write failed: "+error)){AssetManager::Get().SetProjectRoot(oldRoot);return false;}SaveGameData loaded;if(!Check(SaveGame::Read("slot1.json",loaded,&error)&&loaded.version==SaveGameData::CurrentVersion&&loaded.checkpoint=="gate"&&loaded.collected.size()==2,"versioned save read failed: "+error)){AssetManager::Get().SetProjectRoot(oldRoot);return false;}
+    nlohmann::json legacy={{"version",1},{"checkpoint","old"},{"player",nlohmann::json::object()},{"collected",nlohmann::json::array()}};SaveGameData migrated;if(!Check(SaveGame::FromJson(legacy,migrated,&error)&&migrated.version==2&&migrated.settings.is_object(),"save migration failed")){AssetManager::Get().SetProjectRoot(oldRoot);return false;}
+    const bool safe=!SaveGame::Write("../escape.json",save)&&SaveGame::Remove("slot1.json");AssetManager::Get().SetProjectRoot(oldRoot);fs::remove_all(root);return Check(safe,"save path policy failed");
+}
+
+bool TestThirdPersonAdventureTemplateCompilesAndRuns()
+{
+    std::ifstream input("EngineContent/Scripts/Templates/ThirdPersonAdventure.as",std::ios::binary);
+    std::ostringstream stream;stream<<input.rdbuf();
+    if(!Check(input.good()||!stream.str().empty(),"adventure template is missing"))return false;
+    Scene scene("AdventureTemplate");Actor* player=scene.CreateActor("Player");
+    player->AddComponent<CapsuleColliderComponent>();player->AddComponent<CharacterControllerComponent>();
+    player->AddComponent<HealthComponent>();player->AddComponent<HitboxComponent>();player->AddComponent<AnimatorComponent>();
+    auto* script=player->AddComponent<ScriptComponent>();script->SetSource(stream.str());script->SetClassName("ThirdPersonAdventure");
+    if(!Check(script->IsCompiled(),"adventure template did not compile: "+script->GetLastError()))return false;
+    scene.BeginPlay();scene.OnUpdate(1.0f/60.0f);
+    if(!Check(script->IsCompiled()&&NearlyEqual(player->GetComponent<HealthComponent>()->GetHealth(),100.0f),"adventure template failed during runtime: "+script->GetLastError()))return false;
+    std::string inputError;if(!Check(Input::LoadActionMapFromFile("Content/Config/Input.input.json",&inputError),"adventure input map failed: "+inputError))return false;
+    auto tapMouse=[&](Scene& target){Input::Flush();Input::OnMouseButton(1,true);target.OnUpdate(1.0f/60.0f);Input::Flush();Input::OnMouseButton(1,false);target.OnUpdate(1.0f/60.0f);Input::Flush();};
+    tapMouse(scene);auto combo=script->GetProperties();
+    if(!Check(combo.value("attacking",false)&&combo.value("comboIndex",-1)==0,"first combo attack did not start"))return false;
+    tapMouse(scene);combo=script->GetProperties();
+    if(!Check(combo.value("attackQueued",false),"attack input was not buffered"))return false;
+    script->OnAnimationEvent({"Attack.HitStart",{}});if(!Check(player->GetComponent<HitboxComponent>()->IsAttackActive(),"animation event did not open hitbox"))return false;
+    script->OnAnimationEvent({"Attack.HitEnd",{}});if(!Check(!player->GetComponent<HitboxComponent>()->IsAttackActive(),"animation event did not close hitbox"))return false;
+    script->OnAnimationEvent({"Attack.End",{}});combo=script->GetProperties();
+    if(!Check(combo.value("attacking",false)&&combo.value("comboIndex",-1)==1&&!combo.value("attackQueued",true),"buffered attack did not advance combo"))return false;
+
+    const auto oldRoot=AssetManager::Get().GetProjectRoot();AssetManager::Get().SetProjectRoot(std::filesystem::current_path());
+    Scene sample;const bool loaded=SceneSerializer::LoadFromFile(sample,"Content/Scenes/AdventureSample.scene.json");
+    Actor* samplePlayer=sample.FindByName("Player");Actor* sampleEnemy=sample.FindByName("Enemy");
+    bool sampleOk=loaded&&sample.GetNavigationWorld().IsBaked()&&samplePlayer&&sampleEnemy&&
+        sample.FindByName("AncientKey")&&sample.FindByName("LockedDoor")&&sample.FindByName("Checkpoint")&&sample.FindByName("LevelExit")&&
+        samplePlayer->GetComponent<ScriptComponent>()&&sampleEnemy->GetComponent<EnemyAIComponent>()&&sample.GetPreloadAssets().size()==1;
+    MockRenderContext renderContext;UISystem ui;UIDrawList drawList;
+    if(sampleOk&&ui.Initialize(&renderContext,&renderContext)){
+        ui.Resize(1280,720);SceneManager scenarioManager;sample.SetSceneManager(&scenarioManager);sample.BeginPlay();samplePlayer->GetComponent<CharacterControllerComponent>()->SetEnabled(false);
+        auto tapInteract=[&](Actor* target){const Vec3 playerPosition=samplePlayer->GetWorldPosition();for(const char* name:{"AncientKey","Checkpoint","LockedDoor","LevelExit"})if(Actor* actor=sample.FindByName(name))actor->GetTransform().position=actor==target?playerPosition:playerPosition+Vec3(100,0,0);auto* interaction=target?target->GetComponent<InteractionComponent>():nullptr;sampleOk=sampleOk&&Check(interaction&&interaction->CanInteract()&&(target->GetWorldPosition()-samplePlayer->GetWorldPosition()).Length()<=interaction->GetRange(),"interaction target precondition failed");Input::Flush();Input::OnKeyDown(SDL_SCANCODE_E);sampleOk=sampleOk&&Check(Input::IsActionPressed("Interact"),"Interact action was not present in input snapshot");sample.OnUpdate(1.0f/60.0f);Input::Flush();Input::OnKeyUp(SDL_SCANCODE_E);sample.OnUpdate(1.0f/60.0f);Input::Flush();};
+        SaveGame::Remove("profile.json");
+        tapInteract(sample.FindByName("AncientKey"));const auto keyState=samplePlayer->GetComponent<ScriptComponent>()->GetProperties();sampleOk=Check(keyState.value("interactionInputCount",0)==1,"script did not observe Interact input")&&Check(keyState.value("hasKey",false),"key interaction did not update script state")&&Check(sample.FindByName("AncientKey")==nullptr,"key interaction did not consume pickup");
+        tapInteract(sample.FindByName("Checkpoint"));SaveGameData checkpoint;sampleOk=sampleOk&&Check(SaveGame::Read("profile.json",checkpoint)&&checkpoint.checkpoint=="courtyard","checkpoint interaction did not write save");
+        tapInteract(sample.FindByName("LockedDoor"));sampleOk=sampleOk&&Check(sample.FindByName("LockedDoor")==nullptr,"door interaction did not consume key and open door");
+        tapInteract(sample.FindByName("LevelExit"));sampleOk=sampleOk&&Check(scenarioManager.GetState()==SceneLoadState::Requested&&scenarioManager.GetRequestedPath()=="Content/Scenes/AdventureComplete.scene.json","exit interaction did not request next scene");
+        std::unique_ptr<Scene> completedScene;for(int attempt=0;attempt<100&&!completedScene&&scenarioManager.GetState()!=SceneLoadState::Failed;++attempt){scenarioManager.Process(completedScene);std::this_thread::sleep_for(std::chrono::milliseconds(1));}
+        sampleOk=sampleOk&&Check(completedScene&&completedScene->GetName()=="AdventureComplete","exit scene request did not load completion scene");
+        samplePlayer->GetComponent<HealthComponent>()->ApplyDamage({{},samplePlayer->GetHandle(),1000.0f,{},{}});sample.OnUpdate(1.0f/60.0f);
+        sampleOk=sampleOk&&Check(scenarioManager.GetState()==SceneLoadState::Requested&&scenarioManager.GetRequestedPath()=="Content/Scenes/AdventureSample.scene.json","player death did not request checkpoint scene reload");
+        sampleOk=sampleOk&&Check(samplePlayer->GetComponent<ScriptComponent>()->GetProperties().value("spawnTimer",uint64_t{0})!=0,"AdventureSample did not schedule spawn timer");
+        for(int frame=0;frame<490;++frame)sample.OnUpdate(1.0f/60.0f);sample.FlushCommands();
+        ui.Update(sample,1.0f/60.0f);ui.CollectDrawData(sample,drawList);
+        sampleOk=sampleOk&&Check(samplePlayer->GetComponent<ScriptComponent>()->IsCompiled(),"AdventureSample script failed after gameplay update")&&
+            Check(samplePlayer->GetComponent<ScriptComponent>()->GetProperties().value("spawnCount",0)==1,"AdventureSample spawn timer callback or prefab request failed")&&
+            Check(sample.FindByName("SpawnedEnemy")!=nullptr,"AdventureSample timer did not instantiate enemy prefab")&&
+            Check(!drawList.Empty(),"AdventureSample HUD produced no draw commands");
+        Scene roundTrip;if(sampleOk)sampleOk=Check(SceneSerializer::LoadFromString(roundTrip,SceneSerializer::SaveToString(sample))&&!roundTrip.GetPreloadAssets().empty(),"AdventureSample preload assets did not survive scene round-trip");
+        ui.Shutdown();
+        SaveGame::Remove("profile.json");
+    }else sampleOk=false;
+    AssetManager::Get().SetProjectRoot(oldRoot);
+    return Check(sampleOk,"AdventureSample gameplay loop, prefab spawn, scene data, or HUD failed");
 }
 
 bool TestSceneViewportControllerRayStability() {
@@ -1935,11 +2366,21 @@ bool TestSceneViewportControllerRayStability() {
     if (!Check((viewport.GetCamera().GetTarget() - orbitTarget).Length() < 1e-3f,
                "scene viewport orbit target mismatch")) return false;
 
+    const Vec3 frameTarget {4.0f, 3.0f, -2.0f};
+    viewport.FrameTarget(frameTarget, 2.0f);
+    const float frameDistance = (viewport.GetCamera().GetPosition() - frameTarget).Length();
+    if (!Check((viewport.GetCamera().GetTarget() - frameTarget).Length() < 1e-3f &&
+               NearlyEqual(frameDistance, 8.0f, 1e-3f),
+               "scene viewport frame target perspective mismatch")) return false;
+
     const float aspect = viewport.GetCamera().GetAspect();
     viewport.ToggleProjectionMode();
     if (!Check(viewport.IsOrthographic() &&
                viewport.GetCamera().GetProjectionMode() == ProjectionMode::Orthographic,
                "scene viewport did not switch to orthographic")) return false;
+    viewport.FrameTarget(frameTarget, 3.0f);
+    if (!Check(NearlyEqual(viewport.GetCamera().GetOrthoWidth(), 6.0f, 1e-3f),
+               "scene viewport frame target did not update orthographic width")) return false;
     if (!Check(NearlyEqual(
             viewport.GetCamera().GetOrthoWidth() / viewport.GetCamera().GetOrthoHeight(),
             aspect,
@@ -3654,6 +4095,18 @@ bool TestPrefabCookDependencyValidation()
     fs::remove_all(root,ec);return true;
 }
 
+bool TestGameplayContentCookDependencies()
+{
+    namespace fs=std::filesystem;const fs::path root=fs::temp_directory_path()/"myengine_gameplay_cook_test";std::error_code ec;fs::remove_all(root,ec);
+    fs::create_directories(root/"Content/Scenes");fs::create_directories(root/"Content/Navigation");fs::create_directories(root/"Content/Particles");fs::create_directories(root/"Content/UI/Fonts");
+    std::ofstream(root/"Content/Navigation/Level.navmesh")<<"nav";std::ofstream(root/"Content/Particles/Trail.particle")<<"{}";std::ofstream(root/"Content/UI/HUD.rml")<<"<rml/>";std::ofstream(root/"Content/UI/HUD.rcss")<<"body{}";std::ofstream(root/"Content/UI/Fonts/HUD.ttf")<<"font";
+    const nlohmann::json scene={{"navMeshAsset","Content/Navigation/Level.navmesh"},{"actors",nlohmann::json::array({{{"components",nlohmann::json::array({{{"data",{{"asset","Content/Particles/Trail.particle"}}}},{{"data",{{"documentPath","Content/UI/HUD.rml"},{"stylePaths",nlohmann::json::array({"Content/UI/HUD.rcss"})},{"defaultFontPaths",nlohmann::json::array({"Content/UI/Fonts/HUD.ttf"})}}}}})}}})}};
+    std::ofstream(root/"Content/Scenes/Main.scene.json")<<scene.dump();PublishPreflightReport report;const bool valid=CookDependencyGraph::Validate(root,report);
+    const auto visited=[&](const char* path){return std::find(report.visitedAssets.begin(),report.visitedAssets.end(),path)!=report.visitedAssets.end();};
+    const bool complete=valid&&visited("Content/Navigation/Level.navmesh")&&visited("Content/Particles/Trail.particle")&&visited("Content/UI/HUD.rml")&&visited("Content/UI/HUD.rcss")&&visited("Content/UI/Fonts/HUD.ttf");
+    fs::remove_all(root,ec);return Check(complete,"cook omitted gameplay content dependency: "+report.Summary());
+}
+
 bool TestUICanvasComponentSerialization()
 {
     if (!Check(ComponentRegistry::Get().IsRegistered("UICanvas"),
@@ -3963,6 +4416,221 @@ bool TestUIInputSystemButtonAndSlider()
     return true;
 }
 
+bool TestAngelScriptUIEventBindings()
+{
+    MockRenderContext context;
+    UISystem ui;
+    if (!Check(ui.Initialize(&context, &context), "UISystem failed to initialize")) return false;
+    ui.Resize(320, 220);
+
+    Scene scene("ScriptUIEvents");
+    Actor* canvasActor = scene.CreateActor("HUD");
+    auto* canvas = canvasActor->AddComponent<UICanvasComponent>();
+    canvas->SetSourceMode(UICanvasSourceMode::ActorTree);
+
+    Actor* buttonActor = scene.CreateActor("Button", canvasActor);
+    auto* buttonRect = buttonActor->AddComponent<UIRectTransformComponent>();
+    buttonRect->GetRect().anchorMin = {0.0f, 0.0f};
+    buttonRect->GetRect().anchorMax = {0.0f, 0.0f};
+    buttonRect->GetRect().offsetMin = {20.0f, 20.0f};
+    buttonRect->GetRect().offsetMax = {220.0f, 60.0f};
+    buttonActor->AddComponent<UIButtonComponent>()->text = "Click";
+
+    Actor* sliderActor = scene.CreateActor("Slider", canvasActor);
+    auto* sliderRect = sliderActor->AddComponent<UIRectTransformComponent>();
+    sliderRect->GetRect().anchorMin = {0.0f, 0.0f};
+    sliderRect->GetRect().anchorMax = {0.0f, 0.0f};
+    sliderRect->GetRect().offsetMin = {20.0f, 80.0f};
+    sliderRect->GetRect().offsetMax = {220.0f, 104.0f};
+    auto* slider = sliderActor->AddComponent<UISliderComponent>();
+    slider->min = 0.0f;
+    slider->max = 1.0f;
+    slider->step = 0.25f;
+    slider->value = 0.0f;
+
+    const std::string buttonID = "ui_actor_" + std::to_string(buttonActor->GetID());
+    const std::string sliderID = "ui_actor_" + std::to_string(sliderActor->GetID());
+    Actor* listener = scene.CreateActor("Listener");
+    auto* script = listener->AddComponent<ScriptComponent>();
+    script->SetSource(
+        "class Script {\n"
+        "  int clicks = 0;\n"
+        "  int changes = 0;\n"
+        "  float lastValue = 0.0f;\n"
+        "  void Start() {\n"
+        "    UI::Subscribe(\"" + buttonID + "\", \"click\", \"OnButton\");\n"
+        "    UI::Subscribe(\"" + sliderID + "\", \"change\", \"OnSlider\");\n"
+        "  }\n"
+        "  void OnButton(const UIEvent &in event) { if (event.eventName == \"click\") clicks += 1; }\n"
+        "  void OnSlider(const UIEvent &in event) { if (event.hasValue) { changes += 1; lastValue = event.value; } }\n"
+        "}\n");
+    if (!Check(script->IsCompiled(),
+               "AngelScript UI event script should compile: " + script->GetLastError())) {
+        ui.Shutdown();
+        return false;
+    }
+
+    scene.OnUpdate(1.0f / 60.0f);
+    ui.Update(scene, 0.016f);
+
+    UIInputViewport viewport;
+    viewport.x = 100;
+    viewport.y = 50;
+    viewport.width = 320;
+    viewport.height = 220;
+
+    Event down;
+    down.type = EventType::MouseButtonDown;
+    down.mouseButton.button = 1;
+    down.mouseButton.x = 130;
+    down.mouseButton.y = 85;
+    if (!Check(ui.ProcessEvent(scene, down, viewport) && down.handled,
+               "script UI button mouse down was not consumed")) {
+        ui.Shutdown();
+        return false;
+    }
+    Event up = down;
+    up.type = EventType::MouseButtonUp;
+    up.handled = false;
+    if (!Check(ui.ProcessEvent(scene, up, viewport) && up.handled,
+               "script UI button mouse up was not consumed")) {
+        ui.Shutdown();
+        return false;
+    }
+
+    Event sliderDown;
+    sliderDown.type = EventType::MouseButtonDown;
+    sliderDown.mouseButton.button = 1;
+    sliderDown.mouseButton.x = 120;
+    sliderDown.mouseButton.y = 140;
+    if (!Check(ui.ProcessEvent(scene, sliderDown, viewport) && sliderDown.handled,
+               "script UI slider mouse down was not consumed")) {
+        ui.Shutdown();
+        return false;
+    }
+    Event sliderMove;
+    sliderMove.type = EventType::MouseMove;
+    sliderMove.mouseMove.x = 270;
+    sliderMove.mouseMove.y = 142;
+    if (!Check(ui.ProcessEvent(scene, sliderMove, viewport) && sliderMove.handled,
+               "script UI slider mouse move was not consumed")) {
+        ui.Shutdown();
+        return false;
+    }
+    Event sliderUp;
+    sliderUp.type = EventType::MouseButtonUp;
+    sliderUp.mouseButton.button = 1;
+    sliderUp.mouseButton.x = 270;
+    sliderUp.mouseButton.y = 142;
+    if (!Check(ui.ProcessEvent(scene, sliderUp, viewport) && sliderUp.handled,
+               "script UI slider mouse up was not consumed")) {
+        ui.Shutdown();
+        return false;
+    }
+
+    const nlohmann::json properties = script->GetProperties();
+    const bool ok = properties.value("clicks", 0) == 1 &&
+        properties.value("changes", 0) > 0 &&
+        NearlyEqual(properties.value("lastValue", 0.0f), slider->value);
+    script->ClearUIEventSubscriptions();
+    ui.GetEventBridge().Emit(&canvas->GetCanvas(), {buttonID, "click", 0.0f, false});
+    const nlohmann::json afterClear = script->GetProperties();
+    ui.Shutdown();
+    return Check(ok && afterClear.value("clicks", 0) == 1,
+                 "AngelScript UI event binding failed: " + script->GetLastError());
+}
+
+bool TestAngelScriptUIDataModelBindings()
+{
+    MockRenderContext context;
+    UISystem ui;
+    if (!Check(ui.Initialize(&context, &context),
+               "UISystem init failed for AngelScript UI data model test")) return false;
+    ui.Resize(320, 200);
+
+    Scene scene("AngelUIDataModelV2");
+    Actor* actor = scene.CreateActor("HUDWriter");
+    auto* script = actor->AddComponent<ScriptComponent>();
+    script->SetSource(
+        "class Script {\n"
+        "  void Start() {\n"
+        "    UI::SetBool(\"hud\", \"visible\", true);\n"
+        "    UI::SetInt(\"hud\", \"score\", 7);\n"
+        "    UI::SetFloat(\"hud\", \"health\", 0.75f);\n"
+        "    UI::SetString(\"hud\", \"label\", \"Ready\");\n"
+        "    UI::SetVec2(\"hud\", \"anchor\", Vec2(4, 5));\n"
+        "    UI::SetVec3(\"hud\", \"world\", Vec3(6, 7, 8));\n"
+        "    UI::SetJson(\"hud\", \"items\", \"[1,2,3]\");\n"
+        "    UI::Notify(\"hud\", \"items\");\n"
+        "  }\n"
+        "  void Update(float dt) {\n"
+        "    if (UI::GetBool(\"hud\", \"visible\") && UI::GetInt(\"hud\", \"score\") == 7 &&\n"
+        "        UI::GetFloat(\"hud\", \"health\") > 0.7f && UI::GetString(\"hud\", \"label\") == \"Ready\") {\n"
+        "      Actor::SetPosition(Vec3(1, 2, 3));\n"
+        "    }\n"
+        "  }\n"
+        "}\n");
+    if (!Check(script->IsCompiled(),
+               "AngelScript UI data model script should compile: " + script->GetLastError())) {
+        ui.Shutdown();
+        return false;
+    }
+
+    scene.OnUpdate(1.0f / 60.0f);
+    const UIDataModel& model = ui.CreateDataModel("hud");
+    const auto& values = model.GetValues();
+    const auto visible = values.find("visible");
+    const auto score = values.find("score");
+    const auto health = values.find("health");
+    const auto label = values.find("label");
+    const auto anchor = values.find("anchor");
+    const auto world = values.find("world");
+    const auto items = values.find("items");
+    const bool ok = NearlyEqual(actor->GetTransform().position.x, 1.0f) &&
+        visible != values.end() && std::get<bool>(visible->second) &&
+        score != values.end() && std::get<int>(score->second) == 7 &&
+        health != values.end() && NearlyEqual(std::get<float>(health->second), 0.75f) &&
+        label != values.end() && std::get<std::string>(label->second) == "Ready" &&
+        anchor != values.end() && NearlyEqual(std::get<Vec2>(anchor->second).x, 4.0f) &&
+        world != values.end() && NearlyEqual(std::get<Vec3>(world->second).z, 8.0f) &&
+        items != values.end() && std::get<nlohmann::json>(items->second).is_array();
+    ui.Shutdown();
+    return Check(ok, "AngelScript UI data model bindings failed: " + script->GetLastError());
+}
+
+bool TestAngelScriptUIBindingContextIsolation()
+{
+    UISystem first;
+    UISystem second;
+    AngelScriptRuntime::SetUISystem(&first);
+    AngelScriptRuntime::SetUISystem(&second);
+    AngelScriptRuntime::ClearUISystem(&first);
+
+    Scene scene("AngelUIBindingContextIsolation");
+    Actor* actor = scene.CreateActor("Writer");
+    auto* script = actor->AddComponent<ScriptComponent>();
+    script->SetSource(
+        "class Script {\n"
+        "  void Start() { UI::SetInt(\"isolated\", \"value\", 42); }\n"
+        "}\n");
+    if (!Check(script->IsCompiled(),
+               "binding context isolation script should compile: " +
+                   script->GetLastError())) {
+        AngelScriptRuntime::ClearUISystem(&second);
+        return false;
+    }
+
+    scene.OnUpdate(1.0f / 60.0f);
+    const auto& values = second.CreateDataModel("isolated").GetValues();
+    const auto value = values.find("value");
+    const bool wroteToCurrentSystem =
+        value != values.end() && std::get<int>(value->second) == 42;
+
+    AngelScriptRuntime::ClearUISystem(&second);
+    return Check(wroteToCurrentSystem,
+                 "clearing an old UISystem removed the active script binding context");
+}
+
 bool TestUIDrawListBatchContainer()
 {
     UIDrawList list;
@@ -3980,11 +4648,20 @@ MYENGINE_REGISTER_TEST("Scene", "TestSceneSerializationRegression", TestSceneSer
 MYENGINE_REGISTER_TEST("Scene", "TestBuiltinSceneMaterialRoundTrip", TestBuiltinSceneMaterialRoundTrip);
 MYENGINE_REGISTER_TEST("Scripting", "TestScriptRuntimeLifecycle", TestScriptRuntimeLifecycle);
 MYENGINE_REGISTER_TEST("Scripting", "TestAngelScriptFilesErrorsAndPhysicsBindings", TestAngelScriptFilesErrorsAndPhysicsBindings);
+MYENGINE_REGISTER_TEST("Scripting", "TestAngelScriptInputAndOverlapBindings", TestAngelScriptInputAndOverlapBindings);
+MYENGINE_REGISTER_TEST("Scripting", "TestAngelScriptSceneComponentsEventsAndTimers", TestAngelScriptSceneComponentsEventsAndTimers);
+MYENGINE_REGISTER_TEST("Scripting", "TestAngelScriptPrefabAndTypedFacades", TestAngelScriptPrefabAndTypedFacades);
 MYENGINE_REGISTER_TEST("Scripting", "TestAngelScriptAssetsClassesAndFields", TestAngelScriptAssetsClassesAndFields);
 MYENGINE_REGISTER_TEST("Project", "TestProjectFPSContentSmoke", TestProjectFPSContentSmoke);
 MYENGINE_REGISTER_TEST("Scripting", "TestEditorLuaScriptService", TestEditorLuaScriptService);
 MYENGINE_REGISTER_TEST("Scripting", "TestLegacyLuaScriptCompatibility", TestLegacyLuaScriptCompatibility);
 MYENGINE_REGISTER_TEST("Animation", "TestGpuSkinningAnimationBlend", TestGpuSkinningAnimationBlend);
+MYENGINE_REGISTER_TEST("Animation", "TestAnimatorControllerAndThirdPersonCamera", TestAnimatorControllerAndThirdPersonCamera);
+MYENGINE_REGISTER_TEST("Gameplay", "TestGameplayCombatAndInteractionComponents", TestGameplayCombatAndInteractionComponents);
+MYENGINE_REGISTER_TEST("Gameplay", "TestParticleAndAudioListenerFeedbackComponents", TestParticleAndAudioListenerFeedbackComponents);
+MYENGINE_REGISTER_TEST("Gameplay", "TestNavigationPerceptionAndEnemyStateMachine", TestNavigationPerceptionAndEnemyStateMachine);
+MYENGINE_REGISTER_TEST("Gameplay", "TestSceneManagerAndVersionedSaveGame", TestSceneManagerAndVersionedSaveGame);
+MYENGINE_REGISTER_TEST("Gameplay", "TestThirdPersonAdventureTemplateCompilesAndRuns", TestThirdPersonAdventureTemplateCompilesAndRuns);
 MYENGINE_REGISTER_TEST("Scene", "TestComponentRegistry", TestComponentRegistry);
 MYENGINE_REGISTER_TEST("Scene", "TestCameraComponentAndGameViewport", TestCameraComponentAndGameViewport);
 MYENGINE_REGISTER_TEST("Scene", "TestAudioSourceComponentSerialization", TestAudioSourceComponentSerialization);
@@ -4009,11 +4686,15 @@ MYENGINE_REGISTER_TEST("Scene", "TestActorHandleLifecycleAndDeferredMutation", T
 MYENGINE_REGISTER_TEST("Scene", "TestSceneActorSiblingReorder", TestSceneActorSiblingReorder);
 MYENGINE_REGISTER_TEST("Scene", "TestPrefabRoundTripOverridesAndValidation", TestPrefabRoundTripOverridesAndValidation);
 MYENGINE_REGISTER_TEST("Project", "TestPrefabCookDependencyValidation", TestPrefabCookDependencyValidation);
+MYENGINE_REGISTER_TEST("Project", "TestGameplayContentCookDependencies", TestGameplayContentCookDependencies);
 MYENGINE_REGISTER_TEST("UI", "TestUICanvasComponentSerialization", TestUICanvasComponentSerialization);
 MYENGINE_REGISTER_TEST("UI", "TestUIActorComponentsSerialization", TestUIActorComponentsSerialization);
 MYENGINE_REGISTER_TEST("UI", "TestUIActorTreeBuilder", TestUIActorTreeBuilder);
 MYENGINE_REGISTER_TEST("UI", "TestUIActorTreeCollectsDrawCommands", TestUIActorTreeCollectsDrawCommands);
 MYENGINE_REGISTER_TEST("UI", "TestUIInputSystemButtonAndSlider", TestUIInputSystemButtonAndSlider);
+MYENGINE_REGISTER_TEST("UI", "TestAngelScriptUIEventBindings", TestAngelScriptUIEventBindings);
+MYENGINE_REGISTER_TEST("UI", "TestAngelScriptUIDataModelBindings", TestAngelScriptUIDataModelBindings);
+MYENGINE_REGISTER_TEST("UI", "TestAngelScriptUIBindingContextIsolation", TestAngelScriptUIBindingContextIsolation);
 MYENGINE_REGISTER_TEST("UI", "TestUIDrawListBatchContainer", TestUIDrawListBatchContainer);
 
 } // namespace

@@ -69,6 +69,30 @@
           "scale": -1.0
         }
       ]
+    },
+    {
+      "name": "Attack",
+      "type": "Button",
+      "bindings": [
+        { "source": "Mouse/Left" },
+        { "source": "Gamepad/West" }
+      ]
+    },
+    {
+      "name": "Interact",
+      "type": "Button",
+      "bindings": [
+        { "source": "Keyboard/E" },
+        { "source": "Gamepad/North" }
+      ]
+    },
+    {
+      "name": "Pause",
+      "type": "Button",
+      "bindings": [
+        { "source": "Keyboard/Escape" },
+        { "source": "Gamepad/Start" }
+      ]
     }
   ]
 }
