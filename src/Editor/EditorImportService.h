@@ -19,6 +19,14 @@ public:
     bool Reimport(const std::string& uuid);
     bool ReimportWithSettings(const std::string& uuid,
                               const std::string& settingsJson);
+    bool EnsureShaderCache(const std::filesystem::path& sourcePath,
+                           const std::string& settingsJson,
+                           bool allowCompile,
+                           std::filesystem::path& outArtifactPath,
+                           bool& outCacheHit,
+                           std::string* error = nullptr);
+    size_t EnsureModelCachesForScene(const std::filesystem::path& scenePath,
+                                     std::vector<std::string>* failures = nullptr);
     size_t ReimportAll(std::vector<std::string>* failures = nullptr);
     bool RefreshValidation(std::string* error = nullptr);
     const AssetDatabaseValidationReport* GetValidationReport() const;

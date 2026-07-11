@@ -13,6 +13,7 @@
 #include "Editor/EditorWorkspace.h"
 #include "Editor/EditorUI/EditorAngelScriptDomain.h"
 #include "Editor/UI/EditorIcons.h"
+#include "Editor/UI/EditorViewportPolicy.h"
 #include "Editor/UI/EditorWidgets.h"
 #include "Game/SceneRenderLayer.h"
 #if defined(MYENGINE_ENABLE_IMGUI)
@@ -1274,6 +1275,7 @@ void AssetBrowserPanel::DrawPendingSceneOpenModal() {
         m_PendingSceneOpenPopup = false;
     }
 
+    Editor::UI::EditorViewportPolicy::BindNextModalToMainViewport();
     if (!ImGui::BeginPopupModal("Unsaved Scene Changes###asset_open_dirty_scene",
                                 nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         return;

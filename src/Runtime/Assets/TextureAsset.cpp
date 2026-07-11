@@ -2,8 +2,118 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdint>
+#include <filesystem>
+#include <fstream>
+#include <limits>
+#include <type_traits>
 
 namespace {
+
+constexpr uint32_t kTexturePayloadMagic = 0x5845544d; // MTEX
+constexpr uint32_t kTexturePayloadVersion = 1;
+constexpr uint32_t kMaxTextureArrayItems = 64u << 20;
+
+template<typename T>
+bool WritePod(std::ostream& out, const T& value)
+{
+    static_assert(std::is_trivially_copyable_v<T>);
+    out.write(reinterpret_cast<const char*>(&value), sizeof(T));
+    return static_cast<bool>(out);
+}
+
+template<typename T>
+bool ReadPod(std::istream& in, T& value)
+{
+    static_assert(std::is_trivially_copyable_v<T>);
+    in.read(reinterpret_cast<char*>(&value), sizeof(T));
+    return static_cast<bool>(in);
+}
+
+template<typename T>
+bool WriteVector(std::ostream& out, const std::vector<T>& values)
+{
+    static_assert(std::is_trivially_copyable_v<T>);
+    if (values.size() > kMaxTextureArrayItems) return false;
+    const uint32_t size = static_cast<uint32_t>(values.size());
+    if (!WritePod(out, size)) return false;
+    if (values.empty()) return true;
+    out.write(reinterpret_cast<const char*>(values.data()),
+              static_cast<std::streamsize>(values.size() * sizeof(T)));
+    return static_cast<bool>(out);
+}
+
+template<typename T>
+bool ReadVector(std::istream& in, std::vector<T>& values)
+{
+    static_assert(std::is_trivially_copyable_v<T>);
+    uint32_t size = 0;
+    if (!ReadPod(in, size) || size > kMaxTextureArrayItems) return false;
+    values.resize(size);
+    if (values.empty()) return true;
+    in.read(reinterpret_cast<char*>(values.data()),
+            static_cast<std::streamsize>(values.size() * sizeof(T)));
+    return static_cast<bool>(in);
+}
+
+bool WriteTextureDesc(std::ostream& out, const TextureDesc& desc)
+{
+    return WritePod(out, desc.width) &&
+           WritePod(out, desc.height) &&
+           WritePod(out, desc.mipLevels) &&
+           WritePod(out, desc.format) &&
+           WritePod(out, desc.filter) &&
+           WritePod(out, desc.wrapU) &&
+           WritePod(out, desc.wrapV) &&
+           WritePod(out, desc.sRGB) &&
+           WritePod(out, desc.generateCompressedMips);
+}
+
+bool ReadTextureDesc(std::istream& in, TextureDesc& desc)
+{
+    return ReadPod(in, desc.width) &&
+           ReadPod(in, desc.height) &&
+           ReadPod(in, desc.mipLevels) &&
+           ReadPod(in, desc.format) &&
+           ReadPod(in, desc.filter) &&
+           ReadPod(in, desc.wrapU) &&
+           ReadPod(in, desc.wrapV) &&
+           ReadPod(in, desc.sRGB) &&
+           ReadPod(in, desc.generateCompressedMips);
+}
+
+bool WriteMipChain(std::ostream& out, const std::vector<TextureMipData>& mips)
+{
+    if (mips.size() > kMaxTextureArrayItems ||
+        !WritePod(out, static_cast<uint32_t>(mips.size()))) {
+        return false;
+    }
+    for (const TextureMipData& mip : mips) {
+        if (!WritePod(out, mip.width) ||
+            !WritePod(out, mip.height) ||
+            !WriteVector(out, mip.rgba8) ||
+            !WriteVector(out, mip.bc1)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool ReadMipChain(std::istream& in, std::vector<TextureMipData>& mips)
+{
+    uint32_t mipCount = 0;
+    if (!ReadPod(in, mipCount) || mipCount > kMaxTextureArrayItems) return false;
+    mips.resize(mipCount);
+    for (TextureMipData& mip : mips) {
+        if (!ReadPod(in, mip.width) ||
+            !ReadPod(in, mip.height) ||
+            !ReadVector(in, mip.rgba8) ||
+            !ReadVector(in, mip.bc1)) {
+            return false;
+        }
+    }
+    return true;
+}
 
 uint16_t PackRgb565(uint8_t r, uint8_t g, uint8_t b)
 {
@@ -105,6 +215,68 @@ std::vector<uint8_t> CompressBc1(const std::vector<uint8_t>& rgba, int width, in
 }
 
 } // namespace
+
+bool SaveTexturePayloadToFile(const TextureAsset& texture, const std::string& path)
+{
+    try {
+        const std::filesystem::path outputPath(path);
+        std::filesystem::create_directories(outputPath.parent_path());
+        const std::string temporary = path + ".tmp";
+        {
+            std::ofstream out(temporary, std::ios::binary | std::ios::trunc);
+            if (!out) return false;
+            if (!WritePod(out, kTexturePayloadMagic) ||
+                !WritePod(out, kTexturePayloadVersion) ||
+                !WriteTextureDesc(out, texture.GetDesc()) ||
+                !WriteVector(out, texture.GetPixelData()) ||
+                !WriteMipChain(out, texture.GetMips())) {
+                return false;
+            }
+            out.flush();
+            if (!out) return false;
+        }
+        std::error_code ec;
+        std::filesystem::remove(outputPath, ec);
+        ec.clear();
+        std::filesystem::rename(temporary, outputPath, ec);
+        if (ec) {
+            std::filesystem::remove(temporary, ec);
+            return false;
+        }
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+bool TextureAsset::EnsurePayloadLoaded()
+{
+    if (!m_Mips.empty()) return true;
+    if (m_DeferredPayloadPath.empty()) return false;
+
+    try {
+        std::ifstream in(m_DeferredPayloadPath, std::ios::binary);
+        if (!in) return false;
+        uint32_t magic = 0;
+        uint32_t version = 0;
+        TextureDesc desc;
+        std::vector<uint8_t> pixels;
+        std::vector<TextureMipData> mips;
+        if (!ReadPod(in, magic) ||
+            !ReadPod(in, version) ||
+            magic != kTexturePayloadMagic ||
+            version != kTexturePayloadVersion ||
+            !ReadTextureDesc(in, desc) ||
+            !ReadVector(in, pixels) ||
+            !ReadMipChain(in, mips)) {
+            return false;
+        }
+        SetPixelDataWithMips(std::move(pixels), desc, std::move(mips));
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
 
 void TextureAsset::RebuildDerivedData()
 {

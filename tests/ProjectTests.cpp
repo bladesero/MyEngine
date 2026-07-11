@@ -332,6 +332,28 @@ bool TestWorkspaceCookAndPublish() {
     const auto editorScriptPath = projectRoot / "Content" / "Editor" / "Scripts" / "tool.lua";
     fs::create_directories(editorScriptPath.parent_path());
     std::ofstream(editorScriptPath) << "Editor.log('tool')\n";
+    const auto modelPath = projectRoot / "Content" / "Models" / "cached.gltf";
+    fs::create_directories(modelPath.parent_path());
+    std::ofstream(modelPath) << R"({"asset":{"version":"2.0"},"scenes":[]})";
+    const auto modelArtifact = projectRoot / "Library" / "windows-x64" /
+        "cached-model" / "cached.modelbin";
+    fs::create_directories(modelArtifact.parent_path());
+    std::ofstream(modelArtifact, std::ios::binary) << "model cache";
+    AssetDatabase importDatabase;
+    AssetRecord cachedModel;
+    cachedModel.uuid = "cached-model";
+    cachedModel.sourcePath = modelPath.generic_string();
+    cachedModel.artifactPath = modelArtifact.generic_string();
+    cachedModel.type = "model";
+    cachedModel.importer = "gltf";
+    cachedModel.state = AssetImportState::Ready;
+    if (!Check(importDatabase.Open(projectRoot / ".myengine" / "AssetDatabase.json", &error) &&
+               importDatabase.Upsert(cachedModel, &error) &&
+               importDatabase.Save(&error),
+               "cached model import database setup failed: " + error)) return false;
+    std::ofstream(projectRoot / "Content" / "Scenes" / "Main.scene.json")
+        << "{\"actors\":[{\"components\":[{\"data\":{\"mesh\":\""
+        << modelArtifact.generic_string() << "#mesh\"}}]}]}";
 
     ProjectConfig project;
     if (!Check(project.Open(projectRoot, false, &error),
@@ -506,6 +528,12 @@ bool TestWorkspaceCookAndPublish() {
     std::string payloadText((std::istreambuf_iterator<char>(payload)),
                             std::istreambuf_iterator<char>());
     if (!Check(payloadText == "cooked payload", "cooked payload content changed")) return false;
+    std::ifstream cookedScene(extracted / "Content/Scenes/Main.scene.json");
+    std::string cookedSceneText((std::istreambuf_iterator<char>(cookedScene)),
+                                std::istreambuf_iterator<char>());
+    if (!Check(cookedSceneText.find("Library/windows-x64") == std::string::npos &&
+               cookedSceneText.find("Content/Models/cached.gltf#mesh") != std::string::npos,
+               "publish did not rewrite cached model artifact references")) return false;
 
     const auto corrupt = base / "Corrupt.pak";
     fs::copy_file(report.contentArchive, corrupt);

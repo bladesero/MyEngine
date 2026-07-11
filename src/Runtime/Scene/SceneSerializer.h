@@ -1,7 +1,23 @@
 #pragma once
 
 #include "Scene/Scene.h"
+#include <nlohmann/json.hpp>
 #include <string>
+#include <unordered_map>
+#include <vector>
+
+struct SceneLoadPlan {
+    nlohmann::json root;
+    std::vector<nlohmann::json> actors;
+    std::vector<std::string> assetDependencies;
+};
+
+struct SceneInstantiationState {
+    size_t nextActor = 0;
+    std::unordered_map<uint64_t, ActorHandle> handles;
+    bool initialized = false;
+    bool relationshipsQueued = false;
+};
 
 // ==========================================================================
 // SceneSerializer  –  Scene ↔ JSON 文件 序列化
@@ -43,4 +59,10 @@ public:
 
     // 从 JSON 字符串反序列化
     static bool LoadFromString(Scene& scene, const std::string& json);
+    static bool BuildLoadPlan(const std::string& json, SceneLoadPlan& plan,
+                              std::string* error = nullptr);
+    static bool InstantiateLoadPlan(Scene& scene, const SceneLoadPlan& plan,
+                                    SceneInstantiationState& state,
+                                    size_t maxActors, bool& complete,
+                                    std::string* error = nullptr);
 };

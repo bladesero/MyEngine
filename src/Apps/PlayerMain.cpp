@@ -14,6 +14,8 @@
 #include "Renderer/IRenderContext.h"
 #include "Renderer/RenderBackendRegistry.h"
 #include "Renderer/RenderPath.h"
+#include "Renderer/ShaderCacheService.h"
+#include "Renderer/ShaderManager.h"
 #include "Miscs/IconsManager.h"
 
 #include <filesystem>
@@ -65,6 +67,8 @@ protected:
         if (!m_CookedEngineContentRoot.empty()) {
             AssetManager::Get().SetEngineContentRoot(m_CookedEngineContentRoot);
         }
+        ShaderManager::Get().SetShaderCacheMode(ShaderCacheMode::RuntimeCookedOnly);
+        ShaderCacheService::Get().ClearResolver();
         LoadProjectInputConfig();
 
         m_RenderContext = CreateRenderContext(m_Backend);

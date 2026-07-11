@@ -10,6 +10,8 @@
 #include <nlohmann/json.hpp>
 #include <fstream>
 #include <sstream>
+#include <algorithm>
+#include <unordered_set>
 
 using Json = nlohmann::json;
 
@@ -264,8 +266,9 @@ bool SceneSerializer::LoadFromFile(Scene& scene, const std::string& filepath)
             Logger::Error("SceneSerializer: cannot open '", filepath, "' for reading");
             return false;
         }
-        Json root = Json::parse(f);
-        bool ok   = JsonToScene(root, scene);
+        std::ostringstream source;
+        source << f.rdbuf();
+        bool ok = LoadFromString(scene, source.str());
         if (ok) {
             Logger::Info("SceneSerializer: loaded '", scene.GetName(),
                          "' ← ", filepath,
@@ -286,12 +289,128 @@ std::string SceneSerializer::SaveToString(const Scene& scene)
 
 bool SceneSerializer::LoadFromString(Scene& scene, const std::string& jsonStr)
 {
+    SceneLoadPlan plan; std::string error;
+    if (!BuildLoadPlan(jsonStr, plan, &error)) {
+        Logger::Error("SceneSerializer: parse error: ", error); return false;
+    }
+    SceneInstantiationState state; bool complete = false;
+    if (!InstantiateLoadPlan(scene, plan, state, std::max<size_t>(1, plan.actors.size()), complete, &error)) {
+        Logger::Error("SceneSerializer: instantiate error: ", error); return false;
+    }
+    return complete;
+}
+
+namespace {
+void CollectAssetDependencies(const Json& value, std::unordered_set<std::string>& paths)
+{
+    if (value.is_string()) {
+        const std::string path = value.get<std::string>();
+        if (path.rfind("Content/", 0) == 0 || path.rfind("EngineContent/", 0) == 0)
+            paths.insert(path);
+    } else if (value.is_array()) {
+        for (const auto& child : value) CollectAssetDependencies(child, paths);
+    } else if (value.is_object()) {
+        for (auto it = value.begin(); it != value.end(); ++it)
+            CollectAssetDependencies(it.value(), paths);
+    }
+}
+}
+
+bool SceneSerializer::BuildLoadPlan(const std::string& jsonStr, SceneLoadPlan& plan,
+                                    std::string* error)
+{
     try {
         Json root = Json::parse(jsonStr);
-        return JsonToScene(root, scene);
-    }
-    catch (const std::exception& e) {
-        Logger::Error("SceneSerializer: parse error: ", e.what());
+        if (!root.is_object()) throw std::runtime_error("scene root must be an object");
+        if (root.contains("actors") && !root["actors"].is_array())
+            throw std::runtime_error("scene actors must be an array");
+        SceneLoadPlan candidate;
+        candidate.root = std::move(root);
+        if (candidate.root.contains("actors"))
+            for (const auto& actor : candidate.root["actors"])
+                if (actor.is_object()) candidate.actors.push_back(actor);
+        std::unordered_set<std::string> dependencies;
+        CollectAssetDependencies(candidate.root, dependencies);
+        candidate.assetDependencies.assign(dependencies.begin(), dependencies.end());
+        std::sort(candidate.assetDependencies.begin(), candidate.assetDependencies.end());
+        plan = std::move(candidate);
+        if (error) error->clear();
+        return true;
+    } catch (const std::exception& e) {
+        if (error) *error = e.what();
         return false;
+    }
+}
+
+bool SceneSerializer::InstantiateLoadPlan(Scene& scene, const SceneLoadPlan& plan,
+                                          SceneInstantiationState& state,
+                                          size_t maxActors, bool& complete,
+                                          std::string* error)
+{
+    complete = false;
+    try {
+        if (!state.initialized) {
+            scene.Clear();
+            scene.SetName(plan.root.value("name", "Scene"));
+            scene.SetMainCameraHintActorID(plan.root.value("mainCameraHintActorID", uint64_t{0}));
+            scene.SetAmbientIntensity(plan.root.value("ambientIntensity", 1.0f));
+            scene.SetNavMeshAssetPath(plan.root.value("navMeshAsset", std::string{}));
+            scene.SetPreloadAssets(plan.root.value("preloadAssets", std::vector<std::string>{}));
+            if (plan.root.contains("nextID")) scene.SetNextID(plan.root["nextID"].get<uint64_t>());
+            state.initialized = true;
+        }
+        const size_t end = std::min(plan.actors.size(), state.nextActor + std::max<size_t>(1, maxActors));
+        for (; state.nextActor < end; ++state.nextActor) {
+            const Json& a = plan.actors[state.nextActor];
+            const uint64_t id = a.value("id", uint64_t{0});
+            if (a.contains("prefabInstance")) {
+                const Json& prefab = a["prefabInstance"];
+                if (!prefab.is_object()) throw std::runtime_error("prefabInstance must be an object");
+                PrefabInstantiateOptions options;
+                options.persistentRootID = id;
+                options.rootTransform = a.contains("transform") ? TransformFromJson(a["transform"]) : Transform{};
+                options.expectedUuid = prefab.value("uuid", std::string{});
+                options.overrides = prefab.value("overrides", Json::array());
+                std::string prefabError;
+                ActorHandle handle = PrefabSystem::QueueInstantiate(scene, prefab.value("asset", std::string{}), options, &prefabError);
+                if (!handle) throw std::runtime_error("failed to instantiate prefab: " + prefabError);
+                state.handles[id] = handle;
+                continue;
+            }
+            ActorCreateDesc desc;
+            desc.name = a.value("name", std::string("Actor")); desc.persistentID = id;
+            desc.activeSelf = a.value("active", true); desc.tag = a.value("tag", std::string{});
+            desc.layer = a.value("layer", uint32_t{0}); desc.editorFlags = a.value("editorFlags", uint32_t{0});
+            if (a.contains("transform")) desc.transform = TransformFromJson(a["transform"]);
+            if (a.contains("components") && a["components"].is_array()) for (const Json& c : a["components"]) {
+                if (!c.is_object()) continue;
+                ComponentCreateDesc component;
+                component.type = c.value("type", std::string{}); component.enabled = c.value("enabled", true);
+                component.data = c.contains("data") ? c["data"] : Json::object();
+                if (!component.type.empty()) desc.components.push_back(std::move(component));
+            }
+            state.handles[id] = scene.QueueCreateActor(desc);
+        }
+        if (!scene.FlushCommands()) throw std::runtime_error("failed to flush actor batch");
+        if (state.nextActor < plan.actors.size()) return true;
+        if (!state.relationshipsQueued) {
+            for (const Json& a : plan.actors) {
+                const uint64_t id = a.value("id", uint64_t{0}), parentID = a.value("parentID", uint64_t{0});
+                if (!parentID) continue;
+                const auto child = state.handles.find(id), parent = state.handles.find(parentID);
+                if (child != state.handles.end() && parent != state.handles.end()) scene.QueueSetParent(child->second, parent->second);
+            }
+            if (!scene.FlushCommands()) throw std::runtime_error("failed to restore scene relationships");
+            if (!scene.GetNavMeshAssetPath().empty()) {
+                auto nav = AssetManager::Get().Load<NavMeshAsset>(scene.GetNavMeshAssetPath());
+                if (nav) nav->Apply(scene.GetNavigationWorld());
+            }
+            state.relationshipsQueued = true;
+        }
+        complete = true;
+        if (error) error->clear();
+        return true;
+    } catch (const std::exception& e) {
+        scene.Clear(); if (error) *error = e.what(); return false;
     }
 }

@@ -4644,6 +4644,34 @@ bool TestUIDrawListBatchContainer()
     return Check(list.Empty(), "UIDrawList clear failed");
 }
 
+bool TestIncrementalSceneLoadPlanAndCancellation()
+{
+    nlohmann::json root = {{"name", "Large"}, {"preloadAssets", {"Content/Textures/a.png"}}};
+    root["actors"] = nlohmann::json::array();
+    for (uint64_t id = 1; id <= 128; ++id)
+        root["actors"].push_back({{"id", id}, {"name", "Actor" + std::to_string(id)},
+                                  {"parentID", id > 1 ? id - 1 : 0}});
+    SceneLoadPlan plan; std::string error;
+    if (!Check(SceneSerializer::BuildLoadPlan(root.dump(), plan, &error),
+               "failed to build scene load plan: " + error)) return false;
+    if (!Check(plan.actors.size() == 128 && plan.assetDependencies.size() == 1,
+               "scene plan did not collect actors and dependencies")) return false;
+    Scene candidate; SceneInstantiationState state; bool complete = false;
+    if (!Check(SceneSerializer::InstantiateLoadPlan(candidate, plan, state, 7, complete, &error) &&
+               !complete && candidate.ActorCount() == 7,
+               "scene plan was not instantiated incrementally")) return false;
+    while (!complete)
+        if (!SceneSerializer::InstantiateLoadPlan(candidate, plan, state, 7, complete, &error)) return false;
+    if (!Check(candidate.ActorCount() == 128 && candidate.FindByID(128)->GetParent() == candidate.FindByID(127),
+               "incremental scene hierarchy was not restored")) return false;
+    SceneManager manager;
+    if (!Check(!manager.RequestLoad("../escape.scene.json") && manager.GetState() == SceneLoadState::Failed,
+               "scene manager accepted unsafe asynchronous path")) return false;
+    manager.CancelLoad();
+    return Check(manager.GetState() == SceneLoadState::Failed,
+                 "cancelling a terminal load changed its state");
+}
+
 MYENGINE_REGISTER_TEST("Scene", "TestSceneSerializationRegression", TestSceneSerializationRegression);
 MYENGINE_REGISTER_TEST("Scene", "TestBuiltinSceneMaterialRoundTrip", TestBuiltinSceneMaterialRoundTrip);
 MYENGINE_REGISTER_TEST("Scripting", "TestScriptRuntimeLifecycle", TestScriptRuntimeLifecycle);
@@ -4696,5 +4724,6 @@ MYENGINE_REGISTER_TEST("UI", "TestAngelScriptUIEventBindings", TestAngelScriptUI
 MYENGINE_REGISTER_TEST("UI", "TestAngelScriptUIDataModelBindings", TestAngelScriptUIDataModelBindings);
 MYENGINE_REGISTER_TEST("UI", "TestAngelScriptUIBindingContextIsolation", TestAngelScriptUIBindingContextIsolation);
 MYENGINE_REGISTER_TEST("UI", "TestUIDrawListBatchContainer", TestUIDrawListBatchContainer);
+MYENGINE_REGISTER_TEST("Scene", "TestIncrementalSceneLoadPlanAndCancellation", TestIncrementalSceneLoadPlanAndCancellation);
 
 } // namespace

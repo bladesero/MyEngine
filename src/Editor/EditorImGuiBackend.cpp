@@ -191,6 +191,18 @@ void EditorImGuiBackend::BeginFrame() {
             auto* rtv = static_cast<ID3D11RenderTargetView*>(handles.backBufferRtvPtr);
             auto* dsv = static_cast<ID3D11DepthStencilView*>(handles.backBufferDsvPtr);
             ctx->OMSetRenderTargets(1, &rtv, dsv);
+            if (handles.width > 0 && handles.height > 0) {
+                D3D11_VIEWPORT viewport = {};
+                viewport.Width = static_cast<float>(handles.width);
+                viewport.Height = static_cast<float>(handles.height);
+                viewport.MinDepth = 0.0f;
+                viewport.MaxDepth = 1.0f;
+                ctx->RSSetViewports(1, &viewport);
+                const D3D11_RECT scissor = {0, 0,
+                    static_cast<LONG>(handles.width),
+                    static_cast<LONG>(handles.height)};
+                ctx->RSSetScissorRects(1, &scissor);
+            }
         }
         ImGui_ImplDX11_NewFrame();
     }

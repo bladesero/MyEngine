@@ -23,3 +23,10 @@ editing and play simulation in separate worlds:
 `GetScene()` is retained as a transitional runtime compatibility alias for
 `GetSimulationScene()`. Editor code should use `EditorContext`, where
 `GetScene()` intentionally means EditorWorld.
+# Asynchronous scene transitions
+
+Runtime requests are prepared as a `SceneLoadPlan`: file I/O, JSON parsing,
+validation, and dependency discovery run on a worker, while Actor and Component
+construction remains on the main thread under a per-frame budget. The current
+world is paused but remains renderable until the candidate world is complete.
+Failed, cancelled, and superseded requests leave the current world unchanged.

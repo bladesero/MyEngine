@@ -28,7 +28,10 @@ public:
     virtual const char* GetName() const = 0;
     virtual uint32_t GetVersion() const = 0;
     virtual bool Supports(const std::filesystem::path& sourcePath) const = 0;
+    virtual std::string GetArtifactExtension(const std::filesystem::path& sourcePath) const;
     virtual ImportResult Import(const ImportRequest& request) const = 0;
 };
 
 std::unique_ptr<IAssetImporter> CreatePassthroughAssetImporter();
+std::unique_ptr<IAssetImporter> CreateGltfModelAssetImporter();
+std::unique_ptr<IAssetImporter> CreateShaderAssetImporter();

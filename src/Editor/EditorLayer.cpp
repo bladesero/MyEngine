@@ -17,6 +17,7 @@
 #include "Editor/UI/EditorIcons.h"
 #include "Editor/UI/EditorNotifications.h"
 #include "Editor/UI/EditorStyleTokens.h"
+#include "Editor/UI/EditorViewportPolicy.h"
 #include "Editor/UI/EditorWidgets.h"
 #include "Editor/ProjectPublisher.h"
 #include "Game/SceneRenderLayer.h"
@@ -258,6 +259,7 @@ bool EditorLayer::OpenProject(const std::filesystem::path& root) {
     }
     AssetManager::Get().Clear();
     AssetManager::Get().SetProjectRoot(m_Project.GetRoot());
+    ShaderManager::Get().SetShaderCacheMode(ShaderCacheMode::EditorOnDemandCompile);
     LoadProjectInputConfig();
     if (m_SceneLayer) {
         m_SceneLayer->SetRenderPath(
@@ -291,6 +293,12 @@ bool EditorLayer::OpenProject(const std::filesystem::path& root) {
     }
     bool loadedScene = false;
     if (!scenePath.empty()) {
+        std::vector<std::string> modelCacheFailures;
+        m_ImportService.EnsureModelCachesForScene(scenePath, &modelCacheFailures);
+        if (!modelCacheFailures.empty()) {
+            Logger::Warn("[Editor] Model cache warmup failed: ",
+                         modelCacheFailures.front());
+        }
         const auto sceneLoadStart = std::chrono::steady_clock::now();
         loadedScene = m_SceneLayer->LoadScene(scenePath.string());
         const double sceneLoadMs = std::chrono::duration<double, std::milli>(
@@ -1136,6 +1144,7 @@ void EditorLayer::DrawProjectResult() {
         m_ProjectResultRequested = false;
     }
     ImGui::SetNextWindowSize({620.0f, 0.0f}, ImGuiCond_Appearing);
+    Editor::UI::EditorViewportPolicy::BindNextModalToMainViewport();
     if (!ImGui::BeginPopupModal("Project Result", nullptr,
                                 ImGuiWindowFlags_AlwaysAutoResize)) return;
     ImGui::PushTextWrapPos(580.0f);

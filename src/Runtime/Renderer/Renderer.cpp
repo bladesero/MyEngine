@@ -109,7 +109,7 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
     if (!m_Device || !m_FrameContext || !m_ShadowPass || !m_MainPass ||
         !m_GBufferPass || !m_DeferredLightingPass || !m_PostProcessPass) return;
 
-    GpuUploadQueue::Get().Process(*m_Device);
+    GpuUploadQueue::Get().Process(*m_Device, GpuUploadQueue::Get().GetDefaultBudget());
 
     m_FrameContext->BeginFrame(0.12f, 0.12f, 0.18f);
     const auto endFrameOnFailure = [this, present]() {

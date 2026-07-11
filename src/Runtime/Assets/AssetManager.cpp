@@ -1,4 +1,5 @@
 #include "Assets/AssetManager.h"
+#include "Assets/AssetDatabase.h"
 #include "Assets/AssetMeta.h"
 #include "Core/Sha256.h"
 
@@ -196,16 +197,27 @@ std::string AssetManager::ResolvePath(const std::string& path) const {
 }
 
 std::string AssetManager::MakeProjectRelativePath(const std::string& path) const {
+    std::lock_guard<std::recursive_mutex> lock(m_Mutex);
     if (path.empty() || path.rfind("__builtin__/", 0) == 0 ||
         path.rfind("__builtin__\\", 0) == 0 || m_ProjectRoot.empty()) {
         return path;
     }
     const std::string resolvedPath = ResolvePath(path);
+    const auto aliasIt = m_ArtifactToSourcePath.find(resolvedPath);
+    if (aliasIt != m_ArtifactToSourcePath.end() && aliasIt->second != resolvedPath) {
+        return MakeProjectRelativePath(aliasIt->second);
+    }
     const size_t fragmentPosition = resolvedPath.find('#');
     const std::string sourcePath = fragmentPosition == std::string::npos
         ? resolvedPath : resolvedPath.substr(0, fragmentPosition);
     const std::string fragment = fragmentPosition == std::string::npos
         ? std::string{} : resolvedPath.substr(fragmentPosition);
+    if (!fragment.empty()) {
+        const auto baseAliasIt = m_ArtifactToSourcePath.find(sourcePath);
+        if (baseAliasIt != m_ArtifactToSourcePath.end() && baseAliasIt->second != sourcePath) {
+            return MakeProjectRelativePath(baseAliasIt->second + fragment);
+        }
+    }
     const std::filesystem::path absolutePath(sourcePath);
     std::error_code error;
     if (!m_EngineContentRoot.empty()) {
@@ -297,6 +309,49 @@ void AssetManager::ApplyPersistentIdentity(Asset& asset)
     asset.SetPersistentIdentity(MakeAssetID(uuid), uuid);
 }
 
+std::string AssetManager::ResolveImportedArtifactPath(const std::string& normalizedPath,
+                                                      std::string* outUuid) const
+{
+    if (m_ProjectRoot.empty()) return {};
+    const std::string extension = GetExtension(normalizedPath);
+    if (extension != "gltf" && extension != "glb" && extension != "shader") return {};
+    const std::string expectedType = extension == "shader" ? "shader" : "model";
+    const std::string expectedArtifactExtension =
+        extension == "shader" ? "shader" : "modelbin";
+
+    AssetDatabase database;
+    std::string error;
+    if (!database.Open(m_ProjectRoot / ".myengine" / "AssetDatabase.json", &error)) {
+        return {};
+    }
+
+    const AssetRecord* record = database.FindBySourcePath(normalizedPath);
+    if (!record) {
+        std::error_code ec;
+        const std::filesystem::path relative =
+            std::filesystem::relative(std::filesystem::path(normalizedPath), m_ProjectRoot, ec);
+        if (!ec && !relative.empty() && !relative.is_absolute()) {
+            record = database.FindBySourcePath(relative.generic_string());
+        }
+    }
+    if (!record || record->state != AssetImportState::Ready ||
+        record->artifactPath.empty() || record->type != expectedType) {
+        return {};
+    }
+
+    std::error_code ec;
+    const std::filesystem::path artifact =
+        std::filesystem::absolute(record->artifactPath, ec).lexically_normal();
+    if (ec || !std::filesystem::is_regular_file(artifact, ec) || ec) {
+        Logger::Warn("[AssetCache] imported artifact stale type=", expectedType,
+                     " source=", normalizedPath);
+        return {};
+    }
+    if (GetExtension(artifact.string()) != expectedArtifactExtension) return {};
+    if (outUuid) *outUuid = record->uuid;
+    return artifact.string();
+}
+
 std::shared_ptr<Asset> AssetManager::LoadAsset(const std::string& path)
 {
     std::lock_guard<std::recursive_mutex> lock(m_Mutex);
@@ -304,7 +359,7 @@ std::shared_ptr<Asset> AssetManager::LoadAsset(const std::string& path)
     const auto pathIt = m_PathToID.find(normalizedPath);
     if (pathIt != m_PathToID.end()) {
         const auto cached = m_Cache.find(pathIt->second);
-        if (cached != m_Cache.end()) return cached->second;
+        if (cached != m_Cache.end()) { m_LastUsed[pathIt->second]=++m_UseClock; return cached->second; }
     }
 
     const size_t fragment = normalizedPath.find('#');
@@ -316,8 +371,59 @@ std::shared_ptr<Asset> AssetManager::LoadAsset(const std::string& path)
             const auto cached = m_Cache.find(subAsset->second);
             if (cached != m_Cache.end()) return cached->second;
         }
+        std::string artifactUuid;
+        const std::string artifactPath =
+            ResolveImportedArtifactPath(sourcePath, &artifactUuid);
+        if (!artifactPath.empty()) {
+            const std::string artifactSubAssetPath =
+                artifactPath + normalizedPath.substr(fragment);
+            const auto artifactSubAsset = m_PathToID.find(artifactSubAssetPath);
+            if (artifactSubAsset != m_PathToID.end()) {
+                m_ArtifactToSourcePath[NormalizePath(artifactSubAssetPath)] = normalizedPath;
+                m_ArtifactToSourcePath[NormalizePath(artifactPath)] = sourcePath;
+                m_PathToID[normalizedPath] = artifactSubAsset->second;
+                const auto cached = m_Cache.find(artifactSubAsset->second);
+                if (cached != m_Cache.end()) return cached->second;
+            }
+        }
         Logger::Error("[AssetManager] Source did not provide sub-asset: ", normalizedPath);
         return {};
+    }
+
+    std::string artifactUuid;
+    const std::string artifactPath =
+        ResolveImportedArtifactPath(normalizedPath, &artifactUuid);
+    if (!artifactPath.empty()) {
+        const auto artifactIt = m_PathToID.find(artifactPath);
+        if (artifactIt != m_PathToID.end()) {
+            const auto cached = m_Cache.find(artifactIt->second);
+            if (cached != m_Cache.end()) return cached->second;
+        }
+        const auto artifactLoader = m_Loaders.find(GetExtension(artifactPath));
+        if (artifactLoader != m_Loaders.end()) {
+            std::shared_ptr<Asset> artifact =
+                InvokeLoader(artifactPath, artifactLoader->second);
+            if (artifact) {
+                if (!artifactUuid.empty()) {
+                    m_RegisteredIdentities[NormalizePath(artifactPath)] = artifactUuid;
+                }
+                ApplyPersistentIdentity(*artifact);
+                const AssetID id = artifact->GetID();
+                m_Cache[id] = artifact;
+                m_PathToID[artifactPath] = id;
+                m_PathToID[normalizedPath] = id;
+                m_ArtifactToSourcePath[NormalizePath(artifactPath)] = normalizedPath;
+                RefreshDependencies(*artifact);
+                RegisterAssetMemoryFor(*artifact);
+                CaptureSourceWriteTime(id, artifactPath);
+                Logger::Info("[AssetCache] imported artifact cache hit type=",
+                             AssetTypeToString(artifact->GetType()),
+                             " source=", normalizedPath);
+                PublishAssetChanged({AssetChangeType::Imported, normalizedPath, id, {}});
+                return artifact;
+            }
+            Logger::Warn("[AssetCache] imported artifact cache miss: ", normalizedPath);
+        }
     }
 
     const std::string ext = GetExtension(normalizedPath);
@@ -337,6 +443,7 @@ std::shared_ptr<Asset> AssetManager::LoadAsset(const std::string& path)
     ApplyPersistentIdentity(*asset);
     const AssetID id = asset->GetID();
     m_Cache[id] = asset;
+    m_LastUsed[id] = ++m_UseClock;
     m_PathToID[normalizedPath] = id;
     RefreshDependencies(*asset);
     RegisterAssetMemoryFor(*asset);
@@ -547,6 +654,9 @@ void AssetManager::RegisterDefaultLoaders() {
     };
     RegisterLoader("gltf", gltfLoader);
     RegisterLoader("glb", gltfLoader);
+    RegisterLoader("modelbin", [](const std::string& path) -> std::shared_ptr<Asset> {
+        return std::static_pointer_cast<Asset>(LoadModelCacheAssetFromFile(path));
+    });
     RegisterLoader("mat", [](const std::string& path) -> std::shared_ptr<Asset> {
         return std::static_pointer_cast<Asset>(LoadMaterialAssetFromFile(path));
     });
@@ -584,6 +694,22 @@ void AssetManager::RegisterDefaultLoaders() {
     RegisterLoader("particle", [](const std::string& path) -> std::shared_ptr<Asset> {
         return std::static_pointer_cast<Asset>(LoadParticleAssetFromFile(path));
     });
+}
+
+std::shared_future<std::shared_ptr<Asset>> AssetManager::RequestAsync(const std::string& path)
+{
+    std::lock_guard<std::recursive_mutex> lock(m_Mutex);
+    const std::string normalized = NormalizePath(path);
+    auto existing = m_AsyncRequests.find(normalized);
+    if (existing != m_AsyncRequests.end()) return existing->second;
+    auto request = std::async(std::launch::async, [this, normalized] {
+        std::shared_ptr<Asset> result = LoadAsset(normalized);
+        std::lock_guard<std::recursive_mutex> doneLock(m_Mutex);
+        m_AsyncRequests.erase(normalized);
+        return result;
+    }).share();
+    m_AsyncRequests.emplace(normalized, request);
+    return request;
 }
 
 TextureHandle AssetManager::GetWhiteTexture()
@@ -668,8 +794,11 @@ void AssetManager::Unload(AssetID id) {
         const std::string path = it->second->GetPath();
         Logger::Info("[AssetManager] Unload '", it->second->GetName(), "'");
         ReleaseAssetMemoryFor(*it->second);
-        m_PathToID.erase(NormalizePath(it->second->GetPath()));
+        for (auto pathIt=m_PathToID.begin();pathIt!=m_PathToID.end();)
+            if(pathIt->second==id) pathIt=m_PathToID.erase(pathIt); else ++pathIt;
         m_SourceWriteTimes.erase(id);
+        m_SourceHashes.erase(id);
+        m_LastUsed.erase(id);
         m_Cache.erase(it);
         PublishAssetChanged({AssetChangeType::Removed, path, id, {}});
     }
@@ -691,6 +820,56 @@ void AssetManager::UnloadUnreferenced() {
     }
 }
 
+void AssetManager::Pin(const std::string& path)
+{
+    std::lock_guard<std::recursive_mutex> lock(m_Mutex);
+    ++m_PinCounts[NormalizePath(path)];
+}
+
+void AssetManager::Unpin(const std::string& path)
+{
+    std::lock_guard<std::recursive_mutex> lock(m_Mutex);
+    const auto it=m_PinCounts.find(NormalizePath(path));
+    if(it==m_PinCounts.end())return;
+    if(it->second<=1)m_PinCounts.erase(it);else --it->second;
+}
+
+void AssetManager::Touch(AssetID id)
+{
+    std::lock_guard<std::recursive_mutex> lock(m_Mutex);
+    if(m_Cache.count(id))m_LastUsed[id]=++m_UseClock;
+}
+
+size_t AssetManager::CollectGarbage(const AssetCacheBudget& budget)
+{
+    std::lock_guard<std::recursive_mutex> lock(m_Mutex);
+    const size_t high=budget.cpuHighWatermarkBytes?budget.cpuHighWatermarkBytes:m_AssetCpuBudgetBytes;
+    if(!high||m_AssetCpuTotalBytes<=high)return 0;
+    const size_t target=static_cast<size_t>(static_cast<double>(high)*std::clamp(budget.lowWatermarkRatio,0.0f,1.0f));
+    std::vector<std::pair<uint64_t,AssetID>> candidates;
+    for(const auto& entry:m_Cache){
+        if(entry.second.use_count()!=1)continue;
+        bool pinned=false;
+        for(const auto& path:m_PathToID)if(path.second==entry.first&&
+            (m_PinCounts.count(path.first)||path.first.rfind("__builtin__/",0)==0)){pinned=true;break;}
+        if(!pinned)candidates.push_back({m_LastUsed[entry.first],entry.first});
+    }
+    std::sort(candidates.begin(),candidates.end());
+    size_t evicted=0;
+    for(const auto& candidate:candidates){
+        if(m_AssetCpuTotalBytes<=target||evicted>=budget.maxEvictionsPerCollect)break;
+        Unload(candidate.second);++evicted;
+    }
+    return evicted;
+}
+
+AssetCacheStats AssetManager::GetCacheStats() const
+{
+    std::lock_guard<std::recursive_mutex> lock(m_Mutex);
+    AssetCacheStats stats;stats.cachedAssets=m_Cache.size();stats.estimatedCpuBytes=m_AssetCpuTotalBytes;
+    stats.pinnedAssets=m_PinCounts.size();stats.loadingAssets=m_AsyncRequests.size();return stats;
+}
+
 void AssetManager::Clear() {
     std::lock_guard<std::recursive_mutex> lock(m_Mutex);
     Logger::Info("[AssetManager] Clearing all assets (", m_Cache.size(), ")");
@@ -702,6 +881,9 @@ void AssetManager::Clear() {
     m_SourceWriteTimes.clear();
     m_SourceHashes.clear();
     m_RegisteredIdentities.clear();
+    m_ArtifactToSourcePath.clear();
+    m_LastUsed.clear();
+    m_PinCounts.clear();
 }
 
 void AssetManager::PrintStats() const {

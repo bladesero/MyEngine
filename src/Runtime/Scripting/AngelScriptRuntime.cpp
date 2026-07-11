@@ -1,4 +1,4 @@
-#include "Scripting/AngelScriptRuntime.h"
+﻿#include "Scripting/AngelScriptRuntime.h"
 
 #include "Assets/AssetManager.h"
 #include "Audio/AudioSourceComponent.h"
@@ -2214,590 +2214,64 @@ void RegisterScriptTypes(asIScriptEngine& engine)
         asOFFSET(ScriptUIEvent, hasValue)));
 }
 
+void RegisterActorTransformScriptBindings(asIScriptEngine& engine)
+{
+#include "Scripting/Bindings/AngelScriptActorTransformBindings.cpp"
+}
+
+void RegisterSceneScriptBindings(asIScriptEngine& engine)
+{
+#include "Scripting/Bindings/AngelScriptSceneBindings.cpp"
+}
+
+void RegisterPhysicsScriptBindings(asIScriptEngine& engine)
+{
+#include "Scripting/Bindings/AngelScriptPhysicsBindings.cpp"
+}
+
+void RegisterGameplayScriptBindings(asIScriptEngine& engine)
+{
+#include "Scripting/Bindings/AngelScriptGameplayBindings.cpp"
+}
+
+void RegisterNavigationScriptBindings(asIScriptEngine& engine)
+{
+#include "Scripting/Bindings/AngelScriptNavigationBindings.cpp"
+}
+
+void RegisterAssetsSaveGameScriptBindings(asIScriptEngine& engine)
+{
+#include "Scripting/Bindings/AngelScriptAssetsSaveGameBindings.cpp"
+}
+
+void RegisterDebugProfilerScriptBindings(asIScriptEngine& engine)
+{
+#include "Scripting/Bindings/AngelScriptDebugProfilerBindings.cpp"
+}
+
+void RegisterInputScriptBindings(asIScriptEngine& engine)
+{
+#include "Scripting/Bindings/AngelScriptInputBindings.cpp"
+}
+
+void RegisterUIScriptBindings(asIScriptEngine& engine)
+{
+#include "Scripting/Bindings/AngelScriptUIBindings.cpp"
+}
+
 void RegisterScriptBindings(asIScriptEngine& engine)
 {
     RegisterStdString(&engine);
     RegisterScriptTypes(engine);
-
-    engine.SetDefaultNamespace("Actor");
-    Check(engine.RegisterGlobalFunction("string GetName()",
-        asFUNCTION(ActorGetName), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("Vec3 GetPosition()",
-        asFUNCTION(ReadActorPosition), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("Vec3 GetWorldPosition()",
-        asFUNCTION(ReadActorWorldPosition), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("Vec3 GetRotation()",
-        asFUNCTION(ReadActorRotation), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("Vec3 GetParentRotation()",
-        asFUNCTION(ReadParentRotation), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("Vec3 GetForward()",
-        asFUNCTION(ActorGetForward), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("Vec3 GetRight()",
-        asFUNCTION(ActorGetRight), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("Vec3 GetParentForward()",
-        asFUNCTION(ParentGetForward), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("Vec3 GetParentRight()",
-        asFUNCTION(ParentGetRight), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetPosition(const Vec3 &in)",
-        asFUNCTION(ActorSetPosition), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetRotation(const Vec3 &in)",
-        asFUNCTION(ActorSetRotation), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetParentRotation(const Vec3 &in)",
-        asFUNCTION(ActorSetParentRotation), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void Translate(const Vec3 &in)",
-        asFUNCTION(ActorTranslate), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void Rotate(const Vec3 &in)",
-        asFUNCTION(ActorRotate), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("Vec3 GetPosition(ActorHandle)",
-        asFUNCTION(ActorGetPositionHandle), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("Vec3 GetWorldPosition(ActorHandle)",
-        asFUNCTION(ActorGetWorldPositionHandle), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("Vec3 GetRotation(ActorHandle)",
-        asFUNCTION(ActorGetRotationHandle), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("Vec3 GetScale(ActorHandle)",
-        asFUNCTION(ActorGetScaleHandle), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetPosition(ActorHandle, const Vec3 &in)",
-        asFUNCTION(ActorSetPositionHandle), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetRotation(ActorHandle, const Vec3 &in)",
-        asFUNCTION(ActorSetRotationHandle), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetScale(ActorHandle, const Vec3 &in)",
-        asFUNCTION(ActorSetScaleHandle), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void Translate(ActorHandle, const Vec3 &in)",
-        asFUNCTION(ActorTranslateHandle), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void Rotate(ActorHandle, const Vec3 &in)",
-        asFUNCTION(ActorRotateHandle), asCALL_CDECL));
-
-    engine.SetDefaultNamespace("Transform");
-    Check(engine.RegisterGlobalFunction("Vec3 GetPosition()",
-        asFUNCTION(TransformGetPosition), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("Vec3 GetRotation()",
-        asFUNCTION(TransformGetRotation), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("Vec3 GetScale()",
-        asFUNCTION(TransformGetScale), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("Vec3 GetPosition(ActorHandle)",
-        asFUNCTION(TransformGetPositionHandle), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("Vec3 GetRotation(ActorHandle)",
-        asFUNCTION(TransformGetRotationHandle), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("Vec3 GetScale(ActorHandle)",
-        asFUNCTION(TransformGetScaleHandle), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetPosition(const Vec3 &in)",
-        asFUNCTION(TransformSetPosition), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetRotation(const Vec3 &in)",
-        asFUNCTION(TransformSetRotation), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetScale(const Vec3 &in)",
-        asFUNCTION(TransformSetScale), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetPosition(ActorHandle, const Vec3 &in)",
-        asFUNCTION(TransformSetPositionHandle), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetRotation(ActorHandle, const Vec3 &in)",
-        asFUNCTION(TransformSetRotationHandle), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetScale(ActorHandle, const Vec3 &in)",
-        asFUNCTION(TransformSetScaleHandle), asCALL_CDECL));
-
-    engine.SetDefaultNamespace("Tags");
-    Check(engine.RegisterGlobalFunction("string Get()",
-        asFUNCTION(TagsGet), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("string Get(ActorHandle)",
-        asFUNCTION(TagsGetHandle), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void Set(const string &in)",
-        asFUNCTION(TagsSet), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void Set(ActorHandle, const string &in)",
-        asFUNCTION(TagsSetHandle), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("bool Has(const string &in)",
-        asFUNCTION(TagsHas), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("bool Has(ActorHandle, const string &in)",
-        asFUNCTION(TagsHasHandle), asCALL_CDECL));
-
-    engine.SetDefaultNamespace("Scene");
-    Check(engine.RegisterGlobalFunction("ActorHandle FromUInt64(uint64)",
-        asFUNCTION(ActorHandleFromUInt64Generic), asCALL_GENERIC));
-    Check(engine.RegisterGlobalFunction("ActorHandle GetSelf()",
-        asFUNCTION(SceneGetSelfGeneric), asCALL_GENERIC));
-    Check(engine.RegisterGlobalFunction("bool IsValid(ActorHandle)",
-        asFUNCTION(SceneIsValid), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("ActorHandle FindByName(const string &in)",
-        asFUNCTION(SceneFindByNameGeneric), asCALL_GENERIC));
-    Check(engine.RegisterGlobalFunction("ActorHandle FindByTag(const string &in)",
-        asFUNCTION(SceneFindByTagGeneric), asCALL_GENERIC));
-    Check(engine.RegisterGlobalFunction("ActorHandleArray@ FindAllByName(const string &in)",
-        asFUNCTION(SceneFindAllByName), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("ActorHandleArray@ FindAllByTag(const string &in)",
-        asFUNCTION(SceneFindAllByTag), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("ActorHandleArray@ FindAllInLayer(uint)",
-        asFUNCTION(SceneFindAllInLayer), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("string GetName(ActorHandle)",
-        asFUNCTION(SceneGetName), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetName(ActorHandle, const string &in)",
-        asFUNCTION(SceneSetName), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("ActorHandle GetParent(ActorHandle)",
-        asFUNCTION(SceneGetParentGeneric), asCALL_GENERIC));
-    Check(engine.RegisterGlobalFunction("ActorHandleArray@ GetChildren(ActorHandle)",
-        asFUNCTION(SceneGetChildren), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("ActorHandleArray@ FindAllWithComponent(const string &in)",
-        asFUNCTION(SceneFindAllWithComponent), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("ActorHandleArray@ FindInRadius(const Vec3 &in, float, uint mask = 0xffffffff)",
-        asFUNCTION(SceneFindInRadius), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("ActorHandle FindNearestWithComponent(const string &in, const Vec3 &in, float)",
-        asFUNCTION(SceneFindNearestWithComponentGeneric), asCALL_GENERIC));
-    Check(engine.RegisterGlobalFunction("float GetDistance(ActorHandle, ActorHandle)",
-        asFUNCTION(SceneGetDistance), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("bool GetActive(ActorHandle)",
-        asFUNCTION(SceneGetActive), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("uint GetLayer(ActorHandle)",
-        asFUNCTION(SceneGetLayer), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("ActorHandle CreateActor(const string &in)",
-        asFUNCTION(SceneCreateActorGeneric), asCALL_GENERIC));
-    Check(engine.RegisterGlobalFunction("void DestroyActor(ActorHandle)",
-        asFUNCTION(SceneDestroyActor), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetActive(ActorHandle, bool)",
-        asFUNCTION(SceneSetActive), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetTag(ActorHandle, const string &in)",
-        asFUNCTION(SceneSetTag), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetLayer(ActorHandle, uint)",
-        asFUNCTION(SceneSetLayer), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void DestroyDeferred(ActorHandle)",
-        asFUNCTION(SceneDestroyActor), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetParent(ActorHandle, ActorHandle)",
-        asFUNCTION(SceneSetParent), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void MoveActor(ActorHandle, ActorHandle, ActorHandle)",
-        asFUNCTION(SceneMoveActor), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("ActorHandle InstantiatePrefab(const string &in, const Vec3 &in, const Vec3 &in)",
-        asFUNCTION(SceneInstantiatePrefabGeneric), asCALL_GENERIC));
-
-    engine.SetDefaultNamespace("PrefabInstance");
-    Check(engine.RegisterGlobalFunction("bool IsInstance(ActorHandle)",
-        asFUNCTION(PrefabInstanceIsInstance), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("bool IsRoot(ActorHandle)",
-        asFUNCTION(PrefabInstanceIsRoot), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("string GetAssetPath(ActorHandle)",
-        asFUNCTION(PrefabInstanceGetAssetPath), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("ActorHandle GetRoot(ActorHandle)",
-        asFUNCTION(PrefabInstanceGetRootGeneric), asCALL_GENERIC));
-
-    engine.SetDefaultNamespace("Components");
-    Check(engine.RegisterGlobalFunction("bool Has(ActorHandle, const string &in)",
-        asFUNCTION(ComponentsHas), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("bool Add(ActorHandle, const string &in)",
-        asFUNCTION(ComponentsAdd), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("bool Remove(ActorHandle, const string &in)",
-        asFUNCTION(ComponentsRemove), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("string GetJson(ActorHandle, const string &in)",
-        asFUNCTION(ComponentsGetJson), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("bool SetJson(ActorHandle, const string &in, const string &in)",
-        asFUNCTION(ComponentsSetJson), asCALL_CDECL));
-
-    engine.SetDefaultNamespace("RigidBody");
-    Check(engine.RegisterGlobalFunction("void SetVelocity(const Vec3 &in)",
-        asFUNCTION(BodySetVelocity), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void AddForce(const Vec3 &in)",
-        asFUNCTION(BodyAddForce), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetAngularVelocity(const Vec3 &in)",
-        asFUNCTION(BodySetAngularVelocity), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void AddTorque(const Vec3 &in)",
-        asFUNCTION(BodyAddTorque), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void AddImpulse(const Vec3 &in)",
-        asFUNCTION(BodyAddImpulse), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void AddAngularImpulse(const Vec3 &in)",
-        asFUNCTION(BodyAddAngularImpulse), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void Teleport(const Vec3 &in, const Vec3 &in)",
-        asFUNCTION(BodyTeleport), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetKinematicTarget(const Vec3 &in, const Vec3 &in)",
-        asFUNCTION(BodySetKinematicTarget), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("Vec3 GetVelocity(ActorHandle)",
-        asFUNCTION(BodyGetVelocity), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetVelocity(ActorHandle, const Vec3 &in)",
-        asFUNCTION(BodySetVelocityHandle), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void AddForce(ActorHandle, const Vec3 &in)",
-        asFUNCTION(BodyAddForceHandle), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetAngularVelocity(ActorHandle, const Vec3 &in)",
-        asFUNCTION(BodySetAngularVelocityHandle), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void AddTorque(ActorHandle, const Vec3 &in)",
-        asFUNCTION(BodyAddTorqueHandle), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void AddImpulse(ActorHandle, const Vec3 &in)",
-        asFUNCTION(BodyAddImpulseHandle), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void AddAngularImpulse(ActorHandle, const Vec3 &in)",
-        asFUNCTION(BodyAddAngularImpulseHandle), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void Teleport(ActorHandle, const Vec3 &in, const Vec3 &in)",
-        asFUNCTION(BodyTeleportHandle), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetKinematicTarget(ActorHandle, const Vec3 &in, const Vec3 &in)",
-        asFUNCTION(BodySetKinematicTargetHandle), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetUseGravity(ActorHandle, bool)",
-        asFUNCTION(BodySetUseGravity), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("bool UsesGravity(ActorHandle)",
-        asFUNCTION(BodyUsesGravity), asCALL_CDECL));
-
-    engine.SetDefaultNamespace("CharacterController");
-    Check(engine.RegisterGlobalFunction("void Move(const Vec3 &in)",
-        asFUNCTION(CharacterControllerMove), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("bool IsGrounded()",
-        asFUNCTION(CharacterControllerIsGrounded), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetUseGravity(bool)",
-        asFUNCTION(CharacterControllerSetUseGravity), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void Move(ActorHandle, const Vec3 &in)",
-        asFUNCTION(CharacterControllerMoveHandle), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("bool IsGrounded(ActorHandle)",
-        asFUNCTION(CharacterControllerIsGroundedHandle), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetUseGravity(ActorHandle, bool)",
-        asFUNCTION(CharacterControllerSetUseGravityHandle), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("bool Jump(float speed = -1.0f)",
-        asFUNCTION(CharacterControllerJump), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("bool Jump(ActorHandle, float speed = -1.0f)",
-        asFUNCTION(CharacterControllerJumpHandle), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("Vec3 GetActualVelocity(ActorHandle)",
-        asFUNCTION(CharacterControllerGetActualVelocity), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetAirControl(ActorHandle, float)",
-        asFUNCTION(CharacterControllerSetAirControl), asCALL_CDECL));
-
-    engine.SetDefaultNamespace("Collider");
-    Check(engine.RegisterGlobalFunction("bool IsTrigger(ActorHandle)",
-        asFUNCTION(ColliderIsTrigger), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetTrigger(ActorHandle, bool)",
-        asFUNCTION(ColliderSetTrigger), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("uint GetLayer(ActorHandle)",
-        asFUNCTION(ColliderGetLayer), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetLayer(ActorHandle, uint)",
-        asFUNCTION(ColliderSetLayer), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("uint GetLayerMask(ActorHandle)",
-        asFUNCTION(ColliderGetLayerMask), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetLayerMask(ActorHandle, uint)",
-        asFUNCTION(ColliderSetLayerMask), asCALL_CDECL));
-
-    engine.SetDefaultNamespace("AudioSource");
-    Check(engine.RegisterGlobalFunction("bool Play()",
-        asFUNCTION(AudioSourcePlay), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("bool Play(ActorHandle)",
-        asFUNCTION(AudioSourcePlayHandle), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void Stop()",
-        asFUNCTION(AudioSourceStop), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void Stop(ActorHandle)",
-        asFUNCTION(AudioSourceStopHandle), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("bool IsPlaying()",
-        asFUNCTION(AudioSourceIsPlaying), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("bool IsPlaying(ActorHandle)",
-        asFUNCTION(AudioSourceIsPlayingHandle), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetClipPath(const string &in)",
-        asFUNCTION(AudioSourceSetClipPath), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetClipPath(ActorHandle, const string &in)",
-        asFUNCTION(AudioSourceSetClipPathHandle), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetVolume(float)",
-        asFUNCTION(AudioSourceSetVolume), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetVolume(ActorHandle, float)",
-        asFUNCTION(AudioSourceSetVolumeHandle), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetPitch(float)",
-        asFUNCTION(AudioSourceSetPitch), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetPitch(ActorHandle, float)",
-        asFUNCTION(AudioSourceSetPitchHandle), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetLoop(bool)",
-        asFUNCTION(AudioSourceSetLoop), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetLoop(ActorHandle, bool)",
-        asFUNCTION(AudioSourceSetLoopHandle), asCALL_CDECL));
-
-    engine.SetDefaultNamespace("AudioListener");
-    Check(engine.RegisterGlobalFunction("bool SetEnabled(ActorHandle, bool)",
-        asFUNCTION(AudioListenerSetEnabled), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("bool IsEnabled(ActorHandle)",
-        asFUNCTION(AudioListenerIsEnabled), asCALL_CDECL));
-
-    engine.SetDefaultNamespace("Particle");
-    Check(engine.RegisterGlobalFunction("bool Play(ActorHandle)",
-        asFUNCTION(ParticlePlay), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void Stop(ActorHandle)",
-        asFUNCTION(ParticleStop), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("bool IsPlaying(ActorHandle)",
-        asFUNCTION(ParticleIsPlaying), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void Emit(ActorHandle, uint)",
-        asFUNCTION(ParticleEmit), asCALL_CDECL));
-
-    engine.SetDefaultNamespace("Camera");
-    Check(engine.RegisterGlobalFunction("void SetMain(ActorHandle, bool)",
-        asFUNCTION(CameraSetMain), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("bool IsMain(ActorHandle)",
-        asFUNCTION(CameraIsMain), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetFovY(ActorHandle, float)",
-        asFUNCTION(CameraSetFovY), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("float GetFovY(ActorHandle)",
-        asFUNCTION(CameraGetFovY), asCALL_CDECL));
-
-    engine.SetDefaultNamespace("Light");
-    Check(engine.RegisterGlobalFunction("void SetIntensity(ActorHandle, float)",
-        asFUNCTION(LightSetIntensity), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("float GetIntensity(ActorHandle)",
-        asFUNCTION(LightGetIntensity), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetColor(ActorHandle, const Vec3 &in)",
-        asFUNCTION(LightSetColor), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("Vec3 GetColor(ActorHandle)",
-        asFUNCTION(LightGetColor), asCALL_CDECL));
-
-    engine.SetDefaultNamespace("MeshRenderer");
-    Check(engine.RegisterGlobalFunction("string GetMaterialPath(ActorHandle, int slot = 0)",
-        asFUNCTION(MeshRendererGetMaterialPath), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("bool SetMaterialPath(ActorHandle, int, const string &in)",
-        asFUNCTION(MeshRendererSetMaterialPath), asCALL_CDECL));
-
-    engine.SetDefaultNamespace("Animator");
-    Check(engine.RegisterGlobalFunction("void SetPlaying(ActorHandle, bool)",
-        asFUNCTION(AnimatorSetPlaying), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("bool IsPlaying(ActorHandle)",
-        asFUNCTION(AnimatorIsPlaying), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("float GetTime(ActorHandle)",
-        asFUNCTION(AnimatorGetTime), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetTime(ActorHandle, float)",
-        asFUNCTION(AnimatorSetTime), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetBlendWeight(ActorHandle, float)",
-        asFUNCTION(AnimatorSetBlendWeight), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("float GetBlendWeight(ActorHandle)",
-        asFUNCTION(AnimatorGetBlendWeight), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("bool Play(ActorHandle, const string &in, float transition = 0.0f)",
-        asFUNCTION(AnimatorPlay), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetFloat(ActorHandle, const string &in, float)",
-        asFUNCTION(AnimatorSetFloat), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("float GetFloat(ActorHandle, const string &in)",
-        asFUNCTION(AnimatorGetFloat), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetBool(ActorHandle, const string &in, bool)",
-        asFUNCTION(AnimatorSetBool), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("bool GetBool(ActorHandle, const string &in)",
-        asFUNCTION(AnimatorGetBool), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetTrigger(ActorHandle, const string &in)",
-        asFUNCTION(AnimatorSetTrigger), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("string GetCurrentState(ActorHandle)",
-        asFUNCTION(AnimatorGetCurrentState), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("float GetNormalizedTime(ActorHandle)",
-        asFUNCTION(AnimatorGetNormalizedTime), asCALL_CDECL));
-
-    engine.SetDefaultNamespace("ThirdPersonCamera");
-    Check(engine.RegisterGlobalFunction("bool SetTarget(ActorHandle, ActorHandle)",
-        asFUNCTION(ThirdPersonCameraSetTarget), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void AddOrbit(ActorHandle, float, float)",
-        asFUNCTION(ThirdPersonCameraAddOrbit), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetDistance(ActorHandle, float)",
-        asFUNCTION(ThirdPersonCameraSetDistance), asCALL_CDECL));
-
-    engine.SetDefaultNamespace("Combat");
-    Check(engine.RegisterGlobalFunction("bool Damage(ActorHandle, float, ActorHandle source = ActorHandle())", asFUNCTION(CombatDamage), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("bool Heal(ActorHandle, float)", asFUNCTION(CombatHeal), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("float GetHealth(ActorHandle)", asFUNCTION(CombatGetHealth), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("float GetMaxHealth(ActorHandle)", asFUNCTION(CombatGetMaxHealth), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("bool IsDead(ActorHandle)", asFUNCTION(CombatIsDead), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("bool BeginAttack(ActorHandle, float damage = -1.0f)", asFUNCTION(CombatBeginAttack), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void EndAttack(ActorHandle)", asFUNCTION(CombatEndAttack), asCALL_CDECL));
-
-    engine.SetDefaultNamespace("Interaction");
-    Check(engine.RegisterGlobalFunction("ActorHandle FindNearest(const ActorHandle &in, float)", asFUNCTION(InteractionFindNearestGeneric), asCALL_GENERIC));
-    Check(engine.RegisterGlobalFunction("ActorHandle FindNearest(float)", asFUNCTION(InteractionFindNearestSelfGeneric), asCALL_GENERIC));
-    Check(engine.RegisterGlobalFunction("bool Use(const ActorHandle &in, const ActorHandle &in)", asFUNCTION(InteractionUseRef), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("bool Use(const ActorHandle &in)", asFUNCTION(InteractionUseSelfRef), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("string GetPrompt(const ActorHandle &in)", asFUNCTION(InteractionGetPromptRef), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("string GetNearestName(float)",asFUNCTION(InteractionGetNearestName),asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("string GetNearestPrompt(float)",asFUNCTION(InteractionGetNearestPrompt),asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("string UseNearest(float)",asFUNCTION(InteractionUseNearest),asCALL_CDECL));
-
-    engine.SetDefaultNamespace("Feedback");
-    Check(engine.RegisterGlobalFunction("bool Shake(ActorHandle, float, float)",asFUNCTION(FeedbackShake),asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("bool Flash(ActorHandle, float, float)",asFUNCTION(FeedbackFlash),asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("bool SlowMotion(ActorHandle, float, float)",asFUNCTION(FeedbackSlowMotion),asCALL_CDECL));
-
-    engine.SetDefaultNamespace("Navigation");
-    Check(engine.RegisterGlobalFunction("bool SetDestination(ActorHandle, const Vec3 &in)",asFUNCTION(NavigationSetDestination),asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void Stop(ActorHandle)",asFUNCTION(NavigationStop),asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("bool HasPath(ActorHandle)",asFUNCTION(NavigationHasPath),asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("bool ReachedDestination(ActorHandle)",asFUNCTION(NavigationReached),asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("string FindPathJson(const Vec3 &in, const Vec3 &in)",asFUNCTION(NavigationFindPathJson),asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("bool SetAreaBlocked(const Vec3 &in, const Vec3 &in, bool)",asFUNCTION(NavigationSetAreaBlocked),asCALL_CDECL));
-    engine.SetDefaultNamespace("Perception");
-    Check(engine.RegisterGlobalFunction("void EmitSound(const Vec3 &in, float, ActorHandle)",asFUNCTION(PerceptionEmitSound),asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("bool CanSee(ActorHandle, ActorHandle, float)",asFUNCTION(PerceptionCanSee),asCALL_CDECL));
-    engine.SetDefaultNamespace("Enemy");
-    Check(engine.RegisterGlobalFunction("bool SetTarget(ActorHandle, ActorHandle)",asFUNCTION(EnemySetTarget),asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("int GetState(ActorHandle)",asFUNCTION(EnemyGetState),asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void Stagger(ActorHandle, float duration = 0.25f)",asFUNCTION(EnemyStagger),asCALL_CDECL));
-    engine.SetDefaultNamespace("Scenes");
-    Check(engine.RegisterGlobalFunction("bool Load(const string &in)",asFUNCTION(ScenesLoad),asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("int GetLoadState()",asFUNCTION(ScenesGetLoadState),asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("string GetLastError()",asFUNCTION(ScenesGetLastError),asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("bool SetPersistentJson(const string &in, const string &in)",asFUNCTION(ScenesSetPersistentJson),asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("string GetPersistentJson(const string &in)",asFUNCTION(ScenesGetPersistentJson),asCALL_CDECL));
-    engine.SetDefaultNamespace("SaveGame");
-    Check(engine.RegisterGlobalFunction("bool Write(const string &in, const string &in, const string &in, const string &in, const string &in)",asFUNCTION(SaveGameWrite),asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("string ReadJson(const string &in)",asFUNCTION(SaveGameReadJson),asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("bool Exists(const string &in)",asFUNCTION(SaveGameExists),asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("bool Remove(const string &in)",asFUNCTION(SaveGameRemove),asCALL_CDECL));
-    engine.SetDefaultNamespace("Game");
-    Check(engine.RegisterGlobalFunction("void Pause()",asFUNCTION(GamePause),asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void Resume()",asFUNCTION(GameResume),asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("bool IsPaused()",asFUNCTION(GameIsPaused),asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetTimeScale(float)",asFUNCTION(GameSetTimeScale),asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("float GetTimeScale()",asFUNCTION(GameGetTimeScale),asCALL_CDECL));
-
-    engine.SetDefaultNamespace("Script");
-    Check(engine.RegisterGlobalFunction("bool SetEnabled(ActorHandle, bool)",
-        asFUNCTION(ScriptSetEnabled), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("bool IsEnabled(ActorHandle)",
-        asFUNCTION(ScriptIsEnabled), asCALL_CDECL));
-
-    engine.SetDefaultNamespace("UIElement");
-    Check(engine.RegisterGlobalFunction("string GetId(ActorHandle)",
-        asFUNCTION(UIElementGetId), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetId(ActorHandle, const string &in)",
-        asFUNCTION(UIElementSetId), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetText(ActorHandle, const string &in)",
-        asFUNCTION(UIElementSetText), asCALL_CDECL));
-
-    engine.SetDefaultNamespace("Assets");
-    Check(engine.RegisterGlobalFunction("bool Exists(const string &in)",
-        asFUNCTION(AssetsExists), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("string GetType(const string &in)",
-        asFUNCTION(AssetsGetType), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("string ResolveProjectPath(const string &in)",
-        asFUNCTION(AssetsResolveProjectPath), asCALL_CDECL));
-
-    engine.SetDefaultNamespace("Debug");
-    Check(engine.RegisterGlobalFunction("void Log(const string &in)",
-        asFUNCTION(DebugLog), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void Log(const string &in, const string &in)",
-        asFUNCTION(DebugLogCategory), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void Warning(const string &in)",
-        asFUNCTION(DebugWarning), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void Warning(const string &in, const string &in)",
-        asFUNCTION(DebugWarningCategory), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void Error(const string &in)",
-        asFUNCTION(DebugError), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void Error(const string &in, const string &in)",
-        asFUNCTION(DebugErrorCategory), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void LogOnce(const string &in, const string &in)",
-        asFUNCTION(DebugLogOnce), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void LogThrottle(const string &in, const string &in, float)",
-        asFUNCTION(DebugLogThrottle), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void DrawLine(const Vec3 &in, const Vec3 &in, const Vec3 &in, float duration = 0.0f)",
-        asFUNCTION(DebugDrawLine), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void DrawSphere(const Vec3 &in, float, const Vec3 &in, float duration = 0.0f)",
-        asFUNCTION(DebugDrawSphere), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void DrawText(const Vec3 &in, const string &in, const Vec3 &in, float duration = 0.0f)",
-        asFUNCTION(DebugDrawText), asCALL_CDECL));
-
-    engine.SetDefaultNamespace("SaveData");
-    Check(engine.RegisterGlobalFunction("bool Exists(const string &in)",
-        asFUNCTION(SaveDataExists), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("string ReadJson(const string &in)",
-        asFUNCTION(SaveDataReadJson), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("bool WriteJson(const string &in, const string &in)",
-        asFUNCTION(SaveDataWriteJson), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("bool Delete(const string &in)",
-        asFUNCTION(SaveDataDelete), asCALL_CDECL));
-
-    engine.SetDefaultNamespace("Profiler");
-    Check(engine.RegisterGlobalFunction("string GetScriptStatsJson()",
-        asFUNCTION(ProfilerGetScriptStatsJson), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void ResetScriptStats()",
-        asFUNCTION(ProfilerResetScriptStats), asCALL_CDECL));
-
-    engine.SetDefaultNamespace("Input");
-    Check(engine.RegisterGlobalFunction("bool ActionDown(const string &in)",
-        asFUNCTION(InputActionDown), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("bool ActionPressed(const string &in)",
-        asFUNCTION(InputActionPressed), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("bool ActionReleased(const string &in)",
-        asFUNCTION(InputActionReleased), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("float Axis(const string &in)",
-        asFUNCTION(InputAxis), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("Vec2 Axis2(const string &in)",
-        asFUNCTION(InputAxis2), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("bool KeyDown(int)",
-        asFUNCTION(InputKeyDown), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("bool KeyPressed(int)",
-        asFUNCTION(InputKeyPressed), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("bool KeyReleased(int)",
-        asFUNCTION(InputKeyReleased), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("bool MouseDown(int)",
-        asFUNCTION(InputMouseDown), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("bool MousePressed(int)",
-        asFUNCTION(InputMousePressed), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("bool MouseReleased(int)",
-        asFUNCTION(InputMouseReleased), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("Vec2 MousePosition()",
-        asFUNCTION(InputMousePosition), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("Vec2 MouseDelta()",
-        asFUNCTION(InputMouseDelta), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("int GamepadCount()",
-        asFUNCTION(InputGamepadCount), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("int PrimaryGamepadId()",
-        asFUNCTION(InputPrimaryGamepadId), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("bool GamepadConnected(int)",
-        asFUNCTION(InputGamepadConnected), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("bool GamepadButtonDown(int, int)",
-        asFUNCTION(InputGamepadButtonDown), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("bool GamepadButtonPressed(int, int)",
-        asFUNCTION(InputGamepadButtonPressed), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("bool GamepadButtonReleased(int, int)",
-        asFUNCTION(InputGamepadButtonReleased), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("float GamepadAxis(int, int)",
-        asFUNCTION(InputGamepadAxis), asCALL_CDECL));
-
-    engine.SetDefaultNamespace("Physics");
-    Check(engine.RegisterGlobalFunction("RaycastHit Raycast(const Vec3 &in, const Vec3 &in, float distance = 1000.0f, uint mask = 0xffffffff)",
-        asFUNCTION(PhysicsRaycast), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("UInt64Array@ OverlapSphere(const Vec3 &in, float radius, uint mask = 0xffffffff)",
-        asFUNCTION(PhysicsOverlapSphere), asCALL_CDECL));
-
-    engine.SetDefaultNamespace("UI");
-    Check(engine.RegisterGlobalFunction("bool Subscribe(const string &in, const string &in, const string &in)",
-        asFUNCTION(UISubscribe), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void Unsubscribe(const string &in, const string &in)",
-        asFUNCTION(UIUnsubscribe), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void ClearSubscriptions()",
-        asFUNCTION(UIClearSubscriptions), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetBool(const string &in, const string &in, bool)",
-        asFUNCTION(UISetBool), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetInt(const string &in, const string &in, int)",
-        asFUNCTION(UISetInt), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetFloat(const string &in, const string &in, float)",
-        asFUNCTION(UISetFloat), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetString(const string &in, const string &in, const string &in)",
-        asFUNCTION(UISetString), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("bool GetBool(const string &in, const string &in)",
-        asFUNCTION(UIGetBool), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("int GetInt(const string &in, const string &in)",
-        asFUNCTION(UIGetInt), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("float GetFloat(const string &in, const string &in)",
-        asFUNCTION(UIGetFloat), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("string GetString(const string &in, const string &in)",
-        asFUNCTION(UIGetString), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetVec2(const string &in, const string &in, const Vec2 &in)",
-        asFUNCTION(UISetVec2), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetVec3(const string &in, const string &in, const Vec3 &in)",
-        asFUNCTION(UISetVec3), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void SetJson(const string &in, const string &in, const string &in)",
-        asFUNCTION(UISetJson), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("Vec2 GetVec2(const string &in, const string &in)",
-        asFUNCTION(UIGetVec2), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("Vec3 GetVec3(const string &in, const string &in)",
-        asFUNCTION(UIGetVec3), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("string GetJson(const string &in, const string &in)",
-        asFUNCTION(UIGetJson), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void Notify(const string &in, const string &in)",
-        asFUNCTION(UINotify), asCALL_CDECL));
-
-    engine.SetDefaultNamespace("Events");
-    Check(engine.RegisterGlobalFunction("bool Subscribe(const string &in, const string &in)",
-        asFUNCTION(EventsSubscribe), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("bool Emit(const string &in, const string &in = \"{}\")",
-        asFUNCTION(EventsEmit), asCALL_CDECL));
-
-    engine.SetDefaultNamespace("Timer");
-    Check(engine.RegisterGlobalFunction("uint64 After(float, const string &in)",
-        asFUNCTION(TimerAfter), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("uint64 Every(float, const string &in)",
-        asFUNCTION(TimerEvery), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void Cancel(uint64)",
-        asFUNCTION(TimerCancel), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void CancelAll()",
-        asFUNCTION(TimerCancelAll), asCALL_CDECL));
-
-    engine.SetDefaultNamespace("Task");
-    Check(engine.RegisterGlobalFunction("uint64 Delay(float, const string &in)",
-        asFUNCTION(TaskDelay), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void Cancel(uint64)",
-        asFUNCTION(TaskCancel), asCALL_CDECL));
-    Check(engine.RegisterGlobalFunction("void CancelAll()",
-        asFUNCTION(TaskCancelAll), asCALL_CDECL));
+    RegisterActorTransformScriptBindings(engine);
+    RegisterSceneScriptBindings(engine);
+    RegisterPhysicsScriptBindings(engine);
+    RegisterGameplayScriptBindings(engine);
+    RegisterNavigationScriptBindings(engine);
+    RegisterAssetsSaveGameScriptBindings(engine);
+    RegisterDebugProfilerScriptBindings(engine);
+    RegisterInputScriptBindings(engine);
+    RegisterUIScriptBindings(engine);
     engine.SetDefaultNamespace("");
 }
 

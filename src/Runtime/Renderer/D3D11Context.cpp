@@ -47,6 +47,7 @@ static DXGI_FORMAT ToDxgiFormat(RHIFormat fmt, bool resource = false) {
     case RHIFormat::RG32Float: return DXGI_FORMAT_R32G32_FLOAT;
     case RHIFormat::RGB32Float: return DXGI_FORMAT_R32G32B32_FLOAT;
     case RHIFormat::RGBA32Float: return DXGI_FORMAT_R32G32B32A32_FLOAT;
+    case RHIFormat::BC1UNorm: return DXGI_FORMAT_BC1_UNORM;
     case RHIFormat::D24S8: return resource ? DXGI_FORMAT_R24G8_TYPELESS : DXGI_FORMAT_D24_UNORM_S8_UINT;
     case RHIFormat::D32Float: return resource ? DXGI_FORMAT_R32_TYPELESS : DXGI_FORMAT_D32_FLOAT;
     default: return DXGI_FORMAT_UNKNOWN;
@@ -63,6 +64,7 @@ static uint32_t RHIFormatByteSize(RHIFormat format) {
     case RHIFormat::RG32Float: case RHIFormat::RGBA16Float: return 8;
     case RHIFormat::RGB32Float: return 12;
     case RHIFormat::RGBA32Float: return 16;
+    case RHIFormat::BC1UNorm: return 0;
     default: return 0;
     }
 }
@@ -663,6 +665,18 @@ void D3D11Context::BeginFrame(float r, float g, float b, float a) {
     } else {
         m_Context->OMSetRenderTargets(1, m_RTV.GetAddressOf(), nullptr);
     }
+    // Secondary ImGui platform windows share the immediate context. Restore
+    // the main swapchain rect before any main-window rendering starts.
+    D3D11_VIEWPORT viewport = {};
+    viewport.Width = static_cast<float>(m_SwapChainWidth);
+    viewport.Height = static_cast<float>(m_SwapChainHeight);
+    viewport.MinDepth = 0.0f;
+    viewport.MaxDepth = 1.0f;
+    m_Context->RSSetViewports(1, &viewport);
+    const D3D11_RECT scissor = {0, 0,
+        static_cast<LONG>(m_SwapChainWidth),
+        static_cast<LONG>(m_SwapChainHeight)};
+    m_Context->RSSetScissorRects(1, &scissor);
     m_Context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 }
 
@@ -685,6 +699,8 @@ ImGuiBackendHandles D3D11Context::GetImGuiBackendHandles() {
     h.deviceContext = m_Context.Get();
     h.backBufferRtvPtr = m_RTV.Get();
     h.backBufferDsvPtr = m_DSV.Get();
+    h.width = m_SwapChainWidth;
+    h.height = m_SwapChainHeight;
     return h;
 }
 

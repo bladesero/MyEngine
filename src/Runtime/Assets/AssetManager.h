@@ -5,6 +5,7 @@
 #include "Assets/MeshAsset.h"
 #include "Assets/MaterialAsset.h"
 #include "Assets/ModelAsset.h"
+#include "Assets/ModelCacheAsset.h"
 #include "Assets/ShaderAsset.h"
 #include "Assets/ScriptAsset.h"
 #include "Assets/UIAsset.h"
@@ -24,6 +25,20 @@
 #include <future>
 #include <mutex>
 #include <filesystem>
+#include <unordered_set>
+
+struct AssetCacheBudget {
+    size_t cpuHighWatermarkBytes = 0;
+    float lowWatermarkRatio = 0.8f;
+    size_t maxEvictionsPerCollect = 32;
+};
+
+struct AssetCacheStats {
+    size_t cachedAssets = 0;
+    size_t estimatedCpuBytes = 0;
+    size_t pinnedAssets = 0;
+    size_t loadingAssets = 0;
+};
 
 enum class AssetChangeType { SourceChanged, Imported, Reloaded, Failed, Removed, Moved };
 struct AssetChangedEvent {
@@ -69,6 +84,7 @@ public:
 
     std::shared_ptr<Asset> LoadAsset(const std::string& path);
     std::future<std::shared_ptr<Asset>> LoadAsync(const std::string& path);
+    std::shared_future<std::shared_ptr<Asset>> RequestAsync(const std::string& path);
     bool Reload(const std::string& path);
     size_t PollHotReload();
     ListenerID SubscribeAssetChanged(AssetChangedCallback callback);
@@ -110,6 +126,7 @@ public:
         auto it = m_Cache.find(id);
         if (it == m_Cache.end()) return {};
         auto typed = std::dynamic_pointer_cast<T>(it->second);
+        if (typed) m_LastUsed[id] = ++m_UseClock;
         return typed ? AssetHandle<T>{ typed } : AssetHandle<T>{};
     }
 
@@ -133,6 +150,11 @@ public:
     void Unload(AssetID id);
 
     void UnloadUnreferenced();
+    void Pin(const std::string& path);
+    void Unpin(const std::string& path);
+    void Touch(AssetID id);
+    size_t CollectGarbage(const AssetCacheBudget& budget);
+    AssetCacheStats GetCacheStats() const;
 
     void Clear();
 
@@ -206,6 +228,8 @@ private:
     }
 
     std::string NormalizePath(const std::string& path) const;
+    std::string ResolveImportedArtifactPath(const std::string& normalizedPath,
+                                            std::string* outUuid = nullptr) const;
     void ApplyPersistentIdentity(Asset& asset);
     void RefreshDependencies(Asset& asset);
     std::shared_ptr<Asset> InvokeLoader(const std::string& normalizedPath,
@@ -221,13 +245,18 @@ private:
     std::unordered_map<std::string, AssetID>                m_PathToID;
     std::unordered_map<std::string, AssetLoaderFn>          m_Loaders;
     std::unordered_map<std::string, std::string>            m_RegisteredIdentities;
+    std::unordered_map<std::string, std::string>            m_ArtifactToSourcePath;
 
-    size_t              m_AssetCpuBudgetBytes = 0; // 0 = no budget / no warn
+    size_t              m_AssetCpuBudgetBytes = 512ull * 1024ull * 1024ull;
     size_t              m_AssetCpuTotalBytes = 0;
     std::array<size_t, 13> m_AssetCpuBytesByType{};
     std::unordered_map<AssetID, std::filesystem::file_time_type> m_SourceWriteTimes;
     std::unordered_map<AssetID, std::string> m_SourceHashes;
     std::unordered_map<ListenerID, AssetChangedCallback> m_AssetChangedListeners;
+    mutable std::unordered_map<AssetID, uint64_t> m_LastUsed;
+    std::unordered_map<std::string, size_t> m_PinCounts;
+    std::unordered_map<std::string, std::shared_future<std::shared_ptr<Asset>>> m_AsyncRequests;
+    mutable uint64_t m_UseClock = 0;
     ListenerID m_NextAssetChangedListenerID = 1;
     mutable std::recursive_mutex m_Mutex;
     std::filesystem::path m_ProjectRoot;

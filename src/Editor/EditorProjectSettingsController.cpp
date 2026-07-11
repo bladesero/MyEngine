@@ -3,6 +3,7 @@
 #include "Core/Logger.h"
 #include "Editor/EditorLayer.h"
 #include "Editor/UI/EditorNotifications.h"
+#include "Editor/UI/EditorViewportPolicy.h"
 #include "Editor/UI/EditorWidgets.h"
 #include "Game/SceneRenderLayer.h"
 #include "Input/Input.h"
@@ -286,6 +287,7 @@ void EditorProjectSettingsController::Draw(EditorLayer& layer)
         layer.m_ProjectSettingsRequested = false;
     }
     ImGui::SetNextWindowSize({760.0f, 520.0f}, ImGuiCond_Appearing);
+    Editor::UI::EditorViewportPolicy::BindNextModalToMainViewport();
     if (!ImGui::BeginPopupModal("Settings", nullptr, ImGuiWindowFlags_NoCollapse)) return;
 
     if (ImGui::BeginTabBar("SettingsTabs")) {

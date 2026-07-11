@@ -2,6 +2,7 @@
 
 #include "Assets/ShaderAsset.h"
 #include "Renderer/RHI/IRHIDevice.h"
+#include "Renderer/ShaderCacheService.h"
 
 #include <memory>
 #include <string>
@@ -17,6 +18,8 @@ class ShaderManager {
 public:
     static ShaderManager& Get();
     void SetDevice(IRHIDevice* device) { m_Device = device; }
+    void SetShaderCacheMode(ShaderCacheMode mode) { m_CacheMode = mode; }
+    ShaderCacheMode GetShaderCacheMode() const { return m_CacheMode; }
 
     std::shared_ptr<ShaderHandle> GetOrCreate(
         const std::string& shaderAssetPath,
@@ -43,6 +46,7 @@ private:
         const std::string&, const VertexElement*, uint32_t, bool);
 
     IRHIDevice* m_Device = nullptr;
+    ShaderCacheMode m_CacheMode = ShaderCacheMode::EditorOnDemandCompile;
     std::vector<ShaderRecord> m_Records;
     std::unordered_map<std::string, size_t> m_KeyToIndex;
 };

@@ -30,6 +30,14 @@ local editor_sources = {
     "src/Editor/EditorLuaScriptService.cpp",
     "src/Editor/EditorNavigationBakeService.cpp",
     "src/Editor/EditorOperators.cpp",
+    "src/Editor/EditorOperatorsAssets.cpp",
+    "src/Editor/EditorOperatorsCommands.cpp",
+    "src/Editor/EditorOperatorsComponents.cpp",
+    "src/Editor/EditorOperatorsDragDrop.cpp",
+    "src/Editor/EditorOperatorsPrefabs.cpp",
+    "src/Editor/EditorOperatorsSelection.cpp",
+    "src/Editor/EditorOperatorsTransactions.cpp",
+    "src/Editor/EditorOperatorsViewport.cpp",
     "src/Editor/EditorPanel.cpp",
     "src/Editor/EditorProfiler.cpp",
     "src/Editor/EditorProject.cpp",
@@ -56,6 +64,13 @@ local editor_sources = {
     "src/Editor/ProjectPublisher.cpp",
     "src/Editor/CookDependencyGraph.cpp",
     "src/Editor/InspectorSections.cpp",
+    "src/Editor/InspectorSectionsAddComponent.cpp",
+    "src/Editor/InspectorSectionsAssetScene.cpp",
+    "src/Editor/InspectorSectionsGameplay.cpp",
+    "src/Editor/InspectorSectionsPhysics.cpp",
+    "src/Editor/InspectorSectionsScripting.cpp",
+    "src/Editor/InspectorSectionsTransformRender.cpp",
+    "src/Editor/InspectorSectionsUI.cpp",
     "src/Editor/Panels/ToolbarPanel.cpp",
     "src/Editor/Panels/SceneHierarchyPanel.cpp",
     "src/Editor/Panels/ViewportPanel.cpp",
@@ -93,6 +108,10 @@ target_end()
 target("MyEngineRuntime")
     set_kind("shared")
     set_basename("runtime")
+    -- All runtime consumers currently share this target directory. Keep SDL
+    -- staging single-owner to avoid parallel after_build copies racing on Windows.
+    -- If targets gain separate output directories, replace this with an atomic,
+    -- dependency-tracked staging rule rather than attaching the copy rule per target.
     add_rules("copy_sdl_runtime")
     add_files(
         "src/Runtime/RuntimeModule.cpp",
@@ -132,6 +151,7 @@ target("MyEngineRuntime")
         "src/Runtime/Assets/AssetImporters.cpp",
         "src/Runtime/Assets/GltfImporter.cpp",
         "src/Runtime/Assets/MaterialAsset.cpp",
+        "src/Runtime/Assets/ModelCacheAsset.cpp",
         "src/Runtime/Assets/ScriptAsset.cpp",
         "src/Runtime/Assets/NavMeshAsset.cpp",
         "src/Runtime/Assets/ParticleAsset.cpp",
@@ -184,6 +204,8 @@ target("MyEngineRuntime")
         "src/Runtime/Renderer/DeferredLightingPass.cpp",
         "src/Runtime/Renderer/EnvironmentPass.cpp",
         "src/Runtime/Renderer/RenderBackendRegistry.cpp",
+        "src/Runtime/Renderer/ShaderCacheService.cpp",
+        "src/Runtime/Renderer/ShaderCooker.cpp",
         "src/Runtime/Renderer/ShaderManager.cpp",
         "src/Runtime/Renderer/ShaderCompilerSlang.cpp",
         "src/Runtime/Renderer/ShaderCompilerD3D11.cpp",
@@ -313,7 +335,7 @@ target_end()
 
 target("MyEngineEditor")
     set_kind("binary")
-    add_rules("copy_game_content", "copy_sdl_runtime", "copy_slang_tool", "copy_runtime_library")
+    add_rules("copy_game_content", "copy_slang_tool", "copy_runtime_library")
     add_files("src/Apps/EditorMain.cpp")
     add_myengine_editor_sources()
     add_includedirs("src", "src/Editor", "thirdparty/ImGuizmo",
@@ -356,7 +378,7 @@ target_end()
 
 target("MyEnginePlayer")
     set_kind("binary")
-    add_rules("copy_game_content", "copy_sdl_runtime", "copy_runtime_library")
+    add_rules("copy_game_content", "copy_runtime_library")
     add_files("src/Apps/PlayerMain.cpp")
     add_includedirs("src")
     add_deps("MyEngineRuntime")
@@ -415,9 +437,10 @@ target_end()
 
 target("MyEngineTests")
     set_kind("binary")
-    add_rules("copy_game_content", "copy_sdl_runtime", "copy_slang_tool", "copy_runtime_library")
+    add_rules("copy_game_content", "copy_slang_tool", "copy_runtime_library")
     add_files(
         "tests/AssetsTests.cpp",
+        "tests/EditorSourceContractTests.cpp",
         "tests/EditorTests.cpp",
         "tests/EngineTests.cpp",
         "tests/PhysicsTests.cpp",

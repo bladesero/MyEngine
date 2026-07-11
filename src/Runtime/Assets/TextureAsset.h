@@ -3,6 +3,7 @@
 #include "Assets/Asset.h"
 #include <vector>
 #include <cstdint>
+#include <string>
 
 // ==========================================================================
 // TextureAsset  –  2D 纹理资产
@@ -60,9 +61,41 @@ public:
     void SetPixelData(std::vector<uint8_t> data, const TextureDesc& desc) {
         m_PixelData = std::move(data);
         m_Desc      = desc;
+        m_DeferredPayloadPath.clear();
         RebuildDerivedData();
         SetState(AssetState::Ready);
     }
+
+    void SetPixelDataWithMips(std::vector<uint8_t> data,
+                              const TextureDesc& desc,
+                              std::vector<TextureMipData> mips) {
+        if (mips.empty()) {
+            SetPixelData(std::move(data), desc);
+            return;
+        }
+        m_PixelData = std::move(data);
+        m_Desc = desc;
+        m_Mips = std::move(mips);
+        m_DeferredPayloadPath.clear();
+        if (m_PixelData.empty() && !m_Mips.empty()) {
+            m_PixelData = m_Mips.front().rgba8;
+        }
+        m_Desc.mipLevels = static_cast<int>(m_Mips.size());
+        SetState(AssetState::Ready);
+    }
+
+    void SetDeferredPayload(std::string payloadPath, const TextureDesc& desc) {
+        m_PixelData.clear();
+        m_Mips.clear();
+        m_Desc = desc;
+        m_DeferredPayloadPath = std::move(payloadPath);
+        SetState(AssetState::Ready);
+    }
+
+    bool EnsurePayloadLoaded();
+    bool HasDeferredPayload() const { return !m_DeferredPayloadPath.empty(); }
+    bool IsPayloadResident() const { return !m_Mips.empty(); }
+    const std::string& GetDeferredPayloadPath() const { return m_DeferredPayloadPath; }
 
     const std::vector<uint8_t>& GetPixelData() const { return m_PixelData; }
     const TextureDesc&          GetDesc()       const { return m_Desc; }
@@ -95,7 +128,13 @@ public:
     bool ReloadFrom(const Asset& source) override {
         const auto* texture = dynamic_cast<const TextureAsset*>(&source);
         if (!texture) return false;
-        SetPixelData(texture->m_PixelData, texture->m_Desc);
+        if (texture->HasDeferredPayload() && !texture->IsPayloadResident()) {
+            SetDeferredPayload(texture->m_DeferredPayloadPath, texture->m_Desc);
+            m_GpuHandle = nullptr;
+            return true;
+        }
+        SetPixelDataWithMips(texture->m_PixelData, texture->m_Desc,
+                             texture->m_Mips);
         m_GpuHandle = nullptr;
         return true;
     }
@@ -119,7 +158,10 @@ private:
     TextureDesc          m_Desc;
     std::vector<uint8_t> m_PixelData;
     std::vector<TextureMipData> m_Mips;
+    std::string          m_DeferredPayloadPath;
     void*                m_GpuHandle = nullptr;
 };
 
 using TextureHandle = AssetHandle<TextureAsset>;
+
+bool SaveTexturePayloadToFile(const TextureAsset& texture, const std::string& path);

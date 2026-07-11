@@ -16,7 +16,9 @@ class TextureAsset;
 
 struct MaterialResourceCacheStats {
     uint32_t textureUploads = 0;
+    uint32_t skippedTextureUploads = 0;
     uint64_t textureUploadBytes = 0;
+    uint64_t pendingTextureUploadBytes = 0;
     float textureUploadMs = 0.0f;
 };
 
@@ -25,6 +27,7 @@ public:
     explicit MaterialResourceCache(IRHIDevice* device = nullptr);
 
     void SetDevice(IRHIDevice* device) { m_Device = device; }
+    void SetTextureUploadBudgetBytes(uint64_t bytes) { m_TextureUploadBudgetBytes = bytes; }
     void ResetFrameStats() { m_FrameStats = {}; }
     const MaterialResourceCacheStats& GetFrameStats() const { return m_FrameStats; }
 
@@ -46,6 +49,7 @@ public:
 private:
     IRHIDevice* m_Device = nullptr;
     MaterialResourceCacheStats m_FrameStats;
+    uint64_t m_TextureUploadBudgetBytes = 32ull * 1024ull * 1024ull;
     std::unordered_map<TextureAsset*, std::shared_ptr<GpuTexture>> m_TextureCache;
     std::unordered_map<GpuTexture*, std::shared_ptr<GpuTextureView>> m_TextureViews;
     std::vector<std::shared_ptr<GpuSampler>> m_TextureSamplers;

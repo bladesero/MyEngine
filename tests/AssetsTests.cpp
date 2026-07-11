@@ -2,9 +2,13 @@
 
 #include "Assets/AssetManager.h"
 #include "Assets/AssetMeta.h"
+#include "Assets/ModelCacheAsset.h"
 #include "Assets/ShaderAsset.h"
 #include "Animation/SkinnedMeshRendererComponent.h"
 #include "Audio/AudioClipAsset.h"
+#include "Editor/AssetImportService.h"
+#include "Editor/EditorContext.h"
+#include "Editor/EditorImportService.h"
 #include "Project/ProjectConfig.h"
 #include "Scene/MeshRendererComponent.h"
 #include "Scene/Scene.h"
@@ -291,6 +295,72 @@ void AppendBinary(std::vector<uint8_t>& output, const std::vector<T>& values) {
     output.insert(output.end(), bytes, bytes + values.size() * sizeof(T));
 }
 
+void WriteSimpleTriangleGltf(const std::filesystem::path& gltfPath,
+                             const std::filesystem::path& binPath,
+                             float secondVertexX = 1.0f) {
+    std::vector<uint8_t> binary;
+    AppendBinary(binary, std::vector<float>{
+        0,0,0, secondVertexX,0,0, 0,1,0
+    });
+    AppendBinary(binary, std::vector<float>{
+        0,0,1, 0,0,1, 0,0,1
+    });
+    AppendBinary(binary, std::vector<float>{
+        0,0, secondVertexX,0, 0,1
+    });
+    AppendBinary(binary, std::vector<uint16_t>{ 0,1,2 });
+    {
+        std::ofstream output(binPath, std::ios::binary);
+        output.write(reinterpret_cast<const char*>(binary.data()),
+                     static_cast<std::streamsize>(binary.size()));
+    }
+
+    nlohmann::json gltf;
+    gltf["asset"] = { { "version", "2.0" }, { "generator", "MyEngineTests" } };
+    gltf["buffers"] = nlohmann::json::array({
+        { { "uri", binPath.filename().generic_string() }, { "byteLength", binary.size() } }
+    });
+    gltf["bufferViews"] = nlohmann::json::array({
+        { { "buffer",0 }, { "byteOffset",0 },  { "byteLength",36 } },
+        { { "buffer",0 }, { "byteOffset",36 }, { "byteLength",36 } },
+        { { "buffer",0 }, { "byteOffset",72 }, { "byteLength",24 } },
+        { { "buffer",0 }, { "byteOffset",96 }, { "byteLength",6 } },
+    });
+    gltf["accessors"] = nlohmann::json::array({
+        { { "bufferView",0 }, { "componentType",5126 }, { "count",3 }, { "type","VEC3" },
+          { "min", nlohmann::json::array({0,0,0}) },
+          { "max", nlohmann::json::array({secondVertexX,1,0}) } },
+        { { "bufferView",1 }, { "componentType",5126 }, { "count",3 }, { "type","VEC3" } },
+        { { "bufferView",2 }, { "componentType",5126 }, { "count",3 }, { "type","VEC2" } },
+        { { "bufferView",3 }, { "componentType",5123 }, { "count",3 }, { "type","SCALAR" } },
+    });
+    gltf["materials"] = nlohmann::json::array({
+        {
+            { "name","CacheMat" },
+            { "pbrMetallicRoughness", {
+                { "baseColorFactor", nlohmann::json::array({0.4,0.6,0.8,1.0}) }
+            }}
+        }
+    });
+    gltf["meshes"] = nlohmann::json::array({
+        {
+            { "name","CacheTriangle" },
+            { "primitives", nlohmann::json::array({
+                {
+                    { "attributes", { { "POSITION",0 }, { "NORMAL",1 }, { "TEXCOORD_0",2 } }},
+                    { "indices",3 }, { "material",0 }
+                }
+            })}
+        }
+    });
+    gltf["nodes"] = nlohmann::json::array({ { { "mesh",0 } } });
+    gltf["scenes"] = nlohmann::json::array({
+        { { "nodes",nlohmann::json::array({0}) } }
+    });
+    gltf["scene"] = 0;
+    std::ofstream(gltfPath) << gltf.dump(2);
+}
+
 bool TestGltfImportAndStableMeta() {
     namespace fs = std::filesystem;
     const fs::path root = fs::temp_directory_path() / "myengine_gltf_import_test";
@@ -571,6 +641,187 @@ bool TestGltfImporterDeduplicatesSharedTextures() {
     return true;
 }
 
+bool TestGltfLibraryModelCache() {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "myengine_gltf_library_cache_test";
+    std::error_code ec;
+    fs::remove_all(root, ec);
+    fs::create_directories(root / "Content" / "Models");
+    fs::create_directories(root / ".myengine");
+    const fs::path gltfPath = root / "Content" / "Models" / "cached_triangle.gltf";
+    const fs::path binPath = root / "Content" / "Models" / "cached_triangle.bin";
+    WriteSimpleTriangleGltf(gltfPath, binPath);
+
+    AssetImportService imports;
+    std::string error;
+    if (!Check(imports.OpenProject(root, &error), error)) return false;
+    AssetImportReport report = imports.ImportSource(gltfPath, "{}", {}, &error);
+    if (!Check(report.succeeded, "glTF Library import failed: " + error)) return false;
+    if (!Check(fs::path(report.record.artifactPath).extension() == ".modelbin",
+               "glTF Library artifact should be a native model cache")) return false;
+    if (!Check(fs::is_regular_file(report.record.artifactPath),
+               "model cache artifact was not written")) return false;
+    const std::string firstArtifact = report.record.artifactPath;
+
+    AssetManager& manager = AssetManager::Get();
+    manager.Clear();
+    manager.SetProjectRoot(root);
+    ModelHandle model = manager.Load<ModelAsset>("Content/Models/cached_triangle.gltf");
+    if (!Check(model.IsValid(), "AssetManager did not resolve glTF through Library model cache")) return false;
+    if (!Check(fs::path(model->GetPath()).extension() == ".modelbin",
+               "AssetManager loaded raw glTF instead of cached modelbin")) return false;
+    if (!Check(model->GetMesh() && model->GetMesh()->VertexCount() == 3 &&
+               model->GetMesh()->IndexCount() == 3,
+               "cached model geometry mismatch")) return false;
+    if (!Check(manager.GetByPath<ModelAsset>(gltfPath.string()).Get() == model.Get(),
+               "source glTF path was not mapped to cached model asset")) return false;
+    MeshHandle mesh = manager.Load<MeshAsset>("Content/Models/cached_triangle.gltf#mesh");
+    if (!Check(mesh.IsValid() && mesh.Get() == model->GetMesh().Get(),
+               "source glTF mesh subasset was not aliased to cached modelbin mesh")) return false;
+    if (!Check(manager.MakeProjectRelativePath(mesh->GetPath()) ==
+                   "Content/Models/cached_triangle.gltf#mesh",
+               "cached modelbin mesh serialized as a Library artifact path")) return false;
+
+    WriteSimpleTriangleGltf(gltfPath, binPath, 2.0f);
+    AssetImportReport updated = imports.Reimport(report.record.uuid, &error);
+    if (!Check(updated.succeeded, "glTF Library reimport failed: " + error)) return false;
+    if (!Check(updated.record.artifactPath != firstArtifact,
+               "external glTF buffer changes did not invalidate the model cache key")) return false;
+    if (!Check(fs::is_regular_file(updated.record.artifactPath),
+               "updated model cache artifact was not written")) return false;
+
+    manager.Clear();
+    manager.SetProjectRoot({});
+    fs::remove_all(root, ec);
+    return true;
+}
+
+bool TestModelCacheRestoresTextureMips() {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "myengine_model_cache_mips_test";
+    std::error_code ec;
+    fs::remove_all(root, ec);
+    fs::create_directories(root);
+    const fs::path cachePath = root / "textured.modelbin";
+
+    TextureDesc desc;
+    desc.width = 4;
+    desc.height = 4;
+    std::vector<uint8_t> pixels(static_cast<size_t>(desc.width * desc.height * 4), 255);
+    auto texture = std::make_shared<TextureAsset>((root / "texture").string());
+    texture->SetName("MipTexture");
+    texture->SetPixelData(std::move(pixels), desc);
+    if (!Check(texture->GetMips().size() == 3,
+               "source texture mip generation failed")) return false;
+
+    AssetManager& manager = AssetManager::Get();
+    manager.Clear();
+    TextureHandle textureHandle = manager.Register(texture);
+    auto material = std::make_shared<MaterialAsset>((root / "material").string());
+    material->SetName("MipMaterial");
+    material->SetTexture("BaseColorMap", textureHandle);
+    material->MarkReady();
+    MaterialHandle materialHandle = manager.Register(material);
+    MeshHandle mesh = manager.Register(MeshAsset::CreateTriangle("MipMesh"));
+    auto model = ModelAsset::Create("MipModel", mesh, materialHandle);
+
+    if (!Check(SaveModelCacheAssetToFile(*model, cachePath.string()),
+               "failed to save model cache with texture mips")) return false;
+    manager.Clear();
+    std::shared_ptr<ModelAsset> loaded = LoadModelCacheAssetFromFile(cachePath.string());
+    if (!Check(loaded && loaded->MaterialCount() == 1,
+               "failed to load model cache with texture mips")) return false;
+    MaterialHandle loadedMaterial = loaded->GetMaterial(0);
+    if (!Check(loadedMaterial.IsValid(), "cached material missing")) return false;
+    TextureHandle loadedTexture = loadedMaterial->GetTexture("BaseColorMap");
+    if (!Check(loadedTexture.IsValid(), "cached material texture missing")) return false;
+    if (!Check(loadedTexture->HasDeferredPayload(),
+               "model cache did not defer texture payload loading")) return false;
+    if (!Check(loadedTexture->GetMips().empty(),
+               "deferred texture payload was loaded during model cache hit")) return false;
+    if (!Check(loadedTexture->EnsurePayloadLoaded(),
+               "deferred texture payload failed to load")) return false;
+    if (!Check(loadedTexture->GetMips().size() == 3 &&
+               loadedTexture->GetMips()[1].width == 2 &&
+               loadedTexture->GetMips()[2].width == 1,
+               "model cache did not restore prebuilt texture mip chain")) return false;
+
+    manager.Clear();
+    fs::remove_all(root, ec);
+    return true;
+}
+
+bool TestEditorWarmsSceneGltfModelCache() {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "myengine_editor_gltf_cache_warm_test";
+    std::error_code ec;
+    fs::remove_all(root, ec);
+    fs::create_directories(root / "Content" / "Models");
+    fs::create_directories(root / "Content" / "Scenes");
+    fs::create_directories(root / ".myengine");
+    const fs::path gltfPath = root / "Content" / "Models" / "warm_triangle.gltf";
+    const fs::path binPath = root / "Content" / "Models" / "warm_triangle.bin";
+    const fs::path scenePath = root / "Content" / "Scenes" / "Warm.scene.json";
+    WriteSimpleTriangleGltf(gltfPath, binPath);
+    {
+        nlohmann::json scene;
+        scene["name"] = "Warm";
+        scene["actors"] = nlohmann::json::array({
+            {
+                {"name", "Mesh"},
+                {"components", {
+                    {"MeshRendererComponent", {
+                        {"mesh", "Content/Models/warm_triangle.gltf#mesh"}
+                    }}
+                }}
+            }
+        });
+        std::ofstream(scenePath) << scene.dump(2);
+    }
+
+    AssetMeta meta = AssetMeta::Create(gltfPath.string());
+    if (!Check(AssetMeta::Save(meta), "failed to create warmup test metadata")) return false;
+    const fs::path oldArtifact = root / "Library" / "windows-x64" /
+        meta.uuid / "legacy.gltf";
+    fs::create_directories(oldArtifact.parent_path());
+    fs::copy_file(gltfPath, oldArtifact, fs::copy_options::overwrite_existing, ec);
+    if (!Check(!ec, "failed to create legacy glTF artifact")) return false;
+    AssetDatabase database;
+    std::string error;
+    if (!Check(database.Open(root / ".myengine" / "AssetDatabase.json", &error), error)) return false;
+    AssetRecord legacy;
+    legacy.uuid = meta.uuid;
+    legacy.sourcePath = gltfPath.generic_string();
+    legacy.artifactPath = oldArtifact.generic_string();
+    legacy.type = "model";
+    legacy.importer = "model-sdf-voxel";
+    legacy.importerVersion = 1;
+    legacy.sourceHash = "legacy";
+    legacy.artifactHash = "legacy";
+    legacy.state = AssetImportState::Ready;
+    if (!Check(database.Upsert(legacy, &error) && database.Save(&error), error)) return false;
+
+    EditorContext context;
+    context.SetProjectRoot(root);
+    EditorImportService imports;
+    imports.OnAttach(context);
+    std::vector<std::string> failures;
+    const size_t warmed = imports.EnsureModelCachesForScene(scenePath, &failures);
+    if (!Check(failures.empty(), failures.empty() ? std::string{} : failures.front())) return false;
+    if (!Check(warmed == 1, "scene model cache warmup did not process the glTF reference")) return false;
+
+    AssetDatabase updated;
+    if (!Check(updated.Open(root / ".myengine" / "AssetDatabase.json", &error), error)) return false;
+    const AssetRecord* record = updated.FindBySourcePath(gltfPath.generic_string());
+    if (!Check(record && fs::path(record->artifactPath).extension() == ".modelbin",
+               "scene model cache warmup did not migrate legacy glTF artifact to modelbin")) return false;
+    if (!Check(fs::is_regular_file(record->artifactPath),
+               "scene model cache warmup did not write modelbin artifact")) return false;
+
+    fs::remove_all(root, ec);
+    return true;
+}
+
 bool TestAssetAsyncLoadingAndHotReload() {
     namespace fs = std::filesystem;
     const fs::path root = fs::temp_directory_path() / "myengine_asset_reload_test";
@@ -785,6 +1036,81 @@ bool TestTextureSamplerSettingsFromAssetDatabase() {
     return Check(ok, "texture sampler settings were not restored from AssetDatabase");
 }
 
+bool TestShaderLibraryArtifactCacheHit() {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "myengine_shader_library_cache_test";
+    std::error_code ec;
+    fs::remove_all(root, ec);
+    fs::create_directories(root / "Content" / "Shaders");
+    fs::create_directories(root / ".myengine");
+
+    const fs::path source = root / "Content" / "Shaders" / "Cached.shader";
+    std::ofstream(source)
+        << R"({"type":"Shader","version":1,"stages":{"vertex":{"source":"Cached.hlsl","entry":"VSMain"},"pixel":{"source":"Cached.hlsl","entry":"PSMain"}},"defines":[]})";
+
+    std::array<std::array<std::vector<uint8_t>, kShaderStageCount>,
+               kShaderBackendCount> blobs{};
+    blobs[static_cast<size_t>(ShaderBackend::D3D11)]
+         [static_cast<size_t>(ShaderStage::Vertex)] = {1, 2, 3};
+    blobs[static_cast<size_t>(ShaderBackend::D3D11)]
+         [static_cast<size_t>(ShaderStage::Pixel)] = {4, 5};
+    blobs[static_cast<size_t>(ShaderBackend::D3D12)]
+         [static_cast<size_t>(ShaderStage::Vertex)] = {6, 7, 8};
+    blobs[static_cast<size_t>(ShaderBackend::D3D12)]
+         [static_cast<size_t>(ShaderStage::Pixel)] = {9, 10};
+
+    const std::string uuid = "shader-cache-test";
+    const fs::path artifact = root / "Library" / "windows-x64" / uuid / "cached.shader";
+    fs::create_directories(artifact.parent_path());
+    ShaderAsset cooked(artifact.string());
+    cooked.SetCooked(ShaderAsset::kVertexMask | ShaderAsset::kPixelMask, 77,
+                     std::move(blobs));
+    std::string error;
+    if (!Check(SaveCookedShaderAsset(cooked, artifact, &error), error)) return false;
+
+    const nlohmann::json database = {
+        {"version", 1},
+        {"assets", nlohmann::json::array({
+            {
+                {"uuid", uuid},
+                {"sourcePath", source.generic_string()},
+                {"artifactPath", artifact.generic_string()},
+                {"type", "shader"},
+                {"importer", "shader"},
+                {"importerVersion", 1},
+                {"sourceHash", "test"},
+                {"artifactHash", ""},
+                {"settings", "{}"},
+                {"dependencies", nlohmann::json::array({(root / "Content" / "Shaders" / "Cached.hlsl").generic_string()})},
+                {"state", "ready"},
+                {"diagnostics", nlohmann::json::array()},
+                {"alwaysCook", false}
+            }
+        })}
+    };
+    std::ofstream(root / ".myengine" / "AssetDatabase.json") << database.dump(2);
+
+    AssetDatabase importedDatabase;
+    if (!Check(importedDatabase.Open(root / ".myengine" / "AssetDatabase.json", &error),
+               "shader artifact database failed to open: " + error)) return false;
+    AssetDatabaseValidationReport validation;
+    if (!Check(importedDatabase.ValidateAgainstProject(root, validation),
+               "shader source include dependencies should not be treated as asset UUIDs: " +
+               validation.Summary())) return false;
+
+    AssetManager& manager = AssetManager::Get();
+    manager.Clear();
+    manager.SetProjectRoot(root);
+    ShaderAssetHandle shader = manager.Load<ShaderAsset>("Content/Shaders/Cached.shader");
+    const bool ok = shader.IsValid() && shader->IsCooked() &&
+        shader->GetUuid() == uuid &&
+        shader->GetBytecode(ShaderBackend::D3D12, ShaderStage::Pixel).size() == 2;
+    manager.Clear();
+    manager.SetProjectRoot({});
+    fs::remove_all(root, ec);
+    return Check(ok, "shader source did not resolve to Library cooked artifact");
+}
+
 MYENGINE_REGISTER_TEST("Assets", "TestShaderAssetFormats", TestShaderAssetFormats);
 MYENGINE_REGISTER_TEST("Assets", "TestPbrMaterialParameters", TestPbrMaterialParameters);
 MYENGINE_REGISTER_TEST("Assets", "TestMaterialAssetFileRoundTrip", TestMaterialAssetFileRoundTrip);
@@ -793,10 +1119,14 @@ MYENGINE_REGISTER_TEST("Assets", "TestAssetFileImporters", TestAssetFileImporter
 MYENGINE_REGISTER_TEST("Assets", "TestAudioClipAssetLoader", TestAudioClipAssetLoader);
 MYENGINE_REGISTER_TEST("Assets", "TestGltfImportAndStableMeta", TestGltfImportAndStableMeta);
 MYENGINE_REGISTER_TEST("Assets", "TestGltfImporterDeduplicatesSharedTextures", TestGltfImporterDeduplicatesSharedTextures);
+MYENGINE_REGISTER_TEST("Assets", "TestGltfLibraryModelCache", TestGltfLibraryModelCache);
+MYENGINE_REGISTER_TEST("Assets", "TestModelCacheRestoresTextureMips", TestModelCacheRestoresTextureMips);
+MYENGINE_REGISTER_TEST("Assets", "TestEditorWarmsSceneGltfModelCache", TestEditorWarmsSceneGltfModelCache);
 MYENGINE_REGISTER_TEST("Assets", "TestAssetAsyncLoadingAndHotReload", TestAssetAsyncLoadingAndHotReload);
 MYENGINE_REGISTER_TEST("Assets", "TestAssetManagerFailureRollback", TestAssetManagerFailureRollback);
 MYENGINE_REGISTER_TEST("Assets", "TestMeshDerivedData", TestMeshDerivedData);
 MYENGINE_REGISTER_TEST("Assets", "TestTextureDerivedData", TestTextureDerivedData);
 MYENGINE_REGISTER_TEST("Assets", "TestTextureSamplerSettingsFromAssetDatabase", TestTextureSamplerSettingsFromAssetDatabase);
+MYENGINE_REGISTER_TEST("Assets", "TestShaderLibraryArtifactCacheHit", TestShaderLibraryArtifactCacheHit);
 
 } // namespace

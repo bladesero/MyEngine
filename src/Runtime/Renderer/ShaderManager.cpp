@@ -2,6 +2,7 @@
 
 #include "Assets/AssetManager.h"
 #include "Core/Logger.h"
+#include "Renderer/ShaderCacheService.h"
 #ifdef MYENGINE_PLATFORM_WINDOWS
 #include "Renderer/ShaderCompilerD3D11.h"
 #include "Renderer/ShaderCompilerD3D12.h"
@@ -34,16 +35,47 @@ std::shared_ptr<GpuShader> ShaderManager::CompileRecord(const ShaderRecord& rec)
         : (activeBackend == RHIBackend::Vulkan
             ? ShaderBackend::Vulkan
             : (activeBackend == RHIBackend::D3D12 ? ShaderBackend::D3D12 : ShaderBackend::D3D11));
-    if (asset.IsCooked()) {
+    auto createFromCooked = [&](const ShaderAsset& cooked) -> std::shared_ptr<GpuShader> {
         if (rec.compute) {
-            const auto& cs = asset.GetBytecode(backend, ShaderStage::Compute);
+            const auto& cs = cooked.GetBytecode(backend, ShaderStage::Compute);
             return cs.empty() ? nullptr : m_Device->CreateComputeShaderFromBytecode(cs.data(), cs.size());
         }
-        const auto& vs = asset.GetBytecode(backend, ShaderStage::Vertex);
-        const auto& ps = asset.GetBytecode(backend, ShaderStage::Pixel);
+        const auto& vs = cooked.GetBytecode(backend, ShaderStage::Vertex);
+        const auto& ps = cooked.GetBytecode(backend, ShaderStage::Pixel);
         if (vs.empty() || ps.empty()) return {};
         return m_Device->CreateShaderFromBytecode(vs.data(), vs.size(), ps.data(), ps.size(),
             rec.layout.data(), static_cast<uint32_t>(rec.layout.size()));
+    };
+    if (asset.IsCooked()) {
+        return createFromCooked(asset);
+    }
+
+    const bool allowCompile =
+        m_CacheMode == ShaderCacheMode::EditorOnDemandCompile;
+    ShaderCacheRequest cacheRequest;
+    cacheRequest.sourcePath = rec.path;
+    cacheRequest.backends = {backend};
+    cacheRequest.allowCompile = allowCompile;
+    const ShaderCacheResult cacheResult =
+        ShaderCacheService::Get().EnsureShaderArtifact(cacheRequest);
+    if (cacheResult.succeeded && !cacheResult.artifactPath.empty()) {
+        if (auto cooked = LoadShaderAssetFromFile(cacheResult.artifactPath.string());
+            cooked && cooked->IsCooked()) {
+            if (auto shader = createFromCooked(*cooked)) return shader;
+            Logger::Error("[ShaderManager] Cached shader is missing backend bytecode: ",
+                          cacheResult.artifactPath.string());
+        } else {
+            Logger::Error("[ShaderManager] Shader cache artifact is invalid: ",
+                          cacheResult.artifactPath.string());
+        }
+    }
+    if (!allowCompile) {
+        Logger::Error("[ShaderManager] Missing cooked shader cache for runtime-only mode: ",
+                      rec.path,
+                      cacheResult.diagnostic.empty() ? std::string{} : " (",
+                      cacheResult.diagnostic,
+                      cacheResult.diagnostic.empty() ? std::string{} : ")");
+        return {};
     }
     if (activeBackend == RHIBackend::Metal || activeBackend == RHIBackend::Vulkan) {
         if (rec.compute) {

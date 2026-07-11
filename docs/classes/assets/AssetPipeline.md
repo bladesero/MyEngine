@@ -8,6 +8,9 @@ it never creates or repairs it.
 `Library/<platform>/<uuid>/`. Artifact cache keys include the source hash,
 settings, importer name/version, engine build ID and target platform. `Library`
 and `.myengine/AssetDatabase.json` are local generated data and are not committed.
+Shader compile artifacts use the same Library and database path. Project shaders
+keep normal `.meta` identity; engine shaders use stable virtual UUIDs and do not
+write sidecars into `EngineContent`.
 
 `AssetDatabase` is a versioned, atomically replaced JSON index containing source
 and artifact paths, hashes, import state, diagnostics and forward dependencies.

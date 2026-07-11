@@ -7,6 +7,7 @@
 #include "Renderer/GBufferPass.h"
 #include "Renderer/GpuUploadQueue.h"
 #include "Renderer/LightComponent.h"
+#include "Renderer/MaterialResourceCache.h"
 #include "Renderer/RenderGraph.h"
 #include "Renderer/Renderer.h"
 #include "Renderer/ShaderManager.h"
@@ -199,6 +200,11 @@ public:
         RHIDeviceCapabilities caps; caps.maxColorAttachments = 8;
         caps.timestampQueries = caps.indirectDraw = true; return caps;
     }
+    bool IsFormatSupported(RHIFormat format, RHIResourceUsage usage) const override {
+        return supportBc1 &&
+               format == RHIFormat::BC1UNorm &&
+               HasUsage(usage, RHIResourceUsage::ShaderResource);
+    }
     std::shared_ptr<GpuTimestampQueryPool> CreateTimestampQueryPool(uint32_t count) override {
         return count <= 4 ? std::make_shared<MockTimestampPool>() : nullptr;
     }
@@ -258,6 +264,7 @@ public:
 
     MockCommandList commands;
     RHIBackend backend = RHIBackend::Unknown;
+    bool supportBc1 = false;
     int beginFrames = 0;
     int endFrames = 0;
     int vertexUploads = 0;
@@ -280,6 +287,70 @@ public:
     std::shared_ptr<MockTexture> backBufferTexture;
     std::shared_ptr<MockTextureView> backBufferView;
 };
+
+std::shared_ptr<TextureAsset> CreateCompressedTextureForUploadTest(const std::string& path)
+{
+    TextureDesc desc;
+    desc.width = 4;
+    desc.height = 4;
+    desc.generateCompressedMips = true;
+    std::vector<uint8_t> pixels(static_cast<size_t>(desc.width * desc.height * 4), 255);
+    auto texture = std::make_shared<TextureAsset>(path);
+    texture->SetName("CompressedUpload");
+    texture->SetPixelData(std::move(pixels), desc);
+    return texture;
+}
+
+bool TestMaterialResourceCacheUploadsBc1WhenSupported()
+{
+    MockRenderContext context;
+    context.backend = RHIBackend::D3D11;
+    context.supportBc1 = true;
+
+    auto texture = CreateCompressedTextureForUploadTest("__test__/CompressedUploadBC1");
+    MaterialResourceCache cache(&context);
+    cache.EnsureTextureUploaded(texture.get());
+
+    if (!Check(context.textureUploads == 1,
+               "BC1-capable device did not upload the texture")) return false;
+    if (!Check(!context.uploadedTextureDescs.empty() &&
+               context.uploadedTextureDescs.front().format == RHIFormat::BC1UNorm,
+               "BC1-capable device did not receive a BC1 texture upload")) return false;
+    if (!Check(context.uploadedSubresourceCounts.size() == 1 &&
+               context.uploadedSubresourceCounts.front() == 3,
+               "BC1 upload did not include all mip levels")) return false;
+    const bool hasBc1MipPitch = std::find_if(
+        context.uploadedSubresources.begin(), context.uploadedSubresources.end(),
+        [](const RHITextureSubresourceData& data) {
+            return data.mipLevel == 0 && data.rowPitch == 8 && data.slicePitch == 8;
+        }) != context.uploadedSubresources.end();
+    return Check(hasBc1MipPitch,
+                 "BC1 upload did not use block-compressed row or slice pitch");
+}
+
+bool TestMaterialResourceCacheFallsBackToRgbaWhenBc1Unsupported()
+{
+    MockRenderContext context;
+    context.backend = RHIBackend::Vulkan;
+    context.supportBc1 = false;
+
+    auto texture = CreateCompressedTextureForUploadTest("__test__/CompressedUploadRGBA");
+    MaterialResourceCache cache(&context);
+    cache.EnsureTextureUploaded(texture.get());
+
+    if (!Check(context.textureUploads == 1,
+               "RGBA fallback device did not upload the texture")) return false;
+    if (!Check(!context.uploadedTextureDescs.empty() &&
+               context.uploadedTextureDescs.front().format == RHIFormat::RGBA8UNorm,
+               "BC1-unsupported device did not fall back to RGBA8")) return false;
+    const bool hasRgbaMipPitch = std::find_if(
+        context.uploadedSubresources.begin(), context.uploadedSubresources.end(),
+        [](const RHITextureSubresourceData& data) {
+            return data.mipLevel == 0 && data.rowPitch == 16 && data.slicePitch == 64;
+        }) != context.uploadedSubresources.end();
+    return Check(hasRgbaMipPitch,
+                 "RGBA fallback upload did not use linear RGBA row or slice pitch");
+}
 
 bool TestExtendedRHIContracts() {
     MockRenderContext context;
@@ -1462,6 +1533,8 @@ bool TestRendererGraphHasNoEmptyCompatibilityPasses() {
 }
 
 MYENGINE_REGISTER_TEST("Renderer", "TestExtendedRHIContracts", TestExtendedRHIContracts);
+MYENGINE_REGISTER_TEST("Renderer", "TestMaterialResourceCacheUploadsBc1WhenSupported", TestMaterialResourceCacheUploadsBc1WhenSupported);
+MYENGINE_REGISTER_TEST("Renderer", "TestMaterialResourceCacheFallsBackToRgbaWhenBc1Unsupported", TestMaterialResourceCacheFallsBackToRgbaWhenBc1Unsupported);
 MYENGINE_REGISTER_TEST("Renderer", "TestRenderGraphValidationAndExecution", TestRenderGraphValidationAndExecution);
 MYENGINE_REGISTER_TEST("Renderer", "TestNamedShaderBindings", TestNamedShaderBindings);
 MYENGINE_REGISTER_TEST("Renderer", "TestBackendIndependentPassRecording", TestBackendIndependentPassRecording);

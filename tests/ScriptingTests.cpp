@@ -53,9 +53,24 @@ bool WriteText(const std::filesystem::path& path, const std::string& text)
 
 bool TestAngelScriptValueTypeSourceContracts()
 {
-    const std::filesystem::path sourcePath =
-        FindRepoRoot() / "src" / "Runtime" / "Scripting" / "AngelScriptRuntime.cpp";
-    const std::string source = ReadText(sourcePath);
+    const std::filesystem::path scriptingRoot =
+        FindRepoRoot() / "src" / "Runtime" / "Scripting";
+    std::string source = ReadText(scriptingRoot / "AngelScriptRuntime.cpp");
+    const std::filesystem::path bindingsRoot = scriptingRoot / "Bindings";
+    for (const char* bindingFile : {
+             "AngelScriptActorTransformBindings.cpp",
+             "AngelScriptSceneBindings.cpp",
+             "AngelScriptPhysicsBindings.cpp",
+             "AngelScriptGameplayBindings.cpp",
+             "AngelScriptNavigationBindings.cpp",
+             "AngelScriptAssetsSaveGameBindings.cpp",
+             "AngelScriptDebugProfilerBindings.cpp",
+             "AngelScriptInputBindings.cpp",
+             "AngelScriptUIBindings.cpp",
+         }) {
+        source += '\n';
+        source += ReadText(bindingsRoot / bindingFile);
+    }
     return Check(source.find("ActorHandle CreateActor(const string &in)") != std::string::npos &&
                  source.find("SceneCreateActorGeneric") != std::string::npos &&
                  source.find("asCALL_GENERIC") != std::string::npos &&

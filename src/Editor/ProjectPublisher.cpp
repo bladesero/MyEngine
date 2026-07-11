@@ -3,10 +3,12 @@
 #include "Project/CookManifest.h"
 #include "Project/PublishTargets.h"
 #include "Project/ProjectConfig.h"
+#include "Assets/AssetDatabase.h"
 #include "Assets/ShaderAsset.h"
 #include "Renderer/ShaderCompilerD3D11.h"
 #include "Renderer/ShaderCompilerD3D12.h"
 #include "Renderer/ShaderCompilerSlang.h"
+#include "Renderer/ShaderCooker.h"
 #include "Project/RuntimeCompatibility.h"
 #include "Project/RuntimeDependencies.h"
 #include "Project/ContentPathPolicy.h"
@@ -17,6 +19,8 @@
 #include <fstream>
 #include <future>
 #include <iterator>
+#include <nlohmann/json.hpp>
+#include <unordered_map>
 #include <unordered_set>
 
 namespace fs = std::filesystem;
@@ -97,6 +101,103 @@ bool IsWithin(const fs::path& path, const fs::path& parent) {
     const fs::path relative = fs::relative(path, parent, ec);
     return !ec && !relative.empty() && !relative.is_absolute() &&
         relative.begin() != relative.end() && *relative.begin() != "..";
+}
+
+std::string AbsoluteKey(const fs::path& path) {
+    std::error_code ec;
+    fs::path absolute = fs::absolute(path, ec);
+    if (ec) absolute = path;
+    return absolute.lexically_normal().generic_string();
+}
+
+std::string ToProjectContentReference(const fs::path& projectRoot,
+                                      const std::string& sourcePath) {
+    fs::path source(sourcePath);
+    if (source.is_relative() && source.generic_string().rfind("Content/", 0) == 0) {
+        return source.generic_string();
+    }
+    if (source.is_relative()) source = projectRoot / source;
+    std::error_code ec;
+    source = fs::absolute(source, ec).lexically_normal();
+    if (ec || !IsWithin(source, projectRoot / "Content")) return {};
+    return (fs::path("Content") / fs::relative(source, projectRoot / "Content", ec)).generic_string();
+}
+
+std::unordered_map<std::string, std::string> BuildArtifactReferenceMap(
+    const fs::path& projectRoot) {
+    std::unordered_map<std::string, std::string> result;
+    AssetDatabase database;
+    std::string error;
+    if (!database.Open(projectRoot / ".myengine" / "AssetDatabase.json", &error)) return result;
+    for (const AssetRecord& record : database.GetAll()) {
+        if (record.artifactPath.empty() || record.sourcePath.empty()) continue;
+        const std::string sourceReference =
+            ToProjectContentReference(projectRoot, record.sourcePath);
+        if (sourceReference.empty()) continue;
+        result[AbsoluteKey(record.artifactPath)] = sourceReference;
+    }
+    return result;
+}
+
+bool RewriteImportedArtifactReferences(nlohmann::json& node,
+                                       const std::unordered_map<std::string, std::string>& map) {
+    bool changed = false;
+    if (node.is_string()) {
+        const std::string value = node.get<std::string>();
+        const size_t fragmentPosition = value.find('#');
+        const std::string base = value.substr(0, fragmentPosition);
+        const fs::path basePath(base);
+        if (basePath.is_absolute() || basePath.has_root_name()) {
+            const auto it = map.find(AbsoluteKey(basePath));
+            if (it != map.end()) {
+                node = it->second + (fragmentPosition == std::string::npos
+                    ? std::string{} : value.substr(fragmentPosition));
+                return true;
+            }
+        }
+        return false;
+    }
+    if (node.is_object()) {
+        for (auto it = node.begin(); it != node.end(); ++it) {
+            changed = RewriteImportedArtifactReferences(it.value(), map) || changed;
+        }
+    } else if (node.is_array()) {
+        for (auto& item : node) {
+            changed = RewriteImportedArtifactReferences(item, map) || changed;
+        }
+    }
+    return changed;
+}
+
+bool CopyJsonWithImportedArtifactRewrite(
+    const fs::path& source, const fs::path& destination,
+    const std::unordered_map<std::string, std::string>& artifactReferences,
+    std::string* error) {
+    if (artifactReferences.empty()) {
+        std::error_code ec;
+        fs::copy_file(source, destination, fs::copy_options::overwrite_existing, ec);
+        if (ec) SetError(error, "failed to stage content: " + source.string());
+        return !ec;
+    }
+    try {
+        std::ifstream input(source);
+        nlohmann::json json;
+        input >> json;
+        const bool changed = RewriteImportedArtifactReferences(json, artifactReferences);
+        if (!changed) {
+            std::error_code ec;
+            fs::copy_file(source, destination, fs::copy_options::overwrite_existing, ec);
+            if (ec) SetError(error, "failed to stage content: " + source.string());
+            return !ec;
+        }
+        std::ofstream output(destination);
+        output << json.dump(2) << '\n';
+        return true;
+    } catch (const std::exception& exception) {
+        SetError(error, "failed to rewrite imported artifact references in " +
+            source.string() + ": " + exception.what());
+        return false;
+    }
 }
 
 void Cleanup(const fs::path& path) {
@@ -195,78 +296,19 @@ bool CompileCookedShader(const fs::path& source, const fs::path& destination,
                          const fs::path& allowedRoot,
                          const std::vector<ShaderBackend>& backends,
                          std::string* error) {
-    auto description = LoadShaderAssetFromFile(source.string());
-    if (!description || description->IsCooked()) {
-        SetError(error, "invalid shader description: " + source.string()); return false;
-    }
-    std::unordered_set<std::string> dependencySet;
-    for (size_t stageIndex = 0; stageIndex < 3; ++stageIndex) {
-        if ((description->GetStageMask() & (1u << stageIndex)) == 0) continue;
-        const fs::path hlsl = description->ResolveSource(static_cast<ShaderStage>(stageIndex));
-        std::unordered_set<std::string> visited;
-        if (!ValidateShaderIncludes(hlsl, allowedRoot, visited, error)) return false;
-        dependencySet.insert(visited.begin(), visited.end());
-    }
-    std::vector<std::string> dependencies(dependencySet.begin(),dependencySet.end());
-    std::sort(dependencies.begin(),dependencies.end());
-    const bool usesSlang =
-        std::find(backends.begin(), backends.end(), ShaderBackend::Metal) != backends.end() ||
-        std::find(backends.begin(), backends.end(), ShaderBackend::Vulkan) != backends.end();
-    Sha256 cacheKey;
-    const std::string cookerContract=std::string(RuntimeCompatibility::kBuildId)+
-        "|shader-cooker-v2|"+
-        (usesSlang ? ShaderCompilerSlang::GetVersionString() : "fxc") + "|" +
-        std::to_string(description->GetSourceHash());
-    cacheKey.Update(cookerContract.data(),cookerContract.size());
-    for (ShaderBackend backend : backends) {
-        const std::string backendText = std::to_string(static_cast<int>(backend));
-        cacheKey.Update(backendText.data(), backendText.size());
-    }
-    for(const auto& dependency:dependencies) {
-        std::string hashError;
-        const std::string hash=Sha256::HashFile(dependency,&hashError);
-        if(!hashError.empty()){SetError(error,hashError);return false;}
-        cacheKey.Update(dependency.data(),dependency.size());
-        cacheKey.Update(hash.data(),hash.size());
-    }
-    const fs::path cacheDirectory=fs::temp_directory_path()/"MyEngine/DerivedDataCache/Shaders";
-    const fs::path cacheFile=cacheDirectory/(Sha256::ToHex(cacheKey.Final())+".shader");
-    if(auto cached=LoadShaderAssetFromFile(cacheFile.string());
-       cached&&cached->IsCooked()&&cached->GetStageMask()==description->GetStageMask()) {
-        std::error_code ec;
-        fs::create_directories(destination.parent_path(),ec);
-        fs::copy_file(cacheFile,destination,fs::copy_options::overwrite_existing,ec);
-        if(!ec)return true;
-    }
-
-    std::array<std::array<std::vector<uint8_t>, kShaderStageCount>, kShaderBackendCount> blobs{};
-    for (size_t stageIndex = 0; stageIndex < 3; ++stageIndex) {
-        if ((description->GetStageMask() & (1u << stageIndex)) == 0) continue;
-        const auto stage = static_cast<ShaderStage>(stageIndex);
-        const auto& sourceStage = description->GetStage(stage);
-        const fs::path hlsl = description->ResolveSource(stage);
-        for (ShaderBackend backend : backends) {
-            const size_t backendIndex = static_cast<size_t>(backend);
-            if (!CompileShaderStageForBackend(
-                    hlsl, sourceStage, stage, backend, description->GetDefines(),
-                    blobs[backendIndex][stageIndex], error)) {
-                if (error && error->empty()) *error = "shader cook failed: " + source.string();
-                return false;
-            }
-        }
-    }
-    ShaderAsset cooked(destination.string());
-    cooked.SetCooked(description->GetStageMask(), description->GetSourceHash(), std::move(blobs));
-    fs::create_directories(destination.parent_path());
-    if(!SaveCookedShaderAsset(cooked, destination, error))return false;
-    std::error_code ec;
-    fs::create_directories(cacheDirectory,ec);
-    if(!ec)fs::copy_file(destination,cacheFile,fs::copy_options::overwrite_existing,ec);
-    return true;
+    ShaderCookRequest request;
+    request.sourcePath = source;
+    request.artifactPath = destination;
+    request.allowedRoot = allowedRoot;
+    request.backends = backends;
+    request.targetPlatform = "windows-x64";
+    const ShaderCookResult result = ShaderCooker::Cook(request, error);
+    return result.succeeded;
 }
 
 bool CookTree(const fs::path& sourceRoot, const fs::path& destinationRoot,
               const std::vector<ShaderBackend>& shaderBackends,
+              const std::unordered_map<std::string, std::string>* artifactReferences,
               std::string* error) {
     std::error_code ec; std::vector<ContentFileInfo> files; uint64_t total=0;
     if(!ContentPathPolicy::Enumerate(sourceRoot,files,total,error)) return false;
@@ -292,8 +334,16 @@ bool CookTree(const fs::path& sourceRoot, const fs::path& destinationRoot,
                 }));
         } else {
             fs::create_directories(destination.parent_path(), ec);
-            fs::copy_file(file.absolute, destination, fs::copy_options::overwrite_existing, ec);
-            if (ec) { SetError(error, "failed to stage content: " + file.absolute.string()); return false; }
+            if (ec) { SetError(error, "failed to create staged content directory: " + destination.parent_path().string()); return false; }
+            if ((extension == ".json" || extension == ".mat") && artifactReferences) {
+                if (!CopyJsonWithImportedArtifactRewrite(file.absolute, destination,
+                                                         *artifactReferences, error)) {
+                    return false;
+                }
+            } else {
+                fs::copy_file(file.absolute, destination, fs::copy_options::overwrite_existing, ec);
+                if (ec) { SetError(error, "failed to stage content: " + file.absolute.string()); return false; }
+            }
         }
     }
     for(auto& task:shaderTasks) {
@@ -430,9 +480,10 @@ bool ProjectPublisher::Publish(const ProjectConfig& project,
     std::vector<CookedContentEntry> entries;
     const fs::path archive = staging / ContentArchive::kFileName;
     const fs::path cookedContent = staging / ".cooked-content";
+    const auto artifactReferences = BuildArtifactReferenceMap(project.GetRoot());
     fs::create_directories(cookedContent / "Engine", ec);
-    if (ec || !CookTree(engineContent, cookedContent / "Engine", shaderBackends, error) ||
-        !CookTree(project.GetRoot() / "Content", cookedContent, shaderBackends, error) ||
+    if (ec || !CookTree(engineContent, cookedContent / "Engine", shaderBackends, nullptr, error) ||
+        !CookTree(project.GetRoot() / "Content", cookedContent, shaderBackends, &artifactReferences, error) ||
         !ContentArchive::Create(cookedContent, archive, &entries, error)) {
         Cleanup(staging);
         return false;

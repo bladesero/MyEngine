@@ -5,6 +5,7 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <cctype>
 #include <fstream>
 #include <functional>
 #include <unordered_set>
@@ -38,6 +39,14 @@ void AddIssue(std::vector<AssetDatabaseValidationIssue>& issues,
               std::string path,
               std::string message) {
     issues.push_back({code, std::move(uuid), std::move(path), std::move(message)});
+}
+
+bool IsShaderSourceDependency(const AssetRecord& record, const std::string& dependency) {
+    if (record.type != "shader") return false;
+    std::string extension = std::filesystem::path(dependency).extension().string();
+    std::transform(extension.begin(), extension.end(), extension.begin(),
+        [](unsigned char value) { return static_cast<char>(std::tolower(value)); });
+    return extension == ".hlsl" || extension == ".hlsli";
 }
 }
 
@@ -266,6 +275,7 @@ bool AssetDatabase::ValidateAgainstProject(const std::filesystem::path& projectR
             }
         }
         for (const auto& dependency : record.dependencies) {
+            if (IsShaderSourceDependency(record, dependency)) continue;
             if (!dependency.empty() && !FindByUuid(dependency)) {
                 AddIssue(report.issues, AssetDatabaseValidationIssueCode::UnknownDependency,
                          uuid, dependency, "asset depends on an unknown uuid");

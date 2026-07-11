@@ -154,14 +154,22 @@ Shader 管线以 HLSL 为唯一源码形态：`.shader` 描述逻辑 stage、ent
 defines，源码仍放在 `EngineContent/Shaders` 或项目 `Content/Shaders` 下的
 `.hlsl/.hlsli`。`ShaderCompilerSlang` 负责将同一份 HLSL 编译为当前 RHI 所需
 产物：D3D11/D3D12 使用 DX bytecode，Metal 使用 MSL 文本 blob；cooked shader
-容器 v2 同时保存 D3D11、D3D12、Metal 三套后端数据，并兼容读取旧 v1
-双 D3D 容器。开发机需要在 `PATH` 中提供 `slangc`，或通过 `MYENGINE_SLANGC`
-指定编译器路径；Windows 热编译在 Slang 不可用时可临时回退到原 D3D 编译器，
-Metal 后端必须依赖 Slang。
+容器 v3 同时保存 D3D11、D3D12、Metal、Vulkan 后端数据，并兼容读取旧 v1/v2
+容器。Editor 按需把 engine/project shader 编译为当前项目
+`Library/windows-x64/<uuid>/<cacheKey>.shader` cooked artifact，并记录到
+`.myengine/AssetDatabase.json`；`AssetManager` 冷启动时可把 source `.shader`
+透明解析到 Library artifact。Player 默认只消费 cooked shader，缺失时输出明确错误。
+开发机需要在 `PATH` 中提供 `slangc`，或通过 `MYENGINE_SLANGC` 指定编译器路径；
+Windows 热编译在 Slang 不可用时可临时回退到原 D3D 编译器，Metal 后端必须依赖 Slang。
 
 ---
 
 ## 6. 资源与场景数据流
+
+Scene 切换使用分阶段 load plan：工作线程只读取、解析 JSON 并收集依赖；
+Actor/Component 构造、组件反序列化、Prefab 展开与 GPU 工作仍在各自所属线程，
+并按帧预算推进。新 Scene 完成后才原子替换旧 Scene；失败或取消不会破坏旧世界。
+Asset 缓存按未引用、未 pin 的 LRU 候选和 CPU 高低水位回收，普通 Scene 切换不再清空全局缓存。
 
 - **AssetManager**：按扩展名加载纹理/模型；内置白/黑/法线贴图、立方体等；`GetByPath` / `Load` / `Register`。
 - **SceneSerializer**：场景 JSON 序列化；`MeshRendererComponent` 持久化 mesh/material **路径**，加载时通过 **AssetManager** 解析。Prefab 实例只保存源资源引用、UUID、根放置和覆盖数据，实例子树由 `PrefabSystem` 批量重建；格式与限制见 [`docs/classes/scene/PrefabSystem.md`](docs/classes/scene/PrefabSystem.md)。

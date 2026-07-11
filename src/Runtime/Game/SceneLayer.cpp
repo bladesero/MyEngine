@@ -46,8 +46,15 @@ void SceneLayer::OnUpdate(float dt)
             m_RunState = SceneRunState::Play;
         }
         OnSceneLoaded();
+        AssetCacheBudget budget;
+        budget.cpuHighWatermarkBytes = AssetManager::Get().GetAssetCpuBudgetBytes();
+        AssetManager::Get().CollectGarbage(budget);
     }
-    if (m_RunState == SceneRunState::Play || m_StepRequested) {
+    const SceneLoadState loadState = m_SceneManager.GetState();
+    const bool loadInProgress = loadState == SceneLoadState::Requested ||
+        loadState == SceneLoadState::Reading || loadState == SceneLoadState::Parsing ||
+        loadState == SceneLoadState::Preloading || loadState == SceneLoadState::Instantiating;
+    if (!loadInProgress && (m_RunState == SceneRunState::Play || m_StepRequested)) {
         Scene* playScene = GetPlayScene();
         if (!playScene) {
             m_StepRequested = false;

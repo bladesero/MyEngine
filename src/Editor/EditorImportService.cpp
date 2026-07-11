@@ -10,10 +10,15 @@
 #include "Editor/EditorAssetRegistry.h"
 #include "Editor/EditorContext.h"
 #include "Editor/EditorProfiler.h"
+#include "Renderer/ShaderCacheService.h"
 
 #include <algorithm>
 #include <chrono>
 #include <cctype>
+#include <fstream>
+#include <unordered_set>
+
+#include <nlohmann/json.hpp>
 
 namespace {
 
@@ -28,6 +33,46 @@ double ElapsedImportMs(ImportClock::time_point start)
 std::string LowerExtension(const std::filesystem::path& path) {
     std::string value=path.extension().string(); std::transform(value.begin(),value.end(),value.begin(),
         [](unsigned char c){return static_cast<char>(std::tolower(c));}); return value; }
+
+std::filesystem::path StripAssetFragment(const std::string& value)
+{
+    const size_t fragment = value.find('#');
+    return std::filesystem::path(fragment == std::string::npos
+        ? value : value.substr(0, fragment));
+}
+
+void CollectModelReferences(const nlohmann::json& value,
+                            std::vector<std::string>& references)
+{
+    if (value.is_string()) {
+        const std::string text = value.get<std::string>();
+        const std::filesystem::path source = StripAssetFragment(text);
+        const std::string extension = LowerExtension(source);
+        if (extension == ".gltf" || extension == ".glb") {
+            references.push_back(text);
+        }
+        return;
+    }
+    if (value.is_array()) {
+        for (const auto& item : value) CollectModelReferences(item, references);
+        return;
+    }
+    if (value.is_object()) {
+        for (const auto& item : value.items()) CollectModelReferences(item.value(), references);
+    }
+}
+
+std::filesystem::path ResolveProjectAssetPath(const std::filesystem::path& projectRoot,
+                                              const std::string& reference)
+{
+    std::filesystem::path source = StripAssetFragment(reference);
+    if (source.empty()) return {};
+    std::error_code error;
+    if (!source.is_absolute()) {
+        source = projectRoot / source;
+    }
+    return std::filesystem::absolute(source, error).lexically_normal();
+}
 
 void RecordImportEvent(EditorContext* context, const char* operation,
                        const std::string& sourceOrUuid, double durationMs,
@@ -61,13 +106,83 @@ std::filesystem::path EditorImportService::MakeUniqueContentPath(const std::file
 EditorImportService::EditorImportService()
     : m_ImportPipeline(std::make_unique<AssetImportService>()) {}
 
-EditorImportService::~EditorImportService() = default;
+EditorImportService::~EditorImportService() {
+    ShaderCacheService::Get().ClearResolver();
+}
 
 void EditorImportService::OnAttach(EditorContext& context) {
     EditorService::OnAttach(context);
     std::string error;
     if (!m_ImportPipeline->OpenProject(context.GetProjectRoot(), &error))
         Logger::Warn("[Editor] Asset import pipeline unavailable: ", error);
+    ShaderCacheService::Get().SetResolver(
+        [this](const ShaderCacheRequest& request) {
+            ShaderCacheResult result;
+            std::string error;
+            bool cacheHit = false;
+            if (EnsureShaderCache(request.sourcePath, "{}", request.allowCompile,
+                                  result.artifactPath, cacheHit, &error)) {
+                result.succeeded = true;
+                result.cacheHit = cacheHit;
+            } else {
+                result.diagnostic = std::move(error);
+            }
+            return result;
+        });
+}
+
+bool EditorImportService::EnsureShaderCache(
+    const std::filesystem::path& sourcePath,
+    const std::string& settingsJson,
+    bool allowCompile,
+    std::filesystem::path& outArtifactPath,
+    bool& outCacheHit,
+    std::string* error) {
+    if (!m_ImportPipeline) {
+        if (error) *error = "asset import pipeline is unavailable";
+        return false;
+    }
+
+    const std::filesystem::path resolved =
+        AssetManager::Get().ResolvePath(sourcePath.string());
+    const AssetRecord* existing =
+        m_ImportPipeline->GetDatabase().FindBySourcePath(resolved.generic_string());
+    if (!existing) {
+        std::error_code ec;
+        const std::filesystem::path relative =
+            std::filesystem::relative(resolved, AssetManager::Get().GetProjectRoot(), ec);
+        if (!ec && !relative.empty() && !relative.is_absolute()) {
+            existing = m_ImportPipeline->GetDatabase().FindBySourcePath(relative.generic_string());
+        }
+    }
+    if (existing && existing->state == AssetImportState::Ready &&
+        existing->type == "shader" &&
+        std::filesystem::is_regular_file(existing->artifactPath)) {
+        outArtifactPath = existing->artifactPath;
+        outCacheHit = true;
+        return true;
+    }
+    if (!allowCompile) {
+        if (error) *error = "shader cache artifact is missing and compilation is disabled";
+        return false;
+    }
+
+    AssetImportReport report;
+    const std::string projectRelative =
+        AssetManager::Get().MakeProjectRelativePath(resolved.string());
+    if (projectRelative.rfind("Content/Engine/", 0) == 0 ||
+        projectRelative.rfind("Content\\Engine\\", 0) == 0) {
+        report = m_ImportPipeline->ImportEngineShaderSource(resolved, settingsJson, error);
+    } else {
+        const std::string uuid = existing ? existing->uuid : std::string{};
+        report = m_ImportPipeline->ImportSource(resolved, settingsJson, uuid, error);
+    }
+    if (!report.succeeded) return false;
+    AssetManager::Get().RegisterPersistentIdentity(report.record.artifactPath,
+                                                   report.record.uuid);
+    outArtifactPath = report.record.artifactPath;
+    outCacheHit = report.cacheHit;
+    return true;
 }
 
 bool EditorImportService::Import(const std::string& sourcePath) {
@@ -162,6 +277,62 @@ bool EditorImportService::ReimportWithSettings(
                       ElapsedImportMs(start), true,
                       "uuid=" + report.record.uuid);
     return true;
+}
+
+size_t EditorImportService::EnsureModelCachesForScene(
+    const std::filesystem::path& scenePath, std::vector<std::string>* failures) {
+    const auto start = ImportClock::now();
+    EditorContext* context = GetContext();
+    if (!context || !m_ImportPipeline || !std::filesystem::is_regular_file(scenePath)) {
+        RecordImportEvent(context, "Warm Model Cache", scenePath.string(),
+                          ElapsedImportMs(start), false);
+        return 0;
+    }
+
+    std::vector<std::string> references;
+    try {
+        std::ifstream input(scenePath);
+        nlohmann::json sceneJson;
+        input >> sceneJson;
+        CollectModelReferences(sceneJson, references);
+    } catch (const std::exception& exception) {
+        if (failures) failures->push_back(scenePath.string() + ": " + exception.what());
+        RecordImportEvent(context, "Warm Model Cache", scenePath.string(),
+                          ElapsedImportMs(start), false,
+                          "error=" + std::string(exception.what()));
+        return 0;
+    }
+
+    std::unordered_set<std::string> visited;
+    size_t warmed = 0;
+    for (const std::string& reference : references) {
+        const std::filesystem::path source =
+            ResolveProjectAssetPath(context->GetProjectRoot(), reference);
+        if (source.empty() || !std::filesystem::is_regular_file(source)) continue;
+        const std::string sourceKey = source.generic_string();
+        if (!visited.insert(sourceKey).second) continue;
+
+        std::string error;
+        const AssetRecord* existing =
+            m_ImportPipeline->GetDatabase().FindBySourcePath(sourceKey);
+        const std::string uuid = existing ? existing->uuid : std::string{};
+        AssetImportReport report =
+            m_ImportPipeline->ImportSource(source, "{}", uuid, &error);
+        if (!report.succeeded) {
+            if (failures) failures->push_back(sourceKey + ": " + error);
+            continue;
+        }
+        if (std::filesystem::path(report.record.artifactPath).extension() == ".modelbin") {
+            AssetManager::Get().RegisterPersistentIdentity(report.record.artifactPath,
+                                                           report.record.uuid);
+            ++warmed;
+        }
+    }
+
+    RecordImportEvent(context, "Warm Model Cache", scenePath.string(),
+                      ElapsedImportMs(start), failures ? failures->empty() : true,
+                      "models=" + std::to_string(warmed));
+    return warmed;
 }
 
 size_t EditorImportService::ReimportAll(std::vector<std::string>* failures) {

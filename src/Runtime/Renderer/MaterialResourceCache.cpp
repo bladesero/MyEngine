@@ -3,6 +3,7 @@
 #include "Assets/MeshAsset.h"
 #include "Assets/TextureAsset.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstring>
 
@@ -16,6 +17,45 @@ RHIFilter FilterForTexture(const TextureAsset& texture)
 RHIAddressMode AddressForTexture(TextureWrap wrap)
 {
     return wrap == TextureWrap::Clamp ? RHIAddressMode::Clamp : RHIAddressMode::Repeat;
+}
+
+uint64_t EstimateTextureUploadBytes(const TextureAsset& texture)
+{
+    if (texture.IsPayloadResident()) {
+        uint64_t bytes = 0;
+        for (const TextureMipData& mip : texture.GetMips()) {
+            bytes += mip.rgba8.size();
+        }
+        return bytes;
+    }
+
+    uint64_t bytes = 0;
+    int width = texture.GetWidth();
+    int height = texture.GetHeight();
+    const int mipLevels = (std::max)(1, texture.GetMipLevels());
+    for (int mip = 0; mip < mipLevels && width > 0 && height > 0; ++mip) {
+        bytes += static_cast<uint64_t>(width) * static_cast<uint64_t>(height) * 4ull;
+        width = (std::max)(1, width / 2);
+        height = (std::max)(1, height / 2);
+        if (width == 1 && height == 1 && mip + 1 < mipLevels) {
+            bytes += 4ull * static_cast<uint64_t>(mipLevels - mip - 1);
+            break;
+        }
+    }
+    return bytes;
+}
+
+bool CanUploadBc1(const IRHIDevice& device, const TextureAsset& texture)
+{
+    if (!device.IsFormatSupported(RHIFormat::BC1UNorm, RHIResourceUsage::ShaderResource)) {
+        return false;
+    }
+    const auto& mips = texture.GetMips();
+    if (mips.empty()) return false;
+    for (const TextureMipData& mip : mips) {
+        if (mip.width <= 0 || mip.height <= 0 || mip.bc1.empty()) return false;
+    }
+    return true;
 }
 
 } // namespace
@@ -80,15 +120,27 @@ void MaterialResourceCache::EnsureTextureUploaded(TextureAsset* texture)
     if (texture->HasGpuHandle()) return;
     if (m_TextureCache.count(texture)) return;
 
+    const uint64_t estimatedUploadBytes = EstimateTextureUploadBytes(*texture);
+    if (m_TextureUploadBudgetBytes > 0 &&
+        estimatedUploadBytes > 0 &&
+        m_FrameStats.textureUploads > 0 &&
+        m_FrameStats.textureUploadBytes + estimatedUploadBytes > m_TextureUploadBudgetBytes) {
+        ++m_FrameStats.skippedTextureUploads;
+        m_FrameStats.pendingTextureUploadBytes += estimatedUploadBytes;
+        return;
+    }
+
+    if (!texture->EnsurePayloadLoaded()) return;
     const auto& mips = texture->GetMips();
     if (mips.empty()) return;
+    const bool uploadBc1 = CanUploadBc1(*m_Device, *texture);
 
     RHITextureDesc desc;
     desc.width = static_cast<uint32_t>(texture->GetWidth());
     desc.height = static_cast<uint32_t>(texture->GetHeight());
     desc.mipLevels = static_cast<uint32_t>(mips.size());
     desc.arrayLayers = 1;
-    desc.format = RHIFormat::RGBA8UNorm;
+    desc.format = uploadBc1 ? RHIFormat::BC1UNorm : RHIFormat::RGBA8UNorm;
     desc.usage = RHIResourceUsage::ShaderResource | RHIResourceUsage::CopyDestination;
     desc.debugName = texture->GetName();
 
@@ -97,15 +149,25 @@ void MaterialResourceCache::EnsureTextureUploaded(TextureAsset* texture)
     uint64_t uploadBytes = 0;
     for (uint32_t mip = 0; mip < mips.size(); ++mip) {
         const TextureMipData& mipData = mips[mip];
-        if (mipData.rgba8.empty() || mipData.width <= 0 || mipData.height <= 0) return;
+        if (mipData.width <= 0 || mipData.height <= 0) return;
         RHITextureSubresourceData source;
-        source.data = mipData.rgba8.data();
-        source.rowPitch = static_cast<uint32_t>(mipData.width * 4);
-        source.slicePitch = static_cast<uint32_t>(mipData.rgba8.size());
+        if (uploadBc1) {
+            const uint32_t blockColumns =
+                static_cast<uint32_t>((mipData.width + 3) / 4);
+            source.data = mipData.bc1.data();
+            source.rowPitch = blockColumns * 8u;
+            source.slicePitch = static_cast<uint32_t>(mipData.bc1.size());
+            uploadBytes += mipData.bc1.size();
+        } else {
+            if (mipData.rgba8.empty()) return;
+            source.data = mipData.rgba8.data();
+            source.rowPitch = static_cast<uint32_t>(mipData.width * 4);
+            source.slicePitch = static_cast<uint32_t>(mipData.rgba8.size());
+            uploadBytes += mipData.rgba8.size();
+        }
         source.mipLevel = mip;
         source.arrayLayer = 0;
         subresources.push_back(source);
-        uploadBytes += mipData.rgba8.size();
     }
 
     const auto uploadStart = std::chrono::steady_clock::now();

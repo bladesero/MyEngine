@@ -22,6 +22,13 @@ public:
     AssetImportReport Import(const std::filesystem::path& externalSource,
                              const std::string& settingsJson = "{}",
                              std::string* error = nullptr);
+    AssetImportReport ImportSource(const std::filesystem::path& source,
+                                   const std::string& settingsJson = "{}",
+                                   const std::string& existingUuid = {},
+                                   std::string* error = nullptr);
+    AssetImportReport ImportEngineShaderSource(const std::filesystem::path& source,
+                                               const std::string& settingsJson = "{}",
+                                               std::string* error = nullptr);
     AssetImportReport Reimport(const std::string& uuid,
                                std::string* error = nullptr);
     AssetImportReport ReimportWithSettings(const std::string& uuid,
@@ -36,10 +43,6 @@ public:
 
 private:
     const IAssetImporter* FindImporter(const std::filesystem::path& path) const;
-    AssetImportReport ImportSource(const std::filesystem::path& source,
-                                   const std::string& settingsJson,
-                                   const std::string& existingUuid,
-                                   std::string* error);
     std::string BuildCacheKey(const IAssetImporter& importer,
                               const std::filesystem::path& source,
                               const std::string& settingsJson,
@@ -49,4 +52,11 @@ private:
     AssetDatabase m_Database;
     AssetDatabaseValidationReport m_ValidationReport;
     std::vector<std::unique_ptr<IAssetImporter>> m_Importers;
+
+    AssetImportReport ImportSourceInternal(const std::filesystem::path& source,
+                                           const std::string& settingsJson,
+                                           const std::string& existingUuid,
+                                           const std::string& virtualUuid,
+                                           bool writeMeta,
+                                           std::string* error);
 };

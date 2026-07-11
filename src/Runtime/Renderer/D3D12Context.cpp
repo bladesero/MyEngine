@@ -69,6 +69,7 @@ static DXGI_FORMAT ToDxgiRHIFormat(RHIFormat fmt, bool resource = false) {
     case RHIFormat::RG32Float: return DXGI_FORMAT_R32G32_FLOAT;
     case RHIFormat::RGB32Float: return DXGI_FORMAT_R32G32B32_FLOAT;
     case RHIFormat::RGBA32Float: return DXGI_FORMAT_R32G32B32A32_FLOAT;
+    case RHIFormat::BC1UNorm: return DXGI_FORMAT_BC1_UNORM;
     case RHIFormat::D24S8: return resource ? DXGI_FORMAT_R24G8_TYPELESS : DXGI_FORMAT_D24_UNORM_S8_UINT;
     case RHIFormat::D32Float: return resource ? DXGI_FORMAT_R32_TYPELESS : DXGI_FORMAT_D32_FLOAT;
     default: return DXGI_FORMAT_UNKNOWN;
@@ -120,6 +121,7 @@ static uint32_t RHIFormatByteSize12(RHIFormat format) {
     case RHIFormat::RG32Float: case RHIFormat::RGBA16Float: return 8;
     case RHIFormat::RGB32Float: return 12;
     case RHIFormat::RGBA32Float: return 16;
+    case RHIFormat::BC1UNorm: return 0;
     default: return 0;
     }
 }

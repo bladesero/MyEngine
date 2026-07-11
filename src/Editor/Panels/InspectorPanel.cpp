@@ -5,6 +5,7 @@
 #include "Editor/EditorOperators.h"
 #include "Editor/EditorUI/EditorAngelScriptDomain.h"
 #include "Editor/UI/EditorWidgets.h"
+#include "Editor/UI/EditorViewportPolicy.h"
 #include "Editor/InspectorSections.h"
 #include "Core/Logger.h"
 #include "Scene/Actor.h"
@@ -662,7 +663,7 @@ void InspectorPanel::DrawContent()
         }
 
         ImGui::Separator();
-        ImGui::SetNextWindowViewport(ImGui::GetWindowViewport()->ID);
+        Editor::UI::EditorViewportPolicy::BindNextPopupToCurrentViewport();
         if (ImGui::BeginCombo("##MultiAddComponent", "Add Component to Selection...")) {
             ImGui::SetNextItemWidth(-1.0f);
             ImGui::InputTextWithHint("##MultiAddComponentSearch",

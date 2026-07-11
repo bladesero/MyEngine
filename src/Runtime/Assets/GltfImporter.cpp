@@ -1,4 +1,6 @@
 #include "Assets/AssetManager.h"
+#include "Assets/AssetImporter.h"
+#include "Assets/ModelCacheAsset.h"
 
 #define CGLTF_IMPLEMENTATION
 #include "cgltf.h"
@@ -9,6 +11,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
+#include <cctype>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -244,6 +247,7 @@ TextureHandle ImportTexture(GltfImportContext& context,
     desc.width = decoded.width;
     desc.height = decoded.height;
     desc.sRGB = srgb;
+    desc.generateCompressedMips = true;
     const auto mipStart = Clock::now();
     texture->SetPixelData(decoded.rgba, desc);
     context.stats.textureMipMs += MsSince(mipStart);
@@ -550,4 +554,50 @@ std::shared_ptr<ModelAsset> LoadModelAssetFromGltf(const std::string& path)
                  " bones=", model->GetBones().size(),
                  " animations=", model->GetAnimations().size());
     return model;
+}
+
+namespace {
+
+class GltfModelAssetImporter final : public IAssetImporter {
+public:
+    const char* GetName() const override { return "gltf-model"; }
+    uint32_t GetVersion() const override { return 3; }
+
+    bool Supports(const std::filesystem::path& sourcePath) const override
+    {
+        std::string extension = sourcePath.extension().string();
+        std::transform(extension.begin(), extension.end(), extension.begin(),
+            [](unsigned char value) { return static_cast<char>(std::tolower(value)); });
+        return extension == ".gltf" || extension == ".glb";
+    }
+
+    std::string GetArtifactExtension(const std::filesystem::path&) const override
+    {
+        return ".modelbin";
+    }
+
+    ImportResult Import(const ImportRequest& request) const override
+    {
+        ImportResult result;
+        std::shared_ptr<ModelAsset> model =
+            LoadModelAssetFromGltf(request.sourcePath.string());
+        if (!model) {
+            result.diagnostics.push_back({"error", "glTF import failed"});
+            return result;
+        }
+        if (!SaveModelCacheAssetToFile(*model, request.artifactPath.string())) {
+            result.diagnostics.push_back({"error", "failed to write model cache artifact"});
+            return result;
+        }
+        result.type = "model";
+        result.succeeded = true;
+        return result;
+    }
+};
+
+} // namespace
+
+std::unique_ptr<IAssetImporter> CreateGltfModelAssetImporter()
+{
+    return std::make_unique<GltfModelAssetImporter>();
 }

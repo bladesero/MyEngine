@@ -5,6 +5,7 @@
 #include <fstream>
 #include <nlohmann/json.hpp>
 #include <sstream>
+#include <unordered_map>
 #include <unordered_set>
 
 namespace fs = std::filesystem;
@@ -22,6 +23,53 @@ PublishIssueCode ToPublishIssue(AssetDatabaseValidationIssueCode code) {
     default:
         return PublishIssueCode::InvalidAsset;
     }
+}
+
+std::string AbsoluteKey(const fs::path& path) {
+    std::error_code ec;
+    fs::path absolute = path.is_absolute() || path.has_root_name()
+        ? fs::absolute(path, ec)
+        : fs::absolute(path, ec);
+    if (ec) absolute = path;
+    return absolute.lexically_normal().generic_string();
+}
+
+bool IsWithin(const fs::path& path, const fs::path& root) {
+    std::error_code ec;
+    const fs::path relative = fs::relative(path, root, ec);
+    return !ec && !relative.empty() && !relative.is_absolute() &&
+           *relative.begin() != "..";
+}
+
+std::string ToProjectContentReference(const fs::path& projectRoot,
+                                      const std::string& sourcePath) {
+    fs::path source(sourcePath);
+    if (source.is_relative() && source.generic_string().rfind("Content/", 0) == 0) {
+        return source.generic_string();
+    }
+    if (source.is_relative()) source = projectRoot / source;
+    std::error_code ec;
+    source = fs::absolute(source, ec).lexically_normal();
+    if (ec) return {};
+    const fs::path contentRoot = projectRoot / "Content";
+    if (!IsWithin(source, contentRoot)) return {};
+    return (fs::path("Content") / fs::relative(source, contentRoot, ec)).generic_string();
+}
+
+std::unordered_map<std::string, std::string> BuildArtifactReferenceMap(
+    const fs::path& projectRoot) {
+    std::unordered_map<std::string, std::string> result;
+    AssetDatabase database;
+    std::string error;
+    if (!database.Open(projectRoot / ".myengine" / "AssetDatabase.json", &error)) return result;
+    for (const AssetRecord& record : database.GetAll()) {
+        if (record.artifactPath.empty() || record.sourcePath.empty()) continue;
+        const std::string sourceReference =
+            ToProjectContentReference(projectRoot, record.sourcePath);
+        if (sourceReference.empty()) continue;
+        result[AbsoluteKey(record.artifactPath)] = sourceReference;
+    }
+    return result;
 }
 
 void ValidateAssetDatabase(const fs::path& projectRoot, PublishPreflightReport& report) {
@@ -59,6 +107,7 @@ struct Scanner {
     fs::path projectRoot, contentRoot;
     PublishPreflightReport* report = nullptr;
     std::unordered_set<std::string> visited;
+    std::unordered_map<std::string, std::string> artifactReferences;
 
     void Error(PublishIssueCode code, const fs::path& path, const fs::path& from,
                const std::vector<std::string>& chain, std::string message) {
@@ -67,9 +116,16 @@ struct Scanner {
     bool Resolve(const std::string& value, const fs::path& from, fs::path& out,
                  const std::vector<std::string>& chain) {
         if (value.empty() || value.rfind("__builtin__/",0)==0 || value.rfind("data:",0)==0) return false;
-        std::string withoutFragment = value.substr(0, value.find('#'));
+        const size_t fragmentPosition = value.find('#');
+        std::string withoutFragment = value.substr(0, fragmentPosition);
+        const std::string fragment = fragmentPosition == std::string::npos
+            ? std::string{} : value.substr(fragmentPosition);
         fs::path logical(withoutFragment), relative;
         if (logical.is_absolute() || logical.has_root_name()) {
+            const auto artifact = artifactReferences.find(AbsoluteKey(logical));
+            if (artifact != artifactReferences.end()) {
+                return Resolve(artifact->second + fragment, from, out, chain);
+            }
             Error(PublishIssueCode::UnsafePath, logical, from, chain, "absolute asset reference is forbidden"); return false;
         }
         const std::string generic = logical.generic_string();
@@ -163,6 +219,7 @@ std::string PublishPreflightReport::Summary() const {
 }
 bool CookDependencyGraph::Validate(const fs::path& projectRoot, PublishPreflightReport& report) {
     report={}; Scanner scanner{projectRoot,projectRoot/"Content",&report};
+    scanner.artifactReferences = BuildArtifactReferenceMap(projectRoot);
     ValidateAssetDatabase(projectRoot, report);
     std::vector<ContentFileInfo> files; std::string error;
     if(!ContentPathPolicy::Enumerate(scanner.contentRoot,files,report.totalContentBytes,&error)) {

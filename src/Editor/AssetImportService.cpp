@@ -4,11 +4,111 @@
 #include "Assets/AssetManager.h"
 #include "Core/Sha256.h"
 #include "Project/RuntimeCompatibility.h"
+#include "Renderer/ShaderCooker.h"
 
+#include <nlohmann/json.hpp>
+
+#include <algorithm>
+#include <cctype>
 #include <fstream>
+#include <sstream>
 
 namespace {
 void SetError(std::string* error, std::string value) { if (error) *error = std::move(value); }
+
+std::string LowerExtension(const std::filesystem::path& path)
+{
+    std::string extension = path.extension().string();
+    std::transform(extension.begin(), extension.end(), extension.begin(),
+        [](unsigned char value) { return static_cast<char>(std::tolower(value)); });
+    return extension;
+}
+
+bool StartsWithDataUri(const std::string& uri)
+{
+    return uri.size() >= 5 &&
+        std::tolower(static_cast<unsigned char>(uri[0])) == 'd' &&
+        std::tolower(static_cast<unsigned char>(uri[1])) == 'a' &&
+        std::tolower(static_cast<unsigned char>(uri[2])) == 't' &&
+        std::tolower(static_cast<unsigned char>(uri[3])) == 'a' &&
+        uri[4] == ':';
+}
+
+std::string DecodeUriPath(std::string_view uri)
+{
+    std::string decoded;
+    decoded.reserve(uri.size());
+    for (size_t i = 0; i < uri.size(); ++i) {
+        if (uri[i] == '%' && i + 2 < uri.size()) {
+            unsigned int value = 0;
+            std::istringstream stream(std::string(uri.substr(i + 1, 2)));
+            stream >> std::hex >> value;
+            if (!stream.fail()) {
+                decoded.push_back(static_cast<char>(value));
+                i += 2;
+                continue;
+            }
+        }
+        decoded.push_back(uri[i] == '/' ? std::filesystem::path::preferred_separator : uri[i]);
+    }
+    return decoded;
+}
+
+std::vector<std::filesystem::path> CollectGltfExternalDependencies(
+    const std::filesystem::path& source)
+{
+    std::vector<std::filesystem::path> dependencies;
+    if (LowerExtension(source) != ".gltf") return dependencies;
+
+    try {
+        std::ifstream input(source);
+        nlohmann::json gltf;
+        input >> gltf;
+        auto appendUri = [&](const nlohmann::json& value) {
+            if (!value.is_object() || !value.contains("uri") || !value["uri"].is_string()) {
+                return;
+            }
+            const std::string uri = value["uri"].get<std::string>();
+            if (uri.empty() || StartsWithDataUri(uri)) return;
+            dependencies.push_back((source.parent_path() / DecodeUriPath(uri)).lexically_normal());
+        };
+        for (const auto& buffer : gltf.value("buffers", nlohmann::json::array())) {
+            appendUri(buffer);
+        }
+        for (const auto& image : gltf.value("images", nlohmann::json::array())) {
+            appendUri(image);
+        }
+        std::sort(dependencies.begin(), dependencies.end());
+        dependencies.erase(std::unique(dependencies.begin(), dependencies.end()), dependencies.end());
+    } catch (...) {
+        dependencies.clear();
+    }
+    return dependencies;
+}
+
+std::filesystem::path FindShaderContentRoot(std::filesystem::path sourcePath)
+{
+    std::error_code error;
+    sourcePath = std::filesystem::absolute(std::move(sourcePath), error).lexically_normal();
+    std::filesystem::path cursor = sourcePath.parent_path();
+    while (!cursor.empty()) {
+        const std::string name = cursor.filename().string();
+        if (name == "Content" || name == "EngineContent") return cursor;
+        const auto parent = cursor.parent_path();
+        if (parent == cursor) break;
+        cursor = parent;
+    }
+    return sourcePath.parent_path();
+}
+
+std::string StableVirtualShaderUuid(const std::filesystem::path& source)
+{
+    Sha256 hash;
+    const std::string key = "engine-shader:" +
+        std::filesystem::absolute(source).lexically_normal().generic_string();
+    hash.Update(key.data(), key.size());
+    return "engine-shader-" + Sha256::ToHex(hash.Final()).substr(0, 32);
+}
 }
 
 bool AssetImportService::OpenProject(const std::filesystem::path& projectRoot,
@@ -16,7 +116,11 @@ bool AssetImportService::OpenProject(const std::filesystem::path& projectRoot,
     m_ProjectRoot = std::filesystem::absolute(projectRoot).lexically_normal();
     std::filesystem::create_directories(m_ProjectRoot / "SourceAssets");
     std::filesystem::create_directories(m_ProjectRoot / "Library/windows-x64");
-    if (m_Importers.empty()) RegisterImporter(CreatePassthroughAssetImporter());
+    if (m_Importers.empty()) {
+        RegisterImporter(CreateGltfModelAssetImporter());
+        RegisterImporter(CreateShaderAssetImporter());
+        RegisterImporter(CreatePassthroughAssetImporter());
+    }
     if (!m_Database.Open(m_ProjectRoot / ".myengine/AssetDatabase.json", error)) return false;
     RefreshValidation();
     return true;
@@ -39,7 +143,35 @@ std::string AssetImportService::BuildCacheKey(const IAssetImporter& importer,
     const std::string sourceHash = Sha256::HashFile(source, &hashError);
     if (!hashError.empty()) { SetError(error, hashError); return {}; }
     Sha256 hash;
-    const std::string contract = sourceHash + "|" + settingsJson + "|" + importer.GetName() +
+    std::string dependencyContract;
+    if (std::string(importer.GetName()) == "shader") {
+        const std::vector<ShaderBackend> backends =
+            ShaderCooker::BackendsForTargetPlatform("windows-x64");
+        std::vector<std::string> dependencies;
+        const std::string shaderKey = ShaderCooker::BuildCacheKey(
+            source, FindShaderContentRoot(source), backends, "windows-x64",
+            settingsJson, &dependencies, error);
+        if (shaderKey.empty()) return {};
+        dependencyContract += "|shader:";
+        dependencyContract += shaderKey;
+        for (const auto& dependency : dependencies) {
+            dependencyContract += "|dep:";
+            dependencyContract += dependency;
+        }
+    }
+    for (const auto& dependency : CollectGltfExternalDependencies(source)) {
+        dependencyContract += "|dep:";
+        dependencyContract += dependency.generic_string();
+        dependencyContract += "=";
+        if (std::filesystem::is_regular_file(dependency)) {
+            const std::string dependencyHash = Sha256::HashFile(dependency, &hashError);
+            if (!hashError.empty()) { SetError(error, hashError); return {}; }
+            dependencyContract += dependencyHash;
+        } else {
+            dependencyContract += "missing";
+        }
+    }
+    const std::string contract = sourceHash + dependencyContract + "|" + settingsJson + "|" + importer.GetName() +
         "|" + std::to_string(importer.GetVersion()) + "|" + RuntimeCompatibility::kBuildId +
         "|windows-x64";
     hash.Update(contract.data(), contract.size());
@@ -67,23 +199,47 @@ AssetImportReport AssetImportService::ImportSource(const std::filesystem::path& 
                                                     const std::string& settingsJson,
                                                     const std::string& existingUuid,
                                                     std::string* error) {
+    return ImportSourceInternal(source, settingsJson, existingUuid, {}, true, error);
+}
+
+AssetImportReport AssetImportService::ImportEngineShaderSource(
+    const std::filesystem::path& source,
+    const std::string& settingsJson,
+    std::string* error) {
+    return ImportSourceInternal(source, settingsJson, {}, StableVirtualShaderUuid(source),
+                                false, error);
+}
+
+AssetImportReport AssetImportService::ImportSourceInternal(
+    const std::filesystem::path& source,
+    const std::string& settingsJson,
+    const std::string& existingUuid,
+    const std::string& virtualUuid,
+    bool writeMeta,
+    std::string* error) {
     AssetImportReport report;
     const IAssetImporter* importer = FindImporter(source);
     if (!importer) { SetError(error, "no importer supports source"); return report; }
     AssetMeta meta;
-    if (!existingUuid.empty()) {
+    if (!virtualUuid.empty()) {
+        meta.uuid = virtualUuid;
+        meta.importerVersion = importer->GetVersion();
+    } else if (!existingUuid.empty()) {
         auto loaded = AssetMeta::Load(source.string(), error);
         if (!loaded || loaded->uuid != existingUuid) return report;
         meta = *loaded;
     } else {
         meta = AssetMeta::Create(source.string());
         meta.importerVersion = importer->GetVersion();
-        if (!AssetMeta::Save(meta)) { SetError(error, "failed to save metadata"); return report; }
+        if (writeMeta && !AssetMeta::Save(meta)) {
+            SetError(error, "failed to save metadata");
+            return report;
+        }
     }
     const std::string cacheKey = BuildCacheKey(*importer, source, settingsJson, error);
     if (cacheKey.empty()) return report;
     const auto artifact = m_ProjectRoot / "Library/windows-x64" / meta.uuid /
-        (cacheKey + source.extension().string());
+        (cacheKey + importer->GetArtifactExtension(source));
     AssetRecord previous;
     const AssetRecord* existing = m_Database.FindByUuid(meta.uuid);
     if (existing) previous = *existing;
