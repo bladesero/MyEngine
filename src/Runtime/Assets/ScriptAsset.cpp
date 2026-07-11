@@ -1,5 +1,6 @@
 #include "Assets/ScriptAsset.h"
 
+#include "Core/RuntimeFileSystem.h"
 #include "Scripting/AngelScriptRuntime.h"
 
 #include <fstream>
@@ -56,15 +57,12 @@ bool ScriptAsset::ReloadFrom(const Asset& source)
 std::shared_ptr<ScriptAsset> LoadScriptAssetFromFile(const std::string& path)
 {
     auto asset = std::make_shared<ScriptAsset>(path);
-    std::ifstream input(path, std::ios::binary);
-    if (!input) {
+    std::string source;
+    if (!RuntimeFileSystem::Get().ReadText(path, source)) {
         asset->SetLastError("failed to open script file: " + path);
         return asset;
     }
-
-    std::ostringstream stream;
-    stream << input.rdbuf();
-    asset->SetSource(stream.str());
+    asset->SetSource(std::move(source));
 
     std::string error;
     std::string expandedSource;

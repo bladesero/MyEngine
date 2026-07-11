@@ -1,6 +1,7 @@
 #include "Assets/ShaderAsset.h"
 
 #include "Core/Logger.h"
+#include "Core/RuntimeFileSystem.h"
 #include <cstring>
 #include <fstream>
 #include <nlohmann/json.hpp>
@@ -29,7 +30,7 @@ template<class T> void Write(std::ostream& out, const T& value) {
     out.write(reinterpret_cast<const char*>(&value), sizeof(value));
 }
 
-std::shared_ptr<ShaderAsset> LoadCooked(const std::string& path, std::ifstream& input) {
+std::shared_ptr<ShaderAsset> LoadCooked(const std::string& path, std::istream& input) {
     uint32_t version = 0, mask = 0;
     uint64_t sourceHash = 0;
     if (!Read(input, version) ||
@@ -87,13 +88,13 @@ bool ShaderAsset::ReloadFrom(const Asset& source) {
 
 std::shared_ptr<ShaderAsset> LoadShaderAssetFromFile(const std::string& path) {
     try {
-        std::ifstream input(path, std::ios::binary);
-        if (!input) return {};
+        auto input = RuntimeFileSystem::Get().OpenRead(path);
+        if (!input || !*input) return {};
         char magic[8]{};
-        if (!input.read(magic, sizeof(magic))) return {};
-        if (std::memcmp(magic, kMagic, sizeof(kMagic)) == 0) return LoadCooked(path, input);
-        input.clear(); input.seekg(0);
-        std::string jsonText((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+        if (!input->read(magic, sizeof(magic))) return {};
+        if (std::memcmp(magic, kMagic, sizeof(kMagic)) == 0) return LoadCooked(path, *input);
+        input->clear(); input->seekg(0);
+        std::string jsonText((std::istreambuf_iterator<char>(*input)), std::istreambuf_iterator<char>());
         for (const char* stageName : {"\"vertex\"", "\"pixel\"", "\"compute\""}) {
             const size_t first = jsonText.find(stageName);
             if (first != std::string::npos && jsonText.find(stageName, first + std::strlen(stageName)) != std::string::npos) return {};

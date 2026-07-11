@@ -2,6 +2,7 @@
 
 #include "Assets/AssetManager.h"
 #include "Core/Logger.h"
+#include "Core/RuntimeFileSystem.h"
 
 #include <cstdint>
 #include <chrono>
@@ -13,7 +14,7 @@
 namespace {
 
 constexpr uint32_t kModelCacheMagic = 0x4d454d43; // CMEM / cached MyEngine model
-constexpr uint32_t kModelCacheVersion = 3;
+constexpr uint32_t kModelCacheVersion = 4;
 constexpr uint32_t kMaxStringBytes = 1u << 20;
 constexpr uint32_t kMaxArrayItems = 64u << 20;
 
@@ -134,14 +135,15 @@ bool WriteMipChain(std::ostream& out, const std::vector<TextureMipData>& mips)
         if (!WritePod(out, mip.width) ||
             !WritePod(out, mip.height) ||
             !WriteVector(out, mip.rgba8) ||
-            !WriteVector(out, mip.bc1)) {
+            !WriteVector(out, mip.bc1) ||
+            !WriteVector(out, mip.bc3)) {
             return false;
         }
     }
     return true;
 }
 
-bool ReadMipChain(std::istream& in, std::vector<TextureMipData>& mips)
+bool ReadMipChain(std::istream& in, std::vector<TextureMipData>& mips, uint32_t cacheVersion)
 {
     uint32_t mipCount = 0;
     if (!ReadPod(in, mipCount) || mipCount > kMaxArrayItems) return false;
@@ -153,6 +155,7 @@ bool ReadMipChain(std::istream& in, std::vector<TextureMipData>& mips)
             !ReadVector(in, mip.bc1)) {
             return false;
         }
+        if (cacheVersion >= 4 && !ReadVector(in, mip.bc3)) return false;
     }
     return true;
 }
@@ -168,15 +171,41 @@ bool WriteTexture(std::ostream& out, const TextureAsset& texture,
                   const std::filesystem::path& payloadDirectory,
                   uint32_t& texturePayloadIndex)
 {
-    if (!WriteString(out, texture.GetPath()) ||
-        !WriteString(out, texture.GetName()) ||
-        !WriteTextureDesc(out, texture.GetDesc())) {
+    TextureAsset cookedTexture(texture.GetPath());
+    cookedTexture.SetName(texture.GetName());
+    cookedTexture.SetPixelDataWithMips(
+        texture.GetPixelData(),
+        texture.GetDesc(),
+        texture.GetMips());
+    cookedTexture.GenerateCompressedMips();
+
+    TextureDesc cookedDesc = texture.GetDesc();
+    std::vector<TextureMipData> cookedMips;
+    cookedMips.reserve(cookedTexture.GetMips().size());
+    for (const TextureMipData& mip : cookedTexture.GetMips()) {
+        TextureMipData cookedMip;
+        cookedMip.width = mip.width;
+        cookedMip.height = mip.height;
+        cookedMip.bc3 = mip.bc3;
+        cookedMips.push_back(std::move(cookedMip));
+    }
+    cookedDesc.format = TextureFormat::BC3;
+    cookedDesc.generateCompressedMips = false;
+    cookedDesc.mipLevels = static_cast<int>(cookedMips.size());
+
+    TextureAsset payloadTexture(texture.GetPath());
+    payloadTexture.SetName(texture.GetName());
+    payloadTexture.SetPixelDataWithMips({}, cookedDesc, std::move(cookedMips));
+
+    if (!WriteString(out, payloadTexture.GetPath()) ||
+        !WriteString(out, payloadTexture.GetName()) ||
+        !WriteTextureDesc(out, payloadTexture.GetDesc())) {
         return false;
     }
 
     const std::filesystem::path payloadPath =
         payloadDirectory / ("texture-" + std::to_string(texturePayloadIndex++) + ".texturebin");
-    if (SaveTexturePayloadToFile(texture, payloadPath.string())) {
+    if (SaveTexturePayloadToFile(payloadTexture, payloadPath.string())) {
         const TextureCacheStorage storage = TextureCacheStorage::ExternalPayload;
         std::error_code ec;
         std::filesystem::path relative =
@@ -187,7 +216,7 @@ bool WriteTexture(std::ostream& out, const TextureAsset& texture,
     }
 
     const TextureCacheStorage storage = TextureCacheStorage::Embedded;
-    return WritePod(out, storage) && WriteEmbeddedTexturePayload(out, texture);
+    return WritePod(out, storage) && WriteEmbeddedTexturePayload(out, payloadTexture);
 }
 
 bool ReadEmbeddedTexturePayload(std::istream& in,
@@ -200,7 +229,7 @@ bool ReadEmbeddedTexturePayload(std::istream& in,
     if (!ReadVector(in, pixels)) return false;
     const uint64_t pixelBytes = static_cast<uint64_t>(pixels.size());
     std::vector<TextureMipData> mips;
-    if (cacheVersion >= 2 && !ReadMipChain(in, mips)) return false;
+    if (cacheVersion >= 2 && !ReadMipChain(in, mips, cacheVersion)) return false;
 
     const auto rebuildStart = Clock::now();
     if (cacheVersion >= 2) {
@@ -227,8 +256,7 @@ bool ReadExternalTexturePayload(std::istream& in,
     const std::filesystem::path payloadPath =
         std::filesystem::absolute(
             modelCacheDirectory / std::filesystem::path(relativePayloadPath)).lexically_normal();
-    std::error_code ec;
-    if (!std::filesystem::is_regular_file(payloadPath, ec) || ec) return false;
+    if (!RuntimeFileSystem::Get().Exists(payloadPath.string())) return false;
     texture->SetDeferredPayload(payloadPath.string(), desc);
     if (stats) {
         ++stats->textures;
@@ -337,10 +365,9 @@ bool ReadMaterial(std::istream& in, const std::string& modelPath,
         return false;
     }
 
-    auto materialAsset = std::make_shared<MaterialAsset>(
-        originalPath.empty()
-            ? modelPath + "#material-" + std::to_string(materialIndex)
-            : originalPath);
+    const std::string materialPath =
+        modelPath + "#material-" + std::to_string(materialIndex);
+    auto materialAsset = std::make_shared<MaterialAsset>(materialPath);
     materialAsset->SetName(name);
     materialAsset->SetBlendMode(blendMode);
     materialAsset->SetTwoSided(twoSided);
@@ -560,16 +587,12 @@ std::shared_ptr<ModelAsset> LoadModelCacheAssetFromFile(const std::string& path)
 {
     try {
         const auto loadStart = Clock::now();
-        uint64_t fileBytes = 0;
-        std::error_code sizeError;
-        if (std::filesystem::is_regular_file(path, sizeError)) {
-            fileBytes = static_cast<uint64_t>(std::filesystem::file_size(path, sizeError));
-            if (sizeError) fileBytes = 0;
-        }
+        const uint64_t fileBytes = RuntimeFileSystem::Get().FileSize(path);
         const std::filesystem::path modelCacheDirectory =
             std::filesystem::absolute(std::filesystem::path(path).parent_path()).lexically_normal();
-        std::ifstream in(path, std::ios::binary);
-        if (!in) return {};
+        auto input = RuntimeFileSystem::Get().OpenRead(path);
+        if (!input) return {};
+        std::istream& in = *input;
         uint32_t magic = 0;
         uint32_t version = 0;
         if (!ReadPod(in, magic) || !ReadPod(in, version) ||

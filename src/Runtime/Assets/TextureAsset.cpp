@@ -1,4 +1,5 @@
 #include "Assets/TextureAsset.h"
+#include "Core/RuntimeFileSystem.h"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -11,7 +12,7 @@
 namespace {
 
 constexpr uint32_t kTexturePayloadMagic = 0x5845544d; // MTEX
-constexpr uint32_t kTexturePayloadVersion = 1;
+constexpr uint32_t kTexturePayloadVersion = 2;
 constexpr uint32_t kMaxTextureArrayItems = 64u << 20;
 
 template<typename T>
@@ -92,14 +93,15 @@ bool WriteMipChain(std::ostream& out, const std::vector<TextureMipData>& mips)
         if (!WritePod(out, mip.width) ||
             !WritePod(out, mip.height) ||
             !WriteVector(out, mip.rgba8) ||
-            !WriteVector(out, mip.bc1)) {
+            !WriteVector(out, mip.bc1) ||
+            !WriteVector(out, mip.bc3)) {
             return false;
         }
     }
     return true;
 }
 
-bool ReadMipChain(std::istream& in, std::vector<TextureMipData>& mips)
+bool ReadMipChain(std::istream& in, std::vector<TextureMipData>& mips, uint32_t version)
 {
     uint32_t mipCount = 0;
     if (!ReadPod(in, mipCount) || mipCount > kMaxTextureArrayItems) return false;
@@ -111,6 +113,7 @@ bool ReadMipChain(std::istream& in, std::vector<TextureMipData>& mips)
             !ReadVector(in, mip.bc1)) {
             return false;
         }
+        if (version >= 2 && !ReadVector(in, mip.bc3)) return false;
     }
     return true;
 }
@@ -214,6 +217,77 @@ std::vector<uint8_t> CompressBc1(const std::vector<uint8_t>& rgba, int width, in
     return output;
 }
 
+std::vector<uint8_t> CompressBc3(const std::vector<uint8_t>& rgba, int width, int height)
+{
+    const int blocksX = (width + 3) / 4;
+    const int blocksY = (height + 3) / 4;
+    std::vector<uint8_t> output(static_cast<size_t>(blocksX * blocksY * 16));
+    size_t outputOffset = 0;
+    const std::vector<uint8_t> bc1 = CompressBc1(rgba, width, height);
+    size_t bc1Offset = 0;
+
+    for (int blockY = 0; blockY < blocksY; ++blockY) {
+        for (int blockX = 0; blockX < blocksX; ++blockX) {
+            std::array<uint8_t, 16> alphas{};
+            uint8_t minA = 255;
+            uint8_t maxA = 0;
+            for (int y = 0; y < 4; ++y) {
+                for (int x = 0; x < 4; ++x) {
+                    const int sourceX = (std::min)(blockX * 4 + x, width - 1);
+                    const int sourceY = (std::min)(blockY * 4 + y, height - 1);
+                    const size_t source = static_cast<size_t>((sourceY * width + sourceX) * 4 + 3);
+                    const uint8_t alpha = rgba[source];
+                    alphas[static_cast<size_t>(y * 4 + x)] = alpha;
+                    minA = (std::min)(minA, alpha);
+                    maxA = (std::max)(maxA, alpha);
+                }
+            }
+
+            output[outputOffset++] = maxA;
+            output[outputOffset++] = minA;
+            std::array<uint8_t, 8> palette{};
+            palette[0] = maxA;
+            palette[1] = minA;
+            if (maxA > minA) {
+                for (int i = 1; i <= 6; ++i) {
+                    palette[static_cast<size_t>(i + 1)] = static_cast<uint8_t>(
+                        ((7 - i) * maxA + i * minA) / 7);
+                }
+            } else {
+                for (int i = 1; i <= 4; ++i) {
+                    palette[static_cast<size_t>(i + 1)] = static_cast<uint8_t>(
+                        ((5 - i) * maxA + i * minA) / 5);
+                }
+                palette[6] = 0;
+                palette[7] = 255;
+            }
+
+            uint64_t selectors = 0;
+            for (size_t pixelIndex = 0; pixelIndex < alphas.size(); ++pixelIndex) {
+                uint32_t bestIndex = 0;
+                int bestDistance = 0x7fffffff;
+                for (uint32_t paletteIndex = 0; paletteIndex < palette.size(); ++paletteIndex) {
+                    const int distance = std::abs(
+                        static_cast<int>(alphas[pixelIndex]) -
+                        static_cast<int>(palette[paletteIndex]));
+                    if (distance < bestDistance) {
+                        bestDistance = distance;
+                        bestIndex = paletteIndex;
+                    }
+                }
+                selectors |= static_cast<uint64_t>(bestIndex) << (pixelIndex * 3);
+            }
+            for (int byte = 0; byte < 6; ++byte) {
+                output[outputOffset++] = static_cast<uint8_t>(selectors >> (byte * 8));
+            }
+            std::copy_n(bc1.data() + bc1Offset, 8, output.data() + outputOffset);
+            bc1Offset += 8;
+            outputOffset += 8;
+        }
+    }
+    return output;
+}
+
 } // namespace
 
 bool SaveTexturePayloadToFile(const TextureAsset& texture, const std::string& path)
@@ -255,8 +329,9 @@ bool TextureAsset::EnsurePayloadLoaded()
     if (m_DeferredPayloadPath.empty()) return false;
 
     try {
-        std::ifstream in(m_DeferredPayloadPath, std::ios::binary);
-        if (!in) return false;
+        auto input = RuntimeFileSystem::Get().OpenRead(m_DeferredPayloadPath);
+        if (!input) return false;
+        std::istream& in = *input;
         uint32_t magic = 0;
         uint32_t version = 0;
         TextureDesc desc;
@@ -265,10 +340,10 @@ bool TextureAsset::EnsurePayloadLoaded()
         if (!ReadPod(in, magic) ||
             !ReadPod(in, version) ||
             magic != kTexturePayloadMagic ||
-            version != kTexturePayloadVersion ||
+            version == 0 || version > kTexturePayloadVersion ||
             !ReadTextureDesc(in, desc) ||
             !ReadVector(in, pixels) ||
-            !ReadMipChain(in, mips)) {
+            !ReadMipChain(in, mips, version)) {
             return false;
         }
         SetPixelDataWithMips(std::move(pixels), desc, std::move(mips));
@@ -330,6 +405,10 @@ void TextureAsset::GenerateCompressedMips()
         if (level.bc1.empty() && !level.rgba8.empty() &&
             level.width > 0 && level.height > 0) {
             level.bc1 = CompressBc1(level.rgba8, level.width, level.height);
+        }
+        if (level.bc3.empty() && !level.rgba8.empty() &&
+            level.width > 0 && level.height > 0) {
+            level.bc3 = CompressBc3(level.rgba8, level.width, level.height);
         }
     }
 }

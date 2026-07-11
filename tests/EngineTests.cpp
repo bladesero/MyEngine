@@ -3046,12 +3046,14 @@ bool TestTextureDerivedData() {
     if (!Check(texture->GetMips()[1].width == 2 && texture->GetMips()[2].width == 1,
                "texture mip dimensions are invalid")) return false;
     if (!Check(texture->GetCompressedMip(0).empty() &&
-               texture->GetCompressedMip(2).empty(),
-               "BC1 texture compression should be explicit for runtime imports")) return false;
+               texture->GetCompressedMip(2).empty() &&
+               texture->GetCompressedBc3Mip(0).empty(),
+               "texture compression should be explicit for runtime imports")) return false;
     texture->GenerateCompressedMips();
     return Check(texture->GetCompressedMip(0).size() == 8 &&
+                 texture->GetCompressedBc3Mip(0).size() == 16 &&
                  texture->GetCompressedMip(2).size() == 8,
-                 "explicit BC1 texture compression output size mismatch");
+                 "explicit block texture compression output size mismatch");
 }
 
 bool TestMemoryLinearAllocator() {

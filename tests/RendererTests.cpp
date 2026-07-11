@@ -201,9 +201,9 @@ public:
         caps.timestampQueries = caps.indirectDraw = true; return caps;
     }
     bool IsFormatSupported(RHIFormat format, RHIResourceUsage usage) const override {
-        return supportBc1 &&
-               format == RHIFormat::BC1UNorm &&
-               HasUsage(usage, RHIResourceUsage::ShaderResource);
+        return HasUsage(usage, RHIResourceUsage::ShaderResource) &&
+               ((supportBc1 && format == RHIFormat::BC1UNorm) ||
+                (supportBc3 && format == RHIFormat::BC3UNorm));
     }
     std::shared_ptr<GpuTimestampQueryPool> CreateTimestampQueryPool(uint32_t count) override {
         return count <= 4 ? std::make_shared<MockTimestampPool>() : nullptr;
@@ -265,6 +265,7 @@ public:
     MockCommandList commands;
     RHIBackend backend = RHIBackend::Unknown;
     bool supportBc1 = false;
+    bool supportBc3 = false;
     int beginFrames = 0;
     int endFrames = 0;
     int vertexUploads = 0;
@@ -301,31 +302,32 @@ std::shared_ptr<TextureAsset> CreateCompressedTextureForUploadTest(const std::st
     return texture;
 }
 
-bool TestMaterialResourceCacheUploadsBc1WhenSupported()
+bool TestMaterialResourceCacheUploadsBc3WhenSupported()
 {
     MockRenderContext context;
     context.backend = RHIBackend::D3D11;
     context.supportBc1 = true;
+    context.supportBc3 = true;
 
-    auto texture = CreateCompressedTextureForUploadTest("__test__/CompressedUploadBC1");
+    auto texture = CreateCompressedTextureForUploadTest("__test__/CompressedUploadBC3");
     MaterialResourceCache cache(&context);
     cache.EnsureTextureUploaded(texture.get());
 
     if (!Check(context.textureUploads == 1,
-               "BC1-capable device did not upload the texture")) return false;
+               "BC3-capable device did not upload the texture")) return false;
     if (!Check(!context.uploadedTextureDescs.empty() &&
-               context.uploadedTextureDescs.front().format == RHIFormat::BC1UNorm,
-               "BC1-capable device did not receive a BC1 texture upload")) return false;
+               context.uploadedTextureDescs.front().format == RHIFormat::BC3UNorm,
+               "BC3-capable device did not receive a BC3 texture upload")) return false;
     if (!Check(context.uploadedSubresourceCounts.size() == 1 &&
                context.uploadedSubresourceCounts.front() == 3,
-               "BC1 upload did not include all mip levels")) return false;
-    const bool hasBc1MipPitch = std::find_if(
+               "BC3 upload did not include all mip levels")) return false;
+    const bool hasBc3MipPitch = std::find_if(
         context.uploadedSubresources.begin(), context.uploadedSubresources.end(),
         [](const RHITextureSubresourceData& data) {
-            return data.mipLevel == 0 && data.rowPitch == 8 && data.slicePitch == 8;
+            return data.mipLevel == 0 && data.rowPitch == 16 && data.slicePitch == 16;
         }) != context.uploadedSubresources.end();
-    return Check(hasBc1MipPitch,
-                 "BC1 upload did not use block-compressed row or slice pitch");
+    return Check(hasBc3MipPitch,
+                 "BC3 upload did not use block-compressed row or slice pitch");
 }
 
 bool TestMaterialResourceCacheFallsBackToRgbaWhenBc1Unsupported()
@@ -1533,7 +1535,7 @@ bool TestRendererGraphHasNoEmptyCompatibilityPasses() {
 }
 
 MYENGINE_REGISTER_TEST("Renderer", "TestExtendedRHIContracts", TestExtendedRHIContracts);
-MYENGINE_REGISTER_TEST("Renderer", "TestMaterialResourceCacheUploadsBc1WhenSupported", TestMaterialResourceCacheUploadsBc1WhenSupported);
+MYENGINE_REGISTER_TEST("Renderer", "TestMaterialResourceCacheUploadsBc3WhenSupported", TestMaterialResourceCacheUploadsBc3WhenSupported);
 MYENGINE_REGISTER_TEST("Renderer", "TestMaterialResourceCacheFallsBackToRgbaWhenBc1Unsupported", TestMaterialResourceCacheFallsBackToRgbaWhenBc1Unsupported);
 MYENGINE_REGISTER_TEST("Renderer", "TestRenderGraphValidationAndExecution", TestRenderGraphValidationAndExecution);
 MYENGINE_REGISTER_TEST("Renderer", "TestNamedShaderBindings", TestNamedShaderBindings);

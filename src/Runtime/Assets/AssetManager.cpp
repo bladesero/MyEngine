@@ -1,6 +1,7 @@
 #include "Assets/AssetManager.h"
 #include "Assets/AssetDatabase.h"
 #include "Assets/AssetMeta.h"
+#include "Core/RuntimeFileSystem.h"
 #include "Core/Sha256.h"
 
 #include <algorithm>
@@ -184,6 +185,10 @@ std::string AssetManager::ResolvePath(const std::string& path) const {
     std::filesystem::path resolved;
     const std::string generic = input.generic_string();
     std::error_code error;
+    if (generic.rfind("Content/Engine/", 0) == 0 &&
+        RuntimeFileSystem::Get().Exists(generic)) {
+        return generic + fragment;
+    }
     if (!m_EngineContentRoot.empty() && generic.rfind("Content/Engine/", 0) == 0) {
         resolved = std::filesystem::absolute(
             m_EngineContentRoot / std::filesystem::path(generic.substr(15)), error).lexically_normal();

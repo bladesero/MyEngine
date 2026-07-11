@@ -1,6 +1,7 @@
 #include "Audio/AudioClipAsset.h"
 
 #include "Core/Logger.h"
+#include "Core/RuntimeFileSystem.h"
 
 #include <miniaudio.h>
 
@@ -31,8 +32,16 @@ bool AudioClipAsset::ReloadFrom(const Asset& source)
 
 std::shared_ptr<AudioClipAsset> LoadAudioClipAssetFromFile(const std::string& path)
 {
+    std::vector<uint8_t> bytes;
+    std::string error;
+    if (!RuntimeFileSystem::Get().ReadAllBytes(path, bytes, &error)) {
+        Logger::Error("[Audio] Failed to read audio clip: ", path,
+                      error.empty() ? "" : " (" + error + ")");
+        return {};
+    }
     ma_decoder decoder;
-    const ma_result result = ma_decoder_init_file(path.c_str(), nullptr, &decoder);
+    const ma_result result = ma_decoder_init_memory(
+        bytes.data(), bytes.size(), nullptr, &decoder);
     if (result != MA_SUCCESS) {
         Logger::Error("[Audio] Failed to decode audio clip: ", path);
         return {};

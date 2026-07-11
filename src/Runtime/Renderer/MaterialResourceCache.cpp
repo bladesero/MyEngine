@@ -45,6 +45,19 @@ uint64_t EstimateTextureUploadBytes(const TextureAsset& texture)
     return bytes;
 }
 
+bool CanUploadBc3(const IRHIDevice& device, const TextureAsset& texture)
+{
+    if (!device.IsFormatSupported(RHIFormat::BC3UNorm, RHIResourceUsage::ShaderResource)) {
+        return false;
+    }
+    const auto& mips = texture.GetMips();
+    if (mips.empty()) return false;
+    for (const TextureMipData& mip : mips) {
+        if (mip.width <= 0 || mip.height <= 0 || mip.bc3.empty()) return false;
+    }
+    return true;
+}
+
 bool CanUploadBc1(const IRHIDevice& device, const TextureAsset& texture)
 {
     if (!device.IsFormatSupported(RHIFormat::BC1UNorm, RHIResourceUsage::ShaderResource)) {
@@ -133,6 +146,7 @@ void MaterialResourceCache::EnsureTextureUploaded(TextureAsset* texture)
     if (!texture->EnsurePayloadLoaded()) return;
     const auto& mips = texture->GetMips();
     if (mips.empty()) return;
+    const bool uploadBc3 = CanUploadBc3(*m_Device, *texture);
     const bool uploadBc1 = CanUploadBc1(*m_Device, *texture);
 
     RHITextureDesc desc;
@@ -140,7 +154,8 @@ void MaterialResourceCache::EnsureTextureUploaded(TextureAsset* texture)
     desc.height = static_cast<uint32_t>(texture->GetHeight());
     desc.mipLevels = static_cast<uint32_t>(mips.size());
     desc.arrayLayers = 1;
-    desc.format = uploadBc1 ? RHIFormat::BC1UNorm : RHIFormat::RGBA8UNorm;
+    desc.format = uploadBc3 ? RHIFormat::BC3UNorm
+        : uploadBc1 ? RHIFormat::BC1UNorm : RHIFormat::RGBA8UNorm;
     desc.usage = RHIResourceUsage::ShaderResource | RHIResourceUsage::CopyDestination;
     desc.debugName = texture->GetName();
 
@@ -151,7 +166,14 @@ void MaterialResourceCache::EnsureTextureUploaded(TextureAsset* texture)
         const TextureMipData& mipData = mips[mip];
         if (mipData.width <= 0 || mipData.height <= 0) return;
         RHITextureSubresourceData source;
-        if (uploadBc1) {
+        if (uploadBc3) {
+            const uint32_t blockColumns =
+                static_cast<uint32_t>((mipData.width + 3) / 4);
+            source.data = mipData.bc3.data();
+            source.rowPitch = blockColumns * 16u;
+            source.slicePitch = static_cast<uint32_t>(mipData.bc3.size());
+            uploadBytes += mipData.bc3.size();
+        } else if (uploadBc1) {
             const uint32_t blockColumns =
                 static_cast<uint32_t>((mipData.width + 3) / 4);
             source.data = mipData.bc1.data();

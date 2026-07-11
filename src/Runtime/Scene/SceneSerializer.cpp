@@ -6,6 +6,7 @@
 #include "Assets/AssetManager.h"
 #include "Assets/NavMeshAsset.h"
 #include "Core/Logger.h"
+#include "Core/RuntimeFileSystem.h"
 
 #include <nlohmann/json.hpp>
 #include <fstream>
@@ -261,14 +262,12 @@ bool SceneSerializer::SaveToFile(const Scene& scene, const std::string& filepath
 bool SceneSerializer::LoadFromFile(Scene& scene, const std::string& filepath)
 {
     try {
-        std::ifstream f(filepath);
-        if (!f.is_open()) {
+        std::string source;
+        if (!RuntimeFileSystem::Get().ReadText(filepath, source)) {
             Logger::Error("SceneSerializer: cannot open '", filepath, "' for reading");
             return false;
         }
-        std::ostringstream source;
-        source << f.rdbuf();
-        bool ok = LoadFromString(scene, source.str());
+        bool ok = LoadFromString(scene, source);
         if (ok) {
             Logger::Info("SceneSerializer: loaded '", scene.GetName(),
                          "' ← ", filepath,

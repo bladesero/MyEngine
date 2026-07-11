@@ -1,10 +1,9 @@
 #include "Scripting/ScriptComponent.h"
 
 #include "Assets/AssetManager.h"
+#include "Core/RuntimeFileSystem.h"
 #include "Scene/Actor.h"
 
-#include <fstream>
-#include <sstream>
 
 namespace {
 
@@ -448,17 +447,15 @@ bool ScriptComponent::LoadFileSource()
 
 bool ScriptComponent::LoadFileSource(std::string& outSource)
 {
-    std::ifstream input(m_ScriptPath, std::ios::binary);
-    if (!input) {
+    std::string readError;
+    if (!RuntimeFileSystem::Get().ReadText(m_ScriptPath, outSource, &readError)) {
         m_LastError = "failed to open script file: " + m_ScriptPath;
+        if (!readError.empty()) m_LastError += " (" + readError + ")";
         return false;
     }
-    std::ostringstream stream;
-    stream << input.rdbuf();
-    outSource = stream.str();
-    std::error_code error;
-    m_LastWriteTime = std::filesystem::last_write_time(m_ScriptPath, error);
-    m_HasWriteTime = !error;
+    std::error_code timeError;
+    m_LastWriteTime = std::filesystem::last_write_time(m_ScriptPath, timeError);
+    m_HasWriteTime = !timeError;
     return true;
 }
 

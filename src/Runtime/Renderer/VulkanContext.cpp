@@ -223,6 +223,8 @@ VkFormat ToVulkanFormat(RHIFormat format) {
     case RHIFormat::RG32Float: return VK_FORMAT_R32G32_SFLOAT;
     case RHIFormat::RGB32Float: return VK_FORMAT_R32G32B32_SFLOAT;
     case RHIFormat::RGBA32Float: return VK_FORMAT_R32G32B32A32_SFLOAT;
+    case RHIFormat::BC1UNorm: return VK_FORMAT_BC1_RGB_UNORM_BLOCK;
+    case RHIFormat::BC3UNorm: return VK_FORMAT_BC3_UNORM_BLOCK;
     case RHIFormat::D24S8: return VK_FORMAT_D24_UNORM_S8_UINT;
     case RHIFormat::D32Float: return VK_FORMAT_D32_SFLOAT;
     default: return VK_FORMAT_UNDEFINED;
@@ -2378,6 +2380,7 @@ RHIDeviceCapabilities VulkanContext::GetCapabilities() const {
 }
 
 bool VulkanContext::IsFormatSupported(RHIFormat format, RHIResourceUsage) const {
+    if (format == RHIFormat::BC1UNorm || format == RHIFormat::BC3UNorm) return false;
     return ToVulkanFormat(format) != VK_FORMAT_UNDEFINED;
 }
 

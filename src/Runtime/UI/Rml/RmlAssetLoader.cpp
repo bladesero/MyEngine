@@ -3,6 +3,7 @@
 #include "Assets/AssetManager.h"
 #include "Core/Logger.h"
 #include "Core/EngineTime.h"
+#include "Core/RuntimeFileSystem.h"
 
 #include <filesystem>
 #include <sstream>
@@ -14,20 +15,19 @@ std::string RmlAssetLoader::Resolve(const std::string& path) const
 
 Rml::FileHandle RmlAssetLoader::Open(const Rml::String& path)
 {
-    auto stream = std::make_unique<std::ifstream>(
-        Resolve(path), std::ios::binary);
-    if (!*stream) return 0;
+    auto stream = RuntimeFileSystem::Get().OpenRead(Resolve(path));
+    if (!stream || !*stream) return 0;
     return reinterpret_cast<Rml::FileHandle>(stream.release());
 }
 
 void RmlAssetLoader::Close(Rml::FileHandle file)
 {
-    delete reinterpret_cast<std::ifstream*>(file);
+    delete reinterpret_cast<std::istream*>(file);
 }
 
 size_t RmlAssetLoader::Read(void* buffer, size_t size, Rml::FileHandle file)
 {
-    auto* stream = reinterpret_cast<std::ifstream*>(file);
+    auto* stream = reinterpret_cast<std::istream*>(file);
     if (!stream || !buffer || size == 0) return 0;
     stream->read(reinterpret_cast<char*>(buffer), static_cast<std::streamsize>(size));
     return static_cast<size_t>(stream->gcount());
@@ -35,7 +35,7 @@ size_t RmlAssetLoader::Read(void* buffer, size_t size, Rml::FileHandle file)
 
 bool RmlAssetLoader::Seek(Rml::FileHandle file, long offset, int origin)
 {
-    auto* stream = reinterpret_cast<std::ifstream*>(file);
+    auto* stream = reinterpret_cast<std::istream*>(file);
     if (!stream) return false;
     std::ios_base::seekdir direction = std::ios::beg;
     if (origin == SEEK_CUR) direction = std::ios::cur;
@@ -47,19 +47,14 @@ bool RmlAssetLoader::Seek(Rml::FileHandle file, long offset, int origin)
 
 size_t RmlAssetLoader::Tell(Rml::FileHandle file)
 {
-    auto* stream = reinterpret_cast<std::ifstream*>(file);
+    auto* stream = reinterpret_cast<std::istream*>(file);
     if (!stream) return 0;
     return static_cast<size_t>(stream->tellg());
 }
 
 bool RmlAssetLoader::LoadFile(const Rml::String& path, Rml::String& outData)
 {
-    std::ifstream input(Resolve(path), std::ios::binary);
-    if (!input) return false;
-    std::ostringstream ss;
-    ss << input.rdbuf();
-    outData = ss.str();
-    return true;
+    return RuntimeFileSystem::Get().ReadText(Resolve(path), outData);
 }
 
 double RmlAssetLoader::GetElapsedTime()

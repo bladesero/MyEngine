@@ -3,6 +3,7 @@
 #include "Assets/AssetManager.h"
 #include "Core/Event.h"
 #include "Core/Logger.h"
+#include "Core/RuntimeFileSystem.h"
 #include "Scene/Actor.h"
 #include "Scene/Scene.h"
 #include "Scripting/AngelScriptRuntime.h"
@@ -112,19 +113,10 @@ bool TryParseFontFaceFromPath(const std::string& path,
 
 bool ReadBinaryFile(const std::string& path, std::vector<unsigned char>& bytes)
 {
-    std::ifstream file(path, std::ios::binary | std::ios::ate);
-    if (!file) {
-        return false;
-    }
-
-    const std::streamsize size = file.tellg();
-    if (size <= 0) {
-        return false;
-    }
-
-    bytes.resize(static_cast<std::size_t>(size));
-    file.seekg(0, std::ios::beg);
-    return static_cast<bool>(file.read(reinterpret_cast<char*>(bytes.data()), size));
+    std::vector<uint8_t> raw;
+    if (!RuntimeFileSystem::Get().ReadAllBytes(path, raw) || raw.empty()) return false;
+    bytes.assign(raw.begin(), raw.end());
+    return true;
 }
 
 bool HasInputEnabledCanvas(Scene& scene)

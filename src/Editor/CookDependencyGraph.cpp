@@ -4,6 +4,7 @@
 #include "Project/ContentPathPolicy.h"
 #include <fstream>
 #include <nlohmann/json.hpp>
+#include <optional>
 #include <sstream>
 #include <unordered_map>
 #include <unordered_set>
@@ -72,6 +73,45 @@ std::unordered_map<std::string, std::string> BuildArtifactReferenceMap(
     return result;
 }
 
+std::unordered_map<std::string, std::string> BuildArtifactUuidReferenceMap(
+    const fs::path& projectRoot) {
+    std::unordered_map<std::string, std::string> result;
+    AssetDatabase database;
+    std::string error;
+    if (!database.Open(projectRoot / ".myengine" / "AssetDatabase.json", &error)) return result;
+    for (const AssetRecord& record : database.GetAll()) {
+        if (record.uuid.empty() || record.sourcePath.empty()) continue;
+        const std::string sourceReference =
+            ToProjectContentReference(projectRoot, record.sourcePath);
+        if (sourceReference.empty()) continue;
+        result[record.uuid] = sourceReference;
+    }
+    return result;
+}
+
+std::optional<std::string> ExtractProjectLibraryArtifactUuid(
+    const fs::path& projectRoot,
+    const fs::path& path) {
+    std::error_code ec;
+    fs::path absolute = path.is_absolute() || path.has_root_name()
+        ? fs::absolute(path, ec)
+        : fs::absolute(path, ec);
+    if (ec) absolute = path;
+    absolute = absolute.lexically_normal();
+    fs::path libraryRoot =
+        fs::absolute(projectRoot / "Library" / "windows-x64", ec);
+    if (ec) libraryRoot = projectRoot / "Library" / "windows-x64";
+    libraryRoot = libraryRoot.lexically_normal();
+    const fs::path relative = fs::relative(absolute, libraryRoot, ec);
+    if (ec || relative.empty() || relative.is_absolute()) return std::nullopt;
+    auto part = relative.begin();
+    if (part == relative.end() || *part == "..") return std::nullopt;
+    const std::string uuid = part->generic_string();
+    ++part;
+    if (part == relative.end()) return std::nullopt;
+    return uuid;
+}
+
 void ValidateAssetDatabase(const fs::path& projectRoot, PublishPreflightReport& report) {
     const fs::path databasePath = projectRoot / ".myengine" / "AssetDatabase.json";
     const bool hasImportState =
@@ -108,6 +148,7 @@ struct Scanner {
     PublishPreflightReport* report = nullptr;
     std::unordered_set<std::string> visited;
     std::unordered_map<std::string, std::string> artifactReferences;
+    std::unordered_map<std::string, std::string> artifactUuidReferences;
 
     void Error(PublishIssueCode code, const fs::path& path, const fs::path& from,
                const std::vector<std::string>& chain, std::string message) {
@@ -125,6 +166,13 @@ struct Scanner {
             const auto artifact = artifactReferences.find(AbsoluteKey(logical));
             if (artifact != artifactReferences.end()) {
                 return Resolve(artifact->second + fragment, from, out, chain);
+            }
+            if (const std::optional<std::string> uuid =
+                    ExtractProjectLibraryArtifactUuid(projectRoot, logical)) {
+                const auto byUuid = artifactUuidReferences.find(*uuid);
+                if (byUuid != artifactUuidReferences.end()) {
+                    return Resolve(byUuid->second + fragment, from, out, chain);
+                }
             }
             Error(PublishIssueCode::UnsafePath, logical, from, chain, "absolute asset reference is forbidden"); return false;
         }
@@ -220,6 +268,7 @@ std::string PublishPreflightReport::Summary() const {
 bool CookDependencyGraph::Validate(const fs::path& projectRoot, PublishPreflightReport& report) {
     report={}; Scanner scanner{projectRoot,projectRoot/"Content",&report};
     scanner.artifactReferences = BuildArtifactReferenceMap(projectRoot);
+    scanner.artifactUuidReferences = BuildArtifactUuidReferenceMap(projectRoot);
     ValidateAssetDatabase(projectRoot, report);
     std::vector<ContentFileInfo> files; std::string error;
     if(!ContentPathPolicy::Enumerate(scanner.contentRoot,files,report.totalContentBytes,&error)) {

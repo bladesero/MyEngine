@@ -4,6 +4,7 @@
 #include "Audio/AudioSourceComponent.h"
 #include "Audio/AudioListenerComponent.h"
 #include "Camera/CameraComponent.h"
+#include "Core/RuntimeFileSystem.h"
 #include "Camera/ThirdPersonCameraComponent.h"
 #include "Renderer/LightComponent.h"
 #include "Renderer/ParticleSystemComponent.h"
@@ -215,6 +216,8 @@ std::filesystem::path ResolveScriptIncludePath(const std::string& includePath,
     }
     if (StartsWithGenericPath(generic, "EngineContent/")) {
         candidates.emplace_back(std::filesystem::current_path() / input);
+        candidates.emplace_back(std::filesystem::path("Content/Engine") /
+            std::filesystem::path(generic.substr(std::string("EngineContent/").size())));
     }
     if (!baseDirectory.empty()) {
         candidates.emplace_back(baseDirectory / input);
@@ -227,10 +230,13 @@ std::filesystem::path ResolveScriptIncludePath(const std::string& includePath,
     candidates.emplace_back(std::filesystem::current_path() / input);
 
     for (const auto& candidate : candidates) {
+        if (RuntimeFileSystem::Get().Exists(candidate.generic_string())) {
+            return candidate.lexically_normal();
+        }
         std::error_code error;
         const auto normalized = std::filesystem::absolute(candidate, error).lexically_normal();
         if (error) continue;
-        if (std::filesystem::is_regular_file(normalized, error)) return normalized;
+        if (RuntimeFileSystem::Get().Exists(normalized.string())) return normalized;
     }
     return {};
 }
@@ -272,19 +278,17 @@ bool PreprocessScriptSourceRecursive(const std::string& source,
             return false;
         }
         includeStack.insert(key);
-        std::ifstream includeFile(resolved, std::ios::binary);
-        if (!includeFile) {
+        std::string includeSource;
+        if (!RuntimeFileSystem::Get().ReadText(key, includeSource)) {
             error = "failed to open script include: " + key;
             includeStack.erase(key);
             return false;
         }
-        std::ostringstream includeStream;
-        includeStream << includeFile.rdbuf();
         if (dependencies) dependencies->push_back(key);
         outSource += "\n// begin include: ";
         outSource += includePath;
         outSource += "\n";
-        if (!PreprocessScriptSourceRecursive(includeStream.str(), key, resolved.parent_path(),
+        if (!PreprocessScriptSourceRecursive(includeSource, key, resolved.parent_path(),
                                              outSource, dependencies, includeStack, error, depth + 1)) {
             includeStack.erase(key);
             return false;
@@ -1299,7 +1303,9 @@ bool AssetsExists(const std::string& path)
 {
     if (path.empty()) return false;
     const std::string resolved = AssetManager::Get().ResolvePath(path);
-    return AssetManager::Get().IsLoaded(path) || std::filesystem::is_regular_file(resolved);
+    return AssetManager::Get().IsLoaded(path) ||
+           RuntimeFileSystem::Get().Exists(resolved) ||
+           RuntimeFileSystem::Get().Exists(path);
 }
 
 std::string AssetsResolveProjectPath(const std::string& path)

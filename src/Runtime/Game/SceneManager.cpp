@@ -1,10 +1,9 @@
 #include "Game/SceneManager.h"
 #include "Assets/AssetManager.h"
+#include "Core/RuntimeFileSystem.h"
 #include "Scene/Scene.h"
 #include "Renderer/GpuUploadQueue.h"
 #include <filesystem>
-#include <fstream>
-#include <sstream>
 
 bool SceneManager::IsSafeScenePath(const std::string& value)
 {
@@ -60,11 +59,12 @@ bool SceneManager::Process(std::unique_ptr<Scene>& loadedScene)
         const SceneLoadRequestID id=m_RequestID;
         m_WorkerTask=std::async(std::launch::async,[absolute,id]{
             WorkerResult result; result.requestID=id;
-            std::ifstream input(absolute,std::ios::binary);
-            if(!input){result.error="cannot open scene file";return result;}
-            std::ostringstream stream;stream<<input.rdbuf();
-            if(!input.good()&&!input.eof()){result.error="failed while reading scene file";return result;}
-            result.success=SceneSerializer::BuildLoadPlan(stream.str(),result.plan,&result.error);
+            std::string source;
+            if(!RuntimeFileSystem::Get().ReadText(absolute.string(),source,&result.error)){
+                if(result.error.empty())result.error="cannot open scene file";
+                return result;
+            }
+            result.success=SceneSerializer::BuildLoadPlan(source,result.plan,&result.error);
             return result;
         });
         m_State=SceneLoadState::Reading; m_Progress=0.05f; return false;

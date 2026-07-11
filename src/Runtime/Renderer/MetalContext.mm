@@ -101,6 +101,8 @@ MTLPixelFormat ToMetalFormat(RHIFormat format) {
     case RHIFormat::RG32Float: return MTLPixelFormatRG32Float;
     case RHIFormat::RGB32Float: return MTLPixelFormatRGBA32Float;
     case RHIFormat::RGBA32Float: return MTLPixelFormatRGBA32Float;
+    case RHIFormat::BC1UNorm: return MTLPixelFormatInvalid;
+    case RHIFormat::BC3UNorm: return MTLPixelFormatInvalid;
     case RHIFormat::D24S8: return MTLPixelFormatDepth32Float;
     case RHIFormat::D32Float: return MTLPixelFormatDepth32Float;
     case RHIFormat::Unknown: return MTLPixelFormatInvalid;

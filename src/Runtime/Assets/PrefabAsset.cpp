@@ -1,5 +1,7 @@
 #include "Assets/PrefabAsset.h"
 
+#include "Core/RuntimeFileSystem.h"
+
 #include <fstream>
 #include <unordered_map>
 #include <unordered_set>
@@ -101,9 +103,12 @@ bool PrefabAsset::Save(const std::filesystem::path& path, std::string* error) co
 bool PrefabAsset::Load(const std::filesystem::path& path, PrefabAsset& result, std::string* error)
 {
     try {
-        std::ifstream input(path);
-        if (!input) { SetError(error, "prefab file is missing: " + path.string()); return false; }
-        nlohmann::json json; input >> json;
+        std::string text;
+        if (!RuntimeFileSystem::Get().ReadText(path.string(), text, error)) {
+            SetError(error, "prefab file is missing: " + path.string());
+            return false;
+        }
+        nlohmann::json json = nlohmann::json::parse(text);
         PrefabAsset asset;
         asset.version = json.value("version", 0u);
         asset.uuid = json.value("uuid", std::string{});

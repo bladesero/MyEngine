@@ -1,4 +1,5 @@
 #include "Project/ProjectConfig.h"
+#include "Core/RuntimeFileSystem.h"
 #include "Core/Sha256.h"
 #include "Renderer/RenderBackendRegistry.h"
 
@@ -280,8 +281,8 @@ bool ProjectConfig::ResolveScenePath(const std::string& projectRelativePath,
         return false;
     }
     if (requireExists) {
-        std::error_code ec;
-        if (!fs::is_regular_file(resolved, ec) || ec) {
+        if (!RuntimeFileSystem::Get().Exists(resolved.string()) &&
+            !RuntimeFileSystem::Get().Exists(projectRelativePath)) {
             SetError(error, "scene file does not exist: " + resolved.string());
             return false;
         }
@@ -351,8 +352,8 @@ bool ProjectConfig::ResolveInputConfigPath(fs::path& resolved, bool requireExist
         return false;
     }
     if (requireExists) {
-        std::error_code ec;
-        if (!fs::is_regular_file(resolved, ec) || ec) {
+        if (!RuntimeFileSystem::Get().Exists(resolved.string()) &&
+            !RuntimeFileSystem::Get().Exists(m_InputSettings.config)) {
             SetError(error, "input config file does not exist: " + resolved.string());
             return false;
         }

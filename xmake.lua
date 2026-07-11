@@ -126,6 +126,7 @@ target("MyEngineRuntime")
         "src/Runtime/Input/InputActionMap.cpp",
         "src/Runtime/Core/Event.cpp",
         "src/Runtime/Core/Logger.cpp",
+        "src/Runtime/Core/RuntimeFileSystem.cpp",
         "src/Runtime/Core/Sha256.cpp",
         "src/Runtime/Core/CrashHandler.cpp",
         "src/Runtime/Core/Layer.cpp",

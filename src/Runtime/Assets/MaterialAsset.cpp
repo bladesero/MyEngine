@@ -2,6 +2,7 @@
 
 #include "Assets/AssetManager.h"
 #include "Core/Logger.h"
+#include "Core/RuntimeFileSystem.h"
 
 #include <algorithm>
 #include <filesystem>
@@ -148,14 +149,13 @@ std::shared_ptr<MaterialAsset> LoadMaterialAssetFromFile(const std::string& path
 {
     namespace fs = std::filesystem;
     try {
-        std::ifstream input(path);
-        if (!input.is_open()) {
+        std::string text;
+        if (!RuntimeFileSystem::Get().ReadText(path, text)) {
             Logger::Error("[AssetManager] Could not open material: ", path);
             return {};
         }
 
-        nlohmann::json data;
-        input >> data;
+        nlohmann::json data = nlohmann::json::parse(text);
 
         auto material = std::make_shared<MaterialAsset>(path);
         material->SetName(data.value("name", fs::path(path).stem().string()));

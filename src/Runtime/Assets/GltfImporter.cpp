@@ -561,7 +561,7 @@ namespace {
 class GltfModelAssetImporter final : public IAssetImporter {
 public:
     const char* GetName() const override { return "gltf-model"; }
-    uint32_t GetVersion() const override { return 3; }
+    uint32_t GetVersion() const override { return 4; }
 
     bool Supports(const std::filesystem::path& sourcePath) const override
     {

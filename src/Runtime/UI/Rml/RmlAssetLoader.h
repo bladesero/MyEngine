@@ -3,7 +3,7 @@
 #include <RmlUi/Core/FileInterface.h>
 #include <RmlUi/Core/SystemInterface.h>
 
-#include <fstream>
+#include <istream>
 #include <memory>
 #include <string>
 

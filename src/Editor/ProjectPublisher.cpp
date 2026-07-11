@@ -4,6 +4,7 @@
 #include "Project/PublishTargets.h"
 #include "Project/ProjectConfig.h"
 #include "Assets/AssetDatabase.h"
+#include "Assets/AssetImporter.h"
 #include "Assets/ShaderAsset.h"
 #include "Renderer/ShaderCompilerD3D11.h"
 #include "Renderer/ShaderCompilerD3D12.h"
@@ -20,6 +21,7 @@
 #include <future>
 #include <iterator>
 #include <nlohmann/json.hpp>
+#include <optional>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -123,6 +125,35 @@ std::string ToProjectContentReference(const fs::path& projectRoot,
     return (fs::path("Content") / fs::relative(source, projectRoot / "Content", ec)).generic_string();
 }
 
+struct PublishArtifactMap {
+    std::unordered_map<std::string, std::string> rewrites;
+    std::unordered_map<std::string, std::string> uuidRewrites;
+    std::vector<std::pair<fs::path, fs::path>> artifacts;
+    std::unordered_set<std::string> replacedContent;
+};
+
+std::optional<std::string> ExtractProjectLibraryArtifactUuid(
+    const fs::path& projectRoot,
+    const fs::path& path) {
+    std::error_code ec;
+    fs::path absolute = path.is_absolute() || path.has_root_name()
+        ? fs::absolute(path, ec)
+        : fs::absolute(path, ec);
+    if (ec) absolute = path;
+    absolute = absolute.lexically_normal();
+    fs::path libraryRoot = fs::absolute(projectRoot / "Library" / "windows-x64", ec);
+    if (ec) libraryRoot = projectRoot / "Library" / "windows-x64";
+    libraryRoot = libraryRoot.lexically_normal();
+    const fs::path relative = fs::relative(absolute, libraryRoot, ec);
+    if (ec || relative.empty() || relative.is_absolute()) return std::nullopt;
+    auto part = relative.begin();
+    if (part == relative.end() || *part == "..") return std::nullopt;
+    const std::string uuid = part->generic_string();
+    ++part;
+    if (part == relative.end()) return std::nullopt;
+    return uuid;
+}
+
 std::unordered_map<std::string, std::string> BuildArtifactReferenceMap(
     const fs::path& projectRoot) {
     std::unordered_map<std::string, std::string> result;
@@ -139,31 +170,172 @@ std::unordered_map<std::string, std::string> BuildArtifactReferenceMap(
     return result;
 }
 
+std::vector<std::string> CollectGltfExternalContentReferences(
+    const fs::path& projectRoot,
+    const fs::path& sourcePath) {
+    std::vector<std::string> references;
+    if (sourcePath.extension() != ".gltf") return references;
+    try {
+        std::ifstream input(sourcePath);
+        if (!input) return references;
+        nlohmann::json gltf;
+        input >> gltf;
+        auto collectUri = [&](const nlohmann::json& node) {
+            const std::string uri = node.value("uri", std::string{});
+            if (uri.empty() || uri.find(':') != std::string::npos) return;
+            const fs::path dependency = (sourcePath.parent_path() / fs::path(uri)).lexically_normal();
+            const std::string reference = ToProjectContentReference(projectRoot, dependency.generic_string());
+            if (!reference.empty()) references.push_back(reference);
+        };
+        for (const nlohmann::json& buffer : gltf.value("buffers", nlohmann::json::array())) {
+            collectUri(buffer);
+        }
+        for (const nlohmann::json& image : gltf.value("images", nlohmann::json::array())) {
+            collectUri(image);
+        }
+    } catch (...) {
+    }
+    return references;
+}
+
+PublishArtifactMap BuildPublishArtifactMap(
+    const fs::path& projectRoot,
+    const std::unordered_set<std::string>& referencedContent) {
+    PublishArtifactMap result;
+    AssetDatabase database;
+    std::string error;
+    if (!database.Open(projectRoot / ".myengine" / "AssetDatabase.json", &error)) return result;
+    for (const AssetRecord& record : database.GetAll()) {
+        if (record.type != "model" || record.artifactPath.empty() ||
+            fs::path(record.artifactPath).extension() != ".modelbin") {
+            continue;
+        }
+        const std::string sourceReference =
+            ToProjectContentReference(projectRoot, record.sourcePath);
+        if (sourceReference.empty() || !referencedContent.count(sourceReference)) continue;
+
+        const fs::path artifactPath = fs::path(record.artifactPath).lexically_normal();
+        std::error_code ec;
+        if (!fs::is_regular_file(artifactPath, ec) || ec) continue;
+        const fs::path publishedRelative = fs::path("Content") / "Library" /
+            "windows-x64" / record.uuid / artifactPath.filename();
+        const std::string publishedReference = publishedRelative.generic_string();
+
+        result.rewrites[sourceReference] = publishedReference;
+        result.rewrites[AbsoluteKey(record.sourcePath)] = publishedReference;
+        result.rewrites[AbsoluteKey(record.artifactPath)] = publishedReference;
+        result.uuidRewrites[record.uuid] = publishedReference;
+
+        const fs::path destinationArtifact =
+            fs::path("Library") / "windows-x64" / record.uuid / artifactPath.filename();
+        result.artifacts.push_back({artifactPath, destinationArtifact});
+        result.replacedContent.insert(sourceReference);
+        for (const std::string& dependency :
+             CollectGltfExternalContentReferences(projectRoot, fs::path(record.sourcePath))) {
+            result.replacedContent.insert(dependency);
+        }
+    }
+    return result;
+}
+
+bool RefreshReferencedModelArtifacts(
+    const fs::path& projectRoot,
+    const std::unordered_set<std::string>& referencedContent,
+    std::string* error) {
+    AssetDatabase database;
+    if (!database.Open(projectRoot / ".myengine" / "AssetDatabase.json", error)) return false;
+    std::unordered_map<std::string, AssetRecord> recordsBySource;
+    for (const AssetRecord& record : database.GetAll()) {
+        if (record.sourcePath.empty()) continue;
+        recordsBySource[AbsoluteKey(record.sourcePath)] = record;
+    }
+    const std::unique_ptr<IAssetImporter> importer = CreateGltfModelAssetImporter();
+    bool changed = false;
+    for (const std::string& reference : referencedContent) {
+        fs::path source = fs::path(reference);
+        std::string extension = source.extension().string();
+        std::transform(extension.begin(), extension.end(), extension.begin(),
+            [](unsigned char value) { return static_cast<char>(std::tolower(value)); });
+        if (extension != ".gltf" && extension != ".glb") continue;
+        if (source.is_relative()) source = projectRoot / source;
+        const auto existing = recordsBySource.find(AbsoluteKey(source));
+        if (existing == recordsBySource.end()) continue;
+        AssetRecord record = existing->second;
+        if (record.artifactPath.empty() || record.uuid.empty()) continue;
+        if (record.importerVersion == importer->GetVersion() &&
+            fs::is_regular_file(record.artifactPath)) {
+            continue;
+        }
+        if (!fs::is_regular_file(source.string() + ".meta")) continue;
+        ImportRequest request{source, record.artifactPath, record.uuid,
+                              record.settingsJson.empty() ? "{}" : record.settingsJson,
+                              "windows-x64"};
+        ImportResult result = importer->Import(request);
+        record.importer = importer->GetName();
+        record.importerVersion = importer->GetVersion();
+        record.diagnostics = std::move(result.diagnostics);
+        record.type = std::move(result.type);
+        record.state = result.succeeded ? AssetImportState::Ready : AssetImportState::Failed;
+        if (!result.succeeded) {
+            SetError(error, "failed to import model artifact for publish: " + source.string());
+            return false;
+        }
+        std::string hashError;
+        record.artifactHash = Sha256::HashFile(record.artifactPath, &hashError);
+        if (!hashError.empty()) {
+            SetError(error, hashError);
+            return false;
+        }
+        if (!database.Upsert(record, error)) return false;
+        changed = true;
+    }
+    return !changed || database.Save(error);
+}
+
 bool RewriteImportedArtifactReferences(nlohmann::json& node,
-                                       const std::unordered_map<std::string, std::string>& map) {
+                                       const fs::path& projectRoot,
+                                       const std::unordered_map<std::string, std::string>& map,
+                                       const std::unordered_map<std::string, std::string>& uuidMap) {
     bool changed = false;
     if (node.is_string()) {
         const std::string value = node.get<std::string>();
         const size_t fragmentPosition = value.find('#');
         const std::string base = value.substr(0, fragmentPosition);
+        auto it = map.find(base);
+        if (it == map.end()) {
+            const fs::path basePath(base);
+            if (basePath.is_absolute() || basePath.has_root_name()) {
+                it = map.find(AbsoluteKey(basePath));
+            }
+        }
+        if (it != map.end()) {
+            node = it->second + (fragmentPosition == std::string::npos
+                ? std::string{} : value.substr(fragmentPosition));
+            return true;
+        }
         const fs::path basePath(base);
         if (basePath.is_absolute() || basePath.has_root_name()) {
-            const auto it = map.find(AbsoluteKey(basePath));
-            if (it != map.end()) {
-                node = it->second + (fragmentPosition == std::string::npos
-                    ? std::string{} : value.substr(fragmentPosition));
-                return true;
+            if (const std::optional<std::string> uuid =
+                    ExtractProjectLibraryArtifactUuid(projectRoot, basePath)) {
+                const auto uuidIt = uuidMap.find(*uuid);
+                if (uuidIt != uuidMap.end()) {
+                    node = uuidIt->second + (fragmentPosition == std::string::npos
+                        ? std::string{} : value.substr(fragmentPosition));
+                    return true;
+                }
             }
         }
         return false;
     }
     if (node.is_object()) {
         for (auto it = node.begin(); it != node.end(); ++it) {
-            changed = RewriteImportedArtifactReferences(it.value(), map) || changed;
+            changed = RewriteImportedArtifactReferences(
+                it.value(), projectRoot, map, uuidMap) || changed;
         }
     } else if (node.is_array()) {
         for (auto& item : node) {
-            changed = RewriteImportedArtifactReferences(item, map) || changed;
+            changed = RewriteImportedArtifactReferences(
+                item, projectRoot, map, uuidMap) || changed;
         }
     }
     return changed;
@@ -171,9 +343,11 @@ bool RewriteImportedArtifactReferences(nlohmann::json& node,
 
 bool CopyJsonWithImportedArtifactRewrite(
     const fs::path& source, const fs::path& destination,
+    const fs::path& projectRoot,
     const std::unordered_map<std::string, std::string>& artifactReferences,
+    const std::unordered_map<std::string, std::string>& artifactUuidReferences,
     std::string* error) {
-    if (artifactReferences.empty()) {
+    if (artifactReferences.empty() && artifactUuidReferences.empty()) {
         std::error_code ec;
         fs::copy_file(source, destination, fs::copy_options::overwrite_existing, ec);
         if (ec) SetError(error, "failed to stage content: " + source.string());
@@ -183,7 +357,8 @@ bool CopyJsonWithImportedArtifactRewrite(
         std::ifstream input(source);
         nlohmann::json json;
         input >> json;
-        const bool changed = RewriteImportedArtifactReferences(json, artifactReferences);
+        const bool changed = RewriteImportedArtifactReferences(
+            json, projectRoot, artifactReferences, artifactUuidReferences);
         if (!changed) {
             std::error_code ec;
             fs::copy_file(source, destination, fs::copy_options::overwrite_existing, ec);
@@ -308,13 +483,19 @@ bool CompileCookedShader(const fs::path& source, const fs::path& destination,
 
 bool CookTree(const fs::path& sourceRoot, const fs::path& destinationRoot,
               const std::vector<ShaderBackend>& shaderBackends,
+              const fs::path& projectRoot,
               const std::unordered_map<std::string, std::string>* artifactReferences,
+              const std::unordered_map<std::string, std::string>* artifactUuidReferences,
+              const std::unordered_set<std::string>* allowedContent,
               std::string* error) {
     std::error_code ec; std::vector<ContentFileInfo> files; uint64_t total=0;
     if(!ContentPathPolicy::Enumerate(sourceRoot,files,total,error)) return false;
     std::vector<std::future<std::pair<bool,std::string>>> shaderTasks;
     for (const auto& file : files) {
         const fs::path relative=file.relative;
+        const std::string contentReference =
+            (fs::path("Content") / relative).generic_string();
+        if (allowedContent && !allowedContent->count(contentReference)) continue;
         std::string extension = file.absolute.extension().string();
         for (char& c : extension) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
         std::string relativeText = relative.generic_string();
@@ -337,7 +518,12 @@ bool CookTree(const fs::path& sourceRoot, const fs::path& destinationRoot,
             if (ec) { SetError(error, "failed to create staged content directory: " + destination.parent_path().string()); return false; }
             if ((extension == ".json" || extension == ".mat") && artifactReferences) {
                 if (!CopyJsonWithImportedArtifactRewrite(file.absolute, destination,
-                                                         *artifactReferences, error)) {
+                                                         projectRoot,
+                                                         *artifactReferences,
+                                                         artifactUuidReferences
+                                                             ? *artifactUuidReferences
+                                                             : std::unordered_map<std::string, std::string>{},
+                                                         error)) {
                     return false;
                 }
             } else {
@@ -349,6 +535,119 @@ bool CookTree(const fs::path& sourceRoot, const fs::path& destinationRoot,
     for(auto& task:shaderTasks) {
         auto [succeeded,taskError]=task.get();
         if(!succeeded){SetError(error,std::move(taskError));return false;}
+    }
+    return true;
+}
+
+bool CookEngineRuntimeContent(const fs::path& sourceRoot,
+                              const fs::path& destinationRoot,
+                              const std::vector<ShaderBackend>& shaderBackends,
+                              std::string* error) {
+    std::error_code ec;
+    std::vector<ContentFileInfo> files;
+    uint64_t total = 0;
+    if (!ContentPathPolicy::Enumerate(sourceRoot, files, total, error)) return false;
+    std::vector<std::future<std::pair<bool, std::string>>> shaderTasks;
+    for (const auto& file : files) {
+        const fs::path relative = file.relative;
+        const std::string relativeText = relative.generic_string();
+        if (relativeText.rfind("Editor/", 0) == 0) continue;
+        if (relativeText.rfind("Shaders/", 0) != 0 &&
+            relativeText.rfind("Scripts/", 0) != 0) {
+            continue;
+        }
+        std::string extension = file.absolute.extension().string();
+        for (char& c : extension) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        if (extension == ".hlsl" || extension == ".hlsli") continue;
+        const fs::path destination = destinationRoot / relative;
+        if (extension == ".shader") {
+            const fs::path shaderSource = file.absolute;
+            shaderTasks.emplace_back(std::async(std::launch::async,
+                [shaderSource, destination, sourceRoot, shaderBackends] {
+                    std::string taskError;
+                    const bool result = CompileCookedShader(
+                        shaderSource, destination, sourceRoot, shaderBackends, &taskError);
+                    return std::make_pair(result, std::move(taskError));
+                }));
+            continue;
+        }
+        fs::create_directories(destination.parent_path(), ec);
+        if (ec) {
+            SetError(error, "failed to create staged engine content directory: " +
+                destination.parent_path().string());
+            return false;
+        }
+        fs::copy_file(file.absolute, destination, fs::copy_options::overwrite_existing, ec);
+        if (ec) {
+            SetError(error, "failed to stage engine content: " + file.absolute.string());
+            return false;
+        }
+    }
+    for (auto& task : shaderTasks) {
+        auto [succeeded, taskError] = task.get();
+        if (!succeeded) {
+            SetError(error, std::move(taskError));
+            return false;
+        }
+    }
+    return true;
+}
+
+bool CopyPublishArtifacts(
+    const fs::path& destinationRoot,
+    const std::vector<std::pair<fs::path, fs::path>>& artifacts,
+    std::string* error) {
+    std::error_code ec;
+    auto copyFile = [&](const fs::path& source, const fs::path& destination) {
+        fs::create_directories(destination.parent_path(), ec);
+        if (ec) {
+            SetError(error, "failed to create staged model cache directory: " +
+                destination.parent_path().string());
+            return false;
+        }
+        fs::copy_file(source, destination, fs::copy_options::overwrite_existing, ec);
+        if (ec) {
+            SetError(error, "failed to stage model cache artifact: " +
+                source.string());
+            return false;
+        }
+        return true;
+    };
+    for (const auto& [sourceArtifact, relativeArtifact] : artifacts) {
+        if (!fs::is_regular_file(sourceArtifact, ec) || ec) {
+            SetError(error, "model cache artifact is missing: " +
+                sourceArtifact.string());
+            return false;
+        }
+        if (!copyFile(sourceArtifact, destinationRoot / relativeArtifact)) return false;
+
+        const fs::path sourcePayloadDirectory =
+            sourceArtifact.parent_path() / (sourceArtifact.filename().string() + "_textures");
+        if (!fs::is_directory(sourcePayloadDirectory, ec) || ec) {
+            ec.clear();
+            continue;
+        }
+        const fs::path relativePayloadDirectory =
+            relativeArtifact.parent_path() / sourcePayloadDirectory.filename();
+        for (fs::recursive_directory_iterator it(sourcePayloadDirectory, ec), end; it != end && !ec; it.increment(ec)) {
+            if (!it->is_regular_file(ec)) continue;
+            std::string extension = it->path().extension().string();
+            std::transform(extension.begin(), extension.end(), extension.begin(),
+                [](unsigned char value) { return static_cast<char>(std::tolower(value)); });
+            if (extension != ".texturebin") continue;
+            const fs::path relative = fs::relative(it->path(), sourcePayloadDirectory, ec);
+            if (ec || relative.empty()) {
+                SetError(error, "failed to compute staged model cache path: " +
+                    it->path().string());
+                return false;
+            }
+            if (!copyFile(it->path(), destinationRoot / relativePayloadDirectory / relative)) return false;
+        }
+        if (ec) {
+            SetError(error, "failed to enumerate model cache payload directory: " +
+                sourcePayloadDirectory.string());
+            return false;
+        }
     }
     return true;
 }
@@ -480,10 +779,35 @@ bool ProjectPublisher::Publish(const ProjectConfig& project,
     std::vector<CookedContentEntry> entries;
     const fs::path archive = staging / ContentArchive::kFileName;
     const fs::path cookedContent = staging / ".cooked-content";
-    const auto artifactReferences = BuildArtifactReferenceMap(project.GetRoot());
+    std::unordered_set<std::string> referencedContent;
+    for (const std::string& asset : report.preflight.visitedAssets) {
+        fs::path path(asset);
+        if (path.is_absolute() || path.has_root_name()) continue;
+        const std::string generic = path.lexically_normal().generic_string();
+        if (generic.rfind("Content/", 0) == 0 &&
+            generic.rfind("Content/Engine/", 0) != 0) {
+            referencedContent.insert(generic);
+        }
+    }
+    if (!RefreshReferencedModelArtifacts(project.GetRoot(), referencedContent, error)) {
+        Cleanup(staging);
+        return false;
+    }
+    const PublishArtifactMap publishArtifacts =
+        BuildPublishArtifactMap(project.GetRoot(), referencedContent);
+    for (const std::string& replaced : publishArtifacts.replacedContent) {
+        referencedContent.erase(replaced);
+    }
+    auto artifactReferences = BuildArtifactReferenceMap(project.GetRoot());
+    for (const auto& [from, to] : publishArtifacts.rewrites) {
+        artifactReferences[from] = to;
+    }
     fs::create_directories(cookedContent / "Engine", ec);
-    if (ec || !CookTree(engineContent, cookedContent / "Engine", shaderBackends, nullptr, error) ||
-        !CookTree(project.GetRoot() / "Content", cookedContent, shaderBackends, &artifactReferences, error) ||
+    if (ec || !CookEngineRuntimeContent(engineContent, cookedContent / "Engine", shaderBackends, error) ||
+        !CookTree(project.GetRoot() / "Content", cookedContent, shaderBackends,
+                  project.GetRoot(), &artifactReferences,
+                  &publishArtifacts.uuidRewrites, &referencedContent, error) ||
+        !CopyPublishArtifacts(cookedContent, publishArtifacts.artifacts, error) ||
         !ContentArchive::Create(cookedContent, archive, &entries, error)) {
         Cleanup(staging);
         return false;

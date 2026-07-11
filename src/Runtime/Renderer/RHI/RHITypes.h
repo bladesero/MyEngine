@@ -21,6 +21,7 @@ enum class RHIFormat : uint8_t {
     RGB32Float,
     RGBA32Float,
     BC1UNorm,
+    BC3UNorm,
     D24S8,
     D32Float,
 };

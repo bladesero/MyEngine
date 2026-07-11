@@ -50,6 +50,7 @@ struct TextureMipData {
     int height = 0;
     std::vector<uint8_t> rgba8;
     std::vector<uint8_t> bc1;
+    std::vector<uint8_t> bc3;
 };
 
 class TextureAsset : public Asset {
@@ -103,6 +104,10 @@ public:
     const std::vector<uint8_t>& GetCompressedMip(size_t level) const {
         static const std::vector<uint8_t> empty;
         return level < m_Mips.size() ? m_Mips[level].bc1 : empty;
+    }
+    const std::vector<uint8_t>& GetCompressedBc3Mip(size_t level) const {
+        static const std::vector<uint8_t> empty;
+        return level < m_Mips.size() ? m_Mips[level].bc3 : empty;
     }
     void GenerateCompressedMips();
 

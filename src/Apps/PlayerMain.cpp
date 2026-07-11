@@ -6,9 +6,11 @@
 #include "Core/Application.h"
 #include "Core/Logger.h"
 #include "Core/Platform.h"
+#include "Core/RuntimeFileSystem.h"
 #include "Game/SceneRenderLayer.h"
 #include "Input/Input.h"
-#include "Project/CookedProjectCache.h"
+#include "Project/ContentArchive.h"
+#include "Project/CookManifest.h"
 #include "Project/ProjectConfig.h"
 #include "Project/RuntimeDependencies.h"
 #include "Renderer/IRenderContext.h"
@@ -41,34 +43,27 @@ protected:
             Logger::Error("[Player] ", error);
             return false;
         }
+        if (!MountPublishedContent(error)) {
+            Logger::Error("[Player] ", error);
+            return false;
+        }
         std::filesystem::path scenePath;
         bool resolved = m_SceneOverride.empty()
             ? m_Project.ResolveStartupScene(scenePath, &error)
             : m_Project.ResolveScenePath(m_SceneOverride, scenePath, true, &error);
         if (!resolved) {
-            const std::filesystem::path archive = m_Project.GetRoot() / "Content.pak";
-            CookedProjectMount mount;
-            if (std::filesystem::is_regular_file(archive) &&
-                CookedProjectCache::Prepare(m_Project.GetRoot(), mount, &error) &&
-                m_Project.Open(mount.projectRoot, false, &error)) {
-                Logger::Info("[Player] Mounted cooked Content: ", archive.string(),
-                             mount.rebuilt ? " (cache rebuilt)" : " (cache reused)");
-                m_CookedEngineContentRoot = mount.projectRoot / "Content" / "Engine";
-                resolved = m_SceneOverride.empty()
-                    ? m_Project.ResolveStartupScene(scenePath, &error)
-                    : m_Project.ResolveScenePath(m_SceneOverride, scenePath, true, &error);
-            }
-        }
-        if (!resolved) {
             Logger::Error("[Player] ", error);
             return false;
         }
         AssetManager::Get().SetProjectRoot(m_Project.GetRoot());
-        if (!m_CookedEngineContentRoot.empty()) {
-            AssetManager::Get().SetEngineContentRoot(m_CookedEngineContentRoot);
-        }
-        ShaderManager::Get().SetShaderCacheMode(ShaderCacheMode::RuntimeCookedOnly);
+        ShaderManager::Get().SetShaderCacheMode(
+            m_PublishedContentMounted
+                ? ShaderCacheMode::RuntimeCookedOnly
+                : ShaderCacheMode::EditorOnDemandCompile);
         ShaderCacheService::Get().ClearResolver();
+        if (!m_PublishedContentMounted) {
+            Logger::Info("[Player] Content.pak not mounted; using development shader compile fallback");
+        }
         LoadProjectInputConfig();
 
         m_RenderContext = CreateRenderContext(m_Backend);
@@ -111,9 +106,50 @@ protected:
         }
         AssetManager::Get().SetProjectRoot({});
         AssetManager::Get().SetEngineContentRoot({});
+        RuntimeFileSystem::Set({});
     }
 
 private:
+    bool MountPublishedContent(std::string& error) {
+        const std::filesystem::path archive = m_Project.GetRoot() / ContentArchive::kFileName;
+        m_PublishedContentMounted = false;
+        if (!std::filesystem::is_regular_file(archive)) {
+            RuntimeFileSystem::Set({});
+            return true;
+        }
+
+        CookManifest manifest;
+        if (!CookManifest::Load(m_Project.GetRoot() / CookManifest::kFileName,
+                                manifest, &error)) {
+            return false;
+        }
+        const std::string archiveHash = ContentArchive::HashFile(archive, &error);
+        if (archiveHash.empty()) return false;
+        if (archiveHash != manifest.archiveHash) {
+            error = "Content archive hash does not match Cook manifest";
+            return false;
+        }
+
+        auto reader = std::make_shared<ContentArchiveReader>();
+        if (!reader->Open(archive, &error) ||
+            !reader->ValidateAgainstManifest(manifest, &error)) {
+            return false;
+        }
+        auto mounted = std::make_shared<MountedFileSystem>();
+        mounted->SetProjectRoot(m_Project.GetRoot());
+        mounted->AddMount(std::make_shared<PakFileSystem>(reader));
+        mounted->AddMount(std::make_shared<PackageRootFileSystem>(m_Project.GetRoot()));
+        RuntimeFileSystem::Set(mounted);
+        m_PublishedContentMounted = true;
+        Logger::Info("[Player] Mounted Content.pak: ", archive.string(),
+                     " entries=", reader->EntryCount(),
+                     " contentBytes=", reader->ContentBytes(),
+                     " buildId=", manifest.buildId,
+                     " configuration=", manifest.configuration,
+                     " shaderPolicy=RuntimeCookedOnly");
+        return true;
+    }
+
     void LoadProjectInputConfig() {
         std::string error;
         std::filesystem::path inputConfig;
@@ -123,7 +159,7 @@ private:
             Input::SetDefaultActionMap();
             return;
         }
-        if (!std::filesystem::is_regular_file(inputConfig)) {
+        if (!RuntimeFileSystem::Get().Exists(inputConfig.string())) {
             Logger::Warn("[Player] Input config not found: ", inputConfig.string(),
                          "; using default input map");
             Input::SetDefaultActionMap();
@@ -140,8 +176,8 @@ private:
     std::unique_ptr<IRenderContext> m_RenderContext;
     RenderBackend m_Backend = kDefaultRenderBackend;
     bool m_VSyncEnabled = true;
+    bool m_PublishedContentMounted = false;
     std::filesystem::path m_ProjectRoot;
-    std::filesystem::path m_CookedEngineContentRoot;
     std::string m_SceneOverride;
     ProjectConfig m_Project;
 };

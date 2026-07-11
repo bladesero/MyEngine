@@ -16,6 +16,7 @@
 #include "Project/PublishTargets.h"
 #include "Project/RuntimeCompatibility.h"
 #include "Project/RuntimeDependencies.h"
+#include "Renderer/EngineShaderCatalog.h"
 
 #include "Scene/MeshRendererComponent.h"
 #include "Scene/Scene.h"
@@ -23,14 +24,69 @@
 #include "Scripting/ScriptComponent.h"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace {
+
+class ScopedRuntimeFileSystem {
+public:
+    explicit ScopedRuntimeFileSystem(std::shared_ptr<IReadOnlyFileSystem> fileSystem)
+    {
+        RuntimeFileSystem::Set(std::move(fileSystem));
+    }
+
+    ~ScopedRuntimeFileSystem()
+    {
+        RuntimeFileSystem::Set({});
+    }
+};
+
+template <typename T>
+bool WriteBinaryValue(std::ostream& output, const T& value)
+{
+    output.write(reinterpret_cast<const char*>(&value), sizeof(T));
+    return output.good();
+}
+
+bool WriteTestContentArchive(
+    const std::filesystem::path& archive,
+    const std::vector<std::pair<std::string, std::string>>& entries,
+    bool corruptFirstHash,
+    bool addTrailingData)
+{
+    std::error_code ec;
+    std::filesystem::create_directories(archive.parent_path(), ec);
+    std::ofstream output(archive, std::ios::binary | std::ios::trunc);
+    if (!output) return false;
+    constexpr std::array<char, 8> magic = {'M','E','P','A','K','0','2','\0'};
+    output.write(magic.data(), static_cast<std::streamsize>(magic.size()));
+    const uint32_t fileCount = static_cast<uint32_t>(entries.size());
+    if (!WriteBinaryValue(output, fileCount)) return false;
+    for (size_t i = 0; i < entries.size(); ++i) {
+        const auto& [path, payload] = entries[i];
+        const uint32_t pathLength = static_cast<uint32_t>(path.size());
+        const uint64_t size = static_cast<uint64_t>(payload.size());
+        Sha256 hash;
+        if (!payload.empty()) hash.Update(payload.data(), payload.size());
+        Sha256::Digest digest = hash.Final();
+        if (corruptFirstHash && i == 0) digest[0] ^= 0xff;
+        if (!WriteBinaryValue(output, pathLength) ||
+            !WriteBinaryValue(output, size)) return false;
+        output.write(reinterpret_cast<const char*>(digest.data()),
+                     static_cast<std::streamsize>(digest.size()));
+        output.write(path.data(), static_cast<std::streamsize>(path.size()));
+        output.write(payload.data(), static_cast<std::streamsize>(payload.size()));
+    }
+    if (addTrailingData) output << "trailing";
+    return output.good();
+}
 
 bool TestPublishHardeningPrimitives() {
     Sha256 sha;
@@ -47,6 +103,8 @@ bool TestPublishHardeningPrimitives() {
     std::ofstream(root / "outside.bin") << "outside";
     fs::path resolved;
     std::string error;
+    AssetDatabase database;
+    const auto dbPath = root / ".myengine" / "AssetDatabase.json";
     if (!Check(!ContentPathPolicy::ResolveContained(root / "Content", "../outside.bin",
                                                     resolved, &error),
                "Content path traversal was accepted")) return false;
@@ -72,8 +130,38 @@ bool TestPublishHardeningPrimitives() {
                          "Content/Audio/beep.wav") != preflight.visitedAssets.end(),
                "publish preflight did not visit audio clip dependency")) return false;
 
-    AssetDatabase database;
-    const auto dbPath = root / ".myengine" / "AssetDatabase.json";
+    fs::remove_all(root / "Content/Scenes", ec);
+    fs::create_directories(root / "Content/Scenes");
+    fs::create_directories(root / "Content/Models");
+    std::ofstream(root / "Content/Models/Thing.gltf") << R"({"asset":{"version":"2.0"}})";
+    std::ofstream(root / "Content/Scenes/Main.scene.json")
+        << std::string(R"({"actors":[{"components":[{"data":{"mesh":")") +
+           (root / "Library/windows-x64/model-uuid/old.modelbin").generic_string() +
+           R"(#mesh"}}]}]})";
+    if (!Check(database.Open(dbPath, &error),
+               "asset database open failed: " + error)) return false;
+    AssetRecord model;
+    model.uuid = "model-uuid";
+    model.sourcePath = (root / "Content/Models/Thing.gltf").generic_string();
+    model.artifactPath =
+        (root / "Library/windows-x64/model-uuid/current.modelbin").generic_string();
+    model.type = "model";
+    model.state = AssetImportState::Ready;
+    fs::create_directories((root / "Library/windows-x64/model-uuid"), ec);
+    std::ofstream(root / "Library/windows-x64/model-uuid/current.modelbin",
+                  std::ios::binary) << "model";
+    if (!Check(database.Upsert(model, &error) && database.Save(&error),
+               "asset database model record save failed: " + error)) return false;
+    preflight = {};
+    if (!Check(CookDependencyGraph::Validate(root, preflight),
+               "publish preflight rejected stale absolute model artifact reference: " +
+                   preflight.Summary())) return false;
+    if (!Check(std::find(preflight.visitedAssets.begin(), preflight.visitedAssets.end(),
+                         "Content/Models/Thing.gltf") != preflight.visitedAssets.end(),
+               "publish preflight did not resolve model artifact uuid to source asset")) return false;
+    fs::remove_all(root / ".myengine", ec);
+    fs::remove_all(root / "Library", ec);
+
     if (!Check(database.Open(dbPath, &error),
                "asset database open failed: " + error)) return false;
     AssetRecord stale;
@@ -337,6 +425,8 @@ bool TestWorkspaceCookAndPublish() {
     std::ofstream(modelPath) << R"({"asset":{"version":"2.0"},"scenes":[]})";
     const auto modelArtifact = projectRoot / "Library" / "windows-x64" /
         "cached-model" / "cached.modelbin";
+    const auto staleModelArtifact = projectRoot / "Library" / "windows-x64" /
+        "cached-model" / "stale.modelbin";
     fs::create_directories(modelArtifact.parent_path());
     std::ofstream(modelArtifact, std::ios::binary) << "model cache";
     AssetDatabase importDatabase;
@@ -352,8 +442,10 @@ bool TestWorkspaceCookAndPublish() {
                importDatabase.Save(&error),
                "cached model import database setup failed: " + error)) return false;
     std::ofstream(projectRoot / "Content" / "Scenes" / "Main.scene.json")
-        << "{\"actors\":[{\"components\":[{\"data\":{\"mesh\":\""
-        << modelArtifact.generic_string() << "#mesh\"}}]}]}";
+        << "{\"preloadAssets\":[\"Content/Data/payload.bin\"],"
+        << "\"actors\":[{\"components\":[{\"data\":{\"mesh\":\""
+        << staleModelArtifact.generic_string()
+        << "#mesh\",\"scriptPath\":\"Content/Scripts/main.as\"}}]}]}";
 
     ProjectConfig project;
     if (!Check(project.Open(projectRoot, false, &error),
@@ -405,6 +497,92 @@ bool TestWorkspaceCookAndPublish() {
                manifest.target == PublishTargets::kDefaultTargetId &&
                manifest.files.size() == report.cookedFiles.size(),
                "published Cook manifest fields mismatch")) return false;
+
+    auto archiveReader = std::make_shared<ContentArchiveReader>();
+    if (!Check(archiveReader->Open(report.contentArchive, &error),
+               "Content archive reader failed to open package: " + error)) return false;
+    if (!Check(archiveReader->ValidateAgainstManifest(manifest, &error),
+               "Content archive reader rejected manifest: " + error)) return false;
+    if (!Check(archiveReader->EntryCount() == manifest.files.size() &&
+               archiveReader->ContentBytes() == report.contentBytes,
+               "Content archive reader indexed unexpected entry count or content bytes")) return false;
+    std::vector<uint8_t> payloadBytes;
+    if (!Check(archiveReader->ReadFile("Content/Data/payload.bin", payloadBytes, &error),
+               "Content archive reader failed to read payload: " + error)) return false;
+    const std::string pakPayload(payloadBytes.begin(), payloadBytes.end());
+    if (!Check(pakPayload == "cooked payload",
+               "Content archive reader returned wrong payload bytes")) return false;
+    FileStat payloadStat;
+    if (!Check(archiveReader->Stat("Content/Data/payload.bin", payloadStat, &error) &&
+               payloadStat.sourceKind == "pak" &&
+               payloadStat.normalizedPath == "Content/Data/payload.bin" &&
+               payloadStat.size == payloadBytes.size() &&
+               payloadStat.hash.size() == 64,
+               "Content archive stat did not describe the pak payload: " + error)) return false;
+    const auto shaderEntries = archiveReader->ListFiles("Content/Engine/Shaders");
+    if (!Check(std::find(shaderEntries.begin(), shaderEntries.end(),
+                         std::string(EngineShaders::kShadowDepth)) != shaderEntries.end(),
+               "Content archive ListFiles did not expose engine shader logical paths")) return false;
+
+    auto mountedFileSystem = std::make_shared<MountedFileSystem>();
+    mountedFileSystem->SetProjectRoot(report.outputDirectory);
+    mountedFileSystem->AddMount(std::make_shared<PakFileSystem>(archiveReader));
+    mountedFileSystem->AddMount(std::make_shared<PackageRootFileSystem>(report.outputDirectory));
+    std::ofstream(report.outputDirectory / "NotAllowed.txt") << "physical root noise";
+    if (!Check(mountedFileSystem->Exists(
+                   (report.outputDirectory / CookManifest::kFileName).string()) &&
+               !mountedFileSystem->Exists(
+                   (report.outputDirectory / "NotAllowed.txt").string()),
+               "package root mount exposed files outside the package root allowlist")) return false;
+    std::string mountedSceneText;
+    if (!Check(mountedFileSystem->ReadText(
+                   (report.outputDirectory / "Content/Scenes/Main.scene.json").string(),
+                   mountedSceneText, &error) &&
+               mountedSceneText.find("Content/Library/windows-x64/cached-model/cached.modelbin#mesh") !=
+                   std::string::npos,
+               "mounted file system failed to read scene from Content.pak: " + error)) return false;
+    FileStat mountedSceneStat;
+    if (!Check(mountedFileSystem->Stat(
+                   (report.outputDirectory / "Content/Scenes/Main.scene.json").string(),
+                   mountedSceneStat, &error) &&
+               mountedSceneStat.sourceKind == "pak" &&
+               mountedSceneStat.normalizedPath == "Content/Scenes/Main.scene.json",
+               "mounted file system did not select pak for Content scene: " + error)) return false;
+    {
+        ScopedRuntimeFileSystem mountedScope(mountedFileSystem);
+        auto mountedShader = LoadShaderAssetFromFile(
+            (report.outputDirectory / "Content/Engine/Shaders/Mesh.shader").string());
+        if (!Check(mountedShader && mountedShader->IsCooked(),
+                   "Runtime file system failed to load cooked shader from Content.pak")) return false;
+        AssetManager::Get().Clear();
+        AssetManager::Get().SetProjectRoot(report.outputDirectory);
+        AssetManager::Get().SetEngineContentRoot(std::filesystem::current_path() / "EngineContent");
+        const char* engineShaders[] = {
+            EngineShaders::kAtmosphereCubemap,
+            EngineShaders::kAtmosphereSH,
+            EngineShaders::kDeferredLighting,
+            EngineShaders::kEnvironmentMipmap,
+            EngineShaders::kGBuffer,
+            EngineShaders::kMesh,
+            EngineShaders::kPostProcessFXAA,
+            EngineShaders::kPostProcessSSAO,
+            EngineShaders::kPostProcessSSAOBlur,
+            EngineShaders::kProceduralSky,
+            EngineShaders::kShadowDepth,
+            EngineShaders::kShadowedMainPass
+        };
+        for (const char* engineShader : engineShaders) {
+            auto assetManagerShader = AssetManager::Get().Load<ShaderAsset>(engineShader);
+            if (!Check(assetManagerShader && assetManagerShader->IsCooked(),
+                       std::string("AssetManager resolved engine shader to physical raw descriptor instead of mounted Content.pak: ") +
+                           engineShader)) {
+                return false;
+            }
+        }
+        AssetManager::Get().Clear();
+        AssetManager::Get().SetProjectRoot(std::filesystem::current_path());
+        AssetManager::Get().SetEngineContentRoot(std::filesystem::current_path() / "EngineContent");
+    }
 
     CookManifest invalidManifest = manifest;
     invalidManifest.version = 999;
@@ -531,9 +709,14 @@ bool TestWorkspaceCookAndPublish() {
     std::ifstream cookedScene(extracted / "Content/Scenes/Main.scene.json");
     std::string cookedSceneText((std::istreambuf_iterator<char>(cookedScene)),
                                 std::istreambuf_iterator<char>());
-    if (!Check(cookedSceneText.find("Library/windows-x64") == std::string::npos &&
-               cookedSceneText.find("Content/Models/cached.gltf#mesh") != std::string::npos,
-               "publish did not rewrite cached model artifact references")) return false;
+    if (!Check(cookedSceneText.find("Content/Library/windows-x64/cached-model/cached.modelbin#mesh") !=
+                   std::string::npos &&
+               cookedSceneText.find("Content/Models/cached.gltf#mesh") == std::string::npos &&
+               cookedSceneText.find(projectRoot.generic_string()) == std::string::npos,
+               "publish did not rewrite stale model cache artifact references")) return false;
+    if (!Check(fs::is_regular_file(extracted / "Content/Library/windows-x64/cached-model/cached.modelbin") &&
+               !fs::exists(extracted / "Content/Models/cached.gltf"),
+               "publish did not stage only the cooked model artifact")) return false;
 
     const auto corrupt = base / "Corrupt.pak";
     fs::copy_file(report.contentArchive, corrupt);
@@ -555,6 +738,47 @@ bool TestWorkspaceCookAndPublish() {
     if (!Check(!ContentArchive::Extract(trailing, base / "TrailingExtract", &error) &&
                error.find("trailing") != std::string::npos,
                "Content archive trailing data was accepted")) return false;
+    ContentArchiveReader trailingReader;
+    if (!Check(!trailingReader.Open(trailing, &error) &&
+               error.find("trailing") != std::string::npos,
+               "Content archive reader accepted trailing data")) return false;
+
+    const auto readerBad = base / "ReaderBad";
+    const auto duplicatePak = readerBad / "Duplicate.pak";
+    if (!Check(WriteTestContentArchive(
+                   duplicatePak,
+                   {{"Data/a.bin", "one"}, {"Data/a.bin", "two"}},
+                   false, false),
+               "failed to write duplicate-path test archive")) return false;
+    ContentArchiveReader duplicateReader;
+    if (!Check(!duplicateReader.Open(duplicatePak, &error) &&
+               error.find("duplicate") != std::string::npos,
+               "Content archive reader accepted duplicate entry paths")) return false;
+
+    const auto unsafePak = readerBad / "Unsafe.pak";
+    if (!Check(WriteTestContentArchive(
+                   unsafePak,
+                   {{"../evil.bin", "evil"}},
+                   false, false),
+               "failed to write unsafe-path test archive")) return false;
+    ContentArchiveReader unsafeReader;
+    if (!Check(!unsafeReader.Open(unsafePak, &error) &&
+               error.find("unsafe") != std::string::npos,
+               "Content archive reader accepted unsafe entry paths")) return false;
+
+    const auto hashMismatchPak = readerBad / "HashMismatch.pak";
+    if (!Check(WriteTestContentArchive(
+                   hashMismatchPak,
+                   {{"Data/hash.bin", "payload"}},
+                   true, false),
+               "failed to write hash-mismatch test archive")) return false;
+    ContentArchiveReader hashMismatchReader;
+    std::vector<uint8_t> hashMismatchBytes;
+    if (!Check(hashMismatchReader.Open(hashMismatchPak, &error) &&
+               !hashMismatchReader.ReadFile("Content/Data/hash.bin",
+                                            hashMismatchBytes, &error) &&
+               error.find("hash mismatch") != std::string::npos,
+               "Content archive reader accepted an entry with mismatched hash")) return false;
 
     const auto corruptPackage = base / "CorruptPackage";
     fs::copy(replacementReport.outputDirectory, corruptPackage,

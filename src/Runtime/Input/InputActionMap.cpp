@@ -1,4 +1,5 @@
 #include "Input/InputActionMap.h"
+#include "Core/RuntimeFileSystem.h"
 
 #include <SDL3/SDL_keyboard.h>
 #include <SDL3/SDL_mouse.h>
@@ -208,14 +209,13 @@ bool InputActionMap::ParseSource(std::string_view text, InputSource& source, std
 bool InputActionMap::LoadFromFile(const std::filesystem::path& path, std::string* error)
 {
     if (error) error->clear();
-    std::ifstream input(path);
-    if (!input) {
+    std::string text;
+    if (!RuntimeFileSystem::Get().ReadText(path.string(), text, error)) {
         SetError(error, "failed to open input config: " + path.string());
         return false;
     }
     try {
-        nlohmann::json json;
-        input >> json;
+        nlohmann::json json = nlohmann::json::parse(text);
         return LoadFromJson(json, error);
     } catch (const std::exception& exception) {
         SetError(error, "failed to parse input config: " + std::string(exception.what()));
