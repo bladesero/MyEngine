@@ -43,6 +43,8 @@
 #include <vector>
 
 namespace {
+
+constexpr float kCharacterGroundSeparationDistance = 0.05f;
 constexpr uint32_t kMaxBodies = 65536;
 constexpr uint32_t kMaxBodyPairs = 65536;
 constexpr uint32_t kMaxContacts = 20480;
@@ -529,24 +531,34 @@ public:
             if (found == bodies.end()) return;
             if (isCharacter) {
                 Vec3 velocity = controller->GetVelocity();
-                if (!controller->IsGrounded()) {
+                const JPH::CharacterBase::EGroundState groundState =
+                    found->second.characterObject->GetGroundState();
+                const bool onGround = groundState == JPH::CharacterBase::EGroundState::OnGround;
+                const Vec3 groundVelocity = onGround
+                    ? FromJolt(found->second.characterObject->GetGroundVelocity())
+                    : Vec3::Zero();
+                if (!onGround) {
                     const Vec3 current = controller->GetActualVelocity();
                     const float control = controller->GetAirControl();
                     velocity.x = current.x + (velocity.x - current.x) * control;
                     velocity.z = current.z + (velocity.z - current.z) * control;
+                } else {
+                    velocity.x += groundVelocity.x;
+                    velocity.z += groundVelocity.z;
                 }
                 float jumpSpeed = 0.0f;
-                if (controller->ConsumeJump(jumpSpeed))
+                const bool jumped = controller->ConsumeJump(jumpSpeed);
+                if (jumped) {
                     found->second.characterVerticalVelocity = jumpSpeed;
-                if (controller->UsesGravity()) {
-                    if (controller->IsGrounded() && found->second.characterVerticalVelocity < 0.0f)
-                        found->second.characterVerticalVelocity = 0.0f;
+                } else if (controller->UsesGravity() && onGround &&
+                           found->second.characterVerticalVelocity <= groundVelocity.y) {
+                    found->second.characterVerticalVelocity = groundVelocity.y;
+                } else if (controller->UsesGravity()) {
                     found->second.characterVerticalVelocity += FromJolt(system.GetGravity()).y * dt;
-                    velocity.y = found->second.characterVerticalVelocity;
                 } else {
                     found->second.characterVerticalVelocity = velocity.y;
                 }
-                controller->SetActualVelocity(velocity);
+                velocity.y = found->second.characterVerticalVelocity;
                 found->second.characterObject->SetLinearVelocity(ToJolt(velocity));
             } else if (activeBody) {
                 ApplyCommands(actor, found->second, *activeBody, dt);
@@ -575,14 +587,18 @@ public:
         for (auto& [actorID, info] : bodies) {
             Actor* actor = scene.FindByID(actorID); if (!actor) continue;
             if (info.character) {
+                info.characterObject->PostSimulation(kCharacterGroundSeparationDistance);
                 JPH::RVec3 p; JPH::Quat q; info.characterObject->GetPositionAndRotation(p, q);
                 SetActorWorldPose(*actor, FromJolt(p), FromJolt(q));
                 info.lastEnginePosition = actor->GetWorldPosition();
                 info.lastEngineRotation = WorldRotation(*actor);
                 info.hasLastPose = true;
-                info.characterObject->PostSimulation(0.1f);
                 if (auto* controller = actor->GetComponent<CharacterControllerComponent>()) {
-                    controller->SetGrounded(info.characterObject->GetGroundState() == JPH::CharacterBase::EGroundState::OnGround);
+                    const Vec3 actualVelocity = FromJolt(info.characterObject->GetLinearVelocity());
+                    controller->SetActualVelocity(actualVelocity);
+                    info.characterVerticalVelocity = actualVelocity.y;
+                    controller->SetGrounded(info.characterObject->GetGroundState() ==
+                                            JPH::CharacterBase::EGroundState::OnGround);
                 }
                 continue;
             }

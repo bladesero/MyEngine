@@ -196,6 +196,140 @@ bool TestRaycastAndCharacterController() {
                  std::to_string(player->GetTransform().position.z) + ")");
 }
 
+bool TestCharacterControllerContactStability() {
+    Scene scene("CharacterContactStability");
+
+    Actor* ground = scene.CreateActor("Ground");
+    ground->GetTransform().position = { 0.0f, -0.5f, 0.0f };
+    ground->AddComponent<RigidBodyComponent>()->SetBodyType(BodyType::Static);
+    ground->AddComponent<BoxColliderComponent>()->SetHalfExtents({ 8.0f, 0.5f, 8.0f });
+
+    Actor* wall = scene.CreateActor("Wall");
+    wall->GetTransform().position = { 2.0f, 1.0f, 0.0f };
+    wall->AddComponent<RigidBodyComponent>()->SetBodyType(BodyType::Static);
+    wall->AddComponent<BoxColliderComponent>()->SetHalfExtents({ 0.25f, 1.0f, 3.0f });
+
+    Actor* player = scene.CreateActor("Player");
+    player->GetTransform().position = { 0.0f, 2.0f, 0.0f };
+    auto* capsule = player->AddComponent<CapsuleColliderComponent>();
+    capsule->SetRadius(0.5f);
+    capsule->SetHalfHeight(0.5f);
+    auto* controller = player->AddComponent<CharacterControllerComponent>();
+
+    for (int i = 0; i < 180; ++i) scene.OnUpdate(1.0f / 60.0f);
+    if (!Check(controller->IsGrounded(), "character did not settle before stability sampling")) return false;
+
+    const float settledY = player->GetTransform().position.y;
+    float minimumY = settledY;
+    float maximumY = settledY;
+    int groundedFrames = 0;
+    for (int i = 0; i < 180; ++i) {
+        scene.OnUpdate(1.0f / 60.0f);
+        const float y = player->GetTransform().position.y;
+        minimumY = (std::min)(minimumY, y);
+        maximumY = (std::max)(maximumY, y);
+        if (controller->IsGrounded()) ++groundedFrames;
+    }
+    if (!Check(maximumY - minimumY < 0.005f && groundedFrames == 180 &&
+               std::abs(controller->GetActualVelocity().y) < 0.02f,
+               "resting character contact jittered or lost grounded state")) return false;
+
+    if (!Check(controller->Jump(), "grounded character rejected jump request")) return false;
+    bool becameAirborne = false;
+    bool landedAgain = false;
+    for (int i = 0; i < 180; ++i) {
+        scene.OnUpdate(1.0f / 60.0f);
+        becameAirborne = becameAirborne || !controller->IsGrounded();
+        if (becameAirborne && controller->IsGrounded()) {
+            landedAgain = true;
+            break;
+        }
+    }
+    if (!Check(becameAirborne && landedAgain,
+               "character did not leave and reacquire stable ground after jumping")) return false;
+
+    controller->Move({ 3.0f, 0.0f, 1.0f });
+    float previousX = player->GetTransform().position.x;
+    float maximumBacktrack = 0.0f;
+    for (int i = 0; i < 120; ++i) {
+        scene.OnUpdate(1.0f / 60.0f);
+        const float x = player->GetTransform().position.x;
+        maximumBacktrack = (std::max)(maximumBacktrack, previousX - x);
+        previousX = x;
+    }
+    return Check(player->GetTransform().position.x < 1.3f &&
+                 player->GetTransform().position.z > 1.0f &&
+                 maximumBacktrack < 0.01f && controller->IsGrounded(),
+                 "character was unstable while sliding along a wall");
+}
+
+bool TestCharacterControllerDynamicBodyStability() {
+    Scene scene("CharacterDynamicContact");
+
+    Actor* ground = scene.CreateActor("Ground");
+    ground->GetTransform().position = { 0.0f, -0.5f, 0.0f };
+    ground->AddComponent<RigidBodyComponent>()->SetBodyType(BodyType::Static);
+    ground->AddComponent<BoxColliderComponent>()->SetHalfExtents({ 8.0f, 0.5f, 8.0f });
+
+    Actor* box = scene.CreateActor("PushableBox");
+    box->GetTransform().position = { 2.0f, 0.5f, 0.0f };
+    auto* boxBody = box->AddComponent<RigidBodyComponent>();
+    boxBody->SetMass(20.0f);
+    boxBody->SetFriction(0.5f);
+    box->AddComponent<BoxColliderComponent>()->SetHalfExtents({ 0.5f, 0.5f, 0.5f });
+
+    Actor* player = scene.CreateActor("Player");
+    player->GetTransform().position = { 0.0f, 1.0f, 0.0f };
+    auto* capsule = player->AddComponent<CapsuleColliderComponent>();
+    capsule->SetRadius(0.5f);
+    capsule->SetHalfHeight(0.5f);
+    auto* controller = player->AddComponent<CharacterControllerComponent>();
+    controller->Move({ 2.0f, 0.0f, 0.0f });
+
+    int groundedFrames = 0;
+    float maximumVerticalSpeed = 0.0f;
+    for (int i = 0; i < 240; ++i) {
+        scene.OnUpdate(1.0f / 60.0f);
+        if (i >= 60 && controller->IsGrounded()) ++groundedFrames;
+        maximumVerticalSpeed = (std::max)(maximumVerticalSpeed,
+                                          std::abs(controller->GetActualVelocity().y));
+    }
+    const Vec3 playerPosition = player->GetTransform().position;
+    const Vec3 boxPosition = box->GetTransform().position;
+    if (!Check(std::isfinite(playerPosition.x) && std::isfinite(playerPosition.y) &&
+               std::isfinite(boxPosition.x) && std::isfinite(boxPosition.y) &&
+               boxPosition.x > 2.1f && groundedFrames > 170 && maximumVerticalSpeed < 1.0f,
+               "character interaction with a dynamic collider was unstable")) return false;
+
+    Scene platformScene("CharacterMovingPlatform");
+    Actor* platform = platformScene.CreateActor("Platform");
+    platform->GetTransform().position = { 0.0f, 0.0f, 0.0f };
+    auto* platformBody = platform->AddComponent<RigidBodyComponent>();
+    platformBody->SetBodyType(BodyType::Kinematic);
+    platformBody->SetUseGravity(false);
+    platform->AddComponent<BoxColliderComponent>()->SetHalfExtents({ 2.0f, 0.25f, 2.0f });
+
+    Actor* rider = platformScene.CreateActor("Rider");
+    rider->GetTransform().position = { 0.0f, 1.25f, 0.0f };
+    auto* riderCapsule = rider->AddComponent<CapsuleColliderComponent>();
+    riderCapsule->SetRadius(0.5f);
+    riderCapsule->SetHalfHeight(0.5f);
+    auto* riderController = rider->AddComponent<CharacterControllerComponent>();
+    for (int i = 0; i < 30; ++i) platformScene.OnUpdate(1.0f / 60.0f);
+    if (!Check(riderController->IsGrounded(), "character did not settle on moving platform")) return false;
+
+    for (int i = 0; i < 120; ++i) {
+        const Vec3 target = platform->GetWorldPosition() + Vec3(0.01f, 0.0f, 0.0f);
+        platformBody->SetKinematicTarget(target, Vec3::Zero());
+        platformScene.OnUpdate(1.0f / 60.0f);
+    }
+    return Check(riderController->IsGrounded() &&
+                 platform->GetWorldPosition().x > 1.1f &&
+                 rider->GetWorldPosition().x > 0.9f &&
+                 std::abs(rider->GetWorldPosition().y - 1.25f) < 0.02f,
+                 "character did not stably inherit moving platform velocity");
+}
+
 bool TestJoltRigidBodyExtensions() {
     Scene scene("JoltExtensions");
     scene.GetPhysicsWorld().SetGravity(Vec3::Zero());
@@ -276,6 +410,8 @@ MYENGINE_REGISTER_TEST("Physics", "TestPhysicsGroundCollision", TestPhysicsGroun
 MYENGINE_REGISTER_TEST("Physics", "TestExtendedCollisionShapes", TestExtendedCollisionShapes);
 MYENGINE_REGISTER_TEST("Physics", "TestPhysicsBroadPhaseTriggersAndSleep", TestPhysicsBroadPhaseTriggersAndSleep);
 MYENGINE_REGISTER_TEST("Physics", "TestRaycastAndCharacterController", TestRaycastAndCharacterController);
+MYENGINE_REGISTER_TEST("Physics", "TestCharacterControllerContactStability", TestCharacterControllerContactStability);
+MYENGINE_REGISTER_TEST("Physics", "TestCharacterControllerDynamicBodyStability", TestCharacterControllerDynamicBodyStability);
 MYENGINE_REGISTER_TEST("Physics", "TestJoltRigidBodyExtensions", TestJoltRigidBodyExtensions);
 MYENGINE_REGISTER_TEST("Physics", "TestRigidBodyJsonCompatibility", TestRigidBodyJsonCompatibility);
 
