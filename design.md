@@ -83,6 +83,10 @@ MyEngine/
 9. **Game** — `SceneLayer` 持有分离的 **EditorWorld/PlayWorld**：Load/Save/Undo 等编辑入口只操作 EditorWorld，`BeginPlay()` 通过 **SceneSerializer** 克隆出临时 PlayWorld，运行时模拟只更新 PlayWorld；`SceneRenderLayer` 在 **SceneLayer** 之上组合 **IRenderContext + Renderer + SceneViewport/GameViewport**，Player 使用 simulation scene 与主 `CameraComponent`，Editor 同时输出 Scene/Game 两个 viewport。
 10. **Editor** — `EditorLayer` 继承 **Layer**（非 `SceneLayer`），持有 **`SceneRenderLayer*`** 以编辑同一场景；依赖 **ImGui**、**ImGuizmo**、**Engine/Window** 与序列化接口。
 
+Runtime 组件类型统一登记到 `TypeRegistry`。注册描述器提供稳定类型/属性 ID、工厂、schema version、默认值、序列化、Inspector hints、脚本访问标记和 Prefab override 路径；`ComponentRegistry` 是兼容 facade。Camera、Light 与 BoxCollider 已使用宏构建的属性描述器，其他组件继续走原有虚函数序列化并可渐进迁移。
+
+每个 `Scene` 持有 `WorldFrameScheduler`，按 `WorldFrameBegin → PreUpdate → FixedPrePhysics → FixedPhysics → FixedPostPhysics → Update → LateUpdate → RenderExtract → WorldFrameEnd` 驱动 PlayWorld。固定步长 accumulator 属于 Scheduler，默认 60 Hz、每帧最多追赶 4 tick；`PhysicsWorld::StepFixed` 只执行单次物理模拟。应用级事件、Layer、Editor UI、渲染提交与 Present 仍由 `Engine`/Layer 路径拥有。
+
 ### 3.2 依赖关系示意（Mermaid）
 
 ```mermaid
@@ -300,6 +304,19 @@ Runtime rendering follows `Render Pass -> RenderGraph -> IRHIDevice/GpuCommandLi
 `IRHIDevice` for resource creation/capabilities, `IRHIFrameContext` for frame
 boundaries and command-list access, `IRHIReadbackService` for asynchronous
 readback, and `IEditorImGuiRHIInterop` for editor UI native-handle bridging.
+
+`RHIConformance` is a backend-neutral runtime acceptance path that consumes only
+those public interfaces. Player exposes it through `--rhi-conformance`, and the
+release gate runs the same resource, pipeline, readback, resize and descriptor-
+pressure contract against D3D11 and D3D12. `IRHIFrameContext` reports device
+loss as a stable reason/native-code/device-generation tuple. The application
+registers an Engine fatal-health check; a lost device produces a provenance-rich
+diagnostic report and a non-zero clean exit rather than allowing additional
+frames to use a partially valid backend.
+Release smoke also enables a guarded `--rhi-test-inject-device-loss` path (valid
+only together with `--rhi-conformance`) to exercise this process-level failure
+contract deterministically without changing normal Player behavior. This gate
+does not replace a real driver-removal lab on the self-hosted GPU runner.
 New backend-agnostic features should target these smaller interfaces instead
 of adding methods to the facade.
 RenderGraph validates dependencies and owns attachment state transitions. DXBC reflection
@@ -343,3 +360,23 @@ serialization, Lua, and Editor code use MyEngine types only. Each Scene owns one
 PhysicsWorld. The fixed-step order is component `FixedUpdate`, body reconciliation, Jolt
 update, Transform write-back, then main-thread collision-event dispatch. Detailed rules
 are in [`docs/classes/physics/PhysicsWorld.md`](docs/classes/physics/PhysicsWorld.md).
+
+## 12. Editor recovery and import transactions
+
+Editor recovery state is project-local authoring data under `.myengine/recovery`.
+It is owned by `EditorRecoveryService`, never enters scene undo state, and is not
+part of cooked `Content`. `EditorLayer` records dirty EditorWorld snapshots,
+marks clean shutdown, and offers restore/discard after an unclean session.
+Recovery deserialization replaces the EditorWorld only after a complete parse.
+
+Asset imports write derived data to a staging artifact. `AssetImportService`
+validates the staged hash and dependency closure before artifact promotion and
+`AssetDatabase` persistence. Failure restores the previous ready record and
+artifact, so runtime consumers never observe a partially imported asset.
+
+Prefab assets keep nested instances as source references rather than flattening
+their nodes. Each reference stores a stable instance-local ID, parent-local ID,
+source path/UUID/revision, local placement, and overrides. Instantiation expands
+the reference graph recursively after cycle validation; source refresh re-expands
+the child source while retaining overrides. Cook dependency traversal uses an
+active recursion set so indirect prefab cycles fail preflight.

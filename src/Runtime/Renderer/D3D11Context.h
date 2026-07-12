@@ -5,6 +5,7 @@
 
 #include <cstddef>
 #include <string>
+#include <vector>
 
 #include <d3d11.h>
 #include <wrl/client.h>
@@ -16,6 +17,7 @@ using Microsoft::WRL::ComPtr;
 struct D3D11Buffer : GpuBuffer {
     ComPtr<ID3D11Buffer> buffer;
     uint32_t             stride = 0;
+    std::vector<uint8_t> updateShadow;
 };
 
 struct D3D11IndexBuffer : GpuBuffer {
@@ -78,6 +80,7 @@ public:
     void EndFrame()  override;
     bool IsDeviceLost() const override { return m_DeviceLost; }
     const std::string& GetLastDeviceError() const override { return m_LastDeviceError; }
+    RHIDeviceLossInfo GetDeviceLossInfo() const override { return m_DeviceLossInfo; }
     GpuSwapChain* GetSwapChain() override;
     GpuCommandList* GetGraphicsCommandList() override;
     GpuQueue* GetGraphicsQueue() override { return m_GraphicsQueue.get(); }
@@ -189,6 +192,8 @@ private:
     bool                           m_DeviceLost = false;
     bool                           m_VSyncEnabled = true;
     std::string                    m_LastDeviceError;
+    RHIDeviceLossInfo              m_DeviceLossInfo;
+    uint64_t                       m_DeviceGeneration = 0;
     SwapChainResizeCallback        m_ResizeCallback = nullptr;
     std::unique_ptr<GpuSwapChain>  m_SwapChainInterface;
     std::unique_ptr<GpuCommandList> m_GraphicsCommandList;

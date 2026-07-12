@@ -4,6 +4,8 @@
 #include "Core/Logger.h"
 #include "Core/Engine.h"
 #include "Core/FrameStats.h"
+#include "Scene/Scene.h"
+#include "Scene/WorldFrameScheduler.h"
 #include "Editor/EditorAction.h"
 #include "Editor/EditorAssetRegistry.h"
 #include "Editor/EditorCommand.h"
@@ -1258,6 +1260,15 @@ std::string Profiler_GetFrameStats()
         {"textureUploadBytes", renderer.textureUploadBytes},
         {"textureUploadMs", renderer.textureUploadMs}
     };
+    if (Scene* scene = context ? context->GetSimulationScene() : nullptr) {
+        const WorldSchedulerStats& world = scene->GetFrameScheduler().GetStats();
+        data["worldFixedTicks"] = world.fixedTicks;
+        data["worldDroppedFixedTicks"] = world.droppedFixedTicks;
+        nlohmann::json phases = nlohmann::json::object();
+        for (size_t i = 0; i < kWorldPhaseCount; ++i)
+            phases[WorldPhaseName(static_cast<WorldPhase>(i))] = world.phaseMilliseconds[i];
+        data["worldPhasesMs"] = std::move(phases);
+    }
     return data.dump();
 }
 

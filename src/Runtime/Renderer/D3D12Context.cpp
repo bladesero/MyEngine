@@ -773,8 +773,13 @@ public:
     bool IsReady() const override { return m_Fence && m_Fence->GetCompletedValue() >= m_FenceValue; }
     bool Read(std::vector<uint8_t>& data) override {
         if (!IsReady() || !m_Resource) return false;
-        void* mapped = nullptr; D3D12_RANGE range{0, static_cast<SIZE_T>(m_GpuRowPitch) * m_Height};
-        if (FAILED(m_Resource->Map(0, &range, &mapped)) || !mapped) return false;
+        void* mapped = nullptr;
+        const HRESULT mapHr = m_Resource->Map(0, nullptr, &mapped);
+        if (FAILED(mapHr) || !mapped) {
+            Logger::Error("[RHI] D3D12 texture readback Map failed hr=",
+                          static_cast<long>(mapHr), " mapped=", mapped);
+            return false;
+        }
         data.resize(static_cast<size_t>(m_RowSize) * m_Height);
         for (uint32_t y = 0; y < m_Height; ++y)
             std::memcpy(data.data() + static_cast<size_t>(y) * m_RowSize,
@@ -1305,7 +1310,10 @@ bool D3D12Context::Init(IWindow* window) {
         return false;
     }
 
-    Logger::Info("D3D12Context initialised (", w, "x", h, ")");
+    ++m_DeviceGeneration;
+    m_DeviceLossInfo = {};
+    Logger::Info("D3D12Context initialised (", w, "x", h,
+                 ") generation=", m_DeviceGeneration);
     return true;
 }
 
@@ -1388,6 +1396,7 @@ void D3D12Context::Shutdown() {
     m_DredDumped = false;
     m_DeviceLossSuppressionLogged = false;
     m_LastDeviceError.clear();
+    m_DeviceLossInfo = {};
 }
 
 void D3D12Context::WaitForFrame(uint32_t frameIndex) {
@@ -1719,6 +1728,12 @@ bool D3D12Context::CheckDeviceResult(HRESULT hr, const char* operation) {
                           hr == DXGI_ERROR_DEVICE_RESET ||
                           hr == DXGI_ERROR_DEVICE_HUNG)) {
         m_DeviceLost = true;
+        RHIDeviceLossReason reason = RHIDeviceLossReason::Unknown;
+        if (hr == DXGI_ERROR_DEVICE_REMOVED) reason = RHIDeviceLossReason::Removed;
+        else if (hr == DXGI_ERROR_DEVICE_RESET) reason = RHIDeviceLossReason::Reset;
+        else if (hr == DXGI_ERROR_DEVICE_HUNG) reason = RHIDeviceLossReason::Hung;
+        m_DeviceLossInfo = {reason, static_cast<int64_t>(hr),
+                            m_DeviceGeneration, m_LastDeviceError};
         DumpDredDiagnostics();
     }
     return false;
@@ -1749,6 +1764,14 @@ void D3D12Context::ReportDeviceRemovedReason(const char* operation) {
         Logger::Error("D3D12 device removed reason after ", operation,
                       ": ", FormatHRESULT(reason));
     }
+    RHIDeviceLossReason stableReason = RHIDeviceLossReason::Unknown;
+    if (reason == DXGI_ERROR_DEVICE_REMOVED) stableReason = RHIDeviceLossReason::Removed;
+    else if (reason == DXGI_ERROR_DEVICE_RESET) stableReason = RHIDeviceLossReason::Reset;
+    else if (reason == DXGI_ERROR_DEVICE_HUNG) stableReason = RHIDeviceLossReason::Hung;
+    else if (reason == DXGI_ERROR_DRIVER_INTERNAL_ERROR)
+        stableReason = RHIDeviceLossReason::DriverInternalError;
+    m_DeviceLossInfo = {stableReason, static_cast<int64_t>(reason),
+                        m_DeviceGeneration, m_LastDeviceError};
     DumpDredDiagnostics();
 }
 
@@ -3464,7 +3487,20 @@ std::shared_ptr<GpuTextureReadbackTicket> D3D12Context::ReadbackTextureAsync(
     src.SubresourceIndex = requested.mipLevel + requested.arrayLayer * source->desc.mipLevels;
     D3D12_BOX box{requested.x, requested.y, requested.z,
                   requested.x + width, requested.y + height, requested.z + 1};
+    const D3D12_RESOURCE_STATES sourceState =
+        HasUsage(source->desc.usage, RHIResourceUsage::ShaderResource)
+            ? D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE
+            : D3D12_RESOURCE_STATE_COMMON;
+    D3D12_RESOURCE_BARRIER toCopy{};
+    toCopy.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    toCopy.Transition.pResource = source->resource.Get();
+    toCopy.Transition.StateBefore = sourceState;
+    toCopy.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+    toCopy.Transition.Subresource = src.SubresourceIndex;
+    m_CommandList->ResourceBarrier(1, &toCopy);
     m_CommandList->CopyTextureRegion(&dst, 0, 0, 0, &src, &box);
+    std::swap(toCopy.Transition.StateBefore, toCopy.Transition.StateAfter);
+    m_CommandList->ResourceBarrier(1, &toCopy);
     return std::make_shared<D3D12TextureReadbackTicket>(std::move(readback), m_Fence,
         m_NextFenceValue, width, height, width * bpp, footprint.Footprint.RowPitch,
         source->desc.format, m_DeferredReleaseQueue);

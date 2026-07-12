@@ -17,6 +17,7 @@
 #include <memory>
 #include <filesystem>
 #include <string>
+#include <sstream>
 
 namespace {
 std::filesystem::path GetExecutableDirectory(const char* argv0) {
@@ -129,6 +130,17 @@ protected:
             return false; // error already logged
         }
         m_RenderContext->SetVSyncEnabled(m_VSyncEnabled);
+        GetEngine().SetFatalHealthCheck([this]() -> std::optional<std::string> {
+            if (!m_RenderContext || !m_RenderContext->IsDeviceLost()) return std::nullopt;
+            const RHIDeviceLossInfo info = m_RenderContext->GetDeviceLossInfo();
+            std::ostringstream message;
+            message << "RHI device lost backend=" << RenderBackendToProjectValue(m_Backend)
+                    << " reason=" << RHIDeviceLossReasonName(info.reason)
+                    << " nativeCode=" << info.nativeCode
+                    << " generation=" << info.deviceGeneration
+                    << " diagnostic=" << info.diagnostic;
+            return message.str();
+        });
 
         auto& win = GetWindow();
         auto* sceneLayer = new SceneRenderLayer(m_RenderContext.get(),

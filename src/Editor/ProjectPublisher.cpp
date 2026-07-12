@@ -14,14 +14,20 @@
 #include "Project/RuntimeDependencies.h"
 #include "Project/ContentPathPolicy.h"
 #include "Core/Sha256.h"
+#include "Core/TransactionalFileWriter.h"
+#include "Core/BuildInfo.h"
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
+#include <ctime>
 #include <fstream>
 #include <future>
+#include <iomanip>
 #include <iterator>
 #include <nlohmann/json.hpp>
 #include <optional>
+#include <sstream>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -63,6 +69,47 @@ std::vector<ShaderBackend> ShaderBackendsForTarget(const std::string& target)
 #else
     return {ShaderBackend::D3D11, ShaderBackend::D3D12};
 #endif
+}
+
+bool WriteSupplyChainDocuments(const fs::path& staging, std::string* error)
+{
+    struct Package { const char* name; const char* version; const char* license; };
+    static const Package packages[] = {
+        {"SDL3","3.2.14","Zlib"},{"nlohmann-json","3.11.3","MIT"},
+        {"stb","project-pinned","MIT OR Unlicense"},{"RmlUi","6.2","MIT"},
+        {"tinyobjloader","project-pinned","MIT"},{"JoltPhysics","5.5.0","MIT"},
+        {"AngelScript","2.38.0","Zlib"},{"Dear ImGui","1.91.3-docking","MIT"},
+        {"ImGuizmo","project-pinned","MIT"},{"miniaudio","project-pinned","MIT-0 OR Unlicense"},
+        {"cgltf","project-pinned","MIT"},{"Lua","project-pinned","MIT"}
+    };
+    nlohmann::json packageArray=nlohmann::json::array(),noticeArray=nlohmann::json::array();
+    for(const auto& package:packages){
+        std::string packageId=package.name;for(char& value:packageId)if(!std::isalnum(static_cast<unsigned char>(value)))value='-';
+        packageArray.push_back({{"SPDXID",std::string("SPDXRef-Package-")+packageId},
+            {"name",package.name},{"versionInfo",package.version},
+            {"downloadLocation","NOASSERTION"},{"licenseConcluded",package.license},
+            {"licenseDeclared",package.license},{"filesAnalyzed",false}});
+        noticeArray.push_back({{"name",package.name},{"version",package.version},
+                               {"license",package.license}});
+    }
+    const auto now=std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());std::tm utc{};
+#if defined(_WIN32)
+    gmtime_s(&utc,&now);
+#else
+    gmtime_r(&now,&utc);
+#endif
+    std::ostringstream created;created<<std::put_time(&utc,"%Y-%m-%dT%H:%M:%SZ");
+    const nlohmann::json sbom={{"spdxVersion","SPDX-2.3"},{"dataLicense","CC0-1.0"},
+        {"SPDXID","SPDXRef-DOCUMENT"},{"name",std::string("MyEngine-")+std::string(BuildInfo::BuildId)},
+        {"documentNamespace",std::string("https://myengine.local/spdx/")+std::string(BuildInfo::BuildId)},
+        {"creationInfo",{{"created",created.str()},{"creators",nlohmann::json::array({"Tool: MyEnginePublisher"})},
+                         {"comment",std::string("commit=")+std::string(BuildInfo::GitCommit)}}},
+        {"packages",packageArray}};
+    const nlohmann::json notices={{"engineVersion",std::string(BuildInfo::EngineVersion)},
+        {"buildId",std::string(BuildInfo::BuildId)},{"gitCommit",std::string(BuildInfo::GitCommit)},
+        {"packages",noticeArray}};
+    return TransactionalFileWriter::WriteText(staging/"SBOM.spdx.json",sbom.dump(2)+"\n",{},error)&&
+           TransactionalFileWriter::WriteText(staging/"ThirdPartyNotices.json",notices.dump(2)+"\n",{},error);
 }
 
 std::vector<std::string> RequiredBackendNamesForTarget(const std::string& target)
@@ -771,6 +818,7 @@ bool ProjectPublisher::Publish(const ProjectConfig& project,
     const std::string runtimeDependenciesHash=Sha256::HashFile(
         staging/RuntimeDependencyManifest::kFileName,error);
     if(runtimeDependenciesHash.empty()){Cleanup(staging);return false;}
+    if(!WriteSupplyChainDocuments(staging,error)){Cleanup(staging);return false;}
     if (!CopyRequired(project.GetManifestPath(), staging / ProjectConfig::kFileName, error)) {
         Cleanup(staging);
         return false;

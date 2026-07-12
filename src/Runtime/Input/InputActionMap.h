@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Math/Vector2.h"
+#include "Project/FormatVersions.h"
 
 #include <filesystem>
 #include <nlohmann/json_fwd.hpp>
@@ -53,7 +54,7 @@ struct InputAction {
 
 class InputActionMap {
 public:
-    static constexpr int kCurrentVersion = 1;
+    static constexpr int kCurrentVersion = FormatVersions::InputActionMap;
     static constexpr const char* kDefaultProjectPath = "Content/Config/Input.input.json";
 
     bool LoadFromFile(const std::filesystem::path& path, std::string* error = nullptr);

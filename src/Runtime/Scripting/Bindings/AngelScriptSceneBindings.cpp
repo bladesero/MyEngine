@@ -75,5 +75,9 @@
         asFUNCTION(ComponentsGetJson), asCALL_CDECL));
     Check(engine.RegisterGlobalFunction("bool SetJson(ActorHandle, const string &in, const string &in)",
         asFUNCTION(ComponentsSetJson), asCALL_CDECL));
+    Check(engine.RegisterGlobalFunction("string GetPropertyJson(ActorHandle, const string &in, const string &in)",
+        asFUNCTION(ComponentsGetPropertyJson), asCALL_CDECL));
+    Check(engine.RegisterGlobalFunction("bool SetPropertyJson(ActorHandle, const string &in, const string &in, const string &in)",
+        asFUNCTION(ComponentsSetPropertyJson), asCALL_CDECL));
 
 

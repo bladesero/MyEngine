@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Project/PublishTargets.h"
+#include "Project/FormatVersions.h"
 
 #include <filesystem>
 #include <string>
@@ -22,7 +23,7 @@ struct ProjectGraphicsSettings {
 
 class ProjectConfig {
 public:
-    static constexpr int kCurrentVersion = 1;
+    static constexpr int kCurrentVersion = FormatVersions::Project;
     static constexpr const char* kFileName = "MyEngine.project.json";
 
     bool Open(std::filesystem::path projectRoot, bool allowMissing = false,

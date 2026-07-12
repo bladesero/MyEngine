@@ -4,6 +4,8 @@
 #include "Core/FrameStats.h"
 #include "Editor/EditorContext.h"
 #include "Editor/EditorProfiler.h"
+#include "Scene/Scene.h"
+#include "Scene/WorldFrameScheduler.h"
 
 #if defined(MYENGINE_ENABLE_IMGUI)
 #include <imgui.h>
@@ -36,6 +38,18 @@ void ProfilerPanel::DrawContent()
                 stats.fps, stats.frameMs, stats.smoothedFrameMs);
     ImGui::Text("CPU: Update %.2f ms  Render %.2f ms",
                 stats.updateMs, stats.renderMs);
+    if (Scene* scene = context ? context->GetSimulationScene() : nullptr) {
+        const WorldSchedulerStats& world = scene->GetFrameScheduler().GetStats();
+        ImGui::Text("World fixed ticks %u  Dropped %u", world.fixedTicks,
+                    world.droppedFixedTicks);
+        if (ImGui::TreeNode("World phases")) {
+            for (size_t i = 0; i < kWorldPhaseCount; ++i) {
+                ImGui::Text("%s: %.3f ms", WorldPhaseName(static_cast<WorldPhase>(i)),
+                            world.phaseMilliseconds[i]);
+            }
+            ImGui::TreePop();
+        }
+    }
     ImGui::Text("Render pass CPU: Shadow %.2f  Main %.2f  SSAO %.2f  Composite %.2f",
                 renderer.shadowCpuMs, renderer.mainCpuMs,
                 renderer.ssaoCpuMs, renderer.compositeCpuMs);

@@ -1,6 +1,7 @@
 #include "Core/CrashHandler.h"
 
 #include "Core/Logger.h"
+#include "Core/BuildInfo.h"
 
 #include <chrono>
 #include <exception>
@@ -51,6 +52,12 @@ void WriteReport(const std::string& reason, const void* address = nullptr)
     g_LastReportPath = BuildReportPath();
     std::ofstream output(g_LastReportPath, std::ios::out | std::ios::trunc);
     output << "application=" << g_ApplicationName << '\n';
+    output << "engine_version=" << BuildInfo::EngineVersion << '\n';
+    output << "build_id=" << BuildInfo::BuildId << '\n';
+    output << "git_commit=" << BuildInfo::GitCommit << '\n';
+    output << "configuration=" << BuildInfo::Configuration << '\n';
+    output << "compiler=" << BuildInfo::Compiler << '\n';
+    output << "shader_tool=" << BuildInfo::ShaderTool << '\n';
     output << "reason=" << reason << '\n';
     output << "thread=" << std::this_thread::get_id() << '\n';
     if (address) output << "address=" << address << '\n';

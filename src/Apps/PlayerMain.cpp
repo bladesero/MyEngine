@@ -16,6 +16,7 @@
 #include "Renderer/IRenderContext.h"
 #include "Renderer/RenderBackendRegistry.h"
 #include "Renderer/RenderPath.h"
+#include "Renderer/RHIConformance.h"
 #include "Renderer/ShaderCacheService.h"
 #include "Renderer/ShaderManager.h"
 #include "Miscs/IconsManager.h"
@@ -23,16 +24,20 @@
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <sstream>
 
 class PlayerApp : public Application {
 public:
     PlayerApp(ApplicationConfig cfg, std::filesystem::path projectRoot,
-              std::string sceneOverride)
+              std::string sceneOverride, bool runRhiConformance,
+              bool injectDeviceLoss)
         : Application(cfg)
         , m_Backend(cfg.backend)
         , m_VSyncEnabled(cfg.window.vsync)
         , m_ProjectRoot(std::move(projectRoot))
-        , m_SceneOverride(std::move(sceneOverride)) {}
+        , m_SceneOverride(std::move(sceneOverride))
+        , m_RunRhiConformance(runRhiConformance)
+        , m_InjectDeviceLoss(injectDeviceLoss) {}
 
 protected:
     bool OnInit() override {
@@ -76,6 +81,33 @@ protected:
 
         if (!m_RenderContext->Init(&GetWindow())) return false;
         m_RenderContext->SetVSyncEnabled(m_VSyncEnabled);
+        GetEngine().SetFatalHealthCheck([this]() -> std::optional<std::string> {
+            if (!m_RenderContext) return std::nullopt;
+            RHIDeviceLossInfo info;
+            if (m_InjectDeviceLoss && !m_DeviceLossInjected) {
+                m_DeviceLossInjected = true;
+                info = {RHIDeviceLossReason::Removed, -1, 1,
+                        "release-gate synthetic device removal"};
+            } else {
+                if (!m_RenderContext->IsDeviceLost()) return std::nullopt;
+                info = m_RenderContext->GetDeviceLossInfo();
+            }
+            std::ostringstream message;
+            message << "RHI device lost backend=" << RenderBackendToProjectValue(m_Backend)
+                    << " reason=" << RHIDeviceLossReasonName(info.reason)
+                    << " nativeCode=" << info.nativeCode
+                    << " generation=" << info.deviceGeneration
+                    << " diagnostic=" << info.diagnostic;
+            return message.str();
+        });
+        if (m_RunRhiConformance) {
+            const RHIConformanceReport report = RunRHIConformance(*m_RenderContext);
+            if (!report.passed) {
+                Logger::Error("[RHIConformance] ", report.Summary());
+                return false;
+            }
+            Logger::Info("[RHIConformance] ", report.Summary());
+        }
 
         auto& window = GetWindow();
         auto* sceneLayer = new SceneRenderLayer(
@@ -180,6 +212,9 @@ private:
     std::filesystem::path m_ProjectRoot;
     std::string m_SceneOverride;
     ProjectConfig m_Project;
+    bool m_RunRhiConformance = false;
+    bool m_InjectDeviceLoss = false;
+    bool m_DeviceLossInjected = false;
 };
 
 static bool ParseBackend(const std::string& value, ApplicationConfig& cfg) {
@@ -253,9 +288,12 @@ static int RunPlayer(int argc, char* argv[]) {
             : std::filesystem::current_path();
     std::string sceneOverride;
     bool backendOverridden = false;
+    bool runRhiConformance = false;
+    bool injectDeviceLoss = false;
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
-        if (arg == "--project" || arg == "--scene" || arg == "--backend" || arg == "--vsync") {
+        if (arg == "--project" || arg == "--scene" || arg == "--backend" || arg == "--vsync" ||
+            arg == "--auto-quit-seconds") {
             if (i + 1 >= argc) {
                 Logger::Error("Missing value for ", arg);
                 return 2;
@@ -266,6 +304,10 @@ static int RunPlayer(int argc, char* argv[]) {
             else if (arg == "--backend") {
                 if (!ParseBackend(value, cfg)) return 2;
                 backendOverridden = true;
+            } else if (arg == "--auto-quit-seconds") {
+                try { cfg.engine.autoQuitAfterSeconds = std::stof(value); }
+                catch (...) { Logger::Error("Invalid auto quit duration: ", value); return 2; }
+                if (cfg.engine.autoQuitAfterSeconds <= 0.0f) return 2;
             } else {
                 if (!ParseVSync(value, cfg)) return 2;
             }
@@ -278,10 +320,23 @@ static int RunPlayer(int argc, char* argv[]) {
             backendOverridden = true;
         } else if (arg.rfind("--vsync=", 0) == 0) {
             if (!ParseVSync(arg.substr(std::string("--vsync=").size()), cfg)) return 2;
+        } else if (arg.rfind("--auto-quit-seconds=", 0) == 0) {
+            try { cfg.engine.autoQuitAfterSeconds = std::stof(arg.substr(std::string("--auto-quit-seconds=").size())); }
+            catch (...) { Logger::Error("Invalid auto quit duration"); return 2; }
+            if (cfg.engine.autoQuitAfterSeconds <= 0.0f) return 2;
+        } else if (arg == "--rhi-conformance") {
+            runRhiConformance = true;
+        } else if (arg == "--rhi-test-inject-device-loss") {
+            injectDeviceLoss = true;
         } else {
             Logger::Error("Unknown argument: ", arg);
             return 2;
         }
+    }
+
+    if (injectDeviceLoss && !runRhiConformance) {
+        Logger::Error("--rhi-test-inject-device-loss requires --rhi-conformance");
+        return 2;
     }
 
     std::string packageError;
@@ -294,7 +349,8 @@ static int RunPlayer(int argc, char* argv[]) {
         ApplyProjectBackend(projectRoot, cfg);
     }
 
-    PlayerApp app(cfg, std::move(projectRoot), std::move(sceneOverride));
+    PlayerApp app(cfg, std::move(projectRoot), std::move(sceneOverride),
+                  runRhiConformance, injectDeviceLoss);
     return app.Run();
 }
 

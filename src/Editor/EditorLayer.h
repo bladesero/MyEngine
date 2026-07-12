@@ -14,6 +14,7 @@
 #include "Editor/EditorOperators.h"
 #include "Editor/EditorProfiler.h"
 #include "Editor/EditorProject.h"
+#include "Editor/EditorRecoveryService.h"
 #include "Editor/EditorShaderWatchService.h"
 #include "Editor/EditorService.h"
 #include "Editor/EditorUI/EditorScriptHotReloadService.h"
@@ -64,6 +65,7 @@ private:
     void DrawProjectSelector();
     void DrawProjectSettings();
     void DrawProjectResult();
+    void DrawRecoveryDialog();
     void DrawShortcutSettingsTab();
     void DrawMainMenuBar();
     void DrawScriptMenuItems(const char* topLevel);
@@ -88,6 +90,8 @@ private:
     void NewScene();
     void OpenSceneDialog();
     void SaveScene();
+    void UpdateRecovery(float deltaSeconds);
+    void OnSceneSaveSucceeded();
     void ImportAssetDialog();
     void ValidateAssets();
     void SetStartupScene();
@@ -108,6 +112,7 @@ private:
     EditorCommandStack m_CommandStack;
     EditorAssetRegistry m_AssetRegistry;
     EditorProject m_Project;
+    EditorRecoveryService m_RecoveryService;
     EditorWorkspace m_Workspace;
     EditorLogService m_LogService;
     EditorDialogService m_DialogService;
@@ -139,6 +144,12 @@ private:
     std::string m_ProjectResult;
     std::string m_CapturingShortcutAction;
     std::string m_ShortcutCaptureError;
+    std::vector<EditorRecoverySnapshot> m_RecoverableSnapshots;
+    std::string m_LastRecoveryScenePath;
+    std::string m_LastRecoveryScene;
+    uint64_t m_LastRecoveryRevision = 0;
+    float m_RecoveryElapsedSeconds = 0.0f;
+    bool m_RecoveryDialogRequested = false;
     bool m_ProjectSettingsRequested = false;
     bool m_ProjectResultRequested = false;
     bool m_ProjectResultIsError = false;

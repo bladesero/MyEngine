@@ -1,6 +1,7 @@
 #include "Scene/ActorSubtreeSerializer.h"
 
 #include "Scene/Actor.h"
+#include "Scene/TypeRegistry.h"
 
 #include <array>
 #include <functional>
@@ -20,10 +21,13 @@ std::string MakeLocalId() {
 }
 
 bool ActorSubtreeSerializer::Serialize(const Actor& root, std::vector<PrefabNode>& nodes,
-                                       std::string* error)
+                                       std::string* error,
+                                       const std::unordered_set<const Actor*>* excludedRoots,
+                                       std::unordered_map<const Actor*, std::string>* actorLocalIds)
 {
     nodes.clear();
     std::function<void(const Actor&, const std::string&)> visit = [&](const Actor& actor, const std::string& parentId) {
+        if (excludedRoots && excludedRoots->count(&actor)) return;
         PrefabNode node;
         node.localId = actor.GetPrefabLocalId().empty() ? MakeLocalId() : actor.GetPrefabLocalId();
         node.parentLocalId = parentId;
@@ -35,10 +39,12 @@ bool ActorSubtreeSerializer::Serialize(const Actor& root, std::vector<PrefabNode
             ComponentCreateDesc desc;
             desc.type = component.GetTypeName();
             desc.enabled = component.IsEnabled();
-            component.Serialize(desc.data);
+            if (!TypeRegistry::Get().Serialize(component, desc.data, desc.version, error))
+                component.Serialize(desc.data);
             node.components.push_back(std::move(desc));
         });
         const std::string localId = node.localId;
+        if (actorLocalIds) (*actorLocalIds)[&actor] = localId;
         nodes.push_back(std::move(node));
         for (Actor* child : actor.GetChildren()) visit(*child, localId);
     };

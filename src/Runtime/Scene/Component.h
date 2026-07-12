@@ -47,6 +47,8 @@ public:
     // data 是 JSON object，直接向其写入字段
     virtual void Serialize(nlohmann::json& /*data*/) const {}
     virtual void Deserialize(const nlohmann::json& /*data*/) {}
+    const nlohmann::json& GetExtensionData() const { return m_ExtensionData; }
+    void SetExtensionData(nlohmann::json data) { m_ExtensionData = std::move(data); }
 
 protected:
     Component() = default;
@@ -61,4 +63,5 @@ private:
     bool   m_BeganPlay = false;
     bool   m_Started = false;
     bool   m_EffectiveEnabled = false;
+    nlohmann::json m_ExtensionData = nlohmann::json::object();
 };

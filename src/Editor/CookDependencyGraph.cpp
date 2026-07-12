@@ -147,6 +147,7 @@ struct Scanner {
     fs::path projectRoot, contentRoot;
     PublishPreflightReport* report = nullptr;
     std::unordered_set<std::string> visited;
+    std::unordered_set<std::string> active;
     std::unordered_map<std::string, std::string> artifactReferences;
     std::unordered_map<std::string, std::string> artifactUuidReferences;
 
@@ -201,7 +202,6 @@ struct Scanner {
     void ScanPrefabReference(const nlohmann::json& reference,const fs::path& from,
                              std::vector<std::string> chain) {
         if(!reference.is_object()){Error(PublishIssueCode::InvalidAsset,from,from,chain,"prefab reference is not an object");return;}
-        if(IsPrefab(from)){Error(PublishIssueCode::UnsupportedReference,from,from,chain,"nested prefabs are not supported");return;}
         const std::string value=reference.value("asset",std::string{}), expected=reference.value("uuid",std::string{});fs::path resolved;chain.push_back(value);
         if(!Resolve(value,from,resolved,chain))return;
         try {std::ifstream assetInput(resolved),metaInput(resolved.string()+".meta");nlohmann::json assetJson,metaJson;assetInput>>assetJson;
@@ -223,6 +223,9 @@ struct Scanner {
         if (node.is_object()) {
             for (auto it=node.begin();it!=node.end();++it) {
                 if(it.key()=="prefabInstance") ScanPrefabReference(it.value(),from,chain);
+                else if(it.key()=="nestedInstances" && it.value().is_array()) {
+                    for (const auto& nested : it.value()) ScanPrefabReference(nested,from,chain);
+                }
                 else if (it.key()=="textures" && it.value().is_object()) {
                     for (auto texture=it.value().begin();texture!=it.value().end();++texture)
                         if (texture.value().is_string()) ScanReference(texture.value().get<std::string>(),from,chain);
@@ -242,7 +245,10 @@ struct Scanner {
         }
     }
     void Scan(const fs::path& path, std::vector<std::string> chain) {
-        const std::string key=path.generic_string(); if(!visited.insert(key).second)return;
+        const std::string key=path.generic_string();
+        if(active.count(key)){Error(PublishIssueCode::InvalidAsset,path,path,chain,"prefab dependency cycle");return;}
+        if(!visited.insert(key).second)return;
+        active.insert(key);
         report->visitedAssets.push_back(fs::relative(path,projectRoot).generic_string());
         std::string ext=path.extension().string(); for(char& c:ext)c=char(std::tolower((unsigned char)c));
         try {
@@ -256,6 +262,7 @@ struct Scanner {
                 VisitJson(json,path,chain);
             } else if(ext==".obj" || ext==".mtl") ScanTextDependencies(path,std::move(chain));
         } catch(const std::exception& e) { Error(PublishIssueCode::InvalidAsset,path,{},chain,e.what()); }
+        active.erase(key);
     }
 };
 }

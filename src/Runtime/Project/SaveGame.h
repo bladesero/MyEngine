@@ -1,8 +1,9 @@
 #pragma once
+#include "Project/FormatVersions.h"
 #include <nlohmann/json.hpp>
 #include <string>
 #include <vector>
-struct SaveGameData {static constexpr int CurrentVersion=2;int version=CurrentVersion;std::string checkpoint; nlohmann::json player=nlohmann::json::object();std::vector<std::string> collected;nlohmann::json settings=nlohmann::json::object();};
+struct SaveGameData {static constexpr int CurrentVersion=FormatVersions::SaveGame;int version=CurrentVersion;std::string checkpoint; nlohmann::json player=nlohmann::json::object();std::vector<std::string> collected;nlohmann::json settings=nlohmann::json::object();};
 class SaveGame {
 public:
     static bool Write(const std::string& slot,const SaveGameData& data,std::string* error=nullptr);

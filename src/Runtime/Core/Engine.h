@@ -6,6 +6,8 @@
 #include "EngineTime.h"
 #include "FrameStats.h"
 #include <string>
+#include <functional>
+#include <optional>
 #include <unordered_set>
 
 // Forward-declare to avoid pulling Window.h (and SDL) into every TU.
@@ -37,6 +39,9 @@ public:
     void RequestQuit();
     void SetExitCode(int exitCode) { m_ExitCode = exitCode; }
     int GetExitCode() const { return m_ExitCode; }
+    void SetFatalHealthCheck(std::function<std::optional<std::string>()> check) {
+        m_FatalHealthCheck = std::move(check);
+    }
     const FrameStats& GetFrameStats() const { return m_FrameStats; }
 
     // Optional platform bridge for raw platform events.
@@ -63,4 +68,5 @@ private:
     uint32_t m_StatsFrames = 0;
     int m_ExitCode = 0;
     std::unordered_set<const Layer*> m_FaultedLayers;
+    std::function<std::optional<std::string>()> m_FatalHealthCheck;
 };

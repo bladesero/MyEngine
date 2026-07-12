@@ -4,6 +4,7 @@
 #include "Assets/AssetDatabase.h"
 #include "Assets/ShaderAsset.h"
 #include "Core/Sha256.h"
+#include "Core/TransactionalFileWriter.h"
 #include "Editor/CookDependencyGraph.h"
 #include "Editor/EditorProject.h"
 #include "Editor/EditorWorkspace.h"
@@ -16,6 +17,10 @@
 #include "Project/PublishTargets.h"
 #include "Project/RuntimeCompatibility.h"
 #include "Project/RuntimeDependencies.h"
+#include "Project/JsonMigrationRegistry.h"
+#include "Project/SaveGame.h"
+#include "Input/InputActionMap.h"
+#include "Assets/PrefabAsset.h"
 #include "Renderer/EngineShaderCatalog.h"
 
 #include "Scene/MeshRendererComponent.h"
@@ -795,6 +800,106 @@ bool TestWorkspaceCookAndPublish() {
     return true;
 }
 
+bool TestPublishedCompatibilityFixtures()
+{
+    namespace fs = std::filesystem;
+    const fs::path fixtures = fs::path("tests") / "fixtures" / "compatibility";
+    std::string error;
+
+    const fs::path projectRoot = fs::temp_directory_path() / "myengine_compat_project_v1";
+    std::error_code ec;
+    fs::remove_all(projectRoot, ec);
+    fs::create_directories(projectRoot, ec);
+    fs::copy_file(fixtures / "project-v1.json", projectRoot / ProjectConfig::kFileName,
+                  fs::copy_options::overwrite_existing, ec);
+    ProjectConfig project;
+    if (!Check(!ec && project.Open(projectRoot, false, &error) &&
+               project.GetVersion() == ProjectConfig::kCurrentVersion,
+               "published project fixture failed: " + error)) return false;
+
+    std::ifstream sceneInput(fixtures / "scene-v0.json");
+    const std::string sceneJson((std::istreambuf_iterator<char>(sceneInput)), {});
+    Scene scene;
+    if (!Check(sceneInput.good() || sceneInput.eof(), "scene fixture could not be read")) return false;
+    if (!Check(SceneSerializer::LoadFromString(scene, sceneJson) &&
+               scene.GetName() == "LegacySceneV0",
+               "legacy scene fixture failed")) return false;
+
+    PrefabAsset prefab;
+    if (!Check(PrefabAsset::Load(fixtures / "prefab-v1.json", prefab, &error) &&
+               prefab.rootLocalId == "root", "published prefab fixture failed: " + error)) return false;
+
+    InputActionMap input;
+    if (!Check(input.LoadFromFile(fixtures / "input-v1.json", &error) &&
+               input.FindAction("Confirm"), "published input fixture failed: " + error)) return false;
+
+    std::ifstream saveInput(fixtures / "save-v1.json");
+    nlohmann::json saveJson; saveInput >> saveJson;
+    SaveGameData save;
+    if (!Check(SaveGame::FromJson(saveJson, save, &error) &&
+               save.version == SaveGameData::CurrentVersion && save.settings.is_object(),
+               "published save fixture failed: " + error)) return false;
+
+    fs::remove_all(projectRoot, ec);
+    return true;
+}
+
+bool TestTransactionalWriterAndMigrationRegistry()
+{
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "myengine_transactional_writer";
+    const fs::path destination = root / "state.json";
+    std::error_code ec; fs::remove_all(root, ec); fs::create_directories(root, ec);
+    std::string error;
+    if (!Check(TransactionalFileWriter::WriteText(destination, "{\"version\":1,\"value\":\"old\"}\n", {}, &error), error)) return false;
+    const auto read = [&]() { std::ifstream in(destination); return std::string((std::istreambuf_iterator<char>(in)), {}); };
+    const std::string original = read();
+    for (TransactionalWriteFault fault : {TransactionalWriteFault::AfterWrite,
+                                           TransactionalWriteFault::AfterFlush,
+                                           TransactionalWriteFault::AfterValidation,
+                                           TransactionalWriteFault::BeforeReplace}) {
+        TransactionalWriteOptions options; options.injectedFault = fault;
+        options.validator=[](const fs::path& path,std::string*){std::ifstream input(path);nlohmann::json value;input>>value;return value.is_object();};
+        if (!Check(!TransactionalFileWriter::WriteText(destination, "{\"version\":1,\"value\":\"new\"}\n", options, &error) && read()==original,
+                   "transaction fault replaced the previous valid file")) return false;
+    }
+    TransactionalWriteOptions valid; valid.validator=[](const fs::path& path,std::string*){std::ifstream input(path);nlohmann::json value;input>>value;return value.value("value",std::string{})=="new";};
+    if (!Check(TransactionalFileWriter::WriteText(destination,"{\"version\":1,\"value\":\"new\"}\n",valid,&error) &&
+               fs::is_regular_file(destination.string()+".bak") && read().find("new")!=std::string::npos,
+               "transaction commit or backup failed: "+error)) return false;
+
+    const fs::path scenePath=root/"Format.scene.json";Scene scene("LastKnownGood");scene.CreateActor("OldActor");
+    if(!Check(SceneSerializer::SaveToFile(scene,scenePath.string()),"initial scene format save failed"))return false;
+    scene.SetName("Uncommitted");scene.CreateActor("NewActor");
+    TransactionalFileWriter::SetNextFaultForTesting(TransactionalWriteFault::BeforeReplace);
+    if(!Check(!SceneSerializer::SaveToFile(scene,scenePath.string()),"scene save ignored injected replace failure"))return false;
+    Scene retainedScene;
+    if(!Check(SceneSerializer::LoadFromFile(retainedScene,scenePath.string())&&retainedScene.GetName()=="LastKnownGood"&&retainedScene.ActorCount()==1,
+              "scene format failure did not preserve the previous valid file"))return false;
+
+    const fs::path prefabPath=root/"Format.prefab.json";PrefabAsset prefab;prefab.uuid="format-prefab";prefab.rootLocalId="root";PrefabNode prefabRoot;prefabRoot.localId="root";prefabRoot.name="OldRoot";prefab.nodes.push_back(prefabRoot);
+    if(!Check(prefab.Save(prefabPath,&error),"initial prefab format save failed: "+error))return false;
+    prefab.nodes.front().name="UncommittedRoot";
+    TransactionalFileWriter::SetNextFaultForTesting(TransactionalWriteFault::BeforeReplace);
+    if(!Check(!prefab.Save(prefabPath,&error),"prefab save ignored injected replace failure"))return false;
+    PrefabAsset retainedPrefab;
+    if(!Check(PrefabAsset::Load(prefabPath,retainedPrefab,&error)&&retainedPrefab.nodes.front().name=="OldRoot",
+              "prefab format failure did not preserve the previous valid file: "+error))return false;
+
+    JsonMigrationRegistry migrations("fixture",2);
+    if (!Check(migrations.Register(0,[](nlohmann::json& value,std::string*){value["legacy"]=true;return true;},&error) &&
+               migrations.Register(1,[](nlohmann::json& value,std::string*){value["current"]=true;return true;},&error),error)) return false;
+    nlohmann::json value=nlohmann::json::object();
+    if (!Check(migrations.Migrate(value,&error)&&value["version"]==2&&value["legacy"]&&value["current"],
+               "consecutive JSON migration failed: "+error)) return false;
+    JsonMigrationRegistry incomplete("incomplete",2); incomplete.Register(1,[](nlohmann::json&,std::string*){return true;});
+    nlohmann::json missing=nlohmann::json::object();
+    fs::remove_all(root, ec);
+    return Check(!incomplete.Migrate(missing,&error),"missing migration step was accepted");
+}
+
+MYENGINE_REGISTER_TEST("Project", "TestPublishedCompatibilityFixtures", TestPublishedCompatibilityFixtures);
+MYENGINE_REGISTER_TEST("Project", "TestTransactionalWriterAndMigrationRegistry", TestTransactionalWriterAndMigrationRegistry);
 MYENGINE_REGISTER_TEST("Project", "TestPublishHardeningPrimitives", TestPublishHardeningPrimitives);
 MYENGINE_REGISTER_TEST("Project", "TestProjectConfigAndPortableAssetPaths", TestProjectConfigAndPortableAssetPaths);
 MYENGINE_REGISTER_TEST("Project", "TestWorkspaceCookAndPublish", TestWorkspaceCookAndPublish);

@@ -1,4 +1,5 @@
 #include "Scene/PrefabSystem.h"
+#include "Scene/TypeRegistry.h"
 
 #include "Assets/AssetManager.h"
 #include "Assets/AssetMeta.h"
@@ -17,6 +18,30 @@ void SetError(std::string* error, const std::string& value) { if (error) *error 
 bool EqualFloat(float a, float b) { return std::fabs(a - b) < 1e-5f; }
 bool EqualVec3(const Vec3& a, const Vec3& b) {
     return EqualFloat(a.x,b.x) && EqualFloat(a.y,b.y) && EqualFloat(a.z,b.z);
+}
+bool EqualTransform(const Transform& a, const Transform& b) {
+    return EqualVec3(a.position, b.position) && EqualVec3(a.rotation, b.rotation) &&
+           EqualVec3(a.scale, b.scale);
+}
+nlohmann::json Vec3Json(const Vec3& value) {
+    return {value.x, value.y, value.z};
+}
+nlohmann::json TransformJson(const Transform& value) {
+    return {{"position", Vec3Json(value.position)},
+            {"rotation", Vec3Json(value.rotation)},
+            {"scale", Vec3Json(value.scale)}};
+}
+Vec3 ReadVec3(const nlohmann::json& value, Vec3 fallback) {
+    if (!value.is_array() || value.size() < 3 || !value[0].is_number() ||
+        !value[1].is_number() || !value[2].is_number()) return fallback;
+    return {value[0].get<float>(), value[1].get<float>(), value[2].get<float>()};
+}
+bool ReadTransform(const nlohmann::json& value, Transform& result) {
+    if (!value.is_object()) return false;
+    result.position = ReadVec3(value.value("position", nlohmann::json::array()), {});
+    result.rotation = ReadVec3(value.value("rotation", nlohmann::json::array()), {});
+    result.scale = ReadVec3(value.value("scale", nlohmann::json::array()), {1,1,1});
+    return true;
 }
 std::string EscapeToken(const std::string& token) {
     std::string out;
@@ -94,6 +119,28 @@ bool ApplyOverrides(PrefabAsset& asset, const nlohmann::json& overrides, std::st
     if (!overrides.is_array()) { SetError(error,"prefab overrides must be an array"); return false; }
     for (const auto& item : overrides) {
         const std::string kind=item.value("kind",std::string{}), id=item.value("localId",std::string{}), type=item.value("componentType",std::string{});
+        if (kind == "SetNestedInstance") {
+            const std::string nestedId = item.value("nestedInstanceLocalId", std::string{});
+            auto nested = std::find_if(asset.nestedInstances.begin(), asset.nestedInstances.end(),
+                [&](const PrefabNestedInstance& value) {
+                    return value.instanceLocalId == nestedId;
+                });
+            if (nested == asset.nestedInstances.end()) {
+                SetError(error, "nested prefab override target is missing: " + nestedId);
+                return false;
+            }
+            if (!item.contains("overrides") || !item["overrides"].is_array()) {
+                SetError(error, "nested prefab override payload must be an array");
+                return false;
+            }
+            nested->overrides = item["overrides"];
+            if (item.contains("rootTransform") &&
+                !ReadTransform(item["rootTransform"], nested->rootTransform)) {
+                SetError(error, "nested prefab root transform is invalid");
+                return false;
+            }
+            continue;
+        }
         PrefabNode* node=FindNode(asset,id);
         if (kind=="AddActorSubtree") {
             const std::string parentId=item.value("parentLocalId",id);
@@ -133,6 +180,45 @@ std::unordered_map<std::string,const Actor*> InstanceActors(const Actor& root) {
     scene->ForEach([&](Actor& actor){if(actor.GetPrefabInstanceRoot()==root.GetHandle())result[actor.GetPrefabLocalId()]=&actor;});
     return result;
 }
+
+std::filesystem::path ResolveNestedPath(const std::filesystem::path& path)
+{
+    if (path.is_absolute()) return path.lexically_normal();
+    return std::filesystem::path(AssetManager::Get().ResolvePath(path.generic_string())).lexically_normal();
+}
+
+bool ValidatePrefabDependencies(const std::filesystem::path& path,
+                                const PrefabAsset* candidate,
+                                std::unordered_set<std::string>& active,
+                                std::unordered_set<std::string>& complete,
+                                std::string* error)
+{
+    PrefabAsset loaded;
+    const PrefabAsset* asset = candidate;
+    if (!asset && !PrefabAsset::Load(path, loaded, error)) return false;
+    if (!asset) asset = &loaded;
+    if (complete.count(asset->uuid)) return true;
+    if (!active.insert(asset->uuid).second) {
+        SetError(error, "nested prefab dependency cycle at " + path.generic_string());
+        return false;
+    }
+    for (const auto& nested : asset->nestedInstances) {
+        const auto nestedPath = ResolveNestedPath(nested.assetPath);
+        PrefabAsset child;
+        if (!PrefabAsset::Load(nestedPath, child, error) || child.uuid != nested.assetUuid) {
+            if (error && error->empty()) SetError(error, "nested prefab UUID mismatch");
+            active.erase(asset->uuid);
+            return false;
+        }
+        if (!ValidatePrefabDependencies(nestedPath, &child, active, complete, error)) {
+            active.erase(asset->uuid);
+            return false;
+        }
+    }
+    active.erase(asset->uuid);
+    complete.insert(asset->uuid);
+    return true;
+}
 }
 
 std::filesystem::path PrefabSystem::ResolvePrefabPath(const std::filesystem::path& path)
@@ -166,15 +252,48 @@ bool PrefabSystem::SetInstanceOverrides(Actor& instanceRoot,
 
 bool PrefabSystem::SaveSubtree(const Actor& root, const std::filesystem::path& path, std::string* error)
 {
-    bool nested=false;
-    std::function<void(const Actor&)> inspect=[&](const Actor& actor){if(&actor!=&root&&actor.IsPrefabInstance())nested=true;for(Actor* child:actor.GetChildren())inspect(*child);};
-    inspect(root); if(nested){SetError(error,"nested prefabs are not supported");return false;}
     PrefabAsset asset;
     const auto absolute=std::filesystem::absolute(path).lexically_normal();
     const AssetMeta meta=AssetMeta::LoadOrCreate(absolute.string());
     asset.uuid=meta.uuid;
-    if(!ActorSubtreeSerializer::Serialize(root,asset.nodes,error))return false;
+    PrefabAsset previous;
+    if (std::filesystem::is_regular_file(absolute) && PrefabAsset::Load(absolute, previous, nullptr))
+        asset.revision = previous.revision + 1;
+    std::vector<const Actor*> nestedRoots;
+    std::function<void(const Actor&)> inspect=[&](const Actor& actor){
+        if(&actor!=&root && actor.IsPrefabRoot()) { nestedRoots.push_back(&actor); return; }
+        for(Actor* child:actor.GetChildren())inspect(*child);
+    };
+    inspect(root);
+    std::unordered_set<const Actor*> excluded(nestedRoots.begin(), nestedRoots.end());
+    std::unordered_map<const Actor*,std::string> localIds;
+    if(!ActorSubtreeSerializer::Serialize(root,asset.nodes,error,&excluded,&localIds))return false;
     asset.rootLocalId=asset.nodes.front().localId;
+    for (const Actor* nestedRoot : nestedRoots) {
+        const Actor* parent = nestedRoot->GetParent();
+        const auto parentId = localIds.find(parent);
+        if (parentId == localIds.end()) { SetError(error,"nested prefab parent is outside saved subtree"); return false; }
+        PrefabAsset source;
+        const auto sourcePath = ResolvePrefabPath(nestedRoot->GetPrefabAssetPath());
+        if (!PrefabAsset::Load(sourcePath, source, error) || source.uuid != nestedRoot->GetPrefabAssetUuid()) {
+            if (error && error->empty()) SetError(error,"nested prefab source UUID mismatch");
+            return false;
+        }
+        PrefabNestedInstance nested;
+        nested.instanceLocalId = nestedRoot->GetNestedPrefabInstanceLocalId().empty()
+            ? "nested-" + std::to_string(nestedRoot->GetID())
+            : nestedRoot->GetNestedPrefabInstanceLocalId();
+        nested.parentLocalId = parentId->second;
+        nested.assetPath = AssetManager::Get().MakeProjectRelativePath(sourcePath.string());
+        nested.assetUuid = source.uuid;
+        nested.sourceRevision = source.revision;
+        nested.rootTransform = nestedRoot->GetTransform();
+        nested.overrides = nestedRoot->GetPrefabOverrides();
+        asset.nestedInstances.push_back(std::move(nested));
+    }
+    std::unordered_set<std::string> active, complete;
+    if (!asset.Validate(error) ||
+        !ValidatePrefabDependencies(absolute, &asset, active, complete, error)) return false;
     return asset.Save(absolute,error);
 }
 
@@ -183,6 +302,17 @@ ActorHandle PrefabSystem::QueueInstantiate(Scene& scene, const std::filesystem::
 {
     const auto absolute=ResolvePrefabPath(path); PrefabAsset asset;
     if(!PrefabAsset::Load(absolute,asset,error))return{};
+    static thread_local std::vector<std::string> dependencyStack;
+    if (dependencyStack.empty()) {
+        std::unordered_set<std::string> active, complete;
+        if (!ValidatePrefabDependencies(absolute, &asset, active, complete, error)) return {};
+    }
+    const std::string dependencyKey = absolute.generic_string();
+    if (std::find(dependencyStack.begin(), dependencyStack.end(), dependencyKey) != dependencyStack.end()) {
+        SetError(error,"nested prefab dependency cycle at "+dependencyKey); return{};
+    }
+    struct StackScope { std::vector<std::string>& stack; ~StackScope(){stack.pop_back();} };
+    dependencyStack.push_back(dependencyKey); StackScope stackScope{dependencyStack};
     const AssetMeta meta=AssetMeta::LoadOrCreate(absolute.string());
     if(meta.uuid!=asset.uuid){SetError(error,"prefab UUID does not match its .meta file");return{};}
     if(!options.expectedUuid.empty()&&options.expectedUuid!=asset.uuid){SetError(error,"prefab UUID does not match the scene reference");return{};}
@@ -194,6 +324,7 @@ ActorHandle PrefabSystem::QueueInstantiate(Scene& scene, const std::filesystem::
     if(!rootNode){SetError(error,"prefab root node is missing");return{};}
     ActorCreateDesc rootDesc;rootDesc.name=rootNode->name;rootDesc.transform=rootNode->transform;rootDesc.activeSelf=rootNode->activeSelf;rootDesc.editorFlags=rootNode->editorFlags;rootDesc.components=rootNode->components;
     rootDesc.prefabAssetPath=storedPath;rootDesc.prefabAssetUuid=asset.uuid;rootDesc.prefabLocalId=rootNode->localId;rootDesc.prefabOverrides=options.overrides;
+    rootDesc.nestedPrefabInstanceLocalId=options.nestedInstanceLocalId;
     rootDesc.prefabRoot=true;rootDesc.persistentID=options.persistentRootID;if(options.rootTransform)rootDesc.transform=*options.rootTransform;
     const ActorHandle root=scene.QueueCreateActor(rootDesc);handles[rootNode->localId]=root;
     for(const auto& node:asset.nodes) {
@@ -206,6 +337,17 @@ ActorHandle PrefabSystem::QueueInstantiate(Scene& scene, const std::filesystem::
         const ActorHandle child=handles[node.localId];
         if(node.localId==asset.rootLocalId){if(options.parent)scene.QueueSetParent(child,options.parent);}
         else if(handles.count(node.parentLocalId))scene.QueueSetParent(child,handles[node.parentLocalId]);
+    }
+    for (const auto& nested : asset.nestedInstances) {
+        const auto parent = handles.find(nested.parentLocalId);
+        if (parent == handles.end()) { SetError(error,"nested prefab parent localId is missing"); return{}; }
+        PrefabInstantiateOptions nestedOptions;
+        nestedOptions.parent = parent->second;
+        nestedOptions.rootTransform = nested.rootTransform;
+        nestedOptions.expectedUuid = nested.assetUuid;
+        nestedOptions.overrides = nested.overrides;
+        nestedOptions.nestedInstanceLocalId = nested.instanceLocalId;
+        if (!QueueInstantiate(scene, nested.assetPath, nestedOptions, error)) return{};
     }
     return root;
 }
@@ -244,7 +386,7 @@ bool PrefabSystem::BuildOverrides(const Actor& root, nlohmann::json& overrides,
         }
         std::unordered_map<std::string,const ComponentCreateDesc*> sourceComponents;for(const auto& c:node.components)sourceComponents[c.type]=&c;
         std::unordered_set<std::string> currentTypes;
-        actor.ForEachComponent([&](Component& component){const std::string type=component.GetTypeName();currentTypes.insert(type);nlohmann::json data=nlohmann::json::object();component.Serialize(data);auto it=sourceComponents.find(type);if(it==sourceComponents.end())overrides.push_back({{"kind","AddComponent"},{"localId",node.localId},{"componentType",type},{"enabled",component.IsEnabled()},{"data",data}});else{if(component.IsEnabled()!=it->second->enabled)overrides.push_back({{"kind","SetProperty"},{"localId",node.localId},{"componentType",type},{"path","/enabled"},{"value",component.IsEnabled()}});DiffJson(it->second->data,data,"",node.localId,type,overrides);}});
+        actor.ForEachComponent([&](Component& component){const std::string type=component.GetTypeName();currentTypes.insert(type);nlohmann::json data=nlohmann::json::object();uint32_t version=0;if(!TypeRegistry::Get().Serialize(component,data,version,nullptr))component.Serialize(data);auto it=sourceComponents.find(type);if(it==sourceComponents.end())overrides.push_back({{"kind","AddComponent"},{"localId",node.localId},{"componentType",type},{"enabled",component.IsEnabled()},{"version",version},{"data",data}});else{if(component.IsEnabled()!=it->second->enabled)overrides.push_back({{"kind","SetProperty"},{"localId",node.localId},{"componentType",type},{"path","/enabled"},{"value",component.IsEnabled()}});DiffJson(it->second->data,data,"",node.localId,type,overrides);}});
         for(const auto& [type,value]:sourceComponents)if(!currentTypes.count(type))overrides.push_back({{"kind","RemoveComponent"},{"localId",node.localId},{"componentType",type}});
     }
     for(const auto& node:source.nodes){
@@ -256,7 +398,10 @@ bool PrefabSystem::BuildOverrides(const Actor& root, nlohmann::json& overrides,
     }
     // Any source-missing descendant is a structural addition. Emit each added root once.
     std::vector<const Actor*> descendants;
-    std::function<void(const Actor&)> collect=[&](const Actor& actor){descendants.push_back(&actor);for(Actor* child:actor.GetChildren())collect(*child);};
+    std::function<void(const Actor&)> collect=[&](const Actor& actor){
+        if (&actor != &root && actor.IsPrefabRoot()) return;
+        descendants.push_back(&actor);for(Actor* child:actor.GetChildren())collect(*child);
+    };
     collect(root);
     for(const Actor* actor:descendants){const std::string id=actor->GetPrefabLocalId();if(!id.empty()&&sourceIds.count(id))continue;
         Actor* parent=actor->GetParent();if(!parent)continue;
@@ -266,6 +411,32 @@ bool PrefabSystem::BuildOverrides(const Actor& root, nlohmann::json& overrides,
         nlohmann::json values=nlohmann::json::array();for(const auto& node:nodes)values.push_back(PrefabNodeToJson(node));
         const std::string attachId=parent==&root?source.rootLocalId:parentId;
         overrides.push_back({{"kind","AddActorSubtree"},{"localId",attachId},{"parentLocalId",attachId},{"nodes",std::move(values)}});
+    }
+    // Nested prefab roots are authoritative references in the outer prefab, not
+    // flattened nodes. Capture their current local overrides and placement as a
+    // typed outer-instance override so Scene snapshots and Undo/Redo retain them.
+    for (const PrefabNestedInstance& sourceNested : source.nestedInstances) {
+        const Actor* currentNested = nullptr;
+        root.GetScene()->ForEach([&](Actor& actor) {
+            if (currentNested || !actor.IsPrefabRoot() ||
+                actor.GetNestedPrefabInstanceLocalId() != sourceNested.instanceLocalId) return;
+            for (Actor* parent = actor.GetParent(); parent; parent = parent->GetParent()) {
+                if (parent == &root) { currentNested = &actor; break; }
+            }
+        });
+        if (!currentNested) continue;
+        nlohmann::json nestedOverrides;
+        if (!BuildOverrides(*currentNested, nestedOverrides, error)) return false;
+        if (nestedOverrides != sourceNested.overrides ||
+            !EqualTransform(currentNested->GetTransform(), sourceNested.rootTransform)) {
+            overrides.push_back({
+                {"kind", "SetNestedInstance"},
+                {"localId", sourceNested.parentLocalId},
+                {"nestedInstanceLocalId", sourceNested.instanceLocalId},
+                {"rootTransform", TransformJson(currentNested->GetTransform())},
+                {"overrides", std::move(nestedOverrides)}
+            });
+        }
     }
     return true;
 }
@@ -281,10 +452,12 @@ bool PrefabSystem::RefreshInstances(Scene& scene,const std::string& uuid,std::st
 
 bool PrefabSystem::ApplyAll(Actor& root,std::string* error)
 {
-    if(!CaptureOverrides(root,error))return false;PrefabAsset source;if(!PrefabAsset::Load(ResolvePrefabPath(root.m_PrefabAssetPath),source,error))return false;
-    std::vector<PrefabNode> nodes;if(!ActorSubtreeSerializer::Serialize(root,nodes,error))return false;
-    if(auto* sourceRoot=FindNode(source,source.rootLocalId)){for(auto& node:nodes)if(node.localId==source.rootLocalId)node.transform=sourceRoot->transform;}
-    source.nodes=std::move(nodes);source.rootLocalId=root.GetPrefabLocalId();if(!source.Save(ResolvePrefabPath(root.m_PrefabAssetPath),error))return false;
+    if(!CaptureOverrides(root,error))return false;const auto path=ResolvePrefabPath(root.m_PrefabAssetPath);PrefabAsset source;if(!PrefabAsset::Load(path,source,error))return false;
+    const PrefabNode* oldRoot=FindNode(source,source.rootLocalId);const Transform sourceRootTransform=oldRoot?oldRoot->transform:Transform{};
+    if(!SaveSubtree(root,path,error))return false;
+    PrefabAsset updated;if(!PrefabAsset::Load(path,updated,error))return false;
+    if(auto* updatedRoot=FindNode(updated,updated.rootLocalId))updatedRoot->transform=sourceRootTransform;
+    if(!updated.Save(path,error))return false;
     root.m_PrefabOverrides=nlohmann::json::array();return RefreshInstances(*root.GetScene(),source.uuid,error);
 }
 

@@ -628,7 +628,10 @@ bool D3D11Context::Init(IWindow* window) {
     SetViewport(0, 0, static_cast<float>(w), static_cast<float>(h));
     m_GraphicsQueue = std::make_shared<D3D11QueueRHI>(m_Context.Get());
 
-    Logger::Info("D3D11Context initialised (", w, "x", h, ")");
+    ++m_DeviceGeneration;
+    m_DeviceLossInfo = {};
+    Logger::Info("D3D11Context initialised (", w, "x", h,
+                 ") generation=", m_DeviceGeneration);
     return true;
 }
 
@@ -652,6 +655,7 @@ void D3D11Context::Shutdown() {
     m_SwapChainHeight = 0;
     m_DeviceLost = false;
     m_LastDeviceError.clear();
+    m_DeviceLossInfo = {};
 }
 
 void D3D11Context::BeginFrame(float r, float g, float b, float a) {
@@ -776,6 +780,12 @@ bool D3D11Context::CheckDeviceResult(HRESULT hr, const char* operation) {
     if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET ||
         hr == DXGI_ERROR_DEVICE_HUNG) {
         m_DeviceLost = true;
+        RHIDeviceLossReason reason = RHIDeviceLossReason::Unknown;
+        if (hr == DXGI_ERROR_DEVICE_REMOVED) reason = RHIDeviceLossReason::Removed;
+        else if (hr == DXGI_ERROR_DEVICE_RESET) reason = RHIDeviceLossReason::Reset;
+        else if (hr == DXGI_ERROR_DEVICE_HUNG) reason = RHIDeviceLossReason::Hung;
+        m_DeviceLossInfo = {reason, static_cast<int64_t>(hr),
+                            m_DeviceGeneration, m_LastDeviceError};
     }
     Logger::Error(m_LastDeviceError);
     return false;
@@ -1140,9 +1150,15 @@ bool D3D11Context::UpdateBuffer(const std::shared_ptr<GpuBuffer>& buffer,
     auto native = std::dynamic_pointer_cast<D3D11Buffer>(buffer);
     if (!native || !native->buffer || !data || size == 0 ||
         offset + size > native->desc.size || offset + size > UINT32_MAX) return false;
-    D3D11_BOX box{static_cast<UINT>(offset), 0, 0,
-                  static_cast<UINT>(offset + size), 1, 1};
-    m_Context->UpdateSubresource(native->buffer.Get(), 0, &box, data, 0, 0);
+    if (!native->updateShadow.empty()) {
+        std::memcpy(native->updateShadow.data() + offset, data, static_cast<size_t>(size));
+        m_Context->UpdateSubresource(native->buffer.Get(), 0, nullptr,
+                                     native->updateShadow.data(), 0, 0);
+    } else {
+        D3D11_BOX box{static_cast<UINT>(offset), 0, 0,
+                      static_cast<UINT>(offset + size), 1, 1};
+        m_Context->UpdateSubresource(native->buffer.Get(), 0, &box, data, 0, 0);
+    }
     return true;
 }
 
@@ -1249,7 +1265,8 @@ std::shared_ptr<GpuBuffer> D3D11Context::CreateBuffer(
     D3D11_BUFFER_DESC native{}; native.ByteWidth = desc.size;
     const bool readback = HasUsage(desc.usage, RHIResourceUsage::Readback);
     native.Usage = readback ? D3D11_USAGE_STAGING :
-        (initialData && !HasUsage(desc.usage, RHIResourceUsage::UnorderedAccess)
+        (initialData && !HasUsage(desc.usage, RHIResourceUsage::UnorderedAccess) &&
+         !HasUsage(desc.usage, RHIResourceUsage::CopyDestination)
             ? D3D11_USAGE_IMMUTABLE : D3D11_USAGE_DEFAULT);
     if (readback) native.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
     if (HasUsage(desc.usage, RHIResourceUsage::VertexBuffer)) native.BindFlags |= D3D11_BIND_VERTEX_BUFFER;
@@ -1266,6 +1283,10 @@ std::shared_ptr<GpuBuffer> D3D11Context::CreateBuffer(
     D3D11_SUBRESOURCE_DATA data{}; data.pSysMem = initialData;
     auto buffer = std::make_shared<D3D11Buffer>(); buffer->desc = desc; buffer->stride = desc.stride;
     if (FAILED(m_Device->CreateBuffer(&native, initialData ? &data : nullptr, &buffer->buffer))) return nullptr;
+    if (HasUsage(desc.usage, RHIResourceUsage::CopyDestination)) {
+        buffer->updateShadow.resize(desc.size);
+        if (initialData) std::memcpy(buffer->updateShadow.data(), initialData, desc.size);
+    }
     return buffer;
 }
 

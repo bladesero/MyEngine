@@ -1,4 +1,5 @@
 #pragma once
+#include "Project/FormatVersions.h"
 
 #include <cstdint>
 #include <filesystem>
@@ -12,7 +13,7 @@ struct RuntimeDependencyEntry {
     std::string hash;
 };
 struct RuntimeDependencyManifest {
-    static constexpr int kVersion = 1;
+    static constexpr int kVersion = FormatVersions::RuntimeDependencies;
     static constexpr const char* kFileName = "RuntimeDependencies.json";
     std::vector<RuntimeDependencyEntry> files;
     bool Save(const std::filesystem::path&,std::string* error=nullptr) const;

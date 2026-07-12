@@ -1,5 +1,7 @@
 #include "Input/InputActionMap.h"
+#include "Core/TransactionalFileWriter.h"
 #include "Core/RuntimeFileSystem.h"
+#include "Project/JsonMigrationRegistry.h"
 
 #include <SDL3/SDL_keyboard.h>
 #include <SDL3/SDL_mouse.h>
@@ -226,16 +228,11 @@ bool InputActionMap::LoadFromFile(const std::filesystem::path& path, std::string
 bool InputActionMap::LoadFromJson(const nlohmann::json& json, std::string* error)
 {
     if (error) error->clear();
-    if (!json.is_object()) {
-        SetError(error, "input config root must be an object");
-        return false;
-    }
-    if (json.value("version", 0) != kCurrentVersion) {
-        SetError(error, "unsupported input config version");
-        return false;
-    }
-    const auto actionsIt = json.find("actions");
-    if (actionsIt == json.end() || !actionsIt->is_array()) {
+    nlohmann::json migrated = json;
+    JsonMigrationRegistry migrations("input config", kCurrentVersion);
+    if (!migrations.Migrate(migrated, error)) return false;
+    const auto actionsIt = migrated.find("actions");
+    if (actionsIt == migrated.end() || !actionsIt->is_array()) {
         SetError(error, "input config actions must be an array");
         return false;
     }
@@ -328,13 +325,9 @@ bool InputActionMap::SaveToFile(const std::filesystem::path& path, std::string* 
         {"version", kCurrentVersion},
         {"actions", std::move(actions)},
     };
-    std::ofstream output(path);
-    if (!output) {
-        SetError(error, "failed to write input config: " + path.string());
-        return false;
-    }
-    output << root.dump(2) << '\n';
-    return true;
+    TransactionalWriteOptions options;
+    options.validator=[](const std::filesystem::path& candidate,std::string* validationError){InputActionMap ignored;return ignored.LoadFromFile(candidate,validationError);};
+    return TransactionalFileWriter::WriteText(path,root.dump(2)+"\n",options,error);
 }
 
 void InputActionMap::Clear()

@@ -1187,7 +1187,8 @@ std::string OverrideCategory(const nlohmann::json& item)
 {
     const std::string kind = item.value("kind", std::string{});
     const std::string componentType = item.value("componentType", std::string{});
-    if (kind == "AddActorSubtree" || kind == "RemoveActorSubtree") return "Hierarchy";
+    if (kind == "AddActorSubtree" || kind == "RemoveActorSubtree" ||
+        kind == "SetNestedInstance") return "Hierarchy";
     if (kind == "AddComponent" || kind == "RemoveComponent" || !componentType.empty()) {
         return "Component";
     }
@@ -1210,6 +1211,8 @@ std::string OverrideTargetLabel(const nlohmann::json& item)
     const std::string componentType = item.value("componentType", std::string{});
     if (kind == "AddActorSubtree") return "Parent " + localId;
     if (kind == "RemoveActorSubtree") return "Actor " + localId;
+    if (kind == "SetNestedInstance") return "Nested " +
+        item.value("nestedInstanceLocalId", std::string{});
     if (!componentType.empty()) return componentType + " on " + localId;
     return "Actor " + localId;
 }
@@ -1219,6 +1222,7 @@ std::string OverridePropertyLabel(const nlohmann::json& item)
     const std::string kind = item.value("kind", std::string{});
     if (kind == "AddActorSubtree") return "Added subtree";
     if (kind == "RemoveActorSubtree") return "Removed subtree";
+    if (kind == "SetNestedInstance") return "Nested instance state";
     if (kind == "AddComponent") return "Added component";
     if (kind == "RemoveComponent") return "Removed component";
     return PropertyLabelFromPointer(item.value("path", std::string{}));
@@ -1241,6 +1245,9 @@ std::string OverrideValuePreview(const nlohmann::json& item)
         return std::to_string(count) + (count == 1 ? " node" : " nodes");
     }
     if (kind == "RemoveActorSubtree") return "(removed)";
+    if (kind == "SetNestedInstance") {
+        return item.contains("overrides") ? JsonPreview(item["overrides"]) : "(updated)";
+    }
     return {};
 }
 
@@ -1252,6 +1259,8 @@ std::string OverrideLabel(const nlohmann::json& item)
     const std::string path = item.value("path", std::string{});
     if (kind == "AddActorSubtree") return "Add actor subtree under " + id;
     if (kind == "RemoveActorSubtree") return "Remove actor subtree " + id;
+    if (kind == "SetNestedInstance") return "Update nested prefab " +
+        item.value("nestedInstanceLocalId", std::string{});
     if (kind == "AddComponent") return "Add " + type + " on " + id;
     if (kind == "RemoveComponent") return "Remove " + type + " from " + id;
     if (!type.empty()) return type + (path.empty() ? std::string{} : " " + path);
@@ -1264,7 +1273,8 @@ bool IsSupportedPrefabOverride(const nlohmann::json& item)
     const std::string kind = item.value("kind", std::string{});
     return kind == "SetProperty" || kind == "RemoveProperty" ||
         kind == "AddComponent" || kind == "RemoveComponent" ||
-        kind == "AddActorSubtree" || kind == "RemoveActorSubtree";
+        kind == "AddActorSubtree" || kind == "RemoveActorSubtree" ||
+        kind == "SetNestedInstance";
 }
 
 nlohmann::json RemoveOverrideAt(nlohmann::json overrides, size_t index)

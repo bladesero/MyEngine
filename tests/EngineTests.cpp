@@ -38,6 +38,8 @@
 #include "Scene/SceneSerializer.h"
 #include "Scene/PrefabSystem.h"
 #include "Scene/ComponentRegistry.h"
+#include "Scene/TypeRegistry.h"
+#include "Scene/WorldFrameScheduler.h"
 #include "Scripting/ScriptComponent.h"
 #include "Assets/ScriptAsset.h"
 #include "Renderer/Renderer.h"
@@ -1343,7 +1345,20 @@ bool TestSceneRunStates() {
                "StopPlay should keep the original EditorWorld alive")) return false;
     if (!Check(NearlyEqual(restored->GetTransform().position.x, 0.0f),
                "runtime changes leaked into edit scene")) return false;
-    return Check(layer.IsDirty(), "edit dirty state was not restored");
+    if (!Check(layer.IsDirty(), "edit dirty state was not restored")) return false;
+
+    Scene recovery("Recovered");
+    recovery.CreateActor("RecoveredActor");
+    const std::string snapshot = SceneSerializer::SaveToString(recovery);
+    if (!Check(layer.RestoreEditorSnapshot(snapshot, "Content/Scenes/Main.scene.json") &&
+               layer.IsDirty() && layer.HasFilePath() &&
+               layer.GetEditorScene().FindByName("RecoveredActor"),
+               "editor recovery snapshot was not restored atomically")) return false;
+    Scene* recoveredScene = &layer.GetEditorScene();
+    return Check(!layer.RestoreEditorSnapshot("{broken", "ignored.scene.json") &&
+                 &layer.GetEditorScene() == recoveredScene &&
+                 layer.GetEditorScene().FindByName("RecoveredActor"),
+                 "failed recovery replaced the last valid editor scene");
 }
 
 struct MockBuffer final : GpuBuffer {};
@@ -1909,6 +1924,12 @@ bool TestCrashReportWriting() {
         std::istreambuf_iterator<char>());
     const bool valid =
         text.find("application=MyEngineTests") != std::string::npos &&
+        text.find("engine_version=") != std::string::npos &&
+        text.find("build_id=") != std::string::npos &&
+        text.find("git_commit=") != std::string::npos &&
+        text.find("configuration=") != std::string::npos &&
+        text.find("compiler=") != std::string::npos &&
+        text.find("shader_tool=") != std::string::npos &&
         text.find("automated crash pipeline test") != std::string::npos;
     input.close();
     std::error_code removeError;
@@ -2092,6 +2113,60 @@ bool TestCameraComponentAndGameViewport() {
                  NearlyEqual(loaded.GetAmbientIntensity(), 0.42f) &&
                  NearlyEqual(CollectSceneLights(loaded).ambientIntensity, 0.42f),
                  "camera component, scene ambient, or main camera hint round trip mismatch");
+}
+
+bool TestTypeRegistryMetadataAndWorldScheduler() {
+    ComponentRegistry::Get();
+    const TypeDescriptor* cameraType = TypeRegistry::Get().Find("Camera");
+    if (!Check(cameraType && cameraType->schemaVersion == 1 &&
+               TypeRegistry::Get().FindProperty(*cameraType, "fovYDegrees"),
+               "camera metadata descriptor missing")) return false;
+    const std::vector<std::string> incomplete = TypeRegistry::Get().GetIncompleteMetadataTypes();
+    if (!Check(incomplete.empty(), "persistent component metadata audit is incomplete")) return false;
+    const TypeDescriptor* healthType = TypeRegistry::Get().Find("Health");
+    if (!Check(healthType && TypeRegistry::Get().FindProperty(*healthType, "maxHealth") &&
+               TypeRegistry::Get().FindProperty(*healthType, "health"),
+               "reflected gameplay component properties are missing")) return false;
+    for (const char* migrated : {"Camera","Light","PostProcess","RigidBody","BoxCollider",
+                                 "SphereCollider","CapsuleCollider","CharacterController"}) {
+        if (!Check(std::find(incomplete.begin(),incomplete.end(),migrated)==incomplete.end(),
+                   std::string("metadata audit still reports migrated type ")+migrated)) return false;
+    }
+
+    CameraComponent camera;
+    std::string error;
+    if (!Check(TypeRegistry::Get().SetProperty(camera, "fovYDegrees", 75.0f, &error) &&
+               NearlyEqual(camera.GetFovYDegrees(), 75.0f),
+               "metadata property setter failed")) return false;
+    nlohmann::json data;
+    uint32_t version = 0;
+    if (!Check(TypeRegistry::Get().Serialize(camera, data, version, &error) &&
+               version == 1 && data["properties"]["fovYDegrees"] == 75.0f,
+               "metadata serialization failed")) return false;
+
+    Scene scene("SchedulerCase");
+    scene.CreateActor("Root");
+    scene.BeginPlay();
+    scene.OnUpdate(0.1f);
+    const WorldSchedulerStats& stats = scene.GetFrameScheduler().GetStats();
+    if (!Check(stats.fixedTicks == 4 && stats.droppedFixedTicks >= 1 &&
+               stats.phaseMilliseconds[static_cast<size_t>(WorldPhase::Update)] >= 0.0f,
+               "world scheduler fixed-tick cap or phase profiling was not enforced")) return false;
+
+    std::vector<std::string> order;
+    WorldFrameScheduler deterministic(false, false);
+    if (!Check(deterministic.RegisterSystem({"B",WorldPhase::Update,0,{"A"},{},false,[&](WorldTickContext&){order.push_back("B");}},&error) &&
+               deterministic.RegisterSystem({"A",WorldPhase::Update,0,{}, {},false,[&](WorldTickContext&){order.push_back("A");}},&error) &&
+               deterministic.RegisterSystem({"C",WorldPhase::Update,1,{}, {},false,[&](WorldTickContext&){order.push_back("C");}},&error) &&
+               deterministic.Freeze(&error), "custom scheduler freeze failed: " + error)) return false;
+    deterministic.Tick(scene, 1.0f / 60.0f);
+    if (!Check(order == std::vector<std::string>({"A","B","C"}),
+               "scheduler dependency order is not deterministic")) return false;
+
+    WorldFrameScheduler cyclic(false, false);
+    cyclic.RegisterSystem({"A",WorldPhase::Update,0,{"B"},{},false,[](WorldTickContext&){}},nullptr);
+    cyclic.RegisterSystem({"B",WorldPhase::Update,0,{"A"},{},false,[](WorldTickContext&){}},nullptr);
+    return Check(!cyclic.Freeze(&error), "scheduler dependency cycle was accepted");
 }
 
 bool TestAnimatorControllerAndThirdPersonCamera()
@@ -4079,7 +4154,50 @@ bool TestPrefabRoundTripOverridesAndValidation()
     auto mismatch=json;mismatch["actors"][0]["prefabInstance"]["uuid"]="wrong";Scene rejected;
     if(!Check(!SceneSerializer::LoadFromString(rejected,mismatch.dump())&&rejected.ActorCount()==0,"prefab UUID mismatch was accepted"))return false;
     Actor* container=source.CreateActor("Container");Actor* nested=PrefabSystem::Instantiate(source,path,{},&error);nested->SetParent(container);
-    if(!Check(!PrefabSystem::SaveSubtree(*container,project/"Content/Prefabs/Nested.prefab.json",&error),"nested prefab was accepted"))return false;
+    const fs::path nestedPath=project/"Content/Prefabs/Nested.prefab.json";
+    if(!Check(PrefabSystem::SaveSubtree(*container,nestedPath,&error),"nested prefab save failed: "+error))return false;
+    PrefabAsset nestedAsset;
+    if(!Check(PrefabAsset::Load(nestedPath,nestedAsset,&error)&&nestedAsset.nodes.size()==1&&nestedAsset.nestedInstances.size()==1,
+              "nested prefab was flattened or lost its source reference: "+error))return false;
+    Scene nestedScene("NestedInstances");Actor* nestedOuter=PrefabSystem::Instantiate(nestedScene,nestedPath,{},&error);
+    if(!Check(nestedOuter&&nestedScene.ActorCount()==3&&nestedOuter->GetChildren().size()==1&&nestedOuter->GetChildren().front()->IsPrefabRoot(),
+              "nested prefab instance did not recursively instantiate: "+error))return false;
+    Actor* nestedVehicle=nestedOuter->GetChildren().front();
+    nestedVehicle->GetChildren().front()->SetName("NestedOverrideWheel");
+    if(!Check(PrefabSystem::CaptureOverrides(*nestedVehicle,&error)&&
+              PrefabSystem::SaveSubtree(*nestedOuter,nestedPath,&error),
+              "nested prefab override capture failed: "+error))return false;
+    Scene refreshedNested("RefreshedNested");Actor* refreshedOuter=PrefabSystem::Instantiate(refreshedNested,nestedPath,{},&error);
+    if(!Check(refreshedOuter&&refreshedOuter->GetChildren().front()->GetChildren().front()->GetName()=="NestedOverrideWheel",
+              "nested prefab local overrides were not preserved: "+error))return false;
+
+    Scene deepSource("DeepSource");Actor* deepRoot=deepSource.CreateActor("DeepRoot");
+    Actor* levelTwo=PrefabSystem::Instantiate(deepSource,nestedPath,{},&error);levelTwo->SetParent(deepRoot);
+    const fs::path deepPath=project/"Content/Prefabs/Deep.prefab.json";
+    if(!Check(PrefabSystem::SaveSubtree(*deepRoot,deepPath,&error),"three-level prefab save failed: "+error))return false;
+    Scene deepScene("DeepInstance");Actor* deep=PrefabSystem::Instantiate(deepScene,deepPath,{},&error);
+    if(!Check(deep&&deepScene.ActorCount()==4,"three-level prefab did not instantiate its full reference chain: "+error))return false;
+    const std::string deepSerialized=SceneSerializer::SaveToString(deepScene);Scene deepReloaded("DeepReloaded");
+    if(!Check(SceneSerializer::LoadFromString(deepReloaded,deepSerialized)&&deepReloaded.ActorCount()==4,
+              "three-level nested prefab scene round-trip failed"))return false;
+
+    PrefabAsset refreshedVehicle;if(!Check(PrefabAsset::Load(path,refreshedVehicle,&error),"nested refresh source load failed"))return false;
+    if(auto vehicleRoot=std::find_if(refreshedVehicle.nodes.begin(),refreshedVehicle.nodes.end(),[&](const PrefabNode& node){return node.localId==refreshedVehicle.rootLocalId;});vehicleRoot!=refreshedVehicle.nodes.end())vehicleRoot->name="VehicleSourceV2";
+    ++refreshedVehicle.revision;
+    if(!Check(refreshedVehicle.Save(path,&error)&&PrefabSystem::RefreshInstances(refreshedNested,refreshedVehicle.uuid,&error),
+              "nested source refresh failed: "+error))return false;
+    refreshedOuter=refreshedNested.GetRootActors().front();nestedVehicle=refreshedOuter->GetChildren().front();
+    if(!Check(nestedVehicle->GetName()=="VehicleSourceV2"&&nestedVehicle->GetChildren().front()->GetName()=="NestedOverrideWheel",
+              "nested source refresh lost local overrides or missed source changes"))return false;
+
+    PrefabAsset cyclicVehicle;if(!Check(PrefabAsset::Load(path,cyclicVehicle,&error),"cycle setup load failed"))return false;
+    PrefabNestedInstance cycleReference;cycleReference.instanceLocalId="cycle";cycleReference.parentLocalId=cyclicVehicle.rootLocalId;
+    cycleReference.assetPath=AssetManager::Get().MakeProjectRelativePath(nestedPath.string());cycleReference.assetUuid=nestedAsset.uuid;cycleReference.sourceRevision=nestedAsset.revision;
+    cyclicVehicle.nestedInstances.push_back(std::move(cycleReference));
+    if(!Check(cyclicVehicle.Save(path,&error),"cycle setup save failed: "+error))return false;
+    Scene cycleScene("CycleRejected");
+    if(!Check(!PrefabSystem::Instantiate(cycleScene,deepPath,{},&error)&&cycleScene.ActorCount()==0,
+              "nested prefab dependency cycle was accepted"))return false;
     AssetManager::Get().SetProjectRoot({});fs::remove_all(project,ec);return true;
 }
 
@@ -4092,6 +4210,16 @@ bool TestPrefabCookDependencyValidation()
     const nlohmann::json scene={{"actors",nlohmann::json::array({{{"id",1},{"prefabInstance",{{"asset","Content/Prefabs/Unit.prefab.json"},{"uuid",uuid},{"overrides",nlohmann::json::array()}}}}})}};
     std::ofstream(root/"Content/Scenes/Main.scene.json")<<scene.dump();PublishPreflightReport report;
     if(!Check(CookDependencyGraph::Validate(root,report)&&std::find(report.visitedAssets.begin(),report.visitedAssets.end(),"Content/Prefabs/Unit.prefab.json")!=report.visitedAssets.end(),"cook did not traverse prefab dependency: "+report.Summary()))return false;
+    const std::string outerUuid="aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    const nlohmann::json outer={{"version",1},{"uuid",outerUuid},{"revision",1},{"rootLocalId","outer"},{"nodes",nlohmann::json::array({{{"localId","outer"},{"parentLocalId",""},{"name","Outer"},{"active",true},{"components",nlohmann::json::array()}}})},{"nestedInstances",nlohmann::json::array({{{"instanceLocalId","unit-instance"},{"parentLocalId","outer"},{"asset","Content/Prefabs/Unit.prefab.json"},{"uuid",uuid},{"sourceRevision",1},{"overrides",nlohmann::json::array()}}})}};
+    std::ofstream(root/"Content/Prefabs/Outer.prefab.json")<<outer.dump();std::ofstream(root/"Content/Prefabs/Outer.prefab.json.meta")<<nlohmann::json{{"uuid",outerUuid}}.dump();
+    const nlohmann::json nestedScene={{"actors",nlohmann::json::array({{{"id",1},{"prefabInstance",{{"asset","Content/Prefabs/Outer.prefab.json"},{"uuid",outerUuid},{"overrides",nlohmann::json::array()}}}}})}};
+    std::ofstream(root/"Content/Scenes/Main.scene.json",std::ios::trunc)<<nestedScene.dump();
+    if(!Check(CookDependencyGraph::Validate(root,report)&&std::find(report.visitedAssets.begin(),report.visitedAssets.end(),"Content/Prefabs/Unit.prefab.json")!=report.visitedAssets.end(),"cook did not traverse nested prefab closure: "+report.Summary()))return false;
+    std::ifstream cyclicUnitInput(root/"Content/Prefabs/Unit.prefab.json");auto cyclicUnit=nlohmann::json::parse(cyclicUnitInput);cyclicUnitInput.close();
+    cyclicUnit["nestedInstances"]=nlohmann::json::array({{{"instanceLocalId","outer-cycle"},{"parentLocalId","root"},{"asset","Content/Prefabs/Outer.prefab.json"},{"uuid",outerUuid},{"sourceRevision",1},{"overrides",nlohmann::json::array()}}});
+    std::ofstream(root/"Content/Prefabs/Unit.prefab.json",std::ios::trunc)<<cyclicUnit.dump();
+    if(!Check(!CookDependencyGraph::Validate(root,report),"cook accepted a nested prefab dependency cycle"))return false;
     auto mismatch=scene;mismatch["actors"][0]["prefabInstance"]["uuid"]="wrong";std::ofstream(root/"Content/Scenes/Main.scene.json",std::ios::trunc)<<mismatch.dump();
     if(!Check(!CookDependencyGraph::Validate(root,report),"cook accepted a prefab UUID mismatch"))return false;
     fs::remove_all(root,ec);return true;
@@ -4693,6 +4821,7 @@ MYENGINE_REGISTER_TEST("Gameplay", "TestNavigationPerceptionAndEnemyStateMachine
 MYENGINE_REGISTER_TEST("Gameplay", "TestSceneManagerAndVersionedSaveGame", TestSceneManagerAndVersionedSaveGame);
 MYENGINE_REGISTER_TEST("Gameplay", "TestThirdPersonAdventureTemplateCompilesAndRuns", TestThirdPersonAdventureTemplateCompilesAndRuns);
 MYENGINE_REGISTER_TEST("Scene", "TestComponentRegistry", TestComponentRegistry);
+MYENGINE_REGISTER_TEST("Scene", "TestTypeRegistryMetadataAndWorldScheduler", TestTypeRegistryMetadataAndWorldScheduler);
 MYENGINE_REGISTER_TEST("Scene", "TestCameraComponentAndGameViewport", TestCameraComponentAndGameViewport);
 MYENGINE_REGISTER_TEST("Scene", "TestAudioSourceComponentSerialization", TestAudioSourceComponentSerialization);
 MYENGINE_REGISTER_TEST("Scene", "TestSceneRunStates", TestSceneRunStates);

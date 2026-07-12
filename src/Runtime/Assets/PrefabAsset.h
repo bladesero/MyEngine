@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Scene/Scene.h"
+#include "Project/FormatVersions.h"
 
 #include <filesystem>
 #include <string>
@@ -16,12 +17,24 @@ struct PrefabNode {
     std::vector<ComponentCreateDesc> components;
 };
 
+struct PrefabNestedInstance {
+    std::string instanceLocalId;
+    std::string parentLocalId;
+    std::string assetPath;
+    std::string assetUuid;
+    uint64_t sourceRevision = 1;
+    Transform rootTransform;
+    nlohmann::json overrides = nlohmann::json::array();
+};
+
 struct PrefabAsset {
-    static constexpr uint32_t kVersion = 1;
+    static constexpr uint32_t kVersion = FormatVersions::Prefab;
     uint32_t version = kVersion;
     std::string uuid;
+    uint64_t revision = 1;
     std::string rootLocalId;
     std::vector<PrefabNode> nodes;
+    std::vector<PrefabNestedInstance> nestedInstances;
 
     static bool Load(const std::filesystem::path& path, PrefabAsset& result,
                      std::string* error = nullptr);

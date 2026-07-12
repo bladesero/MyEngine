@@ -23,6 +23,12 @@ public:
     void EndFrame() override;
     bool IsDeviceLost() const override { return m_DeviceLost; }
     const std::string& GetLastDeviceError() const override { return m_LastDeviceError; }
+    RHIDeviceLossInfo GetDeviceLossInfo() const override {
+        return m_DeviceLost
+            ? RHIDeviceLossInfo{RHIDeviceLossReason::Unknown, -4,
+                                m_DeviceGeneration, m_LastDeviceError}
+            : RHIDeviceLossInfo{};
+    }
     uint32_t GetFrameIndex() const override { return m_FrameIndex; }
     GpuCommandList* GetGraphicsCommandList() override;
     GpuQueue* GetGraphicsQueue() override { return m_GraphicsQueue.get(); }
@@ -91,6 +97,7 @@ private:
     bool m_DeviceLost = false;
     uint32_t m_FrameIndex = 0;
     std::string m_LastDeviceError;
+    uint64_t m_DeviceGeneration = 0;
 };
 
 #endif

@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "name": "CompatibilityV1",
+  "projectId": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "startupScene": "",
+  "publish": { "outputDirectory": "Builds", "target": "windows-x64" },
+  "input": { "config": "" },
+  "graphics": { "backend": "d3d11", "renderPath": "forward" }
+}

@@ -12,6 +12,7 @@
 #include "Editor/EditorPanels.h"
 #include "Editor/EditorProfiler.h"
 #include "Editor/EditorProject.h"
+#include "Editor/EditorRecoveryService.h"
 #include "Editor/EditorResourceOperator.h"
 #include "Editor/EditorSelection.h"
 #include "Editor/EditorService.h"
@@ -2570,6 +2571,10 @@ bool TestEditorProjectAndAssetRegistry() {
         !loaded.GetState().showLog &&
         !loaded.GetState().IsPanelVisible("log") &&
         loaded.GetState().imguiLayoutIni.find("Log Output###log") != std::string::npos;
+    // Import() populated the process-wide AssetManager with artifacts owned by
+    // this temporary project. Clear those entries before deleting the project;
+    // otherwise later Editor tests can dereference stale cached assets.
+    AssetManager::Get().Clear();
     std::error_code error;
     std::filesystem::remove_all(root, error);
     return Check(stateMatches, "editor project state persistence mismatch");
@@ -3968,6 +3973,128 @@ bool TestEditorPrefabOverrideUnsupportedPersistedKindIsBlocked() {
     return true;
 }
 
+bool TestEditorNestedPrefabApplyRevertUndoRedo() {
+    namespace fs = std::filesystem;
+    const auto root = fs::temp_directory_path() /
+        ("myengine_editor_nested_prefab_" + std::to_string(
+            std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::error_code errorCode;
+    fs::create_directories(root / "Content" / "Prefabs", errorCode);
+    const fs::path previousProjectRoot = AssetManager::Get().GetProjectRoot();
+    auto cleanup = [&]() {
+        AssetManager::Get().SetProjectRoot(previousProjectRoot);
+        fs::remove_all(root, errorCode);
+    };
+    AssetManager::Get().SetProjectRoot(root);
+
+    std::string error;
+    const fs::path partPath = root / "Content" / "Prefabs" / "Part.prefab.json";
+    Scene partSource("NestedPartSource");
+    Actor* partRoot = partSource.CreateActor("Part");
+    Actor* partChild = partSource.CreateActor("Socket", partRoot);
+    if (!Check(partRoot && partChild &&
+               PrefabSystem::SaveSubtree(*partRoot, partPath, &error),
+               "nested editor part save failed: " + error)) {
+        cleanup();
+        return false;
+    }
+
+    const fs::path outerPath = root / "Content" / "Prefabs" / "Outer.prefab.json";
+    Scene outerSource("NestedOuterSource");
+    Actor* outerRoot = outerSource.CreateActor("Outer");
+    Actor* nestedPart = PrefabSystem::Instantiate(outerSource, partPath, {}, &error);
+    if (nestedPart) nestedPart->SetParent(outerRoot);
+    if (!Check(outerRoot && nestedPart &&
+               PrefabSystem::SaveSubtree(*outerRoot, outerPath, &error),
+               "nested editor outer save failed: " + error)) {
+        cleanup();
+        return false;
+    }
+
+    Scene scene("NestedPrefabEditor");
+    Actor* outer = PrefabSystem::Instantiate(scene, outerPath, {}, &error);
+    if (!Check(outer && outer->GetChildren().size() == 1 &&
+               outer->GetChildren().front()->IsPrefabRoot(),
+               "nested editor instance did not retain nested prefab root: " + error)) {
+        cleanup();
+        return false;
+    }
+    auto resolveNested = [&]() -> Actor* {
+        Actor* currentOuter = scene.FindByName("Outer");
+        return currentOuter && currentOuter->GetChildren().size() == 1
+            ? currentOuter->GetChildren().front() : nullptr;
+    };
+    auto nestedChildName = [&]() {
+        Actor* current = resolveNested();
+        return current && current->GetChildren().size() == 1
+            ? current->GetChildren().front()->GetName() : std::string{};
+    };
+    Actor* nested = resolveNested();
+    const uint64_t nestedID = nested->GetID();
+    nested->GetChildren().front()->SetName("LocalSocket");
+
+    EditorContext context(&scene);
+    EditorCommandStack stack;
+    EditorOperators operators;
+    EditorAssetRegistry registry;
+    registry.SetRoot(root / "Content");
+    registry.Refresh();
+    context.SetProjectRoot(root);
+    context.SetCommandStack(&stack);
+    context.SetOperators(&operators);
+    context.SetAssetRegistry(&registry);
+    context.GetSelection().SelectActorID(nestedID);
+
+    if (!Check(operators.Prefabs().RevertAll(context, nestedID),
+               "nested prefab revert command failed") ||
+        !Check(nestedChildName() == "Socket",
+               "nested prefab revert did not restore source state") ||
+        !Check(stack.Undo(context) && nestedChildName() == "LocalSocket",
+               "nested prefab revert undo did not restore local state") ||
+        !Check(stack.Redo(context) && nestedChildName() == "Socket",
+               "nested prefab revert redo did not restore source state") ||
+        !Check(stack.Undo(context) && nestedChildName() == "LocalSocket",
+               "nested prefab second revert undo did not restore local state")) {
+        cleanup();
+        return false;
+    }
+
+    nested = resolveNested();
+    if (!Check(nested && operators.Prefabs().ApplyAll(context, nested->GetID()),
+               "nested prefab apply command failed")) {
+        cleanup();
+        return false;
+    }
+    PrefabAsset applied;
+    const auto childName = [](const PrefabAsset& asset) {
+        auto child = std::find_if(asset.nodes.begin(), asset.nodes.end(),
+            [&](const PrefabNode& node) { return node.localId != asset.rootLocalId; });
+        return child == asset.nodes.end() ? std::string{} : child->name;
+    };
+    if (!Check(PrefabAsset::Load(partPath, applied, &error) &&
+               childName(applied) == "LocalSocket" &&
+               stack.Undo(context),
+               "nested prefab apply or undo failed: " + error)) {
+        cleanup();
+        return false;
+    }
+    PrefabAsset restored;
+    if (!Check(PrefabAsset::Load(partPath, restored, &error) &&
+               childName(restored) == "Socket" &&
+               resolveNested() && resolveNested()->GetChildren().front()->GetName() == "LocalSocket" &&
+               stack.Redo(context),
+               "nested prefab apply undo did not restore source and local override")) {
+        cleanup();
+        return false;
+    }
+    PrefabAsset redone;
+    const bool ok = PrefabAsset::Load(partPath, redone, &error) &&
+        childName(redone) == "LocalSocket" &&
+        resolveNested() && resolveNested()->GetChildren().front()->GetName() == "LocalSocket";
+    cleanup();
+    return Check(ok, "nested prefab apply redo did not restore applied source: " + error);
+}
+
 bool TestEditorPrefabOperatorCreateAndInstantiateCommands() {
     namespace fs = std::filesystem;
     const auto root = fs::temp_directory_path() /
@@ -4749,6 +4876,31 @@ bool TestProductionAssetDatabaseAndImportPipeline() {
     if (!Check(imports.GetDatabase().GetReferencers(first.record.uuid).size() == 1,
                "asset database reverse dependency lookup failed")) return false;
 
+    const std::array importFaults = {
+        AssetImportFault::AfterArtifactValidation,
+        AssetImportFault::AfterArtifactPromote,
+        AssetImportFault::BeforeDatabaseSave,
+    };
+    for (size_t index = 0; index < importFaults.size(); ++index) {
+        imports.SetInjectedFaultForTesting(importFaults[index]);
+        error.clear();
+        const AssetImportReport failed = imports.ReimportWithSettings(
+            first.record.uuid, "{\"srgb\":false,\"fault\":" + std::to_string(index) + "}", &error);
+        const AssetRecord* retained = imports.GetDatabase().FindByUuid(first.record.uuid);
+        if (!Check(!failed.succeeded && retained &&
+                   retained->artifactPath == first.record.artifactPath &&
+                   retained->artifactHash == first.record.artifactHash &&
+                   fs::is_regular_file(first.record.artifactPath),
+                   "import transaction fault did not retain ready record/artifact: " + error)) return false;
+    }
+    imports.SetInjectedFaultForTesting(AssetImportFault::None);
+    for (const auto& entry : fs::recursive_directory_iterator(root / "Project/Library")) {
+        const std::string filename = entry.path().filename().string();
+        if (!Check(filename.find(".import-staging") == std::string::npos &&
+                   filename.find(".import-backup") == std::string::npos,
+                   "import transaction left staging or backup debris")) return false;
+    }
+
     AssetDatabase reopened;
     if (!Check(reopened.Open(root / "Project/.myengine/AssetDatabase.json", &error),
                "asset database reload failed: " + error)) return false;
@@ -5328,6 +5480,44 @@ bool TestDefaultEditorScriptCompilesAndRegistersToolbarBody() {
                  "default editor script did not register toolbar PanelBody");
 }
 
+bool TestEditorRecoveryServiceLifecycle()
+{
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "myengine_editor_recovery_test";
+    std::error_code ec;
+    fs::remove_all(root, ec);
+    fs::create_directories(root / "Content" / "Scenes", ec);
+    std::string error;
+    EditorRecoveryService first;
+    if (!Check(first.OpenProject(root, &error) && first.PreviousShutdownWasClean(),
+               "recovery service did not start from a clean project: " + error)) return false;
+    const std::string scene = R"({"version":1,"name":"Recovered","actors":[]})";
+    if (!Check(first.WriteSnapshot("Content/Scenes/Main.scene.json", 7, scene, &error),
+               "recovery snapshot write failed: " + error)) return false;
+    const auto snapshots = first.ListSnapshots(&error);
+    if (!Check(snapshots.size() == 1 && snapshots[0].revision == 7,
+               "recovery snapshot listing failed: " + error)) return false;
+    std::string recovered;
+    if (!Check(first.ReadSnapshot(snapshots[0], recovered, &error) &&
+               recovered.find("Recovered") != std::string::npos,
+               "recovery snapshot read failed: " + error)) return false;
+
+    EditorRecoveryService afterCrash;
+    if (!Check(afterCrash.OpenProject(root, &error) && !afterCrash.PreviousShutdownWasClean(),
+               "unclean shutdown was not detected: " + error)) return false;
+    if (!Check(afterCrash.RemoveMatchingRevision("Content/Scenes/Main.scene.json", 7, &error) &&
+               afterCrash.ListSnapshots(&error).empty(),
+               "matching saved revision was not removed: " + error)) return false;
+    if (!Check(afterCrash.MarkCleanShutdown(&error), "clean shutdown marker failed: " + error)) return false;
+
+    EditorRecoveryService cleanRestart;
+    const bool clean = cleanRestart.OpenProject(root, &error) && cleanRestart.PreviousShutdownWasClean();
+    cleanRestart.MarkCleanShutdown(nullptr);
+    fs::remove_all(root, ec);
+    return Check(clean, "clean shutdown was not persisted: " + error);
+}
+
+MYENGINE_REGISTER_TEST("Editor", "TestEditorRecoveryServiceLifecycle", TestEditorRecoveryServiceLifecycle);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorCommandStackAndSelection", TestEditorCommandStackAndSelection);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorOperatorsSelectionAndCommands", TestEditorOperatorsSelectionAndCommands);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorCommandOperatorCreateUIActor", TestEditorCommandOperatorCreateUIActor);
@@ -5356,6 +5546,7 @@ MYENGINE_REGISTER_TEST("Editor", "TestEditorAssetOperatorOpenSceneAsset", TestEd
 MYENGINE_REGISTER_TEST("Editor", "TestEditorPrefabOverrideOperatorSingleApplyRevert", TestEditorPrefabOverrideOperatorSingleApplyRevert);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorPrefabOverrideDisplayModelSorting", TestEditorPrefabOverrideDisplayModelSorting);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorPrefabOverrideUnsupportedPersistedKindIsBlocked", TestEditorPrefabOverrideUnsupportedPersistedKindIsBlocked);
+MYENGINE_REGISTER_TEST("Editor", "TestEditorNestedPrefabApplyRevertUndoRedo", TestEditorNestedPrefabApplyRevertUndoRedo);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorPrefabOperatorCreateAndInstantiateCommands", TestEditorPrefabOperatorCreateAndInstantiateCommands);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorPrefabOperatorRemovedActorOverrideApplyRevert", TestEditorPrefabOperatorRemovedActorOverrideApplyRevert);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorPrefabOperatorAddedActorOverrideApplyRevert", TestEditorPrefabOperatorAddedActorOverrideApplyRevert);

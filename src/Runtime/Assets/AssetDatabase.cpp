@@ -1,4 +1,6 @@
 #include "Assets/AssetDatabase.h"
+#include "Core/TransactionalFileWriter.h"
+#include "Project/JsonMigrationRegistry.h"
 
 #include "Core/Sha256.h"
 
@@ -66,7 +68,9 @@ bool AssetDatabase::Open(std::filesystem::path databasePath, std::string* error)
         std::ifstream input(m_Path);
         nlohmann::json root;
         input >> root;
-        if (root.value("version", 0u) != kVersion || !root["assets"].is_array()) {
+        JsonMigrationRegistry migrations("asset database", kVersion);
+        if (!migrations.Migrate(root, error)) return false;
+        if (!root.contains("assets") || !root["assets"].is_array()) {
             SetError(error, "unsupported or malformed asset database");
             return false;
         }
@@ -125,21 +129,9 @@ bool AssetDatabase::Save(std::string* error) const {
             });
         }
         const nlohmann::json root = {{"version", kVersion}, {"assets", assets}};
-        std::filesystem::create_directories(m_Path.parent_path());
-        const auto temporary = m_Path.string() + ".tmp";
-        {
-            std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
-            if (!output) { SetError(error, "cannot create asset database temporary file"); return false; }
-            output << root.dump(2);
-            output.flush();
-            if (!output) { SetError(error, "failed writing asset database"); return false; }
-        }
-        std::error_code ec;
-        std::filesystem::remove(m_Path, ec);
-        ec.clear();
-        std::filesystem::rename(temporary, m_Path, ec);
-        if (ec) { SetError(error, "failed installing asset database: " + ec.message()); return false; }
-        return true;
+        TransactionalWriteOptions options;
+        options.validator=[](const std::filesystem::path& candidate,std::string* validationError){AssetDatabase ignored;return ignored.Open(candidate,validationError);};
+        return TransactionalFileWriter::WriteText(m_Path,root.dump(2)+"\n",options,error);
     } catch (const std::exception& exception) {
         SetError(error, exception.what());
         return false;

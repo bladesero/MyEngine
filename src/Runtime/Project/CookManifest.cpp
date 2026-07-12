@@ -1,5 +1,7 @@
 #include "Project/CookManifest.h"
+#include "Core/TransactionalFileWriter.h"
 #include "Project/RuntimeCompatibility.h"
+#include "Project/JsonMigrationRegistry.h"
 #include "Core/Sha256.h"
 
 #include <fstream>
@@ -49,6 +51,7 @@ bool CookManifest::Validate(std::string* error) const {
     }
     Sha256::Digest digest{};
     if(projectId.empty() || engineVersion.empty() || buildId.empty() || configuration.empty() ||
+       gitCommit.empty() || compiler.empty() || shaderToolVersion.empty() ||
        contentSchemaVersion!=RuntimeCompatibility::kContentSchemaVersion ||
        archiveFormatVersion!=RuntimeCompatibility::kArchiveFormatVersion ||
        hashAlgorithm!="sha256" || !Sha256::FromHex(archiveHash,digest) ||
@@ -118,6 +121,7 @@ bool CookManifest::Save(const fs::path& path, std::string* error) const {
             {"version", version},
             {"project", project},
             {"projectId",projectId},{"engineVersion",engineVersion},{"buildId",buildId},
+            {"gitCommit",gitCommit},{"compiler",compiler},{"shaderToolVersion",shaderToolVersion},
             {"contentSchemaVersion",contentSchemaVersion},{"archiveFormatVersion",archiveFormatVersion},
             {"hashAlgorithm",hashAlgorithm},{"configuration",configuration},
             {"requiredBackends",requiredBackends},{"runtimeDependenciesHash",runtimeDependenciesHash},
@@ -128,17 +132,9 @@ bool CookManifest::Save(const fs::path& path, std::string* error) const {
             {"contentBytes", contentBytes},
             {"files", std::move(fileList)},
         };
-        std::ofstream output(path);
-        if (!output) {
-            SetError(error, "failed to write Cook manifest: " + path.string());
-            return false;
-        }
-        output << json.dump(2) << '\n';
-        if (!output.good()) {
-            SetError(error, "failed to finalize Cook manifest: " + path.string());
-            return false;
-        }
-        return true;
+        TransactionalWriteOptions options;
+        options.validator=[](const fs::path& candidate,std::string* validationError){CookManifest ignored;return CookManifest::Load(candidate,ignored,validationError);};
+        return TransactionalFileWriter::WriteText(path,json.dump(2)+"\n",options,error);
     }
     catch (const std::exception& exception) {
         SetError(error, "failed to save Cook manifest: " + std::string(exception.what()));
@@ -157,16 +153,17 @@ bool CookManifest::Load(const fs::path& path, CookManifest& manifest,
         }
         nlohmann::json json;
         input >> json;
-        if (!json.is_object()) {
-            SetError(error, "Cook manifest root must be an object");
-            return false;
-        }
+        JsonMigrationRegistry migrations("Cook manifest", kCurrentVersion);
+        if (!migrations.Migrate(json, error)) return false;
         CookManifest loaded;
         loaded.version = json.value("version", 0);
         loaded.project = json.value("project", std::string{});
         loaded.projectId=json.value("projectId",std::string{});
         loaded.engineVersion=json.value("engineVersion",std::string{});
         loaded.buildId=json.value("buildId",std::string{});
+        loaded.gitCommit=json.value("gitCommit",std::string{"unknown"});
+        loaded.compiler=json.value("compiler",std::string{"unknown"});
+        loaded.shaderToolVersion=json.value("shaderToolVersion",std::string{"unknown"});
         loaded.contentSchemaVersion=json.value("contentSchemaVersion",0);
         loaded.archiveFormatVersion=json.value("archiveFormatVersion",0);
         loaded.hashAlgorithm=json.value("hashAlgorithm",std::string{});

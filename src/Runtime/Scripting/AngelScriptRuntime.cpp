@@ -26,6 +26,7 @@
 #include "Navigation/NavAgentComponent.h"
 #include "Scene/Actor.h"
 #include "Scene/ComponentRegistry.h"
+#include "Scene/TypeRegistry.h"
 #include "Scene/MeshRendererComponent.h"
 #include "Scene/PrefabSystem.h"
 #include "Scene/Scene.h"
@@ -1306,6 +1307,30 @@ bool AssetsExists(const std::string& path)
     return AssetManager::Get().IsLoaded(path) ||
            RuntimeFileSystem::Get().Exists(resolved) ||
            RuntimeFileSystem::Get().Exists(path);
+}
+
+std::string ComponentsGetPropertyJson(ActorHandle handle, const std::string& type,
+                                      const std::string& property)
+{
+    Actor* actor = ResolveActor(handle);
+    Component* component = actor ? actor->GetComponentByTypeName(type) : nullptr;
+    const TypeDescriptor* descriptor = TypeRegistry::Get().Find(type);
+    const PropertyDescriptor* field = descriptor ? TypeRegistry::Get().FindProperty(*descriptor, property) : nullptr;
+    if (!component || !field || !HasPropertyFlag(field->flags, PropertyFlags::ScriptRead)) return {};
+    nlohmann::json value;
+    return TypeRegistry::Get().GetProperty(*component, property, value) ? value.dump() : std::string{};
+}
+
+bool ComponentsSetPropertyJson(ActorHandle handle, const std::string& type,
+                               const std::string& property, const std::string& json)
+{
+    Actor* actor = ResolveActor(handle);
+    Component* component = actor ? actor->GetComponentByTypeName(type) : nullptr;
+    const TypeDescriptor* descriptor = TypeRegistry::Get().Find(type);
+    const PropertyDescriptor* field = descriptor ? TypeRegistry::Get().FindProperty(*descriptor, property) : nullptr;
+    if (!component || !field || !HasPropertyFlag(field->flags, PropertyFlags::ScriptWrite)) return false;
+    try { return TypeRegistry::Get().SetProperty(*component, property, nlohmann::json::parse(json)); }
+    catch (...) { return false; }
 }
 
 std::string AssetsResolveProjectPath(const std::string& path)

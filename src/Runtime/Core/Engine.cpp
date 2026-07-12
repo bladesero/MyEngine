@@ -2,8 +2,11 @@
 #include "Logger.h"
 #include "EngineTime.h"
 #include "Audio/AudioEngine.h"
+#include "Scene/ComponentRegistry.h"
+#include "Scene/TypeRegistry.h"
 #include "Core/Memory/MemoryService.h"
 #include "Window.h"
+#include "CrashHandler.h"
 #include "../Input/Input.h"
 
 #include <SDL3/SDL.h>
@@ -20,6 +23,9 @@ void Engine::SetWindow(IWindow* window) {
 }
 
 void Engine::Init() {
+    ComponentRegistry::Get();
+    std::string registryError;
+    if (!TypeRegistry::Get().Freeze(&registryError)) Logger::Error("TypeRegistry freeze failed: ", registryError);
     MemoryService::Get().Init();
     Logger::Info("Init Engine: ", m_Config.appName);
     AudioEngine::Get().Init();
@@ -77,6 +83,15 @@ void Engine::RunLoop() {
         const auto renderStart = Time::Clock::now();
         RenderLayers();
         const auto renderEnd = Time::Clock::now();
+        if (m_FatalHealthCheck) {
+            if (const auto failure = m_FatalHealthCheck(); failure && !failure->empty()) {
+                const std::string report = CrashHandler::WriteDiagnosticReport(*failure);
+                Logger::Error("[Engine] Fatal runtime health failure: ", *failure,
+                              "; report=", report);
+                m_ExitCode = 3;
+                m_Running = false;
+            }
+        }
         // NOTE: SwapBuffers is intentionally NOT called here.
         // Each render layer (e.g. TriangleLayer via IRenderContext::EndFrame,
         // or GameLayer via SDL_RenderPresent) is responsible for presenting.

@@ -1,4 +1,5 @@
 #pragma once
+#include "Project/FormatVersions.h"
 
 #include <filesystem>
 #include <optional>
@@ -56,7 +57,7 @@ struct AssetRecord {
 
 class AssetDatabase {
 public:
-    static constexpr uint32_t kVersion = 1;
+    static constexpr uint32_t kVersion = FormatVersions::AssetDatabase;
 
     bool Open(std::filesystem::path databasePath, std::string* error = nullptr);
     bool Save(std::string* error = nullptr) const;

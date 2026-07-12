@@ -1,4 +1,5 @@
 #include "Scene/SceneSerializer.h"
+#include "Scene/TypeRegistry.h"
 #include "Scene/Actor.h"
 #include "Scene/Component.h"
 #include "Scene/ComponentRegistry.h"
@@ -7,6 +8,9 @@
 #include "Assets/NavMeshAsset.h"
 #include "Core/Logger.h"
 #include "Core/RuntimeFileSystem.h"
+#include "Core/TransactionalFileWriter.h"
+#include "Project/FormatVersions.h"
+#include "Project/JsonMigrationRegistry.h"
 
 #include <nlohmann/json.hpp>
 #include <fstream>
@@ -60,6 +64,7 @@ static Transform TransformFromJson(const Json& j) {
 static Json SceneToJson(const Scene& scene)
 {
     Json root;
+    root["version"] = FormatVersions::Scene;
     root["name"]   = scene.GetName();
     if (scene.GetMainCameraHintActorID() != 0) {
         root["mainCameraHintActorID"] = scene.GetMainCameraHintActorID();
@@ -106,7 +111,10 @@ static Json SceneToJson(const Scene& scene)
             c["type"]    = comp.GetTypeName();
             c["enabled"] = comp.IsEnabled();
             Json data    = Json::object();
-            comp.Serialize(data);
+            uint32_t version = 0;
+            std::string typeError;
+            if (!TypeRegistry::Get().Serialize(comp, data, version, &typeError)) comp.Serialize(data);
+            c["version"] = version;
             c["data"] = data;
             comps.push_back(c);
         });
@@ -134,6 +142,11 @@ static Json SceneToJson(const Scene& scene)
 
 static bool JsonToScene(const Json& root, Scene& scene)
 {
+    const int version = root.value("version", 0);
+    if (version < 0 || version > FormatVersions::Scene) {
+        Logger::Error("SceneSerializer: unsupported scene version ", version);
+        return false;
+    }
     try {
         scene.Clear();
         scene.SetName(root.value("name", "Scene"));
@@ -197,6 +210,7 @@ static bool JsonToScene(const Json& root, Scene& scene)
                     ComponentCreateDesc component;
                     component.type = c.value("type", std::string{});
                     component.enabled = c.value("enabled", true);
+                    component.version = c.value("version", uint32_t{0});
                     component.data = c.contains("data") ? c["data"] : Json::object();
                     if (!component.type.empty()) desc.components.push_back(std::move(component));
                 }
@@ -242,12 +256,10 @@ bool SceneSerializer::SaveToFile(const Scene& scene, const std::string& filepath
 {
     try {
         Json root = SceneToJson(scene);
-        std::ofstream f(filepath);
-        if (!f.is_open()) {
-            Logger::Error("SceneSerializer: cannot open '", filepath, "' for writing");
-            return false;
-        }
-        f << root.dump(4);
+        TransactionalWriteOptions options;
+        options.validator=[](const std::filesystem::path& candidate,std::string* validationError){try{std::ifstream input(candidate);const std::string text((std::istreambuf_iterator<char>(input)),{});SceneLoadPlan plan;return SceneSerializer::BuildLoadPlan(text,plan,validationError);}catch(const std::exception& e){if(validationError)*validationError=e.what();return false;}};
+        std::string writeError;
+        if(!TransactionalFileWriter::WriteText(filepath,root.dump(4)+"\n",options,&writeError)){Logger::Error("SceneSerializer: save failed: ",writeError);return false;}
         Logger::Info("SceneSerializer: saved '", scene.GetName(),
                      "' → ", filepath,
                      "  (", scene.ActorCount(), " actors)");
@@ -320,7 +332,12 @@ bool SceneSerializer::BuildLoadPlan(const std::string& jsonStr, SceneLoadPlan& p
 {
     try {
         Json root = Json::parse(jsonStr);
-        if (!root.is_object()) throw std::runtime_error("scene root must be an object");
+        JsonMigrationRegistry migrations("scene", FormatVersions::Scene);
+        std::string migrationError;
+        if (!migrations.Register(0, [](Json&, std::string*) { return true; },
+                                 &migrationError) ||
+            !migrations.Migrate(root, &migrationError))
+            throw std::runtime_error(migrationError);
         if (root.contains("actors") && !root["actors"].is_array())
             throw std::runtime_error("scene actors must be an array");
         SceneLoadPlan candidate;
@@ -385,6 +402,7 @@ bool SceneSerializer::InstantiateLoadPlan(Scene& scene, const SceneLoadPlan& pla
                 if (!c.is_object()) continue;
                 ComponentCreateDesc component;
                 component.type = c.value("type", std::string{}); component.enabled = c.value("enabled", true);
+                component.version = c.value("version", uint32_t{0});
                 component.data = c.contains("data") ? c["data"] : Json::object();
                 if (!component.type.empty()) desc.components.push_back(std::move(component));
             }

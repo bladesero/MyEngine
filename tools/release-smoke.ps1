@@ -1,6 +1,12 @@
 param(
     [string]$Project = (Resolve-Path (Join-Path $PSScriptRoot "..")),
-    [switch]$Vulkan
+    [switch]$Vulkan,
+    [ValidateRange(1, 86400)]
+    [int]$SoakSeconds = 5,
+    [ValidateRange(1, 100)]
+    [int]$ReloadIterations = 3,
+    [ValidateRange(16, 4096)]
+    [int]$MaxWorkingSetGrowthMB = 256
 )
 
 $ErrorActionPreference = "Stop"
@@ -64,18 +70,57 @@ function Assert-PlayerFailure([string]$Package, [string]$Label, [switch]$AllowLo
     Write-Output "PASS expected failure: $Label (exit $($process.ExitCode))"
 }
 
-function Assert-PlayerRuns([string]$Package, [string]$Backend, [string]$Scene = "") {
-    $arguments = @("--backend", $Backend)
+function Assert-PlayerRuns([string]$Package, [string]$Backend, [string]$Scene = "",
+                           [int]$Duration = 3, [bool]$Conformance = $false) {
+    $arguments = @("--backend", $Backend, "--auto-quit-seconds", $Duration)
+    if ($Conformance) { $arguments += "--rhi-conformance" }
     if ($Scene) { $arguments += @("--scene", $Scene) }
     $process = Start-PlayerProcess $Package $arguments
-    Start-Sleep -Seconds 3
-    if ($process.HasExited) {
-        throw "Published Player exited early for $Backend with code $($process.ExitCode)"
+    $samples = @()
+    while (-not $process.HasExited) {
+        $process.Refresh()
+        $samples += $process.WorkingSet64
+        if (-not $process.WaitForExit(1000) -and $samples.Count -gt ($Duration + 10)) {
+            Stop-Process -Id $process.Id -Force
+            throw "Published Player did not exit after the configured soak for $Backend"
+        }
     }
-    Stop-Process -Id $process.Id -Force
-    $process.WaitForExit()
+    if ($process.ExitCode -ne 0) { throw "Published Player failed for $Backend with code $($process.ExitCode)" }
+    if ($samples.Count -gt 1) {
+        $growth = (($samples[-1] - $samples[0]) / 1MB)
+        if ($growth -gt $MaxWorkingSetGrowthMB) {
+            throw "Published Player working set grew by $([math]::Round($growth, 1)) MB for $Backend"
+        }
+    }
     $suffix = if ($Scene) { " with CLI scene override" } else { "" }
     Write-Output "PASS published Player $Backend$suffix"
+}
+
+function Assert-DeviceLossDiagnostic([string]$Package, [string]$Backend) {
+    $logs = Join-Path $Package "logs"
+    if (Test-Path -LiteralPath $logs) { Remove-Item -LiteralPath $logs -Recurse -Force }
+    $arguments = @("--backend", $Backend, "--rhi-conformance",
+                   "--rhi-test-inject-device-loss", "--auto-quit-seconds", "10")
+    $process = Start-PlayerProcess $Package $arguments
+    if (-not $process.WaitForExit(20000)) {
+        Stop-Process -Id $process.Id -Force
+        throw "Player did not exit after injected device loss for $Backend"
+    }
+    if ($process.ExitCode -ne 3) {
+        throw "Injected device loss returned $($process.ExitCode), expected 3 for $Backend"
+    }
+    $report = Get-ChildItem -LiteralPath $logs -Filter "crash-*.log" |
+        Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    if (-not $report) { throw "Injected device loss did not create a report for $Backend" }
+    $content = Get-Content -Raw -LiteralPath $report.FullName
+    $required = @("build_id=", "git_commit=", "reason=diagnostic: RHI device lost backend=$Backend",
+                  "reason=removed", "nativeCode=-1", "generation=1")
+    foreach ($needle in $required) {
+        if (-not $content.Contains($needle)) {
+            throw "Device-loss report for $Backend is missing '$needle'"
+        }
+    }
+    Write-Output "PASS injected device-loss diagnostic $Backend (exit 3)"
 }
 
 try {
@@ -97,6 +142,10 @@ try {
     $configureArgs = @("f", "-m", "release", ("--vulkan=" + ($(if ($Vulkan) { "y" } else { "n" }))))
     & $xmake.Source @configureArgs
     if ($LASTEXITCODE -ne 0) { throw "xmake release configure failed." }
+    # Build the runtime-linked icon generator first.  A stale tool can otherwise
+    # be launched by a dependent target after runtime.dll has changed ABI.
+    & $xmake.Source build MyEngineIconTool
+    if ($LASTEXITCODE -ne 0) { throw "release IconTool build failed." }
     & $xmake.Source build MyEnginePlayer
     if ($LASTEXITCODE -ne 0) { throw "release Player build failed." }
     & $xmake.Source build MyEngineCooker
@@ -117,7 +166,7 @@ try {
     $runtimeFiles = @($runtimeManifest.files | ForEach-Object { $_.file })
     $allowed = @(
         "Content.pak", "CookManifest.json", "RuntimeDependencies.json",
-        "MyEngine.project.json"
+        "MyEngine.project.json", "SBOM.spdx.json", "ThirdPartyNotices.json"
     ) + $runtimeFiles
     $actual = @(Get-ChildItem -LiteralPath $package -Force | ForEach-Object Name)
     $unexpected = @($actual | Where-Object { $_ -notin $allowed })
@@ -130,6 +179,12 @@ try {
     }
     $cookManifest = Get-Content -Raw (Join-Path $package "CookManifest.json") |
         ConvertFrom-Json
+    $sbom = Get-Content -Raw (Join-Path $package "SBOM.spdx.json") | ConvertFrom-Json
+    $notices = Get-Content -Raw (Join-Path $package "ThirdPartyNotices.json") | ConvertFrom-Json
+    if ($sbom.spdxVersion -ne "SPDX-2.3" -or @($sbom.packages).Count -lt 8 -or
+        @($notices.packages).Count -ne @($sbom.packages).Count) {
+        throw "package SBOM or third-party license inventory is incomplete"
+    }
     $expectedBackends = if ($Vulkan) { "d3d11,d3d12,vulkan" } else { "d3d11,d3d12" }
     if ($cookManifest.version -ne 2 -or $cookManifest.hashAlgorithm -ne "sha256" -or
         (@($cookManifest.requiredBackends) -join ",") -ne $expectedBackends) {
@@ -151,8 +206,15 @@ try {
     }
 
     Write-Output "==> Launch D3D11 and D3D12"
-    Assert-PlayerRuns $package "d3d11" "Content/Scenes/Main.scene.json"
-    Assert-PlayerRuns $package "d3d12"
+    Assert-PlayerRuns $package "d3d11" "Content/Scenes/Main.scene.json" $SoakSeconds $true
+    Assert-PlayerRuns $package "d3d12" "" $SoakSeconds $true
+    Write-Output "==> Validate device-loss diagnostic and clean exit"
+    Assert-DeviceLossDiagnostic $package "d3d11"
+    Assert-DeviceLossDiagnostic $package "d3d12"
+    Write-Output "==> Repeat scene load/unload process gate ($ReloadIterations iterations)"
+    for ($iteration = 0; $iteration -lt $ReloadIterations; ++$iteration) {
+        Assert-PlayerRuns $package "d3d11" "Content/Scenes/Main.scene.json" 1
+    }
     if ($Vulkan) {
         Write-Output "==> Launch Vulkan"
         Assert-PlayerRuns $package "vulkan"

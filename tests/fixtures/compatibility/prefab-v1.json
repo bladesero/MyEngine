@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "uuid": "compatibility-prefab-v1",
+  "rootLocalId": "root",
+  "nodes": [
+    {
+      "localId": "root",
+      "parentLocalId": "",
+      "name": "CompatibilityRoot",
+      "active": true,
+      "transform": {
+        "position": [0, 0, 0],
+        "rotation": [0, 0, 0],
+        "scale": [1, 1, 1]
+      },
+      "components": []
+    }
+  ]
+}

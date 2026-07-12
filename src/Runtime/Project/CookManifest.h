@@ -2,6 +2,8 @@
 
 #include "Project/ContentArchive.h"
 #include "Project/PublishTargets.h"
+#include "Project/FormatVersions.h"
+#include "Core/BuildInfo.h"
 
 #include <cstdint>
 #include <filesystem>
@@ -9,7 +11,7 @@
 #include <vector>
 
 struct CookManifest {
-    static constexpr int kCurrentVersion = 2;
+    static constexpr int kCurrentVersion = FormatVersions::CookManifest;
     static constexpr const char* kFileName = "CookManifest.json";
 
     int version = kCurrentVersion;
@@ -17,6 +19,9 @@ struct CookManifest {
     std::string projectId;
     std::string engineVersion;
     std::string buildId;
+    std::string gitCommit = std::string(BuildInfo::GitCommit);
+    std::string compiler = std::string(BuildInfo::Compiler);
+    std::string shaderToolVersion = std::string(BuildInfo::ShaderTool);
     int contentSchemaVersion = 0;
     int archiveFormatVersion = 0;
     std::string hashAlgorithm = "sha256";

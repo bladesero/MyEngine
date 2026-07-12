@@ -3,6 +3,7 @@
 #include "Scene/Actor.h"
 #include "Physics/PhysicsWorld.h"
 #include "Navigation/NavigationWorld.h"
+#include "Scene/WorldFrameScheduler.h"
 
 #include <nlohmann/json.hpp>
 #include <functional>
@@ -15,6 +16,7 @@ struct ComponentCreateDesc {
     ComponentTypeID type;
     bool enabled = true;
     nlohmann::json data = nlohmann::json::object();
+    uint32_t version = 0;
 };
 
 struct ActorCreateDesc {
@@ -30,6 +32,7 @@ struct ActorCreateDesc {
     std::string prefabAssetPath;
     std::string prefabAssetUuid;
     std::string prefabLocalId;
+    std::string nestedPrefabInstanceLocalId;
     ActorHandle prefabInstanceRoot;
     bool prefabRoot = false;
     nlohmann::json prefabOverrides = nlohmann::json::array();
@@ -96,6 +99,8 @@ public:
     bool IsTraversing() const { return m_Traversing; }
     void SetTimeScale(float value) { m_TimeScale = value < 0.0f ? 0.0f : value; }
     float GetTimeScale() const { return m_TimeScale; }
+    WorldFrameScheduler& GetFrameScheduler() { return m_FrameScheduler; }
+    const WorldFrameScheduler& GetFrameScheduler() const { return m_FrameScheduler; }
 
     PhysicsWorld& GetPhysicsWorld() { return m_PhysicsWorld; }
     const PhysicsWorld& GetPhysicsWorld() const { return m_PhysicsWorld; }
@@ -144,6 +149,7 @@ private:
     std::vector<Command> m_Commands;
     PhysicsWorld m_PhysicsWorld;
     NavigationWorld m_NavigationWorld;
+    WorldFrameScheduler m_FrameScheduler;
     std::string m_NavMeshAssetPath;
     std::vector<std::string> m_PreloadAssets;
     SceneState m_State = SceneState::Edit;

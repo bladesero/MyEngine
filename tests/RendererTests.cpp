@@ -151,6 +151,9 @@ public:
     RHIBackend GetBackend() const override { return backend; }
     void BeginFrame(float, float, float, float) override { ++beginFrames; }
     void EndFrame() override { ++endFrames; }
+    bool IsDeviceLost() const override { return deviceLoss.reason != RHIDeviceLossReason::None; }
+    const std::string& GetLastDeviceError() const override { return deviceLoss.diagnostic; }
+    RHIDeviceLossInfo GetDeviceLossInfo() const override { return deviceLoss; }
     GpuCommandList* GetGraphicsCommandList() override { return &commands; }
     GpuTextureView* GetCurrentBackBufferView() override { return backBufferView.get(); }
     std::shared_ptr<GpuBuffer> CreateVertexBuffer(
@@ -287,6 +290,7 @@ public:
     std::shared_ptr<MockReadbackTicket> lastReadback;
     std::shared_ptr<MockTexture> backBufferTexture;
     std::shared_ptr<MockTextureView> backBufferView;
+    RHIDeviceLossInfo deviceLoss;
 };
 
 std::shared_ptr<TextureAsset> CreateCompressedTextureForUploadTest(const std::string& path)
@@ -384,6 +388,23 @@ bool TestExtendedRHIContracts() {
                  timestamps->ReadResults(0, 1, ticks) && ticks.size() == 1 &&
                  caps.maxColorAttachments == 8 && caps.indirectDraw && caps.timestampQueries,
                  "extended RHI transfer/query/indirect contracts were not preserved");
+}
+
+bool TestStableRHIDeviceLossContract() {
+    MockRenderContext context;
+    if (!Check(!context.IsDeviceLost() &&
+               context.GetDeviceLossInfo().reason == RHIDeviceLossReason::None,
+               "healthy RHI context reported device loss")) return false;
+    context.deviceLoss = {RHIDeviceLossReason::Hung, -2005270522, 7,
+                          "present detected a hung device"};
+    const RHIDeviceLossInfo info = context.GetDeviceLossInfo();
+    return Check(context.IsDeviceLost() && info.reason == RHIDeviceLossReason::Hung &&
+                 std::string(RHIDeviceLossReasonName(info.reason)) == "hung" &&
+                 info.nativeCode == -2005270522 && info.deviceGeneration == 7 &&
+                 info.diagnostic == context.GetLastDeviceError() &&
+                 std::string(RHIDeviceLossReasonName(RHIDeviceLossReason::DriverInternalError)) ==
+                     "driver_internal_error",
+                 "stable RHI device-loss reason, generation, or diagnostic was lost");
 }
 
 bool TestRenderGraphValidationAndExecution() {
@@ -1535,6 +1556,7 @@ bool TestRendererGraphHasNoEmptyCompatibilityPasses() {
 }
 
 MYENGINE_REGISTER_TEST("Renderer", "TestExtendedRHIContracts", TestExtendedRHIContracts);
+MYENGINE_REGISTER_TEST("Renderer", "TestStableRHIDeviceLossContract", TestStableRHIDeviceLossContract);
 MYENGINE_REGISTER_TEST("Renderer", "TestMaterialResourceCacheUploadsBc3WhenSupported", TestMaterialResourceCacheUploadsBc3WhenSupported);
 MYENGINE_REGISTER_TEST("Renderer", "TestMaterialResourceCacheFallsBackToRgbaWhenBc1Unsupported", TestMaterialResourceCacheFallsBackToRgbaWhenBc1Unsupported);
 MYENGINE_REGISTER_TEST("Renderer", "TestRenderGraphValidationAndExecution", TestRenderGraphValidationAndExecution);

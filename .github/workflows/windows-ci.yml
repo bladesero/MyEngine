@@ -1,0 +1,94 @@
+name: Windows CI
+
+env:
+  MYENGINE_GIT_COMMIT: ${{ github.sha }}
+
+on:
+  push:
+    branches: [main, master, "codex/**"]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      soak_seconds:
+        description: GPU release-smoke soak duration
+        required: false
+        default: "60"
+
+concurrency:
+  group: windows-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  debug-smoke:
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Set up xmake
+        uses: xmake-io/github-action-setup-xmake@v1
+        with:
+          xmake-version: "3.0.8"
+      - name: Cache xmake packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.xmake/packages
+            ~/.xmake/cache
+          key: windows-xmake-${{ hashFiles('xmake.lua', 'xmake/**/*.lua') }}
+      - name: Run debug smoke gate
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File tools\smoke.ps1
+
+  release-build:
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Set up xmake
+        uses: xmake-io/github-action-setup-xmake@v1
+        with:
+          xmake-version: "3.0.8"
+      - name: Configure release
+        run: xmake f -m release --vulkan=n
+      - name: Build release deliverables
+        shell: powershell
+        run: |
+          xmake build MyEngineIconTool
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          xmake build MyEngineEditor
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          xmake build MyEnginePlayer
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          xmake build MyEngineCooker
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          xmake build MyEngineTests
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Archive release symbols and provenance
+        uses: actions/upload-artifact@v4
+        with:
+          name: myengine-symbols-${{ github.sha }}-${{ github.run_id }}
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            build/windows/x64/release/*.pdb
+            build/windows/x64/release/*.map
+
+  gpu-release-smoke:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: [self-hosted, Windows, X64, myengine-gpu]
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Run signed-package-compatible dual-backend release gate
+        shell: powershell
+        run: >-
+          powershell -NoProfile -ExecutionPolicy Bypass
+          -File tools\release-smoke.ps1
+          -SoakSeconds ${{ inputs.soak_seconds }}
+          -ReloadIterations 10

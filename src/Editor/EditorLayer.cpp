@@ -26,6 +26,7 @@
 #include "Renderer/ShaderManager.h"
 #include "Scene/Actor.h"
 #include "Scene/Scene.h"
+#include "Scene/SceneSerializer.h"
 
 #include <SDL3/SDL.h>
 
@@ -274,6 +275,17 @@ bool EditorLayer::OpenProject(const std::filesystem::path& root) {
     RegisterPanels();
     m_LayoutManager.OpenProject(m_Project.GetRoot(), m_Project.GetState(), m_Panels);
     m_ProjectOpen = true;
+    std::string recoveryError;
+    if (!m_RecoveryService.OpenProject(m_Project.GetRoot(), &recoveryError)) {
+        Logger::Warn("[EditorRecovery] ", recoveryError);
+    } else {
+        m_RecoverableSnapshots = m_RecoveryService.ListSnapshots(&recoveryError);
+        m_RecoveryDialogRequested = !m_RecoveryService.PreviousShutdownWasClean() &&
+                                    !m_RecoverableSnapshots.empty();
+        for (const auto& snapshot : m_RecoverableSnapshots)
+            m_LastRecoveryRevision = std::max(m_LastRecoveryRevision, snapshot.revision);
+        if (!recoveryError.empty()) Logger::Warn("[EditorRecovery] ", recoveryError);
+    }
     m_ProjectError.clear();
     if (!m_Project.GetLastWarning().empty()) {
         Logger::Warn("[Editor] ", m_Project.GetLastWarning());
@@ -804,6 +816,9 @@ void EditorLayer::OnDetach() {
             m_Project.SetLastScenePath(m_SceneLayer->GetSceneFilePath());
         m_Project.SaveState();
         m_LayoutManager.CloseProject();
+        std::string recoveryError;
+        if (!m_RecoveryService.MarkCleanShutdown(&recoveryError))
+            Logger::Warn("[EditorRecovery] ", recoveryError);
     }
     m_Panels.clear();
     m_Context.SetEditorScriptDomain(nullptr);
@@ -836,12 +851,50 @@ void EditorLayer::OnUpdate(float deltaSeconds) {
     ProcessDialogResults();
     if (m_AutomationPending) RunAutomation();
     if (m_ProjectOpen) {
+        UpdateRecovery(deltaSeconds);
         m_Context.RefreshSceneViewMode();
         if (Scene* scene = m_Context.GetInspectorScene()) {
             const auto world = m_Context.GetSelection().GetPrimaryObject().GetWorldKind();
             m_Context.GetSelection().Validate(*scene, world);
         }
     }
+}
+
+void EditorLayer::UpdateRecovery(float deltaSeconds)
+{
+    if (!m_SceneLayer || !m_SceneLayer->IsEditing() || !m_SceneLayer->IsDirty()) {
+        m_RecoveryElapsedSeconds = 0.0f;
+        return;
+    }
+    m_RecoveryElapsedSeconds += std::max(0.0f, deltaSeconds);
+    if (m_RecoveryElapsedSeconds < 30.0f) return;
+    m_RecoveryElapsedSeconds = 0.0f;
+    const std::string serialized = SceneSerializer::SaveToString(m_SceneLayer->GetEditorScene());
+    if (serialized == m_LastRecoveryScene) return;
+    const std::string scenePath = m_SceneLayer->HasFilePath()
+        ? m_SceneLayer->GetSceneFilePath() : std::string{};
+    std::string error;
+    const uint64_t revision = m_LastRecoveryRevision + 1;
+    if (m_RecoveryService.WriteSnapshot(scenePath.empty() ? "__unsaved__" : scenePath,
+                                        revision, serialized, &error)) {
+        m_LastRecoveryRevision = revision;
+        m_LastRecoveryScenePath = scenePath.empty() ? "__unsaved__" : scenePath;
+        m_LastRecoveryScene = serialized;
+    } else {
+        Logger::Warn("[EditorRecovery] Snapshot failed: ", error);
+    }
+}
+
+void EditorLayer::OnSceneSaveSucceeded()
+{
+    if (m_LastRecoveryRevision == 0 || m_LastRecoveryScenePath.empty()) return;
+    std::string error;
+    if (!m_RecoveryService.RemoveMatchingRevision(m_LastRecoveryScenePath,
+                                                  m_LastRecoveryRevision, &error))
+        Logger::Warn("[EditorRecovery] Failed to remove saved revision: ", error);
+    m_LastRecoveryScenePath.clear();
+    m_LastRecoveryScene.clear();
+    m_LastRecoveryRevision = 0;
 }
 
 void EditorLayer::DrawProjectSelector() {
@@ -1158,6 +1211,55 @@ void EditorLayer::DrawProjectResult() {
 #endif
 }
 
+void EditorLayer::DrawRecoveryDialog()
+{
+#if defined(MYENGINE_ENABLE_IMGUI)
+    if (m_RecoveryDialogRequested) {
+        ImGui::OpenPopup("Recover Scene");
+        m_RecoveryDialogRequested = false;
+    }
+    Editor::UI::EditorViewportPolicy::BindNextModalToMainViewport();
+    if (!ImGui::BeginPopupModal("Recover Scene", nullptr,
+                                ImGuiWindowFlags_AlwaysAutoResize)) return;
+    ImGui::TextWrapped("The previous editor session did not shut down cleanly. "
+                       "A recoverable scene snapshot is available.");
+    const EditorRecoverySnapshot* latest = m_RecoverableSnapshots.empty()
+        ? nullptr : &m_RecoverableSnapshots.front();
+    if (latest) {
+        ImGui::Separator();
+        ImGui::Text("Scene: %s", latest->scenePath.c_str());
+        ImGui::Text("Revision: %llu", static_cast<unsigned long long>(latest->revision));
+    }
+    if (latest && ImGui::Button("Restore Latest")) {
+        std::string serialized, error;
+        const std::string originalPath = latest->scenePath == "__unsaved__"
+            ? std::string{} : latest->scenePath;
+        if (m_RecoveryService.ReadSnapshot(*latest, serialized, &error) &&
+            m_SceneLayer && m_SceneLayer->RestoreEditorSnapshot(serialized, originalPath)) {
+            m_CommandStack.Clear();
+            m_Context.GetSelection().Clear();
+            m_LastRecoveryScenePath = latest->scenePath;
+            m_LastRecoveryRevision = latest->revision;
+            m_LastRecoveryScene = serialized;
+            ImGui::CloseCurrentPopup();
+        } else {
+            Logger::Error("[EditorRecovery] Restore failed: ", error);
+        }
+    }
+    if (latest) ImGui::SameLine();
+    if (ImGui::Button("Discard")) {
+        for (const auto& snapshot : m_RecoverableSnapshots) {
+            std::string error;
+            if (!m_RecoveryService.RemoveSnapshot(snapshot.id, &error))
+                Logger::Warn("[EditorRecovery] ", error);
+        }
+        m_RecoverableSnapshots.clear();
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+#endif
+}
+
 void EditorLayer::DrawScriptMenuItems(const char* topLevel)
 {
 #if defined(MYENGINE_ENABLE_IMGUI)
@@ -1390,6 +1492,7 @@ void EditorLayer::OnRender() {
         for (auto& panel : m_Panels) panel->OnImGui();
         DrawProjectSettings();
         DrawProjectResult();
+        DrawRecoveryDialog();
     } else {
         DrawProjectSelector();
     }
@@ -1424,7 +1527,10 @@ void EditorLayer::ProcessDialogResults() {
     } else if (result.operation == EditorFileOperation::SaveScene) {
         if (!m_SceneLayer->SaveSceneAs(result.path))
             Logger::Error("[Editor] Failed to save scene: ", result.path);
-        else m_Project.SetLastScenePath(result.path);
+        else {
+            m_Project.SetLastScenePath(result.path);
+            OnSceneSaveSucceeded();
+        }
     } else if (result.operation == EditorFileOperation::ImportAsset) {
         m_ImportService.Import(result.path);
     }
@@ -1444,7 +1550,9 @@ void EditorLayer::OpenSceneDialog() {
 
 void EditorLayer::SaveScene() {
     if (!m_SceneLayer) return;
-    if (m_SceneLayer->HasFilePath()) m_SceneLayer->SaveScene();
+    if (m_SceneLayer->HasFilePath()) {
+        if (m_SceneLayer->SaveScene()) OnSceneSaveSucceeded();
+    }
     else m_DialogService.RequestSaveScene(m_Window);
 }
 

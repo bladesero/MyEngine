@@ -3,7 +3,6 @@
 #include <functional>
 #include <memory>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 class Actor;
@@ -24,5 +23,4 @@ public:
 private:
     ComponentRegistry();
 
-    std::unordered_map<std::string, Factory> m_Factories;
 };

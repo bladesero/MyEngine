@@ -1515,7 +1515,9 @@ bool VulkanContext::Init(IWindow* window) {
 
     VkPhysicalDeviceProperties properties{};
     vkGetPhysicalDeviceProperties(m_Impl->physicalDevice, &properties);
-    Logger::Info("[Vulkan] Initialized - GPU: ", properties.deviceName);
+    ++m_DeviceGeneration;
+    Logger::Info("[Vulkan] Initialized - GPU: ", properties.deviceName,
+                 " generation=", m_DeviceGeneration);
     return true;
 }
 

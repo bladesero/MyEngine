@@ -1,6 +1,8 @@
 #include "Project/RuntimeDependencies.h"
 #include "Core/Sha256.h"
+#include "Core/TransactionalFileWriter.h"
 #include "Project/CookManifest.h"
+#include "Project/JsonMigrationRegistry.h"
 
 #include <algorithm>
 #include <cctype>
@@ -34,9 +36,9 @@ std::string HostArchitecture()
 }
 }
 bool RuntimeDependencyManifest::Save(const fs::path& path,std::string* error)const{
-    try{nlohmann::json list=nlohmann::json::array();for(const auto&f:files)list.push_back({{"file",f.file},{"architecture",f.architecture},{"size",f.size},{"hash",f.hash}});std::ofstream out(path);out<<nlohmann::json{{"version",kVersion},{"files",list}}.dump(2)<<'\n';if(!out){Err(error,"failed to write runtime dependency manifest");return false;}return true;}catch(const std::exception&e){Err(error,e.what());return false;}}
+    try{nlohmann::json list=nlohmann::json::array();for(const auto&f:files)list.push_back({{"file",f.file},{"architecture",f.architecture},{"size",f.size},{"hash",f.hash}});TransactionalWriteOptions options;options.validator=[](const fs::path& candidate,std::string* validationError){RuntimeDependencyManifest ignored;return RuntimeDependencyManifest::Load(candidate,ignored,validationError);};return TransactionalFileWriter::WriteText(path,nlohmann::json{{"version",kVersion},{"files",list}}.dump(2)+"\n",options,error);}catch(const std::exception&e){Err(error,e.what());return false;}}
 bool RuntimeDependencyManifest::Load(const fs::path& path,RuntimeDependencyManifest& result,std::string* error){
-    try{std::ifstream in(path);if(!in){Err(error,"RuntimeDependencies.json is missing");return false;}nlohmann::json j;in>>j;if(j.value("version",0)!=kVersion||!j.contains("files")||!j["files"].is_array()){Err(error,"invalid runtime dependency manifest");return false;}RuntimeDependencyManifest m;std::unordered_set<std::string> names;Sha256::Digest d{};for(const auto&i:j["files"]){RuntimeDependencyEntry f{i.value("file",std::string{}),i.value("architecture",std::string{}),i.value("size",uint64_t{}),i.value("hash",std::string{})};if(f.file.empty()||fs::path(f.file).filename()!=fs::path(f.file)||!ValidArchitecture(f.architecture)||!Sha256::FromHex(f.hash,d)||!names.insert(Lower(f.file)).second){Err(error,"invalid runtime dependency entry");return false;}m.files.push_back(std::move(f));}result=std::move(m);return true;}catch(const std::exception&e){Err(error,e.what());return false;}}
+    try{std::ifstream in(path);if(!in){Err(error,"RuntimeDependencies.json is missing");return false;}nlohmann::json j;in>>j;JsonMigrationRegistry migrations("runtime dependency manifest",kVersion);if(!migrations.Migrate(j,error))return false;if(!j.contains("files")||!j["files"].is_array()){Err(error,"invalid runtime dependency manifest");return false;}RuntimeDependencyManifest m;std::unordered_set<std::string> names;Sha256::Digest d{};for(const auto&i:j["files"]){RuntimeDependencyEntry f{i.value("file",std::string{}),i.value("architecture",std::string{}),i.value("size",uint64_t{}),i.value("hash",std::string{})};if(f.file.empty()||fs::path(f.file).filename()!=fs::path(f.file)||!ValidArchitecture(f.architecture)||!Sha256::FromHex(f.hash,d)||!names.insert(Lower(f.file)).second){Err(error,"invalid runtime dependency entry");return false;}m.files.push_back(std::move(f));}result=std::move(m);return true;}catch(const std::exception&e){Err(error,e.what());return false;}}
 bool RuntimeDependencyManifest::ValidateFiles(const fs::path& root,std::string* error)const{for(const auto&f:files){std::error_code ec;const fs::path p=root/f.file;if(!fs::is_regular_file(p,ec)||ec||fs::file_size(p,ec)!=f.size){Err(error,"runtime dependency missing or wrong size: "+f.file);return false;}std::string he;if(Sha256::HashFile(p,&he)!=f.hash||!he.empty()){Err(error,"runtime dependency hash mismatch: "+f.file);return false;}}return true;}
 bool RuntimeDependencyManifest::ValidatePackage(const fs::path& packageRoot,std::string* error){
     if(error)error->clear();

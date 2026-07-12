@@ -50,6 +50,11 @@ public:
     // 另存为指定路径
     bool SaveSceneAs(const std::string& filepath);
 
+    // Atomically replaces the editor scene from a recovery snapshot. The
+    // recovered scene remains dirty so the user must explicitly save it.
+    bool RestoreEditorSnapshot(const std::string& serializedScene,
+                               const std::string& originalFilepath);
+
     // ---- 访问 ----------------------------------------------------------
     Scene&       GetScene()       { return GetSimulationScene(); }
     const Scene& GetScene() const { return GetSimulationScene(); }

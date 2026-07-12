@@ -4,6 +4,7 @@
 #include "Core/Memory/MemoryService.h"
 #include "Physics/ColliderComponent.h"
 #include "Scene/ComponentRegistry.h"
+#include "Scene/TypeRegistry.h"
 
 #include <algorithm>
 
@@ -183,6 +184,7 @@ bool Scene::FlushCommands()
         raw->m_PrefabAssetPath = pending.desc.prefabAssetPath;
         raw->m_PrefabAssetUuid = pending.desc.prefabAssetUuid;
         raw->m_PrefabLocalId = pending.desc.prefabLocalId;
+        raw->m_NestedPrefabInstanceLocalId = pending.desc.nestedPrefabInstanceLocalId;
         raw->m_PrefabInstanceRoot = pending.desc.prefabInstanceRoot;
         raw->m_PrefabOverrides = pending.desc.prefabOverrides;
         slot.actor = raw; slot.reserved = false;
@@ -200,8 +202,13 @@ bool Scene::FlushCommands()
             std::unique_ptr<Component> component = ComponentRegistry::Get().CreateDetached(componentDesc.type);
             if (!component) { Logger::Warn("[Scene] unregistered component '", componentDesc.type, "'"); continue; }
             component->SetEnabled(componentDesc.enabled);
-            try { component->Deserialize(componentDesc.data); }
-            catch (const std::exception& e) { Logger::Error("[Scene] component deserialize failed: ", e.what()); continue; }
+            std::string deserializeError;
+            if (!TypeRegistry::Get().Deserialize(*component, componentDesc.type,
+                    componentDesc.version, componentDesc.data, &deserializeError)) {
+                Logger::Error("[Scene] component deserialize failed actor=", actor->GetName(),
+                              " type=", componentDesc.type, " path=/properties: ",
+                              deserializeError); continue;
+            }
             const std::type_index componentType(typeid(*component));
             actor->AddComponentObject(componentType, std::move(component), false);
         }
@@ -251,7 +258,9 @@ bool Scene::FlushCommands()
         case CommandKind::AddComponent: if (actor && !actor->HasComponentType(command.componentType)) {
             auto component = ComponentRegistry::Get().CreateDetached(command.componentType);
             if (component) {
-                component->Deserialize(command.data);
+                std::string deserializeError;
+                if (!TypeRegistry::Get().Deserialize(*component, command.componentType, 0,
+                                                      command.data, &deserializeError)) break;
                 const std::type_index componentType(typeid(*component));
                 actor->AddComponentObject(componentType, std::move(component), true);
             }
@@ -434,10 +443,5 @@ void Scene::OnUpdate(float deltaSeconds)
     // Headless/runtime users may drive Scene directly without a SceneLayer.
     if (m_State == SceneState::Edit) BeginPlay();
     if (!IsPlaying()) return;
-    deltaSeconds *= m_TimeScale;
-    m_NavigationWorld.Update(deltaSeconds);
-    FlushCommands();
-    m_Traversing = true; m_PhysicsWorld.Step(*this, deltaSeconds); m_Traversing = false; FlushCommands();
-    m_Traversing = true; for (Actor* actor : OrderedActors()) actor->Update(deltaSeconds); m_Traversing = false; FlushCommands();
-    m_Traversing = true; for (Actor* actor : OrderedActors()) actor->LateUpdate(deltaSeconds); m_Traversing = false; FlushCommands();
+    m_FrameScheduler.Tick(*this, deltaSeconds);
 }

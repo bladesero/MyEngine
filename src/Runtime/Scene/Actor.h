@@ -66,6 +66,7 @@ public:
     const std::string& GetPrefabAssetPath() const { return m_PrefabAssetPath; }
     const std::string& GetPrefabAssetUuid() const { return m_PrefabAssetUuid; }
     const std::string& GetPrefabLocalId() const { return m_PrefabLocalId; }
+    const std::string& GetNestedPrefabInstanceLocalId() const { return m_NestedPrefabInstanceLocalId; }
     ActorHandle GetPrefabInstanceRoot() const { return m_PrefabInstanceRoot; }
     const nlohmann::json& GetPrefabOverrides() const { return m_PrefabOverrides; }
     Scene* GetScene() const { return m_Scene; }
@@ -205,6 +206,7 @@ private:
     std::string m_PrefabAssetPath;
     std::string m_PrefabAssetUuid;
     std::string m_PrefabLocalId;
+    std::string m_NestedPrefabInstanceLocalId;
     ActorHandle m_PrefabInstanceRoot;
     nlohmann::json m_PrefabOverrides = nlohmann::json::array();
 

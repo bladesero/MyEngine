@@ -134,6 +134,7 @@ public:
     void EndFrame() override;
     bool IsDeviceLost() const override { return m_DeviceLost; }
     const std::string& GetLastDeviceError() const override { return m_LastDeviceError; }
+    RHIDeviceLossInfo GetDeviceLossInfo() const override { return m_DeviceLossInfo; }
     GpuSwapChain* GetSwapChain() override;
     GpuCommandList* GetGraphicsCommandList() override;
     GpuQueue* GetGraphicsQueue() override { return m_GraphicsQueue.get(); }
@@ -351,6 +352,8 @@ private:
     uint32_t m_SwapChainWidth = 0;
     uint32_t m_SwapChainHeight = 0;
     std::string m_LastDeviceError;
+    RHIDeviceLossInfo m_DeviceLossInfo;
+    uint64_t m_DeviceGeneration = 0;
 
     std::shared_ptr<D3D12DeferredReleaseQueue> m_DeferredReleaseQueue;
     std::shared_ptr<D3D12DescriptorPool> m_SrvDescriptorPool;

@@ -231,10 +231,6 @@ AssetImportReport AssetImportService::ImportSourceInternal(
     } else {
         meta = AssetMeta::Create(source.string());
         meta.importerVersion = importer->GetVersion();
-        if (writeMeta && !AssetMeta::Save(meta)) {
-            SetError(error, "failed to save metadata");
-            return report;
-        }
     }
     const std::string cacheKey = BuildCacheKey(*importer, source, settingsJson, error);
     if (cacheKey.empty()) return report;
@@ -249,7 +245,10 @@ AssetImportReport AssetImportService::ImportSourceInternal(
         RefreshValidation();
         return report;
     }
-    ImportRequest request{source, artifact, meta.uuid, settingsJson, "windows-x64"};
+    const auto stagingArtifact = std::filesystem::path(artifact.string() + ".import-staging");
+    std::error_code fileError;
+    std::filesystem::remove(stagingArtifact, fileError);
+    ImportRequest request{source, stagingArtifact, meta.uuid, settingsJson, "windows-x64"};
     ImportResult result = importer->Import(request);
     AssetRecord record = existing ? *existing : AssetRecord{};
     record.uuid = meta.uuid;
@@ -262,19 +261,78 @@ AssetImportReport AssetImportService::ImportSourceInternal(
     record.dependencies = std::move(result.dependencies);
     record.diagnostics = std::move(result.diagnostics);
     record.type = std::move(result.type);
-    record.state = result.succeeded ? AssetImportState::Ready : AssetImportState::Failed;
-    if (result.succeeded) {
-        std::string hashError;
-        record.artifactHash = Sha256::HashFile(artifact, &hashError);
-        if (!hashError.empty()) { SetError(error, hashError); return report; }
-    } else if (existing) {
-        record.artifactPath = previous.artifactPath;
-        record.artifactHash = previous.artifactHash;
-        if (record.diagnostics.empty()) {
-            record.diagnostics.push_back({"error", "import failed; retained previous artifact"});
+    record.state = AssetImportState::Ready;
+    if (!result.succeeded || !std::filesystem::is_regular_file(stagingArtifact)) {
+        std::filesystem::remove(stagingArtifact, fileError);
+        SetError(error, "import failed; retained previous ready artifact and record");
+        report.record = existing ? previous : record;
+        return report;
+    }
+    std::string hashError;
+    record.artifactHash = Sha256::HashFile(stagingArtifact, &hashError);
+    if (!hashError.empty() || record.artifactHash.empty()) {
+        std::filesystem::remove(stagingArtifact, fileError);
+        SetError(error, hashError.empty() ? "staged artifact hash is empty" : hashError);
+        return report;
+    }
+    for (const auto& dependency : record.dependencies) {
+        const bool shaderSource = record.type == "shader" &&
+            std::filesystem::is_regular_file(dependency);
+        if (!dependency.empty() && !shaderSource && !m_Database.FindByUuid(dependency)) {
+            std::filesystem::remove(stagingArtifact, fileError);
+            SetError(error, "staged artifact has unresolved dependency: " + dependency);
+            return report;
         }
     }
-    if (!m_Database.Upsert(record, error) || !m_Database.Save(error)) return report;
+    if (m_InjectedFault == AssetImportFault::AfterArtifactValidation) {
+        std::filesystem::remove(stagingArtifact, fileError);
+        SetError(error, "injected import failure after artifact validation");
+        return report;
+    }
+
+    std::filesystem::create_directories(artifact.parent_path(), fileError);
+    const auto artifactBackup = std::filesystem::path(artifact.string() + ".import-backup");
+    std::filesystem::remove(artifactBackup, fileError);
+    const bool replacedArtifact = std::filesystem::is_regular_file(artifact);
+    if (replacedArtifact) {
+        std::filesystem::rename(artifact, artifactBackup, fileError);
+        if (fileError) { SetError(error, fileError.message()); return report; }
+    }
+    std::filesystem::rename(stagingArtifact, artifact, fileError);
+    if (fileError) {
+        if (replacedArtifact) {
+            std::error_code ignored;
+            std::filesystem::rename(artifactBackup, artifact, ignored);
+        }
+        SetError(error, "failed to promote staged artifact: " + fileError.message());
+        return report;
+    }
+    auto rollback = [&]() {
+        std::error_code ignored;
+        std::filesystem::remove(artifact, ignored);
+        if (replacedArtifact) std::filesystem::rename(artifactBackup, artifact, ignored);
+        if (existing) m_Database.Upsert(previous);
+        else m_Database.Remove(meta.uuid);
+        m_Database.Save();
+    };
+    if (m_InjectedFault == AssetImportFault::AfterArtifactPromote) {
+        rollback();
+        SetError(error, "injected import failure after artifact promote");
+        return report;
+    }
+    if (!m_Database.Upsert(record, error)) { rollback(); return report; }
+    if (m_InjectedFault == AssetImportFault::BeforeDatabaseSave || !m_Database.Save(error)) {
+        rollback();
+        if (m_InjectedFault == AssetImportFault::BeforeDatabaseSave)
+            SetError(error, "injected import failure before database save");
+        return report;
+    }
+    if (writeMeta && !AssetMeta::Save(meta)) {
+        rollback();
+        SetError(error, "failed to save metadata");
+        return report;
+    }
+    std::filesystem::remove(artifactBackup, fileError);
     RefreshValidation();
     if (result.succeeded)
         AssetManager::Get().RegisterPersistentIdentity(record.artifactPath, record.uuid);

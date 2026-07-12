@@ -135,6 +135,24 @@ bool SceneLayer::SaveSceneAs(const std::string& filepath)
     return true;
 }
 
+bool SceneLayer::RestoreEditorSnapshot(const std::string& serializedScene,
+                                       const std::string& originalFilepath)
+{
+    if (!IsEditing()) StopPlay();
+    auto recovered = std::make_unique<Scene>();
+    if (!SceneSerializer::LoadFromString(*recovered, serializedScene)) {
+        Logger::Error("[SceneLayer] Failed to deserialize recovery snapshot");
+        return false;
+    }
+    OnSceneUnloaded();
+    m_EditorScene = std::move(recovered);
+    m_EditorScene->SetSceneManager(&m_SceneManager);
+    m_SceneFilePath = originalFilepath;
+    m_Dirty = true;
+    OnSceneLoaded();
+    return true;
+}
+
 Scene& SceneLayer::GetSimulationScene()
 {
     return m_PlayScene ? *m_PlayScene : *m_EditorScene;

@@ -15,6 +15,7 @@ struct PrefabInstantiateOptions {
     uint64_t persistentRootID = 0;
     std::string expectedUuid;
     nlohmann::json overrides = nlohmann::json::array();
+    std::string nestedInstanceLocalId;
 };
 
 class PrefabSystem {

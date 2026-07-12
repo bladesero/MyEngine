@@ -1,6 +1,8 @@
 #include "Project/ProjectConfig.h"
 #include "Core/RuntimeFileSystem.h"
 #include "Core/Sha256.h"
+#include "Core/TransactionalFileWriter.h"
+#include "Project/JsonMigrationRegistry.h"
 #include "Renderer/RenderBackendRegistry.h"
 
 #include <fstream>
@@ -71,10 +73,8 @@ bool ProjectConfig::Open(fs::path projectRoot, bool allowMissing, std::string* e
         }
         nlohmann::json json;
         input >> json;
-        if (!json.is_object()) {
-            SetError(error, "project manifest root must be an object");
-            return false;
-        }
+        JsonMigrationRegistry migrations("project manifest", kCurrentVersion);
+        if (!migrations.Migrate(json, error)) return false;
         m_Version = json.value("version", 0);
         m_Name = json.value("name", std::string{});
         m_StartupScene = json.value("startupScene", std::string{});
@@ -196,12 +196,9 @@ bool ProjectConfig::Save(std::string* error)
             {"backend", m_GraphicsSettings.backend},
             {"renderPath", m_GraphicsSettings.renderPath},
         };
-        std::ofstream output(m_ManifestPath);
-        if (!output) {
-            SetError(error, "failed to write project manifest: " + m_ManifestPath.string());
-            return false;
-        }
-        output << json.dump(2) << '\n';
+        TransactionalWriteOptions options;
+        options.validator=[](const fs::path& candidate,std::string* validationError){try{std::ifstream input(candidate);nlohmann::json value;input>>value;if(!value.is_object()||value.value("version",0)!=kCurrentVersion||value.value("name",std::string{}).empty()){SetError(validationError,"project manifest validation failed");return false;}return true;}catch(const std::exception& e){SetError(validationError,e.what());return false;}};
+        if(!TransactionalFileWriter::WriteText(m_ManifestPath,json.dump(2)+"\n",options,error))return false;
     }
     catch (const std::exception& exception) {
         SetError(error, "failed to save project manifest: " + std::string(exception.what()));

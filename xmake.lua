@@ -7,6 +7,15 @@ add_repositories("myengine-packages .", {rootdir = os.scriptdir()})
 add_rules("mode.debug", "mode.release")
 set_languages("c++17")
 set_warnings("all")
+if is_mode("release") then
+    -- Keep optimized binaries while emitting PDBs for build-id-addressed crash
+    -- symbolication. Published packages exclude these files; CI archives them.
+    set_symbols("debug")
+    set_strip("none")
+end
+
+local myengine_git_commit = os.getenv("MYENGINE_GIT_COMMIT") or "unknown"
+add_defines("MYENGINE_GIT_COMMIT=" .. myengine_git_commit)
 
 includes("xmake/options.lua")
 includes("xmake/packages.lua")
@@ -42,6 +51,7 @@ local editor_sources = {
     "src/Editor/EditorProfiler.cpp",
     "src/Editor/EditorProject.cpp",
     "src/Editor/EditorProjectSettingsController.cpp",
+    "src/Editor/EditorRecoveryService.cpp",
     "src/Editor/EditorSelection.cpp",
     "src/Editor/EditorService.cpp",
     "src/Editor/EditorShaderWatchService.cpp",
@@ -116,6 +126,7 @@ target("MyEngineRuntime")
     add_files(
         "src/Runtime/RuntimeModule.cpp",
         "src/Runtime/Project/ProjectConfig.cpp",
+        "src/Runtime/Project/JsonMigrationRegistry.cpp",
         "src/Runtime/Project/SaveGame.cpp",
         "src/Runtime/Project/ContentArchive.cpp",
         "src/Runtime/Project/CookManifest.cpp",
@@ -129,6 +140,7 @@ target("MyEngineRuntime")
         "src/Runtime/Core/RuntimeFileSystem.cpp",
         "src/Runtime/Core/Sha256.cpp",
         "src/Runtime/Core/CrashHandler.cpp",
+        "src/Runtime/Core/TransactionalFileWriter.cpp",
         "src/Runtime/Core/Layer.cpp",
         "src/Runtime/Core/LayerStack.cpp",
         "src/Runtime/Core/Time.cpp",
@@ -177,6 +189,8 @@ target("MyEngineRuntime")
         "src/Runtime/Scene/Actor.cpp",
         "src/Runtime/Scene/ActorSubtreeSerializer.cpp",
         "src/Runtime/Scene/ComponentRegistry.cpp",
+        "src/Runtime/Scene/TypeRegistry.cpp",
+        "src/Runtime/Scene/WorldFrameScheduler.cpp",
         "src/Runtime/Scene/MeshRendererComponent.cpp",
         "src/Runtime/Scene/PrefabSystem.cpp",
         "src/Runtime/Scene/Scene.cpp",
@@ -190,6 +204,7 @@ target("MyEngineRuntime")
         "src/Runtime/Navigation/NavAgentComponent.cpp",
         "src/Runtime/Renderer/Renderer.cpp",
         "src/Runtime/Renderer/RenderGraph.cpp",
+        "src/Runtime/Renderer/RHIConformance.cpp",
         "src/Runtime/Renderer/RHI/ShaderReflection.cpp",
         "src/Runtime/Renderer/SceneLighting.cpp",
         "src/Runtime/Renderer/SceneRenderCollector.cpp",
@@ -485,4 +500,8 @@ target("MyEngineTests")
         add_files("src/Editor/EditorImGuiMetalBridge.mm")
         add_deps("imgui_metal")
     end
+    after_build(function (target)
+        os.cp(path.join(os.projectdir(), "tests", "fixtures"),
+              path.join(target:targetdir(), "tests", "fixtures"))
+    end)
 target_end()

@@ -694,22 +694,21 @@ void PhysicsWorld::SetGravity(const Vec3& gravity)
 void PhysicsWorld::Clear()
 {
     if (m_Impl) m_Impl->Clear();
-    m_Accumulator = 0.0f;
 }
 
 void PhysicsWorld::Step(Scene& scene, float deltaSeconds)
 {
-    if (deltaSeconds <= 0.0f) return;
-    m_Accumulator += std::min(deltaSeconds, 0.25f);
-    while (m_Accumulator >= m_FixedDelta) {
-        scene.ForEach([&](Actor& actor) { actor.FixedUpdate(m_FixedDelta); });
-        m_Impl->Reconcile(scene, m_FixedDelta);
-        const JPH::EPhysicsUpdateError error = m_Impl->system.Update(m_FixedDelta, 1, &m_Impl->tempAllocator, &m_Impl->jobs);
+    StepFixed(scene, deltaSeconds);
+}
+
+void PhysicsWorld::StepFixed(Scene& scene, float fixedDeltaSeconds)
+{
+    if (fixedDeltaSeconds <= 0.0f) return;
+        m_Impl->Reconcile(scene, fixedDeltaSeconds);
+        const JPH::EPhysicsUpdateError error = m_Impl->system.Update(fixedDeltaSeconds, 1, &m_Impl->tempAllocator, &m_Impl->jobs);
         if (error != JPH::EPhysicsUpdateError::None) Logger::Error("[Physics] Jolt update error: ", static_cast<uint32_t>(error));
         m_Impl->PullTransforms(scene);
         m_Impl->Dispatch(scene);
-        m_Accumulator -= m_FixedDelta;
-    }
 }
 
 bool PhysicsWorld::Raycast(const Scene& scene, const Ray& ray, float maxDistance,
