@@ -3,6 +3,7 @@
 #include "../Core/Logger.h"
 #include "../Core/Window.h"
 #include "Renderer/RHI/ShaderReflection.h"
+#include "Renderer/RHI/RHIResourceStats.h"
 
 #include <d3d12.h>
 #include <dxgi1_4.h>
@@ -33,6 +34,39 @@ std::unique_ptr<IRenderContext> CreateD3D12Context() {
 // --------------------------------------------------------------------------
 // Helpers
 // --------------------------------------------------------------------------
+static std::string WideAdapterNameToUtf8(const wchar_t* value) {
+    if (!value || !*value) return {};
+    const int size = WideCharToMultiByte(CP_UTF8, 0, value, -1, nullptr, 0, nullptr, nullptr);
+    if (size <= 1) return {};
+    std::string result(static_cast<size_t>(size), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, value, -1, result.data(), size, nullptr, nullptr);
+    result.pop_back();
+    return result;
+}
+
+static RHIDeviceIdentity DescribeAdapter(IDXGIAdapter1* adapter) {
+    RHIDeviceIdentity identity;
+    if (!adapter) return identity;
+    DXGI_ADAPTER_DESC1 desc{};
+    if (SUCCEEDED(adapter->GetDesc1(&desc))) {
+        identity.adapterName = WideAdapterNameToUtf8(desc.Description);
+        identity.vendorId = desc.VendorId;
+        identity.deviceId = desc.DeviceId;
+        identity.subsystemId = desc.SubSysId;
+        identity.revision = desc.Revision;
+        identity.dedicatedVideoMemoryBytes = static_cast<uint64_t>(desc.DedicatedVideoMemory);
+        identity.softwareAdapter = (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) != 0;
+    }
+    LARGE_INTEGER version{};
+    if (SUCCEEDED(adapter->CheckInterfaceSupport(__uuidof(IDXGIDevice), &version))) {
+        std::ostringstream text;
+        text << HIWORD(version.HighPart) << '.' << LOWORD(version.HighPart) << '.'
+             << HIWORD(version.LowPart) << '.' << LOWORD(version.LowPart);
+        identity.driverVersion = text.str();
+    }
+    return identity;
+}
+
 DXGI_FORMAT D3D12Context::ToDxgiFormat(VertexFormat fmt) {
     switch (fmt) {
     case VertexFormat::Float2: return DXGI_FORMAT_R32G32_FLOAT;
@@ -803,9 +837,16 @@ class D3D12DescriptorPool : public std::enable_shared_from_this<D3D12DescriptorP
 public:
     D3D12DescriptorPool(D3D12_CPU_DESCRIPTOR_HANDLE cpuBase,
                         D3D12_GPU_DESCRIPTOR_HANDLE gpuBase,
-                        uint32_t increment, uint32_t capacity, uint32_t firstIndex)
+                        uint32_t increment, uint32_t capacity, uint32_t firstIndex,
+                        RHINativeDescriptorKind kind)
         : m_CpuBase(cpuBase), m_GpuBase(gpuBase), m_Increment(increment),
-          m_Capacity(capacity), m_NextIndex(firstIndex) {}
+          m_Capacity(capacity), m_NextIndex(firstIndex), m_Kind(kind),
+          m_ReservedSlots(firstIndex) {
+        if (m_ReservedSlots) RHIResourceStatsProvider::AddNativeDescriptorSlots(m_Kind,m_ReservedSlots);
+    }
+    ~D3D12DescriptorPool(){
+        if(m_ReservedSlots)RHIResourceStatsProvider::ReleaseNativeDescriptorSlots(m_Kind,m_ReservedSlots);
+    }
 
     bool Allocate(const std::shared_ptr<D3D12DeferredReleaseQueue>& queue,
                   D3D12_CPU_DESCRIPTOR_HANDLE& cpu,
@@ -815,6 +856,7 @@ public:
     void Release(uint32_t index) {
         std::lock_guard<std::mutex> lock(m_Mutex);
         m_FreeIndices.push_back(index);
+        RHIResourceStatsProvider::ReleaseNativeDescriptorSlots(m_Kind);
     }
 
 private:
@@ -824,6 +866,8 @@ private:
     uint32_t m_Increment = 0;
     uint32_t m_Capacity = 0;
     uint32_t m_NextIndex = 0;
+    RHINativeDescriptorKind m_Kind=RHINativeDescriptorKind::Resource;
+    uint32_t m_ReservedSlots=0;
     std::vector<uint32_t> m_FreeIndices;
 };
 
@@ -865,7 +909,10 @@ bool D3D12DescriptorPool::Allocate(
             index = m_FreeIndices.back();
             m_FreeIndices.pop_back();
         } else {
-            if (m_NextIndex >= m_Capacity) return false;
+            if (m_NextIndex >= m_Capacity) {
+                RHIResourceStatsProvider::RecordNativeDescriptorAllocationFailure(m_Kind);
+                return false;
+            }
             index = m_NextIndex++;
         }
     }
@@ -877,6 +924,7 @@ bool D3D12DescriptorPool::Allocate(
         *lease = std::make_shared<D3D12DescriptorLease>(
             shared_from_this(), queue, index);
     }
+    RHIResourceStatsProvider::AddNativeDescriptorSlots(m_Kind);
     return true;
 }
 
@@ -1045,6 +1093,11 @@ bool D3D12Context::Init(IWindow* window) {
             return false;
         }
     }
+    ComPtr<IDXGIAdapter1> adapter;
+    if (SUCCEEDED(factory->EnumAdapterByLuid(m_Device->GetAdapterLuid(),
+                                             IID_PPV_ARGS(&adapter)))) {
+        m_DeviceIdentity = DescribeAdapter(adapter.Get());
+    }
 
     DXGI_SWAP_CHAIN_DESC1 scd = {};
     scd.BufferCount = kFrameCount;
@@ -1131,7 +1184,7 @@ bool D3D12Context::Init(IWindow* window) {
         m_RtvDescriptorPool = std::make_shared<D3D12DescriptorPool>(
             m_OffscreenRtvHeap->GetCPUDescriptorHandleForHeapStart(),
             D3D12_GPU_DESCRIPTOR_HANDLE{}, m_OffscreenRtvDescriptorSize,
-            kOffscreenRtvCount, 0);
+            kOffscreenRtvCount, 0, RHINativeDescriptorKind::RenderTarget);
     }
 
     // DSV heap (PostProcessPass depth)
@@ -1151,7 +1204,7 @@ bool D3D12Context::Init(IWindow* window) {
         m_DsvDescriptorPool = std::make_shared<D3D12DescriptorPool>(
             m_DsvHeap->GetCPUDescriptorHandleForHeapStart(),
             D3D12_GPU_DESCRIPTOR_HANDLE{}, m_DsvDescriptorSize,
-            kDsvDescriptorCount, 0);
+            kDsvDescriptorCount, 0, RHINativeDescriptorKind::DepthStencil);
     }
 
     // SRV heap (shader-visible, required by ImGui dx12 backend for fonts)
@@ -1176,7 +1229,7 @@ bool D3D12Context::Init(IWindow* window) {
     m_SrvDescriptorPool = std::make_shared<D3D12DescriptorPool>(
         m_SrvHeap->GetCPUDescriptorHandleForHeapStart(),
         m_SrvHeap->GetGPUDescriptorHandleForHeapStart(), m_SrvDescriptorSize,
-        kDefaultSrvDescriptorCount, 1);
+        kDefaultSrvDescriptorCount, 1, RHINativeDescriptorKind::Resource);
 
     // Sampler heap (samplers must be in a separate heap type in D3D12)
     {
@@ -1195,7 +1248,7 @@ bool D3D12Context::Init(IWindow* window) {
         m_SamplerDescriptorPool = std::make_shared<D3D12DescriptorPool>(
             m_SamplerHeap->GetCPUDescriptorHandleForHeapStart(),
             m_SamplerHeap->GetGPUDescriptorHandleForHeapStart(), m_SamplerDescriptorSize,
-            kDefaultSamplerDescriptorCount, 0);
+            kDefaultSamplerDescriptorCount, 0, RHINativeDescriptorKind::Sampler);
     }
 
     // Upload command allocator + list (one-shot copies for texture uploads)
@@ -1318,6 +1371,7 @@ bool D3D12Context::Init(IWindow* window) {
 }
 
 void D3D12Context::Shutdown() {
+    m_DeviceIdentity = {};
 
     // Wait for all GPU work to finish before releasing resources.
     if (m_Fence && m_FenceEvent) {
@@ -1905,7 +1959,7 @@ std::shared_ptr<GpuBuffer> D3D12Context::CreateVertexBuffer(
         return nullptr;
     }
 
-    return buf;
+    CommitRHIResourceAccounting(std::static_pointer_cast<GpuBuffer>(buf));return buf;
 }
 
 std::shared_ptr<GpuBuffer> D3D12Context::CreateIndexBuffer(
@@ -1965,7 +2019,7 @@ std::shared_ptr<GpuBuffer> D3D12Context::CreateIndexBuffer(
         return nullptr;
     }
 
-    return buf;
+    CommitRHIResourceAccounting(std::static_pointer_cast<GpuBuffer>(buf));return buf;
 }
 
 std::shared_ptr<GpuBuffer> D3D12Context::CreateBuffer(
@@ -2034,7 +2088,7 @@ std::shared_ptr<GpuBuffer> D3D12Context::CreateBuffer(
         }
     }
 
-    return buffer;
+    CommitRHIResourceAccounting(std::static_pointer_cast<GpuBuffer>(buffer));return buffer;
 }
 
 std::shared_ptr<GpuBufferView> D3D12Context::CreateBufferView(
@@ -2365,6 +2419,7 @@ std::shared_ptr<GpuTexture> D3D12Context::CreateDepthTexture(
         m_Device->CreateDepthStencilView(tex->resource.Get(), &dsvDesc, tex->dsvCpu);
     }
 
+    CommitRHIResourceAccounting(std::static_pointer_cast<GpuTexture>(tex));
     return tex;
 }
 
@@ -3084,6 +3139,7 @@ std::shared_ptr<GpuTexture> D3D12Context::UploadTexture2D(
         tex->sampLease = sampler->lease;
     }
 
+    CommitRHIResourceAccounting(std::static_pointer_cast<GpuTexture>(tex));
     return tex;
 }
 
@@ -3343,6 +3399,7 @@ std::shared_ptr<GpuTexture> D3D12Context::CreateTexture(const RHITextureDesc& de
         result->sampCpu = sampler->cpu; result->sampGpu = sampler->gpu;
         result->sampLease = sampler->lease;
     }
+    CommitRHIResourceAccounting(std::static_pointer_cast<GpuTexture>(result));
     return result;
 }
 

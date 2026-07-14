@@ -31,6 +31,12 @@ void AudioSourceComponent::SetPitch(float value)
     if (m_SoundID) AudioEngine::Get().SetSoundPitch(m_SoundID, m_Pitch);
 }
 
+void AudioSourceComponent::FadeVolume(float value, uint32_t milliseconds)
+{
+    m_Volume = std::max(0.0f, value);
+    if (m_SoundID) AudioEngine::Get().FadeSoundVolume(m_SoundID, m_Volume, milliseconds);
+}
+
 void AudioSourceComponent::SetMinDistance(float value)
 {
     m_MinDistance = std::max(0.01f, value);
@@ -40,6 +46,22 @@ void AudioSourceComponent::SetMinDistance(float value)
 void AudioSourceComponent::SetMaxDistance(float value)
 {
     m_MaxDistance = std::max(m_MinDistance, value);
+}
+
+void AudioSourceComponent::SetBus(AudioBus value)
+{
+    m_Bus = value == AudioBus::Count ? AudioBus::Effects : value;
+    if (m_SoundID) AudioEngine::Get().SetSoundBus(m_SoundID, m_Bus);
+}
+
+void AudioSourceComponent::SetPriority(int value)
+{
+    m_Priority = std::clamp(value, -100, 100);
+}
+
+void AudioSourceComponent::SetMaxInstances(uint32_t value)
+{
+    m_MaxInstances = std::min(value, 1024u);
 }
 
 bool AudioSourceComponent::IsPlaying() const
@@ -63,6 +85,11 @@ bool AudioSourceComponent::Play()
     desc.minDistance = m_MinDistance;
     desc.maxDistance = m_MaxDistance;
     desc.position = GetWorldPosition();
+    desc.bus = m_Bus;
+    desc.priority = m_Priority;
+    desc.concurrencyGroup = m_ConcurrencyGroup;
+    desc.maxInstances = m_MaxInstances;
+    desc.stream = m_Streaming;
     m_SoundID = AudioEngine::Get().Play(desc);
     return m_SoundID != 0;
 }
@@ -114,6 +141,11 @@ void AudioSourceComponent::Serialize(nlohmann::json& data) const
     data["spatial"] = m_Spatial;
     data["minDistance"] = m_MinDistance;
     data["maxDistance"] = m_MaxDistance;
+    data["bus"] = AudioBusName(m_Bus);
+    data["priority"] = m_Priority;
+    data["concurrencyGroup"] = m_ConcurrencyGroup;
+    data["maxInstances"] = m_MaxInstances;
+    data["streaming"] = m_Streaming;
 }
 
 void AudioSourceComponent::Deserialize(const nlohmann::json& data)
@@ -129,6 +161,15 @@ void AudioSourceComponent::Deserialize(const nlohmann::json& data)
     m_Spatial = data.value("spatial", m_Spatial);
     m_MinDistance = std::max(0.01f, data.value("minDistance", m_MinDistance));
     m_MaxDistance = std::max(m_MinDistance, data.value("maxDistance", m_MaxDistance));
+    if (const auto it = data.find("bus"); it != data.end() && it->is_string()) {
+        AudioBus parsed = AudioBus::Effects;
+        if (ParseAudioBus(it->get<std::string>(), parsed)) m_Bus = parsed;
+    }
+    m_Priority = std::clamp(data.value("priority", m_Priority), -100, 100);
+    m_ConcurrencyGroup = data.value("concurrencyGroup", m_ConcurrencyGroup);
+    const int64_t maxInstances = data.value("maxInstances", static_cast<int64_t>(m_MaxInstances));
+    m_MaxInstances = static_cast<uint32_t>(std::clamp<int64_t>(maxInstances, 0, 1024));
+    m_Streaming = data.value("streaming", m_Streaming);
 }
 
 Vec3 AudioSourceComponent::GetWorldPosition() const

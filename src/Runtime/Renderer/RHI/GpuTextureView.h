@@ -16,6 +16,7 @@ struct ImGuiNativeTextureInfo {
 };
 
 struct GpuTextureView : GpuResource {
+    GpuTextureView(){CommitAccounting(GpuResourceAccountingClass::Descriptor,0,1);}
     std::shared_ptr<GpuTexture> texture;
     RHITextureViewDesc desc;
     uint32_t bindlessIndex = UINT32_MAX;

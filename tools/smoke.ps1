@@ -79,6 +79,11 @@ if (-not $SkipBuild) {
     Invoke-Step "Build" {
         & $xmake.Source
         if ($LASTEXITCODE -ne 0) {
+            Write-Warning "xmake build failed once; retrying after transient Windows file contention."
+            Start-Sleep -Milliseconds 500
+            & $xmake.Source
+        }
+        if ($LASTEXITCODE -ne 0) {
             Fail-Smoke "xmake build failed."
         }
     }

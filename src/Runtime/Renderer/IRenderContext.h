@@ -6,6 +6,19 @@
 #include "Renderer/RHI/IRHIReadbackService.h"
 
 #include <memory>
+#include <cstdint>
+#include <string>
+
+struct RHIDeviceIdentity {
+    std::string adapterName;
+    std::string driverVersion;
+    uint32_t vendorId = 0;
+    uint32_t deviceId = 0;
+    uint32_t subsystemId = 0;
+    uint32_t revision = 0;
+    uint64_t dedicatedVideoMemoryBytes = 0;
+    bool softwareAdapter = false;
+};
 
 class IWindow;
 class IEditorImGuiRHIInterop;
@@ -21,6 +34,7 @@ public:
 
     virtual bool Init(IWindow* window) = 0;
     virtual void Shutdown() = 0;
+    virtual RHIDeviceIdentity GetDeviceIdentity() const { return {}; }
     virtual IEditorImGuiRHIInterop* QueryEditorImGuiInterop() { return nullptr; }
 };
 

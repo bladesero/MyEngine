@@ -1,4 +1,5 @@
 #include "Gameplay/GameplayComponents.h"
+#include "Core/RuntimeAccessibility.h"
 
 #include "Physics/PhysicsWorld.h"
 #include "Scene/Actor.h"
@@ -82,7 +83,7 @@ void GameplayFeedbackComponent::OnLateUpdate(float deltaSeconds)
 {
     Actor* owner=GetOwner();if(!owner)return;Scene* scene=owner->GetScene();const float scale=scene?std::max(0.01f,scene->GetTimeScale()):1.0f;const float unscaled=deltaSeconds/scale;
     owner->GetTransform().position-=m_LastShakeOffset;m_LastShakeOffset=Vec3::Zero();
-    if(m_ShakeRemaining>0.0f){auto noise=[&](){m_NoiseState=m_NoiseState*1664525u+1013904223u;return(static_cast<float>((m_NoiseState>>8)&0xffffu)/32767.5f)-1.0f;};const float strength=m_ShakeAmplitude*std::min(1.0f,m_ShakeRemaining*10.0f);m_LastShakeOffset={noise()*strength,noise()*strength,noise()*strength};owner->GetTransform().position+=m_LastShakeOffset;m_ShakeRemaining=std::max(0.0f,m_ShakeRemaining-unscaled);}
+    if(m_ShakeRemaining>0.0f){auto noise=[&](){m_NoiseState=m_NoiseState*1664525u+1013904223u;return(static_cast<float>((m_NoiseState>>8)&0xffffu)/32767.5f)-1.0f;};const float strength=m_ShakeAmplitude*RuntimeAccessibility::GetCameraShakeScale()*std::min(1.0f,m_ShakeRemaining*10.0f);m_LastShakeOffset={noise()*strength,noise()*strength,noise()*strength};owner->GetTransform().position+=m_LastShakeOffset;m_ShakeRemaining=std::max(0.0f,m_ShakeRemaining-unscaled);}
     if(auto* post=owner->GetComponent<PostProcessComponent>()){if(m_FlashRemaining>0.0f){if(!m_FlashCaptured){m_OriginalVignette=post->GetVignette();m_OriginalSaturation=post->GetSaturation();m_FlashCaptured=true;}const float amount=m_FlashIntensity*std::min(1.0f,m_FlashRemaining*12.0f);post->SetVignette(std::max(m_OriginalVignette,amount));post->SetSaturation(std::max(0.0f,m_OriginalSaturation-amount*0.8f));m_FlashRemaining=std::max(0.0f,m_FlashRemaining-unscaled);}else if(m_FlashCaptured){post->SetVignette(m_OriginalVignette);post->SetSaturation(m_OriginalSaturation);m_FlashCaptured=false;}}
     if(m_SlowRemaining>0.0f){m_SlowRemaining=std::max(0.0f,m_SlowRemaining-unscaled);if(m_SlowRemaining<=0.0f&&scene)scene->SetTimeScale(1.0f);}
 }

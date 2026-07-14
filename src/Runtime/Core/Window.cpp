@@ -26,6 +26,10 @@ bool SDLWindow::Init(const WindowConfig& config) {
     m_Height = config.height;
 
     SDL_WindowFlags flags = SDL_WINDOW_RESIZABLE;
+    if (config.mode == WindowMode::Borderless)
+        flags = static_cast<SDL_WindowFlags>(flags | SDL_WINDOW_BORDERLESS);
+    else if (config.mode == WindowMode::Fullscreen)
+        flags = SDL_WINDOW_FULLSCREEN;
 
     m_Window = SDL_CreateWindow(config.title.c_str(), m_Width, m_Height, flags);
     if (!m_Window) {

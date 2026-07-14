@@ -2,6 +2,7 @@
 
 #include "Assets/AssetManager.h"
 #include "Camera/Camera.h"
+#include "Core/RuntimeQualityDegradation.h"
 #include "Scene/Actor.h"
 
 #include <algorithm>
@@ -21,7 +22,9 @@ void ParticleSystemComponent::Stop(bool clear){m_Playing=false;m_EmissionAccumul
 void ParticleSystemComponent::Emit(uint32_t count)
 {
     EnsureResources();std::uniform_real_distribution<float> unit(-1.0f,1.0f);
-    count=std::min<uint32_t>(count,m_Settings.maxParticles-static_cast<uint32_t>(std::min<size_t>(m_Particles.size(),m_Settings.maxParticles)));
+    const uint32_t qualityLevel=RuntimeQualityDegradation::Get().level;
+    const uint32_t particleLimit=std::max(1u,m_Settings.maxParticles>>qualityLevel);
+    count=std::min<uint32_t>(count,particleLimit-static_cast<uint32_t>(std::min<size_t>(m_Particles.size(),particleLimit)));
     for(uint32_t i=0;i<count;++i){Vec3 direction(unit(m_Random),std::abs(unit(m_Random)),unit(m_Random));if(direction.LengthSq()<0.001f)direction=Vec3::Up();direction=direction.Normalized();m_Particles.push_back({Vec3::Zero(),direction*m_Settings.startSpeed,0.0f,std::max(0.01f,m_Settings.lifetime),unit(m_Random)*kPi});}
 }
 void ParticleSystemComponent::OnUpdate(float dt)
@@ -34,7 +37,8 @@ MeshAsset* ParticleSystemComponent::BuildBillboardMesh(const Camera& camera)
 {
     EnsureResources();std::vector<MeshVertex> vertices;std::vector<uint32_t> indices;vertices.reserve(m_Particles.size()*4);indices.reserve(m_Particles.size()*6);
     const Vec3 right=camera.GetRight(),up=camera.GetCamUp();
-    for(const Particle& particle:m_Particles){const float t=std::clamp(particle.age/particle.lifetime,0.0f,1.0f);const float half=(m_Settings.startSize+(m_Settings.endSize-m_Settings.startSize)*t)*0.5f;const Vec3 color=Vec3::Lerp(m_Settings.startColor,m_Settings.endColor,t);const float alpha=m_Settings.startAlpha+(m_Settings.endAlpha-m_Settings.startAlpha)*t;const Vec4 vertexColor(color.x,color.y,color.z,alpha);const Vec3 r=right*half,u=up*half;const uint32_t base=static_cast<uint32_t>(vertices.size());vertices.push_back({particle.position-r-u});vertices.back().u=0;vertices.back().v=1;vertices.back().color=vertexColor;vertices.push_back({particle.position-r+u});vertices.back().u=0;vertices.back().v=0;vertices.back().color=vertexColor;vertices.push_back({particle.position+r+u});vertices.back().u=1;vertices.back().v=0;vertices.back().color=vertexColor;vertices.push_back({particle.position+r-u});vertices.back().u=1;vertices.back().v=1;vertices.back().color=vertexColor;indices.insert(indices.end(),{base,base+1,base+2,base,base+2,base+3});}
+    const size_t renderCount=std::min(m_Particles.size(),static_cast<size_t>(std::max(1u,m_Settings.maxParticles>>RuntimeQualityDegradation::Get().level)));
+    for(size_t particleIndex=0;particleIndex<renderCount;++particleIndex){const Particle& particle=m_Particles[particleIndex];const float t=std::clamp(particle.age/particle.lifetime,0.0f,1.0f);const float half=(m_Settings.startSize+(m_Settings.endSize-m_Settings.startSize)*t)*0.5f;const Vec3 color=Vec3::Lerp(m_Settings.startColor,m_Settings.endColor,t);const float alpha=m_Settings.startAlpha+(m_Settings.endAlpha-m_Settings.startAlpha)*t;const Vec4 vertexColor(color.x,color.y,color.z,alpha);const Vec3 r=right*half,u=up*half;const uint32_t base=static_cast<uint32_t>(vertices.size());vertices.push_back({particle.position-r-u});vertices.back().u=0;vertices.back().v=1;vertices.back().color=vertexColor;vertices.push_back({particle.position-r+u});vertices.back().u=0;vertices.back().v=0;vertices.back().color=vertexColor;vertices.push_back({particle.position+r+u});vertices.back().u=1;vertices.back().v=0;vertices.back().color=vertexColor;vertices.push_back({particle.position+r-u});vertices.back().u=1;vertices.back().v=1;vertices.back().color=vertexColor;indices.insert(indices.end(),{base,base+1,base+2,base,base+2,base+3});}
     if(m_Material)m_Material->SetParam("BaseColor",MaterialParam::FromColor(Vec3::One(),1.0f));
     std::vector<SubMesh> submeshes;if(!indices.empty())submeshes.push_back({0,static_cast<uint32_t>(indices.size()),0,0,"Particles",{}});m_RenderMesh->SetGeometry(std::move(vertices),std::move(indices),std::move(submeshes));return m_RenderMesh.get();
 }

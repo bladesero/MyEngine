@@ -10,18 +10,25 @@
 #include "Core/Memory/MemoryService.h"
 #include "Core/Memory/PoolAllocator.h"
 #include "Core/CrashHandler.h"
+#include "Core/RuntimeAccessibility.h"
+#include "Core/RuntimePerformanceBudget.h"
+#include "Core/FrameStats.h"
+#include "Core/TaskService.h"
 #include "Camera/Camera.h"
 #include "Camera/CameraComponent.h"
 #include "Camera/ThirdPersonCameraComponent.h"
 #include "Gameplay/GameplayComponents.h"
 #include "Gameplay/EnemyAIComponent.h"
 #include "Game/SceneManager.h"
+#include "Game/GameFlowController.h"
 #include "Project/SaveGame.h"
 #include "Navigation/NavAgentComponent.h"
 #include "Assets/NavMeshAsset.h"
 #include "Game/DefaultSceneFactory.h"
 #include "Game/GameViewport.h"
 #include "Game/SceneLayer.h"
+#include "Game/SceneRenderLayer.h"
+#include "Game/RuntimeResourceBudget.h"
 #include "Game/SceneViewportController.h"
 #include "Input/Input.h"
 #include "Math/Mat4Inverse.h"
@@ -33,6 +40,8 @@
 #include "Physics/SphereColliderComponent.h"
 #include "Project/PublishTargets.h"
 #include "Project/ProjectConfig.h"
+#include "Project/RuntimePerformanceProfile.h"
+#include "Project/RuntimeUserSettings.h"
 #include "Scene/MeshRendererComponent.h"
 #include "Scene/Scene.h"
 #include "Scene/SceneSerializer.h"
@@ -40,12 +49,14 @@
 #include "Scene/ComponentRegistry.h"
 #include "Scene/TypeRegistry.h"
 #include "Scene/WorldFrameScheduler.h"
+#include "Scene/WorldZoneStreamer.h"
 #include "Scripting/ScriptComponent.h"
 #include "Assets/ScriptAsset.h"
 #include "Renderer/Renderer.h"
 #include "Renderer/SceneLighting.h"
 #include "Renderer/RenderGraph.h"
 #include "Renderer/GpuUploadQueue.h"
+#include "Renderer/RHI/RHIResourceStats.h"
 #include "Renderer/LightComponent.h"
 #include "Renderer/PostProcessComponent.h"
 #include "Renderer/ParticleSystemComponent.h"
@@ -77,6 +88,7 @@
 #include "UI/Core/UIActorTreeBuilder.h"
 #include "UI/Core/UIComponents.h"
 #include "UI/Core/UISystem.h"
+#include "UI/Core/RuntimeUIScreenConfig.h"
 #include "UI/Render/UIDrawList.h"
 
 #include <algorithm>
@@ -1882,14 +1894,17 @@ bool TestHeadlessRendering() {
     MockRenderContext context;
     Renderer renderer(&context, &context, &context);
     int queuedUploadRuns = 0;
-    GpuUploadQueue::Get().Enqueue([&queuedUploadRuns](IRHIDevice& uploadContext) {
+    const GpuUploadFence uploadFence = GpuUploadQueue::Get().Enqueue([&queuedUploadRuns](IRHIDevice& uploadContext) {
         ++queuedUploadRuns;
         const uint8_t pixel[4] = { 255, 255, 255, 255 };
         uploadContext.UploadTexture2D(pixel, 1, 1);
     });
+    if (!Check(!GpuUploadQueue::Get().IsFenceComplete(uploadFence),
+               "GPU upload fence completed before render-thread execution")) return false;
     renderer.RenderScene(scene, camera, true);
 
-    if (!Check(queuedUploadRuns == 1 && GpuUploadQueue::Get().PendingCount() == 0,
+    if (!Check(queuedUploadRuns == 1 && GpuUploadQueue::Get().PendingCount() == 0 &&
+               GpuUploadQueue::Get().IsFenceComplete(uploadFence),
                "GPU upload queue was not consumed on the render thread")) return false;
     if (!Check(context.beginFrames == 1 && context.endFrames == 1,
                "headless renderer frame lifecycle mismatch")) return false;
@@ -2323,9 +2338,16 @@ bool TestSceneManagerAndVersionedSaveGame()
     layer.GetSceneManager().SetPersistentValue("spawn",{{"checkpoint","gate"}});if(!Check(layer.RequestSceneLoad("Content/Scenes/Second.scene.json"),"scene request rejected valid path")){AssetManager::Get().SetProjectRoot(oldRoot);return false;}for(int attempt=0;attempt<100&&layer.GetSceneManager().GetState()!=SceneLoadState::Ready&&layer.GetSceneManager().GetState()!=SceneLoadState::Failed;++attempt){layer.OnUpdate(0.0f);std::this_thread::sleep_for(std::chrono::milliseconds(1));}
     if(!Check(layer.GetEditorScene().GetName()=="Second"&&layer.GetSceneManager().GetPersistentValue("spawn").value("checkpoint",std::string{})=="gate","requested scene or persistent parameters failed")){AssetManager::Get().SetProjectRoot(oldRoot);return false;}
     if(!Check(!layer.RequestSceneLoad("../Outside.scene.json"),"scene manager accepted path escape")){AssetManager::Get().SetProjectRoot(oldRoot);return false;}
-    SaveGameData save;save.checkpoint="gate";save.player={{"health",80}};save.collected={"key","coin"};save.settings={{"volume",0.5f}};std::string error;
+    SaveGameData save;save.metadata.displayName="Courtyard";save.metadata.scene="Content/Scenes/Second.scene.json";save.metadata.playTimeSeconds=42.0;save.checkpoint="gate";save.player={{"health",80}};save.collected={"key","coin"};save.settings={{"volume",0.5f}};std::string error;
     if(!Check(SaveGame::Write("slot1.json",save,&error)&&SaveGame::Exists("slot1.json"),"versioned save write failed: "+error)){AssetManager::Get().SetProjectRoot(oldRoot);return false;}SaveGameData loaded;if(!Check(SaveGame::Read("slot1.json",loaded,&error)&&loaded.version==SaveGameData::CurrentVersion&&loaded.checkpoint=="gate"&&loaded.collected.size()==2,"versioned save read failed: "+error)){AssetManager::Get().SetProjectRoot(oldRoot);return false;}
-    nlohmann::json legacy={{"version",1},{"checkpoint","old"},{"player",nlohmann::json::object()},{"collected",nlohmann::json::array()}};SaveGameData migrated;if(!Check(SaveGame::FromJson(legacy,migrated,&error)&&migrated.version==2&&migrated.settings.is_object(),"save migration failed")){AssetManager::Get().SetProjectRoot(oldRoot);return false;}
+    save.checkpoint="newer";if(!Check(SaveGame::Write("slot1.json",save,&error),"second save write failed: "+error)){AssetManager::Get().SetProjectRoot(oldRoot);return false;}
+    const auto slots=SaveGame::ListSlots();if(!Check(slots.size()==1&&slots[0].valid&&slots[0].hasBackup&&slots[0].metadata.displayName=="Courtyard"&&!slots[0].metadata.savedAtUtc.empty(),"save slot metadata/listing failed")){AssetManager::Get().SetProjectRoot(oldRoot);return false;}
+    {std::ofstream corrupt(root/"Saved"/"SaveGames"/"slot1.json",std::ios::trunc);corrupt<<"{broken";}
+    SaveGameData recovered;if(!Check(!SaveGame::Read("slot1.json",recovered)&&SaveGame::ReadBackup("slot1.json",recovered,&error)&&recovered.checkpoint=="gate"&&SaveGame::RestoreBackup("slot1.json",&error)&&SaveGame::Read("slot1.json",recovered,&error),"save backup recovery failed: "+error)){AssetManager::Get().SetProjectRoot(oldRoot);return false;}
+    std::string autosaveSlot;for(int index=0;index<4;++index){save.checkpoint="auto"+std::to_string(index);if(!Check(SaveGame::WriteAutosave(save,3,&autosaveSlot,&error),"autosave ring write failed: "+error)){AssetManager::Get().SetProjectRoot(oldRoot);return false;}std::this_thread::sleep_for(std::chrono::milliseconds(2));}
+    SaveGameSlotInfo latest;if(!Check(autosaveSlot=="autosave_0.json"&&SaveGame::FindLatestAutosave(latest)&&latest.slot=="autosave_0.json"&&SaveGame::Read(latest.slot,recovered,&error)&&recovered.checkpoint=="auto3","autosave ring/latest selection failed")){AssetManager::Get().SetProjectRoot(oldRoot);return false;}
+    std::string checkpointSlot;if(!Check(SaveGame::WriteCheckpoint("courtyard",save,&checkpointSlot,&error)&&checkpointSlot=="checkpoint_courtyard.json"&&!SaveGame::WriteCheckpoint("../escape",save,nullptr,&error),"checkpoint slot policy failed")){AssetManager::Get().SetProjectRoot(oldRoot);return false;}
+    nlohmann::json legacy={{"version",1},{"checkpoint","old"},{"player",nlohmann::json::object()},{"collected",nlohmann::json::array()}};SaveGameData migrated;if(!Check(SaveGame::FromJson(legacy,migrated,&error)&&migrated.version==SaveGameData::CurrentVersion&&migrated.settings.is_object()&&migrated.metadata.displayName.empty(),"save migration failed")){AssetManager::Get().SetProjectRoot(oldRoot);return false;}
     const bool safe=!SaveGame::Write("../escape.json",save)&&SaveGame::Remove("slot1.json");AssetManager::Get().SetProjectRoot(oldRoot);fs::remove_all(root);return Check(safe,"save path policy failed");
 }
 
@@ -2565,6 +2587,11 @@ bool TestAudioSourceComponentSerialization() {
     audio->SetPitch(1.25f);
     audio->SetMinDistance(2.0f);
     audio->SetMaxDistance(25.0f);
+    audio->SetBus(AudioBus::Voice);
+    audio->SetPriority(42);
+    audio->SetConcurrencyGroup("dialogue");
+    audio->SetMaxInstances(2);
+    audio->SetStreaming(true);
 
     Scene loaded("LoadedAudio");
     if (!Check(SceneSerializer::LoadFromString(loaded, SceneSerializer::SaveToString(scene)),
@@ -2572,15 +2599,98 @@ bool TestAudioSourceComponentSerialization() {
     Actor* loadedActor = loaded.FindByName("Emitter");
     auto* loadedAudio = loadedActor ? loadedActor->GetComponent<AudioSourceComponent>() : nullptr;
     if (!Check(loadedAudio, "audio source component was not restored")) return false;
-    return Check(loadedAudio->GetClipPath() == "Content/Audio/beep.wav" &&
-                 !loadedAudio->GetPlayOnStart() &&
-                 loadedAudio->GetLoop() &&
-                 !loadedAudio->GetSpatial() &&
-                 NearlyEqual(loadedAudio->GetVolume(), 0.35f) &&
-                 NearlyEqual(loadedAudio->GetPitch(), 1.25f) &&
-                 NearlyEqual(loadedAudio->GetMinDistance(), 2.0f) &&
-                 NearlyEqual(loadedAudio->GetMaxDistance(), 25.0f),
-                 "audio source fields changed after serialization");
+    if (!Check(loadedAudio->GetClipPath() == "Content/Audio/beep.wav",
+               "audio clip path changed after serialization")) return false;
+    if (!Check(!loadedAudio->GetPlayOnStart() && loadedAudio->GetLoop() &&
+                   !loadedAudio->GetSpatial(),
+               "audio playback flags changed after serialization")) return false;
+    if (!Check(NearlyEqual(loadedAudio->GetVolume(), 0.35f) &&
+                   NearlyEqual(loadedAudio->GetPitch(), 1.25f) &&
+                   NearlyEqual(loadedAudio->GetMinDistance(), 2.0f) &&
+                   NearlyEqual(loadedAudio->GetMaxDistance(), 25.0f),
+               "audio numeric fields changed after serialization")) return false;
+    if (!Check(loadedAudio->GetBus() == AudioBus::Voice,
+               "audio bus changed after serialization")) return false;
+    if (!Check(loadedAudio->GetPriority() == 42,
+               "audio priority changed after serialization")) return false;
+    if (!Check(loadedAudio->GetConcurrencyGroup() == "dialogue" &&
+                   loadedAudio->GetMaxInstances() == 2,
+               "audio concurrency settings changed after serialization")) return false;
+    return Check(loadedAudio->GetStreaming(),
+                 "audio source streaming flag changed after serialization");
+}
+
+bool TestAudioMixerBusSettingsPauseAndScriptContract()
+{
+    AudioEngine& audio = AudioEngine::Get();
+    AudioBus parsed = AudioBus::Count;
+    if (!Check(ParseAudioBus("music", parsed) && parsed == AudioBus::Music &&
+                   !ParseAudioBus("unknown", parsed),
+               "audio bus stable-name parsing failed")) return false;
+
+    audio.SetMasterVolume(2.0f);
+    audio.SetBusVolume(AudioBus::Music, 0.35f);
+    audio.SetBusVolume(AudioBus::Effects, 0.6f);
+    audio.SetBusMuted(AudioBus::Voice, true);
+    audio.SetMaxVoices(0);
+    audio.SetPaused(true);
+    const AudioDiagnostics diagnostics = audio.GetDiagnostics();
+    if (!Check(NearlyEqual(audio.GetMasterVolume(), 1.0f) &&
+                   NearlyEqual(audio.GetBusVolume(AudioBus::Music), 0.35f) &&
+                   NearlyEqual(audio.GetBusVolume(AudioBus::Effects), 0.6f) &&
+                   audio.IsBusMuted(AudioBus::Voice) &&
+                   audio.GetBusPauseWithGame(AudioBus::Music) &&
+                   !audio.GetBusPauseWithGame(AudioBus::UI) &&
+                   diagnostics.maxVoices == 1 && audio.IsPaused(),
+               "audio mixer bus or pause policy contract failed")) return false;
+
+    const std::vector<AudioVoiceCandidate> candidates = {
+        {1, 5, 2, "impact"}, {2, 5, 1, "impact"}, {3, 20, 3, "music"}};
+    const AudioVoiceAdmission groupSteal = AudioEngine::EvaluateVoiceAdmission(
+        candidates, 8, "impact", 2, 5);
+    const AudioVoiceAdmission priorityReject = AudioEngine::EvaluateVoiceAdmission(
+        candidates, 8, "impact", 2, 4);
+    const AudioVoiceAdmission globalSteal = AudioEngine::EvaluateVoiceAdmission(
+        candidates, 3, "", 0, 10);
+    if (!Check(groupSteal.accepted && groupSteal.victimID == 2 &&
+                   !priorityReject.accepted && priorityReject.victimID == 0 &&
+                   globalSteal.accepted && globalSteal.victimID == 2,
+               "audio voice admission was not deterministic by priority and age")) return false;
+
+    Scene scene("MixerScript");
+    auto* script = scene.CreateActor("Controller")->AddComponent<ScriptComponent>();
+    script->SetSource(
+        "class Script {\n"
+        "  void Awake() {\n"
+        "    AudioMixer::SetMasterVolume(0.8f);\n"
+        "    AudioMixer::SetBusVolume(\"music\", 0.25f);\n"
+        "    AudioMixer::SetBusMuted(\"voice\", false);\n"
+        "    string report = AudioMixer::GetDiagnosticsJson();\n"
+        "    string flow = Game::GetFlowState();\n"
+        "    string streaming = WorldStreaming::GetStatsJson();\n"
+        "    AudioSource::SetBus(\"ui\");\n"
+        "    AudioSource::SetPriority(10);\n"
+        "    AudioSource::SetConcurrency(\"menu\", 2);\n"
+        "    AudioSource::SetStreaming(true);\n"
+        "  }\n"
+        "}\n");
+    if (!Check(script->IsCompiled(), "AudioMixer AngelScript API did not compile: " +
+               script->GetLastError())) return false;
+    scene.BeginPlay();
+    const bool scriptApplied = NearlyEqual(audio.GetMasterVolume(), 0.8f) &&
+        NearlyEqual(audio.GetBusVolume(AudioBus::Music), 0.25f) &&
+        !audio.IsBusMuted(AudioBus::Voice);
+    scene.EndPlay();
+
+    audio.SetPaused(false);
+    audio.SetMasterVolume(1.0f);
+    for (uint8_t index = 0; index < static_cast<uint8_t>(AudioBus::Count); ++index) {
+        const auto bus = static_cast<AudioBus>(index);
+        audio.SetBusVolume(bus, 1.0f);
+        audio.SetBusMuted(bus, false);
+    }
+    audio.SetMaxVoices(128);
+    return Check(scriptApplied, "AudioMixer AngelScript API did not apply live state");
 }
 
 bool TestInputActionMapJsonAndEvaluation() {
@@ -2655,6 +2765,65 @@ bool TestInputActionMapJsonAndEvaluation() {
     const Math::Vec2 look = Input::GetAxis2D("Look");
     if (!Check(NearlyEqual(look.x, 1.0f) && NearlyEqual(look.y, -1.0f),
                "Axis2D mouse delta should clamp")) return false;
+
+    Input::SetRuntimePreferences(2.0f, true, 0.8f, 1.0f, 0.5f);
+    if (!Check(NearlyEqual(Input::GetAxis1D("Throttle"), 0.0f),
+               "runtime gamepad dead zone was not applied")) return false;
+    Input::OnMouseMove(10, 12, 0, 0);
+    Input::OnGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTX, 25000);
+    if (!Check(std::string(Input::GetGlyphSetName()) == "gamepad",
+               "gamepad activity did not select gamepad glyphs")) return false;
+    Input::OnKeyDown(SDL_SCANCODE_A);
+    if (!Check(std::string(Input::GetGlyphSetName()) == "keyboardMouse",
+               "keyboard activity did not restore keyboard glyphs")) return false;
+    Input::OnKeyUp(SDL_SCANCODE_A);
+
+    Input::SetDefaultActionMap();
+    if(!Check(Input::LoadGlyphAtlasFromFile(InputGlyphAtlas::DefaultPath,&error),
+              "checked-in input glyph atlas failed to load: "+error))return false;
+    InputGlyphAtlas invalidAtlas;
+    if(!Check(!InputGlyphAtlas::FromText(
+            R"({"version":99,"atlas":"Content/UI/Glyphs/InputGlyphAtlas.svg","families":{}})",
+            invalidAtlas,&error),"future input glyph atlas version was accepted"))return false;
+    if(!Check(std::string(Input::GetGamepadGlyphFamily(SDL_GAMEPAD_TYPE_PS5))=="playstation"&&
+              std::string(Input::GetGamepadGlyphFamily(SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_PRO))=="nintendo"&&
+              std::string(Input::GetGamepadGlyphFamily(SDL_GAMEPAD_TYPE_XBOXONE))=="xbox",
+              "SDL controller types did not map to stable glyph families"))return false;
+    Input::SetGlyphLocale("zh-CN");
+    Input::OnGamepadButton(pad,SDL_GAMEPAD_BUTTON_SOUTH,true);
+    const nlohmann::json gamepadGlyph=nlohmann::json::parse(Input::GetActionGlyphJson("Jump"));
+    if(!Check(gamepadGlyph.value("valid",false)&&gamepadGlyph.value("family","")=="xbox"&&
+              gamepadGlyph.value("sprite","")=="xbox-a"&&gamepadGlyph.value("label","")=="A键",
+              "gamepad action did not resolve its localized Xbox glyph"))return false;
+    Input::OnGamepadButton(pad,SDL_GAMEPAD_BUTTON_SOUTH,false);
+    Input::OnKeyDown(SDL_SCANCODE_SPACE);
+    const nlohmann::json keyboardGlyph=nlohmann::json::parse(Input::GetActionGlyphJson("Jump"));
+    Input::OnKeyUp(SDL_SCANCODE_SPACE);Input::SetGlyphLocale("en");
+    if(!Check(keyboardGlyph.value("valid",false)&&
+              keyboardGlyph.value("family","")=="keyboardMouse"&&
+              keyboardGlyph.value("sprite","")=="key-space"&&
+              keyboardGlyph.value("label","")=="空格",
+              "keyboard action did not hot-switch to its localized glyph"))return false;
+    const auto conflicts = Input::FindBindingConflicts(
+        "Jump", 0, InputBindingPart::Source, "Keyboard/W");
+    if (!Check(!conflicts.empty() && conflicts.front().actionName == "Move",
+               "binding conflict lookup did not find Move/Keyboard-W")) return false;
+    if (!Check(!Input::RebindAction("Jump", 0, InputBindingPart::Source,
+                                    "Keyboard/W", false, &error),
+               "conflicting rebind should be rejected")) return false;
+    if (!Check(Input::RebindAction("Jump", 0, InputBindingPart::Source,
+                                   "Keyboard/W", true, &error),
+               "explicit conflicting rebind failed: " + error)) return false;
+    Input::OnKeyDown(SDL_SCANCODE_W);
+    if (!Check(Input::IsActionDown("Jump"), "runtime rebound action was not evaluated")) return false;
+    Input::OnKeyUp(SDL_SCANCODE_W);
+    const nlohmann::json overriddenMap = Input::GetActionMapJson();
+    Input::ResetActionMapOverrides();
+    Input::OnKeyDown(SDL_SCANCODE_SPACE);
+    if (!Check(Input::IsActionDown("Jump"), "reset did not restore project/default bindings")) return false;
+    Input::OnKeyUp(SDL_SCANCODE_SPACE);
+    if (!Check(Input::ApplyActionMapOverrides(overriddenMap, &error),
+               "serialized action override failed to reload: " + error)) return false;
 
     InputActionMap invalid;
     const nlohmann::json invalidJson = {
@@ -2923,7 +3092,7 @@ bool TestAssetAsyncLoadingAndHotReload() {
     writeTexture(255, 0, 0);
     AssetManager& manager = AssetManager::Get();
     manager.Clear();
-    std::shared_ptr<Asset> loaded = manager.LoadAsync(texturePath.string()).get();
+    std::shared_ptr<Asset> loaded = manager.LoadAsync(texturePath.string()).Get();
     auto texture = std::dynamic_pointer_cast<TextureAsset>(loaded);
     if (!Check(texture && texture->IsReady(), "async texture load failed")) return false;
     if (!Check(texture->GetVersion() == 1 && texture->GetPixelData()[0] == 255,
@@ -3017,7 +3186,7 @@ bool TestAssetManagerFailureRollback() {
         std::ofstream output(throwPath, std::ios::binary);
         output << "throw";
     }
-    std::shared_ptr<Asset> asyncResult = manager.LoadAsync(throwPath.string()).get();
+    std::shared_ptr<Asset> asyncResult = manager.LoadAsync(throwPath.string()).Get();
     if (!Check(!asyncResult && !manager.IsLoaded(throwPath.string()),
                "async loader exception should not cache an asset")) return false;
 
@@ -4390,6 +4559,8 @@ bool TestUIActorTreeCollectsDrawCommands()
     UISystem ui;
     if (!Check(ui.Initialize(&context, &context), "UISystem failed to initialize")) return false;
     ui.Resize(800, 600);
+    if (!Check(ui.IsSystemOverlayDocumentLoaded(),
+               "UISystem did not create the engine-level status overlay")) return false;
 
     UIDrawList drawList;
     {
@@ -4426,6 +4597,17 @@ bool TestUIActorTreeCollectsDrawCommands()
         ui.Update(scene, 0.016f);
         ui.CollectDrawData(scene, drawList);
     }
+    UISystemOverlayState overlay;
+    overlay.visible=true;overlay.error=true;overlay.progress=1.0f;
+    overlay.title="Unable to load scene";overlay.detail="diagnostic";
+    overlay.primaryHint="R / Enter: retry";overlay.secondaryHint="Esc: return";
+    ui.SetSystemOverlay(overlay);
+    UIDrawList overlayDrawList;
+    Scene safeScene("SafeWorld");
+    ui.Update(safeScene,0.016f);
+    ui.CollectDrawData(safeScene,overlayDrawList);
+    if(!Check(!overlayDrawList.Empty()&&ui.GetSystemOverlay().error,
+              "visible engine status overlay produced no recovery UI"))return false;
     ui.Shutdown();
     return Check(!drawList.Empty(), "ActorTree UI produced no draw commands");
 }
@@ -4776,7 +4958,7 @@ bool TestUIDrawListBatchContainer()
 
 bool TestIncrementalSceneLoadPlanAndCancellation()
 {
-    nlohmann::json root = {{"name", "Large"}, {"preloadAssets", {"Content/Textures/a.png"}}};
+    nlohmann::json root = {{"name", "Large"}, {"preloadAssets", {"Content/Scripts/Owned.as"}}};
     root["actors"] = nlohmann::json::array();
     for (uint64_t id = 1; id <= 128; ++id)
         root["actors"].push_back({{"id", id}, {"name", "Actor" + std::to_string(id)},
@@ -4798,8 +4980,1157 @@ bool TestIncrementalSceneLoadPlanAndCancellation()
     if (!Check(!manager.RequestLoad("../escape.scene.json") && manager.GetState() == SceneLoadState::Failed,
                "scene manager accepted unsafe asynchronous path")) return false;
     manager.CancelLoad();
-    return Check(manager.GetState() == SceneLoadState::Failed,
-                 "cancelling a terminal load changed its state");
+    if (!Check(manager.GetState() == SceneLoadState::Failed,
+               "cancelling a terminal load changed its state")) return false;
+    if(!Check(!manager.RetryLastLoad(),"invalid path unexpectedly became retryable"))return false;
+    manager.DismissFailure();
+    if(!Check(manager.GetState()==SceneLoadState::Idle&&manager.GetLastError().empty(),
+              "dismissing a load failure did not restore the safe world state"))return false;
+
+    namespace fs = std::filesystem;
+    const fs::path oldRoot = AssetManager::Get().GetProjectRoot();
+    const fs::path projectRoot = fs::temp_directory_path() / "myengine_scene_stage_test";
+    std::error_code ec; fs::remove_all(projectRoot, ec); fs::create_directories(projectRoot / "Content/Scenes", ec);
+    fs::create_directories(projectRoot / "Content/Scripts", ec);
+    std::ofstream(projectRoot / "Content/Scripts/Owned.as") << "class OwnedAsset {}\n";
+    {
+        nlohmann::json stagedRoot = root;
+        std::ofstream output(projectRoot / "Content/Scenes/Staged.scene.json");
+        output << stagedRoot.dump();
+        stagedRoot["name"]="Small";
+        stagedRoot["actors"].erase(stagedRoot["actors"].begin()+32,stagedRoot["actors"].end());
+        std::ofstream second(projectRoot / "Content/Scenes/Second.scene.json");
+        second << stagedRoot.dump();
+    }
+    AssetManager::Get().SetProjectRoot(projectRoot);
+    const size_t baselinePins=AssetManager::Get().GetCacheStats().pinnedAssets;
+    SceneManager staged;
+    if (!Check(staged.RequestLoad("Content/Scenes/Staged.scene.json") != 0,
+               "staged scene load request failed")) return false;
+    std::array<bool, 11> observed{};
+    std::unique_ptr<Scene> loaded;
+    for (int attempt = 0; attempt < 1000 && !loaded && staged.GetState() != SceneLoadState::Failed; ++attempt) {
+        observed[static_cast<size_t>(staged.GetState())] = true;
+        staged.Process(loaded);
+        observed[static_cast<size_t>(staged.GetState())] = true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    const bool stagesObserved = observed[static_cast<size_t>(SceneLoadState::Reading)] &&
+        observed[static_cast<size_t>(SceneLoadState::Parsing)] &&
+        observed[static_cast<size_t>(SceneLoadState::Preloading)] &&
+        observed[static_cast<size_t>(SceneLoadState::Instantiating)] &&
+        observed[static_cast<size_t>(SceneLoadState::Uploading)] &&
+        observed[static_cast<size_t>(SceneLoadState::Activating)] &&
+        observed[static_cast<size_t>(SceneLoadState::Ready)];
+    if(!Check(loaded && loaded->ActorCount() == 128 && stagesObserved,
+              "scene load did not traverse every production stage"))return false;
+    if(!Check(loaded->GetOwnedAssetPins().size()==1&&
+              loaded->GetOwnedAssetPins().front()=="Content/Scripts/Owned.as",
+              "activated scene did not adopt dependency ownership"))return false;
+    SceneLifetimeToken replacedToken=loaded->GetLifetimeToken();
+    const uint64_t replacedGeneration=replacedToken.GetGeneration();
+    {
+        SceneLifetimeGuard guard=replacedToken.TryAcquire();
+        if(!Check(static_cast<bool>(guard)&&guard.GetGeneration()==replacedGeneration,
+                  "live world lifetime guard could not be acquired"))return false;
+    }
+    const size_t baselineUploads=GpuUploadQueue::Get().PendingCount();
+    for(int transition=0;transition<20;++transition){
+        loaded.reset();staged.RequestLoad("Content/Scenes/Staged.scene.json");
+        if(transition==0&&!Check(!replacedToken.IsAlive(),
+              "destroyed world lifetime token remained valid"))return false;
+        if(transition==0&&!Check(!static_cast<bool>(replacedToken.TryAcquire()),
+              "destroyed world still granted a lifetime guard"))return false;
+        const bool replace=(transition%2)==1;
+        if(replace)staged.RequestLoad("Content/Scenes/Second.scene.json");
+        for(int attempt=0;attempt<1000&&!loaded&&staged.GetState()!=SceneLoadState::Failed;++attempt){
+            staged.Process(loaded);std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        if(!Check(loaded&&loaded->GetName()==(replace?"Small":"Large"),"repeated/replaced scene transition failed"))return false;
+    }
+    const AssetCacheStats cache=AssetManager::Get().GetCacheStats();
+    const bool ownedWhileAlive=cache.pinnedAssets==baselinePins+1&&
+        loaded->GetLifetimeGeneration()!=replacedGeneration;
+    SceneLifetimeToken finalToken=loaded->GetLifetimeToken();loaded.reset();
+    const AssetCacheStats releasedCache=AssetManager::Get().GetCacheStats();
+    bool abandonedReleased=false;
+    {
+        SceneManager abandoned;
+        abandoned.RequestLoad("Content/Scenes/Staged.scene.json");
+        std::unique_ptr<Scene> ignored;
+        for(int attempt=0;attempt<1000&&
+            AssetManager::Get().GetCacheStats().pinnedAssets==baselinePins;++attempt){
+            abandoned.Process(ignored);
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        if(!Check(AssetManager::Get().GetCacheStats().pinnedAssets==baselinePins+1,
+                  "in-flight scene request never acquired dependency ownership"))return false;
+    }
+    abandonedReleased=AssetManager::Get().GetCacheStats().pinnedAssets==baselinePins;
+    staged.RequestLoad("Content/Scenes/Missing.scene.json");
+    for(int attempt=0;attempt<1000&&staged.GetState()!=SceneLoadState::Failed;++attempt){
+        staged.Process(loaded);std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    const SceneLoadRequestID failedRequest=staged.GetRequestID();
+    const bool retryContract=staged.GetState()==SceneLoadState::Failed&&
+        !staged.GetLastError().empty()&&staged.RetryLastLoad()&&
+        staged.GetRequestID()==failedRequest+1&&staged.IsLoading()&&
+        std::string(SceneManager::StageName(staged.GetState()))=="Preparing";
+    staged.CancelLoad();
+    const bool bounded=cache.loadingAssets==0&&ownedWhileAlive&&!finalToken.IsAlive()&&
+        releasedCache.pinnedAssets==baselinePins&&
+        abandonedReleased&&retryContract&&staged.GetState()==SceneLoadState::Cancelled&&
+        GpuUploadQueue::Get().PendingCount()==baselineUploads;
+    AssetManager::Get().SetProjectRoot(oldRoot);fs::remove_all(projectRoot,ec);
+    return Check(bounded,"repeated scene transitions left async asset or GPU upload work queued");
+}
+
+bool TestWorldZoneOwnershipCancellationAndLifetime()
+{
+    const size_t baselinePins=AssetManager::Get().GetCacheStats().pinnedAssets;
+    Scene scene("ZoneOwnership");
+    Actor* actor=scene.CreateActor("ChunkActor");
+    Actor* transientActor=scene.CreateActor("TransientChunkActor");
+    const WorldZoneID zone=scene.CreateZone("forest.chunk.0");
+    if(!Check(zone!=0&&scene.CreateZone("forest.chunk.0")==0,
+              "zone stable names were not unique"))return false;
+    if(!Check(scene.AssignActorToZone(zone,actor->GetHandle())&&
+              scene.AssignActorToZone(zone,transientActor->GetHandle())&&
+              scene.PinAssetToZone(zone,"Content/Scripts/ZoneOwned.as")&&
+              scene.PinAssetToZone(zone,"Content/Scripts/ZoneOwned.as"),
+              "zone failed to adopt actor or idempotent asset pin"))return false;
+    const auto stats=scene.GetZoneStats();
+    if(!Check(stats.size()==1&&stats[0].actorCount==2&&stats[0].pinnedAssetCount==1&&
+              AssetManager::Get().GetCacheStats().pinnedAssets==baselinePins+1,
+              "zone ownership stats or pin accounting mismatch"))return false;
+    scene.DestroyActor(transientActor);
+    if(!Check(scene.GetZoneStats()[0].actorCount==1,
+              "independently destroyed actor remained in zone ownership"))return false;
+    WorldZoneLifetimeToken lifetime=scene.GetZoneLifetimeToken(zone);
+    const uint64_t generation=lifetime.GetGeneration();
+    if(!Check(generation!=0&&static_cast<bool>(lifetime.TryAcquire()),
+              "live zone did not grant a lifetime guard"))return false;
+    std::promise<void> started;
+    auto task=scene.SubmitZoneTask(zone,{"zone.streaming",TaskPriority::Normal},
+        [&](CancellationToken cancellation,WorldZoneLifetimeToken token){
+            started.set_value();
+            while(true){
+                cancellation.ThrowIfCancellationRequested();
+                if(!token.IsAlive())throw TaskCancelled{};
+                std::this_thread::yield();
+            }
+        });
+    started.get_future().wait();
+    if(!Check(scene.GetZoneStats()[0].taskCount==1,"zone task was not scope-owned"))return false;
+    if(!Check(scene.DestroyZone(zone),"zone destruction failed"))return false;
+    bool cancelled=false;try{task.Get();}catch(const TaskCancelled&){cancelled=true;}
+    return Check(cancelled&&!lifetime.IsAlive()&&!lifetime.TryAcquire()&&
+                 scene.GetZoneCount()==0&&scene.FindByName("ChunkActor")==nullptr&&
+                 AssetManager::Get().GetCacheStats().pinnedAssets==baselinePins,
+                 "zone teardown left task, actor, pin, or lifetime state alive");
+}
+
+bool TestWorldZoneStreamerDistancePortalBudgetAndTeardown()
+{
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "myengine_zone_streamer";
+    std::error_code ec;
+    fs::remove_all(root, ec);
+    fs::create_directories(root / "Content/Zones");
+    fs::create_directories(root / "Content/Data");
+    std::ofstream(root / "Content/Data/pin.bin", std::ios::binary) << "owned";
+    auto writeZone = [&](const std::string& name, int actorCount) {
+        nlohmann::json value = {{"version", 1},
+            {"preloadAssets", nlohmann::json::array({"Content/Data/pin.bin"})},
+            {"actors", nlohmann::json::array()}};
+        for (int index = 0; index < actorCount; ++index) {
+            nlohmann::json actor = {{"id", index + 1},
+                {"name", name + std::to_string(index)}};
+            if (index > 0) actor["parentID"] = index;
+            value["actors"].push_back(std::move(actor));
+        }
+        std::ofstream(root / "Content/Zones" / (name + ".scene.json"))
+            << value.dump(2);
+    };
+    writeZone("near", 5);
+    writeZone("far", 3);
+    writeZone("portal", 2);
+    writeZone("cancel", 64);
+    std::ofstream(root / "Content/Zones/bad.scene.json")
+        << R"({"version":1,"actors":[{"id":1,"parentID":999,"name":"BadCrossZone"}]})";
+
+    const fs::path previousRoot = AssetManager::Get().GetProjectRoot();
+    const size_t baselinePins = AssetManager::Get().GetCacheStats().pinnedAssets;
+    const uint64_t previousActorBudget=MemoryService::Get().GetSceneActorBudget();
+    AssetManager::Get().SetProjectRoot(root);
+    struct Cleanup {
+        fs::path root;
+        fs::path previous;
+        uint64_t actorBudget=0;
+        ~Cleanup() {
+            MemoryService::Get().SetSceneActorBudget(actorBudget);
+            AssetManager::Get().SetProjectRoot(previous);
+            std::error_code ec;
+            fs::remove_all(root, ec);
+        }
+    } cleanup{root, previousRoot,previousActorBudget};
+
+    Scene scene("StreamedWorld");
+    WorldZoneStreamer& streamer = scene.GetZoneStreamer();
+    streamer.SetBudgets(2, 1);
+    std::string error;
+    if (!Check(streamer.Register({"near", "Content/Zones/near.scene.json",
+                    Vec3::Zero(), Vec3(1, 1, 1), 10.0f, 20.0f,
+                    WorldZoneTriggerMode::Distance, false, 10}, &error) &&
+               streamer.Register({"far", "Content/Zones/far.scene.json",
+                    Vec3(100, 0, 0), Vec3(1, 1, 1), 10.0f, 20.0f,
+                    WorldZoneTriggerMode::Distance, false, 5}, &error) &&
+               streamer.Register({"portal", "Content/Zones/portal.scene.json",
+                    Vec3(1000, 0, 0), Vec3::Zero(), 0.0f, 0.0f,
+                    WorldZoneTriggerMode::Portal, false, 20}, &error) &&
+               !streamer.Register({"unsafe", "C:/outside.scene.json"}, &error),
+               "zone descriptor validation failed")) return false;
+
+    scene.BeginPlay();
+    streamer.SetObserverPosition(Vec3::Zero());
+    size_t peakActorsPerFrame = 0;
+    bool nearLoaded = false;
+    for (int attempt = 0; attempt < 300 && !nearLoaded; ++attempt) {
+        scene.OnUpdate(1.0f / 60.0f);
+        peakActorsPerFrame = (std::max)(peakActorsPerFrame,
+            streamer.GetStats().instantiatedActorsThisFrame);
+        const auto entries = streamer.GetEntryStats();
+        nearLoaded = std::any_of(entries.begin(), entries.end(), [](const auto& entry) {
+            return entry.stableName == "near" && entry.state == WorldZoneStreamState::Loaded &&
+                entry.instantiatedActors == 5 && entry.lifetimeGeneration != 0;
+        });
+        if (!nearLoaded) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    if (!Check(nearLoaded && scene.ActorCount() == 5 && scene.GetZoneCount() == 1 &&
+                   peakActorsPerFrame <= 2 &&
+                   AssetManager::Get().GetCacheStats().pinnedAssets == baselinePins + 1,
+               "distance zone did not load within actor/pin budgets")) return false;
+
+    streamer.SetObserverPosition(Vec3(15, 0, 0));
+    scene.OnUpdate(1.0f / 60.0f);
+    if (!Check(scene.FindByName("near0") != nullptr,
+               "zone unloaded inside hysteresis band")) return false;
+    streamer.SetObserverPosition(Vec3(100, 0, 0));
+    scene.OnUpdate(1.0f / 60.0f);
+    if (!Check(scene.FindByName("near0") == nullptr,
+               "teleport did not prioritize stale-zone unload")) return false;
+    bool farLoaded = false;
+    for (int attempt = 0; attempt < 300 && !farLoaded; ++attempt) {
+        scene.OnUpdate(1.0f / 60.0f);
+        farLoaded = scene.FindByName("far0") != nullptr &&
+            streamer.GetStats().loadedZones == 1;
+        if (!farLoaded) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    if (!Check(farLoaded && scene.FindByName("near0") == nullptr,
+               "high-speed observer teleport left the wrong zone active")) return false;
+
+    scene.Pause();
+    MemoryService::Get().SetSceneActorBudget(scene.ActorCount());
+    streamer.SetPortalOpen("portal", true);
+    bool actorBudgetBlocked=false;
+    for(int attempt=0;attempt<300&&!actorBudgetBlocked;++attempt){
+        scene.OnUpdate(1.0f/60.0f);
+        actorBudgetBlocked=streamer.GetStats().actorBudgetBlockedFrames>0;
+        if(!actorBudgetBlocked)std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    if(!Check(actorBudgetBlocked&&scene.FindByName("portal0")==nullptr,
+              "world-zone streamer ignored the global actor budget"))return false;
+    MemoryService::Get().SetSceneActorBudget(previousActorBudget);
+    bool portalLoaded = false;
+    for (int attempt = 0; attempt < 300 && !portalLoaded; ++attempt) {
+        scene.OnUpdate(1.0f / 60.0f);
+        portalLoaded = scene.FindByName("portal0") != nullptr;
+        if (!portalLoaded) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    if (!Check(portalLoaded,
+               "portal zone did not continue loading while simulation was paused")) return false;
+    streamer.SetPortalOpen("portal", false);
+    scene.OnUpdate(1.0f / 60.0f);
+    if (!Check(scene.FindByName("portal0") == nullptr,
+               "closing a portal did not unload its zone")) return false;
+
+    if (!Check(streamer.Register({"bad", "Content/Zones/bad.scene.json",
+                    Vec3::Zero(), Vec3::Zero(), 0.0f, 0.0f,
+                    WorldZoneTriggerMode::Portal, true, 100}, &error),
+               "bad-zone rollback fixture registration failed")) return false;
+    bool badFailed = false;
+    for (int attempt = 0; attempt < 300 && !badFailed; ++attempt) {
+        scene.OnUpdate(1.0f / 60.0f);
+        const auto entries = streamer.GetEntryStats();
+        badFailed = std::any_of(entries.begin(), entries.end(), [](const auto& entry) {
+            return entry.stableName == "bad" && entry.state == WorldZoneStreamState::Failed &&
+                !entry.lastError.empty();
+        });
+        if (!badFailed) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    if (!Check(badFailed && scene.FindByName("BadCrossZone") == nullptr,
+               "invalid cross-zone parent did not roll back atomically")) return false;
+
+    scene.Resume();
+    streamer.SetObserverPosition(Vec3::Zero());
+    if (!Check(streamer.Register({"cancel", "Content/Zones/cancel.scene.json",
+                    Vec3::Zero(), Vec3::Zero(), 5.0f, 6.0f,
+                    WorldZoneTriggerMode::Distance, false, 50}, &error),
+               "cancel zone registration failed")) return false;
+    bool cancelStarted = false;
+    for (int attempt = 0; attempt < 300 && !cancelStarted; ++attempt) {
+        scene.OnUpdate(1.0f / 60.0f);
+        const auto entries = streamer.GetEntryStats();
+        cancelStarted = std::any_of(entries.begin(), entries.end(), [](const auto& entry) {
+            return entry.stableName == "cancel" &&
+                (entry.state == WorldZoneStreamState::Instantiating ||
+                 entry.instantiatedActors > 0);
+        });
+        if (!cancelStarted) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    streamer.SetObserverPosition(Vec3(100, 0, 0));
+    scene.OnUpdate(1.0f / 60.0f);
+    const bool cancelledCleanly = scene.FindByName("cancel0") == nullptr;
+    scene.Clear();
+    return Check(cancelStarted && cancelledCleanly && scene.GetZoneCount() == 0 &&
+                     scene.ActorCount() == 0 &&
+                     AssetManager::Get().GetCacheStats().pinnedAssets == baselinePins,
+                 "cancelled/reset streaming left actors, zones, or pins alive");
+}
+
+bool TestGameFlowPauseOwnershipContract()
+{
+    Scene scene("FlowContract");
+    scene.BeginPlay();
+    GameFlowController flow;
+    scene.SetGameFlowController(&flow);
+
+    flow.EnterGameplay(&scene);
+    if (!Check(flow.GetState() == GameFlowState::Gameplay &&
+                   flow.GetInputOwner() == GameInputOwner::World &&
+                   !flow.IsPaused() && scene.GetState() == SceneState::Playing,
+               "gameplay flow contract was not applied")) return false;
+
+    flow.RequestPause(GamePauseReason::User, &scene);
+    flow.RequestPause(GamePauseReason::SystemModal, &scene);
+    if (!Check(flow.GetState() == GameFlowState::Paused,
+               "pause reasons did not enter Paused flow state")) return false;
+    if (!Check(flow.GetInputOwner() == GameInputOwner::UI,
+               "paused flow did not transfer input ownership to UI")) return false;
+    if (!Check(flow.HasPauseReason(GamePauseReason::User) &&
+                   flow.HasPauseReason(GamePauseReason::SystemModal),
+               "nested pause reasons were not retained")) return false;
+    if (!Check(scene.GetState() == SceneState::Paused,
+               "paused flow did not pause the scene")) return false;
+    if (!Check(AudioEngine::Get().IsPaused(),
+               "paused flow did not pause audio")) return false;
+    if (!Check(!Input::IsGameplayInputEnabled(),
+               "paused flow did not gate gameplay actions")) return false;
+
+    flow.ReleasePause(GamePauseReason::User, &scene);
+    if (!Check(flow.IsPaused() && scene.GetState() == SceneState::Paused,
+               "releasing one pause owner resumed simulation early")) return false;
+
+    flow.BeginLoading(&scene);
+    if (!Check(flow.GetState() == GameFlowState::Loading &&
+                   flow.GetInputOwner() == GameInputOwner::System && flow.GetSnapshot().modal,
+               "loading did not take system-modal ownership")) return false;
+    flow.FinishLoading(&scene, true);
+    if (!Check(flow.GetState() == GameFlowState::Paused,
+               "successful loading discarded an outstanding pause owner")) return false;
+
+    flow.ReleasePause(GamePauseReason::SystemModal, &scene);
+    if (!Check(flow.GetState() == GameFlowState::Gameplay &&
+                   scene.GetState() == SceneState::Playing && !AudioEngine::Get().IsPaused(),
+               "last pause owner did not restore gameplay atomically")) return false;
+
+    flow.BeginLoading(&scene);
+    flow.FinishLoading(&scene, false);
+    if (!Check(flow.GetState() == GameFlowState::Gameplay,
+               "failed loading did not restore the previous stable state")) return false;
+
+    flow.EnterGameOver(&scene);
+    const bool gameOverContract = flow.GetState() == GameFlowState::GameOver &&
+        flow.GetInputOwner() == GameInputOwner::UI && flow.IsPaused() &&
+        !flow.GetSnapshot().audioPaused;
+    flow.EnterGameplay(nullptr);
+    scene.EndPlay();
+    return Check(gameOverContract && !AudioEngine::Get().IsPaused(),
+                 "game-over or boot flow contract was inconsistent");
+}
+
+bool TestWindowFocusPausePolicyAndOwnership()
+{
+    SceneLayer layer("FocusPolicy");
+    layer.SetPauseWhenUnfocused(true);
+    if (!Check(layer.BeginPlay(), "focus-policy scene failed to enter play")) return false;
+    auto& flow = layer.GetGameFlowController();
+    Scene& scene = layer.GetSimulationScene();
+
+    flow.RequestPause(GamePauseReason::User, &scene);
+    Event lost;
+    lost.type = EventType::WindowFocusLost;
+    layer.OnEvent(lost);
+    if (!Check(!layer.IsWindowFocused() &&
+                   flow.HasPauseReason(GamePauseReason::WindowInactive) &&
+                   flow.HasPauseReason(GamePauseReason::User) && flow.IsPaused(),
+               "focus loss did not retain nested pause ownership")) return false;
+
+    Event gained;
+    gained.type = EventType::WindowFocusGained;
+    layer.OnEvent(gained);
+    if (!Check(layer.IsWindowFocused() &&
+                   !flow.HasPauseReason(GamePauseReason::WindowInactive) &&
+                   flow.HasPauseReason(GamePauseReason::User) && flow.IsPaused(),
+               "focus gain released another pause owner")) return false;
+    flow.ReleasePause(GamePauseReason::User, &scene);
+    if (!Check(!flow.IsPaused() && scene.GetState() == SceneState::Playing,
+               "last pause owner did not resume after focus gain")) return false;
+
+    layer.OnEvent(lost);
+    layer.SetPauseWhenUnfocused(false);
+    if (!Check(!flow.HasPauseReason(GamePauseReason::WindowInactive) && !flow.IsPaused(),
+               "disabling focus policy left a stale pause reason")) return false;
+    layer.StopPlay();
+
+    SceneLayer initiallyUnfocused("InitiallyUnfocused");
+    initiallyUnfocused.OnEvent(lost);
+    initiallyUnfocused.SetPauseWhenUnfocused(true);
+    if (!Check(initiallyUnfocused.BeginPlay() &&
+                   initiallyUnfocused.GetGameFlowController().HasPauseReason(
+                       GamePauseReason::WindowInactive),
+               "play started while unfocused without applying policy")) return false;
+    initiallyUnfocused.StopPlay();
+    return true;
+}
+
+bool TestSubtitleQueuePriorityBoundsAndAccessibility()
+{
+    SubtitleSystem subtitles;
+    std::string error;
+    if(!Check(!subtitles.Enqueue({"","","invalid",1.0f,0},&error),
+              "subtitle queue accepted an empty stable id"))return false;
+    if(!Check(subtitles.Enqueue({"ambient","Guide","Keep moving",2.0f,0},&error)&&
+              subtitles.GetState().stableId=="ambient",
+              "subtitle queue did not activate its first cue: "+error))return false;
+    subtitles.Update(0.5f);
+    if(!Check(subtitles.Enqueue({"warning","System","Danger",1.0f,10},&error)&&
+              subtitles.GetState().stableId=="warning"&&subtitles.GetState().queued==1,
+              "higher-priority subtitle did not preempt and preserve the active cue"))return false;
+    subtitles.Update(1.0f);
+    if(!Check(subtitles.GetState().stableId=="ambient"&&
+              NearlyEqual(subtitles.GetState().remainingSeconds,1.5f),
+              "preempted subtitle did not resume with its remaining duration"))return false;
+    if(!Check(subtitles.Enqueue({"ambient","Guide","Updated",3.0f,0},&error)&&
+              subtitles.GetState().text=="Updated"&&
+              NearlyEqual(subtitles.GetState().remainingSeconds,3.0f),
+              "same-id subtitle did not update in place"))return false;
+    subtitles.Clear();
+    if(!Check(subtitles.Enqueue({"active","","Active",10.0f,100},&error),
+              "subtitle queue setup failed"))return false;
+    for(size_t index=0;index<SubtitleSystem::MaxQueuedCues+5;++index)
+        if(!subtitles.Enqueue({"queued-"+std::to_string(index),"","Queued",1.0f,0},&error))return false;
+    if(!Check(subtitles.GetState().queued==SubtitleSystem::MaxQueuedCues&&
+              subtitles.GetState().dropped==5,
+              "subtitle queue did not enforce and report its bounded capacity"))return false;
+
+    UISystem ui;
+    if(!Check(ui.ShowSubtitle({"line","Hero","Hello",2.0f,0},&error)&&
+              ui.IsSubtitlePresented(),"UISystem did not expose an active subtitle"))return false;
+    UIAccessibilitySettings accessibility;
+    accessibility.subtitles=false;accessibility.subtitleScale=1.5f;accessibility.reduceCameraShake=true;
+    if(!Check(ui.SetAccessibilitySettings(accessibility,&error)&&
+              !ui.IsSubtitlePresented()&&ui.GetSubtitleState().visible&&
+              RuntimeAccessibility::GetReduceCameraShake()&&
+              NearlyEqual(RuntimeAccessibility::GetCameraShakeScale(),0.25f),
+              "live accessibility setting did not suppress presentation without losing the cue"))return false;
+    Scene feedbackScene("ReducedCameraFeedback");
+    Actor* camera=feedbackScene.CreateActor("Camera");
+    auto* feedback=camera->AddComponent<GameplayFeedbackComponent>();
+    feedback->Shake(1.0f,1.0f);feedback->OnLateUpdate(1.0f/60.0f);
+    const Vec3 reducedOffset=feedback->GetAppliedShakeOffset();
+    if(!Check(reducedOffset.Length()>0.0f&&reducedOffset.Length()<=0.25f*std::sqrt(3.0f)+0.0001f,
+              "reduced-camera-shake preference did not attenuate live gameplay feedback"))return false;
+    accessibility.subtitles=true;
+    const bool restored=ui.SetAccessibilitySettings(accessibility,&error)&&ui.IsSubtitlePresented();
+    accessibility.reduceCameraShake=false;ui.SetAccessibilitySettings(accessibility);
+    return Check(restored,"re-enabling subtitles did not restore the active cue");
+}
+
+bool TestRuntimeUIScreenStackFocusRestoreAndGameFlowIntegration()
+{
+    RuntimeUIScreenStack stack = RuntimeUIScreenStack::CreateStandard();
+    std::string error;
+    RuntimeUIScreenConfig projectScreens;
+    if(!Check(RuntimeUIScreenConfig::FromText(
+        R"({"version":1,"screens":[{"name":"mainMenu","title":"Project Menu","document":"Content/UI/Runtime/MainMenu.rml","actions":{"play":"Begin"}}]})",
+        projectScreens,&error)&&projectScreens.Apply(stack,&error)&&stack.ReplaceRoot("mainMenu")&&
+        stack.GetView().title=="Project Menu"&&
+        stack.GetView().documentPath=="Content/UI/Runtime/MainMenu.rml"&&
+        stack.GetView().actions[0].label=="Begin",
+        "project runtime screen config did not override visuals while preserving actions: "+error))return false;
+    RuntimeUIScreenConfig invalidScreens;
+    if(!Check(!RuntimeUIScreenConfig::FromText(
+        R"({"version":1,"screens":[{"name":"pause","title":"Bad","document":"../Pause.rml","actions":{}}]})",
+        invalidScreens,&error),"runtime screen config accepted path traversal"))return false;
+    stack=RuntimeUIScreenStack::CreateStandard();
+    if (!Check(!stack.Register({"pause", "Duplicate", true, true, {}}, &error),
+               "runtime screen registry accepted a duplicate stable name")) return false;
+    if (!Check(stack.Push("pause") && stack.Depth() == 1 &&
+                   stack.GetView().focusedIndex == 0,
+               "standard pause screen failed to open")) return false;
+
+    Event down;
+    down.type = EventType::KeyDown;
+    down.key.scancode = SDL_SCANCODE_DOWN;
+    RuntimeUIStackEvent event = stack.ProcessEvent(down);
+    if (!Check(event.type == RuntimeUIStackEventType::FocusChanged &&
+                   event.action == "settings" && stack.GetView().focusedIndex == 1,
+               "keyboard focus navigation was not deterministic")) return false;
+    Event confirm;
+    confirm.type = EventType::KeyDown;
+    confirm.key.scancode = SDL_SCANCODE_RETURN;
+    event = stack.ProcessEvent(confirm);
+    if (!Check(event.type == RuntimeUIStackEventType::Activated &&
+                   event.action == "settings" && stack.Push("settings"),
+               "focused runtime action did not activate")) return false;
+    Event cancel;
+    cancel.type = EventType::GamepadButtonDown;
+    cancel.gamepadButton.button = SDL_GAMEPAD_BUTTON_EAST;
+    event = stack.ProcessEvent(cancel);
+    if (!Check(event.type == RuntimeUIStackEventType::Dismissed &&
+                   stack.TopName() == "pause" && stack.GetView().focusedIndex == 1,
+               "closing a modal screen did not restore the previous focus")) return false;
+    stack.ReplaceRoot("mainMenu");
+    Event escape;
+    escape.type = EventType::KeyDown;
+    escape.key.scancode = SDL_SCANCODE_ESCAPE;
+    if (!Check(stack.ProcessEvent(escape).type == RuntimeUIStackEventType::None &&
+                   stack.TopName() == "mainMenu",
+               "non-dismissible root screen was dismissed")) return false;
+
+    MockRenderContext context;
+    const std::filesystem::path settingsRoot = std::filesystem::temp_directory_path() /
+        "myengine_runtime_screen_settings";
+    std::error_code settingsEc;
+    std::filesystem::remove_all(settingsRoot, settingsEc);
+    RuntimeUserSettingsStore::SetStorageRoot(settingsRoot);
+    RuntimeUserSettingsStore::Save(RuntimeUserSettingsStore::Defaults());
+    AudioEngine::Get().SetMasterVolume(1.0f);
+    struct SettingsCleanup {
+        std::filesystem::path root;
+        ~SettingsCleanup() {
+            RuntimeUserSettingsStore::ClearStorageRootOverride();
+            std::error_code ec;
+            std::filesystem::remove_all(root, ec);
+            AudioEngine::Get().SetMasterVolume(1.0f);
+        }
+    } settingsCleanup{settingsRoot};
+    SceneRenderLayer layer(&context, 800, 600);
+    layer.SetPresentEnabled(false);
+    layer.SetRuntimeScreensEnabled(true);
+    if(!Check(layer.LoadRuntimeScreenConfig(RuntimeUIScreenConfig::DefaultPath,&error),
+              "checked-in project runtime screens failed to load: "+error))return false;
+    layer.OnAttach();
+    if (!Check(layer.BeginPlay(), "runtime-screen layer failed to enter play")) {
+        layer.OnDetach();
+        return false;
+    }
+    layer.OnEvent(escape);
+    if (!Check(escape.handled && layer.GetGameFlowController().GetState() ==
+                   GameFlowState::Paused &&
+                   layer.GetRuntimeScreenStack().TopName() == "pause" &&
+                   !Input::IsGameplayInputEnabled(),
+               "Escape did not atomically open the Pause screen")) {
+        layer.OnDetach();
+        return false;
+    }
+    layer.OnUpdate(0.0f);
+    if(!Check(layer.GetUISystemDiagnostics().projectRuntimeScreenActive&&
+              layer.GetUISystemDiagnostics().runtimeScreenDocument==
+                  "Content/UI/Runtime/Pause.rml",
+              "project-authored Pause document did not replace the generated screen")){
+        layer.OnDetach();return false;
+    }
+    bool pointerFocusedAction = false;
+    for (int y = 100; y < 500 && !pointerFocusedAction; y += 10) {
+        for (int x = 240; x < 560 && !pointerFocusedAction; x += 20) {
+            Event pointerMove;
+            pointerMove.type = EventType::MouseMove;
+            pointerMove.mouseMove.x = x;
+            pointerMove.mouseMove.y = y;
+            layer.OnEvent(pointerMove);
+            pointerFocusedAction = layer.GetRuntimeScreenStack().GetView().focusedIndex != 0;
+        }
+    }
+    if (!Check(pointerFocusedAction,
+               "pointer hover did not move runtime-screen focus")) {
+        layer.OnDetach();
+        return false;
+    }
+    layer.GetRuntimeScreenStack().SetFocusedIndex(0);
+    Event pauseDown;
+    pauseDown.type = EventType::KeyDown;
+    pauseDown.key.scancode = SDL_SCANCODE_DOWN;
+    layer.OnEvent(pauseDown);
+    Event openSettings;
+    openSettings.type = EventType::KeyDown;
+    openSettings.key.scancode = SDL_SCANCODE_RETURN;
+    layer.OnEvent(openSettings);
+    if (!Check(layer.GetRuntimeScreenStack().TopName() == "settings",
+               "Pause Settings action did not open the settings modal")) {
+        layer.OnDetach();
+        return false;
+    }
+    Event lowerMaster;
+    lowerMaster.type = EventType::KeyDown;
+    lowerMaster.key.scancode = SDL_SCANCODE_RETURN;
+    layer.OnEvent(lowerMaster);
+    RuntimeUserSettings persistedSettings;
+    if (!Check(NearlyEqual(AudioEngine::Get().GetMasterVolume(), 0.9f) &&
+                   RuntimeUserSettingsStore::Load(persistedSettings) &&
+                   NearlyEqual(persistedSettings.audio.master, 0.9f),
+               "runtime Settings did not apply and persist mixer changes")) {
+        layer.OnDetach();
+        return false;
+    }
+    layer.GetRuntimeScreenStack().SetFocusedIndex(9);
+    Event increaseUIScale;
+    increaseUIScale.type=EventType::KeyDown;
+    increaseUIScale.key.scancode=SDL_SCANCODE_RETURN;
+    layer.OnEvent(increaseUIScale);
+    if(!Check(RuntimeUserSettingsStore::Load(persistedSettings)&&
+                  NearlyEqual(persistedSettings.accessibility.uiScale,1.1f)&&
+                  NearlyEqual(layer.GetUISystemDiagnostics().effectiveScale,1.1f),
+              "runtime Settings did not apply and persist UI scale")){
+        layer.OnDetach();return false;
+    }
+    layer.GetRuntimeScreenStack().SetFocusedIndex(10);
+    Event toggleSubtitles=increaseUIScale;
+    toggleSubtitles.handled=false;
+    layer.OnEvent(toggleSubtitles);
+    if(!Check(RuntimeUserSettingsStore::Load(persistedSettings)&&
+                  !persistedSettings.accessibility.subtitles,
+              "runtime Settings did not apply and persist subtitle preference")){
+        layer.OnDetach();return false;
+    }
+    std::string safeAreaError;
+    if(!Check(layer.SetUISafeAreaInsets({0.05f,0.05f,0.05f,0.05f},&safeAreaError)&&
+                  layer.GetUISystemDiagnostics().safeWidth==720&&
+                  layer.GetUISystemDiagnostics().safeHeight==540&&
+                  !layer.SetUISafeAreaInsets({0.5f,0.0f,0.5f,0.0f},&safeAreaError),
+              "runtime UI safe-area validation or diagnostics failed")){
+        layer.OnDetach();return false;
+    }
+    Event closeSettings;
+    closeSettings.type = EventType::KeyDown;
+    closeSettings.key.scancode = SDL_SCANCODE_ESCAPE;
+    layer.OnEvent(closeSettings);
+    if (!Check(layer.GetRuntimeScreenStack().TopName() == "pause" &&
+                   layer.GetRuntimeScreenStack().GetView().focusedIndex == 1,
+               "closing Settings did not restore Pause focus")) {
+        layer.OnDetach();
+        return false;
+    }
+    Event pauseUp;
+    pauseUp.type = EventType::KeyDown;
+    pauseUp.key.scancode = SDL_SCANCODE_UP;
+    layer.OnEvent(pauseUp);
+    Event resume;
+    resume.type = EventType::KeyDown;
+    resume.key.scancode = SDL_SCANCODE_RETURN;
+    layer.OnEvent(resume);
+    if (!Check(resume.handled && layer.GetGameFlowController().GetState() ==
+                   GameFlowState::Gameplay && layer.GetRuntimeScreenStack().Empty() &&
+                   Input::IsGameplayInputEnabled(),
+               "Resume did not close the modal and restore gameplay ownership")) {
+        layer.OnDetach();
+        return false;
+    }
+    layer.GetGameFlowController().EnterGameOver(&layer.GetSimulationScene());
+    layer.OnUpdate(0.0f);
+    const bool gameOverVisible = layer.GetRuntimeScreenStack().TopName() == "gameOver" &&
+        layer.GetGameFlowController().IsPaused();
+    layer.StopPlay();
+    layer.OnDetach();
+    return Check(gameOverVisible, "GameOver flow did not select its standard runtime screen");
+}
+
+bool TestRuntimeScreenConfigCookValidation()
+{
+    namespace fs=std::filesystem;
+    const fs::path root=fs::temp_directory_path()/"myengine_runtime_screen_cook";
+    std::error_code ec;fs::remove_all(root,ec);
+    fs::create_directories(root/"Content/Scenes");
+    fs::create_directories(root/"Content/Config");
+    fs::create_directories(root/"Content/UI/Runtime");
+    std::ofstream(root/"Content/Scenes/Main.scene.json")<<R"({"version":1,"actors":[]})";
+    const fs::path configPath=root/"Content/Config/RuntimeScreens.ui.json";
+    std::ofstream(configPath)<<R"({"version":1,"screens":[{"name":"pause","title":"Pause","document":"Content/UI/Runtime/Pause.rml","actions":{"unknown":"Bad"}}]})";
+    std::ofstream(root/"Content/UI/Runtime/Pause.rml")<<"<rml/>";
+    PublishPreflightReport report;
+    if(!Check(!CookDependencyGraph::Validate(root,report)&&!report.errors.empty(),
+              "cook validation accepted an unknown project runtime-screen action")){
+        fs::remove_all(root,ec);return false;
+    }
+    std::ofstream(configPath,std::ios::trunc)<<R"({"version":1,"screens":[{"name":"pause","title":"Pause","document":"Content/UI/Runtime/Pause.rml","actions":{"resume":"Continue"}}]})";
+    const bool valid=CookDependencyGraph::Validate(root,report);
+    const bool cookedDocument=std::find(report.visitedAssets.begin(),report.visitedAssets.end(),
+        "Content/UI/Runtime/Pause.rml")!=report.visitedAssets.end();
+    fs::remove_all(root,ec);
+    return Check(valid&&cookedDocument,
+                 "valid project runtime-screen config did not retain its Rml cook dependency: "+report.Summary());
+}
+
+bool TestInputGlyphAtlasCookValidation()
+{
+    namespace fs=std::filesystem;
+    const fs::path root=fs::temp_directory_path()/"myengine_input_glyph_cook";
+    std::error_code ec;fs::remove_all(root,ec);
+    fs::create_directories(root/"Content/Scenes");fs::create_directories(root/"Content/Config");
+    fs::create_directories(root/"Content/UI/Glyphs");
+    std::ofstream(root/"Content/Scenes/Main.scene.json")<<R"({"version":1,"actors":[]})";
+    const fs::path config=root/"Content/Config/InputGlyphs.glyph.json";
+    std::ofstream(config)<<R"({"version":99,"atlas":"Content/UI/Glyphs/Atlas.svg","defaultLocale":"en","families":{}})";
+    std::ofstream(root/"Content/UI/Glyphs/Atlas.svg")<<"<svg/>";
+    PublishPreflightReport report;
+    if(!Check(!CookDependencyGraph::Validate(root,report),
+              "cook validation accepted a future glyph-atlas version")){
+        fs::remove_all(root,ec);return false;
+    }
+    std::ofstream(config,std::ios::trunc)<<R"({"version":1,"atlas":"Content/UI/Glyphs/Atlas.svg","defaultLocale":"en","families":{"xbox":{"Gamepad/South":{"sprite":"a","labels":{"en":"A"}}}}})";
+    const bool valid=CookDependencyGraph::Validate(root,report);
+    const bool included=std::find(report.visitedAssets.begin(),report.visitedAssets.end(),
+        "Content/UI/Glyphs/Atlas.svg")!=report.visitedAssets.end();
+    fs::remove_all(root,ec);
+    return Check(valid&&included,"valid glyph atlas did not retain its SVG cook dependency: "+report.Summary());
+}
+
+bool TestProjectRuntimeScreenInvalidDocumentFallsBack()
+{
+    MockRenderContext context;
+    UISystem ui;
+    if(!Check(ui.Initialize(&context,&context),"fallback UISystem failed to initialize"))return false;
+    RuntimeUIScreenStack stack=RuntimeUIScreenStack::CreateStandard();
+    std::string error;
+    if(!Check(stack.ApplyProjectOverride("pause","Broken Project Pause",
+            "Content/UI/RmlExample.rml",{},&error)&&stack.Push("pause"),
+            "fallback test could not configure project screen: "+error)){
+        ui.Shutdown();return false;
+    }
+    ui.SetRuntimeScreen(stack.GetView());
+    const UISystemDiagnostics diagnostics=ui.GetDiagnostics();
+    ui.Shutdown();
+    return Check(!diagnostics.projectRuntimeScreenActive&&
+                 diagnostics.runtimeScreenFallbacks==1&&
+                 diagnostics.runtimeScreenDocument=="generated://runtime-screen.rml",
+                 "invalid project Rml contract did not select and report the standard fallback");
+}
+
+bool TestRuntimePerformanceBudgetEvaluation()
+{
+    RuntimePerformanceBudget budget;
+    budget.warmupSamples = 2;
+    budget.minimumSamples = 8;
+    budget.maxP95FrameMs = 20.0;
+    budget.maxP99FrameMs = 25.0;
+    budget.maxFrameMs = 30.0;
+    budget.maxP95GpuMs = 15.0;
+    budget.maxWorkingSetGrowthBytes = 64;
+    budget.maxDroppedFixedTicks = 0;
+    RuntimePerformanceGate gate(budget);
+    for (uint64_t i = 0; i < 10; ++i) {
+        gate.AddSample({10.0 + static_cast<double>(i), 2.0, 5.0, 8.0,
+                        100 + i * 4, 0, true});
+    }
+    const RuntimePerformanceReport passing = gate.Evaluate();
+    if (!Check(passing.passed && passing.summary.sampleCount == 8 &&
+               passing.summary.p50FrameMs > 14.0 &&
+               passing.summary.p95FrameMs < 20.0 &&
+               passing.summary.gpuSampleCount == 8 &&
+               passing.summary.workingSetGrowthBytes == 28,
+               "valid runtime performance sample window failed its budget")) return false;
+    const nlohmann::json json = nlohmann::json::parse(passing.ToJson());
+    if (!Check(json.value("passed", false) &&
+               json["summary"].value("sampleCount", 0) == 8 &&
+               json["samples"].size() == 8 &&
+               json["samples"][0].value("workingSetBytes", 0ull) == 108,
+               "runtime performance report JSON lost summary data")) return false;
+#if defined(MYENGINE_PLATFORM_WINDOWS)
+    if (!Check(GetCurrentProcessWorkingSetBytes() > 0,
+               "Windows process working-set sampler returned zero")) return false;
+#endif
+
+    budget.maxP95FrameMs = 12.0;
+    budget.maxWorkingSetGrowthBytes = 8;
+    budget.maxDroppedFixedTicks = 0;
+    RuntimePerformanceGate failing(budget);
+    for (uint64_t i = 0; i < 10; ++i) {
+        failing.AddSample({14.0, 2.0, 5.0, 9.0, 100 + i * 4,
+                           static_cast<uint32_t>(i == 9), true});
+    }
+    const RuntimePerformanceReport failed = failing.Evaluate();
+    if (!Check(!failed.passed && failed.violations.size() == 3 &&
+               failed.summary.droppedFixedTicks == 1,
+               "frame, memory, and fixed-tick budget violations were not deterministic")) return false;
+
+    RuntimePerformanceBudget insufficientBudget;
+    insufficientBudget.minimumSamples = 2;
+    RuntimePerformanceGate insufficient(insufficientBudget);
+    insufficient.AddSample({});
+    return Check(!insufficient.Evaluate().passed,
+                 "runtime performance gate accepted too few samples");
+}
+
+bool TestRuntimeResourceBudgetEvictionUploadAndActorPressure()
+{
+    AssetManager& assets=AssetManager::Get();assets.Clear();
+    const size_t oldCpuBudget=assets.GetAssetCpuBudgetBytes();
+    const uint64_t oldActorBudget=MemoryService::Get().GetSceneActorBudget();
+    GpuUploadQueue& uploads=GpuUploadQueue::Get();uploads.Clear();uploads.ResetStatistics();
+    struct Cleanup { AssetManager& assets;GpuUploadQueue& uploads;size_t cpu;uint64_t actors;
+        ~Cleanup(){uploads.Clear();uploads.ResetStatistics();assets.Clear();
+            assets.SetAssetCpuBudgetBytes(cpu);MemoryService::Get().SetSceneActorBudget(actors);}
+    } cleanup{assets,uploads,oldCpuBudget,oldActorBudget};
+
+    auto createTexture=[&](const std::string& path){
+        auto texture=std::make_shared<TextureAsset>(path);TextureDesc desc;desc.width=16;desc.height=16;
+        texture->SetPixelData(std::vector<uint8_t>(16*16*4,255),desc);
+        return assets.Register(std::move(texture));
+    };
+    auto oldest=createTexture("Content/Budget/Oldest.png");
+    auto pinned=createTexture("Content/Budget/Pinned.png");
+    auto referenced=createTexture("Content/Budget/Referenced.png");
+    oldest.Reset();pinned.Reset();assets.Pin("Content/Budget/Pinned.png");
+    const size_t bytesBefore=assets.GetEstimatedAssetCpuBytes();
+    AssetGarbageCollectionReport gc=assets.CollectGarbageDetailed({bytesBefore-1,0.25f,1});
+    if(!Check(gc.budgetExceeded&&gc.evictions.size()==1&&
+              gc.evictions.front().path=="Content/Budget/Oldest.png"&&
+              gc.blockedPinnedAssets==1&&gc.blockedReferencedAssets==1&&
+              gc.bytesAfter<gc.bytesBefore&&!gc.targetReached,
+              "asset budget report did not deterministically evict LRU or expose blockers"))return false;
+    const AssetCacheStats cache=assets.GetCacheStats();
+    if(!Check(cache.budgetCollections==1&&cache.evictedAssets==1&&
+              cache.evictedBytes==gc.evictions.front().estimatedCpuBytes,
+              "asset budget cumulative statistics are inconsistent"))return false;
+    assets.Unpin("Content/Budget/Pinned.png");referenced.Reset();assets.Clear();
+
+    int executed=0;
+    uploads.Enqueue([&](IRHIDevice&){++executed;},100);
+    uploads.Enqueue([&](IRHIDevice&){++executed;},100);
+    uploads.Enqueue([&](IRHIDevice&){++executed;},100);
+    MockRenderContext device;
+    GpuUploadBudget oneTask;oneTask.maxTasks=1;oneTask.maxBytes=1000;oneTask.maxMilliseconds=0;
+    uploads.Process(device,oneTask);
+    GpuUploadBudget byteLimited;byteLimited.maxTasks=8;byteLimited.maxBytes=150;byteLimited.maxMilliseconds=0;
+    uploads.Process(device,byteLimited);
+    GpuUploadQueueStats uploadStats=uploads.GetStats();
+    if(!Check(executed==2&&uploadStats.pendingTasks==1&&uploadStats.pendingBytes==100&&
+              uploadStats.peakPendingBytes==300&&uploadStats.processedBytes==200&&
+              uploadStats.taskBudgetDeferrals==1&&uploadStats.byteBudgetDeferrals==1,
+              "GPU upload backlog accounting or budget deferral statistics failed"))return false;
+
+    RuntimeResourceBudgetController controller;RuntimeResourceBudgetConfig config;
+    const RHIResourceStats rhiBaseline=RHIResourceStatsProvider::GetStats();
+    auto pressuredBuffer=std::make_shared<GpuBuffer>();pressuredBuffer->desc.size=128;
+    CommitRHIResourceAccounting(pressuredBuffer);
+    auto pressuredViewA=std::make_shared<GpuTextureView>();
+    auto pressuredViewB=std::make_shared<GpuTextureView>();
+    config.assetCpuHighWatermarkBytes=1024;config.maxLiveActors=1;
+    config.maxPendingUploadBytes=50;config.maxPendingUploadTasks=1;
+    config.maxGpuResourceBytes=rhiBaseline.liveResourceBytes+64;
+    config.gpuResourceLowWatermarkRatio=1.0f;
+    config.maxLogicalDescriptors=rhiBaseline.liveDescriptors+1;
+    config.descriptorLowWatermarkRatio=1.0f;
+    config.pressureFramesBeforeQualityDegrade=1;
+    config.healthyFramesBeforeQualityRestore=1;
+    config.perFrameUpload=oneTask;
+    std::string error;
+    if(!Check(controller.Configure(config,&error),"resource budget configure failed: "+error))return false;
+    Scene scene("BudgetActors");scene.CreateActor("A");scene.CreateActor("B");
+    const auto& report=controller.Tick();
+    if(!Check(report.actorPressure&&report.uploadPressure&&report.gpuResourcePressure&&
+               report.descriptorPressure&&report.violations.size()==4&&
+               report.qualityDegradationLevel==1&&report.qualityDegradationTransitions==1&&
+              report.liveActors>=2&&report.uploads.pendingBytes==100&&
+              report.pressureFrames==1&&report.violationTransitions==1,
+              "resource controller did not aggregate actor/upload pressure"))return false;
+    const RuntimeResourceFrameStats frameResources=FrameStatsProvider::GetResourceStats();
+    if(!Check(frameResources.actorPressure&&frameResources.uploadPressure&&
+              frameResources.gpuResourcePressure&&frameResources.descriptorPressure&&
+              frameResources.pendingUploadBytes==100&&frameResources.liveActors>=2,
+              "resource pressure was not published to frame statistics"))return false;
+    pressuredViewA.reset();pressuredViewB.reset();pressuredBuffer.reset();
+    scene.Clear();uploads.Process(device,byteLimited);controller.Tick();
+    return Check(!controller.GetLastReport().actorPressure&&
+                 !controller.GetLastReport().uploadPressure&&
+                 !controller.GetLastReport().gpuResourcePressure&&
+                 !controller.GetLastReport().descriptorPressure&&
+                  controller.GetLastReport().qualityDegradationLevel==0&&
+                  controller.GetLastReport().qualityDegradationTransitions==2&&
+                 controller.GetLastReport().violationTransitions==2,
+                 "resource pressure hysteresis did not return to a healthy state");
+}
+
+bool TestRHIResidencyDescriptorAndRenderGraphTransientBudgets()
+{
+    const RHIResourceStats baseline=RHIResourceStatsProvider::GetStats();
+    RHIResourceStatsProvider::AddNativeDescriptorSlots(RHINativeDescriptorKind::Resource,2);
+    RHIResourceStatsProvider::AddNativeDescriptorSlots(RHINativeDescriptorKind::Sampler);
+    RHIResourceStatsProvider::RecordNativeDescriptorAllocationFailure(
+        RHINativeDescriptorKind::Resource);
+    const RHIResourceStats nativeLive=RHIResourceStatsProvider::GetStats();
+    const bool nativeAccountingOk=
+        nativeLive.liveNativeDescriptorSlots==baseline.liveNativeDescriptorSlots+3&&
+        nativeLive.liveNativeResourceSlots==baseline.liveNativeResourceSlots+2&&
+        nativeLive.liveNativeSamplerSlots==baseline.liveNativeSamplerSlots+1&&
+        nativeLive.failedNativeDescriptorAllocations==
+            baseline.failedNativeDescriptorAllocations+1;
+    RHIResourceStatsProvider::ReleaseNativeDescriptorSlots(RHINativeDescriptorKind::Resource,2);
+    RHIResourceStatsProvider::ReleaseNativeDescriptorSlots(RHINativeDescriptorKind::Sampler);
+    if(!Check(nativeAccountingOk,
+              "native descriptor slot accounting or exhaustion diagnostics failed"))return false;
+    {
+        auto buffer=std::make_shared<GpuBuffer>();buffer->desc.size=128;
+        CommitRHIResourceAccounting(buffer);
+        auto texture=std::make_shared<GpuTexture>();texture->desc.width=8;texture->desc.height=8;
+        CommitRHIResourceAccounting(texture);
+        auto view=std::make_shared<GpuTextureView>();view->texture=texture;
+        const RHIResourceStats live=RHIResourceStatsProvider::GetStats();
+        if(!Check(live.liveBuffers==baseline.liveBuffers+1&&live.liveTextures==baseline.liveTextures+1&&
+                  live.liveBufferBytes==baseline.liveBufferBytes+128&&
+                  live.liveTextureBytes==baseline.liveTextureBytes+256&&
+                  live.liveDescriptors==baseline.liveDescriptors+1,
+                  "RHI lifetime accounting did not track bytes or logical descriptors"))return false;
+    }
+    const RHIResourceStats released=RHIResourceStatsProvider::GetStats();
+    if(!Check(released.liveBuffers==baseline.liveBuffers&&released.liveTextures==baseline.liveTextures&&
+              released.liveResourceBytes==baseline.liveResourceBytes&&
+              released.liveDescriptors==baseline.liveDescriptors,
+              "RHI lifetime accounting did not release resource totals"))return false;
+
+    MockRenderContext device;
+    RenderGraph constrained(device);RenderGraphResourceBudget tiny;
+    tiny.maxTransientBytes=100;tiny.maxTransientResources=8;tiny.maxTransientDescriptors=8;
+    tiny.maxPooledBytes=1024;
+    std::string error;
+    if(!Check(constrained.SetResourceBudget(tiny,&error),"valid graph budget rejected: "+error))return false;
+    RHITextureDesc desc;desc.width=8;desc.height=8;
+    desc.usage=RHIResourceUsage::RenderTarget|RHIResourceUsage::ShaderResource;
+    const auto tooLarge=constrained.CreateTexture("TooLarge",desc);
+    constrained.SetFinalState(tooLarge,RHIResourceState::ShaderResource);
+    constrained.AddPass("Write",[&](RenderGraphBuilder& b){b.WriteColor(tooLarge);},
+        [](GpuCommandList&,const RenderGraphResources&){});
+    if(!Check(!constrained.Execute(device.commands)&&
+              constrained.GetLastErrorCode()==RenderGraph::ErrorCode::TransientBudgetExceeded&&
+              constrained.GetResourceStats().transientBudgetExceeded&&device.graphTextureCreates==0,
+              "RenderGraph allocated resources beyond its transient hard budget"))return false;
+
+    RenderGraph pooled(device);RenderGraphResourceBudget poolBudget;
+    poolBudget.maxTransientBytes=1024;poolBudget.maxTransientResources=8;
+    poolBudget.maxTransientDescriptors=8;poolBudget.maxPooledBytes=1024;
+    pooled.SetResourceBudget(poolBudget);
+    auto build=[&](){const auto handle=pooled.CreateTexture("Reusable",desc);
+        pooled.SetFinalState(handle,RHIResourceState::ShaderResource);
+        pooled.AddPass("Write",[handle](RenderGraphBuilder& b){b.WriteColor(handle);},
+            [](GpuCommandList&,const RenderGraphResources&){});};
+    build();if(!Check(pooled.Execute(device.commands),"initial budgeted graph failed"))return false;
+    const int creates=device.graphTextureCreates;
+    if(!Check(pooled.GetResourceStats().transientRequestedBytes==256&&
+              pooled.GetResourceStats().transientAllocatedBytes==256,
+              "RenderGraph initial transient statistics are incorrect"))return false;
+    pooled.Reset();build();
+    if(!Check(pooled.Execute(device.commands)&&device.graphTextureCreates==creates&&
+              pooled.GetResourceStats().transientReusedBytes==256,
+              "RenderGraph pool reuse was not accounted deterministically"))return false;
+    pooled.Reset();poolBudget.maxPooledBytes=100;poolBudget.poolLowWatermarkRatio=0.5f;
+    pooled.SetResourceBudget(poolBudget);build();
+    if(!Check(pooled.Execute(device.commands),"graph before pool pressure failed"))return false;
+    pooled.Reset();
+    return Check(pooled.GetResourceStats().pooledBytes<=50&&
+                 pooled.GetResourceStats().poolEvictions==1&&
+                 pooled.GetResourceStats().poolEvictedBytes==256,
+                 "RenderGraph pool did not evict to its deterministic low watermark");
+}
+
+bool TestRuntimePerformanceProfileMigrationAndValidation()
+{
+    RuntimePerformanceProfile profile;
+    std::string error;
+    const nlohmann::json legacy = {
+        {"name", "legacy-desktop"},
+        {"hardwareClass", "desktop-discrete"},
+        {"warmupSamples", 10},
+        {"minimumSamples", 20},
+        {"maxP95FrameMs", 18.0},
+        {"maxP99FrameMs", 28.0},
+        {"maxFrameMs", 80.0},
+        {"maxP95GpuMs", 16.0},
+        {"maxWorkingSetGrowthBytes", 1024},
+        {"maxDroppedFixedTicks", 1}
+    };
+    if (!Check(RuntimePerformanceProfile::FromJson(legacy, profile, &error) &&
+               profile.version == RuntimePerformanceProfile::CurrentVersion &&
+               profile.scenario=="warm-gameplay"&&profile.resourceBudgetScale==1.0&&
+               profile.maxInitialSceneReadyMs==10000.0&&profile.maxSceneReloadMs==5000.0&&
+               profile.budget.minimumSamples == 20 &&
+               profile.budget.maxP95FrameMs == 18.0,
+               "legacy performance profile migration failed: " + error)) return false;
+    RuntimePerformanceProfile roundTrip;
+    if (!Check(RuntimePerformanceProfile::FromJson(profile.ToJson(), roundTrip, &error) &&
+                roundTrip.name == profile.name &&
+                roundTrip.scenario==profile.scenario&&
+                roundTrip.maxInitialSceneReadyMs==profile.maxInitialSceneReadyMs&&
+               roundTrip.budget.maxWorkingSetGrowthBytes == 1024,
+               "performance profile round trip failed: " + error)) return false;
+    nlohmann::json invalid = profile.ToJson();
+    invalid["budget"]["maxP95FrameMs"] = 40.0;
+    invalid["budget"]["maxP99FrameMs"] = 20.0;
+    if (!Check(!RuntimePerformanceProfile::FromJson(invalid, roundTrip, &error),
+                "invalid percentile ordering was accepted")) return false;
+    invalid=profile.ToJson();invalid["scenario"]="unknown";
+    if(!Check(!RuntimePerformanceProfile::FromJson(invalid,roundTrip,&error),
+              "unknown performance scenario was accepted"))return false;
+    invalid=profile.ToJson();invalid["resourceBudgetScale"]=0.0;
+    if(!Check(!RuntimePerformanceProfile::FromJson(invalid,roundTrip,&error),
+              "zero resource budget scale was accepted"))return false;
+    invalid=profile.ToJson();invalid["maxInitialSceneReadyMs"]=0.0;
+    if(!Check(!RuntimePerformanceProfile::FromJson(invalid,roundTrip,&error),
+              "zero initial scene ready budget was accepted"))return false;
+    const std::array<const char*,4> scenarioFiles={
+        "cold-start","warm-gameplay","scene-transition","resource-stress"};
+    for(const char* scenario:scenarioFiles){
+        const std::filesystem::path path=std::filesystem::path("Content/Config/PerformanceProfiles")/
+            (std::string(scenario)+".profile.json");
+        std::ifstream input(path);
+        nlohmann::json checkedIn;
+        if(!Check(input.good(),"checked-in performance profile is missing: "+path.string()))return false;
+        try{input>>checkedIn;}catch(const std::exception& exception){
+            return Check(false,"checked-in performance profile JSON failed: "+std::string(exception.what()));
+        }
+        RuntimePerformanceProfile parsed;
+        if(!Check(RuntimePerformanceProfile::FromJson(checkedIn,parsed,&error)&&
+                  parsed.version==RuntimePerformanceProfile::CurrentVersion&&
+                  parsed.scenario==scenario,
+                  "checked-in performance profile failed validation: "+path.string()+" "+error))return false;
+    }
+    nlohmann::json future = profile.ToJson();
+    future["version"] = 99;
+    return Check(!RuntimePerformanceProfile::FromJson(future, roundTrip, &error),
+                 "future performance profile version was accepted");
+}
+
+bool TestRuntimeUserSettingsPersistenceValidationAndRecovery()
+{
+    namespace fs=std::filesystem;
+    const fs::path root=fs::temp_directory_path()/"myengine_user_settings_test";
+    std::error_code ec;fs::remove_all(root,ec);RuntimeUserSettingsStore::SetStorageRoot(root);
+    RuntimeUserSettings value=RuntimeUserSettingsStore::Defaults();
+    value.display.width=1600;value.display.height=900;value.display.windowMode="borderless";
+    value.display.vsync=false;value.display.frameRateLimit=120;value.display.pauseWhenUnfocused=false;value.graphics.backend="d3d12";
+    value.audio.music=0.4f;value.input.invertY=true;value.input.actionMap=InputActionMap::CreateDefault().ToJson();value.accessibility.reduceCameraShake=true;
+    std::string error;
+    if(!Check(RuntimeUserSettingsStore::Save(value,&error),"user settings first save failed: "+error))return false;
+    value.display.width=1920;
+    if(!Check(RuntimeUserSettingsStore::Save(value,&error),"user settings second save failed: "+error))return false;
+    {std::ofstream corrupt(RuntimeUserSettingsStore::GetSettingsPath(),std::ios::trunc);corrupt<<"{broken";}
+    RuntimeUserSettings recovered;bool usedBackup=false;
+    if(!Check(RuntimeUserSettingsStore::Load(recovered,&usedBackup,&error)&&usedBackup&&recovered.display.width==1600&&recovered.display.windowMode=="borderless"&&!recovered.display.vsync&&!recovered.display.pauseWhenUnfocused&&recovered.graphics.backend=="d3d12"&&NearlyEqual(recovered.audio.music,0.4f)&&recovered.input.invertY&&recovered.input.actionMap.is_object()&&recovered.accessibility.reduceCameraShake,"user settings backup recovery lost values: "+error))return false;
+    nlohmann::json legacy={{"display",{{"width",1366},{"height",768}}}};
+    if(!Check(RuntimeUserSettingsStore::FromJson(legacy,recovered,&error)&&recovered.version==RuntimeUserSettings::CurrentVersion&&recovered.display.width==1366&&recovered.audio.master==1.0f,"v0 user settings migration/defaults failed: "+error))return false;
+    nlohmann::json v2=RuntimeUserSettingsStore::ToJson(RuntimeUserSettingsStore::Defaults());v2["version"]=2;v2["display"].erase("pauseWhenUnfocused");
+    if(!Check(RuntimeUserSettingsStore::FromJson(v2,recovered,&error)&&recovered.display.pauseWhenUnfocused,"v2 focus-policy migration failed: "+error))return false;
+    nlohmann::json invalid=RuntimeUserSettingsStore::ToJson(recovered);invalid["audio"]["master"]=2.0f;
+    if(!Check(!RuntimeUserSettingsStore::FromJson(invalid,recovered,&error),"invalid user settings volume was accepted"))return false;
+    invalid=RuntimeUserSettingsStore::ToJson(RuntimeUserSettingsStore::Defaults());invalid["version"]=99;
+    const bool futureRejected=!RuntimeUserSettingsStore::FromJson(invalid,recovered,&error);
+    RuntimeUserSettingsStore::ClearStorageRootOverride();fs::remove_all(root,ec);
+    return Check(futureRejected,"future user settings version was accepted");
+}
+
+bool TestTaskServicePriorityCancellationFailureAndShutdown()
+{
+    TaskService service(1);
+    TaskScope scope;
+    std::promise<void> blockerStarted;
+    std::promise<void> releasePromise;
+    const std::shared_future<void> blockerRelease = releasePromise.get_future().share();
+    auto blocker = service.Submit(scope, {"test.blocker", TaskPriority::High},
+        [&](CancellationToken token) {
+            blockerStarted.set_value();
+            while (blockerRelease.wait_for(std::chrono::milliseconds(1)) !=
+                   std::future_status::ready) token.ThrowIfCancellationRequested();
+        });
+    blockerStarted.get_future().wait();
+    std::mutex orderMutex;
+    std::vector<int> order;
+    const auto ordered = [&](int value) {
+        return [&, value](CancellationToken token) {
+            token.ThrowIfCancellationRequested();
+            std::lock_guard<std::mutex> lock(orderMutex);
+            order.push_back(value);
+            return value;
+        };
+    };
+    auto low = service.Submit(scope, {"test.low", TaskPriority::Low}, ordered(3));
+    auto normal = service.Submit(scope, {"test.normal", TaskPriority::Normal}, ordered(2));
+    auto high = service.Submit(scope, {"test.high", TaskPriority::High}, ordered(1));
+    releasePromise.set_value();
+    blocker.Get();
+    if (!Check(high.GetStableName() == "test.high" &&
+               high.Get() == 1 && normal.Get() == 2 && low.Get() == 3 &&
+               order == std::vector<int>({1, 2, 3}),
+               "single-worker task priority/FIFO order was not deterministic")) return false;
+
+    auto failed = service.Submit(scope, {"test.failure", TaskPriority::Normal},
+        [](CancellationToken) -> int { throw std::runtime_error("intentional task failure"); });
+    bool propagated = false;
+    try { (void)failed.Get(); }
+    catch (const std::runtime_error& exception) {
+        propagated = std::string(exception.what()) == "intentional task failure";
+    }
+    if (!Check(propagated, "task exception was not propagated through TaskHandle")) return false;
+
+    std::promise<void> secondBlockerStarted;
+    std::promise<void> secondRelease;
+    const auto secondReleaseFuture = secondRelease.get_future().share();
+    auto secondBlocker = service.Submit(scope, {"test.blocker2", TaskPriority::High},
+        [&](CancellationToken token) {
+            secondBlockerStarted.set_value();
+            while (secondReleaseFuture.wait_for(std::chrono::milliseconds(1)) !=
+                   std::future_status::ready) token.ThrowIfCancellationRequested();
+        });
+    secondBlockerStarted.get_future().wait();
+    auto cancelled = service.Submit(scope, {"test.cancelled", TaskPriority::Low},
+        [](CancellationToken) { return 7; });
+    cancelled.Cancel();
+    secondRelease.set_value();
+    secondBlocker.Get();
+    bool cancellationPropagated = false;
+    try { (void)cancelled.Get(); }
+    catch (const TaskCancelled&) { cancellationPropagated = true; }
+    if (!Check(cancellationPropagated, "queued task cancellation was not propagated")) return false;
+
+    TaskScope shutdownScope;
+    std::promise<void> runningStarted;
+    auto running = service.Submit(shutdownScope, {"test.shutdown", TaskPriority::Normal},
+        [&](CancellationToken token) {
+            runningStarted.set_value();
+            for (;;) {
+                token.ThrowIfCancellationRequested();
+                std::this_thread::yield();
+            }
+        });
+    runningStarted.get_future().wait();
+    service.Shutdown();
+    bool shutdownCancelled = false;
+    try { running.Get(); }
+    catch (const TaskCancelled&) { shutdownCancelled = true; }
+    const TaskServiceStats stats = service.GetStats();
+    return Check(shutdownCancelled && stats.submitted == 8 &&
+                 stats.completed == 5 && stats.failed == 1 && stats.cancelled == 2 &&
+                 stats.queued == 0,
+                 "TaskService shutdown or accounting contract mismatch");
 }
 
 MYENGINE_REGISTER_TEST("Scene", "TestSceneSerializationRegression", TestSceneSerializationRegression);
@@ -4824,6 +6155,7 @@ MYENGINE_REGISTER_TEST("Scene", "TestComponentRegistry", TestComponentRegistry);
 MYENGINE_REGISTER_TEST("Scene", "TestTypeRegistryMetadataAndWorldScheduler", TestTypeRegistryMetadataAndWorldScheduler);
 MYENGINE_REGISTER_TEST("Scene", "TestCameraComponentAndGameViewport", TestCameraComponentAndGameViewport);
 MYENGINE_REGISTER_TEST("Scene", "TestAudioSourceComponentSerialization", TestAudioSourceComponentSerialization);
+MYENGINE_REGISTER_TEST("Audio", "TestAudioMixerBusSettingsPauseAndScriptContract", TestAudioMixerBusSettingsPauseAndScriptContract);
 MYENGINE_REGISTER_TEST("Scene", "TestSceneRunStates", TestSceneRunStates);
 MYENGINE_REGISTER_TEST("Miscs", "TestIconsManagerSvgRasterizeIcoAndUploadCache", TestIconsManagerSvgRasterizeIcoAndUploadCache);
 MYENGINE_REGISTER_TEST("Core", "TestCrashReportWriting", TestCrashReportWriting);
@@ -4856,5 +6188,20 @@ MYENGINE_REGISTER_TEST("UI", "TestAngelScriptUIDataModelBindings", TestAngelScri
 MYENGINE_REGISTER_TEST("UI", "TestAngelScriptUIBindingContextIsolation", TestAngelScriptUIBindingContextIsolation);
 MYENGINE_REGISTER_TEST("UI", "TestUIDrawListBatchContainer", TestUIDrawListBatchContainer);
 MYENGINE_REGISTER_TEST("Scene", "TestIncrementalSceneLoadPlanAndCancellation", TestIncrementalSceneLoadPlanAndCancellation);
+MYENGINE_REGISTER_TEST("Scene", "TestWorldZoneOwnershipCancellationAndLifetime", TestWorldZoneOwnershipCancellationAndLifetime);
+MYENGINE_REGISTER_TEST("Scene", "TestWorldZoneStreamerDistancePortalBudgetAndTeardown", TestWorldZoneStreamerDistancePortalBudgetAndTeardown);
+MYENGINE_REGISTER_TEST("Gameplay", "TestGameFlowPauseOwnershipContract", TestGameFlowPauseOwnershipContract);
+MYENGINE_REGISTER_TEST("Gameplay", "TestWindowFocusPausePolicyAndOwnership", TestWindowFocusPausePolicyAndOwnership);
+MYENGINE_REGISTER_TEST("UI", "TestRuntimeUIScreenStackFocusRestoreAndGameFlowIntegration", TestRuntimeUIScreenStackFocusRestoreAndGameFlowIntegration);
+MYENGINE_REGISTER_TEST("UI", "TestProjectRuntimeScreenInvalidDocumentFallsBack", TestProjectRuntimeScreenInvalidDocumentFallsBack);
+MYENGINE_REGISTER_TEST("Project", "TestRuntimeScreenConfigCookValidation", TestRuntimeScreenConfigCookValidation);
+MYENGINE_REGISTER_TEST("Project", "TestInputGlyphAtlasCookValidation", TestInputGlyphAtlasCookValidation);
+MYENGINE_REGISTER_TEST("UI", "TestSubtitleQueuePriorityBoundsAndAccessibility", TestSubtitleQueuePriorityBoundsAndAccessibility);
+MYENGINE_REGISTER_TEST("Core", "TestRuntimePerformanceBudgetEvaluation", TestRuntimePerformanceBudgetEvaluation);
+MYENGINE_REGISTER_TEST("Core", "TestRuntimeResourceBudgetEvictionUploadAndActorPressure", TestRuntimeResourceBudgetEvictionUploadAndActorPressure);
+MYENGINE_REGISTER_TEST("Renderer", "TestRHIResidencyDescriptorAndRenderGraphTransientBudgets", TestRHIResidencyDescriptorAndRenderGraphTransientBudgets);
+MYENGINE_REGISTER_TEST("Project", "TestRuntimePerformanceProfileMigrationAndValidation", TestRuntimePerformanceProfileMigrationAndValidation);
+MYENGINE_REGISTER_TEST("Project", "TestRuntimeUserSettingsPersistenceValidationAndRecovery", TestRuntimeUserSettingsPersistenceValidationAndRecovery);
+MYENGINE_REGISTER_TEST("Core", "TestTaskServicePriorityCancellationFailureAndShutdown", TestTaskServicePriorityCancellationFailureAndShutdown);
 
 } // namespace

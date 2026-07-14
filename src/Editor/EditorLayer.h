@@ -94,6 +94,7 @@ private:
     void OnSceneSaveSucceeded();
     void ImportAssetDialog();
     void ValidateAssets();
+    void ValidateProject();
     void SetStartupScene();
     void PublishProject();
     bool PublishProjectInternal(PublishReport* report = nullptr,

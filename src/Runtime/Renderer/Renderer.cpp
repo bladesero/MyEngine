@@ -558,11 +558,25 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
                 });
         }
     }
+    const auto publishGraphStats=[&](){const auto& graph=m_RenderGraph->GetResourceStats();
+        RendererFrameStats stats=FrameStatsProvider::GetRendererStats();
+        stats.transientRequestedBytes=graph.transientRequestedBytes;
+        stats.transientAllocatedBytes=graph.transientAllocatedBytes;
+        stats.transientReusedBytes=graph.transientReusedBytes;
+        stats.renderGraphPooledBytes=graph.pooledBytes;
+        stats.renderGraphPoolEvictedBytes=graph.poolEvictedBytes;
+        stats.transientResources=graph.transientTextures+graph.transientBuffers;
+        stats.transientDescriptors=graph.transientDescriptors;
+        stats.renderGraphPoolEvictions=graph.poolEvictions;
+        stats.transientBudgetExceeded=graph.transientBudgetExceeded;
+        FrameStatsProvider::SetRendererStats(stats);};
     if (!m_RenderGraph->Execute(*commandList)) {
+        publishGraphStats();
         Logger::Error("[Renderer] RenderGraph execution failed: ", m_RenderGraph->GetLastError());
         endFrameOnFailure();
         return;
     }
+    publishGraphStats();
     if (useOffscreen) {
         m_ShadowPass->MarkGraphResourcesShaderResource();
         m_EnvironmentPass->MarkGraphResourcesShaderResource();

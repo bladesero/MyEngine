@@ -129,6 +129,7 @@ public:
 
     bool Init(IWindow* window) override;
     void Shutdown() override;
+    RHIDeviceIdentity GetDeviceIdentity() const override { return m_DeviceIdentity; }
 
     void BeginFrame(float r, float g, float b, float a = 1.0f) override;
     void EndFrame() override;
@@ -362,6 +363,7 @@ private:
     std::shared_ptr<D3D12DescriptorPool> m_DsvDescriptorPool;
 
     ComPtr<ID3D12Device>              m_Device;
+    RHIDeviceIdentity                 m_DeviceIdentity;
     ComPtr<ID3D12CommandQueue>       m_CommandQueue;
     ComPtr<ID3D12CommandSignature>   m_DrawIndirectSignature;
     ComPtr<ID3D12CommandSignature>   m_DrawIndexedIndirectSignature;

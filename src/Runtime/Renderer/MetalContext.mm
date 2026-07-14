@@ -10,6 +10,7 @@
 
 #include "Renderer/MetalContext.h"
 #include "Core/Window.h"
+#include "Renderer/RHI/RHIResourceStats.h"
 #include "Core/Logger.h"
 
 #include <SDL3/SDL.h>
@@ -681,6 +682,8 @@ std::shared_ptr<GpuBuffer> MetalContext::CreateVertexBuffer(
                                                 options:MTLResourceStorageModeShared];
     gpuBuf->stride   = strideBytes;
     gpuBuf->byteSize = byteSize;
+    gpuBuf->desc={byteSize,strideBytes,RHIResourceUsage::VertexBuffer,"VertexBuffer"};
+    CommitRHIResourceAccounting(std::static_pointer_cast<GpuBuffer>(gpuBuf));
     return gpuBuf;
 }
 
@@ -692,6 +695,8 @@ std::shared_ptr<GpuBuffer> MetalContext::CreateIndexBuffer(
                                                  length:byteSize
                                                 options:MTLResourceStorageModeShared];
     gpuBuf->byteSize = byteSize;
+    gpuBuf->desc={byteSize,sizeof(uint32_t),RHIResourceUsage::IndexBuffer,"IndexBuffer"};
+    CommitRHIResourceAccounting(std::static_pointer_cast<GpuBuffer>(gpuBuf));
     return gpuBuf;
 }
 
@@ -1332,6 +1337,7 @@ std::shared_ptr<GpuTexture> MetalContext::CreateTexture(const RHITextureDesc& de
     result->desc = desc;
     result->isCube = desc.cube;
     result->texture = [m_Impl->device newTextureWithDescriptor:native];
+    if(result->texture)CommitRHIResourceAccounting(std::static_pointer_cast<GpuTexture>(result));
     return result->texture ? result : nullptr;
 }
 

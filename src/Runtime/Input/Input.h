@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Input/InputActionMap.h"
+#include "Input/InputGlyphAtlas.h"
 
 #include <array>
 #include <cstdint>
@@ -8,6 +9,8 @@
 #include <string_view>
 
 #include <SDL3/SDL_gamepad.h>
+
+enum class InputDeviceKind { KeyboardMouse, Gamepad };
 
 // --------------------------------------------------------------------------
 // Input - static snapshot updated once per frame by Engine.
@@ -59,6 +62,19 @@ public:
 
     // Returns a normalized value in [-1, 1] for sticks and [0, 1] for triggers.
     static float GetGamepadAxis(SDL_JoystickID instanceId, SDL_GamepadAxis axis);
+    static bool SetGamepadVibration(SDL_JoystickID instanceId, float lowFrequency,
+                                    float highFrequency, uint32_t durationMs);
+    static InputDeviceKind GetLastActiveDevice() { return s_LastActiveDevice; }
+    static const char* GetGlyphSetName();
+    static const char* GetGlyphFamilyName();
+    static const char* GetGamepadGlyphFamily(SDL_GamepadType type);
+    static bool LoadGlyphAtlasFromFile(const std::filesystem::path& path,
+                                       std::string* error=nullptr);
+    static bool LoadGlyphAtlasFromText(const std::string& text,std::string* error=nullptr);
+    static void SetGlyphLocale(std::string locale);
+    static const std::string& GetGlyphLocale(){return s_GlyphLocale;}
+    static std::string GetActionGlyphJson(std::string_view actionName);
+    static std::string GetSourceGlyphJson(std::string_view source);
 
     // ----- Project action map ----------------------------------------------
     static bool IsActionDown(std::string_view name);
@@ -66,11 +82,33 @@ public:
     static bool IsActionReleased(std::string_view name);
     static float GetAxis1D(std::string_view name);
     static Math::Vec2 GetAxis2D(std::string_view name);
+    static void SetGameplayInputEnabled(bool enabled);
+    static bool IsGameplayInputEnabled();
 
     static bool LoadActionMapFromFile(const std::filesystem::path& path,
                                       std::string* error = nullptr);
     static void SetDefaultActionMap();
     static void ClearActionMap();
+    static nlohmann::json GetActionMapJson();
+    static bool ApplyActionMapOverrides(const nlohmann::json& value,
+                                        std::string* error = nullptr);
+    static void ResetActionMapOverrides();
+    static std::vector<InputBindingConflict> FindBindingConflicts(
+        std::string_view actionName, size_t bindingIndex, InputBindingPart part,
+        std::string_view source);
+    static bool RebindAction(std::string_view actionName, size_t bindingIndex,
+                             InputBindingPart part, std::string_view source,
+                             bool allowConflicts = false,
+                             std::string* error = nullptr);
+    static void SetRuntimePreferences(float mouseSensitivity, bool invertY,
+                                      float gamepadDeadZone,
+                                      float gamepadSensitivity,
+                                      float vibrationStrength);
+    static float GetMouseSensitivity() { return s_MouseSensitivity; }
+    static bool GetInvertY() { return s_InvertY; }
+    static float GetGamepadDeadZone() { return s_GamepadDeadZone; }
+    static float GetGamepadSensitivity() { return s_GamepadSensitivity; }
+    static float GetVibrationStrength() { return s_VibrationStrength; }
 
     // ----- Internal (called by Engine) --------------------------------------
     static void OnKeyDown(int scancode);
@@ -94,6 +132,16 @@ private:
     static int s_MouseX, s_MouseY, s_MouseRelX, s_MouseRelY;
     static std::array<GamepadState, k_MaxGamepads> s_Gamepads;
     static InputActionMap s_ActionMap;
+    static InputActionMap s_BaseActionMap;
+    static InputDeviceKind s_LastActiveDevice;
+    static float s_MouseSensitivity;
+    static bool s_InvertY;
+    static float s_GamepadDeadZone;
+    static float s_GamepadSensitivity;
+    static float s_VibrationStrength;
+    static bool s_GameplayInputEnabled;
+    static InputGlyphAtlas s_GlyphAtlas;
+    static std::string s_GlyphLocale;
 
     static bool IsGamepadSubsystemReady();
     static int FindGamepadSlot(SDL_JoystickID instanceId);

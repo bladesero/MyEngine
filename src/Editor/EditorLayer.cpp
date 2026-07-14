@@ -20,6 +20,7 @@
 #include "Editor/UI/EditorViewportPolicy.h"
 #include "Editor/UI/EditorWidgets.h"
 #include "Editor/ProjectPublisher.h"
+#include "Editor/ProjectValidator.h"
 #include "Game/SceneRenderLayer.h"
 #include "Input/Input.h"
 #include "Project/PublishTargets.h"
@@ -489,6 +490,10 @@ void EditorLayer::RegisterPanels() {
             auto* stack = context.GetCommandStack();
             return context.IsEditing() && stack && stack->CanRedo();
         }));
+    m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
+        "project.validate", "Validate Project",
+        [this](EditorContext&) { ValidateProject(); },
+        [](EditorContext& context) { return context.IsEditing(); }));
     m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
         "edit.delete", "Delete",
         [this](EditorContext& context) {
@@ -1378,6 +1383,7 @@ void EditorLayer::DrawMainMenuBar() {
         if (ImGui::BeginMenu("Project")) {
             drawAction("project.settings");
             drawAction("project.setStartup");
+            drawAction("project.validate");
             drawAction("project.publish");
             DrawScriptMenuItems("Project");
             ImGui::EndMenu();
@@ -1582,6 +1588,26 @@ void EditorLayer::ValidateAssets() {
         "Asset validation failed (" + std::to_string(issueCount) +
         " issue" + (issueCount == 1 ? "" : "s") + "): " + details,
         true);
+}
+
+void EditorLayer::ValidateProject() {
+    if (!m_ProjectOpen) {
+        ShowProjectResult("Project validation failed: project is not open", true);
+        return;
+    }
+    ProjectValidationReport report;
+    ProjectValidator::Validate(m_Project.GetConfig(), report);
+    for (const ProjectValidationIssue& issue : report.issues) {
+        const std::string location = issue.path.empty() ? std::string{} : " [" + issue.path + "]";
+        if (issue.severity == ProjectValidationSeverity::Error)
+            Logger::Error("[ProjectValidation] ", issue.message, location);
+        else if (issue.severity == ProjectValidationSeverity::Warning)
+            Logger::Warn("[ProjectValidation] ", issue.message, location);
+        else
+            Logger::Info("[ProjectValidation] ", issue.message, location);
+    }
+    Logger::Info("[Editor] ", report.Summary());
+    ShowProjectResult(report.Summary(), !report.Passed());
 }
 
 void EditorLayer::SetStartupScene() {

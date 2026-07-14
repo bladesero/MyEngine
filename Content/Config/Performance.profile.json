@@ -1,0 +1,20 @@
+{
+  "version": 3,
+  "name": "desktop-60fps",
+  "hardwareClass": "desktop-discrete",
+  "scenario": "warm-gameplay",
+  "resourceBudgetScale": 1.0,
+  "sceneReloadCount": 0,
+  "maxInitialSceneReadyMs": 5000.0,
+  "maxSceneReloadMs": 5000.0,
+  "budget": {
+    "warmupSamples": 60,
+    "minimumSamples": 120,
+    "maxP95FrameMs": 20.0,
+    "maxP99FrameMs": 33.34,
+    "maxFrameMs": 100.0,
+    "maxP95GpuMs": 20.0,
+    "maxWorkingSetGrowthBytes": 268435456,
+    "maxDroppedFixedTicks": 0
+  }
+}

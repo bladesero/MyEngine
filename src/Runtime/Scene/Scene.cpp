@@ -1,15 +1,117 @@
 #include "Scene/Scene.h"
 
+#include "Assets/AssetManager.h"
 #include "Core/Logger.h"
 #include "Core/Memory/MemoryService.h"
 #include "Physics/ColliderComponent.h"
 #include "Scene/ComponentRegistry.h"
 #include "Scene/TypeRegistry.h"
+#include "Scene/WorldZoneStreamer.h"
 
 #include <algorithm>
+#include <mutex>
 
-Scene::Scene(std::string name) : m_Name(std::move(name)) {}
-Scene::~Scene() { Clear(); }
+namespace { std::atomic<uint64_t> g_NextSceneLifetimeGeneration{1}; }
+namespace { std::atomic<uint64_t> g_NextZoneLifetimeGeneration{1}; }
+
+Scene::Scene(std::string name)
+    : m_Name(std::move(name))
+    , m_Lifetime(std::make_shared<SceneLifetimeState>())
+    , m_ZoneStreamer(std::make_unique<WorldZoneStreamer>())
+{
+    m_Lifetime->generation = g_NextSceneLifetimeGeneration.fetch_add(1, std::memory_order_relaxed);
+}
+Scene::~Scene() {
+    std::unique_lock<std::shared_mutex> lifetimeLock(m_Lifetime->gate);
+    m_Lifetime->alive.store(false, std::memory_order_release);
+    Clear();
+    ReleaseAssetPins();
+}
+
+void Scene::AdoptAssetPins(std::vector<std::string> paths)
+{
+    ReleaseAssetPins();
+    m_OwnedAssetPins = std::move(paths);
+}
+
+void Scene::ReleaseAssetPins()
+{
+    for (const std::string& path : m_OwnedAssetPins) AssetManager::Get().Unpin(path);
+    m_OwnedAssetPins.clear();
+}
+
+WorldZoneID Scene::CreateZone(std::string stableName)
+{
+    if(stableName.empty())return 0;
+    for(const auto& entry:m_Zones)if(entry.second->stableName==stableName)return 0;
+    auto zone=std::make_unique<WorldZone>();
+    zone->id=m_NextZoneID++;
+    if(!zone->id)zone->id=m_NextZoneID++;
+    zone->stableName=std::move(stableName);
+    zone->lifetime=std::make_shared<SceneLifetimeState>();
+    zone->lifetime->generation=g_NextZoneLifetimeGeneration.fetch_add(1,std::memory_order_relaxed);
+    const WorldZoneID id=zone->id;
+    m_Zones.emplace(id,std::move(zone));
+    return id;
+}
+
+bool Scene::AssignActorToZone(WorldZoneID zoneID,ActorHandle actor)
+{
+    auto found=m_Zones.find(zoneID);
+    if(found==m_Zones.end()||!TryGetActor(actor))return false;
+    for(const auto& entry:m_Zones)
+        if(std::find(entry.second->actors.begin(),entry.second->actors.end(),actor)!=entry.second->actors.end())
+            return entry.first==zoneID;
+    found->second->actors.push_back(actor);
+    return true;
+}
+
+bool Scene::PinAssetToZone(WorldZoneID zoneID,const std::string& path)
+{
+    auto found=m_Zones.find(zoneID);
+    if(found==m_Zones.end()||path.empty())return false;
+    auto& paths=found->second->pinnedAssets;
+    if(std::find(paths.begin(),paths.end(),path)!=paths.end())return true;
+    AssetManager::Get().Pin(path);paths.push_back(path);return true;
+}
+
+WorldZoneLifetimeToken Scene::GetZoneLifetimeToken(WorldZoneID zoneID) const
+{
+    const auto found=m_Zones.find(zoneID);
+    return found==m_Zones.end()?WorldZoneLifetimeToken{}:WorldZoneLifetimeToken(found->second->lifetime);
+}
+
+std::vector<WorldZoneStats> Scene::GetZoneStats() const
+{
+    std::vector<WorldZoneStats> result;result.reserve(m_Zones.size());
+    for(const auto& entry:m_Zones){const WorldZone& zone=*entry.second;
+        result.push_back({zone.stableName,zone.lifetime->generation,zone.actors.size(),
+                          zone.pinnedAssets.size(),zone.tasks.TaskCount()});}
+    std::sort(result.begin(),result.end(),[](const auto& a,const auto& b){return a.stableName<b.stableName;});
+    return result;
+}
+
+bool Scene::DestroyZone(WorldZoneID zoneID)
+{
+    auto found=m_Zones.find(zoneID);if(found==m_Zones.end())return false;
+    WorldZone& zone=*found->second;
+    {
+        std::unique_lock<std::shared_mutex> lock(zone.lifetime->gate);
+        zone.lifetime->alive.store(false,std::memory_order_release);
+    }
+    zone.tasks.CancelAndWait();
+    for(ActorHandle actor:zone.actors)if(Actor* value=TryGetActor(actor))DestroyActor(value);
+    for(const std::string& path:zone.pinnedAssets)AssetManager::Get().Unpin(path);
+    m_Zones.erase(found);return true;
+}
+
+void Scene::DestroyAllZones()
+{
+    std::vector<WorldZoneID> ids;ids.reserve(m_Zones.size());
+    for(const auto& entry:m_Zones)ids.push_back(entry.first);
+    for(WorldZoneID id:ids)DestroyZone(id);
+    m_NextZoneID=1;
+}
 
 namespace {
 void ApplyActorLayer(Actor& actor, uint32_t layer)
@@ -283,11 +385,12 @@ bool Scene::FlushCommands()
 
 void Scene::FinalizeCreated(const std::vector<Actor*>& actors)
 {
+    const bool runtimeActive = m_State == SceneState::Playing || m_State == SceneState::Paused;
     for (Actor* actor : actors) actor->RefreshActiveInHierarchy(!actor->m_Parent || actor->m_Parent->IsActiveInHierarchy(), false);
     for (Actor* actor : OrderedActors()) {
-        if (std::find(actors.begin(), actors.end(), actor) != actors.end()) actor->FinalizeConstruction(IsPlaying());
+        if (std::find(actors.begin(), actors.end(), actor) != actors.end()) actor->FinalizeConstruction(runtimeActive);
     }
-    if (IsPlaying()) {
+    if (runtimeActive) {
         for (Actor* actor : OrderedActors()) if (std::find(actors.begin(), actors.end(), actor) != actors.end()) actor->BeginPlayPhase();
         for (Actor* actor : OrderedActors()) if (std::find(actors.begin(), actors.end(), actor) != actors.end()) actor->EnablePlayPhase();
         for (Actor* actor : OrderedActors()) if (std::find(actors.begin(), actors.end(), actor) != actors.end()) actor->StartPlayPhase();
@@ -323,9 +426,11 @@ void Scene::DestroyActorInternal(Actor* actor)
 {
     if (!actor) return;
     for (Actor* child : std::vector<Actor*>(actor->m_Children)) DestroyActorInternal(child);
-    if (IsPlaying()) actor->EndPlay();
+    if (m_State == SceneState::Playing || m_State == SceneState::Paused) actor->EndPlay();
     actor->SetParent(nullptr);
     const ActorHandle handle = actor->m_Handle; const uint64_t id = actor->m_ID;
+    for(auto& entry:m_Zones){auto& actors=entry.second->actors;
+        actors.erase(std::remove(actors.begin(),actors.end(),handle),actors.end());}
     actor->m_State = ActorState::Destroyed;
     m_IDMap.erase(id); m_IDHandles.erase(id);
     if (handle.index < m_Slots.size()) {
@@ -396,11 +501,13 @@ bool Scene::MoveActorInternal(Actor* actor, Actor* parent, Actor* beforeSibling)
 
 void Scene::Clear()
 {
+    if (m_State == SceneState::Playing || m_State == SceneState::Paused) EndPlay();
+    if (m_ZoneStreamer) m_ZoneStreamer->Reset(*this);
+    DestroyAllZones();
     m_PhysicsWorld.Clear();
     m_NavigationWorld.Clear();
     m_NavMeshAssetPath.clear();m_PreloadAssets.clear();
     m_PendingCreates.clear(); m_Commands.clear();
-    if (IsPlaying()) EndPlay();
     m_IDMap.clear(); m_IDHandles.clear();
     const size_t count = m_Actors.size(); m_Actors.clear(); m_NextID = 1;
     for (Slot& slot : m_Slots) { slot.actor = nullptr; slot.reserved = false; ++slot.generation; if (!slot.generation) slot.generation = 1; }
@@ -442,6 +549,9 @@ void Scene::OnUpdate(float deltaSeconds)
 {
     // Headless/runtime users may drive Scene directly without a SceneLayer.
     if (m_State == SceneState::Edit) BeginPlay();
-    if (!IsPlaying()) return;
+    if (m_State != SceneState::Playing && m_State != SceneState::Paused) return;
     m_FrameScheduler.Tick(*this, deltaSeconds);
 }
+
+WorldZoneStreamer& Scene::GetZoneStreamer() { return *m_ZoneStreamer; }
+const WorldZoneStreamer& Scene::GetZoneStreamer() const { return *m_ZoneStreamer; }

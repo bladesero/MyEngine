@@ -125,7 +125,11 @@ Components::SetJson(actor, "AudioSource", "{\"volume\":0.5,\"loop\":true}");
 Common components expose narrow typed facades:
 
 - `AudioSource::Play`, `Stop`, `IsPlaying`, `SetClipPath`, `SetVolume`,
-  `SetPitch`, `SetLoop`
+  `FadeVolume`, `SetPitch`, `SetLoop`, `SetStreaming`, `SetBus`, `SetPriority`,
+  `SetConcurrency`
+- `AudioMixer::SetMasterVolume`, `GetMasterVolume`, `SetBusVolume`,
+  `GetBusVolume`, `SetBusMuted`, `GetDiagnosticsJson`; stable bus names are
+  `music`, `effects`, `voice`, and `ui`
 - `Camera::SetMain`, `IsMain`, `SetFovY`, `GetFovY`
 - `Light::SetIntensity`, `GetIntensity`, `SetColor`, `GetColor`
 - `UIElement::GetId`, `SetId`, `SetText`
@@ -138,6 +142,17 @@ if (Assets::Exists("Content/Audio/Click.wav") &&
   AudioSource::SetClipPath("Content/Audio/Click.wav");
 }
 ```
+
+`Game::Pause`, `Resume`, `IsPaused`, `SetTimeScale`, and `GetTimeScale` use the
+shared GameFlow contract. `Game::ShowMainMenu` and `ShowGameOver` select the
+standard runtime modal roots, while `Game::GetFlowState` returns the stable
+state name. Nested Settings screens restore the previously focused action.
+
+`WorldStreaming::RegisterDistance` and `RegisterPortal` add project-relative
+additive scene fragments. `SetObserver` drives distance decisions;
+`SetPortalOpen`, `Retry`, and `GetStatsJson` control and diagnose streaming.
+Chunk actor IDs and parent relationships are local to the fragment; parent
+references may not cross a zone boundary.
 
 ## Script Events and Timers
 
@@ -189,6 +204,48 @@ int score = UI::GetInt("hud", "score");
 
 Data model access stays inside the Runtime UI facade and does not expose Rml or
 UI internals to scripts.
+
+Runtime layout adaptation is available through
+`UI::SetSafeArea(left, top, right, bottom)` using normalized viewport insets.
+`UI::GetDiagnosticsJson()` reports effective scale, safe dimensions,
+narrow-layout state, and fallback-font failures. Persisted scale, subtitle,
+contrast, and color-vision values should be applied through
+`UserSettings::WriteJson` rather than duplicated in gameplay scripts.
+
+Runtime dialogue can use the bounded subtitle facade:
+
+```angelscript
+UI::ShowSubtitle("intro-guide", "Guide", "Stay close to the light.", 3.0f, 10);
+string state = UI::GetSubtitleJson();
+UI::ClearSubtitles();
+```
+
+Stable cue IDs update in place, higher priority cues preempt and later resume
+lower priority cues, and the queue drops its lowest-priority tail after 32
+waiting cues. Persisted subtitle enable/scale values affect the generated Rml
+overlay immediately. `reduceCameraShake` attenuates live
+`GameplayFeedback::Shake` output to 25 percent without changing gameplay timing.
+
+`Resources::GetStatsJson()` exposes the most recent Player resource-budget
+sample: CPU asset bytes and eviction/blocking totals, queued/peak upload bytes,
+pending upload tasks, live/peak GPU resource bytes, logical Descriptor count,
+live Actors, and active pressure flags. World streaming
+diagnostics also include `actorBudgetBlockedFrames`, allowing gameplay debug UI
+to distinguish slow I/O from an Actor-cap admission stall.
+
+## Project-authored flow screens
+
+Projects may override the standard MainMenu, Pause, Settings, and GameOver
+visuals through `Content/Config/RuntimeScreens.ui.json`. Each entry supplies a
+title, a `Content/UI/*.rml` document, and optional labels for existing stable
+actions. The document must contain `runtime-root`, `runtime-title`, and one
+`runtime-action-<stableActionId>` element for every action on that screen.
+
+The configuration cannot replace action IDs or change modal/GameFlow behavior;
+this keeps keyboard/gamepad focus restoration, pause ownership, settings
+persistence, retry, and menu transitions deterministic. Missing, malformed, or
+contract-incomplete project documents fall back to the generated engine screen.
+`UI::GetDiagnosticsJson()` reports the active document and fallback count.
 
 ## Includes and Reuse
 
@@ -308,8 +365,14 @@ The action-adventure slice adds runtime-only gameplay namespaces:
 - `Scenes`: asynchronous project-relative scene file reads, main-thread scene
   construction, and persistent transition JSON. A failed request leaves the
   current scene alive.
-- `SaveGame`: versioned atomic saves under `Saved/SaveGames`; slot names cannot
-  contain directories. `SaveData` remains available for unstructured tool data.
+- `SaveGame`: versioned atomic slot saves with metadata and last-known-good
+  backups; slot names cannot contain directories. Player stores them below the
+  per-project SDL user preference directory, while tests/tools may override the
+  storage root and development code retains the project `Saved/SaveGames`
+  fallback. Bounded autosave rings use `autosave_N.json` slots without rename
+  chains; validated checkpoint IDs map to `checkpoint_ID.json`. Scripts can
+  list slots, query the latest autosave, and inspect or restore backups.
+  `SaveData` remains available for unstructured tool data.
 - `Game`: pause/resume and time-scale control used by runtime menus.
 
 `EngineContent/Scripts/Templates/ThirdPersonAdventure.as` demonstrates movement,
@@ -326,3 +389,28 @@ degrees, and physics occlusion. Particle billboard vertices carry independently
 interpolated RGBA lifetime color. The audio runtime selects the earliest active
 primary listener deterministically, retains listener state in silent mode, and
 uses linear attenuation between each source's minimum and maximum distance.
+### Runtime input customization
+
+`Input::BindingConflictsJson(action, bindingIndex, part, source)` reports uses
+of a candidate source. `part` is `source` for Button/Axis1D and `x` or `y` for
+Axis2D. `Input::Rebind(...)` rejects conflicts unless its final argument is
+true; call `Input::SaveBindings()` to persist the runtime map in per-user
+settings or `Input::ResetBindings()` to restore the project map. `Input::GlyphSet()`
+returns `keyboardMouse` or `gamepad`, and `Input::Vibrate(...)` respects the
+user vibration-strength preference.
+
+`Input::GlyphFamily()` refines gamepad presentation to `xbox`, `playstation`,
+or `nintendo` using SDL's connected-controller type. The versioned
+`Content/Config/InputGlyphs.glyph.json` maps canonical binding sources to a
+sprite in `InputGlyphAtlas.svg` and localized labels. Player selects the OS
+locale, and activity switches prompts without changing bindings:
+
+```angelscript
+string jump = Input::ActionGlyphJson("Jump");
+string confirm = Input::SourceGlyphJson("Gamepad/South");
+Input::SetGlyphLocale("zh-CN");
+```
+
+Runtime flow screens use these mappings for Select/Back hints. Missing locale
+entries fall back by language and then to the atlas default locale; unknown
+sources return a structured `valid:false` descriptor instead of guessing.

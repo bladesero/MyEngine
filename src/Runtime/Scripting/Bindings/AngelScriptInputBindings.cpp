@@ -39,5 +39,25 @@
         asFUNCTION(InputGamepadButtonReleased), asCALL_CDECL));
     Check(engine.RegisterGlobalFunction("float GamepadAxis(int, int)",
         asFUNCTION(InputGamepadAxis), asCALL_CDECL));
+    Check(engine.RegisterGlobalFunction("string GlyphSet()",
+        asFUNCTION(InputGlyphSet), asCALL_CDECL));
+    Check(engine.RegisterGlobalFunction("string GlyphFamily()",
+        asFUNCTION(InputGlyphFamily), asCALL_CDECL));
+    Check(engine.RegisterGlobalFunction("string ActionGlyphJson(const string &in)",
+        asFUNCTION(InputActionGlyphJson), asCALL_CDECL));
+    Check(engine.RegisterGlobalFunction("string SourceGlyphJson(const string &in)",
+        asFUNCTION(InputSourceGlyphJson), asCALL_CDECL));
+    Check(engine.RegisterGlobalFunction("void SetGlyphLocale(const string &in)",
+        asFUNCTION(InputSetGlyphLocale), asCALL_CDECL));
+    Check(engine.RegisterGlobalFunction("bool Vibrate(int, float, float, uint)",
+        asFUNCTION(InputVibrate), asCALL_CDECL));
+    Check(engine.RegisterGlobalFunction("string BindingConflictsJson(const string &in, uint, const string &in, const string &in)",
+        asFUNCTION(InputBindingConflictsJson), asCALL_CDECL));
+    Check(engine.RegisterGlobalFunction("bool Rebind(const string &in, uint, const string &in, const string &in, bool = false)",
+        asFUNCTION(InputRebind), asCALL_CDECL));
+    Check(engine.RegisterGlobalFunction("bool SaveBindings()",
+        asFUNCTION(InputSaveBindings), asCALL_CDECL));
+    Check(engine.RegisterGlobalFunction("bool ResetBindings()",
+        asFUNCTION(InputResetBindings), asCALL_CDECL));
 
 

@@ -97,6 +97,12 @@ public:
     GpuBuffer* GetVertexBuffer() const { return m_VB.get(); }
     GpuBuffer* GetIndexBuffer()  const { return m_IB.get(); }
     bool IsUploaded() const { return m_VB != nullptr; }
+    uint64_t GetGpuBufferBytes() const {
+        return (m_VB?m_VB->desc.size:0)+(m_IB?m_IB->desc.size:0);
+    }
+    bool HasExternalGpuBufferReferences() const {
+        return (m_VB&&m_VB.use_count()>1)||(m_IB&&m_IB.use_count()>1);
+    }
     void InvalidateGpuBuffers() { m_VB.reset(); m_IB.reset(); }
 
     bool ReloadFrom(const Asset& source) override {

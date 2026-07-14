@@ -431,3 +431,93 @@ bool SceneSerializer::InstantiateLoadPlan(Scene& scene, const SceneLoadPlan& pla
         scene.Clear(); if (error) *error = e.what(); return false;
     }
 }
+
+bool SceneSerializer::InstantiateLoadPlanAdditive(
+    Scene& scene, const SceneLoadPlan& plan, SceneInstantiationState& state,
+    size_t maxActors, std::vector<ActorHandle>& createdRoots, bool& complete,
+    std::string* error)
+{
+    complete = false;
+    createdRoots.clear();
+    try {
+        if (!state.initialized) {
+            std::unordered_set<uint64_t> localIDs;
+            for (const Json& actor : plan.actors) {
+                const uint64_t id = actor.value("id", uint64_t{0});
+                if (!id || !localIDs.insert(id).second)
+                    throw std::runtime_error("additive zone actor IDs must be non-zero and unique");
+            }
+            state.initialized = true;
+        }
+        const size_t end = std::min(plan.actors.size(), state.nextActor +
+            std::max<size_t>(1, maxActors));
+        for (; state.nextActor < end; ++state.nextActor) {
+            const Json& actor = plan.actors[state.nextActor];
+            const uint64_t localID = actor.value("id", uint64_t{0});
+            ActorHandle handle;
+            if (actor.contains("prefabInstance")) {
+                const Json& prefab = actor["prefabInstance"];
+                if (!prefab.is_object())
+                    throw std::runtime_error("prefabInstance must be an object");
+                PrefabInstantiateOptions options;
+                options.rootTransform = actor.contains("transform")
+                    ? TransformFromJson(actor["transform"]) : Transform{};
+                options.expectedUuid = prefab.value("uuid", std::string{});
+                options.overrides = prefab.value("overrides", Json::array());
+                std::string prefabError;
+                handle = PrefabSystem::QueueInstantiate(
+                    scene, prefab.value("asset", std::string{}), options, &prefabError);
+                if (!handle)
+                    throw std::runtime_error("failed to instantiate additive prefab: " + prefabError);
+            } else {
+                ActorCreateDesc desc;
+                desc.name = actor.value("name", std::string("Actor"));
+                desc.activeSelf = actor.value("active", true);
+                desc.tag = actor.value("tag", std::string{});
+                desc.layer = actor.value("layer", uint32_t{0});
+                desc.editorFlags = actor.value("editorFlags", uint32_t{0});
+                if (actor.contains("transform")) desc.transform = TransformFromJson(actor["transform"]);
+                if (actor.contains("components") && actor["components"].is_array()) {
+                    for (const Json& componentJson : actor["components"]) {
+                        if (!componentJson.is_object()) continue;
+                        ComponentCreateDesc component;
+                        component.type = componentJson.value("type", std::string{});
+                        component.enabled = componentJson.value("enabled", true);
+                        component.version = componentJson.value("version", uint32_t{0});
+                        component.data = componentJson.contains("data")
+                            ? componentJson["data"] : Json::object();
+                        if (!component.type.empty()) desc.components.push_back(std::move(component));
+                    }
+                }
+                handle = scene.QueueCreateActor(desc);
+            }
+            state.handles[localID] = handle;
+            createdRoots.push_back(handle);
+        }
+        if (!scene.FlushCommands())
+            throw std::runtime_error("failed to flush additive actor batch");
+        if (state.nextActor < plan.actors.size()) return true;
+        if (!state.relationshipsQueued) {
+            for (const Json& actor : plan.actors) {
+                const uint64_t id = actor.value("id", uint64_t{0});
+                const uint64_t parentID = actor.value("parentID", uint64_t{0});
+                if (!parentID) continue;
+                const auto child = state.handles.find(id);
+                const auto parent = state.handles.find(parentID);
+                if (child == state.handles.end() || parent == state.handles.end())
+                    throw std::runtime_error(
+                        "additive zone parent references must remain inside the zone");
+                scene.QueueSetParent(child->second, parent->second);
+            }
+            if (!scene.FlushCommands())
+                throw std::runtime_error("failed to restore additive relationships");
+            state.relationshipsQueued = true;
+        }
+        complete = true;
+        if (error) error->clear();
+        return true;
+    } catch (const std::exception& exception) {
+        if (error) *error = exception.what();
+        return false;
+    }
+}

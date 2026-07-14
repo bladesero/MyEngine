@@ -8,6 +8,8 @@ SceneLayer::SceneLayer(const std::string& layerName)
     , m_EditorScene(std::make_unique<Scene>("Untitled"))
 {
     m_EditorScene->SetSceneManager(&m_SceneManager);
+    m_EditorScene->SetGameFlowController(&m_GameFlowController);
+    m_GameFlowController.EnterBoot(nullptr);
 }
 
 // --------------------------------------------------------------------------
@@ -29,12 +31,16 @@ void SceneLayer::OnDetach()
 
 void SceneLayer::OnUpdate(float dt)
 {
+    if (m_PlayScene && m_SceneManager.IsLoading() &&
+        m_GameFlowController.GetState() != GameFlowState::Loading)
+        m_GameFlowController.BeginLoading(m_PlayScene.get());
     std::unique_ptr<Scene> requestedScene;
     if (m_SceneManager.Process(requestedScene) && requestedScene) {
         OnSceneUnloaded();
         if (IsEditing()) {
             m_EditorScene = std::move(requestedScene);
             m_EditorScene->SetSceneManager(&m_SceneManager);
+            m_EditorScene->SetGameFlowController(&m_GameFlowController);
             m_SceneFilePath = (AssetManager::Get().GetProjectRoot() /
                 m_SceneManager.GetRequestedPath()).string();
             m_Dirty = false;
@@ -42,8 +48,10 @@ void SceneLayer::OnUpdate(float dt)
             if (m_PlayScene) m_PlayScene->EndPlay();
             m_PlayScene = std::move(requestedScene);
             m_PlayScene->SetSceneManager(&m_SceneManager);
+            m_PlayScene->SetGameFlowController(&m_GameFlowController);
             m_PlayScene->BeginPlay();
             m_RunState = SceneRunState::Play;
+            m_GameFlowController.FinishLoading(m_PlayScene.get(), true);
         }
         OnSceneLoaded();
         AssetCacheBudget budget;
@@ -51,9 +59,10 @@ void SceneLayer::OnUpdate(float dt)
         AssetManager::Get().CollectGarbage(budget);
     }
     const SceneLoadState loadState = m_SceneManager.GetState();
-    const bool loadInProgress = loadState == SceneLoadState::Requested ||
-        loadState == SceneLoadState::Reading || loadState == SceneLoadState::Parsing ||
-        loadState == SceneLoadState::Preloading || loadState == SceneLoadState::Instantiating;
+    if (loadState == SceneLoadState::Failed && m_LastObservedLoadState != SceneLoadState::Failed)
+        m_GameFlowController.FinishLoading(m_PlayScene.get(), false);
+    m_LastObservedLoadState = loadState;
+    const bool loadInProgress = m_SceneManager.IsLoading();
     if (!loadInProgress && (m_RunState == SceneRunState::Play || m_StepRequested)) {
         Scene* playScene = GetPlayScene();
         if (!playScene) {
@@ -69,8 +78,17 @@ void SceneLayer::OnUpdate(float dt)
 
 void SceneLayer::OnEvent(Event& event)
 {
-    (void)event;
-    // 默认不消费事件；子类可重写并设置 event.handled = true
+    if (event.type == EventType::WindowFocusLost) {
+        m_WindowFocused = false;
+        if (m_PauseWhenUnfocused && m_PlayScene)
+            m_GameFlowController.RequestPause(GamePauseReason::WindowInactive,
+                                               m_PlayScene.get());
+    } else if (event.type == EventType::WindowFocusGained) {
+        m_WindowFocused = true;
+        if (m_PlayScene)
+            m_GameFlowController.ReleasePause(GamePauseReason::WindowInactive,
+                                               m_PlayScene.get());
+    }
 }
 
 // --------------------------------------------------------------------------
@@ -84,6 +102,7 @@ void SceneLayer::NewScene(const std::string& sceneName)
 
     m_EditorScene    = std::make_unique<Scene>(sceneName);
     m_EditorScene->SetSceneManager(&m_SceneManager);
+    m_EditorScene->SetGameFlowController(&m_GameFlowController);
     m_SceneFilePath  = "";
     m_Dirty          = false;
 
@@ -104,6 +123,7 @@ bool SceneLayer::LoadScene(const std::string& filepath)
     OnSceneUnloaded();
     m_EditorScene   = std::move(newScene);
     m_EditorScene->SetSceneManager(&m_SceneManager);
+    m_EditorScene->SetGameFlowController(&m_GameFlowController);
     m_SceneFilePath = filepath;
     m_Dirty         = false;
 
@@ -147,6 +167,7 @@ bool SceneLayer::RestoreEditorSnapshot(const std::string& serializedScene,
     OnSceneUnloaded();
     m_EditorScene = std::move(recovered);
     m_EditorScene->SetSceneManager(&m_SceneManager);
+    m_EditorScene->SetGameFlowController(&m_GameFlowController);
     m_SceneFilePath = originalFilepath;
     m_Dirty = true;
     OnSceneLoaded();
@@ -185,8 +206,12 @@ bool SceneLayer::BeginPlay()
         return false;
     }
     m_PlayScene->SetSceneManager(&m_SceneManager);
+    m_PlayScene->SetGameFlowController(&m_GameFlowController);
     m_RunState = SceneRunState::Play;
     m_PlayScene->BeginPlay();
+    m_GameFlowController.EnterGameplay(m_PlayScene.get());
+    if (m_PauseWhenUnfocused && !m_WindowFocused)
+        m_GameFlowController.RequestPause(GamePauseReason::WindowInactive, m_PlayScene.get());
     m_StepRequested = false;
     Logger::Info("[SceneLayer] Enter Play mode");
     return true;
@@ -197,6 +222,7 @@ void SceneLayer::StopPlay()
     if (m_RunState == SceneRunState::Edit) return;
     if (m_PlayScene) m_PlayScene->EndPlay();
     m_PlayScene.reset();
+    m_GameFlowController.EnterBoot(nullptr);
     m_Dirty = m_EditDirtySnapshot;
     m_RunState = SceneRunState::Edit;
     m_StepRequested = false;
@@ -207,7 +233,7 @@ void SceneLayer::PausePlay()
 {
     if (m_RunState == SceneRunState::Play) {
         m_RunState = SceneRunState::Pause;
-        if (m_PlayScene) m_PlayScene->Pause();
+        m_GameFlowController.RequestPause(GamePauseReason::Editor, m_PlayScene.get());
         Logger::Info("[SceneLayer] Play mode paused");
     }
 }
@@ -216,7 +242,7 @@ void SceneLayer::ResumePlay()
 {
     if (m_RunState == SceneRunState::Pause) {
         m_RunState = SceneRunState::Play;
-        if (m_PlayScene) m_PlayScene->Resume();
+        m_GameFlowController.ReleasePause(GamePauseReason::Editor, m_PlayScene.get());
         Logger::Info("[SceneLayer] Play mode resumed");
     }
 }
@@ -225,7 +251,26 @@ bool SceneLayer::StepPlay()
 {
     if (m_RunState == SceneRunState::Edit && !BeginPlay()) return false;
     m_RunState = SceneRunState::Pause;
-    if (m_PlayScene) m_PlayScene->Pause();
+    m_GameFlowController.RequestPause(GamePauseReason::Editor, m_PlayScene.get());
     m_StepRequested = true;
     return true;
+}
+
+bool SceneLayer::RequestSceneLoad(const std::string& path)
+{
+    if (!m_SceneManager.RequestLoad(path)) return false;
+    m_LastObservedLoadState = m_SceneManager.GetState();
+    if (m_PlayScene) m_GameFlowController.BeginLoading(m_PlayScene.get());
+    return true;
+}
+
+void SceneLayer::SetPauseWhenUnfocused(bool enabled)
+{
+    if (m_PauseWhenUnfocused == enabled) return;
+    m_PauseWhenUnfocused = enabled;
+    if (!m_PlayScene) return;
+    if (enabled && !m_WindowFocused)
+        m_GameFlowController.RequestPause(GamePauseReason::WindowInactive, m_PlayScene.get());
+    else if (!enabled)
+        m_GameFlowController.ReleasePause(GamePauseReason::WindowInactive, m_PlayScene.get());
 }

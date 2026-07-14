@@ -1,4 +1,5 @@
 #include "Editor/ProjectPublisher.h"
+#include "Editor/ProjectValidator.h"
 
 #include "Project/CookManifest.h"
 #include "Project/PublishTargets.h"
@@ -16,13 +17,13 @@
 #include "Core/Sha256.h"
 #include "Core/TransactionalFileWriter.h"
 #include "Core/BuildInfo.h"
+#include "Core/TaskService.h"
 
 #include <algorithm>
 #include <cctype>
 #include <chrono>
 #include <ctime>
 #include <fstream>
-#include <future>
 #include <iomanip>
 #include <iterator>
 #include <nlohmann/json.hpp>
@@ -537,7 +538,8 @@ bool CookTree(const fs::path& sourceRoot, const fs::path& destinationRoot,
               std::string* error) {
     std::error_code ec; std::vector<ContentFileInfo> files; uint64_t total=0;
     if(!ContentPathPolicy::Enumerate(sourceRoot,files,total,error)) return false;
-    std::vector<std::future<std::pair<bool,std::string>>> shaderTasks;
+    TaskScope shaderTaskScope;
+    std::vector<TaskHandle<std::pair<bool,std::string>>> shaderTasks;
     for (const auto& file : files) {
         const fs::path relative=file.relative;
         const std::string contentReference =
@@ -553,11 +555,14 @@ bool CookTree(const fs::path& sourceRoot, const fs::path& destinationRoot,
         const fs::path destination = destinationRoot / relative;
         if (extension == ".shader") {
             const fs::path shaderSource=file.absolute;
-            shaderTasks.emplace_back(std::async(std::launch::async,
-                [shaderSource,destination,sourceRoot,shaderBackends] {
+            shaderTasks.emplace_back(TaskService::Get().Submit(
+                shaderTaskScope,{"publish.shader.project",TaskPriority::Low},
+                [shaderSource,destination,sourceRoot,shaderBackends](CancellationToken token) {
+                    token.ThrowIfCancellationRequested();
                     std::string taskError;
                     const bool result=CompileCookedShader(
                         shaderSource,destination,sourceRoot,shaderBackends,&taskError);
+                    token.ThrowIfCancellationRequested();
                     return std::make_pair(result,std::move(taskError));
                 }));
         } else {
@@ -580,7 +585,7 @@ bool CookTree(const fs::path& sourceRoot, const fs::path& destinationRoot,
         }
     }
     for(auto& task:shaderTasks) {
-        auto [succeeded,taskError]=task.get();
+        auto [succeeded,taskError]=task.Get();
         if(!succeeded){SetError(error,std::move(taskError));return false;}
     }
     return true;
@@ -594,7 +599,8 @@ bool CookEngineRuntimeContent(const fs::path& sourceRoot,
     std::vector<ContentFileInfo> files;
     uint64_t total = 0;
     if (!ContentPathPolicy::Enumerate(sourceRoot, files, total, error)) return false;
-    std::vector<std::future<std::pair<bool, std::string>>> shaderTasks;
+    TaskScope shaderTaskScope;
+    std::vector<TaskHandle<std::pair<bool, std::string>>> shaderTasks;
     for (const auto& file : files) {
         const fs::path relative = file.relative;
         const std::string relativeText = relative.generic_string();
@@ -609,11 +615,14 @@ bool CookEngineRuntimeContent(const fs::path& sourceRoot,
         const fs::path destination = destinationRoot / relative;
         if (extension == ".shader") {
             const fs::path shaderSource = file.absolute;
-            shaderTasks.emplace_back(std::async(std::launch::async,
-                [shaderSource, destination, sourceRoot, shaderBackends] {
+            shaderTasks.emplace_back(TaskService::Get().Submit(
+                shaderTaskScope,{"publish.shader.engine",TaskPriority::Low},
+                [shaderSource, destination, sourceRoot, shaderBackends](CancellationToken token) {
+                    token.ThrowIfCancellationRequested();
                     std::string taskError;
                     const bool result = CompileCookedShader(
                         shaderSource, destination, sourceRoot, shaderBackends, &taskError);
+                    token.ThrowIfCancellationRequested();
                     return std::make_pair(result, std::move(taskError));
                 }));
             continue;
@@ -631,7 +640,7 @@ bool CookEngineRuntimeContent(const fs::path& sourceRoot,
         }
     }
     for (auto& task : shaderTasks) {
-        auto [succeeded, taskError] = task.get();
+        auto [succeeded, taskError] = task.Get();
         if (!succeeded) {
             SetError(error, std::move(taskError));
             return false;
@@ -707,11 +716,13 @@ bool ProjectPublisher::Publish(const ProjectConfig& project,
                                std::string* error) {
     if (error) error->clear();
     report = {};
+    if(!ProjectValidator::Validate(project,report.validation)) {
+        report.preflight=report.validation.preflight;
+        SetError(error,report.validation.Summary()); return false;
+    }
+    report.preflight=report.validation.preflight;
     fs::path startup;
     if (!project.ResolveStartupScene(startup, error)) return false;
-    if(!CookDependencyGraph::Validate(project.GetRoot(),report.preflight)) {
-        SetError(error,report.preflight.Summary()); return false;
-    }
 
     const auto& settings = project.GetPublishSettings();
     if (!PublishTargets::IsSupported(settings.target)) {

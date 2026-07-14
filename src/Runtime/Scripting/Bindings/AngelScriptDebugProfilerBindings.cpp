@@ -29,4 +29,8 @@
     Check(engine.RegisterGlobalFunction("void ResetScriptStats()",
         asFUNCTION(ProfilerResetScriptStats), asCALL_CDECL));
 
+    engine.SetDefaultNamespace("Resources");
+    Check(engine.RegisterGlobalFunction("string GetStatsJson()",
+        asFUNCTION(ResourcesGetStatsJson), asCALL_CDECL));
+
 

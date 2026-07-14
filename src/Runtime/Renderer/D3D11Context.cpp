@@ -2,10 +2,12 @@
 #include "../Core/Logger.h"
 #include "../Core/Window.h"
 #include "Renderer/RHI/ShaderReflection.h"
+#include "Renderer/RHI/RHIResourceStats.h"
 
 #include <d3dcompiler.h>
 #include <d3d11_1.h>
 #include <dxgi.h>
+#include <dxgi1_2.h>
 #include <sstream>
 #include <vector>
 
@@ -23,6 +25,41 @@ std::unique_ptr<IRenderContext> CreateD3D11Context() {
 // --------------------------------------------------------------------------
 // Helpers
 // --------------------------------------------------------------------------
+static std::string WideToUtf8(const wchar_t* value) {
+    if (!value || !*value) return {};
+    const int size = WideCharToMultiByte(CP_UTF8, 0, value, -1, nullptr, 0, nullptr, nullptr);
+    if (size <= 1) return {};
+    std::string result(static_cast<size_t>(size), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, value, -1, result.data(), size, nullptr, nullptr);
+    result.pop_back();
+    return result;
+}
+
+static RHIDeviceIdentity DescribeAdapter(IDXGIAdapter* adapter) {
+    RHIDeviceIdentity identity;
+    if (!adapter) return identity;
+    ComPtr<IDXGIAdapter1> adapter1;
+    DXGI_ADAPTER_DESC1 desc{};
+    if (SUCCEEDED(adapter->QueryInterface(IID_PPV_ARGS(&adapter1))) &&
+        SUCCEEDED(adapter1->GetDesc1(&desc))) {
+        identity.adapterName = WideToUtf8(desc.Description);
+        identity.vendorId = desc.VendorId;
+        identity.deviceId = desc.DeviceId;
+        identity.subsystemId = desc.SubSysId;
+        identity.revision = desc.Revision;
+        identity.dedicatedVideoMemoryBytes = static_cast<uint64_t>(desc.DedicatedVideoMemory);
+        identity.softwareAdapter = (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) != 0;
+    }
+    LARGE_INTEGER version{};
+    if (SUCCEEDED(adapter->CheckInterfaceSupport(__uuidof(IDXGIDevice), &version))) {
+        std::ostringstream text;
+        text << HIWORD(version.HighPart) << '.' << LOWORD(version.HighPart) << '.'
+             << HIWORD(version.LowPart) << '.' << LOWORD(version.LowPart);
+        identity.driverVersion = text.str();
+    }
+    return identity;
+}
+
 static DXGI_FORMAT ToDxgiFormat(VertexFormat fmt) {
     switch (fmt) {
     case VertexFormat::Float2: return DXGI_FORMAT_R32G32_FLOAT;
@@ -587,6 +624,12 @@ bool D3D11Context::Init(IWindow* window) {
                       reinterpret_cast<void*>(static_cast<uintptr_t>(hr)));
         return false;
     }
+    ComPtr<IDXGIDevice> dxgiDevice;
+    ComPtr<IDXGIAdapter> adapter;
+    if (SUCCEEDED(m_Device.As(&dxgiDevice)) &&
+        SUCCEEDED(dxgiDevice->GetAdapter(&adapter))) {
+        m_DeviceIdentity = DescribeAdapter(adapter.Get());
+    }
 
     // ---- Render target + depth buffer --------------------------------------
     ComPtr<ID3D11Texture2D> backBuffer;
@@ -636,6 +679,7 @@ bool D3D11Context::Init(IWindow* window) {
 }
 
 void D3D11Context::Shutdown() {
+    m_DeviceIdentity = {};
     if (m_Context) { m_Context->ClearState(); }
     m_RasterWireCullNone.Reset();
     m_RasterWireCullBack.Reset();
@@ -816,6 +860,7 @@ std::shared_ptr<GpuBuffer> D3D11Context::CreateVertexBuffer(
         Logger::Error("CreateVertexBuffer failed");
         return nullptr;
     }
+    CommitRHIResourceAccounting(std::static_pointer_cast<GpuBuffer>(buf));
     return buf;
 }
 
@@ -839,6 +884,7 @@ std::shared_ptr<GpuBuffer> D3D11Context::CreateIndexBuffer(
         Logger::Error("CreateIndexBuffer failed");
         return nullptr;
     }
+    CommitRHIResourceAccounting(std::static_pointer_cast<GpuBuffer>(buf));
     return buf;
 }
 
@@ -1142,6 +1188,7 @@ std::shared_ptr<GpuTexture> D3D11Context::UploadTexture2D(
         return nullptr;
     }
 
+    CommitRHIResourceAccounting(std::static_pointer_cast<GpuTexture>(tex));
     return tex;
 }
 
@@ -1287,6 +1334,7 @@ std::shared_ptr<GpuBuffer> D3D11Context::CreateBuffer(
         buffer->updateShadow.resize(desc.size);
         if (initialData) std::memcpy(buffer->updateShadow.data(), initialData, desc.size);
     }
+    CommitRHIResourceAccounting(std::static_pointer_cast<GpuBuffer>(buffer));
     return buffer;
 }
 
@@ -1384,6 +1432,7 @@ std::shared_ptr<GpuTexture> D3D11Context::CreateTexture(const RHITextureDesc& de
         if (!sampler) return nullptr;
         result->sampler = sampler->sampler;
     }
+    CommitRHIResourceAccounting(std::static_pointer_cast<GpuTexture>(result));
     return result;
 }
 

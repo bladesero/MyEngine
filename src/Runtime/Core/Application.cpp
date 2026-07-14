@@ -37,6 +37,7 @@ int Application::Run() {
 
     // 5. Release layers before backend teardown so renderer-owned GPU resources
     //    are destroyed while the render context is still alive.
+    OnBeforeLayersCleared();
     m_Engine.ClearLayers();
     IconsManager::Get().Clear();
     ShaderManager::Get().Clear();

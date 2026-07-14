@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "screens": [
+    {"name":"mainMenu","title":"MyEngine","document":"Content/UI/Runtime/MainMenu.rml","actions":{"play":"Start Game","settings":"Settings"}},
+    {"name":"pause","title":"Paused","document":"Content/UI/Runtime/Pause.rml","actions":{"resume":"Continue","settings":"Settings","mainMenu":"Return to Menu"}},
+    {"name":"settings","title":"Settings","document":"Content/UI/Runtime/Settings.rml","actions":{}},
+    {"name":"gameOver","title":"Game Over","document":"Content/UI/Runtime/GameOver.rml","actions":{"retry":"Try Again","mainMenu":"Return to Menu"}}
+  ]
+}

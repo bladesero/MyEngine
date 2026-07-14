@@ -9,6 +9,8 @@ enum class EventType {
     KeyDown,
     KeyUp,
     WindowResize,
+    WindowFocusGained,
+    WindowFocusLost,
     MouseButtonDown,
     MouseButtonUp,
     MouseMove,

@@ -459,9 +459,11 @@ std::shared_ptr<Asset> AssetManager::LoadAsset(const std::string& path)
     return asset;
 }
 
-std::future<std::shared_ptr<Asset>> AssetManager::LoadAsync(const std::string& path)
+TaskHandle<std::shared_ptr<Asset>> AssetManager::LoadAsync(const std::string& path)
 {
-    return std::async(std::launch::async, [this, path] {
+    return TaskService::Get().Submit(
+        m_TaskScope, {"asset.load", TaskPriority::Normal}, [this, path](CancellationToken token) {
+        token.ThrowIfCancellationRequested();
         return LoadAsset(path);
     });
 }
@@ -701,19 +703,27 @@ void AssetManager::RegisterDefaultLoaders() {
     });
 }
 
-std::shared_future<std::shared_ptr<Asset>> AssetManager::RequestAsync(const std::string& path)
+TaskHandle<std::shared_ptr<Asset>> AssetManager::RequestAsync(const std::string& path)
 {
     std::lock_guard<std::recursive_mutex> lock(m_Mutex);
     const std::string normalized = NormalizePath(path);
     auto existing = m_AsyncRequests.find(normalized);
     if (existing != m_AsyncRequests.end()) return existing->second;
-    auto request = std::async(std::launch::async, [this, normalized] {
+    auto published = std::make_shared<std::promise<void>>();
+    std::shared_future<void> publishedFuture = published->get_future().share();
+    auto request = TaskService::Get().Submit(
+        m_TaskScope, {"asset.request", TaskPriority::Normal},
+        [this, normalized, publishedFuture](CancellationToken token) {
+        // Do not complete and erase before the handle is published in the map.
+        publishedFuture.wait();
+        token.ThrowIfCancellationRequested();
         std::shared_ptr<Asset> result = LoadAsset(normalized);
         std::lock_guard<std::recursive_mutex> doneLock(m_Mutex);
         m_AsyncRequests.erase(normalized);
         return result;
-    }).share();
+    });
     m_AsyncRequests.emplace(normalized, request);
+    published->set_value();
     return request;
 }
 
@@ -831,6 +841,12 @@ void AssetManager::Pin(const std::string& path)
     ++m_PinCounts[NormalizePath(path)];
 }
 
+bool AssetManager::IsPinned(const std::string& path) const
+{
+    std::lock_guard<std::recursive_mutex> lock(m_Mutex);
+    return m_PinCounts.count(NormalizePath(path)) != 0;
+}
+
 void AssetManager::Unpin(const std::string& path)
 {
     std::lock_guard<std::recursive_mutex> lock(m_Mutex);
@@ -847,35 +863,64 @@ void AssetManager::Touch(AssetID id)
 
 size_t AssetManager::CollectGarbage(const AssetCacheBudget& budget)
 {
+    return CollectGarbageDetailed(budget).evictions.size();
+}
+
+AssetGarbageCollectionReport AssetManager::CollectGarbageDetailed(const AssetCacheBudget& budget)
+{
     std::lock_guard<std::recursive_mutex> lock(m_Mutex);
+    AssetGarbageCollectionReport report;
+    ++m_GarbageCollections;
     const size_t high=budget.cpuHighWatermarkBytes?budget.cpuHighWatermarkBytes:m_AssetCpuBudgetBytes;
-    if(!high||m_AssetCpuTotalBytes<=high)return 0;
+    report.highWatermarkBytes=high;
+    report.bytesBefore=m_AssetCpuTotalBytes;
+    report.budgetExceeded=high&&m_AssetCpuTotalBytes>high;
+    if(!report.budgetExceeded){report.targetBytes=high;report.bytesAfter=m_AssetCpuTotalBytes;return report;}
+    ++m_BudgetCollections;
     const size_t target=static_cast<size_t>(static_cast<double>(high)*std::clamp(budget.lowWatermarkRatio,0.0f,1.0f));
+    report.targetBytes=target;
     std::vector<std::pair<uint64_t,AssetID>> candidates;
     for(const auto& entry:m_Cache){
-        if(entry.second.use_count()!=1)continue;
-        bool pinned=false;
-        for(const auto& path:m_PathToID)if(path.second==entry.first&&
-            (m_PinCounts.count(path.first)||path.first.rfind("__builtin__/",0)==0)){pinned=true;break;}
-        if(!pinned)candidates.push_back({m_LastUsed[entry.first],entry.first});
+        const size_t bytes=EstimateAssetCpuBytes(*entry.second);
+        if(entry.second.use_count()!=1){++report.blockedReferencedAssets;report.blockedBytes+=bytes;continue;}
+        bool pinned=false,builtin=false;
+        for(const auto& path:m_PathToID)if(path.second==entry.first){
+            pinned|=m_PinCounts.count(path.first)!=0;
+            builtin|=path.first.rfind("__builtin__/",0)==0;
+        }
+        if(pinned){++report.blockedPinnedAssets;report.blockedBytes+=bytes;continue;}
+        if(builtin){++report.blockedBuiltinAssets;report.blockedBytes+=bytes;continue;}
+        candidates.push_back({m_LastUsed[entry.first],entry.first});
     }
-    std::sort(candidates.begin(),candidates.end());
-    size_t evicted=0;
+    std::sort(candidates.begin(),candidates.end(),[](const auto& left,const auto& right){
+        return left.first!=right.first?left.first<right.first:left.second<right.second;
+    });
     for(const auto& candidate:candidates){
-        if(m_AssetCpuTotalBytes<=target||evicted>=budget.maxEvictionsPerCollect)break;
-        Unload(candidate.second);++evicted;
+        if(m_AssetCpuTotalBytes<=target||report.evictions.size()>=budget.maxEvictionsPerCollect)break;
+        const auto found=m_Cache.find(candidate.second);if(found==m_Cache.end())continue;
+        AssetEvictionRecord record;record.id=candidate.second;record.path=found->second->GetPath();
+        record.estimatedCpuBytes=EstimateAssetCpuBytes(*found->second);
+        Unload(candidate.second);report.evictions.push_back(std::move(record));
     }
-    return evicted;
+    report.bytesAfter=m_AssetCpuTotalBytes;
+    report.targetReached=m_AssetCpuTotalBytes<=target;
+    m_EvictedAssets+=report.evictions.size();
+    for(const auto& record:report.evictions)m_EvictedBytes+=record.estimatedCpuBytes;
+    return report;
 }
 
 AssetCacheStats AssetManager::GetCacheStats() const
 {
     std::lock_guard<std::recursive_mutex> lock(m_Mutex);
     AssetCacheStats stats;stats.cachedAssets=m_Cache.size();stats.estimatedCpuBytes=m_AssetCpuTotalBytes;
-    stats.pinnedAssets=m_PinCounts.size();stats.loadingAssets=m_AsyncRequests.size();return stats;
+    stats.pinnedAssets=m_PinCounts.size();stats.loadingAssets=m_AsyncRequests.size();
+    stats.collections=m_GarbageCollections;stats.budgetCollections=m_BudgetCollections;
+    stats.evictedAssets=m_EvictedAssets;stats.evictedBytes=m_EvictedBytes;return stats;
 }
 
 void AssetManager::Clear() {
+    // Tasks may enter LoadAsset and acquire m_Mutex, so join before taking it.
+    m_TaskScope.CancelAndWait();
     std::lock_guard<std::recursive_mutex> lock(m_Mutex);
     Logger::Info("[AssetManager] Clearing all assets (", m_Cache.size(), ")");
     for (auto& kv : m_Cache) {
@@ -889,6 +934,8 @@ void AssetManager::Clear() {
     m_ArtifactToSourcePath.clear();
     m_LastUsed.clear();
     m_PinCounts.clear();
+    m_AsyncRequests.clear();
+    m_GarbageCollections=0;m_BudgetCollections=0;m_EvictedAssets=0;m_EvictedBytes=0;
 }
 
 void AssetManager::PrintStats() const {

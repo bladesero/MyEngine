@@ -97,6 +97,7 @@ public:
     const std::string& GetUuid()     const { return m_Uuid; }
     uint64_t           GetVersion()  const { return m_Version; }
     const std::vector<AssetID>& GetDependencies() const { return m_Dependencies; }
+    std::weak_ptr<void> GetLifetimeToken() const { return m_LifetimeToken; }
 
     bool IsReady()  const { return m_State == AssetState::Ready;  }
     bool IsFailed() const { return m_State == AssetState::Failed; }
@@ -128,6 +129,8 @@ private:
         m_Uuid = std::move(uuid);
     }
     void IncrementVersion() { ++m_Version; }
+
+    std::shared_ptr<uint8_t> m_LifetimeToken=std::make_shared<uint8_t>(0);
     void SetDependencies(std::vector<AssetID> dependencies) {
         m_Dependencies = std::move(dependencies);
     }

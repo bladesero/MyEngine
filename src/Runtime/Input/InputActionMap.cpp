@@ -309,6 +309,14 @@ bool InputActionMap::SaveToFile(const std::filesystem::path& path, std::string* 
         }
     }
 
+    const nlohmann::json root = ToJson();
+    TransactionalWriteOptions options;
+    options.validator=[](const std::filesystem::path& candidate,std::string* validationError){InputActionMap ignored;return ignored.LoadFromFile(candidate,validationError);};
+    return TransactionalFileWriter::WriteText(path,root.dump(2)+"\n",options,error);
+}
+
+nlohmann::json InputActionMap::ToJson() const
+{
     nlohmann::json actions = nlohmann::json::array();
     for (const InputAction& action : m_Actions) {
         nlohmann::json bindings = nlohmann::json::array();
@@ -321,13 +329,66 @@ bool InputActionMap::SaveToFile(const std::filesystem::path& path, std::string* 
             {"bindings", std::move(bindings)},
         });
     }
-    const nlohmann::json root = {
+    return {
         {"version", kCurrentVersion},
         {"actions", std::move(actions)},
     };
-    TransactionalWriteOptions options;
-    options.validator=[](const std::filesystem::path& candidate,std::string* validationError){InputActionMap ignored;return ignored.LoadFromFile(candidate,validationError);};
-    return TransactionalFileWriter::WriteText(path,root.dump(2)+"\n",options,error);
+}
+
+std::vector<InputBindingConflict> InputActionMap::FindConflicts(
+    std::string_view actionName, size_t bindingIndex, InputBindingPart part,
+    std::string_view sourceText) const
+{
+    InputSource source;
+    if (!ParseSource(sourceText, source)) return {};
+    std::vector<InputBindingConflict> result;
+    auto inspect = [&](const InputSource& candidate, const InputAction& action,
+                       size_t index, InputBindingPart candidatePart) {
+        if (!candidate.IsValid() || candidate.kind != source.kind || candidate.code != source.code)
+            return;
+        if (action.name == actionName && index == bindingIndex && candidatePart == part)
+            return;
+        result.push_back({action.name, index, candidatePart});
+    };
+    for (const InputAction& action : m_Actions) {
+        for (size_t index = 0; index < action.bindings.size(); ++index) {
+            const InputBinding& binding = action.bindings[index];
+            inspect(binding.source, action, index, InputBindingPart::Source);
+            inspect(binding.x, action, index, InputBindingPart::X);
+            inspect(binding.y, action, index, InputBindingPart::Y);
+        }
+    }
+    return result;
+}
+
+bool InputActionMap::Rebind(std::string_view actionName, size_t bindingIndex,
+                            InputBindingPart part, std::string_view sourceText,
+                            bool allowConflicts, std::string* error)
+{
+    InputAction* action = nullptr;
+    for (InputAction& candidate : m_Actions) {
+        if (candidate.name == actionName) { action = &candidate; break; }
+    }
+    if (!action) { SetError(error, "unknown input action: " + std::string(actionName)); return false; }
+    if (bindingIndex >= action->bindings.size()) { SetError(error, "input binding index is out of range"); return false; }
+    if ((action->type == InputActionType::Axis2D) != (part != InputBindingPart::Source)) {
+        SetError(error, action->type == InputActionType::Axis2D
+            ? "Axis2D bindings require X or Y" : "Button/Axis1D bindings require Source");
+        return false;
+    }
+    InputSource source;
+    if (!ParseSource(sourceText, source, error)) return false;
+    const auto conflicts = FindConflicts(actionName, bindingIndex, part, sourceText);
+    if (!allowConflicts && !conflicts.empty()) {
+        SetError(error, "input source conflicts with action '" + conflicts.front().actionName + "'");
+        return false;
+    }
+    InputBinding& binding = action->bindings[bindingIndex];
+    if (part == InputBindingPart::Source) binding.source = std::move(source);
+    else if (part == InputBindingPart::X) binding.x = std::move(source);
+    else binding.y = std::move(source);
+    if (error) error->clear();
+    return true;
 }
 
 void InputActionMap::Clear()

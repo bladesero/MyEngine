@@ -1,5 +1,8 @@
 name: Windows CI
 
+permissions:
+  contents: read
+
 env:
   MYENGINE_GIT_COMMIT: ${{ github.sha }}
 
@@ -13,6 +16,25 @@ on:
         description: GPU release-smoke soak duration
         required: false
         default: "60"
+        type: number
+      run_real_device_loss_lab:
+        description: Wait for a supervised real driver/device removal after smoke
+        required: false
+        default: false
+        type: boolean
+      real_device_loss_backend:
+        description: Backend used by the supervised real device-loss lab
+        required: false
+        default: d3d12
+        type: choice
+        options:
+          - d3d12
+          - d3d11
+      real_device_loss_timeout:
+        description: Supervised fault window in seconds
+        required: false
+        default: "120"
+        type: number
 
 concurrency:
   group: windows-ci-${{ github.ref }}
@@ -23,15 +45,17 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           submodules: recursive
+          persist-credentials: false
+          clean: true
       - name: Set up xmake
-        uses: xmake-io/github-action-setup-xmake@v1
+        uses: xmake-io/github-action-setup-xmake@3a1a5dddfc7fa625d9a698738334bf55655a861a # v1
         with:
           xmake-version: "3.0.8"
       - name: Cache xmake packages
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             ~/.xmake/packages
@@ -45,11 +69,13 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           submodules: recursive
+          persist-credentials: false
+          clean: true
       - name: Set up xmake
-        uses: xmake-io/github-action-setup-xmake@v1
+        uses: xmake-io/github-action-setup-xmake@3a1a5dddfc7fa625d9a698738334bf55655a861a # v1
         with:
           xmake-version: "3.0.8"
       - name: Configure release
@@ -68,7 +94,7 @@ jobs:
           xmake build MyEngineTests
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Archive release symbols and provenance
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: myengine-symbols-${{ github.sha }}-${{ github.run_id }}
           if-no-files-found: error
@@ -78,17 +104,66 @@ jobs:
             build/windows/x64/release/*.map
 
   gpu-release-smoke:
-    if: github.event_name == 'workflow_dispatch'
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.repository == 'bladesero/MyEngine' &&
+      github.ref == 'refs/heads/master'
+    environment: myengine-gpu-production
     runs-on: [self-hosted, Windows, X64, myengine-gpu]
     timeout-minutes: 120
+    concurrency:
+      group: myengine-gpu-production
+      cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           submodules: recursive
+          fetch-depth: 1
+          persist-credentials: false
+          clean: true
       - name: Run signed-package-compatible dual-backend release gate
+        shell: powershell
+        env:
+          SOAK_SECONDS: ${{ inputs.soak_seconds }}
+        run: |
+          $soakSeconds = 0
+          if (-not [int]::TryParse($env:SOAK_SECONDS, [ref]$soakSeconds) -or
+              $soakSeconds -lt 1 -or $soakSeconds -gt 3600) {
+              throw "soak_seconds must be an integer between 1 and 3600"
+          }
+          powershell -NoProfile -ExecutionPolicy Bypass `
+            -File tools\release-smoke.ps1 `
+            -SoakSeconds $soakSeconds `
+            -ReloadIterations 10
+      - name: Publish package for supervised real device-loss lab
+        if: inputs.run_real_device_loss_lab
         shell: powershell
         run: >-
           powershell -NoProfile -ExecutionPolicy Bypass
-          -File tools\release-smoke.ps1
-          -SoakSeconds ${{ inputs.soak_seconds }}
-          -ReloadIterations 10
+          -File tools\publish.ps1 -Project . -Mode release
+      - name: Wait for supervised real driver or device removal
+        if: inputs.run_real_device_loss_lab
+        shell: powershell
+        env:
+          LAB_BACKEND: ${{ inputs.real_device_loss_backend }}
+          LAB_TIMEOUT: ${{ inputs.real_device_loss_timeout }}
+        run: |
+          $labTimeout = 0
+          if (-not [int]::TryParse($env:LAB_TIMEOUT, [ref]$labTimeout) -or
+              $labTimeout -lt 15 -or $labTimeout -gt 900) {
+              throw "real_device_loss_timeout must be an integer between 15 and 900"
+          }
+          powershell -NoProfile -ExecutionPolicy Bypass `
+            -File tools\gpu-device-loss-lab.ps1 `
+            -Package Builds\MyEngine-windows-x64 `
+            -Backend $env:LAB_BACKEND `
+            -TimeoutSeconds $labTimeout `
+            -EvidenceDirectory Builds\MyEngine-windows-x64\lab-evidence\workflow
+      - name: Archive real device-loss lab evidence
+        if: always() && inputs.run_real_device_loss_lab
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: myengine-real-device-loss-${{ inputs.real_device_loss_backend }}-${{ github.sha }}-${{ github.run_id }}
+          if-no-files-found: error
+          retention-days: 90
+          path: Builds/MyEngine-windows-x64/lab-evidence/workflow/**

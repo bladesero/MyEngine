@@ -75,6 +75,7 @@ public:
 
     bool Init(IWindow* window) override;
     void Shutdown()            override;
+    RHIDeviceIdentity GetDeviceIdentity() const override { return m_DeviceIdentity; }
 
     void BeginFrame(float r, float g, float b, float a) override;
     void EndFrame()  override;
@@ -174,6 +175,7 @@ private:
 
     ComPtr<ID3D11Device>           m_Device;
     ComPtr<ID3D11DeviceContext>    m_Context;
+    RHIDeviceIdentity              m_DeviceIdentity;
     ComPtr<IDXGISwapChain>         m_SwapChain;
     ComPtr<ID3D11RenderTargetView> m_RTV;
     std::shared_ptr<D3D11TextureView> m_BackBufferView;

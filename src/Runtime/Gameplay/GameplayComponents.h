@@ -120,6 +120,7 @@ public:
     void Flash(float intensity, float duration);
     void SlowMotion(float scale, float duration);
     bool IsActive() const { return m_ShakeRemaining>0.0f||m_FlashRemaining>0.0f||m_SlowRemaining>0.0f; }
+    const Vec3& GetAppliedShakeOffset() const{return m_LastShakeOffset;}
     void Serialize(nlohmann::json& data) const override;
     void Deserialize(const nlohmann::json& data) override;
 private:

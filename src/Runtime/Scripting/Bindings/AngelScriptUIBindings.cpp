@@ -50,6 +50,16 @@
         asFUNCTION(UIGetJson), asCALL_CDECL));
     Check(engine.RegisterGlobalFunction("void Notify(const string &in, const string &in)",
         asFUNCTION(UINotify), asCALL_CDECL));
+    Check(engine.RegisterGlobalFunction("bool SetSafeArea(float, float, float, float)",
+        asFUNCTION(UISetSafeArea), asCALL_CDECL));
+    Check(engine.RegisterGlobalFunction("string GetDiagnosticsJson()",
+        asFUNCTION(UIGetDiagnosticsJson), asCALL_CDECL));
+    Check(engine.RegisterGlobalFunction("bool ShowSubtitle(const string &in, const string &in, const string &in, float, int = 0)",
+        asFUNCTION(UIShowSubtitle), asCALL_CDECL));
+    Check(engine.RegisterGlobalFunction("void ClearSubtitles()",
+        asFUNCTION(UIClearSubtitles), asCALL_CDECL));
+    Check(engine.RegisterGlobalFunction("string GetSubtitleJson()",
+        asFUNCTION(UIGetSubtitleJson), asCALL_CDECL));
 
     engine.SetDefaultNamespace("Events");
     Check(engine.RegisterGlobalFunction("bool Subscribe(const string &in, const string &in)",

@@ -3,10 +3,13 @@
 #include "Physics/CharacterControllerComponent.h"
 #include "Physics/RigidBodyComponent.h"
 #include "Physics/SphereColliderComponent.h"
+#include "Input/Input.h"
 #include "Scene/Scene.h"
 #include "Scene/SceneSerializer.h"
 #include "Scripting/ScriptProfiler.h"
 #include "Scripting/ScriptComponent.h"
+#include "Scripting/AngelScriptRuntime.h"
+#include "UI/Core/UISystem.h"
 #include "TestHarness.h"
 
 #include <chrono>
@@ -263,6 +266,7 @@ bool TestAngelScriptSceneTagsTransformProfilerAndDiagnostics()
         "    ActorHandleArray@ enemies = Scene::FindAllByTag(\"enemy\");\n"
         "    ActorHandleArray@ layerActors = Scene::FindAllInLayer(7);\n"
         "    string stats = Profiler::GetScriptStatsJson();\n"
+        "    string resources = Resources::GetStatsJson();\n"
         "    Debug::Log(\"gameplay\", \"tag transform test\");\n"
         "    Debug::LogOnce(\"tag-once\", \"once\");\n"
         "    Debug::LogThrottle(\"tag-throttle\", \"throttle\", 10.0f);\n"
@@ -295,6 +299,39 @@ bool TestAngelScriptSceneTagsTransformProfilerAndDiagnostics()
     return true;
 }
 
+bool TestAngelScriptSubtitleFacade()
+{
+    std::string glyphError;
+    if(!Check(Input::LoadGlyphAtlasFromFile(InputGlyphAtlas::DefaultPath,&glyphError),
+              "subtitle script test could not load glyph atlas: "+glyphError))return false;
+    UISystem ui;
+    AngelScriptRuntime::SetUISystem(&ui);
+    Scene scene("SubtitleScript");
+    Actor* actor=scene.CreateActor("Narrator");
+    auto* script=actor->AddComponent<ScriptComponent>();
+    script->SetSource(
+        "class Script {\n"
+        "  int ok = 0;\n"
+        "  void Start() {\n"
+        "    if (UI::ShowSubtitle(\"intro\", \"Guide\", \"Welcome\", 2.0f, 5)) {\n"
+        "      string state = UI::GetSubtitleJson();\n"
+        "      Input::SetGlyphLocale(\"zh-CN\");\n"
+        "      string glyph = Input::ActionGlyphJson(\"Jump\");\n"
+        "      string sourceGlyph = Input::SourceGlyphJson(\"Keyboard/Space\");\n"
+        "      if (state != \"{}\" && glyph != \"{}\" && sourceGlyph != \"{}\" && Input::GlyphFamily() != \"\") ok = 1;\n"
+        "      UI::ClearSubtitles();\n"
+        "    }\n"
+        "  }\n"
+        "}\n");
+    const bool compiled=script->IsCompiled();
+    scene.OnUpdate(1.0f/60.0f);
+    const nlohmann::json properties=script->GetProperties();
+    AngelScriptRuntime::ClearUISystem(&ui);
+    return Check(compiled&&properties.value("ok",0)==1&&!ui.GetSubtitleState().visible,
+                 "AngelScript subtitle facade did not enqueue, inspect, and clear a cue: "+
+                 script->GetLastError());
+}
+
 bool TestAngelScriptRuntimeDiagnostics()
 {
     Scene scene("Diagnostics");
@@ -317,6 +354,7 @@ MYENGINE_REGISTER_TEST("Scripting", "TestAngelScriptIncludesAndDependencyHotRelo
 MYENGINE_REGISTER_TEST("Scripting", "TestAngelScriptSceneAndComponentFacadeV3", TestAngelScriptSceneAndComponentFacadeV3);
 MYENGINE_REGISTER_TEST("Scripting", "TestAngelScriptSaveDataTaskAndDebug", TestAngelScriptSaveDataTaskAndDebug);
 MYENGINE_REGISTER_TEST("Scripting", "TestAngelScriptSceneTagsTransformProfilerAndDiagnostics", TestAngelScriptSceneTagsTransformProfilerAndDiagnostics);
+MYENGINE_REGISTER_TEST("Scripting", "TestAngelScriptSubtitleFacade", TestAngelScriptSubtitleFacade);
 MYENGINE_REGISTER_TEST("Scripting", "TestAngelScriptRuntimeDiagnostics", TestAngelScriptRuntimeDiagnostics);
 
 } // namespace

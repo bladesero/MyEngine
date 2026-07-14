@@ -60,6 +60,7 @@ public:
 protected:
     // Override in derived classes to set up layers, resources, etc.
     virtual bool OnInit()     { return true; }
+    virtual void OnBeforeLayersCleared() {}
     virtual void OnShutdown() {}
 
     // Convenience forwarders so subclasses don't need to reach into Engine.

@@ -4,6 +4,7 @@
 #include "Scene/Scene.h"
 #include "Scene/SceneSerializer.h"
 #include "Game/SceneManager.h"
+#include "Game/GameFlowController.h"
 #include <memory>
 #include <string>
 
@@ -87,7 +88,12 @@ public:
     bool StepPlay();
     SceneManager& GetSceneManager(){return m_SceneManager;}
     const SceneManager& GetSceneManager()const{return m_SceneManager;}
-    bool RequestSceneLoad(const std::string& path){return m_SceneManager.RequestLoad(path);}
+    GameFlowController& GetGameFlowController(){return m_GameFlowController;}
+    const GameFlowController& GetGameFlowController()const{return m_GameFlowController;}
+    bool RequestSceneLoad(const std::string& path);
+    void SetPauseWhenUnfocused(bool enabled);
+    bool GetPauseWhenUnfocused() const { return m_PauseWhenUnfocused; }
+    bool IsWindowFocused() const { return m_WindowFocused; }
 
 protected:
     // 子类可重写，在 Scene 加载/创建完成后触发
@@ -106,4 +112,8 @@ private:
     bool m_EditDirtySnapshot = false;
     bool m_StepRequested = false;
     SceneManager m_SceneManager;
+    GameFlowController m_GameFlowController;
+    SceneLoadState m_LastObservedLoadState = SceneLoadState::Idle;
+    bool m_PauseWhenUnfocused = false;
+    bool m_WindowFocused = true;
 };

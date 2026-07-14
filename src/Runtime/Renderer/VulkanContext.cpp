@@ -4,6 +4,7 @@
 
 #include "Core/Logger.h"
 #include "Core/Window.h"
+#include "Renderer/RHI/RHIResourceStats.h"
 
 #include <SDL3/SDL.h>
 #ifndef VK_USE_PLATFORM_WIN32_KHR
@@ -1882,7 +1883,7 @@ std::shared_ptr<GpuBuffer> VulkanContext::CreateBuffer(
         VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT,
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
         initialData);
-    return result;
+    CommitRHIResourceAccounting(std::static_pointer_cast<GpuBuffer>(result));return result;
 }
 
 std::shared_ptr<GpuBufferView> VulkanContext::CreateBufferView(
@@ -2104,7 +2105,7 @@ std::shared_ptr<GpuTexture> VulkanContext::CreateTexture(const RHITextureDesc& d
     alloc.memoryTypeIndex = memoryType;
     if (vkAllocateMemory(m_Impl->device, &alloc, nullptr, &result->memory) != VK_SUCCESS) return nullptr;
     vkBindImageMemory(m_Impl->device, result->image, result->memory, 0);
-    return result;
+    CommitRHIResourceAccounting(std::static_pointer_cast<GpuTexture>(result));return result;
 }
 
 std::shared_ptr<GpuTextureView> VulkanContext::CreateTextureView(

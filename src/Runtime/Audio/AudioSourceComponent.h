@@ -21,12 +21,23 @@ public:
     void SetSpatial(bool value) { m_Spatial = value; }
     float GetVolume() const { return m_Volume; }
     void SetVolume(float value);
+    void FadeVolume(float value, uint32_t milliseconds);
     float GetPitch() const { return m_Pitch; }
     void SetPitch(float value);
     float GetMinDistance() const { return m_MinDistance; }
     void SetMinDistance(float value);
     float GetMaxDistance() const { return m_MaxDistance; }
     void SetMaxDistance(float value);
+    AudioBus GetBus() const { return m_Bus; }
+    void SetBus(AudioBus value);
+    int GetPriority() const { return m_Priority; }
+    void SetPriority(int value);
+    const std::string& GetConcurrencyGroup() const { return m_ConcurrencyGroup; }
+    void SetConcurrencyGroup(std::string value) { m_ConcurrencyGroup = std::move(value); }
+    uint32_t GetMaxInstances() const { return m_MaxInstances; }
+    void SetMaxInstances(uint32_t value);
+    bool GetStreaming() const { return m_Streaming; }
+    void SetStreaming(bool value) { m_Streaming = value; }
 
     bool IsPlaying() const;
     bool Play();
@@ -54,5 +65,10 @@ private:
     float m_Pitch = 1.0f;
     float m_MinDistance = 1.0f;
     float m_MaxDistance = 100.0f;
+    AudioBus m_Bus = AudioBus::Effects;
+    int m_Priority = 0;
+    std::string m_ConcurrencyGroup;
+    uint32_t m_MaxInstances = 0;
+    bool m_Streaming = false;
     AudioEngine::SoundID m_SoundID = 0;
 };

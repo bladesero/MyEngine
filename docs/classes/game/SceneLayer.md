@@ -23,10 +23,26 @@ editing and play simulation in separate worlds:
 `GetScene()` is retained as a transitional runtime compatibility alias for
 `GetSimulationScene()`. Editor code should use `EditorContext`, where
 `GetScene()` intentionally means EditorWorld.
-# Asynchronous scene transitions
+## Asynchronous scene transitions
 
-Runtime requests are prepared as a `SceneLoadPlan`: file I/O, JSON parsing,
-validation, and dependency discovery run on a worker, while Actor and Component
-construction remains on the main thread under a per-frame budget. The current
-world is paused but remains renderable until the candidate world is complete.
-Failed, cancelled, and superseded requests leave the current world unchanged.
+Runtime transitions use explicit read, parse/dependency-discovery, preload,
+incremental instantiate, GPU upload, and activation stages. Read/parse and asset
+decode run through owned task scopes; Actor and Component construction remains
+on the main thread under a per-frame budget. A monotonic upload fence waits only
+for work submitted before candidate activation, so later unrelated uploads do
+not extend the transition. The current world is paused but remains renderable
+until atomic activation. Failed, cancelled, and superseded requests release pins
+and leave the current world unchanged.
+On successful activation, dependency pins move from the request into the Scene
+and remain owned until that World is destroyed. `SceneLifetimeToken` is the
+callback guard for work that may complete later: completion code retains the
+guard returned by `TryAcquire()` for its entire commit. Scene teardown takes the
+exclusive gate and invalidates the token; generations distinguish replacement
+Worlds even when a caller reuses the same scene path.
+
+`SceneRenderLayer` owns a highest-level system Rml document for transition UX.
+It displays the stable stage name, progress, requested path, and failure detail
+without requiring a project-authored Canvas. Escape cancels an active request;
+after failure, R or Enter retries the same path/options and Escape dismisses the
+error while keeping the current safe World. Player uses this path for its first
+startup-scene request as well as later gameplay transitions.

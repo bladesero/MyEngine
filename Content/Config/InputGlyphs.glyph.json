@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "atlas": "Content/UI/Glyphs/InputGlyphAtlas.svg",
+  "defaultLocale": "en",
+  "families": {
+    "keyboardMouse": {
+      "Keyboard/Space":{"sprite":"key-space","labels":{"en":"Space","zh-CN":"空格"}},
+      "Keyboard/E":{"sprite":"key-e","labels":{"en":"E","zh-CN":"E键"}},
+      "Keyboard/Escape":{"sprite":"key-escape","labels":{"en":"Esc","zh-CN":"退出键"}},
+      "Keyboard/Enter":{"sprite":"key-enter","labels":{"en":"Enter","zh-CN":"确认键"}},
+      "Mouse/Left":{"sprite":"mouse-left","labels":{"en":"Left Mouse","zh-CN":"鼠标左键"}}
+    },
+    "xbox": {
+      "Gamepad/South":{"sprite":"xbox-a","labels":{"en":"A","zh-CN":"A键"}},
+      "Gamepad/East":{"sprite":"xbox-b","labels":{"en":"B","zh-CN":"B键"}},
+      "Gamepad/West":{"sprite":"xbox-x","labels":{"en":"X","zh-CN":"X键"}},
+      "Gamepad/North":{"sprite":"xbox-y","labels":{"en":"Y","zh-CN":"Y键"}},
+      "Gamepad/Start":{"sprite":"xbox-menu","labels":{"en":"Menu","zh-CN":"菜单键"}}
+    },
+    "playstation": {
+      "Gamepad/South":{"sprite":"ps-cross","labels":{"en":"Cross","zh-CN":"叉键"}},
+      "Gamepad/East":{"sprite":"ps-circle","labels":{"en":"Circle","zh-CN":"圆键"}},
+      "Gamepad/West":{"sprite":"ps-square","labels":{"en":"Square","zh-CN":"方块键"}},
+      "Gamepad/North":{"sprite":"ps-triangle","labels":{"en":"Triangle","zh-CN":"三角键"}},
+      "Gamepad/Start":{"sprite":"ps-options","labels":{"en":"Options","zh-CN":"选项键"}}
+    },
+    "nintendo": {
+      "Gamepad/South":{"sprite":"nintendo-b","labels":{"en":"B","zh-CN":"B键"}},
+      "Gamepad/East":{"sprite":"nintendo-a","labels":{"en":"A","zh-CN":"A键"}},
+      "Gamepad/West":{"sprite":"nintendo-y","labels":{"en":"Y","zh-CN":"Y键"}},
+      "Gamepad/North":{"sprite":"nintendo-x","labels":{"en":"X","zh-CN":"X键"}},
+      "Gamepad/Start":{"sprite":"nintendo-plus","labels":{"en":"Plus","zh-CN":"加号键"}}
+    }
+  }
+}

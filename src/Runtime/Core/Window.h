@@ -9,12 +9,15 @@ struct SDL_Renderer;
 // --------------------------------------------------------------------------
 // WindowConfig
 // --------------------------------------------------------------------------
+enum class WindowMode { Windowed, Borderless, Fullscreen };
+
 struct WindowConfig {
     std::string title       = "MyEngine";
     int         width       = 1280;
     int         height      = 720;
     bool        vsync       = true;
     bool        sdlRenderer = false;  // false = bare window for D3D11/Vulkan
+    WindowMode  mode        = WindowMode::Windowed;
 };
 
 // --------------------------------------------------------------------------

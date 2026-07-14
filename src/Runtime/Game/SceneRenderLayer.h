@@ -3,6 +3,7 @@
 #include "Game/SceneLayer.h"
 #include "Game/GameViewport.h"
 #include "Game/SceneViewportController.h"
+#include "Game/RuntimeResourceBudget.h"
 #include "Renderer/IRenderContext.h"
 #include "Renderer/RenderPath.h"
 #include "UI/Core/UISystem.h"
@@ -46,11 +47,35 @@ public:
 
     void GetViewportRect(int& outX, int& outY, int& outW, int& outH) const;
     bool BuildRayFromScreen(float screenX, float screenY, Math::Ray& outRay) const;
+    const UISystemOverlayState& GetSystemOverlayState() const { return m_UISystem.GetSystemOverlay(); }
+    bool SetUIAccessibilitySettings(const UIAccessibilitySettings& value,
+                                    std::string* error=nullptr){return m_UISystem.SetAccessibilitySettings(value,error);}
+    bool SetUISafeAreaInsets(const UISafeAreaInsets& value,std::string* error=nullptr){return m_UISystem.SetSafeAreaInsets(value,error);}
+    const UISystemDiagnostics& GetUISystemDiagnostics() const{return m_UISystem.GetDiagnostics();}
+    bool ShowSubtitle(SubtitleCue cue,std::string* error=nullptr){return m_UISystem.ShowSubtitle(std::move(cue),error);}
+    void ClearSubtitles(){m_UISystem.ClearSubtitles();}
+    const SubtitleState& GetSubtitleState() const{return m_UISystem.GetSubtitleState();}
+    bool IsSubtitlePresented() const{return m_UISystem.IsSubtitlePresented();}
+    bool EnableRuntimeResourceBudget(const RuntimeResourceBudgetConfig& value,
+                                     std::string* error=nullptr){m_ResourceBudgetEnabled=
+        m_ResourceBudget.Configure(value,error);return m_ResourceBudgetEnabled;}
+    const RuntimeResourceBudgetReport& GetRuntimeResourceBudgetReport() const{
+        return m_ResourceBudget.GetLastReport();}
+    void SetRuntimeScreensEnabled(bool enabled);
+    bool GetRuntimeScreensEnabled() const { return m_RuntimeScreensEnabled; }
+    RuntimeUIScreenStack& GetRuntimeScreenStack() { return m_RuntimeScreens; }
+    const RuntimeUIScreenStack& GetRuntimeScreenStack() const { return m_RuntimeScreens; }
+    bool LoadRuntimeScreenConfig(const std::string& path,std::string* error=nullptr);
 
 protected:
     void OnSceneLoaded() override;
 
 private:
+    void SyncSceneLoadOverlay();
+    void SyncRuntimeScreen();
+    void HandleRuntimeScreenEvent(const RuntimeUIStackEvent& event);
+    void RefreshRuntimeSettingsLabels();
+    void AdjustRuntimeSetting(const std::string& action);
     IRenderContext* m_RenderContext = nullptr;
     SceneViewport m_Viewport;
     GameViewport m_GameViewport;
@@ -61,4 +86,8 @@ private:
     bool m_SceneViewportUsesSimulationScene = false;
     bool m_SceneViewportActive = true;
     bool m_GameViewportActive = true;
+    bool m_RuntimeScreensEnabled = false;
+    bool m_ResourceBudgetEnabled = false;
+    RuntimeResourceBudgetController m_ResourceBudget;
+    RuntimeUIScreenStack m_RuntimeScreens = RuntimeUIScreenStack::CreateStandard();
 };

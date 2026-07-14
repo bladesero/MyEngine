@@ -13,6 +13,7 @@
 #include "Assets/ParticleAsset.h"
 #include "Audio/AudioClipAsset.h"
 #include "Core/Logger.h"
+#include "Core/TaskService.h"
 
 #include <array>
 #include <cctype>
@@ -22,7 +23,6 @@
 #include <typeindex>
 #include <unordered_map>
 #include <vector>
-#include <future>
 #include <mutex>
 #include <filesystem>
 #include <unordered_set>
@@ -38,6 +38,30 @@ struct AssetCacheStats {
     size_t estimatedCpuBytes = 0;
     size_t pinnedAssets = 0;
     size_t loadingAssets = 0;
+    uint64_t collections = 0;
+    uint64_t budgetCollections = 0;
+    uint64_t evictedAssets = 0;
+    uint64_t evictedBytes = 0;
+};
+
+enum class AssetEvictionBlockReason { Pinned, Builtin, Referenced };
+struct AssetEvictionRecord {
+    AssetID id = kInvalidAssetID;
+    std::string path;
+    size_t estimatedCpuBytes = 0;
+};
+struct AssetGarbageCollectionReport {
+    size_t highWatermarkBytes = 0;
+    size_t targetBytes = 0;
+    size_t bytesBefore = 0;
+    size_t bytesAfter = 0;
+    size_t blockedPinnedAssets = 0;
+    size_t blockedBuiltinAssets = 0;
+    size_t blockedReferencedAssets = 0;
+    size_t blockedBytes = 0;
+    bool budgetExceeded = false;
+    bool targetReached = true;
+    std::vector<AssetEvictionRecord> evictions;
 };
 
 enum class AssetChangeType { SourceChanged, Imported, Reloaded, Failed, Removed, Moved };
@@ -83,8 +107,8 @@ public:
     }
 
     std::shared_ptr<Asset> LoadAsset(const std::string& path);
-    std::future<std::shared_ptr<Asset>> LoadAsync(const std::string& path);
-    std::shared_future<std::shared_ptr<Asset>> RequestAsync(const std::string& path);
+    TaskHandle<std::shared_ptr<Asset>> LoadAsync(const std::string& path);
+    TaskHandle<std::shared_ptr<Asset>> RequestAsync(const std::string& path);
     bool Reload(const std::string& path);
     size_t PollHotReload();
     ListenerID SubscribeAssetChanged(AssetChangedCallback callback);
@@ -152,8 +176,10 @@ public:
     void UnloadUnreferenced();
     void Pin(const std::string& path);
     void Unpin(const std::string& path);
+    bool IsPinned(const std::string& path) const;
     void Touch(AssetID id);
     size_t CollectGarbage(const AssetCacheBudget& budget);
+    AssetGarbageCollectionReport CollectGarbageDetailed(const AssetCacheBudget& budget);
     AssetCacheStats GetCacheStats() const;
 
     void Clear();
@@ -255,8 +281,13 @@ private:
     std::unordered_map<ListenerID, AssetChangedCallback> m_AssetChangedListeners;
     mutable std::unordered_map<AssetID, uint64_t> m_LastUsed;
     std::unordered_map<std::string, size_t> m_PinCounts;
-    std::unordered_map<std::string, std::shared_future<std::shared_ptr<Asset>>> m_AsyncRequests;
+    TaskScope m_TaskScope;
+    std::unordered_map<std::string, TaskHandle<std::shared_ptr<Asset>>> m_AsyncRequests;
     mutable uint64_t m_UseClock = 0;
+    uint64_t m_GarbageCollections = 0;
+    uint64_t m_BudgetCollections = 0;
+    uint64_t m_EvictedAssets = 0;
+    uint64_t m_EvictedBytes = 0;
     ListenerID m_NextAssetChangedListenerID = 1;
     mutable std::recursive_mutex m_Mutex;
     std::filesystem::path m_ProjectRoot;

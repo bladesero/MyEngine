@@ -2,12 +2,15 @@
 
 #include "Assets/AssetManager.h"
 #include "Camera/Camera.h"
+#include "Core/RuntimeQualityDegradation.h"
 #include "Renderer/EnvironmentPass.h"
 #include "Renderer/DeferredLightingPass.h"
 #include "Renderer/GBufferPass.h"
 #include "Renderer/GpuUploadQueue.h"
 #include "Renderer/LightComponent.h"
 #include "Renderer/MaterialResourceCache.h"
+#include "Renderer/ParticleSystemComponent.h"
+#include "Renderer/RHI/RHIResourceStats.h"
 #include "Renderer/RenderGraph.h"
 #include "Renderer/Renderer.h"
 #include "Renderer/ShaderManager.h"
@@ -157,14 +160,16 @@ public:
     GpuCommandList* GetGraphicsCommandList() override { return &commands; }
     GpuTextureView* GetCurrentBackBufferView() override { return backBufferView.get(); }
     std::shared_ptr<GpuBuffer> CreateVertexBuffer(
-        const void*, uint32_t, uint32_t) override {
+        const void*, uint32_t bytes, uint32_t stride) override {
         ++vertexUploads;
-        return std::make_shared<MockBuffer>();
+        auto buffer=std::make_shared<MockBuffer>();buffer->desc.size=bytes;buffer->desc.stride=stride;
+        CommitRHIResourceAccounting(std::static_pointer_cast<GpuBuffer>(buffer));return buffer;
     }
     std::shared_ptr<GpuBuffer> CreateIndexBuffer(
-        const void*, uint32_t) override {
+        const void*, uint32_t bytes) override {
         ++indexUploads;
-        return std::make_shared<MockBuffer>();
+        auto buffer=std::make_shared<MockBuffer>();buffer->desc.size=bytes;
+        CommitRHIResourceAccounting(std::static_pointer_cast<GpuBuffer>(buffer));return buffer;
     }
     std::shared_ptr<GpuShader> CreateShader(
         const std::string&, const std::string&, const std::string&,
@@ -197,7 +202,9 @@ public:
         for (uint32_t i = 0; data && i < count; ++i) {
             uploadedSubresources.push_back(data[i]);
         }
-        auto texture = std::make_shared<MockTexture>(); texture->desc = desc; return texture;
+        auto texture = std::make_shared<MockTexture>(); texture->desc = desc;
+        CommitRHIResourceAccounting(std::static_pointer_cast<GpuTexture>(texture));
+        return texture;
     }
     RHIDeviceCapabilities GetCapabilities() const override {
         RHIDeviceCapabilities caps; caps.maxColorAttachments = 8;
@@ -356,6 +363,78 @@ bool TestMaterialResourceCacheFallsBackToRgbaWhenBc1Unsupported()
         }) != context.uploadedSubresources.end();
     return Check(hasRgbaMipPitch,
                  "RGBA fallback upload did not use linear RGBA row or slice pitch");
+}
+
+bool TestMaterialResourceCacheGpuResidencyEvictionAndReupload()
+{
+    MockRenderContext context;context.backend=RHIBackend::D3D11;
+    auto referenced=CreateCompressedTextureForUploadTest("__test__/GpuReferenced");
+    auto pinned=CreateCompressedTextureForUploadTest("__test__/GpuPinned");
+    const uint64_t baseline=RHIResourceStatsProvider::GetStats().liveResourceBytes;
+    MaterialResourceCache cache(&context);
+    cache.EnsureTextureUploaded(referenced.get());
+    auto heldView=cache.GetTextureView(static_cast<GpuTexture*>(referenced->GetGpuHandle()));
+    cache.EnsureTextureUploaded(pinned.get());
+    AssetManager::Get().Pin(pinned->GetPath());
+    const auto blocked=MaterialResourceCache::CollectGlobalTextureGarbage(
+        baseline+1,1.0f,4);
+    AssetManager::Get().Unpin(pinned->GetPath());
+    if(!Check(blocked.pressureDetected&&!blocked.targetReached&&blocked.evictions.empty()&&
+              blocked.blockers.size()==2&&referenced->HasGpuHandle()&&pinned->HasGpuHandle(),
+              "GPU texture eviction did not report referenced and pinned blockers"))return false;
+
+    heldView.reset();
+    const auto evicted=MaterialResourceCache::CollectGlobalTextureGarbage(
+        baseline+100,1.0f,1);
+    if(!Check(evicted.evictions.size()==1&&evicted.targetReached&&
+              (!referenced->HasGpuHandle()||!pinned->HasGpuHandle()),
+              "GPU texture LRU did not release one eligible texture to its low watermark"))return false;
+    TextureAsset* released=!referenced->HasGpuHandle()?referenced.get():pinned.get();
+    const int uploadsBefore=context.textureUploads;
+    cache.EnsureTextureUploaded(released);
+    if(!Check(released->HasGpuHandle()&&context.textureUploads==uploadsBefore+1,
+              "evicted GPU texture was not rebuilt on demand"))return false;
+
+    auto expired=CreateCompressedTextureForUploadTest("__test__/GpuExpiredAsset");
+    cache.EnsureTextureUploaded(expired.get());expired.reset();
+    const auto expiredCollected=MaterialResourceCache::CollectGlobalTextureGarbage(
+        baseline+1,1.0f,8);
+    const bool foundExpired=std::any_of(expiredCollected.evictions.begin(),
+        expiredCollected.evictions.end(),[](const GpuTextureEvictionRecord& item){
+            return item.path=="__test__/GpuExpiredAsset";});
+    return Check(foundExpired,
+                 "GPU cache did not safely collect an entry after its CPU asset expired");
+}
+
+bool TestMaterialResourceCacheMeshResidencyAndQualityDegradation()
+{
+    RuntimeQualityDegradation::Reset();MockRenderContext context;
+    const uint64_t baseline=RHIResourceStatsProvider::GetStats().liveResourceBytes;
+    auto mesh=MeshAsset::CreateCube("GpuMeshLRU");MaterialResourceCache cache(&context);
+    cache.EnsureMeshUploaded(mesh.get());
+    if(!Check(mesh->IsUploaded()&&mesh->GetGpuBufferBytes()>0,
+              "mesh residency test failed to upload buffers"))return false;
+    for(int collection=0;collection<2;++collection){
+        const auto active=MaterialResourceCache::CollectGlobalMeshGarbage(baseline+1,1.0f,4,2);
+        if(!Check(active.evictions.empty()&&!active.blockers.empty()&&mesh->IsUploaded(),
+                  "active mesh grace window did not block eviction"))return false;}
+    const auto evicted=MaterialResourceCache::CollectGlobalMeshGarbage(baseline+1,1.0f,4,2);
+    if(!Check(evicted.evictions.size()==1&&!mesh->IsUploaded(),
+              "inactive mesh was not evicted after its grace window"))return false;
+    cache.EnsureMeshUploaded(mesh.get());
+    if(!Check(mesh->IsUploaded()&&context.vertexUploads>=2,
+              "evicted mesh was not rebuilt on demand"))return false;
+
+    RuntimeQualityDegradation::SetLevel(1);
+    auto texture=CreateCompressedTextureForUploadTest("__test__/QualityMipBias");
+    cache.EnsureTextureUploaded(texture.get());
+    const auto& uploaded=context.uploadedTextureDescs.back();
+    if(!Check(uploaded.width==2&&uploaded.height==2&&uploaded.mipLevels==2,
+              "quality degradation did not bias uploaded texture mips"))return false;
+    ParticleSystemComponent particles;particles.GetSettings().maxParticles=8;
+    RuntimeQualityDegradation::SetLevel(2);particles.Emit(8);
+    const bool particleCap=particles.GetAliveCount()==2;RuntimeQualityDegradation::Reset();
+    return Check(particleCap,"quality degradation did not bound particle count");
 }
 
 bool TestExtendedRHIContracts() {
@@ -1103,14 +1182,17 @@ bool TestHeadlessRendering() {
     MockRenderContext context;
     Renderer renderer(&context, &context, &context);
     int queuedUploadRuns = 0;
-    GpuUploadQueue::Get().Enqueue([&queuedUploadRuns](IRHIDevice& uploadContext) {
+    const GpuUploadFence uploadFence = GpuUploadQueue::Get().Enqueue([&queuedUploadRuns](IRHIDevice& uploadContext) {
         ++queuedUploadRuns;
         const uint8_t pixel[4] = { 255, 255, 255, 255 };
         uploadContext.UploadTexture2D(pixel, 1, 1);
     });
+    if (!Check(!GpuUploadQueue::Get().IsFenceComplete(uploadFence),
+               "GPU upload fence completed before render-thread execution")) return false;
     renderer.RenderScene(scene, camera, true);
 
-    if (!Check(queuedUploadRuns == 1 && GpuUploadQueue::Get().PendingCount() == 0,
+    if (!Check(queuedUploadRuns == 1 && GpuUploadQueue::Get().PendingCount() == 0 &&
+               GpuUploadQueue::Get().IsFenceComplete(uploadFence),
                "GPU upload queue was not consumed on the render thread")) return false;
     if (!Check(context.beginFrames == 1 && context.endFrames == 1,
                "headless renderer frame lifecycle mismatch")) return false;
@@ -1559,6 +1641,8 @@ MYENGINE_REGISTER_TEST("Renderer", "TestExtendedRHIContracts", TestExtendedRHICo
 MYENGINE_REGISTER_TEST("Renderer", "TestStableRHIDeviceLossContract", TestStableRHIDeviceLossContract);
 MYENGINE_REGISTER_TEST("Renderer", "TestMaterialResourceCacheUploadsBc3WhenSupported", TestMaterialResourceCacheUploadsBc3WhenSupported);
 MYENGINE_REGISTER_TEST("Renderer", "TestMaterialResourceCacheFallsBackToRgbaWhenBc1Unsupported", TestMaterialResourceCacheFallsBackToRgbaWhenBc1Unsupported);
+MYENGINE_REGISTER_TEST("Renderer", "TestMaterialResourceCacheGpuResidencyEvictionAndReupload", TestMaterialResourceCacheGpuResidencyEvictionAndReupload);
+MYENGINE_REGISTER_TEST("Renderer", "TestMaterialResourceCacheMeshResidencyAndQualityDegradation", TestMaterialResourceCacheMeshResidencyAndQualityDegradation);
 MYENGINE_REGISTER_TEST("Renderer", "TestRenderGraphValidationAndExecution", TestRenderGraphValidationAndExecution);
 MYENGINE_REGISTER_TEST("Renderer", "TestNamedShaderBindings", TestNamedShaderBindings);
 MYENGINE_REGISTER_TEST("Renderer", "TestBackendIndependentPassRecording", TestBackendIndependentPassRecording);

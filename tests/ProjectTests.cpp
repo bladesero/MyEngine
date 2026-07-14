@@ -9,6 +9,7 @@
 #include "Editor/EditorProject.h"
 #include "Editor/EditorWorkspace.h"
 #include "Editor/ProjectPublisher.h"
+#include "Editor/ProjectValidator.h"
 #include "Project/ContentArchive.h"
 #include "Project/ContentPathPolicy.h"
 #include "Project/CookedProjectCache.h"
@@ -17,6 +18,7 @@
 #include "Project/PublishTargets.h"
 #include "Project/RuntimeCompatibility.h"
 #include "Project/RuntimeDependencies.h"
+#include "Project/RuntimePerformanceProfile.h"
 #include "Project/JsonMigrationRegistry.h"
 #include "Project/SaveGame.h"
 #include "Input/InputActionMap.h"
@@ -425,6 +427,11 @@ bool TestWorkspaceCookAndPublish() {
     const auto editorScriptPath = projectRoot / "Content" / "Editor" / "Scripts" / "tool.lua";
     fs::create_directories(editorScriptPath.parent_path());
     std::ofstream(editorScriptPath) << "Editor.log('tool')\n";
+    const auto performanceProfilePath = projectRoot / "Content" / "Config" /
+        "Performance.profile.json";
+    fs::create_directories(performanceProfilePath.parent_path());
+    RuntimePerformanceProfile performanceProfile;
+    std::ofstream(performanceProfilePath) << performanceProfile.ToJson().dump(2) << '\n';
     const auto modelPath = projectRoot / "Content" / "Models" / "cached.gltf";
     fs::create_directories(modelPath.parent_path());
     std::ofstream(modelPath) << R"({"asset":{"version":"2.0"},"scenes":[]})";
@@ -517,6 +524,15 @@ bool TestWorkspaceCookAndPublish() {
     const std::string pakPayload(payloadBytes.begin(), payloadBytes.end());
     if (!Check(pakPayload == "cooked payload",
                "Content archive reader returned wrong payload bytes")) return false;
+    std::vector<uint8_t> profileBytes;
+    if (!Check(archiveReader->ReadFile("Content/Config/Performance.profile.json",
+                                       profileBytes, &error),
+               "Content archive omitted the project performance profile: " + error)) return false;
+    RuntimePerformanceProfile cookedProfile;
+    if (!Check(RuntimePerformanceProfile::FromText(
+                   std::string(profileBytes.begin(), profileBytes.end()), cookedProfile, &error) &&
+               cookedProfile.name == performanceProfile.name,
+               "cooked performance profile failed validation: " + error)) return false;
     FileStat payloadStat;
     if (!Check(archiveReader->Stat("Content/Data/payload.bin", payloadStat, &error) &&
                payloadStat.sourceKind == "pak" &&
@@ -898,6 +914,66 @@ bool TestTransactionalWriterAndMigrationRegistry()
     return Check(!incomplete.Migrate(missing,&error),"missing migration step was accepted");
 }
 
+bool TestOneClickProjectValidatorDiagnostics()
+{
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "myengine_project_validator";
+    std::error_code ec;
+    fs::remove_all(root, ec);
+    fs::create_directories(root / "Content/Scenes");
+    fs::create_directories(root / "Content/Scripts");
+    fs::create_directories(root / "Content/Data");
+    std::ofstream(root / ProjectConfig::kFileName)
+        << R"({"version":1,"name":"Validator","projectId":"validator-project","startupScene":"Content/Scenes/Main.scene.json","publish":{"outputDirectory":"Builds","target":"windows-x64"},"input":{"config":"Content/Config/Input.input.json"},"graphics":{"backend":"d3d11","renderPath":"forward"}})";
+    std::ofstream(root / "Content/Scenes/Main.scene.json")
+        << R"({"name":"Main","actors":[]})";
+    std::ofstream(root / "Content/Scripts/Valid.as")
+        << "class Valid { void Update(float dt) {} }\n";
+    std::ofstream(root / "Content/Data/Large.bin", std::ios::binary)
+        << std::string(128, 'x');
+
+    ProjectConfig project;
+    std::string error;
+    if (!Check(project.Open(root, false, &error),
+               "validator project failed to open: " + error)) return false;
+    ProjectValidationOptions options;
+    options.oversizedAssetWarningBytes = 64;
+    ProjectValidationReport report;
+    const bool validationPassed = ProjectValidator::Validate(project, report, options);
+    if (!Check(validationPassed && report.Passed() && report.ErrorCount() == 0 &&
+                   report.WarningCount() == 1 && report.scannedFiles == 3,
+               "valid project did not pass with only an oversized warning: " +
+                   report.Summary())) return false;
+    if (!Check(report.issues.front().code == ProjectValidationCode::OversizedAsset &&
+                   report.issues.front().path == "Content/Data/Large.bin",
+               "oversized warning did not retain a stable asset location")) return false;
+
+    std::ofstream(root / "Content/Scripts/Broken.as") << "class Broken {\n";
+    std::ofstream(root / "Content/Scenes/Main.scene.json")
+        << R"({"name":"Main","actors":[{"components":[{"data":{"mesh":"C:/outside/model.gltf"}}]}]})";
+    ProjectValidator::Validate(project, report, options);
+    bool scriptError = false;
+    bool unsafeReference = false;
+    for (const ProjectValidationIssue& issue : report.issues) {
+        scriptError |= issue.code == ProjectValidationCode::ScriptCompile &&
+            issue.path == "Content/Scripts/Broken.as";
+        unsafeReference |= issue.code == ProjectValidationCode::CookDependency &&
+            issue.path.find("outside/model.gltf") != std::string::npos;
+    }
+    if (!Check(!report.Passed() && scriptError && unsafeReference,
+               "validator did not report script and absolute-path blockers")) return false;
+
+    fs::remove(root / "Content/Scenes/Main.scene.json", ec);
+    ProjectValidator::Validate(project, report, options);
+    const bool startupError = std::any_of(report.issues.begin(), report.issues.end(),
+        [](const ProjectValidationIssue& issue) {
+            return issue.code == ProjectValidationCode::InvalidStartupScene;
+        });
+    fs::remove_all(root, ec);
+    return Check(startupError, "missing startup scene was not a project validation error");
+}
+
+MYENGINE_REGISTER_TEST("Project", "TestOneClickProjectValidatorDiagnostics", TestOneClickProjectValidatorDiagnostics);
 MYENGINE_REGISTER_TEST("Project", "TestPublishedCompatibilityFixtures", TestPublishedCompatibilityFixtures);
 MYENGINE_REGISTER_TEST("Project", "TestTransactionalWriterAndMigrationRegistry", TestTransactionalWriterAndMigrationRegistry);
 MYENGINE_REGISTER_TEST("Project", "TestPublishHardeningPrimitives", TestPublishHardeningPrimitives);

@@ -19,6 +19,10 @@
         asFUNCTION(AudioSourceSetVolume), asCALL_CDECL));
     Check(engine.RegisterGlobalFunction("void SetVolume(ActorHandle, float)",
         asFUNCTION(AudioSourceSetVolumeHandle), asCALL_CDECL));
+    Check(engine.RegisterGlobalFunction("void FadeVolume(float, uint)",
+        asFUNCTION(AudioSourceFadeVolume), asCALL_CDECL));
+    Check(engine.RegisterGlobalFunction("void FadeVolume(ActorHandle, float, uint)",
+        asFUNCTION(AudioSourceFadeVolumeHandle), asCALL_CDECL));
     Check(engine.RegisterGlobalFunction("void SetPitch(float)",
         asFUNCTION(AudioSourceSetPitch), asCALL_CDECL));
     Check(engine.RegisterGlobalFunction("void SetPitch(ActorHandle, float)",
@@ -27,6 +31,36 @@
         asFUNCTION(AudioSourceSetLoop), asCALL_CDECL));
     Check(engine.RegisterGlobalFunction("void SetLoop(ActorHandle, bool)",
         asFUNCTION(AudioSourceSetLoopHandle), asCALL_CDECL));
+    Check(engine.RegisterGlobalFunction("void SetStreaming(bool)",
+        asFUNCTION(AudioSourceSetStreaming), asCALL_CDECL));
+    Check(engine.RegisterGlobalFunction("void SetStreaming(ActorHandle, bool)",
+        asFUNCTION(AudioSourceSetStreamingHandle), asCALL_CDECL));
+    Check(engine.RegisterGlobalFunction("bool SetBus(const string &in)",
+        asFUNCTION(AudioSourceSetBus), asCALL_CDECL));
+    Check(engine.RegisterGlobalFunction("bool SetBus(ActorHandle, const string &in)",
+        asFUNCTION(AudioSourceSetBusHandle), asCALL_CDECL));
+    Check(engine.RegisterGlobalFunction("void SetPriority(int)",
+        asFUNCTION(AudioSourceSetPriority), asCALL_CDECL));
+    Check(engine.RegisterGlobalFunction("void SetPriority(ActorHandle, int)",
+        asFUNCTION(AudioSourceSetPriorityHandle), asCALL_CDECL));
+    Check(engine.RegisterGlobalFunction("void SetConcurrency(const string &in, uint)",
+        asFUNCTION(AudioSourceSetConcurrency), asCALL_CDECL));
+    Check(engine.RegisterGlobalFunction("void SetConcurrency(ActorHandle, const string &in, uint)",
+        asFUNCTION(AudioSourceSetConcurrencyHandle), asCALL_CDECL));
+
+    engine.SetDefaultNamespace("AudioMixer");
+    Check(engine.RegisterGlobalFunction("void SetMasterVolume(float)",
+        asFUNCTION(AudioMixerSetMasterVolume), asCALL_CDECL));
+    Check(engine.RegisterGlobalFunction("float GetMasterVolume()",
+        asFUNCTION(AudioMixerGetMasterVolume), asCALL_CDECL));
+    Check(engine.RegisterGlobalFunction("bool SetBusVolume(const string &in, float)",
+        asFUNCTION(AudioMixerSetBusVolume), asCALL_CDECL));
+    Check(engine.RegisterGlobalFunction("float GetBusVolume(const string &in)",
+        asFUNCTION(AudioMixerGetBusVolume), asCALL_CDECL));
+    Check(engine.RegisterGlobalFunction("bool SetBusMuted(const string &in, bool)",
+        asFUNCTION(AudioMixerSetBusMuted), asCALL_CDECL));
+    Check(engine.RegisterGlobalFunction("string GetDiagnosticsJson()",
+        asFUNCTION(AudioMixerGetDiagnosticsJson), asCALL_CDECL));
 
     engine.SetDefaultNamespace("AudioListener");
     Check(engine.RegisterGlobalFunction("bool SetEnabled(ActorHandle, bool)",
@@ -139,5 +173,8 @@
     Check(engine.RegisterGlobalFunction("bool IsPaused()",asFUNCTION(GameIsPaused),asCALL_CDECL));
     Check(engine.RegisterGlobalFunction("void SetTimeScale(float)",asFUNCTION(GameSetTimeScale),asCALL_CDECL));
     Check(engine.RegisterGlobalFunction("float GetTimeScale()",asFUNCTION(GameGetTimeScale),asCALL_CDECL));
+    Check(engine.RegisterGlobalFunction("void ShowMainMenu()",asFUNCTION(GameShowMainMenu),asCALL_CDECL));
+    Check(engine.RegisterGlobalFunction("void ShowGameOver()",asFUNCTION(GameShowGameOver),asCALL_CDECL));
+    Check(engine.RegisterGlobalFunction("string GetFlowState()",asFUNCTION(GameGetFlowState),asCALL_CDECL));
 
 

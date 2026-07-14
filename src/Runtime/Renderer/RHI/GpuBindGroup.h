@@ -14,7 +14,9 @@
 
 class GpuBindGroup : public GpuResource {
 public:
-    explicit GpuBindGroup(std::shared_ptr<GpuShader> shader) : m_Shader(std::move(shader)) {}
+    explicit GpuBindGroup(std::shared_ptr<GpuShader> shader) : m_Shader(std::move(shader)) {
+        CommitAccounting(GpuResourceAccountingClass::Descriptor,0,1);
+    }
     virtual ~GpuBindGroup() = default;
 
     bool SetConstants(const std::string& name, const void* data, uint32_t byteSize) {

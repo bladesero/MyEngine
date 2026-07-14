@@ -6,6 +6,7 @@
 #include "Core/Logger.h"
 #include "Renderer/EngineShaderCatalog.h"
 #include "Renderer/LightComponent.h"
+#include "Renderer/MaterialResourceCache.h"
 #include "Renderer/ShaderManager.h"
 #include "Math/Mat4Inverse.h"
 #include "Scene/Actor.h"
@@ -41,7 +42,8 @@ static Vec3 StableUpForDirection(const Vec3& direction)
 
 static void EnsureMeshUploaded(IRHIDevice* device, MeshAsset* mesh)
 {
-    if (!device || !mesh || mesh->IsUploaded()) return;
+    if (!device || !mesh) return;
+    if(mesh->IsUploaded()){MaterialResourceCache::TrackGlobalMeshResidency(mesh);return;}
 
     const auto& verts = mesh->GetVertices();
     const auto& idx   = mesh->GetIndices();
@@ -54,6 +56,7 @@ static void EnsureMeshUploaded(IRHIDevice* device, MeshAsset* mesh)
         const uint32_t ibBytes = static_cast<uint32_t>(idx.size() * sizeof(uint32_t));
         mesh->SetIndexBuffer(device->CreateIndexBuffer(idx.data(), ibBytes));
     }
+    MaterialResourceCache::TrackGlobalMeshResidency(mesh);
 }
 
 static bool AABBIntersectsClip(const AABB& worldBounds, const Mat4& viewProj)

@@ -848,7 +848,7 @@ bool TestAssetAsyncLoadingAndHotReload() {
     writeTexture(255, 0, 0);
     AssetManager& manager = AssetManager::Get();
     manager.Clear();
-    std::shared_ptr<Asset> loaded = manager.LoadAsync(texturePath.string()).get();
+    std::shared_ptr<Asset> loaded = manager.LoadAsync(texturePath.string()).Get();
     auto texture = std::dynamic_pointer_cast<TextureAsset>(loaded);
     if (!Check(texture && texture->IsReady(), "async texture load failed")) return false;
     if (!Check(texture->GetVersion() == 1 && texture->GetPixelData()[0] == 255,
@@ -942,7 +942,7 @@ bool TestAssetManagerFailureRollback() {
         std::ofstream output(throwPath, std::ios::binary);
         output << "throw";
     }
-    std::shared_ptr<Asset> asyncResult = manager.LoadAsync(throwPath.string()).get();
+    std::shared_ptr<Asset> asyncResult = manager.LoadAsync(throwPath.string()).Get();
     if (!Check(!asyncResult && !manager.IsLoaded(throwPath.string()),
                "async loader exception should not cache an asset")) return false;
 

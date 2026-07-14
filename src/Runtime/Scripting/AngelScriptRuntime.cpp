@@ -10,6 +10,7 @@
 #include "Renderer/ParticleSystemComponent.h"
 #include "Input/Input.h"
 #include "Core/Logger.h"
+#include "Core/FrameStats.h"
 #include "Physics/CharacterControllerComponent.h"
 #include "Physics/BoxColliderComponent.h"
 #include "Physics/CapsuleColliderComponent.h"
@@ -22,7 +23,9 @@
 #include "Gameplay/GameplayComponents.h"
 #include "Gameplay/EnemyAIComponent.h"
 #include "Game/SceneManager.h"
+#include "Game/GameFlowController.h"
 #include "Project/SaveGame.h"
+#include "Project/RuntimeUserSettings.h"
 #include "Navigation/NavAgentComponent.h"
 #include "Scene/Actor.h"
 #include "Scene/ComponentRegistry.h"
@@ -30,6 +33,7 @@
 #include "Scene/MeshRendererComponent.h"
 #include "Scene/PrefabSystem.h"
 #include "Scene/Scene.h"
+#include "Scene/WorldZoneStreamer.h"
 #include "Scripting/ScriptComponent.h"
 #include "Scripting/ScriptBindingContext.h"
 #include "Scripting/ScriptProfiler.h"
@@ -1021,10 +1025,26 @@ void AudioSourceSetClipPath(const std::string& path) { if (auto* source = Resolv
 void AudioSourceSetClipPathHandle(ActorHandle handle, const std::string& path) { if (auto* source = ResolveAudioSource(handle)) source->SetClipPath(path); }
 void AudioSourceSetVolume(float value) { if (auto* source = ResolveAudioSource({})) source->SetVolume(value); }
 void AudioSourceSetVolumeHandle(ActorHandle handle, float value) { if (auto* source = ResolveAudioSource(handle)) source->SetVolume(value); }
+void AudioSourceFadeVolume(float value, uint32_t milliseconds) { if (auto* source = ResolveAudioSource({})) source->FadeVolume(value, milliseconds); }
+void AudioSourceFadeVolumeHandle(ActorHandle handle, float value, uint32_t milliseconds) { if (auto* source = ResolveAudioSource(handle)) source->FadeVolume(value, milliseconds); }
 void AudioSourceSetPitch(float value) { if (auto* source = ResolveAudioSource({})) source->SetPitch(value); }
 void AudioSourceSetPitchHandle(ActorHandle handle, float value) { if (auto* source = ResolveAudioSource(handle)) source->SetPitch(value); }
 void AudioSourceSetLoop(bool value) { if (auto* source = ResolveAudioSource({})) source->SetLoop(value); }
 void AudioSourceSetLoopHandle(ActorHandle handle, bool value) { if (auto* source = ResolveAudioSource(handle)) source->SetLoop(value); }
+void AudioSourceSetStreaming(bool value) { if (auto* source = ResolveAudioSource({})) source->SetStreaming(value); }
+void AudioSourceSetStreamingHandle(ActorHandle handle, bool value) { if (auto* source = ResolveAudioSource(handle)) source->SetStreaming(value); }
+bool AudioSourceSetBus(const std::string& name) { AudioBus bus;if(!ParseAudioBus(name,bus))return false;if(auto* source=ResolveAudioSource({})){source->SetBus(bus);return true;}return false; }
+bool AudioSourceSetBusHandle(ActorHandle handle,const std::string& name) { AudioBus bus;if(!ParseAudioBus(name,bus))return false;if(auto* source=ResolveAudioSource(handle)){source->SetBus(bus);return true;}return false; }
+void AudioSourceSetPriority(int value) { if(auto* source=ResolveAudioSource({}))source->SetPriority(value); }
+void AudioSourceSetPriorityHandle(ActorHandle handle,int value) { if(auto* source=ResolveAudioSource(handle))source->SetPriority(value); }
+void AudioSourceSetConcurrency(const std::string& group,uint32_t maxInstances) { if(auto* source=ResolveAudioSource({})){source->SetConcurrencyGroup(group);source->SetMaxInstances(maxInstances);} }
+void AudioSourceSetConcurrencyHandle(ActorHandle handle,const std::string& group,uint32_t maxInstances) { if(auto* source=ResolveAudioSource(handle)){source->SetConcurrencyGroup(group);source->SetMaxInstances(maxInstances);} }
+void AudioMixerSetMasterVolume(float value) { AudioEngine::Get().SetMasterVolume(value); }
+float AudioMixerGetMasterVolume() { return AudioEngine::Get().GetMasterVolume(); }
+bool AudioMixerSetBusVolume(const std::string& name, float value) { AudioBus bus;if(!ParseAudioBus(name,bus))return false;AudioEngine::Get().SetBusVolume(bus,value);return true; }
+float AudioMixerGetBusVolume(const std::string& name) { AudioBus bus;return ParseAudioBus(name,bus)?AudioEngine::Get().GetBusVolume(bus):-1.0f; }
+bool AudioMixerSetBusMuted(const std::string& name, bool muted) { AudioBus bus;if(!ParseAudioBus(name,bus))return false;AudioEngine::Get().SetBusMuted(bus,muted);return true; }
+std::string AudioMixerGetDiagnosticsJson(){const AudioDiagnostics d=AudioEngine::Get().GetDiagnostics();nlohmann::json buses=nlohmann::json::object();for(uint8_t i=0;i<static_cast<uint8_t>(AudioBus::Count);++i){const auto bus=static_cast<AudioBus>(i);buses[AudioBusName(bus)]={{"volume",AudioEngine::Get().GetBusVolume(bus)},{"muted",AudioEngine::Get().IsBusMuted(bus)},{"voices",d.voicesByBus[i]}};}return nlohmann::json{{"activeVoices",d.activeVoices},{"pausedVoices",d.pausedVoices},{"stolenVoices",d.stolenVoices},{"rejectedVoices",d.rejectedVoices},{"maxVoices",d.maxVoices},{"masterVolume",AudioEngine::Get().GetMasterVolume()},{"buses",std::move(buses)}}.dump();}
 
 CameraComponent* ResolveCamera(ActorHandle handle)
 {
@@ -1215,15 +1235,45 @@ EnemyAIComponent* ResolveEnemyAI(ActorHandle handle){Actor* actor=ResolveActorOr
 bool EnemySetTarget(ActorHandle enemy,ActorHandle target){if(!ResolveActor(target))return false;if(auto* ai=ResolveEnemyAI(enemy)){ai->SetTarget(target);return true;}return false;}
 int EnemyGetState(ActorHandle enemy){if(auto* ai=ResolveEnemyAI(enemy))return static_cast<int>(ai->GetState());return -1;}
 void EnemyStagger(ActorHandle enemy,float duration){if(auto* ai=ResolveEnemyAI(enemy))ai->Stagger(duration);}
-bool ScenesLoad(const std::string& path){Scene* scene=ActiveScene();SceneManager* manager=scene?scene->GetSceneManager():nullptr;return manager&&manager->RequestLoad(path);}
+bool ScenesLoad(const std::string& path){Scene* scene=ActiveScene();SceneManager* manager=scene?scene->GetSceneManager():nullptr;if(!manager||!manager->RequestLoad(path))return false;if(auto* flow=scene->GetGameFlowController())flow->BeginLoading(scene);return true;}
 int ScenesGetLoadState(){Scene* scene=ActiveScene();SceneManager* manager=scene?scene->GetSceneManager():nullptr;return manager?static_cast<int>(manager->GetState()):static_cast<int>(SceneLoadState::Failed);}
 std::string ScenesGetLastError(){Scene* scene=ActiveScene();SceneManager* manager=scene?scene->GetSceneManager():nullptr;return manager?manager->GetLastError():std::string("scene manager unavailable");}
 bool ScenesSetPersistentJson(const std::string& key,const std::string& json){Scene* scene=ActiveScene();SceneManager* manager=scene?scene->GetSceneManager():nullptr;if(!manager||key.empty())return false;try{manager->SetPersistentValue(key,nlohmann::json::parse(json));return true;}catch(...){return false;}}
 std::string ScenesGetPersistentJson(const std::string& key){Scene* scene=ActiveScene();SceneManager* manager=scene?scene->GetSceneManager():nullptr;return manager?manager->GetPersistentValue(key,nlohmann::json::object()).dump():"{}";}
+bool WorldStreamingRegisterDistance(const std::string& name,const std::string& path,const Vec3& center,const Vec3& halfExtents,float loadDistance,float unloadDistance,int priority){Scene* scene=ActiveScene();if(!scene)return false;WorldZoneStreamDescriptor descriptor;descriptor.stableName=name;descriptor.sourcePath=path;descriptor.boundsCenter=center;descriptor.boundsHalfExtents=halfExtents;descriptor.loadDistance=loadDistance;descriptor.unloadDistance=unloadDistance;descriptor.triggerMode=WorldZoneTriggerMode::Distance;descriptor.priority=priority;return scene->GetZoneStreamer().Register(std::move(descriptor));}
+bool WorldStreamingRegisterPortal(const std::string& name,const std::string& path,bool open,int priority){Scene* scene=ActiveScene();if(!scene)return false;WorldZoneStreamDescriptor descriptor;descriptor.stableName=name;descriptor.sourcePath=path;descriptor.triggerMode=WorldZoneTriggerMode::Portal;descriptor.portalInitiallyOpen=open;descriptor.priority=priority;return scene->GetZoneStreamer().Register(std::move(descriptor));}
+void WorldStreamingSetObserver(const Vec3& position){if(Scene* scene=ActiveScene())scene->GetZoneStreamer().SetObserverPosition(position);}
+bool WorldStreamingSetPortalOpen(const std::string& name,bool open){Scene* scene=ActiveScene();return scene&&scene->GetZoneStreamer().SetPortalOpen(name,open);}
+bool WorldStreamingRetry(const std::string& name){Scene* scene=ActiveScene();return scene&&scene->GetZoneStreamer().Retry(name);}
+std::string WorldStreamingGetStatsJson(){Scene* scene=ActiveScene();if(!scene)return "{}";const auto stats=scene->GetZoneStreamer().GetStats();nlohmann::json entries=nlohmann::json::array();for(const auto& entry:scene->GetZoneStreamer().GetEntryStats())entries.push_back({{"name",entry.stableName},{"state",static_cast<int>(entry.state)},{"desired",entry.desired},{"generation",entry.lifetimeGeneration},{"actors",entry.instantiatedActors},{"error",entry.lastError}});return nlohmann::json{{"registeredZones",stats.registeredZones},{"loadedZones",stats.loadedZones},{"loadingZones",stats.loadingZones},{"failedZones",stats.failedZones},{"instantiatedActorsThisFrame",stats.instantiatedActorsThisFrame},{"actorBudgetBlockedFrames",stats.actorBudgetBlockedFrames},{"entries",std::move(entries)}}.dump();}
+
+std::string ResourcesGetStatsJson(){const auto s=FrameStatsProvider::GetResourceStats();return nlohmann::json{
+    {"assetCpuBytes",s.assetCpuBytes},{"assetEvictedBytes",s.assetEvictedBytes},
+    {"assetBlockedBytes",s.assetBlockedBytes},{"pendingUploadBytes",s.pendingUploadBytes},
+    {"peakPendingUploadBytes",s.peakPendingUploadBytes},{"pendingUploadTasks",s.pendingUploadTasks},
+    {"liveActors",s.liveActors},{"gpuResourceBytes",s.gpuResourceBytes},
+    {"peakGpuResourceBytes",s.peakGpuResourceBytes},{"liveGpuDescriptors",s.liveGpuDescriptors},
+    {"liveNativeDescriptorSlots",s.liveNativeDescriptorSlots},
+    {"qualityDegradationLevel",s.qualityDegradationLevel},
+    {"assetPressure",s.assetPressure},
+    {"uploadPressure",s.uploadPressure},{"actorPressure",s.actorPressure},
+    {"gpuResourcePressure",s.gpuResourcePressure},{"descriptorPressure",s.descriptorPressure},
+    {"nativeDescriptorPressure",s.nativeDescriptorPressure},
+    {"transientPressure",s.transientPressure}}.dump();}
 bool SaveGameWrite(const std::string& slot,const std::string& checkpoint,const std::string& player,const std::string& collected,const std::string& settings){try{SaveGameData data;data.checkpoint=checkpoint;data.player=nlohmann::json::parse(player.empty()?"{}":player);data.collected=nlohmann::json::parse(collected.empty()?"[]":collected).get<std::vector<std::string>>();data.settings=nlohmann::json::parse(settings.empty()?"{}":settings);return SaveGame::Write(slot,data);}catch(...){return false;}}
 std::string SaveGameReadJson(const std::string& slot){SaveGameData data;if(!SaveGame::Read(slot,data))return "{}";return SaveGame::ToJson(data).dump();}
+std::string SaveGameReadBackupJson(const std::string& slot){SaveGameData data;if(!SaveGame::ReadBackup(slot,data))return "{}";return SaveGame::ToJson(data).dump();}
+std::string SaveGameListSlotsJson(){nlohmann::json result=nlohmann::json::array();for(const auto& slot:SaveGame::ListSlots())result.push_back({{"slot",slot.slot},{"valid",slot.valid},{"hasBackup",slot.hasBackup},{"error",slot.error},{"metadata",{{"displayName",slot.metadata.displayName},{"scene",slot.metadata.scene},{"savedAtUtc",slot.metadata.savedAtUtc},{"playTimeSeconds",slot.metadata.playTimeSeconds},{"screenshot",slot.metadata.screenshot},{"buildId",slot.metadata.buildId}}}});return result.dump();}
+std::string SaveGameWriteAutosave(const std::string& checkpoint,const std::string& player,const std::string& collected,const std::string& settings,uint32_t slots){try{SaveGameData data;data.checkpoint=checkpoint;data.player=nlohmann::json::parse(player.empty()?"{}":player);data.collected=nlohmann::json::parse(collected.empty()?"[]":collected).get<std::vector<std::string>>();data.settings=nlohmann::json::parse(settings.empty()?"{}":settings);std::string slot;return SaveGame::WriteAutosave(data,slots,&slot)?slot:"";}catch(...){return "";}}
+std::string SaveGameWriteCheckpoint(const std::string& id,const std::string& player,const std::string& collected,const std::string& settings){try{SaveGameData data;data.player=nlohmann::json::parse(player.empty()?"{}":player);data.collected=nlohmann::json::parse(collected.empty()?"[]":collected).get<std::vector<std::string>>();data.settings=nlohmann::json::parse(settings.empty()?"{}":settings);std::string slot;return SaveGame::WriteCheckpoint(id,data,&slot)?slot:"";}catch(...){return "";}}
+std::string SaveGameLatestAutosaveJson(){SaveGameSlotInfo info;if(!SaveGame::FindLatestAutosave(info))return "{}";SaveGameData data;if(!SaveGame::Read(info.slot,data))return "{}";return SaveGame::ToJson(data).dump();}
 bool SaveGameExists(const std::string& slot){return SaveGame::Exists(slot);}bool SaveGameRemove(const std::string& slot){return SaveGame::Remove(slot);}
-void GamePause(){if(Scene* scene=ActiveScene())scene->Pause();}void GameResume(){if(Scene* scene=ActiveScene())scene->Resume();}bool GameIsPaused(){Scene* scene=ActiveScene();return scene&&scene->GetState()==SceneState::Paused;}void GameSetTimeScale(float scale){if(Scene* scene=ActiveScene())scene->SetTimeScale(std::clamp(scale,0.0f,10.0f));}float GameGetTimeScale(){Scene* scene=ActiveScene();return scene?scene->GetTimeScale():1.0f;}
+bool SaveGameRestoreBackup(const std::string& slot){return SaveGame::RestoreBackup(slot);}
+std::string UserSettingsReadJson(){RuntimeUserSettings settings;if(!RuntimeUserSettingsStore::Load(settings))settings=RuntimeUserSettingsStore::Defaults();return RuntimeUserSettingsStore::ToJson(settings).dump();}
+bool UserSettingsWriteJson(const std::string& source){try{RuntimeUserSettings settings;if(!RuntimeUserSettingsStore::FromJson(nlohmann::json::parse(source),settings))return false;if(!RuntimeUserSettingsStore::Save(settings))return false;Input::SetRuntimePreferences(settings.input.mouseSensitivity,settings.input.invertY,settings.input.gamepadDeadZone,settings.input.gamepadSensitivity,settings.input.vibration);AudioEngine::Get().SetMasterVolume(settings.audio.master);AudioEngine::Get().SetBusVolume(AudioBus::Music,settings.audio.music);AudioEngine::Get().SetBusVolume(AudioBus::Effects,settings.audio.effects);AudioEngine::Get().SetBusVolume(AudioBus::Voice,settings.audio.voice);if(auto* ui=UISystemBinding()){UIAccessibilitySettings value;value.uiScale=settings.accessibility.uiScale;value.subtitleScale=settings.accessibility.subtitleScale;value.subtitles=settings.accessibility.subtitles;value.reduceCameraShake=settings.accessibility.reduceCameraShake;value.highContrast=settings.accessibility.highContrast;value.colorVisionMode=settings.accessibility.colorVisionMode;if(!ui->SetAccessibilitySettings(value))return false;}return Input::ApplyActionMapOverrides(settings.input.actionMap);}catch(...){return false;}}
+bool UserSettingsReset(){RuntimeUserSettings settings=RuntimeUserSettingsStore::Defaults();if(!RuntimeUserSettingsStore::Save(settings))return false;Input::SetRuntimePreferences(1.0f,false,0.15f,1.0f,1.0f);Input::ResetActionMapOverrides();AudioEngine::Get().SetMasterVolume(1.0f);AudioEngine::Get().SetBusVolume(AudioBus::Music,1.0f);AudioEngine::Get().SetBusVolume(AudioBus::Effects,1.0f);AudioEngine::Get().SetBusVolume(AudioBus::Voice,1.0f);if(auto* ui=UISystemBinding())ui->SetAccessibilitySettings({});return true;}
+void GamePause(){if(Scene* scene=ActiveScene()){if(auto* flow=scene->GetGameFlowController())flow->RequestPause(GamePauseReason::User,scene);else scene->Pause();}}void GameResume(){if(Scene* scene=ActiveScene()){if(auto* flow=scene->GetGameFlowController())flow->ReleasePause(GamePauseReason::User,scene);else scene->Resume();}}bool GameIsPaused(){Scene* scene=ActiveScene();if(!scene)return false;if(auto* flow=scene->GetGameFlowController())return flow->IsPaused();return scene->GetState()==SceneState::Paused;}void GameSetTimeScale(float scale){if(Scene* scene=ActiveScene())scene->SetTimeScale(std::clamp(scale,0.0f,10.0f));}float GameGetTimeScale(){Scene* scene=ActiveScene();return scene?scene->GetTimeScale():1.0f;}
+void GameShowMainMenu(){if(Scene* scene=ActiveScene())if(auto* flow=scene->GetGameFlowController())flow->EnterMainMenu(scene);}void GameShowGameOver(){if(Scene* scene=ActiveScene())if(auto* flow=scene->GetGameFlowController())flow->EnterGameOver(scene);}std::string GameGetFlowState(){Scene* scene=ActiveScene();auto* flow=scene?scene->GetGameFlowController():nullptr;return flow?GameFlowController::StateName(flow->GetState()):"Unavailable";}
 
 void AnimatorSetPlaying(ActorHandle handle, bool playing)
 {
@@ -1522,6 +1572,49 @@ float InputGamepadAxis(int id, int axis)
     return Input::GetGamepadAxis(static_cast<SDL_JoystickID>(id),
                                  static_cast<SDL_GamepadAxis>(axis));
 }
+std::string InputGlyphSet() { return Input::GetGlyphSetName(); }
+std::string InputGlyphFamily(){return Input::GetGlyphFamilyName();}
+std::string InputActionGlyphJson(const std::string& action){return Input::GetActionGlyphJson(action);}
+std::string InputSourceGlyphJson(const std::string& source){return Input::GetSourceGlyphJson(source);}
+void InputSetGlyphLocale(const std::string& locale){Input::SetGlyphLocale(locale);}
+bool InputVibrate(int id, float low, float high, uint32_t durationMs)
+{
+    return Input::SetGamepadVibration(static_cast<SDL_JoystickID>(id), low, high, durationMs);
+}
+InputBindingPart ParseBindingPart(const std::string& part)
+{
+    if (part == "x" || part == "X") return InputBindingPart::X;
+    if (part == "y" || part == "Y") return InputBindingPart::Y;
+    return InputBindingPart::Source;
+}
+std::string InputBindingConflictsJson(const std::string& action, uint32_t index,
+                                      const std::string& part, const std::string& source)
+{
+    nlohmann::json result=nlohmann::json::array();
+    for(const auto& conflict:Input::FindBindingConflicts(action,index,ParseBindingPart(part),source))
+        result.push_back({{"action",conflict.actionName},{"binding",conflict.bindingIndex}});
+    return result.dump();
+}
+bool InputRebind(const std::string& action, uint32_t index, const std::string& part,
+                 const std::string& source, bool allowConflicts)
+{
+    return Input::RebindAction(action,index,ParseBindingPart(part),source,allowConflicts);
+}
+bool InputSaveBindings()
+{
+    RuntimeUserSettings settings;
+    if(!RuntimeUserSettingsStore::Load(settings))settings=RuntimeUserSettingsStore::Defaults();
+    settings.input.actionMap=Input::GetActionMapJson();
+    return RuntimeUserSettingsStore::Save(settings);
+}
+bool InputResetBindings()
+{
+    Input::ResetActionMapOverrides();
+    RuntimeUserSettings settings;
+    if(!RuntimeUserSettingsStore::Load(settings))settings=RuntimeUserSettingsStore::Defaults();
+    settings.input.actionMap=nullptr;
+    return RuntimeUserSettingsStore::Save(settings);
+}
 
 void ConstructActorHandle(void* memory) { new (memory) ActorHandle(); }
 void ConstructActorHandle(uint64_t value, void* memory) { new (memory) ActorHandle(ActorHandle::FromUInt64(value)); }
@@ -1674,6 +1767,7 @@ struct ScriptUIEvent {
 
 struct QueuedScriptEvent {
     Scene* scene = nullptr;
+    SceneLifetimeToken lifetime;
     std::string name;
     std::string payload;
 };
@@ -1681,6 +1775,7 @@ struct QueuedScriptEvent {
 struct ScriptEventSubscription {
     void* owner = nullptr;
     Scene* scene = nullptr;
+    SceneLifetimeToken lifetime;
     std::string name;
     std::function<bool(const std::string&, std::string&)> callback;
 };
@@ -1808,6 +1903,47 @@ std::string UIGetJson(const std::string& model, const std::string& key)
 void UINotify(const std::string& model, const std::string&)
 {
     if (auto* uiSystem = UISystemBinding()) uiSystem->CreateDataModel(model).MarkDirty();
+}
+
+bool UISetSafeArea(float left,float top,float right,float bottom)
+{
+    if(auto* uiSystem=UISystemBinding())return uiSystem->SetSafeAreaInsets({left,top,right,bottom});
+    return false;
+}
+
+bool UIShowSubtitle(const std::string& stableId,const std::string& speaker,
+                    const std::string& text,float durationSeconds,int priority)
+{
+    if(auto* uiSystem=UISystemBinding())
+        return uiSystem->ShowSubtitle({stableId,speaker,text,durationSeconds,priority});
+    return false;
+}
+
+void UIClearSubtitles(){if(auto* uiSystem=UISystemBinding())uiSystem->ClearSubtitles();}
+
+std::string UIGetSubtitleJson()
+{
+    auto* uiSystem=UISystemBinding();if(!uiSystem)return "{}";
+    const SubtitleState& state=uiSystem->GetSubtitleState();
+    return nlohmann::json{{"visible",state.visible},{"id",state.stableId},
+        {"speaker",state.speaker},{"text",state.text},
+        {"remainingSeconds",state.remainingSeconds},{"priority",state.priority},
+        {"queued",state.queued},{"dropped",state.dropped}}.dump();
+}
+
+std::string UIGetDiagnosticsJson()
+{
+    auto* uiSystem=UISystemBinding();if(!uiSystem)return "{}";
+    const auto& d=uiSystem->GetDiagnostics();
+    return nlohmann::json{{"viewportWidth",d.viewportWidth},{"viewportHeight",d.viewportHeight},
+        {"safeWidth",d.safeWidth},{"safeHeight",d.safeHeight},{"effectiveScale",d.effectiveScale},
+        {"loadedFontFaces",d.loadedFontFaces},{"failedFontFaces",d.failedFontFaces},
+        {"narrowLayout",d.narrowLayout},{"safeAreaValid",d.safeAreaValid},
+        {"projectRuntimeScreenActive",d.projectRuntimeScreenActive},
+        {"runtimeScreenFallbacks",d.runtimeScreenFallbacks},
+        {"runtimeScreenDocument",d.runtimeScreenDocument},
+        {"glyphFamily",Input::GetGlyphFamilyName()},{"glyphLocale",Input::GetGlyphLocale()},
+        {"lastFontError",d.lastFontError}}.dump();
 }
 
 bool EventsSubscribe(const std::string& name, const std::string& callbackName)
@@ -2519,8 +2655,12 @@ struct AngelScriptRuntime::Impl {
         }
 
         UIEventBridgeBinding()->Unsubscribe(this, elementId, eventName);
+        Scene* scene=component.GetOwner()?component.GetOwner()->GetScene():nullptr;
+        const SceneLifetimeToken lifetime=scene?scene->GetLifetimeToken():SceneLifetimeToken{};
         UIEventBridgeBinding()->SubscribeForOwner(this, nullptr, elementId, eventName,
-            [this, function](const UIEvent& event) {
+            [this, function, lifetime](const UIEvent& event) {
+                SceneLifetimeGuard guard=lifetime.TryAcquire();
+                if(!guard)return;
                 std::string callbackError;
                 if (!ExecuteUIEvent(function, event, callbackError)) {
                     component.FailRuntime(callbackError);
@@ -2637,8 +2777,14 @@ struct AngelScriptRuntime::Impl {
         g_ScriptEventSubscriptions.push_back({
             this,
             component.GetOwner() ? component.GetOwner()->GetScene() : nullptr,
+            component.GetOwner() && component.GetOwner()->GetScene()
+                ? component.GetOwner()->GetScene()->GetLifetimeToken() : SceneLifetimeToken{},
             eventName,
-            [this, function](const std::string& payload, std::string& callbackError) {
+            [this, function, lifetime=component.GetOwner()&&component.GetOwner()->GetScene()
+                    ? component.GetOwner()->GetScene()->GetLifetimeToken():SceneLifetimeToken{}]
+                (const std::string& payload, std::string& callbackError) {
+                SceneLifetimeGuard guard=lifetime.TryAcquire();
+                if(!guard)return true;
                 return ExecuteStringArg(function, payload, "event", callbackError);
             }
         });
@@ -2669,7 +2815,8 @@ struct AngelScriptRuntime::Impl {
     {
         Scene* scene = component.GetOwner() ? component.GetOwner()->GetScene() : nullptr;
         if (!scene || eventName.empty()) return false;
-        g_QueuedScriptEvents.push_back({scene, eventName, payload.empty() ? "{}" : payload});
+        g_QueuedScriptEvents.push_back({scene,scene->GetLifetimeToken(),eventName,
+                                        payload.empty() ? "{}" : payload});
         return true;
     }
 
@@ -2743,12 +2890,16 @@ struct AngelScriptRuntime::Impl {
         pending.swap(g_QueuedScriptEvents);
         for (const QueuedScriptEvent& event : pending) {
             if (event.scene != scene) {
-                g_QueuedScriptEvents.push_back(event);
+                if(event.lifetime.IsAlive())g_QueuedScriptEvents.push_back(event);
                 continue;
             }
+            SceneLifetimeGuard eventGuard=event.lifetime.TryAcquire();
+            if(!eventGuard)continue;
             std::vector<std::function<bool(const std::string&, std::string&)>> callbacks;
             for (const auto& subscription : g_ScriptEventSubscriptions) {
-                if (subscription.scene == scene && subscription.name == event.name) {
+                if (subscription.scene == scene && subscription.name == event.name &&
+                    subscription.lifetime.GetGeneration()==eventGuard.GetGeneration() &&
+                    subscription.lifetime.IsAlive()) {
                     callbacks.push_back(subscription.callback);
                 }
             }

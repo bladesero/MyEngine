@@ -2,6 +2,10 @@
 
 #include "Assets/AssetDatabase.h"
 #include "Project/ContentPathPolicy.h"
+#include "Project/RuntimePerformanceProfile.h"
+#include "UI/Core/RuntimeUIScreenConfig.h"
+#include "UI/Core/RuntimeUIScreenStack.h"
+#include "Input/InputGlyphAtlas.h"
 #include <fstream>
 #include <nlohmann/json.hpp>
 #include <optional>
@@ -215,7 +219,7 @@ struct Scanner {
                    const std::vector<std::string>& chain, const std::string& key = {}) {
         static const std::unordered_set<std::string> direct = {
             "mesh","material","scriptPath","shader","uri","clip","asset",
-            "navMeshAsset","documentPath","stylePaths","generatedStylePaths",
+            "navMeshAsset","documentPath","document","atlas","stylePaths","generatedStylePaths",
             "defaultFontPaths","preloadAssets"};
         if (node.is_string() && direct.count(key)) {
             ScanReference(node.get<std::string>(), from, chain); return;
@@ -254,6 +258,26 @@ struct Scanner {
         try {
             if (ext==".json" || ext==".mat" || ext==".shader" || ext==".gltf") {
                 std::ifstream input(path); nlohmann::json json; input>>json;
+                const std::string filename = path.filename().string();
+                if (filename.size() >= 13 &&
+                    filename.rfind(".profile.json") == filename.size() - 13) {
+                    RuntimePerformanceProfile profile;
+                    std::string profileError;
+                    if (!RuntimePerformanceProfile::FromJson(json, profile, &profileError))
+                        throw std::runtime_error(profileError);
+                }
+                if(filename=="RuntimeScreens.ui.json"){
+                    RuntimeUIScreenConfig config;std::string configError;
+                    if(!RuntimeUIScreenConfig::FromJson(json,config,&configError))
+                        throw std::runtime_error(configError);
+                    RuntimeUIScreenStack stack=RuntimeUIScreenStack::CreateStandard();
+                    if(!config.Apply(stack,&configError))throw std::runtime_error(configError);
+                }
+                if(filename=="InputGlyphs.glyph.json"){
+                    InputGlyphAtlas atlas;std::string atlasError;
+                    if(!InputGlyphAtlas::FromJson(json,atlas,&atlasError))
+                        throw std::runtime_error(atlasError);
+                }
                 if(IsPrefab(path)){
                     if(json.value("version",0u)!=1u||!json.contains("nodes")||!json["nodes"].is_array())throw std::runtime_error("invalid prefab asset header");
                     std::ifstream meta(path.string()+".meta");nlohmann::json metaJson;if(!meta)throw std::runtime_error("prefab metadata is missing");meta>>metaJson;
@@ -283,7 +307,11 @@ bool CookDependencyGraph::Validate(const fs::path& projectRoot, PublishPreflight
     }
     for(const auto& file:files) {
         const std::string name=file.relative.generic_string();
-        if(name.rfind("Scenes/",0)==0 && name.size()>=11 && name.rfind(".scene.json")==name.size()-11)
+        const bool scene = name.rfind("Scenes/",0)==0 && name.size()>=11 &&
+            name.rfind(".scene.json")==name.size()-11;
+        const bool config = name.rfind("Config/",0)==0 && name.size()>=5 &&
+            name.rfind(".json")==name.size()-5;
+        if(scene || config)
             scanner.Scan(file.absolute,{"Content/"+name});
     }
     if(report.visitedAssets.empty())

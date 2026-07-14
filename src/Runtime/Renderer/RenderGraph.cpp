@@ -1,8 +1,10 @@
 #include "Renderer/RenderGraph.h"
+#include "Renderer/RHI/RHIResourceStats.h"
 
 #include <algorithm>
 #include <sstream>
 #include <queue>
+#include <cmath>
 #include <unordered_set>
 
 namespace {
@@ -136,6 +138,15 @@ void RenderGraphBuilder::ReadWriteUAV(RGBufferHandle h) {
 
 RenderGraph::RenderGraph(IRHIDevice& device) : m_Device(device) {}
 
+bool RenderGraph::SetResourceBudget(const RenderGraphResourceBudget& value,std::string* error)
+{
+    if(!value.maxTransientBytes||!value.maxTransientResources||
+       !value.maxTransientDescriptors||!value.maxPooledBytes||
+       !std::isfinite(value.poolLowWatermarkRatio)||value.poolLowWatermarkRatio<=0.0f||
+       value.poolLowWatermarkRatio>1.0f){if(error)*error="invalid RenderGraph resource budget";return false;}
+    m_ResourceBudget=value;if(error)error->clear();return true;
+}
+
 RGTextureHandle RenderGraph::ImportTexture(const std::string& name,
                                            const std::shared_ptr<GpuTexture>& texture,
                                            RHIResourceState initialState) {
@@ -180,6 +191,7 @@ RGTextureHandle RenderGraph::CreateTexture(const std::string& name, const RHITex
         pooled->second.pop_back();
         resource.texture = std::move(reusable.texture);
         resource.view = std::move(reusable.view);
+        resource.reusedFromPool = true;
         if (pooled->second.empty()) m_TexturePool.erase(pooled);
     }
     m_Textures.push_back(std::move(resource));
@@ -231,6 +243,7 @@ RGBufferHandle RenderGraph::CreateBuffer(const std::string& name, const RHIBuffe
         pooled->second.pop_back();
         resource.buffer = std::move(reusable.buffer);
         resource.view = std::move(reusable.view);
+        resource.reusedFromPool = true;
         if (pooled->second.empty()) m_BufferPool.erase(pooled);
     }
     m_Buffers.push_back(std::move(resource)); m_Compiled = false;
@@ -591,6 +604,36 @@ bool RenderGraph::Compile() {
 }
 
 bool RenderGraph::EnsureResources() {
+    m_ResourceStats.transientRequestedBytes=0;m_ResourceStats.transientAllocatedBytes=0;
+    m_ResourceStats.transientReusedBytes=0;m_ResourceStats.transientTextures=0;
+    m_ResourceStats.transientBuffers=0;m_ResourceStats.transientDescriptors=0;
+    m_ResourceStats.transientBudgetExceeded=false;
+    for(uint32_t i=0;i<m_Textures.size();++i)if(!m_Textures[i].imported&&
+        (i>=m_LiveTextures.size()||m_LiveTextures[i])){
+        m_ResourceStats.transientRequestedBytes+=EstimateRHITextureBytes(m_Textures[i].desc);
+        ++m_ResourceStats.transientTextures;++m_ResourceStats.transientDescriptors;
+    }
+    for(uint32_t i=0;i<m_Buffers.size();++i)if(!m_Buffers[i].imported&&
+        (i>=m_LiveBuffers.size()||m_LiveBuffers[i])){
+        m_ResourceStats.transientRequestedBytes+=m_Buffers[i].desc.size;
+        ++m_ResourceStats.transientBuffers;
+        if(m_Buffers[i].desc.stride>0&&(HasUsage(m_Buffers[i].desc.usage,RHIResourceUsage::ShaderResource)||
+           HasUsage(m_Buffers[i].desc.usage,RHIResourceUsage::UnorderedAccess)))
+            ++m_ResourceStats.transientDescriptors;
+    }
+    for(uint32_t passIndex:m_ExecutionOrder){const auto& pass=m_Passes[passIndex];
+        for(const auto& access:pass.accesses){const bool manualAttachment=
+            HasPassFlag(pass.flags,PassFlags::ManualRenderingScope)&&
+            (access.state==RHIResourceState::RenderTarget||access.state==RHIResourceState::DepthWrite);
+            if(access.hasViewDesc&&!manualAttachment)++m_ResourceStats.transientDescriptors;}}
+    const uint64_t resources=static_cast<uint64_t>(m_ResourceStats.transientTextures)+
+        m_ResourceStats.transientBuffers;
+    if(m_ResourceStats.transientRequestedBytes>m_ResourceBudget.maxTransientBytes||
+       resources>m_ResourceBudget.maxTransientResources||
+       m_ResourceStats.transientDescriptors>m_ResourceBudget.maxTransientDescriptors){
+        m_ResourceStats.transientBudgetExceeded=true;
+        return SetError(ErrorCode::TransientBudgetExceeded,"RenderGraph transient resource budget exceeded");
+    }
     for (uint32_t index = 0; index < m_Textures.size(); ++index) {
         if (index < m_LiveTextures.size() && !m_LiveTextures[index]) continue;
         auto& resource = m_Textures[index];
@@ -600,6 +643,9 @@ bool RenderGraph::EnsureResources() {
                 return SetError(ErrorCode::ResourceCreationFailed,
                                 "RHI failed to create RenderGraph texture '" + resource.name + "'");
             }
+            m_ResourceStats.transientAllocatedBytes+=EstimateRHITextureBytes(resource.desc);
+        }else if(resource.reusedFromPool){
+            m_ResourceStats.transientReusedBytes+=EstimateRHITextureBytes(resource.desc);
         }
         if (!resource.view) {
             RHITextureViewDesc viewDesc;
@@ -646,6 +692,9 @@ bool RenderGraph::EnsureResources() {
                 return SetError(ErrorCode::ResourceCreationFailed,
                                 "RHI failed to create RenderGraph buffer '" + resource.name + "'");
             }
+            m_ResourceStats.transientAllocatedBytes+=resource.desc.size;
+        }else if(resource.reusedFromPool){
+            m_ResourceStats.transientReusedBytes+=resource.desc.size;
         }
         if (!resource.view && resource.desc.stride > 0 &&
             (HasUsage(resource.desc.usage, RHIResourceUsage::ShaderResource) ||
@@ -758,6 +807,7 @@ bool RenderGraph::Execute(GpuCommandList& commandList) {
 }
 
 void RenderGraph::Reset() {
+    m_ResourceStats.poolEvictions=0;m_ResourceStats.poolEvictedBytes=0;
     for (uint32_t index = 0; index < m_Textures.size(); ++index) {
         auto& resource = m_Textures[index];
         if (!resource.imported && resource.texture) {
@@ -776,6 +826,34 @@ void RenderGraph::Reset() {
             }
         }
     }
+    auto poolBytes=[&](){uint64_t total=0;for(const auto& pair:m_TexturePool)
+        for(const auto& item:pair.second)total+=EstimateRHITextureBytes(item.desc);
+        for(const auto& pair:m_BufferPool)for(const auto& item:pair.second)total+=item.desc.size;
+        return total;};
+    uint64_t total=poolBytes();
+    if(total>m_ResourceBudget.maxPooledBytes){
+        const uint64_t target=static_cast<uint64_t>(m_ResourceBudget.maxPooledBytes*
+            m_ResourceBudget.poolLowWatermarkRatio);
+        std::vector<std::string> textureKeys,bufferKeys;
+        for(const auto& pair:m_TexturePool)textureKeys.push_back(pair.first);
+        for(const auto& pair:m_BufferPool)bufferKeys.push_back(pair.first);
+        std::sort(textureKeys.begin(),textureKeys.end());std::sort(bufferKeys.begin(),bufferKeys.end());
+        for(const auto& key:textureKeys){auto found=m_TexturePool.find(key);
+            while(found!=m_TexturePool.end()&&!found->second.empty()&&total>target){
+                const uint64_t bytes=EstimateRHITextureBytes(found->second.back().desc);
+                found->second.pop_back();total=total>=bytes?total-bytes:0;
+                ++m_ResourceStats.poolEvictions;m_ResourceStats.poolEvictedBytes+=bytes;}
+            if(found!=m_TexturePool.end()&&found->second.empty())m_TexturePool.erase(found);}
+        for(const auto& key:bufferKeys){auto found=m_BufferPool.find(key);
+            while(found!=m_BufferPool.end()&&!found->second.empty()&&total>target){
+                const uint64_t bytes=found->second.back().desc.size;
+                found->second.pop_back();total=total>=bytes?total-bytes:0;
+                ++m_ResourceStats.poolEvictions;m_ResourceStats.poolEvictedBytes+=bytes;}
+            if(found!=m_BufferPool.end()&&found->second.empty())m_BufferPool.erase(found);}
+    }
+    m_ResourceStats.pooledBytes=total;m_ResourceStats.pooledTextures=0;m_ResourceStats.pooledBuffers=0;
+    for(const auto& pair:m_TexturePool)m_ResourceStats.pooledTextures+=static_cast<uint32_t>(pair.second.size());
+    for(const auto& pair:m_BufferPool)m_ResourceStats.pooledBuffers+=static_cast<uint32_t>(pair.second.size());
     m_Textures.clear(); m_Buffers.clear(); m_Passes.clear(); m_ExecutionOrder.clear();
     m_ExecutionOrderNames.clear(); m_CulledPassNames.clear();
     m_LiveTextures.clear(); m_LiveBuffers.clear(); m_LastError.clear();

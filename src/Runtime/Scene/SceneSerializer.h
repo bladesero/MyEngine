@@ -65,4 +65,10 @@ public:
                                     SceneInstantiationState& state,
                                     size_t maxActors, bool& complete,
                                     std::string* error = nullptr);
+    static bool InstantiateLoadPlanAdditive(Scene& scene, const SceneLoadPlan& plan,
+                                            SceneInstantiationState& state,
+                                            size_t maxActors,
+                                            std::vector<ActorHandle>& createdRoots,
+                                            bool& complete,
+                                            std::string* error = nullptr);
 };

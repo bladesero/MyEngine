@@ -52,6 +52,14 @@ struct InputAction {
     std::vector<InputBinding> bindings;
 };
 
+enum class InputBindingPart { Source, X, Y };
+
+struct InputBindingConflict {
+    std::string actionName;
+    size_t bindingIndex = 0;
+    InputBindingPart part = InputBindingPart::Source;
+};
+
 class InputActionMap {
 public:
     static constexpr int kCurrentVersion = FormatVersions::InputActionMap;
@@ -60,10 +68,17 @@ public:
     bool LoadFromFile(const std::filesystem::path& path, std::string* error = nullptr);
     bool LoadFromJson(const nlohmann::json& json, std::string* error = nullptr);
     bool SaveToFile(const std::filesystem::path& path, std::string* error = nullptr) const;
+    nlohmann::json ToJson() const;
 
     void Clear();
     const InputAction* FindAction(std::string_view name) const;
     const std::vector<InputAction>& GetActions() const { return m_Actions; }
+    std::vector<InputBindingConflict> FindConflicts(
+        std::string_view actionName, size_t bindingIndex, InputBindingPart part,
+        std::string_view source) const;
+    bool Rebind(std::string_view actionName, size_t bindingIndex,
+                InputBindingPart part, std::string_view source,
+                bool allowConflicts = false, std::string* error = nullptr);
 
     static InputActionMap CreateDefault();
     static bool WriteDefaultFile(const std::filesystem::path& path, std::string* error = nullptr);

@@ -1,0 +1,4194 @@
+{
+  "capture": {
+    "backend": "d3d11",
+    "capturedUnixMilliseconds": 1783862253826,
+    "height": 720,
+    "scene": "Content/Scenes/Main.scene.json",
+    "width": 1280
+  },
+  "device": {
+    "adapterName": "NVIDIA GeForce RTX 4070 SUPER",
+    "dedicatedVideoMemoryBytes": 12579766272,
+    "deviceId": 10115,
+    "driverVersion": "32.0.15.9579",
+    "revision": 161,
+    "softwareAdapter": false,
+    "subsystemId": 662904531,
+    "vendorId": 4318
+  },
+  "passed": true,
+  "profile": {
+    "budget": {
+      "maxDroppedFixedTicks": 2,
+      "maxFrameMs": 150.0,
+      "maxP95FrameMs": 25.0,
+      "maxP95GpuMs": 25.0,
+      "maxP99FrameMs": 50.0,
+      "maxWorkingSetGrowthBytes": 134217728
+    },
+    "hardwareClass": "desktop-discrete",
+    "maxInitialSceneReadyMs": 5000.0,
+    "maxSceneReloadMs": 2000.0,
+    "minimumSamples": 30,
+    "name": "scene-transition-60fps",
+    "resourceBudgetScale": 0.75,
+    "scenario": "scene-transition",
+    "sceneReloadCount": 12,
+    "source": "Content/Config/PerformanceProfiles/scene-transition.profile.json",
+    "warmupSamples": 10
+  },
+  "provenance": {
+    "buildId": "local",
+    "compiler": "MSVC 194435222",
+    "configuration": "unknown",
+    "engineVersion": "0.1.0",
+    "gitCommit": "unknown",
+    "shaderTool": "D3DCompile/WindowsSDK"
+  },
+  "resources": {
+    "assetBlockedBytes": 0,
+    "assetCpuBytes": 1325884,
+    "assetEvictedBytes": 0,
+    "failedNativeDescriptorAllocations": 0,
+    "gpuMeshBlockedBytes": 0,
+    "gpuMeshEvictedBytes": 0,
+    "gpuMeshEvictions": 0,
+    "gpuResourceBytes": 189999696,
+    "gpuTextureBlockedBytes": 0,
+    "gpuTextureEvictedBytes": 0,
+    "gpuTextureEvictions": 0,
+    "liveActors": 14,
+    "liveGpuDescriptors": 90,
+    "liveNativeDescriptorSlots": 0,
+    "peakGpuResourceBytes": 190016872,
+    "peakNativeDescriptorSlots": 0,
+    "peakPendingUploadBytes": 0,
+    "pendingUploadBytes": 0,
+    "pendingUploadTasks": 0,
+    "pressureFrames": 0,
+    "qualityDegradationLevel": 0,
+    "qualityDegradationTransitions": 0,
+    "violationTransitions": 0,
+    "violations": []
+  },
+  "samples": [
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.2750999927520752,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.9258999824523926,
+      "updateMs": 0.3269999921321869,
+      "workingSetBytes": 85553152
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.2307000160217285,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.4595999717712402,
+      "updateMs": 0.7480999827384949,
+      "workingSetBytes": 90234880
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 5.368800163269043,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.9254000186920166,
+      "updateMs": 4.407800197601318,
+      "workingSetBytes": 90767360
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 10.084699630737305,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.5295000076293945,
+      "updateMs": 9.521599769592285,
+      "workingSetBytes": 90767360
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.7724000215530396,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.7720999717712402,
+      "updateMs": 0.9761000275611877,
+      "workingSetBytes": 90767360
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.868299961090088,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.0947999954223633,
+      "updateMs": 0.7400000095367432,
+      "workingSetBytes": 87306240
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 8.952400207519531,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.0318000316619873,
+      "updateMs": 7.88100004196167,
+      "workingSetBytes": 87711744
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.0838000774383545,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.3911999464035034,
+      "updateMs": 0.6541000008583069,
+      "workingSetBytes": 87715840
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.4402999877929688,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.900600016117096,
+      "updateMs": 0.5067999958992004,
+      "workingSetBytes": 87728128
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.7221999168395996,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.3380999565124512,
+      "updateMs": 1.3515000343322754,
+      "workingSetBytes": 90734592
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 5.50629997253418,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.1424000263214111,
+      "updateMs": 4.332200050354004,
+      "workingSetBytes": 90894336
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 14.136099815368652,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.6310999989509583,
+      "updateMs": 13.473699569702148,
+      "workingSetBytes": 90894336
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.0473999977111816,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.43299999833106995,
+      "updateMs": 0.5965999960899353,
+      "workingSetBytes": 90894336
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.6749999523162842,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.067199945449829,
+      "updateMs": 0.5715000033378601,
+      "workingSetBytes": 86773760
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 8.417699813842773,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.7789000272750854,
+      "updateMs": 7.604700088500977,
+      "workingSetBytes": 86818816
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.8601000308990479,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.1548999547958374,
+      "updateMs": 0.6693999767303467,
+      "workingSetBytes": 86831104
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.373800039291382,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.5333000421524048,
+      "updateMs": 0.796500027179718,
+      "workingSetBytes": 86855680
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.1821999549865723,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.0779000520706177,
+      "updateMs": 1.0635000467300415,
+      "workingSetBytes": 90697728
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 6.258500099182129,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.0729000568389893,
+      "updateMs": 5.150199890136719,
+      "workingSetBytes": 90857472
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 10.324899673461914,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.4952999949455261,
+      "updateMs": 9.7947998046875,
+      "workingSetBytes": 90857472
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.8430999517440796,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8373000025749207,
+      "updateMs": 0.9847999811172485,
+      "workingSetBytes": 90857472
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.081899881362915,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.3238999843597412,
+      "updateMs": 0.7185999751091003,
+      "workingSetBytes": 87609344
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 8.206399917602539,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8158000111579895,
+      "updateMs": 7.349999904632568,
+      "workingSetBytes": 87633920
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.055299997329712,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.3113000392913818,
+      "updateMs": 0.7045000195503235,
+      "workingSetBytes": 87646208
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.327899932861328,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.4815000295639038,
+      "updateMs": 0.8104000091552734,
+      "workingSetBytes": 87662592
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.4474000930786133,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.0536999702453613,
+      "updateMs": 1.351199984550476,
+      "workingSetBytes": 90718208
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 4.197400093078613,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.5426999926567078,
+      "updateMs": 3.6257998943328857,
+      "workingSetBytes": 90845184
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 8.057000160217285,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.48159998655319214,
+      "updateMs": 7.557300090789795,
+      "workingSetBytes": 90849280
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.3890000581741333,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.640500009059906,
+      "updateMs": 0.7311000227928162,
+      "workingSetBytes": 90853376
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.6948000192642212,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.0875999927520752,
+      "updateMs": 0.5766000151634216,
+      "workingSetBytes": 86790144
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 4.882800102233887,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.4812999963760376,
+      "updateMs": 4.361299991607666,
+      "workingSetBytes": 86835200
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 0.39399999380111694,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.24959999322891235,
+      "updateMs": 0.13330000638961792,
+      "workingSetBytes": 86835200
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 0.4722999930381775,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.2888000011444092,
+      "updateMs": 0.17059999704360962,
+      "workingSetBytes": 86839296
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 0.6972000002861023,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.37459999322891235,
+      "updateMs": 0.3061000108718872,
+      "workingSetBytes": 90685440
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.5262999534606934,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.3125999867916107,
+      "updateMs": 1.1995999813079834,
+      "workingSetBytes": 90869760
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 3.5058000087738037,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.28299999237060547,
+      "updateMs": 3.208400011062622,
+      "workingSetBytes": 90869760
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 0.6557000279426575,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.4147999882698059,
+      "updateMs": 0.22519999742507935,
+      "workingSetBytes": 86683648
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.284600019454956,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.2070000022649765,
+      "updateMs": 2.0536999702453613,
+      "workingSetBytes": 86708224
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.5534000396728516,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.0155999660491943,
+      "updateMs": 0.5127999782562256,
+      "workingSetBytes": 86712320
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.486199975013733,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.9416999816894531,
+      "updateMs": 0.5199999809265137,
+      "workingSetBytes": 86732800
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.124500036239624,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.0607999563217163,
+      "updateMs": 1.017199993133545,
+      "workingSetBytes": 90710016
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 3.871000051498413,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.6485999822616577,
+      "updateMs": 3.1884000301361084,
+      "workingSetBytes": 90898432
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 6.708499908447266,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.384799987077713,
+      "updateMs": 6.300600051879883,
+      "workingSetBytes": 90914816
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 0.5906000137329102,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.25690001249313354,
+      "updateMs": 0.32269999384880066,
+      "workingSetBytes": 90914816
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 0.4713999927043915,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.2872999906539917,
+      "updateMs": 0.17080000042915344,
+      "workingSetBytes": 86700032
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 4.088500022888184,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.44440001249313354,
+      "updateMs": 3.628200054168701,
+      "workingSetBytes": 86740992
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.1208000183105469,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.7091000080108643,
+      "updateMs": 0.3856000006198883,
+      "workingSetBytes": 86740992
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.6026999950408936,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.013100028038025,
+      "updateMs": 0.5580000281333923,
+      "workingSetBytes": 86761472
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.636199951171875,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.339400053024292,
+      "updateMs": 1.2609000205993652,
+      "workingSetBytes": 90726400
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 7.2846999168396,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.9472000002861023,
+      "updateMs": 6.298999786376953,
+      "workingSetBytes": 90955776
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 3.9275999069213867,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.274399995803833,
+      "updateMs": 3.6364998817443848,
+      "workingSetBytes": 90955776
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 0.48399999737739563,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.29980000853538513,
+      "updateMs": 0.16910000145435333,
+      "workingSetBytes": 86822912
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.132699966430664,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.23080000281333923,
+      "updateMs": 1.8840999603271484,
+      "workingSetBytes": 86867968
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 0.48010000586509705,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.29179999232292175,
+      "updateMs": 0.17319999635219574,
+      "workingSetBytes": 86867968
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 0.48019999265670776,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.29109999537467957,
+      "updateMs": 0.17520000040531158,
+      "workingSetBytes": 86888448
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.2975000143051147,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.6571000218391418,
+      "updateMs": 0.6172999739646912,
+      "workingSetBytes": 90836992
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 3.27839994430542,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.37380000948905945,
+      "updateMs": 2.873199939727783,
+      "workingSetBytes": 91054080
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 7.286399841308594,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.3149999976158142,
+      "updateMs": 6.937399864196777,
+      "workingSetBytes": 91058176
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.9005000591278076,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.2725000381469727,
+      "updateMs": 1.5928000211715698,
+      "workingSetBytes": 91058176
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.7768000364303589,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.0401999950408936,
+      "updateMs": 0.699400007724762,
+      "workingSetBytes": 86888448
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.9952000379562378,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.21899999678134918,
+      "updateMs": 1.7616000175476074,
+      "workingSetBytes": 86929408
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 0.5647000074386597,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.3449000120162964,
+      "updateMs": 0.2037000060081482,
+      "workingSetBytes": 86933504
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.1114000082015991,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.7594000101089478,
+      "updateMs": 0.336899995803833,
+      "workingSetBytes": 86925312
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.6370999813079834,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.2949999570846558,
+      "updateMs": 1.3070000410079956,
+      "workingSetBytes": 90869760
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 5.7718000411987305,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.5358999967575073,
+      "updateMs": 5.179800033569336,
+      "workingSetBytes": 91054080
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 6.734099864959717,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.2858999967575073,
+      "updateMs": 6.412199974060059,
+      "workingSetBytes": 91058176
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.486299991607666,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.087399959564209,
+      "updateMs": 1.3680000305175781,
+      "workingSetBytes": 91058176
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 0.5284000039100647,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.3091000020503998,
+      "updateMs": 0.18629999458789825,
+      "workingSetBytes": 86814720
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 3.977799892425537,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.20980000495910645,
+      "updateMs": 3.7541000843048096,
+      "workingSetBytes": 86855680
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 0.7247999906539917,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.538100004196167,
+      "updateMs": 0.17090000212192535,
+      "workingSetBytes": 86867968
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 0.8910999894142151,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.5931000113487244,
+      "updateMs": 0.2824999988079071,
+      "workingSetBytes": 86867968
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.938599944114685,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8773999810218811,
+      "updateMs": 1.0303000211715698,
+      "workingSetBytes": 90820608
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.5027999877929688,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.28450000286102295,
+      "updateMs": 1.2055000066757202,
+      "workingSetBytes": 91033600
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 7.817399978637695,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.2784000039100647,
+      "updateMs": 7.507800102233887,
+      "workingSetBytes": 91033600
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.8912999629974365,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.809499979019165,
+      "updateMs": 1.0628999471664429,
+      "workingSetBytes": 91033600
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.113300085067749,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.420300006866455,
+      "updateMs": 0.6592000126838684,
+      "workingSetBytes": 86818816
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.0934998989105225,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.20329999923706055,
+      "updateMs": 1.8782999515533447,
+      "workingSetBytes": 86855680
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.100100040435791,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.6865000128746033,
+      "updateMs": 0.3880999982357025,
+      "workingSetBytes": 86867968
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.9444999694824219,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.2323999404907227,
+      "updateMs": 0.694100022315979,
+      "workingSetBytes": 86908928
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.8918999433517456,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.0189000368118286,
+      "updateMs": 0.822700023651123,
+      "workingSetBytes": 90861568
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 3.7471001148223877,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.6518999934196472,
+      "updateMs": 3.0580999851226807,
+      "workingSetBytes": 91107328
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 9.648200035095215,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.5113999843597412,
+      "updateMs": 9.051899909973145,
+      "workingSetBytes": 91107328
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 0.6272000074386597,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.2712000012397766,
+      "updateMs": 0.34150001406669617,
+      "workingSetBytes": 91107328
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 0.6424999833106995,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.38839998841285706,
+      "updateMs": 0.23489999771118164,
+      "workingSetBytes": 86994944
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 3.090100049972534,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.31439998745918274,
+      "updateMs": 2.760200023651123,
+      "workingSetBytes": 87044096
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.5506999492645264,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.027899980545044,
+      "updateMs": 0.4961000084877014,
+      "workingSetBytes": 87048192
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.0706000328063965,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.3112000226974487,
+      "updateMs": 0.7287999987602234,
+      "workingSetBytes": 87052288
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 0.7994999885559082,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.2750000059604645,
+      "updateMs": 0.49399998784065247,
+      "workingSetBytes": 91009024
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 6.232100009918213,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.3116999864578247,
+      "updateMs": 4.88670015335083,
+      "workingSetBytes": 91131904
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 12.005000114440918,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.9193000197410583,
+      "updateMs": 11.062399864196777,
+      "workingSetBytes": 91131904
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.6672000885009766,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.2064000368118286,
+      "updateMs": 1.4503999948501587,
+      "workingSetBytes": 91131904
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.8763999938964844,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.2101000547409058,
+      "updateMs": 0.6341000199317932,
+      "workingSetBytes": 86867968
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 6.508500099182129,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.5378000140190125,
+      "updateMs": 5.935500144958496,
+      "workingSetBytes": 86867968
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.9694000482559204,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.699999988079071,
+      "updateMs": 1.236299991607666,
+      "workingSetBytes": 86867968
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.0750000476837158,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.17219999432563782,
+      "updateMs": 0.875,
+      "workingSetBytes": 86872064
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.143199920654297,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.7276999950408936,
+      "updateMs": 1.385699987411499,
+      "workingSetBytes": 86872064
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.659999966621399,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.675000011920929,
+      "updateMs": 0.9513999819755554,
+      "workingSetBytes": 86994944
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.026599884033203,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.7184000015258789,
+      "updateMs": 1.2769999504089355,
+      "workingSetBytes": 86994944
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.6684999465942383,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.5597000122070313,
+      "updateMs": 1.0705000162124634,
+      "workingSetBytes": 87150592
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.2279999256134033,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.5321000218391418,
+      "updateMs": 1.6521999835968018,
+      "workingSetBytes": 87150592
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.3863999843597412,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.34360000491142273,
+      "updateMs": 1.0055999755859375,
+      "workingSetBytes": 87224320
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.7092000246047974,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.4438000023365021,
+      "updateMs": 1.2342000007629395,
+      "workingSetBytes": 87236608
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 0.7910000085830688,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.31630000472068787,
+      "updateMs": 0.45820000767707825,
+      "workingSetBytes": 87236608
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.618399977684021,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.7003999948501587,
+      "updateMs": 0.8883000016212463,
+      "workingSetBytes": 87240704
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.9873000383377075,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.715399980545044,
+      "updateMs": 1.2347999811172485,
+      "workingSetBytes": 87240704
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.969599962234497,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.7318000197410583,
+      "updateMs": 1.1965999603271484,
+      "workingSetBytes": 87310336
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 3.323199987411499,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.1574000120162964,
+      "updateMs": 2.1280999183654785,
+      "workingSetBytes": 87310336
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.7085000276565552,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.552299976348877,
+      "updateMs": 1.1207000017166138,
+      "workingSetBytes": 87379968
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.0703001022338867,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.883899986743927,
+      "updateMs": 1.1574000120162964,
+      "workingSetBytes": 87379968
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.319200038909912,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.42410001158714294,
+      "updateMs": 0.8651999831199646,
+      "workingSetBytes": 87379968
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.1950000524520874,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.24330000579357147,
+      "updateMs": 0.9190999865531921,
+      "workingSetBytes": 87449600
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.7289999723434448,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.38089999556541443,
+      "updateMs": 1.3344000577926636,
+      "workingSetBytes": 87519232
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.947000026702881,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8817999958992004,
+      "updateMs": 2.024199962615967,
+      "workingSetBytes": 87519232
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.9182000160217285,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.7024999856948853,
+      "updateMs": 1.184499979019165,
+      "workingSetBytes": 87588864
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.175800085067749,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.855400025844574,
+      "updateMs": 1.2870999574661255,
+      "workingSetBytes": 87670784
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.9804999828338623,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.6061000227928162,
+      "updateMs": 1.3535000085830688,
+      "workingSetBytes": 87670784
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.126499891281128,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.871399998664856,
+      "updateMs": 1.219099998474121,
+      "workingSetBytes": 87670784
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.522900104522705,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.7111999988555908,
+      "updateMs": 1.7666000127792358,
+      "workingSetBytes": 87683072
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.2273999452590942,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.4803999960422516,
+      "updateMs": 0.7251999974250793,
+      "workingSetBytes": 87683072
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.152100086212158,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8945000171661377,
+      "updateMs": 1.2263000011444092,
+      "workingSetBytes": 87764992
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.115299940109253,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.781499981880188,
+      "updateMs": 1.3027000427246094,
+      "workingSetBytes": 87764992
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.069000005722046,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.881600022315979,
+      "updateMs": 1.1591999530792236,
+      "workingSetBytes": 87777280
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.459700107574463,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8736000061035156,
+      "updateMs": 1.5484000444412231,
+      "workingSetBytes": 87777280
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.3973000049591064,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8618000149726868,
+      "updateMs": 1.5042999982833862,
+      "workingSetBytes": 87777280
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.7457000017166138,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.5026000142097473,
+      "updateMs": 1.2035000324249268,
+      "workingSetBytes": 87859200
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.4827001094818115,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8830000162124634,
+      "updateMs": 1.5612000226974487,
+      "workingSetBytes": 87859200
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.0986000299453735,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.43880000710487366,
+      "updateMs": 0.6391000151634216,
+      "workingSetBytes": 87859200
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 0.6837000250816345,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.29820001125335693,
+      "updateMs": 0.375,
+      "workingSetBytes": 87859200
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.2045999765396118,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.36390000581741333,
+      "updateMs": 0.8184999823570251,
+      "workingSetBytes": 87928832
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.2930999994277954,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.3614000082015991,
+      "updateMs": 0.9016000032424927,
+      "workingSetBytes": 87998464
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.6354000568389893,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.2320999950170517,
+      "updateMs": 1.3732000589370728,
+      "workingSetBytes": 88068096
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.7985999584197998,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.4212999939918518,
+      "updateMs": 1.3442000150680542,
+      "workingSetBytes": 88068096
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.242500066757202,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.7638999819755554,
+      "updateMs": 1.4149999618530273,
+      "workingSetBytes": 88072192
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.2397000789642334,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8662999868392944,
+      "updateMs": 1.3358999490737915,
+      "workingSetBytes": 88076288
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.0088999271392822,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.7540000081062317,
+      "updateMs": 1.2158000469207764,
+      "workingSetBytes": 88076288
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.7883000373840332,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.49779999256134033,
+      "updateMs": 1.2577999830245972,
+      "workingSetBytes": 88088576
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.378200054168701,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.6157000064849854,
+      "updateMs": 1.7252000570297241,
+      "workingSetBytes": 88088576
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.975100040435791,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.7113000154495239,
+      "updateMs": 1.2417999505996704,
+      "workingSetBytes": 88158208
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.3216999769210815,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.34360000491142273,
+      "updateMs": 0.9038000106811523,
+      "workingSetBytes": 88158208
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.3717999458312988,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.5479999780654907,
+      "updateMs": 0.79339998960495,
+      "workingSetBytes": 88240128
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.6657999753952026,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.3379000127315521,
+      "updateMs": 1.2869000434875488,
+      "workingSetBytes": 88240128
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.8554999828338623,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.3743000030517578,
+      "updateMs": 1.4412000179290771,
+      "workingSetBytes": 88240128
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.8249000310897827,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.24310000240802765,
+      "updateMs": 1.5485999584197998,
+      "workingSetBytes": 88252416
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 0.9830999970436096,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.3659000098705292,
+      "updateMs": 0.5859000086784363,
+      "workingSetBytes": 88252416
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.8796000480651855,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.49619999527931213,
+      "updateMs": 1.333299994468689,
+      "workingSetBytes": 88322048
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.4479999542236328,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.257999986410141,
+      "updateMs": 1.1520999670028687,
+      "workingSetBytes": 88403968
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.457200050354004,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.3824000060558319,
+      "updateMs": 1.0403000116348267,
+      "workingSetBytes": 88403968
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.298099994659424,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8644999861717224,
+      "updateMs": 1.3969000577926636,
+      "workingSetBytes": 88403968
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.0787999629974365,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8917999863624573,
+      "updateMs": 1.1536999940872192,
+      "workingSetBytes": 88403968
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.6768999099731445,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8590999841690063,
+      "updateMs": 1.7827999591827393,
+      "workingSetBytes": 88416256
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.345400094985962,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8422999978065491,
+      "updateMs": 1.468999981880188,
+      "workingSetBytes": 88416256
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.329200029373169,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8582000136375427,
+      "updateMs": 1.4210000038146973,
+      "workingSetBytes": 88416256
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.0311999320983887,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8632000088691711,
+      "updateMs": 1.138200044631958,
+      "workingSetBytes": 88416256
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.332200050354004,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8795999884605408,
+      "updateMs": 1.414199948310852,
+      "workingSetBytes": 88498176
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.8319000005722046,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.3808000087738037,
+      "updateMs": 1.4031000137329102,
+      "workingSetBytes": 88498176
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.3483999967575073,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.5552999973297119,
+      "updateMs": 0.7627999782562256,
+      "workingSetBytes": 88498176
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.8063000440597534,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.6963000297546387,
+      "updateMs": 1.0753999948501587,
+      "workingSetBytes": 88498176
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.9163999557495117,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8075000047683716,
+      "updateMs": 1.0806000232696533,
+      "workingSetBytes": 88498176
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.184299945831299,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8536999821662903,
+      "updateMs": 1.2973999977111816,
+      "workingSetBytes": 88498176
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.1782000064849854,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8592000007629395,
+      "updateMs": 1.2776000499725342,
+      "workingSetBytes": 88498176
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.3947999477386475,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8604999780654907,
+      "updateMs": 1.503499984741211,
+      "workingSetBytes": 88498176
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.51200008392334,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8784000277519226,
+      "updateMs": 1.5953999757766724,
+      "workingSetBytes": 88510464
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.2755000591278076,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.885200023651123,
+      "updateMs": 1.3535000085830688,
+      "workingSetBytes": 88510464
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.181999921798706,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8755000233650208,
+      "updateMs": 1.2684999704360962,
+      "workingSetBytes": 88522752
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.2685999870300293,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8371000289916992,
+      "updateMs": 1.3934999704360962,
+      "workingSetBytes": 88522752
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.684299945831299,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8980000019073486,
+      "updateMs": 1.743399977684021,
+      "workingSetBytes": 88522752
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.1768999099731445,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.9866999983787537,
+      "updateMs": 1.1547000408172607,
+      "workingSetBytes": 88592384
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.2934999465942383,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8863000273704529,
+      "updateMs": 1.3696000576019287,
+      "workingSetBytes": 88592384
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.8986999988555908,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.5080999732017517,
+      "updateMs": 1.3437999486923218,
+      "workingSetBytes": 88592384
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.1396000385284424,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8148000240325928,
+      "updateMs": 1.3028000593185425,
+      "workingSetBytes": 88592384
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.669300079345703,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8496999740600586,
+      "updateMs": 1.7903000116348267,
+      "workingSetBytes": 88592384
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.834199905395508,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.292099952697754,
+      "updateMs": 1.499899983406067,
+      "workingSetBytes": 88592384
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.0801000595092773,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.875,
+      "updateMs": 1.164199948310852,
+      "workingSetBytes": 88592384
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 3.138700008392334,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.4615000486373901,
+      "updateMs": 1.6402000188827515,
+      "workingSetBytes": 88592384
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.2281999588012695,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.843500018119812,
+      "updateMs": 1.3494000434875488,
+      "workingSetBytes": 88592384
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.599299907684326,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8453999757766724,
+      "updateMs": 1.715499997138977,
+      "workingSetBytes": 88592384
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.6105000972747803,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.0037000179290771,
+      "updateMs": 1.5760999917984009,
+      "workingSetBytes": 88592384
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.496000051498413,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8925999999046326,
+      "updateMs": 1.5677000284194946,
+      "workingSetBytes": 88592384
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.9038000106811523,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.852400004863739,
+      "updateMs": 1.019700050354004,
+      "workingSetBytes": 88592384
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.332900047302246,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8378000259399414,
+      "updateMs": 1.451200008392334,
+      "workingSetBytes": 88592384
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.496500015258789,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8673999905586243,
+      "updateMs": 1.597499966621399,
+      "workingSetBytes": 88645632
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.5064001083374023,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.0982999801635742,
+      "updateMs": 1.3671000003814697,
+      "workingSetBytes": 88645632
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.143399953842163,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8666999936103821,
+      "updateMs": 1.2396999597549438,
+      "workingSetBytes": 89477120
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.2562999725341797,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8373000025749207,
+      "updateMs": 1.364799976348877,
+      "workingSetBytes": 89477120
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.099400043487549,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.875,
+      "updateMs": 1.1943999528884888,
+      "workingSetBytes": 89477120
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.5318000316619873,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8496000170707703,
+      "updateMs": 1.6490999460220337,
+      "workingSetBytes": 89477120
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.5083000659942627,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.0399999618530273,
+      "updateMs": 1.4347000122070313,
+      "workingSetBytes": 89477120
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.038800001144409,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8198000192642212,
+      "updateMs": 1.1852999925613403,
+      "workingSetBytes": 89477120
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.1684000492095947,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8876000046730042,
+      "updateMs": 1.2475999593734741,
+      "workingSetBytes": 89477120
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.410099983215332,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.9348000288009644,
+      "updateMs": 1.4372999668121338,
+      "workingSetBytes": 89505792
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.823799967765808,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.5715000033378601,
+      "updateMs": 1.222599983215332,
+      "workingSetBytes": 89505792
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.979699969291687,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8208000063896179,
+      "updateMs": 1.1288000345230103,
+      "workingSetBytes": 89505792
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.3903000354766846,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.9291999936103821,
+      "updateMs": 1.4211000204086304,
+      "workingSetBytes": 89505792
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.0966999530792236,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8960999846458435,
+      "updateMs": 1.1633000373840332,
+      "workingSetBytes": 89505792
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.1728999614715576,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8654999732971191,
+      "updateMs": 1.2655999660491943,
+      "workingSetBytes": 89505792
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.8845999240875244,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.9057999849319458,
+      "updateMs": 1.9345999956130981,
+      "workingSetBytes": 89505792
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.2039999961853027,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8131999969482422,
+      "updateMs": 1.3480000495910645,
+      "workingSetBytes": 89505792
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.268699884414673,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8353999853134155,
+      "updateMs": 1.3981000185012817,
+      "workingSetBytes": 89505792
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.229300022125244,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8507000207901001,
+      "updateMs": 1.3420000076293945,
+      "workingSetBytes": 89505792
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.411099910736084,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8798999786376953,
+      "updateMs": 1.4908000230789185,
+      "workingSetBytes": 89575424
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.864500045776367,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.791100025177002,
+      "updateMs": 2.0309998989105225,
+      "workingSetBytes": 89575424
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.2274999618530273,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8942000269889832,
+      "updateMs": 1.2860000133514404,
+      "workingSetBytes": 89575424
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.957900047302246,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8363000154495239,
+      "updateMs": 1.0917999744415283,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.9802000522613525,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8363999724388123,
+      "updateMs": 1.1131000518798828,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.1661999225616455,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8328999876976013,
+      "updateMs": 1.297700047492981,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.5169999599456787,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8848000168800354,
+      "updateMs": 1.5994999408721924,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.075500011444092,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8654000163078308,
+      "updateMs": 1.1815999746322632,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 3.061199903488159,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.4917000532150269,
+      "updateMs": 1.5392999649047852,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.434499979019165,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8815000057220459,
+      "updateMs": 1.5127999782562256,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.275700092315674,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8579000234603882,
+      "updateMs": 1.3765000104904175,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.6777000427246094,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8058000206947327,
+      "updateMs": 1.8309999704360962,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.296999931335449,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8668000102043152,
+      "updateMs": 1.3901000022888184,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.5416998863220215,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.311400055885315,
+      "updateMs": 1.1953999996185303,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.603800058364868,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8978000283241272,
+      "updateMs": 1.6699999570846558,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.509399890899658,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8804000020027161,
+      "updateMs": 1.5916999578475952,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.727099895477295,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8472999930381775,
+      "updateMs": 1.8378000259399414,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.7992000579833984,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8855000138282776,
+      "updateMs": 1.8716000318527222,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.0622000694274902,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8263999819755554,
+      "updateMs": 1.19760000705719,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 0.9465000033378601,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.383899986743927,
+      "updateMs": 0.5383999943733215,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.250200033187866,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8622999787330627,
+      "updateMs": 1.3622000217437744,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.8866000175476074,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8909000158309937,
+      "updateMs": 1.9534000158309937,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.3366000652313232,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8968999981880188,
+      "updateMs": 1.4007999897003174,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.200000047683716,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.9092000126838684,
+      "updateMs": 1.253999948501587,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.230799913406372,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8978000283241272,
+      "updateMs": 1.2963999509811401,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.76419997215271,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.6398000121116638,
+      "updateMs": 1.0932999849319458,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.3001999855041504,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.9041000008583069,
+      "updateMs": 1.358199954032898,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.5615999698638916,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8761000037193298,
+      "updateMs": 1.6507999897003174,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.4655001163482666,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.9837999939918518,
+      "updateMs": 1.444599986076355,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.578900098800659,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.2134000062942505,
+      "updateMs": 1.327299952507019,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.2335000038146973,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.852400004863739,
+      "updateMs": 1.341599941253662,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.289599895477295,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.891700029373169,
+      "updateMs": 1.360200047492981,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.944200038909912,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.914900004863739,
+      "updateMs": 1.9876999855041504,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.3148999214172363,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.9603000283241272,
+      "updateMs": 1.308899998664856,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.341599941253662,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.9071999788284302,
+      "updateMs": 1.396299958229065,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.1194000244140625,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8651999831199646,
+      "updateMs": 1.2146999835968018,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.3185999393463135,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8956000208854675,
+      "updateMs": 1.3911999464035034,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.656399965286255,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8452000021934509,
+      "updateMs": 1.7755999565124512,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.3503000736236572,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.9947999715805054,
+      "updateMs": 1.312600016593933,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.197999954223633,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.9455999732017517,
+      "updateMs": 1.2146999835968018,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.9780000448226929,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.6967999935150146,
+      "updateMs": 1.250499963760376,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.8030999898910522,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.4867999851703644,
+      "updateMs": 1.2781000137329102,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.7594000101089478,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.38989999890327454,
+      "updateMs": 1.329699993133545,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.5780999660491943,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.35839998722076416,
+      "updateMs": 1.1875,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.5130000114440918,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.4431000053882599,
+      "updateMs": 1.0413999557495117,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 0.6678000092506409,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.27250000834465027,
+      "updateMs": 0.3801000118255615,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.4337999820709229,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.6040999889373779,
+      "updateMs": 0.804099977016449,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.0009000301361084,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8507000207901001,
+      "updateMs": 1.1139999628067017,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.1702001094818115,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8418999910354614,
+      "updateMs": 1.2935999631881714,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.8517000675201416,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8396000266075134,
+      "updateMs": 1.9560999870300293,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.2167000770568848,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.9096999764442444,
+      "updateMs": 1.270400047302246,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.1247000694274902,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8651000261306763,
+      "updateMs": 1.2252999544143677,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.232800006866455,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8460000157356262,
+      "updateMs": 1.3481999635696411,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.2681000232696533,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.9017000198364258,
+      "updateMs": 1.319599986076355,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.680000066757202,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8895999789237976,
+      "updateMs": 1.7508000135421753,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.271399974822998,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8411999940872192,
+      "updateMs": 1.3940999507904053,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.1226999759674072,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8970000147819519,
+      "updateMs": 1.1904000043869019,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.3447000980377197,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.9283999800682068,
+      "updateMs": 1.3737000226974487,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.2190001010894775,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8633000254631042,
+      "updateMs": 1.3136999607086182,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.5961999893188477,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.880299985408783,
+      "updateMs": 1.6823999881744385,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.1429998874664307,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8820000290870667,
+      "updateMs": 1.2279000282287598,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.0204999446868896,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8828999996185303,
+      "updateMs": 1.1065000295639038,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.041800022125244,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8417999744415283,
+      "updateMs": 1.170199990272522,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.1340999603271484,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8726000189781189,
+      "updateMs": 1.2272000312805176,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.571199893951416,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8812000155448914,
+      "updateMs": 1.63510000705719,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.2330000400543213,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8712000250816345,
+      "updateMs": 1.329800009727478,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.533900022506714,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8980000019073486,
+      "updateMs": 1.294800043106079,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.059999942779541,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8425999879837036,
+      "updateMs": 1.1641000509262085,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.289400100708008,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.843500018119812,
+      "updateMs": 1.4112999439239502,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.4567999839782715,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8406000137329102,
+      "updateMs": 1.5878000259399414,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.63070011138916,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.899399995803833,
+      "updateMs": 1.6904000043869019,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.0831000804901123,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8830999732017517,
+      "updateMs": 1.1640000343322754,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.2939000129699707,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8353000283241272,
+      "updateMs": 1.4115999937057495,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.05679988861084,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.7651000022888184,
+      "updateMs": 1.249500036239624,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.4927000999450684,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8669999837875366,
+      "updateMs": 1.5956000089645386,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.9581999778747559,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8396000266075134,
+      "updateMs": 1.0906000137329102,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.040299892425537,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8478999733924866,
+      "updateMs": 1.1614999771118164,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.057800054550171,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8647000193595886,
+      "updateMs": 1.1563999652862549,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.178299903869629,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.9623000025749207,
+      "updateMs": 1.1816999912261963,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.671600103378296,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8662999868392944,
+      "updateMs": 1.7682000398635864,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.308500051498413,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.886900007724762,
+      "updateMs": 1.3818000555038452,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.19569993019104,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8959000110626221,
+      "updateMs": 1.2633999586105347,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.152400016784668,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.7760999798774719,
+      "updateMs": 1.3418999910354614,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.2776999473571777,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.869700014591217,
+      "updateMs": 1.3687000274658203,
+      "workingSetBytes": 89583616
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.7904000282287598,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.9129999876022339,
+      "updateMs": 1.8322999477386475,
+      "workingSetBytes": 89595904
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.908600091934204,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.4701000452041626,
+      "updateMs": 1.395799994468689,
+      "workingSetBytes": 89595904
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.0947999954223633,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8772000074386597,
+      "updateMs": 1.1629999876022339,
+      "workingSetBytes": 89595904
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.2701001167297363,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.9003999829292297,
+      "updateMs": 1.3349000215530396,
+      "workingSetBytes": 89595904
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 0.757099986076355,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.32109999656677246,
+      "updateMs": 0.41510000824928284,
+      "workingSetBytes": 89665536
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.0377000570297241,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.3440999984741211,
+      "updateMs": 0.6794000267982483,
+      "workingSetBytes": 89665536
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.009000062942505,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.7505000233650208,
+      "updateMs": 1.2282999753952026,
+      "workingSetBytes": 89665536
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.513700008392334,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.1842999458312988,
+      "updateMs": 1.3006999492645264,
+      "workingSetBytes": 89665536
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.3029000759124756,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.9440000057220459,
+      "updateMs": 1.323099970817566,
+      "workingSetBytes": 89665536
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.2834999561309814,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.9132000207901001,
+      "updateMs": 1.3336999416351318,
+      "workingSetBytes": 89665536
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.3071999549865723,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.9031000137329102,
+      "updateMs": 1.3694000244140625,
+      "workingSetBytes": 89665536
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.7018001079559326,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8513000011444092,
+      "updateMs": 1.8184000253677368,
+      "workingSetBytes": 89665536
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.1582999229431152,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8695999979972839,
+      "updateMs": 1.2552000284194946,
+      "workingSetBytes": 89665536
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.4684998989105225,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.9921000003814697,
+      "updateMs": 1.4473999738693237,
+      "workingSetBytes": 89677824
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.3131000995635986,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8478000164031982,
+      "updateMs": 1.4292999505996704,
+      "workingSetBytes": 89677824
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.746500015258789,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.9172999858856201,
+      "updateMs": 1.7914999723434448,
+      "workingSetBytes": 89677824
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.3482000827789307,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.9075000286102295,
+      "updateMs": 1.4039000272750854,
+      "workingSetBytes": 89677824
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.216399908065796,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8536999821662903,
+      "updateMs": 1.326799988746643,
+      "workingSetBytes": 89677824
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.2532999515533447,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8504999876022339,
+      "updateMs": 1.3726999759674072,
+      "workingSetBytes": 89677824
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.12280011177063,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8583999872207642,
+      "updateMs": 1.2294000387191772,
+      "workingSetBytes": 89677824
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.681299924850464,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8533999919891357,
+      "updateMs": 1.7905000448226929,
+      "workingSetBytes": 89677824
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.4144999980926514,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8967000246047974,
+      "updateMs": 1.4738999605178833,
+      "workingSetBytes": 89677824
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.609100103378296,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.1169999837875366,
+      "updateMs": 1.4470000267028809,
+      "workingSetBytes": 89677824
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.205899953842163,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8693000078201294,
+      "updateMs": 1.3016999959945679,
+      "workingSetBytes": 89677824
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.439500093460083,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8895000219345093,
+      "updateMs": 1.511199951171875,
+      "workingSetBytes": 89710592
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 3.018899917602539,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8658000230789185,
+      "updateMs": 2.108799934387207,
+      "workingSetBytes": 89710592
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.0232999324798584,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8618999719619751,
+      "updateMs": 1.1277999877929688,
+      "workingSetBytes": 89710592
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.450000047683716,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8547999858856201,
+      "updateMs": 1.5530999898910522,
+      "workingSetBytes": 89710592
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.2279000282287598,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8723000288009644,
+      "updateMs": 1.3198000192642212,
+      "workingSetBytes": 89710592
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.3178999423980713,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8560000061988831,
+      "updateMs": 1.4227999448776245,
+      "workingSetBytes": 89018368
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.6154000759124756,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8409000039100647,
+      "updateMs": 1.7422000169754028,
+      "workingSetBytes": 89018368
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.4349000453948975,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.948199987411499,
+      "updateMs": 1.4505000114440918,
+      "workingSetBytes": 89018368
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.4089999198913574,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8986999988555908,
+      "updateMs": 1.4797999858856201,
+      "workingSetBytes": 89018368
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.7155001163482666,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.062399983406067,
+      "updateMs": 1.61899995803833,
+      "workingSetBytes": 89018368
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.2012999057769775,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8632000088691711,
+      "updateMs": 1.3065999746322632,
+      "workingSetBytes": 89018368
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.5164999961853027,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.833299994468689,
+      "updateMs": 1.6535999774932861,
+      "workingSetBytes": 89018368
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.464200019836426,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.0132999420166016,
+      "updateMs": 1.4078999757766724,
+      "workingSetBytes": 89018368
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.5820999145507813,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8619999885559082,
+      "updateMs": 1.6836999654769897,
+      "workingSetBytes": 89018368
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.338900089263916,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8256000280380249,
+      "updateMs": 1.4789999723434448,
+      "workingSetBytes": 89018368
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.1480000019073486,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.824400007724762,
+      "updateMs": 1.2879999876022339,
+      "workingSetBytes": 89088000
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.8887999057769775,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8479999899864197,
+      "updateMs": 2.0092999935150146,
+      "workingSetBytes": 89088000
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.174099922180176,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8611999750137329,
+      "updateMs": 1.2762000560760498,
+      "workingSetBytes": 89088000
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.2070000171661377,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8827000260353088,
+      "updateMs": 1.2878999710083008,
+      "workingSetBytes": 89100288
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.6410999298095703,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8902000188827515,
+      "updateMs": 1.7125999927520752,
+      "workingSetBytes": 89100288
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.740499973297119,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.9017999768257141,
+      "updateMs": 1.8005000352859497,
+      "workingSetBytes": 89100288
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.3234000205993652,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.7901999950408936,
+      "updateMs": 1.4905999898910522,
+      "workingSetBytes": 89100288
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.0980000495910645,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.5864999890327454,
+      "updateMs": 1.4625999927520752,
+      "workingSetBytes": 89100288
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.1673998832702637,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.869700014591217,
+      "updateMs": 1.2610000371932983,
+      "workingSetBytes": 89100288
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.2260000705718994,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.7875999808311462,
+      "updateMs": 1.3954999446868896,
+      "workingSetBytes": 89100288
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.266200065612793,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8799999952316284,
+      "updateMs": 1.3464000225067139,
+      "workingSetBytes": 89100288
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 3.6136999130249023,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.4670000076293945,
+      "updateMs": 2.1080000400543213,
+      "workingSetBytes": 89100288
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.300100088119507,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.9196000099182129,
+      "updateMs": 1.3411999940872192,
+      "workingSetBytes": 89100288
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.122499942779541,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8820000290870667,
+      "updateMs": 1.2027000188827515,
+      "workingSetBytes": 89100288
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.2467000484466553,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8877999782562256,
+      "updateMs": 1.315000057220459,
+      "workingSetBytes": 89100288
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.6161000728607178,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.6757000088691711,
+      "updateMs": 1.8901000022888184,
+      "workingSetBytes": 89100288
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.0004000663757324,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.6233000159263611,
+      "updateMs": 1.3372000455856323,
+      "workingSetBytes": 89112576
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.092400074005127,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8427000045776367,
+      "updateMs": 1.2066999673843384,
+      "workingSetBytes": 89112576
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.210599899291992,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8629999756813049,
+      "updateMs": 1.3176000118255615,
+      "workingSetBytes": 89112576
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.9479000568389893,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.6647999882698059,
+      "updateMs": 1.24399995803833,
+      "workingSetBytes": 89112576
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.1140999794006348,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.5755000114440918,
+      "updateMs": 1.4996000528335571,
+      "workingSetBytes": 89112576
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.9991999864578247,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.666700005531311,
+      "updateMs": 1.3009999990463257,
+      "workingSetBytes": 89112576
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.4026999473571777,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.558899998664856,
+      "updateMs": 0.8248999714851379,
+      "workingSetBytes": 89112576
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.1164000034332275,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8604000210762024,
+      "updateMs": 1.2222000360488892,
+      "workingSetBytes": 89112576
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.380000114440918,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8694999814033508,
+      "updateMs": 1.4718999862670898,
+      "workingSetBytes": 89112576
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.7506999969482422,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.5367000102996826,
+      "updateMs": 1.1713000535964966,
+      "workingSetBytes": 89112576
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.7667999267578125,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8554999828338623,
+      "updateMs": 1.871999979019165,
+      "workingSetBytes": 89116672
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.2909998893737793,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8348000049591064,
+      "updateMs": 1.4185999631881714,
+      "workingSetBytes": 89116672
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.3561999797821045,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8964999914169312,
+      "updateMs": 1.4256999492645264,
+      "workingSetBytes": 89116672
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.091599941253662,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8671000003814697,
+      "updateMs": 1.1936999559402466,
+      "workingSetBytes": 89116672
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.3368000984191895,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8636000156402588,
+      "updateMs": 1.4430999755859375,
+      "workingSetBytes": 89116672
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.5683000087738037,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.9193999767303467,
+      "updateMs": 1.6232999563217163,
+      "workingSetBytes": 89116672
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.7983999252319336,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.0424000024795532,
+      "updateMs": 1.7174999713897705,
+      "workingSetBytes": 89116672
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.1972999572753906,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8727999925613403,
+      "updateMs": 1.2888000011444092,
+      "workingSetBytes": 89116672
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.352099895477295,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8885999917984009,
+      "updateMs": 1.4258999824523926,
+      "workingSetBytes": 89116672
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.2934999465942383,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8633999824523926,
+      "updateMs": 1.3869999647140503,
+      "workingSetBytes": 89116672
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.5362000465393066,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.878600001335144,
+      "updateMs": 1.621399998664856,
+      "workingSetBytes": 89116672
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.385699987411499,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8885999917984009,
+      "updateMs": 1.4526000022888184,
+      "workingSetBytes": 89116672
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.2416999340057373,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8585000038146973,
+      "updateMs": 1.3489999771118164,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.51990008354187,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.0068000555038452,
+      "updateMs": 1.475000023841858,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.532399892807007,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8766000270843506,
+      "updateMs": 1.6124000549316406,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.575900077819824,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8736000061035156,
+      "updateMs": 1.674399971961975,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.3315000534057617,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.840399980545044,
+      "updateMs": 1.4515000581741333,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.932800054550171,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.370300054550171,
+      "updateMs": 1.5182000398635864,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.2595999240875244,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8468000292778015,
+      "updateMs": 1.377500057220459,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.2829999923706055,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8668000102043152,
+      "updateMs": 1.381600022315979,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 3.227400064468384,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.9589999914169312,
+      "updateMs": 2.2302000522613525,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.296600103378296,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.069599986076355,
+      "updateMs": 1.190500020980835,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.067199945449829,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8664000034332275,
+      "updateMs": 1.1692999601364136,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.217600107192993,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8669000267982483,
+      "updateMs": 1.3169000148773193,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.9424999952316284,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.845300018787384,
+      "updateMs": 1.0684000253677368,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.381700038909912,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8391000032424927,
+      "updateMs": 1.5146000385284424,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.073199987411499,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.2842000126838684,
+      "updateMs": 0.7642999887466431,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.2869999408721924,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8884999752044678,
+      "updateMs": 1.3717999458312988,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.027899980545044,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8535000085830688,
+      "updateMs": 1.142300009727478,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.510999917984009,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.9574000239372253,
+      "updateMs": 1.5256999731063843,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.9809000492095947,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.9244999885559082,
+      "updateMs": 2.0099000930786133,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.36929988861084,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8838000297546387,
+      "updateMs": 1.448199987411499,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.392899990081787,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.9412999749183655,
+      "updateMs": 1.4097000360488892,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.1298000812530518,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8676000237464905,
+      "updateMs": 1.2249000072479248,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.013400077819824,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.7915999889373779,
+      "updateMs": 1.1871000528335571,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.1937999725341797,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.6430000066757202,
+      "updateMs": 1.5289000272750854,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.2095999717712402,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8493000268936157,
+      "updateMs": 1.3215999603271484,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.4735000133514404,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.5875999927520752,
+      "updateMs": 0.8568999767303467,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 0.6308000087738037,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.26260000467300415,
+      "updateMs": 0.35359999537467957,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.3306000232696533,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.5548999905586243,
+      "updateMs": 0.7513999938964844,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.128000020980835,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8543999791145325,
+      "updateMs": 1.2138999700546265,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.745300054550171,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.9032999873161316,
+      "updateMs": 1.7960000038146973,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.895400047302246,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8841000199317932,
+      "updateMs": 1.9687000513076782,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.262500047683716,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8525999784469604,
+      "updateMs": 1.3724000453948975,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.648900032043457,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.3125,
+      "updateMs": 1.2962000370025635,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.0585999488830566,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.695900022983551,
+      "updateMs": 1.3260999917984009,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.161600112915039,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.886900007724762,
+      "updateMs": 1.2443000078201294,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.550299882888794,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8424999713897705,
+      "updateMs": 1.670799970626831,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.329200029373169,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.850600004196167,
+      "updateMs": 1.4443999528884888,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.1338999271392822,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8531000018119812,
+      "updateMs": 1.2351000308990479,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.1730000972747803,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8389999866485596,
+      "updateMs": 1.3020999431610107,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.1349000930786133,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8611000180244446,
+      "updateMs": 1.2381000518798828,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.550800085067749,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8518000245094299,
+      "updateMs": 1.6650999784469604,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.216599941253662,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.9243999719619751,
+      "updateMs": 1.257599949836731,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.226099967956543,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8816999793052673,
+      "updateMs": 1.2999000549316406,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.2011001110076904,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8572999835014343,
+      "updateMs": 1.309499979019165,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.038599967956543,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.838699996471405,
+      "updateMs": 1.1672999858856201,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.652899980545044,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8496000170707703,
+      "updateMs": 1.7644000053405762,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.2862000465393066,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8371999859809875,
+      "updateMs": 1.4177000522613525,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.490799903869629,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.1490000486373901,
+      "updateMs": 1.3107999563217163,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.130199909210205,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.9071999788284302,
+      "updateMs": 1.184999942779541,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.20770001411438,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.9103000164031982,
+      "updateMs": 1.2608000040054321,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.5048000812530518,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8514999747276306,
+      "updateMs": 1.617400050163269,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.1679000854492188,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.9549999833106995,
+      "updateMs": 1.174399971961975,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.952899932861328,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.1664999723434448,
+      "updateMs": 1.7476999759674072,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.2116000652313232,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8769000172615051,
+      "updateMs": 1.2984999418258667,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.0759999752044678,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.555400013923645,
+      "updateMs": 1.4809000492095947,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.724400043487549,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8830999732017517,
+      "updateMs": 1.8083000183105469,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.297800064086914,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8669999837875366,
+      "updateMs": 1.3940999507904053,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.418600082397461,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.9059000015258789,
+      "updateMs": 1.4702999591827393,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.247299909591675,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.9200000166893005,
+      "updateMs": 1.2897000312805176,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.683500051498413,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.9053999781608582,
+      "updateMs": 1.7422000169754028,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.444499969482422,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.6520000100135803,
+      "updateMs": 1.7405999898910522,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.0457000732421875,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.717199981212616,
+      "updateMs": 1.2929999828338623,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.1138999462127686,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8741000294685364,
+      "updateMs": 1.2027000188827515,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.05679988861084,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8399999737739563,
+      "updateMs": 1.182800054550171,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.2528998851776123,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8763999938964844,
+      "updateMs": 1.3395999670028687,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.363300085067749,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8544999957084656,
+      "updateMs": 1.4732999801635742,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.777899980545044,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8513000011444092,
+      "updateMs": 1.8916000127792358,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.2588999271392822,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8540999889373779,
+      "updateMs": 1.3716000318527222,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.3345999717712402,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.9254999756813049,
+      "updateMs": 1.371399998664856,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.3622000217437744,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.9757999777793884,
+      "updateMs": 1.3502000570297241,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.795199990272522,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.5257999897003174,
+      "updateMs": 1.235700011253357,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.5615999698638916,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8355000019073486,
+      "updateMs": 1.691499948501587,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.6191000938415527,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.2259000539779663,
+      "updateMs": 1.3574999570846558,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.128499984741211,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8784000277519226,
+      "updateMs": 1.2170000076293945,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.9143999814987183,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8104000091552734,
+      "updateMs": 1.0742000341415405,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.3808999061584473,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8988000154495239,
+      "updateMs": 1.4404000043869019,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.902400016784668,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.9222000241279602,
+      "updateMs": 1.9371999502182007,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.698799967765808,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.5108000040054321,
+      "updateMs": 1.1516000032424927,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.3053998947143555,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8718000054359436,
+      "updateMs": 1.3955999612808228,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.1923999786376953,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.9466000199317932,
+      "updateMs": 1.197100043296814,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.273900032043457,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.541100025177002,
+      "updateMs": 0.7109000086784363,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.1730999946594238,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.26579999923706055,
+      "updateMs": 0.8932999968528748,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.107699990272522,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.27070000767707825,
+      "updateMs": 0.8147000074386597,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 0.9911999702453613,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.25529998540878296,
+      "updateMs": 0.7120000123977661,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.8394999504089355,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.44130000472068787,
+      "updateMs": 1.367799997329712,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 0.7314000129699707,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.30250000953674316,
+      "updateMs": 0.4147000014781952,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.0916999578475952,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.48649999499320984,
+      "updateMs": 0.590399980545044,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 1.9938000440597534,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.6937999725341797,
+      "updateMs": 1.2714999914169312,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.2142999172210693,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8765000104904175,
+      "updateMs": 1.2949999570846558,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.8666999340057373,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8873000144958496,
+      "updateMs": 1.934999942779541,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.7751998901367188,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 1.2542999982833862,
+      "updateMs": 1.4809000492095947,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.2620999813079834,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.852400004863739,
+      "updateMs": 1.3792999982833862,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.2274999618530273,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8174999952316284,
+      "updateMs": 1.3765000104904175,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.1744000911712646,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.9284999966621399,
+      "updateMs": 1.2067999839782715,
+      "workingSetBytes": 89128960
+    },
+    {
+      "droppedFixedTicks": 0,
+      "frameMs": 2.5599000453948975,
+      "gpuMs": 0.0,
+      "gpuTimingAvailable": false,
+      "renderMs": 0.8474000096321106,
+      "updateMs": 1.679800033569336,
+      "workingSetBytes": 89128960
+    }
+  ],
+  "schemaVersion": 1,
+  "stress": {
+    "averageSceneReloadMs": 156.53698333333335,
+    "completedReloads": 12,
+    "initialReady": true,
+    "initialSceneReadyMs": 1001.4131,
+    "maxSceneReloadMs": 268.1083,
+    "requestedReloads": 12,
+    "targetReloads": 12,
+    "waiting": false
+  },
+  "summary": {
+    "droppedFixedTicks": 0,
+    "gpuSampleCount": 0,
+    "maxFrameMs": 14.136099815368652,
+    "p50FrameMs": 2.226099967956543,
+    "p95FrameMs": 4.011009931564326,
+    "p95GpuMs": 0.0,
+    "p99FrameMs": 9.27246812820433,
+    "sampleCount": 455,
+    "workingSetGrowthBytes": 5578752
+  },
+  "violations": []
+}

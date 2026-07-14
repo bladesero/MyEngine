@@ -21,20 +21,36 @@ struct RendererFrameStats {
     uint64_t textureUploadBytes = 0;
     float textureUploadMs = 0.0f;
     bool gpuTimingAvailable = false;
+    uint64_t transientRequestedBytes=0,transientAllocatedBytes=0,transientReusedBytes=0;
+    uint64_t renderGraphPooledBytes=0,renderGraphPoolEvictedBytes=0;
+    uint32_t transientResources=0,transientDescriptors=0,renderGraphPoolEvictions=0;
+    bool transientBudgetExceeded=false;
+};
+
+struct RuntimeResourceFrameStats {
+    uint64_t assetCpuBytes=0;
+    uint64_t assetEvictedBytes=0;
+    uint64_t assetBlockedBytes=0;
+    uint64_t pendingUploadBytes=0;
+    uint64_t peakPendingUploadBytes=0;
+    uint64_t liveActors=0;
+    uint64_t gpuResourceBytes=0,peakGpuResourceBytes=0,liveGpuDescriptors=0;
+    uint64_t liveNativeDescriptorSlots=0;
+    uint32_t qualityDegradationLevel=0;
+    uint32_t pendingUploadTasks=0;
+    bool assetPressure=false;
+    bool uploadPressure=false;
+    bool actorPressure=false;
+    bool gpuResourcePressure=false,descriptorPressure=false,nativeDescriptorPressure=false;
+    bool transientPressure=false;
 };
 
 class FrameStatsProvider {
 public:
-    static RendererFrameStats GetRendererStats() { return RendererStatsStorage(); }
-    static void SetRendererStats(const RendererFrameStats& stats) {
-        RendererStatsStorage() = stats;
-    }
-
-private:
-    static RendererFrameStats& RendererStatsStorage() {
-        static RendererFrameStats stats;
-        return stats;
-    }
+    static RendererFrameStats GetRendererStats();
+    static void SetRendererStats(const RendererFrameStats& stats);
+    static RuntimeResourceFrameStats GetResourceStats();
+    static void SetResourceStats(const RuntimeResourceFrameStats& stats);
 };
 
 struct FrameStats {
@@ -45,4 +61,5 @@ struct FrameStats {
     float renderMs = 0.0f;
     float smoothedFrameMs = 0.0f;
     RendererFrameStats renderer;
+    RuntimeResourceFrameStats resources;
 };

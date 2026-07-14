@@ -6,7 +6,8 @@ param(
     [ValidateRange(1, 100)]
     [int]$ReloadIterations = 3,
     [ValidateRange(16, 4096)]
-    [int]$MaxWorkingSetGrowthMB = 256
+    [int]$MaxWorkingSetGrowthMB = 256,
+    [switch]$KeepTempOnFailure
 )
 
 $ErrorActionPreference = "Stop"
@@ -16,6 +17,7 @@ $tempRoot = Join-Path ([IO.Path]::GetTempPath()) ("myengine_release_smoke_" + [g
 $testProject = Join-Path $tempRoot "Project"
 $publishBase = Join-Path $tempRoot "Published"
 $utf8 = New-Object Text.UTF8Encoding($false)
+$succeeded = $false
 
 function Write-JsonFile([string]$Path, $Value) {
     [IO.File]::WriteAllText($Path, ($Value | ConvertTo-Json -Depth 20), $utf8)
@@ -71,10 +73,22 @@ function Assert-PlayerFailure([string]$Package, [string]$Label, [switch]$AllowLo
 }
 
 function Assert-PlayerRuns([string]$Package, [string]$Backend, [string]$Scene = "",
-                           [int]$Duration = 3, [bool]$Conformance = $false) {
+                           [int]$Duration = 3, [bool]$Conformance = $false,
+                           [bool]$Performance = $false) {
     $arguments = @("--backend", $Backend, "--auto-quit-seconds", $Duration)
     if ($Conformance) { $arguments += "--rhi-conformance" }
     if ($Scene) { $arguments += @("--scene", $Scene) }
+    $performanceReport = Join-Path $Package ("performance-" + $Backend + ".json")
+    if ($Performance) {
+        $performanceWarmup = [math]::Min(60, [math]::Max(1, $Duration * 10))
+        $performanceMinimum = [math]::Min(120, [math]::Max(10, $Duration * 30))
+        if (Test-Path -LiteralPath $performanceReport) {
+            Remove-Item -LiteralPath $performanceReport -Force
+        }
+        $arguments += @("--performance-report", $performanceReport,
+                        "--performance-warmup-frames", $performanceWarmup,
+                        "--performance-min-samples", $performanceMinimum)
+    }
     $process = Start-PlayerProcess $Package $arguments
     $samples = @()
     while (-not $process.HasExited) {
@@ -86,6 +100,33 @@ function Assert-PlayerRuns([string]$Package, [string]$Backend, [string]$Scene = 
         }
     }
     if ($process.ExitCode -ne 0) { throw "Published Player failed for $Backend with code $($process.ExitCode)" }
+    if ($Performance) {
+        if (-not (Test-Path -LiteralPath $performanceReport -PathType Leaf)) {
+            throw "Published Player did not write a performance report for $Backend"
+        }
+        $performanceText = Get-Content -Raw -LiteralPath $performanceReport
+        $performanceData = $performanceText | ConvertFrom-Json
+        if (-not $performanceData.passed -or $performanceData.schemaVersion -ne 1 -or
+            $performanceData.capture.backend -ne $Backend -or
+            [string]::IsNullOrWhiteSpace($performanceData.device.adapterName) -or
+            [string]::IsNullOrWhiteSpace($performanceData.device.driverVersion) -or
+            $performanceData.device.vendorId -eq 0 -or
+            [string]::IsNullOrWhiteSpace($performanceData.profile.name) -or
+            [string]::IsNullOrWhiteSpace($performanceData.profile.hardwareClass) -or
+            $performanceData.profile.source -ne "Content/Config/Performance.profile.json" -or
+            $performanceData.summary.sampleCount -lt $performanceMinimum -or
+            @($performanceData.samples).Count -ne $performanceData.summary.sampleCount) {
+            throw "Published Player performance report failed validation for $Backend " +
+                  "(passed=$($performanceData.passed) schema=$($performanceData.schemaVersion) " +
+                  "reportedBackend=$($performanceData.capture.backend) " +
+                  "adapter=$($performanceData.device.adapterName) " +
+                  "driver=$($performanceData.device.driverVersion) " +
+                  "profile=$($performanceData.profile.name) " +
+                  "profileSource=$($performanceData.profile.source) " +
+                  "samples=$($performanceData.summary.sampleCount) required=$performanceMinimum " +
+                  "raw=$(@($performanceData.samples).Count) bytes=$($performanceText.Length))"
+        }
+    }
     if ($samples.Count -gt 1) {
         $growth = (($samples[-1] - $samples[0]) / 1MB)
         if ($growth -gt $MaxWorkingSetGrowthMB) {
@@ -142,9 +183,23 @@ try {
     $configureArgs = @("f", "-m", "release", ("--vulkan=" + ($(if ($Vulkan) { "y" } else { "n" }))))
     & $xmake.Source @configureArgs
     if ($LASTEXITCODE -ne 0) { throw "xmake release configure failed." }
+    # Public Runtime headers define C++ layouts consumed across runtime.dll and
+    # the app executables. xmake's mode switch can retain an otherwise up-to-date
+    # DLL while recompiling only a consumer, producing an ABI-mismatched package.
+    # Rebuild the DLL first so this release gate always validates one coherent ABI.
+    & $xmake.Source build -r MyEngineRuntime
+    if ($LASTEXITCODE -ne 0) { throw "release Runtime rebuild failed." }
     # Build the runtime-linked icon generator first.  A stale tool can otherwise
     # be launched by a dependent target after runtime.dll has changed ABI.
     & $xmake.Source build MyEngineIconTool
+    if ($LASTEXITCODE -ne 0) {
+        # Windows Defender/indexers can briefly retain the generated ICO while
+        # switching the same checkout from debug to release. Retry the
+        # idempotent target once; a deterministic build failure still surfaces.
+        Write-Warning "IconTool build failed once; retrying after transient file contention."
+        Start-Sleep -Milliseconds 500
+        & $xmake.Source build MyEngineIconTool
+    }
     if ($LASTEXITCODE -ne 0) { throw "release IconTool build failed." }
     & $xmake.Source build MyEnginePlayer
     if ($LASTEXITCODE -ne 0) { throw "release Player build failed." }
@@ -206,8 +261,8 @@ try {
     }
 
     Write-Output "==> Launch D3D11 and D3D12"
-    Assert-PlayerRuns $package "d3d11" "Content/Scenes/Main.scene.json" $SoakSeconds $true
-    Assert-PlayerRuns $package "d3d12" "" $SoakSeconds $true
+    Assert-PlayerRuns $package "d3d11" "Content/Scenes/Main.scene.json" $SoakSeconds $true $true
+    Assert-PlayerRuns $package "d3d12" "" $SoakSeconds $true $true
     Write-Output "==> Validate device-loss diagnostic and clean exit"
     Assert-DeviceLossDiagnostic $package "d3d11"
     Assert-DeviceLossDiagnostic $package "d3d12"
@@ -238,7 +293,8 @@ try {
         ConvertFrom-Json
     $config.startupScene = "Content/Scenes/Missing.scene.json"
     Write-JsonFile (Join-Path $missingScene "MyEngine.project.json") $config
-    Assert-PlayerFailure $missingScene "missing startup scene"
+    Assert-PlayerRuns $missingScene "d3d11" "" 3
+    Write-Output "PASS recoverable failure: missing startup scene kept Player responsive"
 
     $missingDll = Copy-Package $package "MissingRuntime"
     Remove-Item -LiteralPath (Join-Path $missingDll "runtime.dll")
@@ -263,8 +319,13 @@ try {
     Assert-PlayerFailure $invalidConfig "invalid project config"
 
     Write-Output "[PASS] Release publish smoke passed"
+    $succeeded = $true
 }
 finally {
     Set-Location $repoRoot
-    Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
+    if ($succeeded -or -not $KeepTempOnFailure) {
+        Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
+    } else {
+        Write-Warning "Release smoke failed; retained diagnostics at $tempRoot"
+    }
 }

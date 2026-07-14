@@ -1,5 +1,6 @@
 #include "Scene/WorldFrameScheduler.h"
 #include "Scene/Scene.h"
+#include "Scene/WorldZoneStreamer.h"
 #include "Core/Logger.h"
 
 #include <algorithm>
@@ -18,6 +19,7 @@ const char* WorldPhaseName(WorldPhase phase) {
 
 WorldFrameScheduler::WorldFrameScheduler(bool registerBuiltins, bool freezeAfterRegistration) {
     if (!registerBuiltins) return;
+    RegisterSystem({"WorldZone.Streaming",WorldPhase::PreUpdate,-100,{}, {},true,[](WorldTickContext& c){c.scene.GetZoneStreamer().Tick(c.scene,c.deltaSeconds);}});
     RegisterSystem({"Navigation",WorldPhase::PreUpdate,0,{}, {},false,[](WorldTickContext& c){c.scene.GetNavigationWorld().Update(c.deltaSeconds);}});
     RegisterSystem({"Components.FixedUpdate",WorldPhase::FixedPrePhysics,0,{}, {},false,[](WorldTickContext& c){c.scene.ForEach([&](Actor& a){a.FixedUpdate(c.deltaSeconds);});}});
     RegisterSystem({"Physics",WorldPhase::FixedPhysics,0,{}, {},false,[](WorldTickContext& c){c.scene.GetPhysicsWorld().StepFixed(c.scene,c.deltaSeconds);}});

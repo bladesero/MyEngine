@@ -19,6 +19,21 @@ struct RGBufferHandle {
     bool IsValid() const { return index != UINT32_MAX; }
 };
 
+struct RenderGraphResourceBudget {
+    uint64_t maxTransientBytes=512ull*1024ull*1024ull;
+    uint32_t maxTransientResources=256;
+    uint32_t maxTransientDescriptors=2048;
+    uint64_t maxPooledBytes=512ull*1024ull*1024ull;
+    float poolLowWatermarkRatio=0.8f;
+};
+struct RenderGraphResourceStats {
+    uint64_t transientRequestedBytes=0,transientAllocatedBytes=0,transientReusedBytes=0;
+    uint64_t pooledBytes=0,poolEvictedBytes=0;
+    uint32_t transientTextures=0,transientBuffers=0,transientDescriptors=0;
+    uint32_t pooledTextures=0,pooledBuffers=0,poolEvictions=0;
+    bool transientBudgetExceeded=false;
+};
+
 struct RGTextureSubresource {
     uint32_t firstMip = 0;
     uint32_t mipCount = 1;
@@ -117,6 +132,7 @@ public:
         TooManyColorAttachments,
         DependencyCycle,
         ResourceCreationFailed,
+        TransientBudgetExceeded,
     };
 
     explicit RenderGraph(IRHIDevice& device);
@@ -154,6 +170,9 @@ public:
     ErrorCode GetLastErrorCode() const { return m_LastErrorCode; }
     const std::vector<std::string>& GetExecutionOrder() const { return m_ExecutionOrderNames; }
     const std::vector<std::string>& GetCulledPasses() const { return m_CulledPassNames; }
+    bool SetResourceBudget(const RenderGraphResourceBudget&,std::string* error=nullptr);
+    const RenderGraphResourceBudget& GetResourceBudget() const{return m_ResourceBudget;}
+    const RenderGraphResourceStats& GetResourceStats() const{return m_ResourceStats;}
 
 private:
     friend class RenderGraphResources;
@@ -168,6 +187,7 @@ private:
         std::vector<RHIResourceState> subresourceStates;
         bool hasFinalState = false;
         bool imported = false;
+        bool reusedFromPool = false;
     };
     struct Pass {
         std::string name;
@@ -191,6 +211,7 @@ private:
         RHIResourceState finalState = RHIResourceState::Undefined;
         bool hasFinalState = false;
         bool imported = false;
+        bool reusedFromPool = false;
     };
     struct PooledBuffer {
         RHIBufferDesc desc;
@@ -218,6 +239,8 @@ private:
     bool m_Compiled = false;
     std::unordered_map<std::string, std::vector<PooledTexture>> m_TexturePool;
     std::unordered_map<std::string, std::vector<PooledBuffer>> m_BufferPool;
+    RenderGraphResourceBudget m_ResourceBudget;
+    RenderGraphResourceStats m_ResourceStats;
 };
 
 inline RenderGraph::PassFlags operator|(RenderGraph::PassFlags a, RenderGraph::PassFlags b) {

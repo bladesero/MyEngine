@@ -292,6 +292,22 @@ public:
         if (ImGui::Checkbox("Play On Start", &playOnStart)) source->SetPlayOnStart(playOnStart);
         bool loop = source->GetLoop();
         if (ImGui::Checkbox("Loop", &loop)) source->SetLoop(loop);
+        bool streaming = source->GetStreaming();
+        if (ImGui::Checkbox("Streaming", &streaming)) source->SetStreaming(streaming);
+        AudioBus bus = source->GetBus();
+        if (ImGui::BeginCombo("Bus", AudioBusName(bus))) {
+            for (uint8_t index = 0; index < static_cast<uint8_t>(AudioBus::Count); ++index) {
+                const auto candidate = static_cast<AudioBus>(index);
+                if (ImGui::Selectable(AudioBusName(candidate), candidate == bus))
+                    source->SetBus(candidate);
+            }
+            ImGui::EndCombo();
+        }
+        int priority = source->GetPriority();
+        if (ImGui::SliderInt("Priority", &priority, -100, 100)) source->SetPriority(priority);
+        int maxInstances = static_cast<int>(source->GetMaxInstances());
+        if (ImGui::DragInt("Max Instances", &maxInstances, 1.0f, 0, 128))
+            source->SetMaxInstances(static_cast<uint32_t>((std::max)(0, maxInstances)));
         bool spatial = source->GetSpatial();
         if (ImGui::Checkbox("Spatial", &spatial)) source->SetSpatial(spatial);
         float volume = source->GetVolume();

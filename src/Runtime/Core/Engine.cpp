@@ -111,6 +111,7 @@ void Engine::RunLoop() {
         m_FrameStats.renderMs = renderCost.count();
         m_FrameStats.frameMs = frameCost.count();
         m_FrameStats.renderer = FrameStatsProvider::GetRendererStats();
+        m_FrameStats.resources = FrameStatsProvider::GetResourceStats();
         m_FrameStats.smoothedFrameMs = m_FrameStats.smoothedFrameMs == 0.0f
             ? m_FrameStats.frameMs
             : m_FrameStats.smoothedFrameMs * 0.9f + m_FrameStats.frameMs * 0.1f;
@@ -173,6 +174,18 @@ void Engine::PollPlatformEvents() {
                 e.resize.height = sdlEvent.window.data2;
                 PushEvent(e);
             }
+            break;
+        }
+        case SDL_EVENT_WINDOW_FOCUS_GAINED: {
+            Event e;
+            e.type = EventType::WindowFocusGained;
+            PushEvent(e);
+            break;
+        }
+        case SDL_EVENT_WINDOW_FOCUS_LOST: {
+            Event e;
+            e.type = EventType::WindowFocusLost;
+            PushEvent(e);
             break;
         }
         case SDL_EVENT_MOUSE_BUTTON_DOWN: {

@@ -4,11 +4,16 @@
 #include "Physics/PhysicsWorld.h"
 #include "Navigation/NavigationWorld.h"
 #include "Scene/WorldFrameScheduler.h"
+#include "Core/TaskService.h"
 
 #include <nlohmann/json.hpp>
+#include <atomic>
 #include <functional>
 #include <memory>
+#include <shared_mutex>
 #include <string>
+#include <stdexcept>
+#include <type_traits>
 #include <unordered_map>
 #include <vector>
 
@@ -36,6 +41,65 @@ struct ActorCreateDesc {
     ActorHandle prefabInstanceRoot;
     bool prefabRoot = false;
     nlohmann::json prefabOverrides = nlohmann::json::array();
+};
+
+struct SceneLifetimeState {
+    uint64_t generation = 0;
+    std::atomic<bool> alive{true};
+    mutable std::shared_mutex gate;
+};
+
+class SceneLifetimeGuard {
+public:
+    SceneLifetimeGuard() = default;
+    SceneLifetimeGuard(SceneLifetimeGuard&&) noexcept = default;
+    SceneLifetimeGuard& operator=(SceneLifetimeGuard&&) noexcept = default;
+    SceneLifetimeGuard(const SceneLifetimeGuard&) = delete;
+    SceneLifetimeGuard& operator=(const SceneLifetimeGuard&) = delete;
+    explicit operator bool() const { return static_cast<bool>(m_State); }
+    uint64_t GetGeneration() const { return m_State ? m_State->generation : 0; }
+private:
+    friend class SceneLifetimeToken;
+    SceneLifetimeGuard(std::shared_ptr<SceneLifetimeState> state,
+                       std::shared_lock<std::shared_mutex> lock)
+        : m_State(std::move(state)), m_Lock(std::move(lock)) {}
+    std::shared_ptr<SceneLifetimeState> m_State;
+    std::shared_lock<std::shared_mutex> m_Lock;
+};
+
+class SceneLifetimeToken {
+public:
+    SceneLifetimeToken() = default;
+    bool IsAlive() const {
+        const auto state = m_State.lock();
+        return state && state->alive.load(std::memory_order_acquire);
+    }
+    uint64_t GetGeneration() const {
+        const auto state = m_State.lock();
+        return state ? state->generation : 0;
+    }
+    SceneLifetimeGuard TryAcquire() const {
+        auto state = m_State.lock();
+        if (!state) return {};
+        std::shared_lock<std::shared_mutex> lock(state->gate);
+        if (!state->alive.load(std::memory_order_acquire)) return {};
+        return SceneLifetimeGuard(std::move(state), std::move(lock));
+    }
+private:
+    friend class Scene;
+    explicit SceneLifetimeToken(const std::shared_ptr<SceneLifetimeState>& state) : m_State(state) {}
+    std::weak_ptr<SceneLifetimeState> m_State;
+};
+
+using WorldZoneID = uint64_t;
+using WorldZoneLifetimeToken = SceneLifetimeToken;
+
+struct WorldZoneStats {
+    std::string stableName;
+    uint64_t generation = 0;
+    size_t actorCount = 0;
+    size_t pinnedAssetCount = 0;
+    size_t taskCount = 0;
 };
 
 class Scene {
@@ -99,6 +163,32 @@ public:
     bool IsTraversing() const { return m_Traversing; }
     void SetTimeScale(float value) { m_TimeScale = value < 0.0f ? 0.0f : value; }
     float GetTimeScale() const { return m_TimeScale; }
+    SceneLifetimeToken GetLifetimeToken() const { return SceneLifetimeToken(m_Lifetime); }
+    uint64_t GetLifetimeGeneration() const { return m_Lifetime->generation; }
+    void AdoptAssetPins(std::vector<std::string> paths);
+    const std::vector<std::string>& GetOwnedAssetPins() const { return m_OwnedAssetPins; }
+    WorldZoneID CreateZone(std::string stableName);
+    bool DestroyZone(WorldZoneID zone);
+    bool AssignActorToZone(WorldZoneID zone, ActorHandle actor);
+    bool PinAssetToZone(WorldZoneID zone, const std::string& path);
+    WorldZoneLifetimeToken GetZoneLifetimeToken(WorldZoneID zone) const;
+    std::vector<WorldZoneStats> GetZoneStats() const;
+    size_t GetZoneCount() const { return m_Zones.size(); }
+    class WorldZoneStreamer& GetZoneStreamer();
+    const class WorldZoneStreamer& GetZoneStreamer() const;
+
+    template<typename Function>
+    auto SubmitZoneTask(WorldZoneID zone, TaskDescriptor descriptor, Function&& function)
+        -> TaskHandle<std::invoke_result_t<Function, CancellationToken, WorldZoneLifetimeToken>> {
+        auto found=m_Zones.find(zone);
+        if(found==m_Zones.end())throw std::invalid_argument("unknown world zone");
+        WorldZoneLifetimeToken lifetime(found->second->lifetime);
+        return TaskService::Get().Submit(found->second->tasks,std::move(descriptor),
+            [lifetime,function=std::forward<Function>(function)](CancellationToken cancellation)mutable{
+                cancellation.ThrowIfCancellationRequested();
+                return function(cancellation,lifetime);
+            });
+    }
     WorldFrameScheduler& GetFrameScheduler() { return m_FrameScheduler; }
     const WorldFrameScheduler& GetFrameScheduler() const { return m_FrameScheduler; }
 
@@ -112,8 +202,20 @@ public:
     const std::vector<std::string>& GetPreloadAssets()const{return m_PreloadAssets;}
     void SetSceneManager(class SceneManager* manager){m_SceneManager=manager;}
     class SceneManager* GetSceneManager()const{return m_SceneManager;}
+    void SetGameFlowController(class GameFlowController* controller){m_GameFlowController=controller;}
+    class GameFlowController* GetGameFlowController()const{return m_GameFlowController;}
 
 private:
+    void ReleaseAssetPins();
+    void DestroyAllZones();
+    struct WorldZone {
+        WorldZoneID id = 0;
+        std::string stableName;
+        std::shared_ptr<SceneLifetimeState> lifetime;
+        std::vector<ActorHandle> actors;
+        std::vector<std::string> pinnedAssets;
+        TaskScope tasks;
+    };
     struct Slot { Actor* actor = nullptr; uint32_t generation = 1; bool reserved = false; };
     struct PendingCreate { ActorHandle handle; ActorCreateDesc desc; bool cancelled = false; };
     enum class CommandKind { Destroy, SetParent, MoveActor, SetActive, SetTag, SetLayer, SetEditorFlags, AddComponent, RemoveComponent, SetComponentEnabled };
@@ -157,4 +259,10 @@ private:
     bool m_Flushing = false;
     float m_TimeScale = 1.0f;
     class SceneManager* m_SceneManager = nullptr;
+    class GameFlowController* m_GameFlowController = nullptr;
+    std::shared_ptr<SceneLifetimeState> m_Lifetime;
+    std::vector<std::string> m_OwnedAssetPins;
+    std::unordered_map<WorldZoneID,std::unique_ptr<WorldZone>> m_Zones;
+    WorldZoneID m_NextZoneID = 1;
+    std::unique_ptr<class WorldZoneStreamer> m_ZoneStreamer;
 };

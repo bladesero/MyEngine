@@ -2,6 +2,7 @@
 
 #include "Project/ContentArchive.h"
 #include "Editor/CookDependencyGraph.h"
+#include "Editor/ProjectValidator.h"
 
 #include <cstdint>
 #include <filesystem>
@@ -16,6 +17,7 @@ struct PublishReport {
     uint64_t contentBytes = 0;
     std::vector<CookedContentEntry> cookedFiles;
     PublishPreflightReport preflight;
+    ProjectValidationReport validation;
 };
 
 class ProjectPublisher {

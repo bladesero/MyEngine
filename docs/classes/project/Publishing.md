@@ -30,6 +30,14 @@ files, and applies one canonical containment policy to Content paths. It still
 cooks all runtime `Content/` files; dependency analysis is a correctness gate,
 not a pruning pass.
 
+The Editor **Validate Project** action runs the same `ProjectValidator` used by
+publishing. Its deterministic report separates errors and warnings and retains
+asset/referrer paths for navigation. Missing or shadowed startup scenes, broken
+cook references, unsafe absolute paths, malformed runtime AngelScript, and cook
+limits block publishing; individually oversized assets are warnings by default.
+Startup validation requires the physical scene inside the selected project, so
+a same-named file in the Editor working directory cannot satisfy the check.
+
 The v2 `CookManifest` records the engine/build/content/archive compatibility
 contract, required backends, project identity and SHA-256 hashes. Windows
 packages require exactly `d3d11,d3d12` for normal builds and
