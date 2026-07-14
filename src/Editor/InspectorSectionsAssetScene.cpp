@@ -6,14 +6,12 @@ public:
     const char* GetID() const override { return "sceneSettings"; }
     int GetOrder() const override { return -10; }
 
-    bool CanDraw(const EditorSelectObject& object,
-                 const EditorContext&) const override {
-        return object.IsNone();
-    }
+    bool CanDraw(const EditorSelectObject& object, const EditorContext&) const override { return object.IsNone(); }
 
     void Draw(EditorContext& context) override {
         Scene* scene = context.GetScene();
-        if (!scene) return;
+        if (!scene)
+            return;
         ImGui::Separator();
         ImGui::TextUnformatted("Scene Settings");
 
@@ -27,25 +25,25 @@ public:
 
         std::vector<Actor*> cameraActors;
         scene->ForEach([&](Actor& actor) {
-            if (actor.GetComponent<CameraComponent>()) cameraActors.push_back(&actor);
+            if (actor.GetComponent<CameraComponent>())
+                cameraActors.push_back(&actor);
         });
         const uint64_t currentMainCameraHint = scene->GetMainCameraHintActorID();
         std::string mainCameraLabel = "Auto";
         if (currentMainCameraHint != 0) {
             Actor* hintedActor = scene->FindByID(currentMainCameraHint);
-            mainCameraLabel = hintedActor
-                ? hintedActor->GetName() + " (" + std::to_string(currentMainCameraHint) + ")"
-                : "Missing actor " + std::to_string(currentMainCameraHint);
+            mainCameraLabel = hintedActor ? hintedActor->GetName() + " (" + std::to_string(currentMainCameraHint) + ")"
+                                          : "Missing actor " + std::to_string(currentMainCameraHint);
         }
         if (ImGui::BeginCombo("Main Camera Hint", mainCameraLabel.c_str())) {
             if (ImGui::Selectable("Auto", currentMainCameraHint == 0)) {
                 CommitSceneMainCameraHintEdit(context, currentMainCameraHint, 0);
             }
             for (Actor* cameraActor : cameraActors) {
-                if (!cameraActor) continue;
+                if (!cameraActor)
+                    continue;
                 const uint64_t actorID = cameraActor->GetID();
-                const std::string label = cameraActor->GetName() + " (" +
-                    std::to_string(actorID) + ")";
+                const std::string label = cameraActor->GetName() + " (" + std::to_string(actorID) + ")";
                 if (ImGui::Selectable(label.c_str(), currentMainCameraHint == actorID)) {
                     CommitSceneMainCameraHintEdit(context, currentMainCameraHint, actorID);
                 }
@@ -56,10 +54,8 @@ public:
         ImGui::Separator();
         ImGui::TextUnformatted("Rendering Defaults");
         float ambientIntensity = scene->GetAmbientIntensity();
-        if (ImGui::DragFloat("Ambient Intensity", &ambientIntensity, 0.05f,
-                             0.0f, 20.0f, "%.2f")) {
-            CommitSceneAmbientIntensityEdit(
-                context, scene->GetAmbientIntensity(), ambientIntensity);
+        if (ImGui::DragFloat("Ambient Intensity", &ambientIntensity, 0.05f, 0.0f, 20.0f, "%.2f")) {
+            CommitSceneAmbientIntensityEdit(context, scene->GetAmbientIntensity(), ambientIntensity);
         }
 
         ImGui::Separator();
@@ -88,18 +84,15 @@ class AssetInspectorSection : public EditorInspectorSection {
 public:
     explicit AssetInspectorSection(EditorAssetType type) : m_Type(type) {}
 
-    bool CanDraw(const EditorSelectObject& object,
-                 const EditorContext& context) const override {
-        if (!object.IsAsset()) return false;
+    bool CanDraw(const EditorSelectObject& object, const EditorContext& context) const override {
+        if (!object.IsAsset())
+            return false;
         const EditorAssetRegistry* registry = context.GetAssetRegistry();
-        const EditorAssetInfo* info = registry
-            ? registry->GetAssetInfo(object.GetAssetPath()) : nullptr;
+        const EditorAssetInfo* info = registry ? registry->GetAssetInfo(object.GetAssetPath()) : nullptr;
         if (m_Type == EditorAssetType::Unknown) {
-            return !info || (info->type != EditorAssetType::Material
-                && info->type != EditorAssetType::Texture
-                && info->type != EditorAssetType::Model
-                && info->type != EditorAssetType::Prefab
-                && info->type != EditorAssetType::Audio);
+            return !info || (info->type != EditorAssetType::Material && info->type != EditorAssetType::Texture &&
+                             info->type != EditorAssetType::Model && info->type != EditorAssetType::Prefab &&
+                             info->type != EditorAssetType::Audio);
         }
         return info && info->type == m_Type;
     }
@@ -110,14 +103,14 @@ private:
 
 class ModelAssetInspectorSection final : public AssetInspectorSection {
 public:
-    ModelAssetInspectorSection()
-        : AssetInspectorSection(EditorAssetType::Model) {}
+    ModelAssetInspectorSection() : AssetInspectorSection(EditorAssetType::Model) {}
     const char* GetID() const override { return "modelAsset"; }
     int GetOrder() const override { return -7; }
 
     void Draw(EditorContext& context) override {
         const std::string& path = context.GetSelection().GetAssetPath();
-        if (path.empty()) return;
+        if (path.empty())
+            return;
 
         ImGui::Separator();
         ImGui::PushID("ModelAsset");
@@ -153,21 +146,18 @@ public:
             ImGui::TextDisabled("Mesh unavailable");
         }
 
-        if (!model->GetMaterials().empty() &&
-            ImGui::TreeNodeEx("Material Slots", ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (!model->GetMaterials().empty() && ImGui::TreeNodeEx("Material Slots", ImGuiTreeNodeFlags_DefaultOpen)) {
             for (size_t index = 0; index < model->GetMaterials().size(); ++index) {
                 const MaterialHandle& material = model->GetMaterials()[index];
-                ImGui::Text("%zu: %s", index,
-                    material.IsValid() ? material->GetPath().c_str() : "(missing)");
+                ImGui::Text("%zu: %s", index, material.IsValid() ? material->GetPath().c_str() : "(missing)");
             }
             ImGui::TreePop();
         }
 
         if (!model->GetAnimations().empty() && ImGui::TreeNodeEx("Animations")) {
             for (const AnimationClip& clip : model->GetAnimations()) {
-                ImGui::Text("%s  %.2fs  tracks=%zu",
-                    clip.name.empty() ? "(unnamed)" : clip.name.c_str(),
-                    clip.duration, clip.tracks.size());
+                ImGui::Text("%s  %.2fs  tracks=%zu", clip.name.empty() ? "(unnamed)" : clip.name.c_str(), clip.duration,
+                            clip.tracks.size());
             }
             ImGui::TreePop();
         }
@@ -178,14 +168,14 @@ public:
 
 class PrefabAssetInspectorSection final : public AssetInspectorSection {
 public:
-    PrefabAssetInspectorSection()
-        : AssetInspectorSection(EditorAssetType::Prefab) {}
+    PrefabAssetInspectorSection() : AssetInspectorSection(EditorAssetType::Prefab) {}
     const char* GetID() const override { return "prefabAsset"; }
     int GetOrder() const override { return -6; }
 
     void Draw(EditorContext& context) override {
         const std::string& path = context.GetSelection().GetAssetPath();
-        if (path.empty()) return;
+        if (path.empty())
+            return;
 
         ImGui::Separator();
         ImGui::PushID("PrefabAsset");
@@ -194,8 +184,7 @@ public:
         PrefabAsset prefab;
         std::string error;
         if (!PrefabAsset::Load(path, prefab, &error)) {
-            ImGui::TextColored(ImVec4(0.9f, 0.35f, 0.25f, 1.0f),
-                               "Prefab failed to load: %s", error.c_str());
+            ImGui::TextColored(ImVec4(0.9f, 0.35f, 0.25f, 1.0f), "Prefab failed to load: %s", error.c_str());
             ImGui::PopID();
             return;
         }
@@ -204,29 +193,29 @@ public:
         size_t componentCount = 0;
         size_t rootCount = 0;
         size_t sceneInstanceCount = 0;
-        const std::filesystem::path resolvedPrefabPath =
-            PrefabSystem::ResolvePrefabPath(path).lexically_normal();
+        const std::filesystem::path resolvedPrefabPath = PrefabSystem::ResolvePrefabPath(path).lexically_normal();
         for (const PrefabNode& node : prefab.nodes) {
             componentCount += node.components.size();
-            if (node.parentLocalId.empty()) ++rootCount;
-            if (node.localId == prefab.rootLocalId) rootNode = &node;
+            if (node.parentLocalId.empty())
+                ++rootCount;
+            if (node.localId == prefab.rootLocalId)
+                rootNode = &node;
         }
         if (Scene* scene = context.GetScene()) {
             scene->ForEach([&](Actor& actor) {
-                if (!actor.IsPrefabRoot() || actor.GetPrefabAssetPath().empty()) return;
+                if (!actor.IsPrefabRoot() || actor.GetPrefabAssetPath().empty())
+                    return;
                 const std::filesystem::path actorPrefabPath =
-                    PrefabSystem::ResolvePrefabPath(actor.GetPrefabAssetPath())
-                        .lexically_normal();
-                if (actorPrefabPath == resolvedPrefabPath) ++sceneInstanceCount;
+                    PrefabSystem::ResolvePrefabPath(actor.GetPrefabAssetPath()).lexically_normal();
+                if (actorPrefabPath == resolvedPrefabPath)
+                    ++sceneInstanceCount;
             });
         }
 
         ImGui::Separator();
         ImGui::Text("Prefab UUID: %s", prefab.uuid.empty() ? "(none)" : prefab.uuid.c_str());
-        ImGui::Text("Root Local ID: %s",
-                    prefab.rootLocalId.empty() ? "(none)" : prefab.rootLocalId.c_str());
-        ImGui::Text("Root Actor: %s",
-                    rootNode ? rootNode->name.c_str() : "(missing)");
+        ImGui::Text("Root Local ID: %s", prefab.rootLocalId.empty() ? "(none)" : prefab.rootLocalId.c_str());
+        ImGui::Text("Root Actor: %s", rootNode ? rootNode->name.c_str() : "(missing)");
         ImGui::Text("Nodes: %zu", prefab.nodes.size());
         ImGui::Text("Root Nodes: %zu", rootCount);
         ImGui::Text("Components: %zu", componentCount);
@@ -239,36 +228,24 @@ public:
         ImGui::EndDisabled();
 
         if (!prefab.Validate(&error)) {
-            ImGui::TextColored(ImVec4(0.9f, 0.65f, 0.15f, 1.0f),
-                               "Validation: %s", error.c_str());
+            ImGui::TextColored(ImVec4(0.9f, 0.65f, 0.15f, 1.0f), "Validation: %s", error.c_str());
         }
 
-        if (!prefab.nodes.empty() &&
-            ImGui::TreeNodeEx("Prefab Nodes", ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (!prefab.nodes.empty() && ImGui::TreeNodeEx("Prefab Nodes", ImGuiTreeNodeFlags_DefaultOpen)) {
             for (const PrefabNode& node : prefab.nodes) {
                 ImGui::PushID(node.localId.c_str());
-                const std::string label = node.name.empty()
-                    ? "(unnamed)###node"
-                    : node.name + "###node";
-                const bool open = ImGui::TreeNodeEx(
-                    label.c_str(),
-                    ImGuiTreeNodeFlags_SpanAvailWidth |
-                    (node.components.empty() ? ImGuiTreeNodeFlags_Leaf : 0));
+                const std::string label = node.name.empty() ? "(unnamed)###node" : node.name + "###node";
+                const bool open =
+                    ImGui::TreeNodeEx(label.c_str(), ImGuiTreeNodeFlags_SpanAvailWidth |
+                                                         (node.components.empty() ? ImGuiTreeNodeFlags_Leaf : 0));
                 ImGui::SameLine();
                 ImGui::TextDisabled("%s", node.localId.c_str());
                 if (open) {
-                    ImGui::Text("Parent: %s",
-                                node.parentLocalId.empty()
-                                    ? "(root)"
-                                    : node.parentLocalId.c_str());
+                    ImGui::Text("Parent: %s", node.parentLocalId.empty() ? "(root)" : node.parentLocalId.c_str());
                     ImGui::Text("Active: %s", node.activeSelf ? "Yes" : "No");
-                    if (!node.components.empty() &&
-                        ImGui::TreeNodeEx("Components", ImGuiTreeNodeFlags_DefaultOpen)) {
+                    if (!node.components.empty() && ImGui::TreeNodeEx("Components", ImGuiTreeNodeFlags_DefaultOpen)) {
                         for (const ComponentCreateDesc& component : node.components) {
-                            ImGui::Text("%s%s",
-                                        component.type.empty()
-                                            ? "(unknown component)"
-                                            : component.type.c_str(),
+                            ImGui::Text("%s%s", component.type.empty() ? "(unknown component)" : component.type.c_str(),
                                         component.enabled ? "" : " (disabled)");
                         }
                         ImGui::TreePop();
@@ -286,14 +263,14 @@ public:
 
 class MaterialAssetInspectorSection final : public AssetInspectorSection {
 public:
-    MaterialAssetInspectorSection()
-        : AssetInspectorSection(EditorAssetType::Material) {}
+    MaterialAssetInspectorSection() : AssetInspectorSection(EditorAssetType::Material) {}
     const char* GetID() const override { return "materialAsset"; }
     int GetOrder() const override { return -5; }
 
     void Draw(EditorContext& context) override {
         const std::string& path = context.GetSelection().GetAssetPath();
-        if (path.empty()) return;
+        if (path.empty())
+            return;
 
         ImGui::Separator();
         ImGui::PushID("MaterialAsset");
@@ -317,43 +294,32 @@ public:
         int blendMode = static_cast<int>(mat->GetBlendMode());
         const char* blendModes[] = {"Opaque", "AlphaTest", "Transparent"};
         if (ImGui::Combo("Blend Mode", &blendMode, blendModes, 3)) {
-            ModifyMaterialAssetField(
-                context, path, "Set Material Blend Mode",
-                [blendMode](MaterialAsset& target) {
-                    target.SetBlendMode(static_cast<BlendMode>(blendMode));
-                });
+            ModifyMaterialAssetField(context, path, "Set Material Blend Mode", [blendMode](MaterialAsset& target) {
+                target.SetBlendMode(static_cast<BlendMode>(blendMode));
+            });
         }
 
         // Alpha threshold
         if (mat->GetBlendMode() == BlendMode::AlphaTest) {
             float threshold = mat->GetAlphaThreshold();
             if (ImGui::DragFloat("Alpha Threshold", &threshold, 0.01f, 0.0f, 1.0f)) {
-                ModifyMaterialAssetField(
-                    context, path, "Set Material Alpha Threshold",
-                    [threshold](MaterialAsset& target) {
-                        target.SetAlphaThreshold(threshold);
-                    });
+                ModifyMaterialAssetField(context, path, "Set Material Alpha Threshold",
+                                         [threshold](MaterialAsset& target) { target.SetAlphaThreshold(threshold); });
             }
         }
 
         // Two-sided
         bool twoSided = mat->IsTwoSided();
         if (ImGui::Checkbox("Two Sided", &twoSided)) {
-            ModifyMaterialAssetField(
-                context, path, "Set Material Two Sided",
-                [twoSided](MaterialAsset& target) {
-                    target.SetTwoSided(twoSided);
-                });
+            ModifyMaterialAssetField(context, path, "Set Material Two Sided",
+                                     [twoSided](MaterialAsset& target) { target.SetTwoSided(twoSided); });
         }
 
         // Wireframe
         bool wireframe = mat->IsWireframe();
         if (ImGui::Checkbox("Wireframe", &wireframe)) {
-            ModifyMaterialAssetField(
-                context, path, "Set Material Wireframe",
-                [wireframe](MaterialAsset& target) {
-                    target.SetWireframe(wireframe);
-                });
+            ModifyMaterialAssetField(context, path, "Set Material Wireframe",
+                                     [wireframe](MaterialAsset& target) { target.SetWireframe(wireframe); });
         }
 
         ImGui::Separator();
@@ -368,46 +334,41 @@ public:
         for (const auto& [name, param] : params) {
             ImGui::PushID(name.c_str());
             switch (param.type) {
-                case MaterialParam::Type::Float: {
-                    float v = param.data[0];
-                    if (ImGui::DragFloat(name.c_str(), &v, 0.01f)) {
-                        ModifyMaterialAssetField(
-                            context, path, "Set Material Parameter",
-                            [name, v](MaterialAsset& target) {
-                                target.SetParam(name, MaterialParam::FromFloat(v));
-                            });
-                    }
-                    break;
+            case MaterialParam::Type::Float: {
+                float v = param.data[0];
+                if (ImGui::DragFloat(name.c_str(), &v, 0.01f)) {
+                    ModifyMaterialAssetField(context, path, "Set Material Parameter", [name, v](MaterialAsset& target) {
+                        target.SetParam(name, MaterialParam::FromFloat(v));
+                    });
                 }
-                case MaterialParam::Type::Vec3: {
-                    Vec3 v(param.data[0], param.data[1], param.data[2]);
-                    if (DrawVec3(name.c_str(), v, 0.01f)) {
-                        ModifyMaterialAssetField(
-                            context, path, "Set Material Parameter",
-                            [name, v](MaterialAsset& target) {
-                                target.SetParam(name,
-                                    MaterialParam::FromVec3(v.x, v.y, v.z));
-                            });
-                    }
-                    break;
+                break;
+            }
+            case MaterialParam::Type::Vec3: {
+                Vec3 v(param.data[0], param.data[1], param.data[2]);
+                if (DrawVec3(name.c_str(), v, 0.01f)) {
+                    ModifyMaterialAssetField(context, path, "Set Material Parameter", [name, v](MaterialAsset& target) {
+                        target.SetParam(name, MaterialParam::FromVec3(v.x, v.y, v.z));
+                    });
                 }
-                case MaterialParam::Type::Vec4: {
-                    float data[4] = {param.data[0], param.data[1], param.data[2], param.data[3]};
-                    if (ImGui::ColorEdit4(name.c_str(), data)) {
-                        const float x = data[0];
-                        const float y = data[1];
-                        const float z = data[2];
-                        const float w = data[3];
-                        ModifyMaterialAssetField(
-                            context, path, "Set Material Parameter",
-                            [name, x, y, z, w](MaterialAsset& target) {
-                                target.SetParam(name,
-                                    MaterialParam::FromVec4(x, y, z, w));
-                            });
-                    }
-                    break;
+                break;
+            }
+            case MaterialParam::Type::Vec4: {
+                float data[4] = {param.data[0], param.data[1], param.data[2], param.data[3]};
+                if (ImGui::ColorEdit4(name.c_str(), data)) {
+                    const float x = data[0];
+                    const float y = data[1];
+                    const float z = data[2];
+                    const float w = data[3];
+                    ModifyMaterialAssetField(context, path, "Set Material Parameter",
+                                             [name, x, y, z, w](MaterialAsset& target) {
+                                                 target.SetParam(name, MaterialParam::FromVec4(x, y, z, w));
+                                             });
                 }
-                default: ImGui::Text("%s: (unsupported type)", name.c_str()); break;
+                break;
+            }
+            default:
+                ImGui::Text("%s: (unsupported type)", name.c_str());
+                break;
             }
             ImGui::PopID();
         }
@@ -424,12 +385,10 @@ public:
         // Save button
         ImGui::Separator();
         if (ImGui::Button("Save Material")) {
-            MaterialModifier modifier(
-                path, "Modify Material",
-                [mat](MaterialAsset& target) {
-                    target.ReloadFrom(*mat);
-                    return true;
-                });
+            MaterialModifier modifier(path, "Modify Material", [mat](MaterialAsset& target) {
+                target.ReloadFrom(*mat);
+                return true;
+            });
             if (modifier.Modify(context)) {
                 Logger::Info("[Editor] Material saved: ", path);
             } else {
@@ -443,28 +402,32 @@ public:
 
 class TextureAssetInspectorSection final : public AssetInspectorSection {
 public:
-    TextureAssetInspectorSection()
-        : AssetInspectorSection(EditorAssetType::Texture) {}
+    TextureAssetInspectorSection() : AssetInspectorSection(EditorAssetType::Texture) {}
     const char* GetID() const override { return "textureAsset"; }
     int GetOrder() const override { return -4; }
 
     static const char* FilterName(TextureFilter filter) {
         switch (filter) {
-            case TextureFilter::Nearest: return "Nearest";
-            default: return "Linear";
+        case TextureFilter::Nearest:
+            return "Nearest";
+        default:
+            return "Linear";
         }
     }
 
     static const char* WrapName(TextureWrap wrap) {
         switch (wrap) {
-            case TextureWrap::Clamp: return "Clamp";
-            default: return "Repeat";
+        case TextureWrap::Clamp:
+            return "Clamp";
+        default:
+            return "Repeat";
         }
     }
 
     void Draw(EditorContext& context) override {
         const std::string& path = context.GetSelection().GetAssetPath();
-        if (path.empty()) return;
+        if (path.empty())
+            return;
 
         ImGui::Separator();
         ImGui::PushID("TextureAsset");
@@ -533,8 +496,8 @@ public:
             const EditorAssetRegistry* registry = context.GetAssetRegistry();
             const EditorAssetInfo* info = registry ? registry->GetAssetInfo(path) : nullptr;
             if (info && info->imported && !info->uuid.empty()) {
-                const std::string settingsJson = ImportSettingsWithTextureSampler(
-                    context, info->uuid, filter, wrapU, wrapV);
+                const std::string settingsJson =
+                    ImportSettingsWithTextureSampler(context, info->uuid, filter, wrapU, wrapV);
                 if (auto* operators = context.GetOperators()) {
                     operators->Assets().ReimportWithSettings(context, info->uuid, settingsJson);
                 } else {
@@ -544,7 +507,9 @@ public:
             }
         }
 
-        // Texture thumbnail (requires ImGui GPU backend integration for preview)\n        if (tex->GetGpuHandle()) {\n            ImGui::TextColored(ImVec4(0.3f, 0.8f, 0.3f, 1.0f), "(GPU resident)");\n        } else {\n            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "(preview not available)");\n        }
+        // Texture thumbnail (requires ImGui GPU backend integration for preview)\n        if (tex->GetGpuHandle()) {\n
+        // ImGui::TextColored(ImVec4(0.3f, 0.8f, 0.3f, 1.0f), "(GPU resident)");\n        } else {\n
+        // ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "(preview not available)");\n        }
 
         ImGui::PopID();
     }
@@ -552,14 +517,14 @@ public:
 
 class AudioAssetInspectorSection final : public AssetInspectorSection {
 public:
-    AudioAssetInspectorSection()
-        : AssetInspectorSection(EditorAssetType::Audio) {}
+    AudioAssetInspectorSection() : AssetInspectorSection(EditorAssetType::Audio) {}
     const char* GetID() const override { return "audioAsset"; }
     int GetOrder() const override { return -3; }
 
     void Draw(EditorContext& context) override {
         const std::string& path = context.GetSelection().GetAssetPath();
-        if (path.empty()) return;
+        if (path.empty())
+            return;
 
         ImGui::Separator();
         ImGui::PushID("AudioAsset");
@@ -580,8 +545,7 @@ public:
         ImGui::Text("Clip: %s", clip->GetName().c_str());
         ImGui::Text("Channels: %u", clip->GetChannels());
         ImGui::Text("Sample Rate: %u Hz", clip->GetSampleRate());
-        ImGui::Text("Frames: %llu",
-                    static_cast<unsigned long long>(clip->GetFrameCount()));
+        ImGui::Text("Frames: %llu", static_cast<unsigned long long>(clip->GetFrameCount()));
         ImGui::Text("Duration: %.3f seconds", clip->GetDurationSeconds());
         ImGui::PopID();
     }
@@ -589,14 +553,14 @@ public:
 
 class GenericAssetInspectorSection final : public AssetInspectorSection {
 public:
-    GenericAssetInspectorSection()
-        : AssetInspectorSection(EditorAssetType::Unknown) {}
+    GenericAssetInspectorSection() : AssetInspectorSection(EditorAssetType::Unknown) {}
     const char* GetID() const override { return "genericAsset"; }
     int GetOrder() const override { return 0; }
 
     void Draw(EditorContext& context) override {
         const std::string& path = context.GetSelection().GetAssetPath();
-        if (path.empty()) return;
+        if (path.empty())
+            return;
 
         DrawAssetMetadataHeader(context, path, "Asset");
 
@@ -611,8 +575,7 @@ public:
             handle = AssetManager::Get().Load<Asset>(path);
         }
 
-        ImGui::Text("Asset: %s",
-            handle.IsValid() ? handle->GetName().c_str() : "(not loaded)");
+        ImGui::Text("Asset: %s", handle.IsValid() ? handle->GetName().c_str() : "(not loaded)");
 
         if (handle.IsValid()) {
             ImGui::Text("Type: %s", AssetTypeToString(handle->GetType()));
@@ -622,25 +585,24 @@ public:
 };
 
 // ... (rest of existing inspector sections unchanged)
-std::shared_ptr<MaterialAsset> CloneMaterial(const MaterialAsset& source)
-{
+std::shared_ptr<MaterialAsset> CloneMaterial(const MaterialAsset& source) {
     auto result = std::make_shared<MaterialAsset>(source.GetPath());
     result->SetName(source.GetName());
     result->SetBlendMode(source.GetBlendMode());
     result->SetTwoSided(source.IsTwoSided());
     result->SetWireframe(source.IsWireframe());
     result->SetAlphaThreshold(source.GetAlphaThreshold());
-    for (const auto& [name, value] : source.GetParams()) result->SetParam(name, value);
-    for (const auto& [slot, texture] : source.GetTextures()) result->SetTexture(slot, texture);
+    for (const auto& [name, value] : source.GetParams())
+        result->SetParam(name, value);
+    for (const auto& [slot, texture] : source.GetTextures())
+        result->SetTexture(slot, texture);
     result->MarkReady();
     return result;
 }
 
-
 } // namespace
 
-void RegisterAssetSceneInspectorSections(std::vector<std::unique_ptr<EditorInspectorSection>>& sections)
-{
+void RegisterAssetSceneInspectorSections(std::vector<std::unique_ptr<EditorInspectorSection>>& sections) {
     sections.push_back(std::make_unique<SceneSettingsInspectorSection>());
     sections.push_back(std::make_unique<ModelAssetInspectorSection>());
     sections.push_back(std::make_unique<PrefabAssetInspectorSection>());

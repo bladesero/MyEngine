@@ -15,19 +15,17 @@
 
 class MeshRendererComponent : public Component {
 public:
-    MeshHandle    GetMesh()    const { return m_Mesh; }
+    MeshHandle GetMesh() const { return m_Mesh; }
     MaterialHandle GetMaterial() const { return GetMaterialForSlot(0); }
     const std::vector<MaterialHandle>& GetMaterials() const { return m_Materials; }
     MaterialHandle GetMaterialForSlot(int slot) const;
 
-    void SetMesh(MeshHandle h)       { m_Mesh = std::move(h); }
+    void SetMesh(MeshHandle h) { m_Mesh = std::move(h); }
     void SetMaterial(MaterialHandle h) { SetMaterialSlot(0, std::move(h)); }
     void SetMaterials(std::vector<MaterialHandle> materials);
     void SetMaterialSlot(size_t slot, MaterialHandle material);
 
-    bool IsValid() const {
-        return m_Mesh.IsValid() && GetMaterial().IsValid();
-    }
+    bool IsValid() const { return m_Mesh.IsValid() && GetMaterial().IsValid(); }
 
     const char* GetTypeName() const override { return "MeshRenderer"; }
 
@@ -35,6 +33,6 @@ public:
     void Deserialize(const nlohmann::json& data) override;
 
 private:
-    MeshHandle     m_Mesh;
+    MeshHandle m_Mesh;
     std::vector<MaterialHandle> m_Materials;
 };

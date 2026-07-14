@@ -7,23 +7,20 @@
 #include "Math/Ray.h"
 #include "Math/Vector3.h"
 
-namespace Math
-{
+namespace Math {
 
 struct AABB {
     Vec3 min{};
     Vec3 max{};
 
-    static AABB FromCenterHalfExtents(const Vec3& c, const Vec3& half)
-    {
+    static AABB FromCenterHalfExtents(const Vec3& c, const Vec3& half) {
         AABB b;
         b.min = c - half;
         b.max = c + half;
         return b;
     }
 
-    void Expand(const Vec3& p)
-    {
+    void Expand(const Vec3& p) {
         min.x = std::min(min.x, p.x);
         min.y = std::min(min.y, p.y);
         min.z = std::min(min.z, p.z);
@@ -36,8 +33,7 @@ struct AABB {
     Vec3 Extents() const { return (max - min) * 0.5f; }
     float Radius() const { return Extents().Length(); }
 
-    void Merge(const AABB& o)
-    {
+    void Merge(const AABB& o) {
         min.x = std::min(min.x, o.min.x);
         min.y = std::min(min.y, o.min.y);
         min.z = std::min(min.z, o.min.z);
@@ -46,19 +42,17 @@ struct AABB {
         max.z = std::max(max.z, o.max.z);
     }
 
-    bool Contains(const Vec3& p) const
-    {
+    bool Contains(const Vec3& p) const {
         return p.x >= min.x && p.x <= max.x && p.y >= min.y && p.y <= max.y && p.z >= min.z && p.z <= max.z;
     }
 
-    bool Intersects(const AABB& o) const
-    {
-        return min.x <= o.max.x && max.x >= o.min.x && min.y <= o.max.y && max.y >= o.min.y && min.z <= o.max.z && max.z >= o.min.z;
+    bool Intersects(const AABB& o) const {
+        return min.x <= o.max.x && max.x >= o.min.x && min.y <= o.max.y && max.y >= o.min.y && min.z <= o.max.z &&
+               max.z >= o.min.z;
     }
 
     // Slab ray-AABB; returns false if ray misses. tMin/tMax are distances along ray (tMin <= tMax).
-    bool IntersectRay(const Ray& ray, float& tMin, float& tMax) const
-    {
+    bool IntersectRay(const Ray& ray, float& tMin, float& tMax) const {
         tMin = 0.0f;
         tMax = std::numeric_limits<float>::max();
 

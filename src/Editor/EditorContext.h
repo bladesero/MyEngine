@@ -37,8 +37,7 @@ class EditorContext {
 public:
     EditorContext() = default;
     explicit EditorContext(Scene* scene);
-    EditorContext(SceneRenderLayer* sceneLayer, IRenderContext* renderContext,
-                  IWindow* window, Engine* engine);
+    EditorContext(SceneRenderLayer* sceneLayer, IRenderContext* renderContext, IWindow* window, Engine* engine);
 
     // Transitional access while editor call sites move to narrower runtime services.
     SceneRenderLayer* GetSceneLayer() const { return m_SceneLayer; }
@@ -91,9 +90,7 @@ public:
     const std::filesystem::path& GetProjectRoot() const { return m_ProjectRoot; }
     const std::filesystem::path& GetContentRoot() const { return m_ContentRoot; }
 
-    template <typename T> void RegisterService(T& service) {
-        m_Services[std::type_index(typeid(T))] = &service;
-    }
+    template <typename T> void RegisterService(T& service) { m_Services[std::type_index(typeid(T))] = &service; }
     template <typename T> T* GetService() const {
         const auto it = m_Services.find(std::type_index(typeid(T)));
         return it == m_Services.end() ? nullptr : static_cast<T*>(it->second);

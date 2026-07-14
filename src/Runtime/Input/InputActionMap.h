@@ -12,21 +12,9 @@
 #include <SDL3/SDL_gamepad.h>
 #include <SDL3/SDL_scancode.h>
 
-enum class InputActionType {
-    Button,
-    Axis1D,
-    Axis2D
-};
+enum class InputActionType { Button, Axis1D, Axis2D };
 
-enum class InputSourceKind {
-    None,
-    KeyboardKey,
-    MouseButton,
-    MouseDeltaX,
-    MouseDeltaY,
-    GamepadButton,
-    GamepadAxis
-};
+enum class InputSourceKind { None, KeyboardKey, MouseButton, MouseDeltaX, MouseDeltaY, GamepadButton, GamepadAxis };
 
 struct InputSource {
     InputSourceKind kind = InputSourceKind::None;
@@ -73,11 +61,9 @@ public:
     void Clear();
     const InputAction* FindAction(std::string_view name) const;
     const std::vector<InputAction>& GetActions() const { return m_Actions; }
-    std::vector<InputBindingConflict> FindConflicts(
-        std::string_view actionName, size_t bindingIndex, InputBindingPart part,
-        std::string_view source) const;
-    bool Rebind(std::string_view actionName, size_t bindingIndex,
-                InputBindingPart part, std::string_view source,
+    std::vector<InputBindingConflict> FindConflicts(std::string_view actionName, size_t bindingIndex,
+                                                    InputBindingPart part, std::string_view source) const;
+    bool Rebind(std::string_view actionName, size_t bindingIndex, InputBindingPart part, std::string_view source,
                 bool allowConflicts = false, std::string* error = nullptr);
 
     static InputActionMap CreateDefault();

@@ -15,8 +15,7 @@ public:
         : m_Device(device), m_ReadbackService(readbackService) {}
     virtual ~RenderPass() = default;
 
-    virtual void Execute(GpuCommandList& commands, const Scene& scene,
-                         const Camera& camera) = 0;
+    virtual void Execute(GpuCommandList& commands, const Scene& scene, const Camera& camera) = 0;
     virtual void Resize(uint32_t width, uint32_t height) {
         (void)width;
         (void)height;

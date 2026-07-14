@@ -45,10 +45,7 @@ public:
 
 private:
     std::filesystem::path Resolve(const std::filesystem::path& path) const;
-    ImFont* LoadFont(EditorFontRole role,
-                     const std::filesystem::path& path,
-                     float sizePixels,
-                     bool mergeIcons);
+    ImFont* LoadFont(EditorFontRole role, const std::filesystem::path& path, float sizePixels, bool mergeIcons);
     void SetWarning(std::string message);
     static size_t Index(EditorFontRole role) { return static_cast<size_t>(role); }
 

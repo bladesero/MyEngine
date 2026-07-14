@@ -28,7 +28,9 @@ struct ShaderReflection {
     std::vector<ShaderBindingDesc> bindings;
     std::vector<ShaderInputDesc> inputs;
     const ShaderBindingDesc* Find(const std::string& name) const {
-        for (const auto& binding : bindings) if (binding.name == name) return &binding;
+        for (const auto& binding : bindings)
+            if (binding.name == name)
+                return &binding;
         return nullptr;
     }
 };

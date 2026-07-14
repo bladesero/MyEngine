@@ -24,10 +24,10 @@ VkQueue g_Queue = VK_NULL_HANDLE;
 VkFormat g_ColorAttachmentFormat = VK_FORMAT_UNDEFINED;
 bool g_LoggedMissingPlatformRenderer = false;
 
-PFN_vkVoidFunction LoadVulkanFunction(const char* functionName, void* userData)
-{
+PFN_vkVoidFunction LoadVulkanFunction(const char* functionName, void* userData) {
     const auto* loaderData = static_cast<const VulkanLoaderData*>(userData);
-    if (!loaderData) return nullptr;
+    if (!loaderData)
+        return nullptr;
 
     auto load = [loaderData](const char* name) -> PFN_vkVoidFunction {
         if (loaderData->device) {
@@ -58,23 +58,20 @@ PFN_vkVoidFunction LoadVulkanFunction(const char* functionName, void* userData)
     return nullptr;
 }
 
-void CheckVkResult(VkResult result)
-{
-    if (result == VK_SUCCESS) return;
+void CheckVkResult(VkResult result) {
+    if (result == VK_SUCCESS)
+        return;
     Logger::Error("[EditorImGuiVulkanBridge] ImGui Vulkan backend VkResult=", static_cast<int>(result));
 }
-}
+} // namespace
 
-bool EditorImGuiVulkan_Init(const ImGuiBackendHandles& handles)
-{
+bool EditorImGuiVulkan_Init(const ImGuiBackendHandles& handles) {
     const auto& vk = handles.vulkan;
-    VulkanLoaderData loaderData{
-        static_cast<VkInstance>(vk.instance),
-        static_cast<VkDevice>(vk.device)};
-    g_BeginRendering = reinterpret_cast<PFN_vkCmdBeginRenderingKHR>(
-        LoadVulkanFunction("vkCmdBeginRenderingKHR", &loaderData));
-    g_EndRendering = reinterpret_cast<PFN_vkCmdEndRenderingKHR>(
-        LoadVulkanFunction("vkCmdEndRenderingKHR", &loaderData));
+    VulkanLoaderData loaderData{static_cast<VkInstance>(vk.instance), static_cast<VkDevice>(vk.device)};
+    g_BeginRendering =
+        reinterpret_cast<PFN_vkCmdBeginRenderingKHR>(LoadVulkanFunction("vkCmdBeginRenderingKHR", &loaderData));
+    g_EndRendering =
+        reinterpret_cast<PFN_vkCmdEndRenderingKHR>(LoadVulkanFunction("vkCmdEndRenderingKHR", &loaderData));
     if (!g_BeginRendering || !g_EndRendering) {
         Logger::Error("[EditorImGuiVulkanBridge] Vulkan dynamic rendering functions are unavailable");
         return false;
@@ -100,19 +97,15 @@ bool EditorImGuiVulkan_Init(const ImGuiBackendHandles& handles)
     initInfo.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
     initInfo.UseDynamicRendering = true;
     initInfo.CheckVkResultFn = CheckVkResult;
-    initInfo.PipelineRenderingCreateInfo = {
-        VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR};
+    initInfo.PipelineRenderingCreateInfo = {VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR};
     initInfo.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
     initInfo.PipelineRenderingCreateInfo.pColorAttachmentFormats = &g_ColorAttachmentFormat;
-    Logger::Info("[EditorImGuiVulkanBridge] Init colorFormat=",
-                 static_cast<uint32_t>(g_ColorAttachmentFormat),
-                 " imageCount=", vk.imageCount,
-                 " minImageCount=", vk.minImageCount);
+    Logger::Info("[EditorImGuiVulkanBridge] Init colorFormat=", static_cast<uint32_t>(g_ColorAttachmentFormat),
+                 " imageCount=", vk.imageCount, " minImageCount=", vk.minImageCount);
     return ImGui_ImplVulkan_Init(&initInfo);
 }
 
-void EditorImGuiVulkan_Shutdown()
-{
+void EditorImGuiVulkan_Shutdown() {
     ImGui_ImplVulkan_Shutdown();
     g_BeginRendering = nullptr;
     g_EndRendering = nullptr;
@@ -122,13 +115,11 @@ void EditorImGuiVulkan_Shutdown()
     g_LoggedMissingPlatformRenderer = false;
 }
 
-void EditorImGuiVulkan_NewFrame()
-{
+void EditorImGuiVulkan_NewFrame() {
     ImGui_ImplVulkan_NewFrame();
 }
 
-void EditorImGuiVulkan_RenderDrawData(ImDrawData* drawData, const ImGuiBackendHandles& handles)
-{
+void EditorImGuiVulkan_RenderDrawData(ImDrawData* drawData, const ImGuiBackendHandles& handles) {
     const auto& vk = handles.vulkan;
     auto commandBuffer = static_cast<VkCommandBuffer>(vk.commandBuffer);
     auto imageView = static_cast<VkImageView>(vk.imageView);
@@ -155,8 +146,7 @@ void EditorImGuiVulkan_RenderDrawData(ImDrawData* drawData, const ImGuiBackendHa
     vkCmdEndRendering(commandBuffer);
 }
 
-void EditorImGuiVulkan_RenderPlatformWindows()
-{
+void EditorImGuiVulkan_RenderPlatformWindows() {
     ImGuiPlatformIO& platformIO = ImGui::GetPlatformIO();
     if (!platformIO.Renderer_RenderWindow || !platformIO.Renderer_SwapBuffers) {
         if (!g_LoggedMissingPlatformRenderer) {
@@ -165,29 +155,28 @@ void EditorImGuiVulkan_RenderPlatformWindows()
         }
         return;
     }
-    if (g_Queue) vkQueueWaitIdle(g_Queue);
+    if (g_Queue)
+        vkQueueWaitIdle(g_Queue);
     ImGui::UpdatePlatformWindows();
     ImGui::RenderPlatformWindowsDefault();
-    if (g_Queue) vkQueueWaitIdle(g_Queue);
+    if (g_Queue)
+        vkQueueWaitIdle(g_Queue);
 }
 
-bool EditorImGuiVulkan_CreateFontsTexture()
-{
+bool EditorImGuiVulkan_CreateFontsTexture() {
     return ImGui_ImplVulkan_CreateFontsTexture();
 }
 
-void EditorImGuiVulkan_DestroyFontsTexture()
-{
+void EditorImGuiVulkan_DestroyFontsTexture() {
     ImGui_ImplVulkan_DestroyFontsTexture();
 }
 
-void* EditorImGuiVulkan_CreateTexture(const ImGuiNativeTextureInfo& info)
-{
-    if (info.backend != RHIBackend::Vulkan || !info.imageView || !info.sampler) return nullptr;
-    return reinterpret_cast<void*>(ImGui_ImplVulkan_AddTexture(
-        static_cast<VkSampler>(info.sampler),
-        static_cast<VkImageView>(info.imageView),
-        static_cast<VkImageLayout>(info.imageLayout)));
+void* EditorImGuiVulkan_CreateTexture(const ImGuiNativeTextureInfo& info) {
+    if (info.backend != RHIBackend::Vulkan || !info.imageView || !info.sampler)
+        return nullptr;
+    return reinterpret_cast<void*>(ImGui_ImplVulkan_AddTexture(static_cast<VkSampler>(info.sampler),
+                                                               static_cast<VkImageView>(info.imageView),
+                                                               static_cast<VkImageLayout>(info.imageLayout)));
 }
 
 #endif

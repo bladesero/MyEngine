@@ -31,8 +31,7 @@ public:
 
     explicit GBufferPass(IRHIDevice* device);
 
-    void Execute(GpuCommandList& commands, const Scene& scene,
-                 const Camera& camera) override;
+    void Execute(GpuCommandList& commands, const Scene& scene, const Camera& camera) override;
     void Resize(uint32_t width, uint32_t height) override;
     bool PrepareGraphResources();
     GraphResources GetGraphResources() const;

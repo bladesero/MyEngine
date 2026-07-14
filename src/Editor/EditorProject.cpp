@@ -5,20 +5,29 @@
 
 namespace {
 void SetError(std::string* error, std::string message) {
-    if (error) *error = std::move(message);
+    if (error)
+        *error = std::move(message);
 }
-}
+} // namespace
 
 bool EditorProjectState::IsPanelVisible(const std::string& panelID) const {
     const auto found = panelVisibility.find(panelID);
-    if (found != panelVisibility.end()) return found->second;
-    if (panelID == "toolbar") return showToolbar;
-    if (panelID == "sceneHierarchy") return showSceneHierarchy;
-    if (panelID == "viewport") return showViewport;
-    if (panelID == "inspector") return showInspector;
-    if (panelID == "assetBrowser") return showAssetBrowser;
-    if (panelID == "log") return showLog;
-    if (panelID == "profiler") return true;
+    if (found != panelVisibility.end())
+        return found->second;
+    if (panelID == "toolbar")
+        return showToolbar;
+    if (panelID == "sceneHierarchy")
+        return showSceneHierarchy;
+    if (panelID == "viewport")
+        return showViewport;
+    if (panelID == "inspector")
+        return showInspector;
+    if (panelID == "assetBrowser")
+        return showAssetBrowser;
+    if (panelID == "log")
+        return showLog;
+    if (panelID == "profiler")
+        return true;
     return true;
 }
 
@@ -59,15 +68,21 @@ bool EditorProject::SaveState() const {
     for (const auto& [panelID, visible] : m_State.panelVisibility) {
         json["panelVisibility"][panelID] = visible;
     }
-    json["panels"] = {{"toolbar",m_State.showToolbar},{"sceneHierarchy",m_State.showSceneHierarchy},
-        {"viewport",m_State.showViewport},{"inspector",m_State.showInspector},
-        {"assetBrowser",m_State.showAssetBrowser},{"log",m_State.showLog}};
-    std::ofstream output(m_StatePath); if (!output) return false; output << json.dump(2); return true;
+    json["panels"] = {{"toolbar", m_State.showToolbar},           {"sceneHierarchy", m_State.showSceneHierarchy},
+                      {"viewport", m_State.showViewport},         {"inspector", m_State.showInspector},
+                      {"assetBrowser", m_State.showAssetBrowser}, {"log", m_State.showLog}};
+    std::ofstream output(m_StatePath);
+    if (!output)
+        return false;
+    output << json.dump(2);
+    return true;
 }
 bool EditorProject::LoadState(std::string* error) {
-    if (error) error->clear();
+    if (error)
+        error->clear();
     m_State = {};
-    if (!std::filesystem::exists(m_StatePath)) return true;
+    if (!std::filesystem::exists(m_StatePath))
+        return true;
     std::ifstream input(m_StatePath);
     if (!input) {
         SetError(error, "failed to open editor state: " + m_StatePath.string());
@@ -93,16 +108,14 @@ bool EditorProject::LoadState(std::string* error) {
     m_State.showInspector = panels.value("inspector", true);
     m_State.showAssetBrowser = panels.value("assetBrowser", true);
     m_State.showLog = panels.value("log", true);
-    m_State.panelVisibility = {
-        {"toolbar", m_State.showToolbar},
-        {"sceneHierarchy", m_State.showSceneHierarchy},
-        {"viewport", m_State.showViewport},
-        {"gameViewport", true},
-        {"inspector", m_State.showInspector},
-        {"assetBrowser", m_State.showAssetBrowser},
-        {"log", m_State.showLog},
-        {"profiler", true}
-    };
+    m_State.panelVisibility = {{"toolbar", m_State.showToolbar},
+                               {"sceneHierarchy", m_State.showSceneHierarchy},
+                               {"viewport", m_State.showViewport},
+                               {"gameViewport", true},
+                               {"inspector", m_State.showInspector},
+                               {"assetBrowser", m_State.showAssetBrowser},
+                               {"log", m_State.showLog},
+                               {"profiler", true}};
     const auto visibility = json.find("panelVisibility");
     if (visibility != json.end() && visibility->is_object()) {
         for (auto it = visibility->begin(); it != visibility->end(); ++it) {

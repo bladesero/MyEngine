@@ -8,11 +8,7 @@ public:
     GeneralHeapAllocator();
     ~GeneralHeapAllocator() override;
 
-    void* Allocate(size_t size,
-                   size_t alignment,
-                   AllocTag tag,
-                   const char* file,
-                   int line) override;
+    void* Allocate(size_t size, size_t alignment, AllocTag tag, const char* file, int line) override;
 
     void Free(void* ptr, const char* file, int line) override;
 

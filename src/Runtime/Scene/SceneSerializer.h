@@ -59,16 +59,10 @@ public:
 
     // 从 JSON 字符串反序列化
     static bool LoadFromString(Scene& scene, const std::string& json);
-    static bool BuildLoadPlan(const std::string& json, SceneLoadPlan& plan,
-                              std::string* error = nullptr);
-    static bool InstantiateLoadPlan(Scene& scene, const SceneLoadPlan& plan,
-                                    SceneInstantiationState& state,
-                                    size_t maxActors, bool& complete,
-                                    std::string* error = nullptr);
-    static bool InstantiateLoadPlanAdditive(Scene& scene, const SceneLoadPlan& plan,
-                                            SceneInstantiationState& state,
-                                            size_t maxActors,
-                                            std::vector<ActorHandle>& createdRoots,
-                                            bool& complete,
+    static bool BuildLoadPlan(const std::string& json, SceneLoadPlan& plan, std::string* error = nullptr);
+    static bool InstantiateLoadPlan(Scene& scene, const SceneLoadPlan& plan, SceneInstantiationState& state,
+                                    size_t maxActors, bool& complete, std::string* error = nullptr);
+    static bool InstantiateLoadPlanAdditive(Scene& scene, const SceneLoadPlan& plan, SceneInstantiationState& state,
+                                            size_t maxActors, std::vector<ActorHandle>& createdRoots, bool& complete,
                                             std::string* error = nullptr);
 };

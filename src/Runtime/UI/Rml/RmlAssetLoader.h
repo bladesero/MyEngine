@@ -17,9 +17,7 @@ public:
     bool LoadFile(const Rml::String& path, Rml::String& outData) override;
 
     double GetElapsedTime() override;
-    void JoinPath(Rml::String& translatedPath,
-                  const Rml::String& documentPath,
-                  const Rml::String& path) override;
+    void JoinPath(Rml::String& translatedPath, const Rml::String& documentPath, const Rml::String& path) override;
     bool LogMessage(Rml::Log::Type type, const Rml::String& message) override;
 
 private:

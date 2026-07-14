@@ -20,19 +20,20 @@ EditorContextMenu::~EditorContextMenu() {
 
 // --- Menu items -----------------------------------------------------------
 
-bool EditorContextMenu::AddAction(const char* label,
-                                  std::function<void()> callback,
-                                  bool enabled) {
+bool EditorContextMenu::AddAction(const char* label, std::function<void()> callback, bool enabled) {
 #if defined(MYENGINE_ENABLE_IMGUI)
     if (ImGui::MenuItem(label, nullptr, false, enabled)) {
         Close();
-        if (callback) callback();
+        if (callback)
+            callback();
         return true;
     }
     return false;
 #else
-    (void)label; (void)enabled;
-    if (callback) callback();
+    (void)label;
+    (void)enabled;
+    if (callback)
+        callback();
     return true;
 #endif
 }

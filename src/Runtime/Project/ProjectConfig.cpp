@@ -11,33 +11,31 @@
 
 namespace fs = std::filesystem;
 
-void ProjectConfig::SetError(std::string* error, std::string message)
-{
-    if (error) *error = std::move(message);
+void ProjectConfig::SetError(std::string* error, std::string message) {
+    if (error)
+        *error = std::move(message);
 }
 
-bool ProjectConfig::IsWithin(const fs::path& path, const fs::path& parent)
-{
+bool ProjectConfig::IsWithin(const fs::path& path, const fs::path& parent) {
     std::error_code ec;
     const fs::path relative = fs::relative(path, parent, ec);
-    if (ec || relative.empty() || relative.is_absolute()) return false;
+    if (ec || relative.empty() || relative.is_absolute())
+        return false;
     const auto first = relative.begin();
     return first != relative.end() && *first != "..";
 }
 
-bool ProjectConfig::IsSupportedGraphicsBackend(std::string_view backend)
-{
+bool ProjectConfig::IsSupportedGraphicsBackend(std::string_view backend) {
     return ParseRenderBackend(backend).has_value();
 }
 
-bool ProjectConfig::IsSupportedRenderPath(std::string_view renderPath)
-{
+bool ProjectConfig::IsSupportedRenderPath(std::string_view renderPath) {
     return renderPath == "forward" || renderPath == "deferred";
 }
 
-bool ProjectConfig::Open(fs::path projectRoot, bool allowMissing, std::string* error)
-{
-    if (error) error->clear();
+bool ProjectConfig::Open(fs::path projectRoot, bool allowMissing, std::string* error) {
+    if (error)
+        error->clear();
     std::error_code ec;
     m_Root = fs::absolute(std::move(projectRoot), ec).lexically_normal();
     if (ec || m_Root.empty()) {
@@ -53,14 +51,16 @@ bool ProjectConfig::Open(fs::path projectRoot, bool allowMissing, std::string* e
     m_Version = kCurrentVersion;
     m_Name = m_Root.filename().string();
     m_ProjectId.clear();
-    if (m_Name.empty()) m_Name = "MyEngine";
+    if (m_Name.empty())
+        m_Name = "MyEngine";
     m_StartupScene.clear();
     m_PublishSettings = {};
     m_InputSettings = {};
     m_GraphicsSettings = {};
     m_HasManifest = fs::is_regular_file(m_ManifestPath, ec) && !ec;
     if (!m_HasManifest) {
-        if (allowMissing) return true;
+        if (allowMissing)
+            return true;
         SetError(error, "project manifest not found: " + m_ManifestPath.string());
         return false;
     }
@@ -74,32 +74,25 @@ bool ProjectConfig::Open(fs::path projectRoot, bool allowMissing, std::string* e
         nlohmann::json json;
         input >> json;
         JsonMigrationRegistry migrations("project manifest", kCurrentVersion);
-        if (!migrations.Migrate(json, error)) return false;
+        if (!migrations.Migrate(json, error))
+            return false;
         m_Version = json.value("version", 0);
         m_Name = json.value("name", std::string{});
         m_StartupScene = json.value("startupScene", std::string{});
         m_ProjectId = json.value("projectId", std::string{});
-        if (const auto publish = json.find("publish");
-            publish != json.end() && publish->is_object()) {
-            m_PublishSettings.outputDirectory =
-                publish->value("outputDirectory", std::string{"Builds"});
-            m_PublishSettings.target =
-                publish->value("target", std::string{PublishTargets::kDefaultTargetId});
+        if (const auto publish = json.find("publish"); publish != json.end() && publish->is_object()) {
+            m_PublishSettings.outputDirectory = publish->value("outputDirectory", std::string{"Builds"});
+            m_PublishSettings.target = publish->value("target", std::string{PublishTargets::kDefaultTargetId});
         }
-        if (const auto input = json.find("input");
-            input != json.end() && input->is_object()) {
-            m_InputSettings.config =
-                input->value("config", std::string{ProjectInputSettings{}.config});
+        if (const auto input = json.find("input"); input != json.end() && input->is_object()) {
+            m_InputSettings.config = input->value("config", std::string{ProjectInputSettings{}.config});
         }
-        if (const auto graphics = json.find("graphics");
-            graphics != json.end() && graphics->is_object()) {
-            m_GraphicsSettings.backend =
-                graphics->value("backend", std::string{ProjectGraphicsSettings{}.backend});
+        if (const auto graphics = json.find("graphics"); graphics != json.end() && graphics->is_object()) {
+            m_GraphicsSettings.backend = graphics->value("backend", std::string{ProjectGraphicsSettings{}.backend});
             m_GraphicsSettings.renderPath =
                 graphics->value("renderPath", std::string{ProjectGraphicsSettings{}.renderPath});
         }
-    }
-    catch (const std::exception& exception) {
+    } catch (const std::exception& exception) {
         SetError(error, "failed to parse project manifest: " + std::string(exception.what()));
         return false;
     }
@@ -113,8 +106,10 @@ bool ProjectConfig::Open(fs::path projectRoot, bool allowMissing, std::string* e
         return false;
     }
     if (m_ProjectId.empty()) {
-        Sha256 hash; const std::string identity=m_Name+"|"+m_StartupScene;
-        hash.Update(identity.data(),identity.size()); m_ProjectId=Sha256::ToHex(hash.Final());
+        Sha256 hash;
+        const std::string identity = m_Name + "|" + m_StartupScene;
+        hash.Update(identity.data(), identity.size());
+        m_ProjectId = Sha256::ToHex(hash.Final());
     }
     if (m_PublishSettings.outputDirectory.empty()) {
         SetError(error, "publish outputDirectory must not be empty");
@@ -126,11 +121,13 @@ bool ProjectConfig::Open(fs::path projectRoot, bool allowMissing, std::string* e
     }
     if (!m_StartupScene.empty()) {
         fs::path ignored;
-        if (!ResolveScenePath(m_StartupScene, ignored, false, error)) return false;
+        if (!ResolveScenePath(m_StartupScene, ignored, false, error))
+            return false;
     }
     if (!m_InputSettings.config.empty()) {
         fs::path ignored;
-        if (!ResolveInputConfigPath(ignored, false, error)) return false;
+        if (!ResolveInputConfigPath(ignored, false, error))
+            return false;
     }
     if (!IsSupportedGraphicsBackend(m_GraphicsSettings.backend)) {
         SetError(error, "unsupported graphics backend: " + m_GraphicsSettings.backend);
@@ -143,9 +140,9 @@ bool ProjectConfig::Open(fs::path projectRoot, bool allowMissing, std::string* e
     return true;
 }
 
-bool ProjectConfig::Save(std::string* error)
-{
-    if (error) error->clear();
+bool ProjectConfig::Save(std::string* error) {
+    if (error)
+        error->clear();
     if (m_Root.empty() || m_ManifestPath.empty()) {
         SetError(error, "project config has not been opened");
         return false;
@@ -164,11 +161,13 @@ bool ProjectConfig::Save(std::string* error)
     }
     if (!m_StartupScene.empty()) {
         fs::path ignored;
-        if (!ResolveScenePath(m_StartupScene, ignored, true, error)) return false;
+        if (!ResolveScenePath(m_StartupScene, ignored, true, error))
+            return false;
     }
     if (!m_InputSettings.config.empty()) {
         fs::path ignored;
-        if (!ResolveInputConfigPath(ignored, false, error)) return false;
+        if (!ResolveInputConfigPath(ignored, false, error))
+            return false;
     }
     if (!IsSupportedGraphicsBackend(m_GraphicsSettings.backend)) {
         SetError(error, "unsupported graphics backend: " + m_GraphicsSettings.backend);
@@ -197,10 +196,25 @@ bool ProjectConfig::Save(std::string* error)
             {"renderPath", m_GraphicsSettings.renderPath},
         };
         TransactionalWriteOptions options;
-        options.validator=[](const fs::path& candidate,std::string* validationError){try{std::ifstream input(candidate);nlohmann::json value;input>>value;if(!value.is_object()||value.value("version",0)!=kCurrentVersion||value.value("name",std::string{}).empty()){SetError(validationError,"project manifest validation failed");return false;}return true;}catch(const std::exception& e){SetError(validationError,e.what());return false;}};
-        if(!TransactionalFileWriter::WriteText(m_ManifestPath,json.dump(2)+"\n",options,error))return false;
-    }
-    catch (const std::exception& exception) {
+        options.validator = [](const fs::path& candidate, std::string* validationError) {
+            try {
+                std::ifstream input(candidate);
+                nlohmann::json value;
+                input >> value;
+                if (!value.is_object() || value.value("version", 0) != kCurrentVersion ||
+                    value.value("name", std::string{}).empty()) {
+                    SetError(validationError, "project manifest validation failed");
+                    return false;
+                }
+                return true;
+            } catch (const std::exception& e) {
+                SetError(validationError, e.what());
+                return false;
+            }
+        };
+        if (!TransactionalFileWriter::WriteText(m_ManifestPath, json.dump(2) + "\n", options, error))
+            return false;
+    } catch (const std::exception& exception) {
         SetError(error, "failed to save project manifest: " + std::string(exception.what()));
         return false;
     }
@@ -209,18 +223,17 @@ bool ProjectConfig::Save(std::string* error)
     return true;
 }
 
-bool ProjectConfig::SetStartupScene(const fs::path& scenePath, std::string* error)
-{
-    if (error) error->clear();
+bool ProjectConfig::SetStartupScene(const fs::path& scenePath, std::string* error) {
+    if (error)
+        error->clear();
     if (m_Root.empty()) {
         SetError(error, "project config has not been opened");
         return false;
     }
 
     std::error_code ec;
-    fs::path absoluteScene = scenePath.is_absolute()
-        ? scenePath.lexically_normal()
-        : fs::absolute(m_Root / scenePath, ec).lexically_normal();
+    fs::path absoluteScene = scenePath.is_absolute() ? scenePath.lexically_normal()
+                                                     : fs::absolute(m_Root / scenePath, ec).lexically_normal();
     if (ec || !fs::is_regular_file(absoluteScene, ec) || ec) {
         SetError(error, "startup scene does not exist: " + absoluteScene.string());
         return false;
@@ -241,9 +254,9 @@ bool ProjectConfig::SetStartupScene(const fs::path& scenePath, std::string* erro
     return true;
 }
 
-bool ProjectConfig::ResolveStartupScene(fs::path& resolved, std::string* error) const
-{
-    if (error) error->clear();
+bool ProjectConfig::ResolveStartupScene(fs::path& resolved, std::string* error) const {
+    if (error)
+        error->clear();
     if (m_StartupScene.empty()) {
         SetError(error, "project startupScene is not configured");
         return false;
@@ -251,11 +264,10 @@ bool ProjectConfig::ResolveStartupScene(fs::path& resolved, std::string* error) 
     return ResolveScenePath(m_StartupScene, resolved, true, error);
 }
 
-bool ProjectConfig::ResolveScenePath(const std::string& projectRelativePath,
-                                     fs::path& resolved, bool requireExists,
-                                     std::string* error) const
-{
-    if (error) error->clear();
+bool ProjectConfig::ResolveScenePath(const std::string& projectRelativePath, fs::path& resolved, bool requireExists,
+                                     std::string* error) const {
+    if (error)
+        error->clear();
     if (m_Root.empty()) {
         SetError(error, "project config has not been opened");
         return false;
@@ -287,9 +299,9 @@ bool ProjectConfig::ResolveScenePath(const std::string& projectRelativePath,
     return true;
 }
 
-bool ProjectConfig::SetInputConfigPath(const fs::path& configPath, std::string* error)
-{
-    if (error) error->clear();
+bool ProjectConfig::SetInputConfigPath(const fs::path& configPath, std::string* error) {
+    if (error)
+        error->clear();
     if (m_Root.empty()) {
         SetError(error, "project config has not been opened");
         return false;
@@ -300,9 +312,8 @@ bool ProjectConfig::SetInputConfigPath(const fs::path& configPath, std::string* 
     }
 
     std::error_code ec;
-    fs::path absoluteConfig = configPath.is_absolute()
-        ? configPath.lexically_normal()
-        : fs::absolute(m_Root / configPath, ec).lexically_normal();
+    fs::path absoluteConfig = configPath.is_absolute() ? configPath.lexically_normal()
+                                                       : fs::absolute(m_Root / configPath, ec).lexically_normal();
     if (ec) {
         SetError(error, "failed to resolve input config path");
         return false;
@@ -323,10 +334,9 @@ bool ProjectConfig::SetInputConfigPath(const fs::path& configPath, std::string* 
     return true;
 }
 
-bool ProjectConfig::ResolveInputConfigPath(fs::path& resolved, bool requireExists,
-                                           std::string* error) const
-{
-    if (error) error->clear();
+bool ProjectConfig::ResolveInputConfigPath(fs::path& resolved, bool requireExists, std::string* error) const {
+    if (error)
+        error->clear();
     if (m_Root.empty()) {
         SetError(error, "project config has not been opened");
         return false;

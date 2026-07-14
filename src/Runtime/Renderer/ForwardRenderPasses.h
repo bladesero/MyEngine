@@ -28,8 +28,7 @@ class ForwardOpaquePass {
 public:
     explicit ForwardOpaquePass(MainPass& mainPass);
     void Execute(GpuCommandList& commands, const Scene& scene, const Camera& camera,
-                 const std::vector<SceneRenderItem>& items,
-                 const ForwardRenderContext& context);
+                 const std::vector<SceneRenderItem>& items, const ForwardRenderContext& context);
 
 private:
     MainPass& m_MainPass;
@@ -39,8 +38,7 @@ class ForwardTransparentPass {
 public:
     explicit ForwardTransparentPass(MainPass& mainPass);
     void Execute(GpuCommandList& commands, const Scene& scene, const Camera& camera,
-                 const std::vector<SceneRenderItem>& items,
-                 const ForwardRenderContext& context);
+                 const std::vector<SceneRenderItem>& items, const ForwardRenderContext& context);
 
 private:
     MainPass& m_MainPass;

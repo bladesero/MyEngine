@@ -27,11 +27,11 @@ public:
     ~MetalContext() override;
 
     // IRenderContext –--------------------------------------------------------
-    bool Init(IWindow* window)  override;
-    void Shutdown()             override;
+    bool Init(IWindow* window) override;
+    void Shutdown() override;
 
     void BeginFrame(float r, float g, float b, float a = 1.0f) override;
-    void EndFrame()  override;
+    void EndFrame() override;
     GpuSwapChain* GetSwapChain() override;
     GpuTextureView* GetCurrentBackBufferView() override;
     GpuCommandList* GetGraphicsCommandList() override;
@@ -39,72 +39,55 @@ public:
     IEditorImGuiRHIInterop* QueryEditorImGuiInterop() override { return this; }
     ImGuiBackendHandles GetImGuiBackendHandles() override;
 
-    std::shared_ptr<GpuBuffer> CreateVertexBuffer(
-        const void* data, uint32_t byteSize, uint32_t strideBytes) override;
+    std::shared_ptr<GpuBuffer> CreateVertexBuffer(const void* data, uint32_t byteSize, uint32_t strideBytes) override;
 
-    std::shared_ptr<GpuBuffer> CreateIndexBuffer(
-        const void* data, uint32_t byteSize) override;
+    std::shared_ptr<GpuBuffer> CreateIndexBuffer(const void* data, uint32_t byteSize) override;
 
     // mslSource: Metal Shading Language string.
     // vsEntry / psEntry: function names inside the MSL source.
-    std::shared_ptr<GpuShader> CreateShader(
-        const std::string& mslSource,
-        const std::string& vsEntry,
-        const std::string& psEntry,
-        const VertexElement* layout,
-        uint32_t            layoutCount) override;
-    std::shared_ptr<GpuShader> CreateShaderFromBytecode(
-        const void* vsBytecode,
-        size_t vsSize,
-        const void* psBytecode,
-        size_t psSize,
-        const VertexElement* layout,
-        uint32_t layoutCount) override;
-    std::shared_ptr<GpuShader> CreateComputeShaderFromBytecode(
-        const void* bytecode, size_t byteSize) override;
+    std::shared_ptr<GpuShader> CreateShader(const std::string& mslSource, const std::string& vsEntry,
+                                            const std::string& psEntry, const VertexElement* layout,
+                                            uint32_t layoutCount) override;
+    std::shared_ptr<GpuShader> CreateShaderFromBytecode(const void* vsBytecode, size_t vsSize, const void* psBytecode,
+                                                        size_t psSize, const VertexElement* layout,
+                                                        uint32_t layoutCount) override;
+    std::shared_ptr<GpuShader> CreateComputeShaderFromBytecode(const void* bytecode, size_t byteSize) override;
 
-    void BindShader      (GpuShader* shader);
+    void BindShader(GpuShader* shader);
     void BindVertexBuffer(GpuBuffer* buffer);
-    void BindIndexBuffer (GpuBuffer* buffer);
+    void BindIndexBuffer(GpuBuffer* buffer);
 
     void SetVSConstants(const void* data, uint32_t byteSize);
 
-    void Draw       (uint32_t vertexCount, uint32_t startVertex = 0);
-    void DrawIndexed(uint32_t indexCount,  uint32_t startIndex  = 0,
-                     uint32_t baseVertex   = 0);
-    void DrawInstanced(uint32_t vertexCount, uint32_t instanceCount,
-                       uint32_t startVertex = 0);
-    void DrawIndexedInstanced(uint32_t indexCount, uint32_t instanceCount,
-                              uint32_t startIndex = 0,
+    void Draw(uint32_t vertexCount, uint32_t startVertex = 0);
+    void DrawIndexed(uint32_t indexCount, uint32_t startIndex = 0, uint32_t baseVertex = 0);
+    void DrawInstanced(uint32_t vertexCount, uint32_t instanceCount, uint32_t startVertex = 0);
+    void DrawIndexedInstanced(uint32_t indexCount, uint32_t instanceCount, uint32_t startIndex = 0,
                               uint32_t baseVertex = 0);
 
     void SetViewport(float x, float y, float w, float h);
     void BeginRendering(const RenderingInfo& info);
     void EndRendering();
-    std::shared_ptr<GpuGraphicsPipeline> CreateGraphicsPipeline(
-        const GraphicsPipelineDesc& desc) override;
-    std::shared_ptr<GpuComputePipeline> CreateComputePipeline(
-        const ComputePipelineDesc& desc) override;
+    std::shared_ptr<GpuGraphicsPipeline> CreateGraphicsPipeline(const GraphicsPipelineDesc& desc) override;
+    std::shared_ptr<GpuComputePipeline> CreateComputePipeline(const ComputePipelineDesc& desc) override;
     void SetGraphicsPipeline(GpuGraphicsPipeline* pipeline);
     void SetComputePipeline(GpuComputePipeline* pipeline);
     void SetBindGroup(GpuBindGroup* group);
     void Dispatch(uint32_t x, uint32_t y = 1, uint32_t z = 1);
-    std::shared_ptr<GpuTexture> UploadTexture2D(
-        const void* rgba8Data, int width, int height) override;
-    std::shared_ptr<GpuTexture> UploadTexture(
-        const RHITextureDesc& desc, const RHITextureSubresourceData* data,
-        uint32_t subresourceCount) override;
+    std::shared_ptr<GpuTexture> UploadTexture2D(const void* rgba8Data, int width, int height) override;
+    std::shared_ptr<GpuTexture> UploadTexture(const RHITextureDesc& desc, const RHITextureSubresourceData* data,
+                                              uint32_t subresourceCount) override;
     std::shared_ptr<GpuTexture> CreateTexture(const RHITextureDesc& desc) override;
-    std::shared_ptr<GpuTextureView> CreateTextureView(
-        const std::shared_ptr<GpuTexture>& texture, const RHITextureViewDesc& desc) override;
+    std::shared_ptr<GpuTextureView> CreateTextureView(const std::shared_ptr<GpuTexture>& texture,
+                                                      const RHITextureViewDesc& desc) override;
     std::shared_ptr<GpuSampler> CreateSampler(const RHISamplerDesc& desc) override;
     void BindPSTexture(uint32_t slot, GpuTexture* tex);
 
     // Metal-specific accessors.
     // Returned as void* to keep ObjC types out of this header.
-    void* GetDevice()              const;  // id<MTLDevice>
-    void* GetCommandBuffer()       const;  // id<MTLCommandBuffer>
-    void* GetCommandEncoder()      const;  // id<MTLRenderCommandEncoder>
+    void* GetDevice() const;               // id<MTLDevice>
+    void* GetCommandBuffer() const;        // id<MTLCommandBuffer>
+    void* GetCommandEncoder() const;       // id<MTLRenderCommandEncoder>
     void* GetRenderPassDescriptor() const; // MTLRenderPassDescriptor*
 
 private:

@@ -16,7 +16,7 @@
 namespace {
 
 struct ObjIndex {
-    int v  = -1;
+    int v = -1;
     int vt = -1;
     int vn = -1;
 };
@@ -33,39 +33,34 @@ std::string StemFromPath(const std::string& path) {
 
 std::string NormalizeSeparators(std::string s) {
     for (char& c : s) {
-        if (c == '\\') c = '/';
+        if (c == '\\')
+            c = '/';
     }
     return s;
 }
 
-std::string NormalizePath(const std::filesystem::path& path)
-{
+std::string NormalizePath(const std::filesystem::path& path) {
     return std::filesystem::absolute(path).lexically_normal().generic_string();
 }
 
-TextureFilter ParseTextureFilter(const std::string& value)
-{
+TextureFilter ParseTextureFilter(const std::string& value) {
     std::string lower = value;
     std::transform(lower.begin(), lower.end(), lower.begin(),
-        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     return lower == "nearest" ? TextureFilter::Nearest : TextureFilter::Linear;
 }
 
-TextureWrap ParseTextureWrap(const std::string& value)
-{
+TextureWrap ParseTextureWrap(const std::string& value) {
     std::string lower = value;
     std::transform(lower.begin(), lower.end(), lower.begin(),
-        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     return lower == "clamp" ? TextureWrap::Clamp : TextureWrap::Repeat;
 }
 
-void ApplyTextureImportSettings(const std::string& texturePath, TextureDesc& desc)
-{
-    std::filesystem::path cursor =
-        std::filesystem::absolute(std::filesystem::path(texturePath)).parent_path();
+void ApplyTextureImportSettings(const std::string& texturePath, TextureDesc& desc) {
+    std::filesystem::path cursor = std::filesystem::absolute(std::filesystem::path(texturePath)).parent_path();
     while (!cursor.empty() && cursor != cursor.root_path()) {
-        const std::filesystem::path databasePath =
-            cursor / ".myengine" / "AssetDatabase.json";
+        const std::filesystem::path databasePath = cursor / ".myengine" / "AssetDatabase.json";
         if (std::filesystem::is_regular_file(databasePath)) {
             try {
                 std::ifstream input(databasePath);
@@ -77,17 +72,13 @@ void ApplyTextureImportSettings(const std::string& texturePath, TextureDesc& des
                     const std::string artifact = record.value("artifactPath", std::string{});
                     if ((!source.empty() && NormalizePath(source) == normalized) ||
                         (!artifact.empty() && NormalizePath(artifact) == normalized)) {
-                        const std::string settingsJson =
-                            record.value("settings", std::string("{}"));
+                        const std::string settingsJson = record.value("settings", std::string("{}"));
                         const nlohmann::json settings = nlohmann::json::parse(settingsJson);
                         const auto sampler = settings.find("textureSampler");
                         if (sampler != settings.end() && sampler->is_object()) {
-                            desc.filter = ParseTextureFilter(
-                                sampler->value("filter", std::string("linear")));
-                            desc.wrapU = ParseTextureWrap(
-                                sampler->value("wrapU", std::string("repeat")));
-                            desc.wrapV = ParseTextureWrap(
-                                sampler->value("wrapV", std::string("repeat")));
+                            desc.filter = ParseTextureFilter(sampler->value("filter", std::string("linear")));
+                            desc.wrapU = ParseTextureWrap(sampler->value("wrapU", std::string("repeat")));
+                            desc.wrapV = ParseTextureWrap(sampler->value("wrapV", std::string("repeat")));
                         }
                         return;
                     }
@@ -98,14 +89,16 @@ void ApplyTextureImportSettings(const std::string& texturePath, TextureDesc& des
             return;
         }
         const auto parent = cursor.parent_path();
-        if (parent == cursor) break;
+        if (parent == cursor)
+            break;
         cursor = parent;
     }
 }
 
 std::string Trim(const std::string& s) {
     const auto begin = s.find_first_not_of(" \t\r\n");
-    if (begin == std::string::npos) return {};
+    if (begin == std::string::npos)
+        return {};
     const auto end = s.find_last_not_of(" \t\r\n");
     return s.substr(begin, end - begin + 1);
 }
@@ -129,17 +122,17 @@ ObjIndex ParseFaceToken(const std::string& token) {
     }
 
     size_t second = token.find('/', first + 1);
-    const std::string vStr  = token.substr(0, first);
-    const std::string vtStr = (second == std::string::npos)
-        ? token.substr(first + 1)
-        : token.substr(first + 1, second - first - 1);
-    const std::string vnStr = (second == std::string::npos)
-        ? std::string()
-        : token.substr(second + 1);
+    const std::string vStr = token.substr(0, first);
+    const std::string vtStr =
+        (second == std::string::npos) ? token.substr(first + 1) : token.substr(first + 1, second - first - 1);
+    const std::string vnStr = (second == std::string::npos) ? std::string() : token.substr(second + 1);
 
-    if (!vStr.empty())  out.v  = std::stoi(vStr);
-    if (!vtStr.empty()) out.vt = std::stoi(vtStr);
-    if (!vnStr.empty()) out.vn = std::stoi(vnStr);
+    if (!vStr.empty())
+        out.v = std::stoi(vStr);
+    if (!vtStr.empty())
+        out.vt = std::stoi(vtStr);
+    if (!vnStr.empty())
+        out.vn = std::stoi(vnStr);
     return out;
 }
 
@@ -159,10 +152,8 @@ Vec3 ComputeFaceNormal(const MeshVertex& a, const MeshVertex& b, const MeshVerte
     return (b.position - a.position).Cross(c.position - a.position).Normalized();
 }
 
-MeshVertex BuildVertex(const std::vector<Vec3>& positions,
-                       const std::vector<std::pair<float, float>>& texcoords,
-                       const std::vector<Vec3>& normals,
-                       const ObjIndex& idx) {
+MeshVertex BuildVertex(const std::vector<Vec3>& positions, const std::vector<std::pair<float, float>>& texcoords,
+                       const std::vector<Vec3>& normals, const ObjIndex& idx) {
     MeshVertex v{};
 
     const int posIndex = ResolveObjIndex(idx.v, positions.size());
@@ -184,8 +175,7 @@ MeshVertex BuildVertex(const std::vector<Vec3>& positions,
     return v;
 }
 
-void ParseMtlFile(const std::filesystem::path& mtlPath,
-                  std::unordered_map<std::string, MtlRecord>& outRecords,
+void ParseMtlFile(const std::filesystem::path& mtlPath, std::unordered_map<std::string, MtlRecord>& outRecords,
                   std::vector<std::string>& outOrder) {
     std::ifstream file(mtlPath);
     if (!file.is_open()) {
@@ -222,19 +212,12 @@ void ParseMtlFile(const std::filesystem::path& mtlPath,
 
         auto& rec = outRecords[currentName];
         if (cmd == "Kd" && tokens.size() >= 4) {
-            rec.diffuse = {
-                std::stof(tokens[1]),
-                std::stof(tokens[2]),
-                std::stof(tokens[3])
-            };
-        }
-        else if (cmd == "d" && tokens.size() >= 2) {
+            rec.diffuse = {std::stof(tokens[1]), std::stof(tokens[2]), std::stof(tokens[3])};
+        } else if (cmd == "d" && tokens.size() >= 2) {
             rec.alpha = std::clamp(std::stof(tokens[1]), 0.0f, 1.0f);
-        }
-        else if (cmd == "Tr" && tokens.size() >= 2) {
+        } else if (cmd == "Tr" && tokens.size() >= 2) {
             rec.alpha = 1.0f - std::clamp(std::stof(tokens[1]), 0.0f, 1.0f);
-        }
-        else if (cmd == "map_Kd" && tokens.size() >= 2) {
+        } else if (cmd == "map_Kd" && tokens.size() >= 2) {
             rec.diffuseTexture = tokens.back();
         }
     }
@@ -254,24 +237,21 @@ std::shared_ptr<TextureAsset> LoadTextureAssetFromFile(const std::string& path) 
         return {};
     }
 
-    std::vector<uint8_t> data(
-        pixels,
-        pixels + static_cast<size_t>(width) * static_cast<size_t>(height) * 4);
+    std::vector<uint8_t> data(pixels, pixels + static_cast<size_t>(width) * static_cast<size_t>(height) * 4);
     stbi_image_free(pixels);
 
     auto tex = std::make_shared<TextureAsset>(path);
     tex->SetName(StemFromPath(path));
 
     TextureDesc desc;
-    desc.width  = width;
+    desc.width = width;
     desc.height = height;
     desc.format = TextureFormat::RGBA8;
-    desc.sRGB   = true;
+    desc.sRGB = true;
     ApplyTextureImportSettings(path, desc);
     tex->SetPixelData(std::move(data), desc);
 
-    Logger::Info("[AssetManager] Imported texture '", tex->GetName(),
-                 "' (", width, "x", height, ")");
+    Logger::Info("[AssetManager] Imported texture '", tex->GetName(), "' (", width, "x", height, ")");
     return tex;
 }
 
@@ -315,8 +295,7 @@ std::shared_ptr<ModelAsset> LoadModelAssetFromObj(const std::string& path) {
             currentSubMesh = {};
         };
 
-        auto beginSubMesh = [&](const std::string& name, int materialSlot,
-                                const std::string& materialName) {
+        auto beginSubMesh = [&](const std::string& name, int materialSlot, const std::string& materialName) {
             flushSubMesh();
             currentSubMesh.name = name.empty() ? StemFromPath(path) : name;
             if (!materialName.empty()) {
@@ -355,47 +334,29 @@ std::shared_ptr<ModelAsset> LoadModelAssetFromObj(const std::string& path) {
 
             const std::string& cmd = tokens[0];
             if (cmd == "v" && tokens.size() >= 4) {
-                positions.push_back({
-                    std::stof(tokens[1]),
-                    std::stof(tokens[2]),
-                    std::stof(tokens[3])
-                });
-            }
-            else if (cmd == "vt" && tokens.size() >= 3) {
-                texcoords.push_back({
-                    std::stof(tokens[1]),
-                    std::stof(tokens[2])
-                });
-            }
-            else if (cmd == "vn" && tokens.size() >= 4) {
-                normals.push_back({
-                    std::stof(tokens[1]),
-                    std::stof(tokens[2]),
-                    std::stof(tokens[3])
-                });
-            }
-            else if (cmd == "mtllib" && tokens.size() >= 2) {
+                positions.push_back({std::stof(tokens[1]), std::stof(tokens[2]), std::stof(tokens[3])});
+            } else if (cmd == "vt" && tokens.size() >= 3) {
+                texcoords.push_back({std::stof(tokens[1]), std::stof(tokens[2])});
+            } else if (cmd == "vn" && tokens.size() >= 4) {
+                normals.push_back({std::stof(tokens[1]), std::stof(tokens[2]), std::stof(tokens[3])});
+            } else if (cmd == "mtllib" && tokens.size() >= 2) {
                 for (size_t i = 1; i < tokens.size(); ++i) {
                     std::filesystem::path mtlPath = objDir / tokens[i];
                     ParseMtlFile(mtlPath, materialsByName, materialOrder);
                 }
-            }
-            else if (cmd == "o" || cmd == "g") {
+            } else if (cmd == "o" || cmd == "g") {
                 if (tokens.size() >= 2) {
                     currentObject = tokens[1];
                 } else {
                     currentObject = StemFromPath(path);
                 }
                 flushSubMesh();
-            }
-            else if (cmd == "usemtl" && tokens.size() >= 2) {
+            } else if (cmd == "usemtl" && tokens.size() >= 2) {
                 currentMaterialName = tokens[1];
                 flushSubMesh();
-            }
-            else if (cmd == "f" && tokens.size() >= 4) {
+            } else if (cmd == "f" && tokens.size() >= 4) {
                 if (!hasCurrentSubMesh) {
-                    beginSubMesh(currentObject, materialSlotForName(currentMaterialName),
-                                 currentMaterialName);
+                    beginSubMesh(currentObject, materialSlotForName(currentMaterialName), currentMaterialName);
                 }
 
                 std::vector<ObjIndex> face;
@@ -405,11 +366,7 @@ std::shared_ptr<ModelAsset> LoadModelAssetFromObj(const std::string& path) {
                 }
 
                 for (size_t tri = 1; tri + 1 < face.size(); ++tri) {
-                    const ObjIndex triIdx[3] = {
-                        face[0],
-                        face[tri],
-                        face[tri + 1]
-                    };
+                    const ObjIndex triIdx[3] = {face[0], face[tri], face[tri + 1]};
 
                     MeshVertex triVerts[3];
                     bool hasNormals = true;
@@ -451,19 +408,18 @@ std::shared_ptr<ModelAsset> LoadModelAssetFromObj(const std::string& path) {
         if (materialOrder.empty()) {
             materials.push_back(AssetManager::Get().GetDefaultMaterial());
         } else {
-            for (size_t materialIndex = 0; materialIndex < materialOrder.size();
-                 ++materialIndex) {
+            for (size_t materialIndex = 0; materialIndex < materialOrder.size(); ++materialIndex) {
                 const auto& name = materialOrder[materialIndex];
                 const auto it = materialsByName.find(name);
                 if (it == materialsByName.end()) {
                     continue;
                 }
 
-                auto mat = MaterialAsset::CreateDefaultAtPath(
-                    path + "#material-" + std::to_string(materialIndex), name);
+                auto mat =
+                    MaterialAsset::CreateDefaultAtPath(path + "#material-" + std::to_string(materialIndex), name);
                 const auto& rec = it->second;
                 mat->SetParam("BaseColor",
-                    MaterialParam::FromVec4(rec.diffuse.x, rec.diffuse.y, rec.diffuse.z, rec.alpha));
+                              MaterialParam::FromVec4(rec.diffuse.x, rec.diffuse.y, rec.diffuse.z, rec.alpha));
 
                 if (!rec.diffuseTexture.empty()) {
                     const std::filesystem::path texPath = objDir / NormalizeSeparators(rec.diffuseTexture);
@@ -490,10 +446,8 @@ std::shared_ptr<ModelAsset> LoadModelAssetFromObj(const std::string& path) {
         model->SetMesh(AssetManager::Get().Register(std::move(mesh)));
         model->SetMaterials(std::move(materials));
 
-        Logger::Info("[AssetManager] Imported model '", model->GetName(),
-                    "' (", model->GetMesh()->VertexCount(), " verts, ",
-                    model->GetMesh()->IndexCount(), " indices, ",
-                    model->MaterialCount(), " materials)");
+        Logger::Info("[AssetManager] Imported model '", model->GetName(), "' (", model->GetMesh()->VertexCount(),
+                     " verts, ", model->GetMesh()->IndexCount(), " indices, ", model->MaterialCount(), " materials)");
         return model;
     } catch (const std::exception& e) {
         Logger::Error("[AssetManager] OBJ parse exception for '", path, "': ", e.what());

@@ -28,12 +28,9 @@ struct GBufferPerDrawConstants {
     float normalMatrix[16];
 };
 
-void FillColorConstants(float out[4], const MaterialAsset& material,
-                        const char* name, const Vec3& fallback,
-                        float fallbackAlpha = 1.0f)
-{
-    const MaterialParam color = material.GetParam(
-        name, MaterialParam::FromColor(fallback, fallbackAlpha));
+void FillColorConstants(float out[4], const MaterialAsset& material, const char* name, const Vec3& fallback,
+                        float fallbackAlpha = 1.0f) {
+    const MaterialParam color = material.GetParam(name, MaterialParam::FromColor(fallback, fallbackAlpha));
     out[0] = color.data[0];
     out[1] = color.data[1];
     out[2] = color.data[2];
@@ -42,16 +39,14 @@ void FillColorConstants(float out[4], const MaterialAsset& material,
 
 } // namespace
 
-GBufferPass::GBufferPass(IRHIDevice* device)
-    : RenderPass(device)
-    , m_ResourceCache(device)
-{}
+GBufferPass::GBufferPass(IRHIDevice* device) : RenderPass(device), m_ResourceCache(device) {
+}
 
-void GBufferPass::Resize(uint32_t width, uint32_t height)
-{
+void GBufferPass::Resize(uint32_t width, uint32_t height) {
     width = width > 0 ? width : 1;
     height = height > 0 ? height : 1;
-    if (m_Width == width && m_Height == height) return;
+    if (m_Width == width && m_Height == height)
+        return;
     m_Width = width;
     m_Height = height;
     m_Albedo.reset();
@@ -69,13 +64,11 @@ void GBufferPass::Resize(uint32_t width, uint32_t height)
     m_GBufferState = RHIResourceState::Undefined;
 }
 
-bool GBufferPass::PrepareGraphResources()
-{
+bool GBufferPass::PrepareGraphResources() {
     return EnsureResources();
 }
 
-GBufferPass::GraphResources GBufferPass::GetGraphResources() const
-{
+GBufferPass::GraphResources GBufferPass::GetGraphResources() const {
     GraphResources resources;
     resources.albedo = m_Albedo;
     resources.albedoRtv = m_AlbedoRtv;
@@ -93,23 +86,19 @@ GBufferPass::GraphResources GBufferPass::GetGraphResources() const
     return resources;
 }
 
-void GBufferPass::MarkGraphResourcesShaderResource()
-{
+void GBufferPass::MarkGraphResourcesShaderResource() {
     m_GBufferState = RHIResourceState::ShaderResource;
 }
 
-bool GBufferPass::EnsureResources()
-{
-    if (!Device()) return false;
-    if (m_Albedo && m_AlbedoRtv && m_AlbedoSrv &&
-        m_Normal && m_NormalRtv && m_NormalSrv &&
-        m_Material && m_MaterialRtv && m_MaterialSrv &&
-        m_Emissive && m_EmissiveRtv && m_EmissiveSrv) return true;
+bool GBufferPass::EnsureResources() {
+    if (!Device())
+        return false;
+    if (m_Albedo && m_AlbedoRtv && m_AlbedoSrv && m_Normal && m_NormalRtv && m_NormalSrv && m_Material &&
+        m_MaterialRtv && m_MaterialSrv && m_Emissive && m_EmissiveRtv && m_EmissiveSrv)
+        return true;
 
-    auto createTarget = [&](const char* name, RHIFormat format,
-                            std::shared_ptr<GpuTexture>& texture,
-                            std::shared_ptr<GpuTextureView>& rtv,
-                            std::shared_ptr<GpuTextureView>& srv) -> bool {
+    auto createTarget = [&](const char* name, RHIFormat format, std::shared_ptr<GpuTexture>& texture,
+                            std::shared_ptr<GpuTextureView>& rtv, std::shared_ptr<GpuTextureView>& srv) -> bool {
         RHITextureDesc desc;
         desc.width = m_Width;
         desc.height = m_Height;
@@ -140,37 +129,33 @@ bool GBufferPass::EnsureResources()
         return true;
     };
 
-    return createTarget("GBufferAlbedo", RHIFormat::RGBA8UNorm,
-                        m_Albedo, m_AlbedoRtv, m_AlbedoSrv) &&
-           createTarget("GBufferNormal", RHIFormat::RGBA16Float,
-                        m_Normal, m_NormalRtv, m_NormalSrv) &&
-           createTarget("GBufferMaterial", RHIFormat::RGBA8UNorm,
-                        m_Material, m_MaterialRtv, m_MaterialSrv) &&
-           createTarget("GBufferEmissive", RHIFormat::RGBA16Float,
-                        m_Emissive, m_EmissiveRtv, m_EmissiveSrv);
+    return createTarget("GBufferAlbedo", RHIFormat::RGBA8UNorm, m_Albedo, m_AlbedoRtv, m_AlbedoSrv) &&
+           createTarget("GBufferNormal", RHIFormat::RGBA16Float, m_Normal, m_NormalRtv, m_NormalSrv) &&
+           createTarget("GBufferMaterial", RHIFormat::RGBA8UNorm, m_Material, m_MaterialRtv, m_MaterialSrv) &&
+           createTarget("GBufferEmissive", RHIFormat::RGBA16Float, m_Emissive, m_EmissiveRtv, m_EmissiveSrv);
 }
 
-GpuShader* GBufferPass::GetOrCreateShader()
-{
-    if (!Device()) return nullptr;
+GpuShader* GBufferPass::GetOrCreateShader() {
+    if (!Device())
+        return nullptr;
     if (!m_ShaderHandle) {
-        m_ShaderHandle = ShaderManager::Get().GetOrCreate(
-            EngineShaders::kGBuffer,
-            k_MeshVertexLayout, k_MeshVertexLayoutCount);
+        m_ShaderHandle =
+            ShaderManager::Get().GetOrCreate(EngineShaders::kGBuffer, k_MeshVertexLayout, k_MeshVertexLayoutCount);
     }
-    if (!m_ShaderHandle || !m_ShaderHandle->shader) return nullptr;
+    if (!m_ShaderHandle || !m_ShaderHandle->shader)
+        return nullptr;
     if (m_ShaderVersion != m_ShaderHandle->version) {
         m_ShaderVersion = m_ShaderHandle->version;
-        for (auto& pipeline : m_Pipelines) pipeline.reset();
+        for (auto& pipeline : m_Pipelines)
+            pipeline.reset();
     }
     return m_ShaderHandle->shader.get();
 }
 
-GpuGraphicsPipeline* GBufferPass::GetOrCreatePipeline(const MaterialAsset& material)
-{
-    if (!Device() || !m_ShaderHandle || !m_ShaderHandle->shader) return nullptr;
-    const size_t index = (material.IsTwoSided() ? 1u : 0u) |
-                         (material.IsWireframe() ? 2u : 0u);
+GpuGraphicsPipeline* GBufferPass::GetOrCreatePipeline(const MaterialAsset& material) {
+    if (!Device() || !m_ShaderHandle || !m_ShaderHandle->shader)
+        return nullptr;
+    const size_t index = (material.IsTwoSided() ? 1u : 0u) | (material.IsWireframe() ? 2u : 0u);
     auto& pipeline = m_Pipelines[index];
     if (!pipeline) {
         GraphicsPipelineDesc desc;
@@ -183,8 +168,7 @@ GpuGraphicsPipeline* GBufferPass::GetOrCreatePipeline(const MaterialAsset& mater
         };
         desc.depthFormat = RHIFormat::D24S8;
         desc.rasterizer.cullMode = material.IsTwoSided() ? RHICullMode::None : RHICullMode::Back;
-        desc.rasterizer.fillMode = material.IsWireframe() ? RHIFillMode::Wireframe
-                                                          : RHIFillMode::Solid;
+        desc.rasterizer.fillMode = material.IsWireframe() ? RHIFillMode::Wireframe : RHIFillMode::Solid;
         desc.blend.attachments.resize(desc.colorFormats.size());
         for (auto& attachment : desc.blend.attachments) {
             attachment.blendEnable = false;
@@ -194,11 +178,12 @@ GpuGraphicsPipeline* GBufferPass::GetOrCreatePipeline(const MaterialAsset& mater
     return pipeline.get();
 }
 
-void GBufferPass::Execute(GpuCommandList& commands, const Scene& scene, const Camera& camera)
-{
-    if (!Device()) return;
+void GBufferPass::Execute(GpuCommandList& commands, const Scene& scene, const Camera& camera) {
+    if (!Device())
+        return;
     GpuShader* shader = GetOrCreateShader();
-    if (!shader) return;
+    if (!shader)
+        return;
 
     m_ResourceCache.SetDevice(Device());
     m_ResourceCache.ResetFrameStats();
@@ -212,16 +197,17 @@ void GBufferPass::Execute(GpuCommandList& commands, const Scene& scene, const Ca
         MeshAsset* mesh = item.mesh;
         const SubMesh* subMesh = item.subMesh;
         MaterialAsset* material = item.material;
-        if (!actor || !mesh || !subMesh || !material ||
-            material->GetBlendMode() == BlendMode::Transparent) {
+        if (!actor || !mesh || !subMesh || !material || material->GetBlendMode() == BlendMode::Transparent) {
             continue;
         }
 
         m_ResourceCache.EnsureMeshUploaded(mesh);
-        if (!mesh->GetVertexBuffer()) continue;
+        if (!mesh->GetVertexBuffer())
+            continue;
 
         GpuGraphicsPipeline* pipeline = GetOrCreatePipeline(*material);
-        if (!pipeline) continue;
+        if (!pipeline)
+            continue;
         commands.SetGraphicsPipeline(pipeline);
         commands.BindVertexBuffer(mesh->GetVertexBuffer());
 
@@ -236,34 +222,24 @@ void GBufferPass::Execute(GpuCommandList& commands, const Scene& scene, const Ca
         std::memcpy(constants.world, world.Data(), sizeof(constants.world));
         std::memcpy(constants.normalMatrix, normalMatrix.Data(), sizeof(constants.normalMatrix));
         FillColorConstants(constants.baseColor, *material, "BaseColor", Vec3::One());
-        constants.material[0] =
-            std::clamp(material->GetFloat("Metallic", 0.0f), 0.0f, 1.0f);
-        constants.material[1] =
-            std::clamp(material->GetFloat("Roughness", 0.5f), 0.04f, 1.0f);
-        constants.material[2] =
-            (std::max)(0.0f, material->GetFloat("AmbientOcclusion", 1.0f));
+        constants.material[0] = std::clamp(material->GetFloat("Metallic", 0.0f), 0.0f, 1.0f);
+        constants.material[1] = std::clamp(material->GetFloat("Roughness", 0.5f), 0.04f, 1.0f);
+        constants.material[2] = (std::max)(0.0f, material->GetFloat("AmbientOcclusion", 1.0f));
         constants.material[3] = material->GetAlphaThreshold();
         const Vec3 emissive = material->GetColor("Emissive", Vec3::Zero());
         constants.emissive[0] = emissive.x;
         constants.emissive[1] = emissive.y;
         constants.emissive[2] = emissive.z;
-        constants.emissive[3] =
-            material->GetBlendMode() == BlendMode::AlphaTest ? 1.0f : 0.0f;
+        constants.emissive[3] = material->GetBlendMode() == BlendMode::AlphaTest ? 1.0f : 0.0f;
 
         auto bindings = Device()->CreateBindGroup(m_ShaderHandle->shader);
         if (bindings) {
-            const char* textureSlots[] = {
-                "BaseColorMap", "NormalMap", "MetallicRoughnessMap",
-                "OcclusionMap", "EmissiveMap"
-            };
-            const char* textureNames[] = {
-                "g_BaseColorMap", "g_NormalMap", "g_MetallicRoughnessMap",
-                "g_OcclusionMap", "g_EmissiveMap"
-            };
-            const char* samplerNames[] = {
-                "g_Sampler", "g_NormalSampler", "g_MetallicRoughnessSampler",
-                "g_OcclusionSampler", "g_EmissiveSampler"
-            };
+            const char* textureSlots[] = {"BaseColorMap", "NormalMap", "MetallicRoughnessMap", "OcclusionMap",
+                                          "EmissiveMap"};
+            const char* textureNames[] = {"g_BaseColorMap", "g_NormalMap", "g_MetallicRoughnessMap", "g_OcclusionMap",
+                                          "g_EmissiveMap"};
+            const char* samplerNames[] = {"g_Sampler", "g_NormalSampler", "g_MetallicRoughnessSampler",
+                                          "g_OcclusionSampler", "g_EmissiveSampler"};
             for (uint32_t i = 0; i < 5; ++i) {
                 TextureAsset* texture = nullptr;
                 GpuTexture* gpuTexture = nullptr;
@@ -278,10 +254,8 @@ void GBufferPass::Execute(GpuCommandList& commands, const Scene& scene, const Ca
                     constants.mapFlags[i - 1] = gpuTexture ? 1.0f : 0.0f;
                 }
                 bindings->SetTexture(textureNames[i], m_ResourceCache.GetTextureView(gpuTexture));
-                bindings->SetSampler(
-                    samplerNames[i],
-                    texture ? m_ResourceCache.GetSamplerForTexture(texture)
-                            : m_ResourceCache.GetLinearSampler());
+                bindings->SetSampler(samplerNames[i], texture ? m_ResourceCache.GetSamplerForTexture(texture)
+                                                              : m_ResourceCache.GetLinearSampler());
             }
             bindings->SetConstants("PerDraw", &constants, sizeof(constants));
             commands.SetBindGroup(0, bindings.get());

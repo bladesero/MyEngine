@@ -6,19 +6,18 @@ public:
     const char* GetID() const override { return "script"; }
     int GetOrder() const override { return 500; }
 
-    void Draw(EditorContext& context) override
-    {
+    void Draw(EditorContext& context) override {
         Actor* actor = SelectedActor(context);
         auto* script = actor ? actor->GetComponent<ScriptComponent>() : nullptr;
-        if (!script) return;
+        if (!script)
+            return;
 
         ImGui::Separator();
         ImGui::PushID("Script");
         ImGui::Text("Script: %s", script->IsCompiled() ? "Compiled" : "Error");
         ImGui::Text("Language: %s", script->GetLanguage().c_str());
         ImGui::Text("Class: %s", script->GetClassName().c_str());
-        ImGui::TextWrapped("%s", script->GetScriptPath().empty()
-            ? "(inline)" : script->GetScriptPath().c_str());
+        ImGui::TextWrapped("%s", script->GetScriptPath().empty() ? "(inline)" : script->GetScriptPath().c_str());
         if (!script->GetLastError().empty()) {
             ImGui::TextWrapped("Error: %s", script->GetLastError().c_str());
         }
@@ -28,8 +27,8 @@ public:
             const nlohmann::json properties = script->GetProperties();
             for (const auto& field : fields) {
                 ImGui::PushID(field.name.c_str());
-                const nlohmann::json current = properties.contains(field.name)
-                    ? properties[field.name] : field.defaultValue;
+                const nlohmann::json current =
+                    properties.contains(field.name) ? properties[field.name] : field.defaultValue;
                 nlohmann::json next;
                 if (DrawScriptFieldValue(field, current, next)) {
                     nlohmann::json before = nlohmann::json::object();
@@ -39,12 +38,10 @@ public:
                     script->Serialize(after);
                     script->Deserialize(before);
                     if (auto* operators = context.GetOperators()) {
-                        operators->Components().SetProperty(
-                            context, *actor, "Script", field.name, before, after);
+                        operators->Components().SetProperty(context, *actor, "Script", field.name, before, after);
                     } else {
                         EditorComponentOperator componentOperator;
-                        componentOperator.SetProperty(
-                            context, *actor, "Script", field.name, before, after);
+                        componentOperator.SetProperty(context, *actor, "Script", field.name, before, after);
                     }
                 }
                 if (!field.declaration.empty() && ImGui::IsItemHovered()) {
@@ -53,15 +50,14 @@ public:
                 ImGui::PopID();
             }
         }
-        if (ImGui::Button("Remove Script")) RemoveComponentByType(context, *actor, "Script");
+        if (ImGui::Button("Remove Script"))
+            RemoveComponentByType(context, *actor, "Script");
         ImGui::PopID();
     }
 };
 
-
 } // namespace
 
-void RegisterScriptingInspectorSections(std::vector<std::unique_ptr<EditorInspectorSection>>& sections)
-{
+void RegisterScriptingInspectorSections(std::vector<std::unique_ptr<EditorInspectorSection>>& sections) {
     sections.push_back(std::make_unique<ScriptInspectorSection>());
 }

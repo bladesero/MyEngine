@@ -15,16 +15,20 @@ std::string Quote(const std::string& value) {
 #ifdef _WIN32
     std::string out = "\"";
     for (char c : value) {
-        if (c == '"') out += "\\\"";
-        else out += c;
+        if (c == '"')
+            out += "\\\"";
+        else
+            out += c;
     }
     out += "\"";
     return out;
 #else
     std::string out = "'";
     for (char c : value) {
-        if (c == '\'') out += "'\\''";
-        else out += c;
+        if (c == '\'')
+            out += "'\\''";
+        else
+            out += c;
     }
     out += "'";
     return out;
@@ -33,7 +37,8 @@ std::string Quote(const std::string& value) {
 
 std::string SlangcPath() {
     if (const char* env = std::getenv("MYENGINE_SLANGC")) {
-        if (*env) return env;
+        if (*env)
+            return env;
     }
     const std::string executableName =
 #ifdef _WIN32
@@ -60,36 +65,50 @@ std::string SlangcPath() {
 
 const char* StageName(ShaderStage stage) {
     switch (stage) {
-    case ShaderStage::Vertex: return "vertex";
-    case ShaderStage::Pixel: return "fragment";
-    case ShaderStage::Compute: return "compute";
+    case ShaderStage::Vertex:
+        return "vertex";
+    case ShaderStage::Pixel:
+        return "fragment";
+    case ShaderStage::Compute:
+        return "compute";
     }
     return "unknown";
 }
 
 const char* TargetName(ShaderBackend backend) {
     switch (backend) {
-    case ShaderBackend::D3D11: return "dxbc";
-    case ShaderBackend::D3D12: return "dxbc";
-    case ShaderBackend::Metal: return "metal";
-    case ShaderBackend::Vulkan: return "spirv";
+    case ShaderBackend::D3D11:
+        return "dxbc";
+    case ShaderBackend::D3D12:
+        return "dxbc";
+    case ShaderBackend::Metal:
+        return "metal";
+    case ShaderBackend::Vulkan:
+        return "spirv";
     }
     return "";
 }
 
 const char* ProfileName(ShaderStage stage, ShaderBackend backend) {
-    if (backend == ShaderBackend::Metal || backend == ShaderBackend::Vulkan) return "";
+    if (backend == ShaderBackend::Metal || backend == ShaderBackend::Vulkan)
+        return "";
     if (backend == ShaderBackend::D3D12) {
         switch (stage) {
-        case ShaderStage::Vertex: return "vs_5_1";
-        case ShaderStage::Pixel: return "ps_5_1";
-        case ShaderStage::Compute: return "cs_5_1";
+        case ShaderStage::Vertex:
+            return "vs_5_1";
+        case ShaderStage::Pixel:
+            return "ps_5_1";
+        case ShaderStage::Compute:
+            return "cs_5_1";
         }
     }
     switch (stage) {
-    case ShaderStage::Vertex: return "vs_5_0";
-    case ShaderStage::Pixel: return "ps_5_0";
-    case ShaderStage::Compute: return "cs_5_0";
+    case ShaderStage::Vertex:
+        return "vs_5_0";
+    case ShaderStage::Pixel:
+        return "ps_5_0";
+    case ShaderStage::Compute:
+        return "cs_5_0";
     }
     return "";
 }
@@ -104,19 +123,21 @@ std::filesystem::path TempPath(const char* suffix) {
 
 bool ReadFile(const std::filesystem::path& path, std::vector<uint8_t>& out) {
     std::ifstream input(path, std::ios::binary);
-    if (!input) return false;
+    if (!input)
+        return false;
     input.seekg(0, std::ios::end);
     const auto size = input.tellg();
-    if (size < 0) return false;
+    if (size < 0)
+        return false;
     input.seekg(0, std::ios::beg);
     out.resize(static_cast<size_t>(size));
-    return out.empty() ||
-        static_cast<bool>(input.read(reinterpret_cast<char*>(out.data()), size));
+    return out.empty() || static_cast<bool>(input.read(reinterpret_cast<char*>(out.data()), size));
 }
 
 std::string ReadText(const std::filesystem::path& path) {
     std::ifstream input(path, std::ios::binary);
-    if (!input) return {};
+    if (!input)
+        return {};
     std::ostringstream text;
     text << input.rdbuf();
     return text.str();
@@ -129,7 +150,7 @@ bool RunCommand(const std::string& command) {
     return std::system(command.c_str()) == 0;
 #endif
 }
-}
+} // namespace
 
 bool ShaderCompilerSlang::IsAvailable() {
     const auto diag = TempPath(".txt");
@@ -153,32 +174,29 @@ std::string ShaderCompilerSlang::GetVersionString() {
     std::string text = ReadText(diag);
     std::error_code ec;
     std::filesystem::remove(diag, ec);
-    while (!text.empty() && (text.back() == '\n' || text.back() == '\r')) text.pop_back();
+    while (!text.empty() && (text.back() == '\n' || text.back() == '\r'))
+        text.pop_back();
     return text;
 }
 
-bool ShaderCompilerSlang::CompileStageFromFile(
-    const std::filesystem::path& filePath, const std::string& entry,
-    ShaderStage stage, ShaderBackend backend, std::vector<uint8_t>& outBlob,
-    const std::vector<std::string>& defines, std::string* error) {
+bool ShaderCompilerSlang::CompileStageFromFile(const std::filesystem::path& filePath, const std::string& entry,
+                                               ShaderStage stage, ShaderBackend backend, std::vector<uint8_t>& outBlob,
+                                               const std::vector<std::string>& defines, std::string* error) {
     outBlob.clear();
     const char* target = TargetName(backend);
     const char* profile = ProfileName(stage, backend);
     if (!*target) {
-        if (error) *error = "unsupported Slang shader target";
+        if (error)
+            *error = "unsupported Slang shader target";
         return false;
     }
 
-    const auto output = TempPath(
-        backend == ShaderBackend::Metal ? ".metal" :
-        (backend == ShaderBackend::Vulkan ? ".spv" : ".bin"));
+    const auto output =
+        TempPath(backend == ShaderBackend::Metal ? ".metal" : (backend == ShaderBackend::Vulkan ? ".spv" : ".bin"));
     const auto diag = TempPath(".txt");
     std::ostringstream command;
-    command << Quote(SlangcPath())
-            << " " << Quote(filePath.string())
-            << " -entry " << Quote(entry)
-            << " -stage " << StageName(stage)
-            << " -target " << target;
+    command << Quote(SlangcPath()) << " " << Quote(filePath.string()) << " -entry " << Quote(entry) << " -stage "
+            << StageName(stage) << " -target " << target;
     command << " -matrix-layout-row-major";
     if (backend == ShaderBackend::Vulkan) {
         command << " -fvk-use-dx-layout"
@@ -187,9 +205,11 @@ bool ShaderCompilerSlang::CompileStageFromFile(
                 << " -fvk-s-shift 64 0"
                 << " -fvk-u-shift 128 0";
     }
-    if (*profile) command << " -profile " << profile;
+    if (*profile)
+        command << " -profile " << profile;
     command << " -o " << Quote(output.string());
-    for (const auto& define : defines) command << " -D" << Quote(define);
+    for (const auto& define : defines)
+        command << " -D" << Quote(define);
     command << " > " << Quote(diag.string()) << " 2>&1";
 
     const bool ok = RunCommand(command.str()) && ReadFile(output, outBlob) && !outBlob.empty();
@@ -199,8 +219,8 @@ bool ShaderCompilerSlang::CompileStageFromFile(
     std::filesystem::remove(diag, ec);
     if (!ok) {
         if (error) {
-            *error = "slangc failed for " + filePath.string() + " entry=" + entry +
-                " target=" + target + (diagnostics.empty() ? "" : ": " + diagnostics);
+            *error = "slangc failed for " + filePath.string() + " entry=" + entry + " target=" + target +
+                     (diagnostics.empty() ? "" : ": " + diagnostics);
         }
         Logger::Error("[ShaderCompileError] ", error ? *error : "slangc failed");
         return false;

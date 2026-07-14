@@ -38,4 +38,4 @@ inline constexpr std::string_view ShaderTool = "Slang/Metal";
 #else
 inline constexpr std::string_view ShaderTool = "unknown";
 #endif
-}
+} // namespace BuildInfo

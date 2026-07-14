@@ -118,8 +118,7 @@ void AllocTracker::DumpLeaksTopN(size_t maxEntries) const {
         return;
     }
 
-    std::sort(rows.begin(), rows.end(),
-              [](const auto& a, const auto& b) { return a.second.size > b.second.size; });
+    std::sort(rows.begin(), rows.end(), [](const auto& a, const auto& b) { return a.second.size > b.second.size; });
 
     const size_t n = std::min(maxEntries, rows.size());
     Logger::Warn("[Memory] Leak summary: ", rows.size(), " live allocation(s), showing top ", n, " by size");
@@ -140,8 +139,7 @@ void AllocTracker::DumpLeaksTopN(size_t maxEntries) const {
     }
 #else
     (void)maxEntries;
-    Logger::Info("[Memory] Leak detail skipped (MYENGINE_MEM_TRACKING disabled). Live count=",
-                 m_LiveAllocs.load());
+    Logger::Info("[Memory] Leak detail skipped (MYENGINE_MEM_TRACKING disabled). Live count=", m_LiveAllocs.load());
 #endif
 }
 
@@ -172,14 +170,11 @@ void AllocTracker::DumpAggregateStats(const char* title) const {
 
     for (size_t i = 0; i < s.bytesByTag.size(); ++i) {
         const auto tag = static_cast<AllocTag>(i);
-        if (s.bytesByTag[i] == 0 && s.liveCountByTag[i] == 0 && s.allocCallsByTag[i] == 0 &&
-            s.freeCallsByTag[i] == 0) {
+        if (s.bytesByTag[i] == 0 && s.liveCountByTag[i] == 0 && s.allocCallsByTag[i] == 0 && s.freeCallsByTag[i] == 0) {
             continue;
         }
-        Logger::Info("[Memory]   tag=", AllocTagToString(tag),
-                     " bytes=", s.bytesByTag[i],
-                     " liveCount=", s.liveCountByTag[i],
-                     " allocCalls=", s.allocCallsByTag[i],
+        Logger::Info("[Memory]   tag=", AllocTagToString(tag), " bytes=", s.bytesByTag[i],
+                     " liveCount=", s.liveCountByTag[i], " allocCalls=", s.allocCallsByTag[i],
                      " freeCalls=", s.freeCallsByTag[i]);
     }
 }

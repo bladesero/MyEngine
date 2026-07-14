@@ -25,12 +25,10 @@ enum class EditorSelectObjectType : uint8_t {
 
 class EditorSelectObject {
 public:
-    static EditorSelectObject MakeActor(
-        ActorHandle handle, uint64_t persistentID = 0,
-        EditorSelectionWorldKind world = EditorSelectionWorldKind::Editor);
-    static EditorSelectObject MakeActor(
-        uint64_t persistentID,
-        EditorSelectionWorldKind world = EditorSelectionWorldKind::Editor);
+    static EditorSelectObject MakeActor(ActorHandle handle, uint64_t persistentID = 0,
+                                        EditorSelectionWorldKind world = EditorSelectionWorldKind::Editor);
+    static EditorSelectObject MakeActor(uint64_t persistentID,
+                                        EditorSelectionWorldKind world = EditorSelectionWorldKind::Editor);
     static EditorSelectObject MakeAsset(std::string path);
 
     EditorSelectObjectType GetType() const { return m_Type; }
@@ -42,12 +40,8 @@ public:
     EditorSelectionWorldKind GetWorldKind() const { return m_WorldKind; }
     const std::string& GetAssetPath() const { return m_AssetPath; }
 
-    friend bool operator==(const EditorSelectObject& left,
-                           const EditorSelectObject& right);
-    friend bool operator!=(const EditorSelectObject& left,
-                           const EditorSelectObject& right) {
-        return !(left == right);
-    }
+    friend bool operator==(const EditorSelectObject& left, const EditorSelectObject& right);
+    friend bool operator!=(const EditorSelectObject& left, const EditorSelectObject& right) { return !(left == right); }
 
 private:
     EditorSelectObjectType m_Type = EditorSelectObjectType::None;
@@ -72,19 +66,15 @@ struct EditorSelectionChangedEvent {
 class EditorSelection {
 public:
     using ListenerID = uint64_t;
-    using SelectionChangedCallback =
-        std::function<void(const EditorSelectionChangedEvent&)>;
+    using SelectionChangedCallback = std::function<void(const EditorSelectionChangedEvent&)>;
 
-    void Select(EditorSelectObject object,
-                EditorSelectionMode mode = EditorSelectionMode::Replace);
+    void Select(EditorSelectObject object, EditorSelectionMode mode = EditorSelectionMode::Replace);
     const EditorSelectObject& GetPrimaryObject() const { return m_PrimaryObject; }
     ListenerID SubscribeSelectionChanged(SelectionChangedCallback callback);
     void UnsubscribeSelectionChanged(ListenerID listenerID);
 
-    void SelectActorID(uint64_t actorID,
-                       EditorSelectionWorldKind world = EditorSelectionWorldKind::Editor);
-    void SelectActorHandle(ActorHandle actor,
-                           EditorSelectionWorldKind world = EditorSelectionWorldKind::Editor);
+    void SelectActorID(uint64_t actorID, EditorSelectionWorldKind world = EditorSelectionWorldKind::Editor);
+    void SelectActorHandle(ActorHandle actor, EditorSelectionWorldKind world = EditorSelectionWorldKind::Editor);
     void SelectAssetPath(std::string path);
     void Clear();
     void Validate(Scene& scene);
@@ -102,19 +92,15 @@ public:
 
     bool IsMultiSelect() const { return m_MultiActorIDs.size() > 1; }
     const std::vector<uint64_t>& GetActorIDs() const { return m_MultiActorIDs; }
-    void ToggleActorID(uint64_t actorID,
-                       EditorSelectionWorldKind world = EditorSelectionWorldKind::Editor);
-    void AddToMultiSelect(uint64_t actorID,
-                          EditorSelectionWorldKind world = EditorSelectionWorldKind::Editor);
+    void ToggleActorID(uint64_t actorID, EditorSelectionWorldKind world = EditorSelectionWorldKind::Editor);
+    void AddToMultiSelect(uint64_t actorID, EditorSelectionWorldKind world = EditorSelectionWorldKind::Editor);
     void RemoveFromMultiSelect(uint64_t actorID);
-    bool IsSelected(uint64_t actorID,
-                    EditorSelectionWorldKind world = EditorSelectionWorldKind::Editor) const;
+    bool IsSelected(uint64_t actorID, EditorSelectionWorldKind world = EditorSelectionWorldKind::Editor) const;
     size_t GetMultiCount() const { return m_MultiActorIDs.size(); }
     void ClearMultiSelect();
 
 private:
-    void PublishIfChanged(const EditorSelectObject& previous,
-                          const std::vector<uint64_t>& previousActorIDs);
+    void PublishIfChanged(const EditorSelectObject& previous, const std::vector<uint64_t>& previousActorIDs);
 
     EditorSelectObject m_PrimaryObject;
     std::vector<uint64_t> m_MultiActorIDs;

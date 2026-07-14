@@ -5,7 +5,7 @@
 #include <SDL3/SDL.h>
 
 #ifdef MYENGINE_PLATFORM_WINDOWS
-#  include <windows.h>
+#include <windows.h>
 #endif
 
 // --------------------------------------------------------------------------
@@ -22,7 +22,7 @@ bool SDLWindow::Init(const WindowConfig& config) {
         return false;
     }
 
-    m_Width  = config.width;
+    m_Width = config.width;
     m_Height = config.height;
 
     SDL_WindowFlags flags = SDL_WINDOW_RESIZABLE;
@@ -54,8 +54,7 @@ bool SDLWindow::Init(const WindowConfig& config) {
     }
 
     m_Open = true;
-    Logger::Info("SDLWindow created: ", config.title,
-                 " (", m_Width, "x", m_Height, ")");
+    Logger::Info("SDLWindow created: ", config.title, " (", m_Width, "x", m_Height, ")");
     return true;
 }
 
@@ -80,31 +79,30 @@ void SDLWindow::SwapBuffers() {
 }
 
 bool SDLWindow::SetIconFromPixels(const void* rgba8, int width, int height) {
-    if (!m_Window || !rgba8 || width <= 0 || height <= 0) return false;
-    SDL_Surface* surface = SDL_CreateSurfaceFrom(
-        width, height, SDL_PIXELFORMAT_RGBA32,
-        const_cast<void*>(rgba8), width * 4);
+    if (!m_Window || !rgba8 || width <= 0 || height <= 0)
+        return false;
+    SDL_Surface* surface =
+        SDL_CreateSurfaceFrom(width, height, SDL_PIXELFORMAT_RGBA32, const_cast<void*>(rgba8), width * 4);
     if (!surface) {
         Logger::Warn("SDL_CreateSurfaceFrom(icon) failed: ", SDL_GetError());
         return false;
     }
     const bool ok = SDL_SetWindowIcon(m_Window, surface);
     SDL_DestroySurface(surface);
-    if (!ok) Logger::Warn("SDL_SetWindowIcon failed: ", SDL_GetError());
+    if (!ok)
+        Logger::Warn("SDL_SetWindowIcon failed: ", SDL_GetError());
     return ok;
 }
 
 void* SDLWindow::GetNativeHandle() const {
 #ifdef MYENGINE_PLATFORM_WINDOWS
-    if (!m_Window) return nullptr;
-    return SDL_GetPointerProperty(
-        SDL_GetWindowProperties(m_Window),
-        SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr);
+    if (!m_Window)
+        return nullptr;
+    return SDL_GetPointerProperty(SDL_GetWindowProperties(m_Window), SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr);
 #elif defined(MYENGINE_PLATFORM_MACOS)
-    if (!m_Window) return nullptr;
-    return SDL_GetPointerProperty(
-        SDL_GetWindowProperties(m_Window),
-        SDL_PROP_WINDOW_COCOA_WINDOW_POINTER, nullptr);
+    if (!m_Window)
+        return nullptr;
+    return SDL_GetPointerProperty(SDL_GetWindowProperties(m_Window), SDL_PROP_WINDOW_COCOA_WINDOW_POINTER, nullptr);
 #else
     return nullptr;
 #endif

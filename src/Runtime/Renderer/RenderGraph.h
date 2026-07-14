@@ -20,18 +20,18 @@ struct RGBufferHandle {
 };
 
 struct RenderGraphResourceBudget {
-    uint64_t maxTransientBytes=512ull*1024ull*1024ull;
-    uint32_t maxTransientResources=256;
-    uint32_t maxTransientDescriptors=2048;
-    uint64_t maxPooledBytes=512ull*1024ull*1024ull;
-    float poolLowWatermarkRatio=0.8f;
+    uint64_t maxTransientBytes = 512ull * 1024ull * 1024ull;
+    uint32_t maxTransientResources = 256;
+    uint32_t maxTransientDescriptors = 2048;
+    uint64_t maxPooledBytes = 512ull * 1024ull * 1024ull;
+    float poolLowWatermarkRatio = 0.8f;
 };
 struct RenderGraphResourceStats {
-    uint64_t transientRequestedBytes=0,transientAllocatedBytes=0,transientReusedBytes=0;
-    uint64_t pooledBytes=0,poolEvictedBytes=0;
-    uint32_t transientTextures=0,transientBuffers=0,transientDescriptors=0;
-    uint32_t pooledTextures=0,pooledBuffers=0,poolEvictions=0;
-    bool transientBudgetExceeded=false;
+    uint64_t transientRequestedBytes = 0, transientAllocatedBytes = 0, transientReusedBytes = 0;
+    uint64_t pooledBytes = 0, poolEvictedBytes = 0;
+    uint32_t transientTextures = 0, transientBuffers = 0, transientDescriptors = 0;
+    uint32_t pooledTextures = 0, pooledBuffers = 0, poolEvictions = 0;
+    bool transientBudgetExceeded = false;
 };
 
 struct RGTextureSubresource {
@@ -61,17 +61,13 @@ class RenderGraphBuilder {
 public:
     void ReadTexture(RGTextureHandle handle);
     void ReadTexture(RGTextureHandle handle, RGTextureSubresource subresource);
-    void WriteColor(RGTextureHandle handle, RHILoadOp load = RHILoadOp::Load,
-                    RHIStoreOp store = RHIStoreOp::Store,
+    void WriteColor(RGTextureHandle handle, RHILoadOp load = RHILoadOp::Load, RHIStoreOp store = RHIStoreOp::Store,
                     ClearColor clear = {});
-    void WriteColor(RGTextureHandle handle, RGTextureSubresource subresource,
-                    RHILoadOp load = RHILoadOp::Load,
-                    RHIStoreOp store = RHIStoreOp::Store,
-                    ClearColor clear = {});
-    void WriteDepth(RGTextureHandle handle, RHILoadOp load = RHILoadOp::Load,
-                    RHIStoreOp store = RHIStoreOp::Store, float clearDepth = 1.0f);
-    void WriteDepth(RGTextureHandle handle, RGTextureSubresource subresource,
-                    RHILoadOp load = RHILoadOp::Load,
+    void WriteColor(RGTextureHandle handle, RGTextureSubresource subresource, RHILoadOp load = RHILoadOp::Load,
+                    RHIStoreOp store = RHIStoreOp::Store, ClearColor clear = {});
+    void WriteDepth(RGTextureHandle handle, RHILoadOp load = RHILoadOp::Load, RHIStoreOp store = RHIStoreOp::Store,
+                    float clearDepth = 1.0f);
+    void WriteDepth(RGTextureHandle handle, RGTextureSubresource subresource, RHILoadOp load = RHILoadOp::Load,
                     RHIStoreOp store = RHIStoreOp::Store, float clearDepth = 1.0f);
     void ReadWriteUAV(RGTextureHandle handle);
     void ReadWriteUAV(RGTextureHandle handle, RGTextureSubresource subresource);
@@ -101,8 +97,7 @@ private:
         bool read = false;
         bool write = false;
     };
-    RenderGraphBuilder(std::vector<Access>& accesses,
-                       std::vector<BufferAccess>& bufferAccesses)
+    RenderGraphBuilder(std::vector<Access>& accesses, std::vector<BufferAccess>& bufferAccesses)
         : m_Accesses(accesses), m_BufferAccesses(&bufferAccesses) {}
     std::vector<BufferAccess>* m_BufferAccesses = nullptr;
 };
@@ -137,26 +132,18 @@ public:
 
     explicit RenderGraph(IRHIDevice& device);
 
-    RGTextureHandle ImportTexture(const std::string& name,
-                                  const std::shared_ptr<GpuTexture>& texture,
+    RGTextureHandle ImportTexture(const std::string& name, const std::shared_ptr<GpuTexture>& texture,
                                   RHIResourceState initialState);
-    RGTextureHandle ImportTexture(const std::string& name,
-                                  const std::shared_ptr<GpuTexture>& texture,
-                                  RHIResourceState initialState,
-                                  RHIResourceState finalState);
-    RGTextureHandle ImportTexture(const std::string& name,
-                                  const std::shared_ptr<GpuTexture>& texture,
-                                  const std::shared_ptr<GpuTextureView>& view,
-                                  RHIResourceState initialState,
+    RGTextureHandle ImportTexture(const std::string& name, const std::shared_ptr<GpuTexture>& texture,
+                                  RHIResourceState initialState, RHIResourceState finalState);
+    RGTextureHandle ImportTexture(const std::string& name, const std::shared_ptr<GpuTexture>& texture,
+                                  const std::shared_ptr<GpuTextureView>& view, RHIResourceState initialState,
                                   RHIResourceState finalState);
     RGTextureHandle CreateTexture(const std::string& name, const RHITextureDesc& desc);
-    RGBufferHandle ImportBuffer(const std::string& name,
-                                const std::shared_ptr<GpuBuffer>& buffer,
+    RGBufferHandle ImportBuffer(const std::string& name, const std::shared_ptr<GpuBuffer>& buffer,
                                 RHIResourceState initialState);
-    RGBufferHandle ImportBuffer(const std::string& name,
-                                const std::shared_ptr<GpuBuffer>& buffer,
-                                RHIResourceState initialState,
-                                RHIResourceState finalState);
+    RGBufferHandle ImportBuffer(const std::string& name, const std::shared_ptr<GpuBuffer>& buffer,
+                                RHIResourceState initialState, RHIResourceState finalState);
     RGBufferHandle CreateBuffer(const std::string& name, const RHIBufferDesc& desc);
     void SetFinalState(RGTextureHandle handle, RHIResourceState finalState);
     void SetFinalState(RGBufferHandle handle, RHIResourceState finalState);
@@ -170,9 +157,9 @@ public:
     ErrorCode GetLastErrorCode() const { return m_LastErrorCode; }
     const std::vector<std::string>& GetExecutionOrder() const { return m_ExecutionOrderNames; }
     const std::vector<std::string>& GetCulledPasses() const { return m_CulledPassNames; }
-    bool SetResourceBudget(const RenderGraphResourceBudget&,std::string* error=nullptr);
-    const RenderGraphResourceBudget& GetResourceBudget() const{return m_ResourceBudget;}
-    const RenderGraphResourceStats& GetResourceStats() const{return m_ResourceStats;}
+    bool SetResourceBudget(const RenderGraphResourceBudget&, std::string* error = nullptr);
+    const RenderGraphResourceBudget& GetResourceBudget() const { return m_ResourceBudget; }
+    const RenderGraphResourceStats& GetResourceStats() const { return m_ResourceStats; }
 
 private:
     friend class RenderGraphResources;
@@ -244,6 +231,5 @@ private:
 };
 
 inline RenderGraph::PassFlags operator|(RenderGraph::PassFlags a, RenderGraph::PassFlags b) {
-    return static_cast<RenderGraph::PassFlags>(
-        static_cast<uint32_t>(a) | static_cast<uint32_t>(b));
+    return static_cast<RenderGraph::PassFlags>(static_cast<uint32_t>(a) | static_cast<uint32_t>(b));
 }

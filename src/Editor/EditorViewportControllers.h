@@ -27,10 +27,8 @@ public:
 
 class EditorGizmoController {
 public:
-    static bool ComputeLocalMatrix(const Mat4& world, const Mat4* parentWorld,
-                                   Mat4& local);
-    void DrawAndApply(EditorContext& context, Actor& actor,
-                      const EditorPanelRect& viewportRect,
+    static bool ComputeLocalMatrix(const Mat4& world, const Mat4* parentWorld, Mat4& local);
+    void DrawAndApply(EditorContext& context, Actor& actor, const EditorPanelRect& viewportRect,
                       const EditorGizmoState& state);
     void FinishInteraction(EditorContext& context);
 

@@ -8,15 +8,7 @@
 #include <cstdint>
 #include <string>
 
-enum class RHIDeviceLossReason : uint8_t {
-    None,
-    Removed,
-    Reset,
-    Hung,
-    DriverInternalError,
-    OutOfMemory,
-    Unknown
-};
+enum class RHIDeviceLossReason : uint8_t { None, Removed, Reset, Hung, DriverInternalError, OutOfMemory, Unknown };
 
 struct RHIDeviceLossInfo {
     RHIDeviceLossReason reason = RHIDeviceLossReason::None;
@@ -27,13 +19,20 @@ struct RHIDeviceLossInfo {
 
 inline const char* RHIDeviceLossReasonName(RHIDeviceLossReason reason) {
     switch (reason) {
-    case RHIDeviceLossReason::None: return "none";
-    case RHIDeviceLossReason::Removed: return "removed";
-    case RHIDeviceLossReason::Reset: return "reset";
-    case RHIDeviceLossReason::Hung: return "hung";
-    case RHIDeviceLossReason::DriverInternalError: return "driver_internal_error";
-    case RHIDeviceLossReason::OutOfMemory: return "out_of_memory";
-    default: return "unknown";
+    case RHIDeviceLossReason::None:
+        return "none";
+    case RHIDeviceLossReason::Removed:
+        return "removed";
+    case RHIDeviceLossReason::Reset:
+        return "reset";
+    case RHIDeviceLossReason::Hung:
+        return "hung";
+    case RHIDeviceLossReason::DriverInternalError:
+        return "driver_internal_error";
+    case RHIDeviceLossReason::OutOfMemory:
+        return "out_of_memory";
+    default:
+        return "unknown";
     }
 }
 
@@ -49,9 +48,8 @@ public:
         return empty;
     }
     virtual RHIDeviceLossInfo GetDeviceLossInfo() const {
-        return IsDeviceLost()
-            ? RHIDeviceLossInfo{RHIDeviceLossReason::Unknown, 0, 0, GetLastDeviceError()}
-            : RHIDeviceLossInfo{};
+        return IsDeviceLost() ? RHIDeviceLossInfo{RHIDeviceLossReason::Unknown, 0, 0, GetLastDeviceError()}
+                              : RHIDeviceLossInfo{};
     }
     virtual uint32_t GetFrameIndex() const { return 0; }
     virtual GpuCommandList* GetGraphicsCommandList() = 0;

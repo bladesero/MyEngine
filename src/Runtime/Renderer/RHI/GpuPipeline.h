@@ -74,7 +74,9 @@ struct GraphicsPipelineDesc {
     RHIMultisampleState multisample;
 };
 
-struct ComputePipelineDesc { std::shared_ptr<GpuShader> shader; };
+struct ComputePipelineDesc {
+    std::shared_ptr<GpuShader> shader;
+};
 
 struct GpuGraphicsPipeline : GpuResource {
     GraphicsPipelineDesc desc;

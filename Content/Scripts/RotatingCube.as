@@ -6,4 +6,3 @@ class RotatingCube {
     Actor::Rotate(axis * speed * dt);
   }
 }
-

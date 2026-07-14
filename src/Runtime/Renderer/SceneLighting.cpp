@@ -7,15 +7,16 @@
 
 #include <cmath>
 
-SceneLightData CollectSceneLights(const Scene& scene)
-{
+SceneLightData CollectSceneLights(const Scene& scene) {
     SceneLightData out;
     out.ambientIntensity = scene.GetAmbientIntensity();
     bool foundDirectional = false;
     scene.ForEach([&](Actor& actor) {
-        if (!actor.IsActive()) return;
+        if (!actor.IsActive())
+            return;
         auto* light = actor.GetComponent<LightComponent>();
-        if (!light || !light->IsEnabled()) return;
+        if (!light || !light->IsEnabled())
+            return;
 
         if (light->GetLightType() == LightType::Directional) {
             if (!foundDirectional) {
@@ -55,14 +56,15 @@ SceneLightData CollectSceneLights(const Scene& scene)
     return out;
 }
 
-ScenePostProcessData CollectScenePostProcessData(const Scene& scene)
-{
+ScenePostProcessData CollectScenePostProcessData(const Scene& scene) {
     ScenePostProcessData out;
     bool found = false;
     scene.ForEach([&](Actor& actor) {
-        if (found || !actor.IsActive()) return;
+        if (found || !actor.IsActive())
+            return;
         auto* post = actor.GetComponent<PostProcessComponent>();
-        if (!post || !post->IsEnabled()) return;
+        if (!post || !post->IsEnabled())
+            return;
         out.exposure = post->GetExposure();
         out.gamma = post->GetGamma();
         out.toneMapping = post->IsToneMappingEnabled() ? 1.0f : 0.0f;

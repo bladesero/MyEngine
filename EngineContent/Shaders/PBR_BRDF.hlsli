@@ -30,7 +30,6 @@ float3 FresnelSchlick(float cosTheta, float3 F0)
     return F0 + (1.0f - F0) * pow(1.0f - cosTheta, 5.0f);
 }
 
-
 float3 PbrDirectLighting(float3 albedo, float metallic, float roughness,
                          float3 N, float3 V, float3 L, float3 radiance)
 {

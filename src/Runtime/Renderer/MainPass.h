@@ -35,32 +35,18 @@ public:
     explicit MainPass(IRHIDevice* device);
     ~MainPass() override;
 
-    void Execute(GpuCommandList& commands, const Scene& scene,
-                 const Camera& camera) override;
-    void ExecuteTransparentOnly(GpuCommandList& commands, const Scene& scene,
-                                const Camera& camera);
+    void Execute(GpuCommandList& commands, const Scene& scene, const Camera& camera) override;
+    void ExecuteTransparentOnly(GpuCommandList& commands, const Scene& scene, const Camera& camera);
     void Resize(uint32_t width, uint32_t height) override;
 
-
     void SetHdrPassthrough(bool passthrough);
-    void SetShadowInput(const Mat4& lightViewProj,
-                        const Vec3& lightDirection,
-                        bool directionalShadowEnabled,
-                        GpuTexture* shadowMap,
-                        const Mat4& spotLightViewProj,
-                        int spotShadowIndex,
-                        GpuTexture* spotShadowMap,
-                        const Vec3& pointShadowPosition,
-                        float pointShadowRange,
-                        int pointShadowIndex,
-                        GpuTexture* pointShadowMap,
-                        const Mat4* cascadeViewProj,
-                        uint32_t cascadeCount,
-                        const float* cascadeSplits);
-    void SetCascadeShadowInput(const Mat4* cascadeViewProj, uint32_t cascadeCount,
-                               const float* cascadeSplits);
-    void SetEnvironmentInput(GpuTexture* environmentCubemap,
-                             std::shared_ptr<GpuBufferView> sh2Buffer,
+    void SetShadowInput(const Mat4& lightViewProj, const Vec3& lightDirection, bool directionalShadowEnabled,
+                        GpuTexture* shadowMap, const Mat4& spotLightViewProj, int spotShadowIndex,
+                        GpuTexture* spotShadowMap, const Vec3& pointShadowPosition, float pointShadowRange,
+                        int pointShadowIndex, GpuTexture* pointShadowMap, const Mat4* cascadeViewProj,
+                        uint32_t cascadeCount, const float* cascadeSplits);
+    void SetCascadeShadowInput(const Mat4* cascadeViewProj, uint32_t cascadeCount, const float* cascadeSplits);
+    void SetEnvironmentInput(GpuTexture* environmentCubemap, std::shared_ptr<GpuBufferView> sh2Buffer,
                              const float* sh2Coefficients);
     void SetSunDirection(const Vec3& direction);
     const Stats& GetLastStats() const { return m_LastStats; }
@@ -79,19 +65,15 @@ private:
     void EnsureNamedBindingDefaults();
     GpuShader* GetOrCreateShader();
     GpuShader* GetOrCreateSkyShader();
-    GpuGraphicsPipeline* GetOrCreateMainPipeline(bool transparent,
-                                                 bool twoSided,
-                                                 bool wireframe);
+    GpuGraphicsPipeline* GetOrCreateMainPipeline(bool transparent, bool twoSided, bool wireframe);
     GpuGraphicsPipeline* GetOrCreateMaterialPipeline(const MaterialAsset& material);
     GpuGraphicsPipeline* GetOrCreateSkyPipeline();
     void RenderSky(const Camera& camera, GpuCommandList& cmd);
     bool CanReuseMaterialBindGroups() const;
-    std::shared_ptr<GpuBindGroup> GetOrCreateMaterialBindGroup(
-        GpuShader* shader,
-        const MaterialAsset& material,
-        bool shadowedPbr,
-        const std::array<GpuTexture*, 9>& textures,
-        const std::array<TextureAsset*, 9>& textureAssets);
+    std::shared_ptr<GpuBindGroup> GetOrCreateMaterialBindGroup(GpuShader* shader, const MaterialAsset& material,
+                                                               bool shadowedPbr,
+                                                               const std::array<GpuTexture*, 9>& textures,
+                                                               const std::array<TextureAsset*, 9>& textureAssets);
 
 private:
     friend class SkyPass;
@@ -105,7 +87,6 @@ private:
     };
 
     ShaderMode m_ShaderMode = ShaderMode::Unknown;
-
 
     std::shared_ptr<ShaderHandle> m_MainShaderHandle;
     bool m_HdrPassthrough = true;
@@ -130,10 +111,10 @@ private:
     bool m_LoggedEnvironmentState = false;
     bool m_LoggedEnvironmentSHBindingFailure = false;
     Mat4 m_LightViewProj = Mat4::Identity();
-    Mat4 m_LightViewProjCascade[3] = { Mat4::Identity(), Mat4::Identity(), Mat4::Identity() };
+    Mat4 m_LightViewProjCascade[3] = {Mat4::Identity(), Mat4::Identity(), Mat4::Identity()};
     float m_CascadeSplits[4] = {};
     Mat4 m_SpotLightViewProj = Mat4::Identity();
-    Vec3 m_LightDirection = Vec3{ -0.55f, -1.0f, -0.45f }.Normalized();
+    Vec3 m_LightDirection = Vec3{-0.55f, -1.0f, -0.45f}.Normalized();
     Vec3 m_SunDirection = Vec3{0.35f, 0.72f, 0.25f}.Normalized();
     bool m_DirectionalShadowEnabled = false;
     Vec3 m_PointShadowPosition = Vec3::Zero();

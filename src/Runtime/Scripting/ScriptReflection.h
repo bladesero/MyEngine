@@ -28,4 +28,3 @@ struct ScriptClassInfo {
     std::string name;
     std::vector<ScriptFieldInfo> fields;
 };
-

@@ -28,8 +28,7 @@ public:
 
     explicit ShadowPass(IRHIDevice* device);
 
-    void Execute(GpuCommandList& commands, const Scene& scene,
-                 const Camera& camera) override;
+    void Execute(GpuCommandList& commands, const Scene& scene, const Camera& camera) override;
     void Resize(uint32_t width, uint32_t height) override;
     bool PrepareGraphResources(const Scene& scene, const Camera& camera);
     GraphResources GetGraphResources() const;
@@ -58,8 +57,7 @@ private:
     void EnsureShadowShader();
 
     bool EnsureShadowResources();
-    void DrawShadowScene(GpuCommandList& commands, const Scene& scene,
-                         const Mat4& lightViewProj);
+    void DrawShadowScene(GpuCommandList& commands, const Scene& scene, const Mat4& lightViewProj);
 
 private:
     static constexpr uint32_t kDefaultShadowMapSize = 2048;
@@ -72,7 +70,7 @@ private:
     Mat4 m_LightViewProjCascade[4] = {};
     float m_CascadeSplits[4] = {};
     uint32_t m_CascadeCount = 0;
-    Vec3 m_LightDirection = Vec3{ -0.55f, -1.0f, -0.45f }.Normalized();
+    Vec3 m_LightDirection = Vec3{-0.55f, -1.0f, -0.45f}.Normalized();
     bool m_DirectionalShadowEnabled = false;
     Mat4 m_SpotLightViewProj = Mat4::Identity();
     int m_SpotShadowIndex = -1;

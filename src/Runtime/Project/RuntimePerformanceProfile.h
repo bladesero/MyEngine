@@ -7,8 +7,7 @@
 #include <string>
 
 struct RuntimePerformanceProfile {
-    static constexpr uint32_t CurrentVersion =
-        FormatVersions::RuntimePerformanceProfile;
+    static constexpr uint32_t CurrentVersion = FormatVersions::RuntimePerformanceProfile;
 
     uint32_t version = CurrentVersion;
     std::string name = "desktop-60fps";
@@ -20,9 +19,7 @@ struct RuntimePerformanceProfile {
     double maxSceneReloadMs = 5000.0;
     RuntimePerformanceBudget budget;
 
-    static bool FromJson(nlohmann::json value, RuntimePerformanceProfile& out,
-                         std::string* error = nullptr);
-    static bool FromText(const std::string& text, RuntimePerformanceProfile& out,
-                         std::string* error = nullptr);
+    static bool FromJson(nlohmann::json value, RuntimePerformanceProfile& out, std::string* error = nullptr);
+    static bool FromText(const std::string& text, RuntimePerformanceProfile& out, std::string* error = nullptr);
     nlohmann::json ToJson() const;
 };

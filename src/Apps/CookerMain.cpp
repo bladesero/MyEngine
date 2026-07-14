@@ -17,9 +17,12 @@ int main(int argc, char* argv[]) {
                 return 2;
             }
             const std::string value = argv[++index];
-            if (argument == "--project") projectRoot = value;
-            else if (argument == "--binaries") binaries = value;
-            else engineContent = value;
+            if (argument == "--project")
+                projectRoot = value;
+            else if (argument == "--binaries")
+                binaries = value;
+            else
+                engineContent = value;
         } else if (argument.rfind("--project=", 0) == 0) {
             projectRoot = argument.substr(std::string("--project=").size());
         } else if (argument.rfind("--binaries=", 0) == 0) {
@@ -43,8 +46,7 @@ int main(int argc, char* argv[]) {
         std::cerr << "Publish error: " << error << '\n';
         return 1;
     }
-    std::cout << "Published " << report.cookedFiles.size() << " files ("
-              << report.contentBytes << " bytes) to "
+    std::cout << "Published " << report.cookedFiles.size() << " files (" << report.contentBytes << " bytes) to "
               << report.outputDirectory.string() << '\n';
     return 0;
 }

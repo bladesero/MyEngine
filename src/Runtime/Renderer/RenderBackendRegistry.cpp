@@ -4,24 +4,20 @@
 #include <cctype>
 
 namespace {
-std::string Normalize(std::string_view value)
-{
+std::string Normalize(std::string_view value) {
     std::string normalized(value);
     std::transform(normalized.begin(), normalized.end(), normalized.begin(),
                    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     return normalized;
 }
-}
+} // namespace
 
-std::optional<RenderBackend> ParseRenderBackend(std::string_view value)
-{
+std::optional<RenderBackend> ParseRenderBackend(std::string_view value) {
     const std::string normalized = Normalize(value);
-    if (normalized == "d3d11" || normalized == "directx11" ||
-        normalized == "dx11" || normalized == "11") {
+    if (normalized == "d3d11" || normalized == "directx11" || normalized == "dx11" || normalized == "11") {
         return RenderBackend::D3D11;
     }
-    if (normalized == "d3d12" || normalized == "directx12" ||
-        normalized == "dx12" || normalized == "12") {
+    if (normalized == "d3d12" || normalized == "directx12" || normalized == "dx12" || normalized == "12") {
         return RenderBackend::D3D12;
     }
     if (normalized == "metal" || normalized == "mtl") {
@@ -33,8 +29,7 @@ std::optional<RenderBackend> ParseRenderBackend(std::string_view value)
     return std::nullopt;
 }
 
-bool IsRenderBackendKnown(RenderBackend backend)
-{
+bool IsRenderBackendKnown(RenderBackend backend) {
     switch (backend) {
     case RenderBackend::D3D11:
     case RenderBackend::D3D12:
@@ -45,8 +40,7 @@ bool IsRenderBackendKnown(RenderBackend backend)
     return false;
 }
 
-bool IsBackendCompiled(RenderBackend backend)
-{
+bool IsBackendCompiled(RenderBackend backend) {
     switch (backend) {
     case RenderBackend::D3D11:
     case RenderBackend::D3D12:
@@ -71,8 +65,7 @@ bool IsBackendCompiled(RenderBackend backend)
     return false;
 }
 
-std::unique_ptr<IRenderContext> CreateRenderContext(RenderBackend backend)
-{
+std::unique_ptr<IRenderContext> CreateRenderContext(RenderBackend backend) {
     switch (backend) {
     case RenderBackend::D3D11:
 #if defined(MYENGINE_PLATFORM_WINDOWS)
@@ -102,35 +95,42 @@ std::unique_ptr<IRenderContext> CreateRenderContext(RenderBackend backend)
     return {};
 }
 
-const char* RenderBackendToProjectValue(RenderBackend backend)
-{
+const char* RenderBackendToProjectValue(RenderBackend backend) {
     switch (backend) {
-    case RenderBackend::D3D11: return "d3d11";
-    case RenderBackend::D3D12: return "d3d12";
-    case RenderBackend::Metal: return "metal";
-    case RenderBackend::Vulkan: return "vulkan";
+    case RenderBackend::D3D11:
+        return "d3d11";
+    case RenderBackend::D3D12:
+        return "d3d12";
+    case RenderBackend::Metal:
+        return "metal";
+    case RenderBackend::Vulkan:
+        return "vulkan";
     }
     return "unknown";
 }
 
-const char* RenderBackendToLabel(RenderBackend backend)
-{
+const char* RenderBackendToLabel(RenderBackend backend) {
     switch (backend) {
-    case RenderBackend::D3D11: return "DirectX 11";
-    case RenderBackend::D3D12: return "DirectX 12";
-    case RenderBackend::Metal: return "Metal";
-    case RenderBackend::Vulkan: return "Vulkan";
+    case RenderBackend::D3D11:
+        return "DirectX 11";
+    case RenderBackend::D3D12:
+        return "DirectX 12";
+    case RenderBackend::Metal:
+        return "Metal";
+    case RenderBackend::Vulkan:
+        return "Vulkan";
     }
     return "Unknown";
 }
 
-std::string AvailableRenderBackendValues()
-{
+std::string AvailableRenderBackendValues() {
     std::string values;
-    for (RenderBackend backend : {RenderBackend::D3D11, RenderBackend::D3D12,
-                                  RenderBackend::Metal, RenderBackend::Vulkan}) {
-        if (!IsBackendCompiled(backend)) continue;
-        if (!values.empty()) values += "/";
+    for (RenderBackend backend :
+         {RenderBackend::D3D11, RenderBackend::D3D12, RenderBackend::Metal, RenderBackend::Vulkan}) {
+        if (!IsBackendCompiled(backend))
+            continue;
+        if (!values.empty())
+            values += "/";
         values += RenderBackendToProjectValue(backend);
     }
     return values.empty() ? "none" : values;

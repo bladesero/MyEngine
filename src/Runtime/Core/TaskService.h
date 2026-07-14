@@ -25,18 +25,16 @@ public:
 
 class CancellationToken {
 public:
-    bool IsCancellationRequested() const {
-        return m_Cancelled && m_Cancelled->load(std::memory_order_acquire);
-    }
+    bool IsCancellationRequested() const { return m_Cancelled && m_Cancelled->load(std::memory_order_acquire); }
     void ThrowIfCancellationRequested() const {
-        if (IsCancellationRequested()) throw TaskCancelled{};
+        if (IsCancellationRequested())
+            throw TaskCancelled{};
     }
 
 private:
     friend class TaskService;
     friend class TaskScope;
-    explicit CancellationToken(std::shared_ptr<std::atomic<bool>> cancelled)
-        : m_Cancelled(std::move(cancelled)) {}
+    explicit CancellationToken(std::shared_ptr<std::atomic<bool>> cancelled) : m_Cancelled(std::move(cancelled)) {}
     std::shared_ptr<std::atomic<bool>> m_Cancelled;
 };
 
@@ -54,30 +52,31 @@ public:
     std::string stableName;
 };
 
-template <typename T>
-class TaskState final : public TaskStateBase {
+template <typename T> class TaskState final : public TaskStateBase {
 public:
     TaskState() : future(promise.get_future().share()) {}
     void Cancel() override { cancelled->store(true, std::memory_order_release); }
     void Wait() const override { future.wait(); }
-    bool IsReady() const override {
-        return future.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
-    }
+    bool IsReady() const override { return future.wait_for(std::chrono::seconds(0)) == std::future_status::ready; }
 
     std::promise<T> promise;
     std::shared_future<T> future;
-    std::shared_ptr<std::atomic<bool>> cancelled =
-        std::make_shared<std::atomic<bool>>(false);
+    std::shared_ptr<std::atomic<bool>> cancelled = std::make_shared<std::atomic<bool>>(false);
 };
 
-template <typename T>
-class TaskHandle {
+template <typename T> class TaskHandle {
 public:
     TaskHandle() = default;
     bool Valid() const { return static_cast<bool>(m_State); }
     bool IsReady() const { return m_State && m_State->IsReady(); }
-    void Cancel() const { if (m_State) m_State->Cancel(); }
-    void Wait() const { if (m_State) m_State->Wait(); }
+    void Cancel() const {
+        if (m_State)
+            m_State->Cancel();
+    }
+    void Wait() const {
+        if (m_State)
+            m_State->Wait();
+    }
     T Get() const { return m_State->future.get(); }
     const std::string& GetStableName() const {
         static const std::string empty;
@@ -90,8 +89,9 @@ private:
     std::shared_ptr<TaskState<T>> m_State;
 };
 
-template <>
-inline void TaskHandle<void>::Get() const { m_State->future.get(); }
+template <> inline void TaskHandle<void>::Get() const {
+    m_State->future.get();
+}
 
 class TaskScope {
 public:
@@ -142,8 +142,7 @@ private:
         uint64_t sequence = 0;
         std::function<void()> execute;
     };
-    void Enqueue(TaskPriority priority, WorkItem work,
-                 const std::shared_ptr<TaskStateBase>& state);
+    void Enqueue(TaskPriority priority, WorkItem work, const std::shared_ptr<TaskStateBase>& state);
     void WorkerLoop();
 
     mutable std::mutex m_Mutex;
@@ -158,8 +157,7 @@ private:
 
 template <typename Function>
 auto TaskService::Submit(TaskScope& scope, TaskDescriptor descriptor, Function&& function)
-    -> TaskHandle<std::invoke_result_t<Function, CancellationToken>>
-{
+    -> TaskHandle<std::invoke_result_t<Function, CancellationToken>> {
     using Result = std::invoke_result_t<Function, CancellationToken>;
     auto state = std::make_shared<TaskState<Result>>();
     state->stableName = descriptor.stableName;

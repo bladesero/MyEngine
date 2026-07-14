@@ -99,37 +99,35 @@ fragment float4 PSMain(VSOut input [[stage_in]],
 
 } // namespace
 
-ScreenUIPass::ScreenUIPass(IRHIDevice* device)
-    : RenderPass(device)
-{}
+ScreenUIPass::ScreenUIPass(IRHIDevice* device) : RenderPass(device) {
+}
 
-void ScreenUIPass::Resize(uint32_t width, uint32_t height)
-{
+void ScreenUIPass::Resize(uint32_t width, uint32_t height) {
     m_Width = width > 0 ? width : 1;
     m_Height = height > 0 ? height : 1;
 }
 
-GpuShader* ScreenUIPass::GetOrCreateShader()
-{
-    if (m_Shader || !Device()) return m_Shader.get();
+GpuShader* ScreenUIPass::GetOrCreateShader() {
+    if (m_Shader || !Device())
+        return m_Shader.get();
     const VertexElement layout[] = {
         {"POSITION", 0, VertexFormat::Float2, offsetof(UIVertex, x)},
         {"TEXCOORD", 0, VertexFormat::Float2, offsetof(UIVertex, u)},
         {"COLOR", 0, VertexFormat::Float4, offsetof(UIVertex, r)},
     };
-    const char* source = Device()->GetBackend() == RHIBackend::Metal
-        ? kUIShaderMetal
-        : kUIShader;
+    const char* source = Device()->GetBackend() == RHIBackend::Metal ? kUIShaderMetal : kUIShader;
     m_Shader = Device()->CreateShader(source, "VSMain", "PSMain", layout, 3);
-    if (!m_Shader) Logger::Warn("[ScreenUIPass] Failed to create UI shader");
+    if (!m_Shader)
+        Logger::Warn("[ScreenUIPass] Failed to create UI shader");
     return m_Shader.get();
 }
 
-GpuGraphicsPipeline* ScreenUIPass::GetOrCreatePipeline()
-{
-    if (m_Pipeline) return m_Pipeline.get();
+GpuGraphicsPipeline* ScreenUIPass::GetOrCreatePipeline() {
+    if (m_Pipeline)
+        return m_Pipeline.get();
     GpuShader* shader = GetOrCreateShader();
-    if (!shader || !Device()) return nullptr;
+    if (!shader || !Device())
+        return nullptr;
 
     GraphicsPipelineDesc desc;
     desc.shader = m_Shader;
@@ -139,29 +137,31 @@ GpuGraphicsPipeline* ScreenUIPass::GetOrCreatePipeline()
     desc.rasterizer.cullMode = RHICullMode::None;
     desc.blend.attachments[0].blendEnable = true;
     m_Pipeline = Device()->CreateGraphicsPipeline(desc);
-    if (!m_Pipeline) Logger::Warn("[ScreenUIPass] Failed to create UI pipeline");
+    if (!m_Pipeline)
+        Logger::Warn("[ScreenUIPass] Failed to create UI pipeline");
     return m_Pipeline.get();
 }
 
-std::shared_ptr<GpuTexture> ScreenUIPass::GetOrCreateWhiteTexture()
-{
-    if (m_WhiteTexture || !Device()) return m_WhiteTexture;
+std::shared_ptr<GpuTexture> ScreenUIPass::GetOrCreateWhiteTexture() {
+    if (m_WhiteTexture || !Device())
+        return m_WhiteTexture;
     const uint8_t pixel[4] = {255, 255, 255, 255};
     m_WhiteTexture = Device()->UploadTexture2D(pixel, 1, 1);
     return m_WhiteTexture;
 }
 
-void ScreenUIPass::Execute(GpuCommandList&, const Scene&, const Camera&)
-{}
+void ScreenUIPass::Execute(GpuCommandList&, const Scene&, const Camera&) {
+}
 
-void ScreenUIPass::Execute(GpuCommandList& commands, const UIDrawList& drawList)
-{
+void ScreenUIPass::Execute(GpuCommandList& commands, const UIDrawList& drawList) {
     GpuGraphicsPipeline* pipeline = GetOrCreatePipeline();
-    if (!pipeline || drawList.Empty()) return;
+    if (!pipeline || drawList.Empty())
+        return;
 
     commands.SetGraphicsPipeline(pipeline);
     for (const UIDrawCommand& command : drawList.GetCommands()) {
-        if (!command.vertexBuffer || !command.indexBuffer || command.indexCount == 0) continue;
+        if (!command.vertexBuffer || !command.indexBuffer || command.indexCount == 0)
+            continue;
         UIScreenConstants constants{};
         constants.invSize[0] = 1.0f / static_cast<float>(m_Width);
         constants.invSize[1] = 1.0f / static_cast<float>(m_Height);
@@ -169,14 +169,12 @@ void ScreenUIPass::Execute(GpuCommandList& commands, const UIDrawList& drawList)
         constants.translation[1] = command.translateY;
         commands.SetVSConstants(&constants, sizeof(constants));
         if (command.scissor.enabled) {
-            commands.SetScissor(command.scissor.x, command.scissor.y,
-                                static_cast<uint32_t>(command.scissor.width),
+            commands.SetScissor(command.scissor.x, command.scissor.y, static_cast<uint32_t>(command.scissor.width),
                                 static_cast<uint32_t>(command.scissor.height));
         }
         commands.BindVertexBuffer(command.vertexBuffer.get());
         commands.BindIndexBuffer(command.indexBuffer.get());
-        commands.BindPSTexture(0, command.texture ? command.texture.get()
-                                                  : GetOrCreateWhiteTexture().get());
+        commands.BindPSTexture(0, command.texture ? command.texture.get() : GetOrCreateWhiteTexture().get());
         commands.DrawIndexed(command.indexCount, command.startIndex, command.baseVertex);
     }
 }

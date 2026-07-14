@@ -8,14 +8,11 @@
 
 namespace Editor::UI::EditorPropertyGrid {
 
-void Begin(const char* id, float labelWidth)
-{
+void Begin(const char* id, float labelWidth) {
 #if defined(MYENGINE_ENABLE_IMGUI)
     ImGui::PushID(id);
     ImGui::Columns(2, "##PropertyGrid", false);
-    const float width = labelWidth > 0.0f
-        ? labelWidth
-        : ScaleToken(EditorStyleTokens{}.propertyLabelWidth, 1.0f);
+    const float width = labelWidth > 0.0f ? labelWidth : ScaleToken(EditorStyleTokens{}.propertyLabelWidth, 1.0f);
     ImGui::SetColumnWidth(0, width);
 #else
     (void)id;
@@ -23,16 +20,14 @@ void Begin(const char* id, float labelWidth)
 #endif
 }
 
-void End()
-{
+void End() {
 #if defined(MYENGINE_ENABLE_IMGUI)
     ImGui::Columns(1);
     ImGui::PopID();
 #endif
 }
 
-bool BeginRow(const char* label)
-{
+bool BeginRow(const char* label) {
 #if defined(MYENGINE_ENABLE_IMGUI)
     ImGui::AlignTextToFramePadding();
     ImGui::TextUnformatted(label);
@@ -46,8 +41,7 @@ bool BeginRow(const char* label)
 #endif
 }
 
-void EndRow()
-{
+void EndRow() {
 #if defined(MYENGINE_ENABLE_IMGUI)
     ImGui::PopID();
     ImGui::NextColumn();

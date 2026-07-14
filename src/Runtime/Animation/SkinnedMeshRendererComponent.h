@@ -49,8 +49,7 @@ public:
 
 private:
     BoneKeyframe SampleTrack(const BoneTrack& track, const Bone& bone, float time) const;
-    BoneKeyframe SampleClip(const AnimationClip& clip, const Bone& bone,
-                            size_t boneIndex, float time) const;
+    BoneKeyframe SampleClip(const AnimationClip& clip, const Bone& bone, size_t boneIndex, float time) const;
     void RebuildPose();
     void RebuildGpuMesh();
 

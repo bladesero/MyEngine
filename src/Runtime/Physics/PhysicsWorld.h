@@ -29,10 +29,9 @@ public:
     void Clear();
     void Step(Scene& scene, float deltaSeconds);
     void StepFixed(Scene& scene, float fixedDeltaSeconds);
-    bool Raycast(const Scene& scene, const Ray& ray, float maxDistance,
-                 uint32_t layerMask, RaycastHit& hit) const;
-    bool OverlapSphere(const Scene& scene, const Vec3& center, float radius,
-                       uint32_t layerMask, std::vector<ActorHandle>& outActors) const;
+    bool Raycast(const Scene& scene, const Ray& ray, float maxDistance, uint32_t layerMask, RaycastHit& hit) const;
+    bool OverlapSphere(const Scene& scene, const Vec3& center, float radius, uint32_t layerMask,
+                       std::vector<ActorHandle>& outActors) const;
 
 private:
     class Impl;

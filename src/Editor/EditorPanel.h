@@ -10,8 +10,7 @@
 class EditorContext;
 class EditorContextMenu;
 
-using ContextMenuHandler = std::function<void(
-    const ContextMenuContext& ctx, EditorContextMenu& menu)>;
+using ContextMenuHandler = std::function<void(const ContextMenuContext& ctx, EditorContextMenu& menu)>;
 
 class EditorPanel {
 public:
@@ -21,16 +20,12 @@ public:
     virtual void OnDetach() { m_Context = nullptr; }
     virtual void OnUpdate(float deltaSeconds) { (void)deltaSeconds; }
     virtual bool ShouldUpdateWhenHidden() const { return false; }
-    virtual bool HandleEditorAction(EditorContext& context,
-                                    std::string_view actionID)
-    {
+    virtual bool HandleEditorAction(EditorContext& context, std::string_view actionID) {
         (void)context;
         (void)actionID;
         return false;
     }
-    virtual bool CanHandleEditorAction(const EditorContext& context,
-                                       std::string_view actionID) const
-    {
+    virtual bool CanHandleEditorAction(const EditorContext& context, std::string_view actionID) const {
         (void)context;
         (void)actionID;
         return false;
@@ -58,8 +53,7 @@ protected:
 
     // Call inside a context-menu popup (after BeginPopup returned true).
     // Iterates all registered handlers and lets them build the menu.
-    void ShowContextMenu(const ContextMenuContext& ctx,
-                         EditorContextMenu& menu);
+    void ShowContextMenu(const ContextMenuContext& ctx, EditorContextMenu& menu);
 
 private:
     std::string m_ID, m_Title;

@@ -6,16 +6,14 @@
 
 namespace Editor::UI::EditorViewportPolicy {
 
-inline void BindNextModalToMainViewport()
-{
+inline void BindNextModalToMainViewport() {
 #if defined(MYENGINE_ENABLE_IMGUI)
     if (ImGuiViewport* viewport = ImGui::GetMainViewport())
         ImGui::SetNextWindowViewport(viewport->ID);
 #endif
 }
 
-inline void BindNextPopupToCurrentViewport()
-{
+inline void BindNextPopupToCurrentViewport() {
 #if defined(MYENGINE_ENABLE_IMGUI)
     if (ImGuiViewport* viewport = ImGui::GetWindowViewport())
         ImGui::SetNextWindowViewport(viewport->ID);

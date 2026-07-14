@@ -48,8 +48,7 @@ public:
     const std::vector<ScriptFieldInfo>& GetFields() const { return m_Fields; }
     bool SetPropertyValue(const std::string& name, nlohmann::json value);
     const nlohmann::json& GetInstanceState() const;
-    bool SubscribeUIEvent(const std::string& elementId, const std::string& eventName,
-                          const std::string& callbackName);
+    bool SubscribeUIEvent(const std::string& elementId, const std::string& eventName, const std::string& callbackName);
     void UnsubscribeUIEvent(const std::string& elementId, const std::string& eventName);
     void ClearUIEventSubscriptions();
     bool SubscribeScriptEvent(const std::string& eventName, const std::string& callbackName);
@@ -66,16 +65,10 @@ public:
 
 private:
     void Compile(bool preserveRuntimeState = false);
-    bool TryCompileSource(const std::string& source,
-                          const std::string& chunkName,
-                          const std::string& className,
-                          nlohmann::json inspector,
-                          nlohmann::json state,
-                          std::unique_ptr<AngelScriptRuntime>& outRuntime,
-                          nlohmann::json& outInspector,
-                          nlohmann::json& outState,
-                          std::vector<std::string>& outDependencies,
-                          std::string& outError);
+    bool TryCompileSource(const std::string& source, const std::string& chunkName, const std::string& className,
+                          nlohmann::json inspector, nlohmann::json state,
+                          std::unique_ptr<AngelScriptRuntime>& outRuntime, nlohmann::json& outInspector,
+                          nlohmann::json& outState, std::vector<std::string>& outDependencies, std::string& outError);
     void Call(const char* functionName, float deltaSeconds);
     void PollHotReload();
     bool LoadFileSource();

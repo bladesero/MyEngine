@@ -28,10 +28,6 @@ VSOut VSMain(uint vertexId : SV_VertexID)
     return output;
 }
 
-
-
-
-
 float4 PSMain(VSOut input) : SV_TARGET
 {
     float2 rayOffset = float2(

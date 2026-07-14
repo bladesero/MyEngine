@@ -9,7 +9,20 @@
 
 class EditorProfiler;
 
-enum class EditorAssetType { Unknown, Model, Texture, Material, Scene, Prefab, Script, Shader, Audio, UI, Particle, Navigation };
+enum class EditorAssetType {
+    Unknown,
+    Model,
+    Texture,
+    Material,
+    Scene,
+    Prefab,
+    Script,
+    Shader,
+    Audio,
+    UI,
+    Particle,
+    Navigation
+};
 struct EditorAssetInfo {
     std::filesystem::path absolutePath;
     std::string relativePath;
@@ -38,11 +51,11 @@ public:
     bool WatchForChanges();
     std::vector<EditorAssetInfo> GetAssets(EditorAssetType filter = EditorAssetType::Unknown) const;
     const std::vector<EditorAssetFolderInfo>& GetFolders() const { return m_Folders; }
-    std::vector<EditorAssetInfo> GetAssetsInFolder(const std::string& folderPath,
-                                                   bool recursive = true,
+    std::vector<EditorAssetInfo> GetAssetsInFolder(const std::string& folderPath, bool recursive = true,
                                                    EditorAssetType filter = EditorAssetType::Unknown) const;
     const EditorAssetInfo* GetAssetInfo(const std::string& path) const;
     const std::filesystem::path& GetRoot() const { return m_Root; }
+
 private:
     struct DirectorySnapshot {
         bool valid = false;

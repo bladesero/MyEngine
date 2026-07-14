@@ -13,69 +13,60 @@
 #include <sstream>
 
 namespace {
-EditorContext* GetContext(lua_State* state)
-{
+EditorContext* GetContext(lua_State* state) {
     return static_cast<EditorContext*>(lua_touserdata(state, lua_upvalueindex(1)));
 }
 
-void SetError(std::string* error, std::string message)
-{
-    if (error) *error = std::move(message);
+void SetError(std::string* error, std::string message) {
+    if (error)
+        *error = std::move(message);
 }
 
-int Traceback(lua_State* state)
-{
+int Traceback(lua_State* state) {
     const char* message = lua_tostring(state, 1);
-    if (message) luaL_traceback(state, state, message, 1);
-    else lua_pushliteral(state, "Lua editor script failed");
+    if (message)
+        luaL_traceback(state, state, message, 1);
+    else
+        lua_pushliteral(state, "Lua editor script failed");
     return 1;
 }
 
-bool ExecuteSnapshotCommand(EditorContext& context, const char* name,
-                            const std::string& beforeJson,
-                            const std::string& afterJson,
-                            uint64_t beforeSelection,
-                            uint64_t afterSelection)
-{
-    auto command = std::make_unique<SceneSnapshotCommand>(
-        name, beforeJson, afterJson, beforeSelection, afterSelection);
+bool ExecuteSnapshotCommand(EditorContext& context, const char* name, const std::string& beforeJson,
+                            const std::string& afterJson, uint64_t beforeSelection, uint64_t afterSelection) {
+    auto command = std::make_unique<SceneSnapshotCommand>(name, beforeJson, afterJson, beforeSelection, afterSelection);
     if (EditorCommandStack* stack = context.GetCommandStack()) {
         return stack->ExecuteCommand(std::move(command), context);
     }
     return command->Execute(context);
 }
 
-int EditorLog(lua_State* state)
-{
+int EditorLog(lua_State* state) {
     const char* message = luaL_checkstring(state, 1);
     Logger::Info("[EditorLua] ", message ? message : "");
     return 0;
 }
 
-int SelectionGetActorID(lua_State* state)
-{
+int SelectionGetActorID(lua_State* state) {
     EditorContext* context = GetContext(state);
     lua_pushinteger(state, context ? static_cast<lua_Integer>(context->GetSelection().GetActorID()) : 0);
     return 1;
 }
 
-int SelectionSelectActor(lua_State* state)
-{
+int SelectionSelectActor(lua_State* state) {
     EditorContext* context = GetContext(state);
-    if (context) context->GetSelection().SelectActorID(static_cast<uint64_t>(luaL_checkinteger(state, 1)));
+    if (context)
+        context->GetSelection().SelectActorID(static_cast<uint64_t>(luaL_checkinteger(state, 1)));
     return 0;
 }
 
-int SelectionGetAssetPath(lua_State* state)
-{
+int SelectionGetAssetPath(lua_State* state) {
     EditorContext* context = GetContext(state);
     const std::string& path = context ? context->GetSelection().GetAssetPath() : std::string{};
     lua_pushlstring(state, path.data(), path.size());
     return 1;
 }
 
-int SceneCreateActor(lua_State* state)
-{
+int SceneCreateActor(lua_State* state) {
     EditorContext* context = GetContext(state);
     Scene* scene = context ? context->GetScene() : nullptr;
     if (!context || !scene) {
@@ -94,8 +85,7 @@ int SceneCreateActor(lua_State* state)
     return 1;
 }
 
-int SceneDestroySelected(lua_State* state)
-{
+int SceneDestroySelected(lua_State* state) {
     EditorContext* context = GetContext(state);
     Scene* scene = context ? context->GetScene() : nullptr;
     Actor* actor = scene ? context->GetSelection().ResolveActor(*scene) : nullptr;
@@ -113,27 +103,25 @@ int SceneDestroySelected(lua_State* state)
     return 1;
 }
 
-int SceneSetSelectedPosition(lua_State* state)
-{
+int SceneSetSelectedPosition(lua_State* state) {
     EditorContext* context = GetContext(state);
     Scene* scene = context ? context->GetScene() : nullptr;
     Actor* actor = scene ? context->GetSelection().ResolveActor(*scene) : nullptr;
-    if (!context || !scene || !actor) return 0;
+    if (!context || !scene || !actor)
+        return 0;
     Transform before = actor->GetTransform();
     Transform after = before;
-    after.position = {
-        static_cast<float>(luaL_checknumber(state, 1)),
-        static_cast<float>(luaL_checknumber(state, 2)),
-        static_cast<float>(luaL_checknumber(state, 3))
-    };
+    after.position = {static_cast<float>(luaL_checknumber(state, 1)), static_cast<float>(luaL_checknumber(state, 2)),
+                      static_cast<float>(luaL_checknumber(state, 3))};
     auto command = std::make_unique<SetActorTransformCommand>(actor->GetID(), before, after);
-    if (EditorCommandStack* stack = context->GetCommandStack()) stack->ExecuteCommand(std::move(command), *context);
-    else command->Execute(*context);
+    if (EditorCommandStack* stack = context->GetCommandStack())
+        stack->ExecuteCommand(std::move(command), *context);
+    else
+        command->Execute(*context);
     return 0;
 }
 
-int ActionsExecute(lua_State* state)
-{
+int ActionsExecute(lua_State* state) {
     EditorContext* context = GetContext(state);
     const char* id = luaL_checkstring(state, 1);
     EditorActionRegistry* actions = context ? context->GetActionRegistry() : nullptr;
@@ -141,16 +129,13 @@ int ActionsExecute(lua_State* state)
     return 1;
 }
 
-void SetBoundFunction(lua_State* state, EditorContext& context,
-                      const char* name, lua_CFunction function)
-{
+void SetBoundFunction(lua_State* state, EditorContext& context, const char* name, lua_CFunction function) {
     lua_pushlightuserdata(state, &context);
     lua_pushcclosure(state, function, 1);
     lua_setfield(state, -2, name);
 }
 
-void CreateBindings(lua_State* state, EditorContext& context)
-{
+void CreateBindings(lua_State* state, EditorContext& context) {
     lua_createtable(state, 0, 1);
     SetBoundFunction(state, context, "log", EditorLog);
     lua_setglobal(state, "Editor");
@@ -175,10 +160,7 @@ void CreateBindings(lua_State* state, EditorContext& context)
 
 EditorLuaScriptService::~EditorLuaScriptService() = default;
 
-bool EditorLuaScriptService::RunSource(const std::string& source,
-                                       const std::string& chunkName,
-                                       std::string* error)
-{
+bool EditorLuaScriptService::RunSource(const std::string& source, const std::string& chunkName, std::string* error) {
     EditorContext* context = GetContext();
     if (!context) {
         SetError(error, "editor Lua service is not attached");
@@ -206,13 +188,12 @@ bool EditorLuaScriptService::RunSource(const std::string& source,
         }
     }
     lua_close(state);
-    if (!ok && error && !error->empty()) Logger::Error("[EditorLua] ", *error);
+    if (!ok && error && !error->empty())
+        Logger::Error("[EditorLua] ", *error);
     return ok;
 }
 
-bool EditorLuaScriptService::RunFile(const std::filesystem::path& path,
-                                     std::string* error)
-{
+bool EditorLuaScriptService::RunFile(const std::filesystem::path& path, std::string* error) {
     std::ifstream input(path, std::ios::binary);
     if (!input) {
         SetError(error, "failed to open editor Lua script: " + path.string());

@@ -44,16 +44,13 @@ struct EditorAutomationConfig {
     std::string projectName;
     bool publishProject = false;
 
-    bool Enabled() const {
-        return !createProjectRoot.empty() || publishProject;
-    }
+    bool Enabled() const { return !createProjectRoot.empty() || publishProject; }
 };
 
 class EditorLayer final : public Layer {
 public:
     EditorLayer(SceneRenderLayer* sceneLayer, IWindow* window, Engine* engine,
-                std::filesystem::path initialProject = {},
-                EditorAutomationConfig automation = {});
+                std::filesystem::path initialProject = {}, EditorAutomationConfig automation = {});
     void OnAttach() override;
     void OnDetach() override;
     void OnUpdate(float deltaSeconds) override;
@@ -97,9 +94,7 @@ private:
     void ValidateProject();
     void SetStartupScene();
     void PublishProject();
-    bool PublishProjectInternal(PublishReport* report = nullptr,
-                                std::string* error = nullptr,
-                                bool showResult = true);
+    bool PublishProjectInternal(PublishReport* report = nullptr, std::string* error = nullptr, bool showResult = true);
     void RunAutomation();
     void FailAutomation(const std::string& message);
 

@@ -15,23 +15,20 @@
 namespace fs = std::filesystem;
 
 namespace {
-void SetError(std::string* error, std::string message)
-{
-    if (error) *error = std::move(message);
+void SetError(std::string* error, std::string message) {
+    if (error)
+        *error = std::move(message);
 }
 
-bool IsWithin(const fs::path& path, const fs::path& parent)
-{
+bool IsWithin(const fs::path& path, const fs::path& parent) {
     std::error_code ec;
     const fs::path relative = fs::relative(path, parent, ec);
-    return !ec && !relative.empty() && !relative.is_absolute() &&
-        relative.begin() != relative.end() && *relative.begin() != "..";
+    return !ec && !relative.empty() && !relative.is_absolute() && relative.begin() != relative.end() &&
+           *relative.begin() != "..";
 }
 
 bool ValidateShaderIncludes(const fs::path& source, const fs::path& allowedRoot,
-                            std::unordered_set<std::string>& visited,
-                            std::string* error)
-{
+                            std::unordered_set<std::string>& visited, std::string* error) {
     std::error_code ec;
     const fs::path canonicalSource = fs::weakly_canonical(source, ec);
     if (ec) {
@@ -43,7 +40,8 @@ bool ValidateShaderIncludes(const fs::path& source, const fs::path& allowedRoot,
         SetError(error, "shader source escapes Content root: " + source.string());
         return false;
     }
-    if (!visited.insert(canonicalSource.generic_string()).second) return true;
+    if (!visited.insert(canonicalSource.generic_string()).second)
+        return true;
 
     std::ifstream input(canonicalSource);
     if (!input) {
@@ -54,7 +52,8 @@ bool ValidateShaderIncludes(const fs::path& source, const fs::path& allowedRoot,
     std::string line;
     while (std::getline(input, line)) {
         const size_t directive = line.find("#include");
-        if (directive == std::string::npos) continue;
+        if (directive == std::string::npos)
+            continue;
         const size_t begin = line.find_first_of("\"<", directive + 8);
         if (begin == std::string::npos) {
             SetError(error, "invalid shader include: " + source.string());
@@ -77,28 +76,23 @@ bool ValidateShaderIncludes(const fs::path& source, const fs::path& allowedRoot,
                 return false;
             }
         }
-        const fs::path resolved =
-            fs::weakly_canonical(canonicalSource.parent_path() / includePath, ec);
+        const fs::path resolved = fs::weakly_canonical(canonicalSource.parent_path() / includePath, ec);
         if (ec || !IsWithin(resolved, canonicalRoot)) {
             SetError(error, "shader include escapes Content root: " + includePath.string());
             return false;
         }
-        if (!ValidateShaderIncludes(resolved, canonicalRoot, visited, error)) return false;
+        if (!ValidateShaderIncludes(resolved, canonicalRoot, visited, error))
+            return false;
     }
     return true;
 }
 
-bool CompileShaderStageForBackend(const fs::path& hlsl,
-                                  const ShaderStageSource& sourceStage,
-                                  ShaderStage stage,
-                                  ShaderBackend backend,
-                                  const std::vector<std::string>& defines,
-                                  std::vector<uint8_t>& outBlob,
-                                  std::string* error)
-{
+bool CompileShaderStageForBackend(const fs::path& hlsl, const ShaderStageSource& sourceStage, ShaderStage stage,
+                                  ShaderBackend backend, const std::vector<std::string>& defines,
+                                  std::vector<uint8_t>& outBlob, std::string* error) {
     if (backend == ShaderBackend::Metal || backend == ShaderBackend::Vulkan) {
-        return ShaderCompilerSlang::CompileStageFromFile(
-            hlsl, sourceStage.entry, stage, backend, outBlob, defines, error);
+        return ShaderCompilerSlang::CompileStageFromFile(hlsl, sourceStage.entry, stage, backend, outBlob, defines,
+                                                         error);
     }
 
 #ifdef MYENGINE_PLATFORM_WINDOWS
@@ -108,12 +102,10 @@ bool CompileShaderStageForBackend(const fs::path& hlsl,
         const char* profiles11[] = {"vs_5_0", "ps_5_0", "cs_5_0"};
         const char* profiles12[] = {"vs_5_1", "ps_5_1", "cs_5_1"};
         const bool ok = backend == ShaderBackend::D3D12
-            ? ShaderCompilerD3D12::CompileStageFromFile(
-                hlsl.string(), sourceStage.entry, profiles12[stageIndex],
-                fallback, defines)
-            : ShaderCompilerD3D11::CompileStageFromFile(
-                hlsl.string(), sourceStage.entry, profiles11[stageIndex],
-                fallback, defines);
+                            ? ShaderCompilerD3D12::CompileStageFromFile(hlsl.string(), sourceStage.entry,
+                                                                        profiles12[stageIndex], fallback, defines)
+                            : ShaderCompilerD3D11::CompileStageFromFile(hlsl.string(), sourceStage.entry,
+                                                                        profiles11[stageIndex], fallback, defines);
         if (ok) {
             outBlob.assign(fallback.begin(), fallback.end());
             return true;
@@ -122,28 +114,31 @@ bool CompileShaderStageForBackend(const fs::path& hlsl,
 #endif
 
     if (error && error->empty()) {
-        *error = std::string("shader compile failed for backend ") +
-            ShaderCooker::BackendName(backend) + ": " + hlsl.string();
+        *error = std::string("shader compile failed for backend ") + ShaderCooker::BackendName(backend) + ": " +
+                 hlsl.string();
     }
     return false;
 }
-}
+} // namespace
 
 namespace ShaderCooker {
-const char* BackendName(ShaderBackend backend)
-{
+const char* BackendName(ShaderBackend backend) {
     switch (backend) {
-    case ShaderBackend::D3D11: return "d3d11";
-    case ShaderBackend::D3D12: return "d3d12";
-    case ShaderBackend::Metal: return "metal";
-    case ShaderBackend::Vulkan: return "vulkan";
+    case ShaderBackend::D3D11:
+        return "d3d11";
+    case ShaderBackend::D3D12:
+        return "d3d12";
+    case ShaderBackend::Metal:
+        return "metal";
+    case ShaderBackend::Vulkan:
+        return "vulkan";
     }
     return "unknown";
 }
 
-std::vector<ShaderBackend> BackendsForTargetPlatform(const std::string& targetPlatform)
-{
-    if (targetPlatform == "macos-arm64") return {ShaderBackend::Metal};
+std::vector<ShaderBackend> BackendsForTargetPlatform(const std::string& targetPlatform) {
+    if (targetPlatform == "macos-arm64")
+        return {ShaderBackend::Metal};
 #if defined(MYENGINE_ENABLE_VULKAN)
     return {ShaderBackend::D3D11, ShaderBackend::D3D12, ShaderBackend::Vulkan};
 #else
@@ -151,10 +146,8 @@ std::vector<ShaderBackend> BackendsForTargetPlatform(const std::string& targetPl
 #endif
 }
 
-bool CollectDependencies(const fs::path& source, const fs::path& allowedRoot,
-                         std::vector<std::string>& outDependencies,
-                         std::string* error)
-{
+bool CollectDependencies(const fs::path& source, const fs::path& allowedRoot, std::vector<std::string>& outDependencies,
+                         std::string* error) {
     auto description = LoadShaderAssetFromFile(source.string());
     if (!description || description->IsCooked()) {
         SetError(error, "invalid shader description: " + source.string());
@@ -163,11 +156,12 @@ bool CollectDependencies(const fs::path& source, const fs::path& allowedRoot,
 
     std::unordered_set<std::string> dependencySet;
     for (size_t stageIndex = 0; stageIndex < kShaderStageCount; ++stageIndex) {
-        if ((description->GetStageMask() & (1u << stageIndex)) == 0) continue;
-        const fs::path hlsl =
-            description->ResolveSource(static_cast<ShaderStage>(stageIndex));
+        if ((description->GetStageMask() & (1u << stageIndex)) == 0)
+            continue;
+        const fs::path hlsl = description->ResolveSource(static_cast<ShaderStage>(stageIndex));
         std::unordered_set<std::string> visited;
-        if (!ValidateShaderIncludes(hlsl, allowedRoot, visited, error)) return false;
+        if (!ValidateShaderIncludes(hlsl, allowedRoot, visited, error))
+            return false;
         dependencySet.insert(visited.begin(), visited.end());
     }
 
@@ -177,12 +171,9 @@ bool CollectDependencies(const fs::path& source, const fs::path& allowedRoot,
 }
 
 std::string BuildCacheKey(const fs::path& source, const fs::path& allowedRoot,
-                          const std::vector<ShaderBackend>& backends,
-                          const std::string& targetPlatform,
-                          const std::string& settingsJson,
-                          std::vector<std::string>* outDependencies,
-                          std::string* error)
-{
+                          const std::vector<ShaderBackend>& backends, const std::string& targetPlatform,
+                          const std::string& settingsJson, std::vector<std::string>* outDependencies,
+                          std::string* error) {
     auto description = LoadShaderAssetFromFile(source.string());
     if (!description || description->IsCooked()) {
         SetError(error, "invalid shader description: " + source.string());
@@ -190,19 +181,19 @@ std::string BuildCacheKey(const fs::path& source, const fs::path& allowedRoot,
     }
 
     std::vector<std::string> dependencies;
-    if (!CollectDependencies(source, allowedRoot, dependencies, error)) return {};
-    if (outDependencies) *outDependencies = dependencies;
+    if (!CollectDependencies(source, allowedRoot, dependencies, error))
+        return {};
+    if (outDependencies)
+        *outDependencies = dependencies;
 
-    const bool usesSlang =
-        std::find(backends.begin(), backends.end(), ShaderBackend::Metal) != backends.end() ||
-        std::find(backends.begin(), backends.end(), ShaderBackend::Vulkan) != backends.end();
+    const bool usesSlang = std::find(backends.begin(), backends.end(), ShaderBackend::Metal) != backends.end() ||
+                           std::find(backends.begin(), backends.end(), ShaderBackend::Vulkan) != backends.end();
 
     Sha256 cacheKey;
-    const std::string cookerContract = std::string(RuntimeCompatibility::kBuildId) +
-        "|shader-cooker-v3|" +
-        (usesSlang ? ShaderCompilerSlang::GetVersionString() : "fxc") + "|" +
-        std::to_string(description->GetSourceHash()) + "|" + targetPlatform +
-        "|" + settingsJson;
+    const std::string cookerContract = std::string(RuntimeCompatibility::kBuildId) + "|shader-cooker-v3|" +
+                                       (usesSlang ? ShaderCompilerSlang::GetVersionString() : "fxc") + "|" +
+                                       std::to_string(description->GetSourceHash()) + "|" + targetPlatform + "|" +
+                                       settingsJson;
     cacheKey.Update(cookerContract.data(), cookerContract.size());
     for (ShaderBackend backend : backends) {
         const std::string backendText = std::to_string(static_cast<int>(backend));
@@ -221,18 +212,14 @@ std::string BuildCacheKey(const fs::path& source, const fs::path& allowedRoot,
     return Sha256::ToHex(cacheKey.Final());
 }
 
-ShaderCookResult Cook(const ShaderCookRequest& request, std::string* error)
-{
+ShaderCookResult Cook(const ShaderCookRequest& request, std::string* error) {
     ShaderCookResult result;
     result.artifactPath = request.artifactPath;
-    const std::vector<ShaderBackend> backends = request.backends.empty()
-        ? BackendsForTargetPlatform(request.targetPlatform)
-        : request.backends;
+    const std::vector<ShaderBackend> backends =
+        request.backends.empty() ? BackendsForTargetPlatform(request.targetPlatform) : request.backends;
 
-    result.cacheKey = BuildCacheKey(request.sourcePath, request.allowedRoot,
-                                    backends, request.targetPlatform,
-                                    request.settingsJson,
-                                    &result.dependencies, error);
+    result.cacheKey = BuildCacheKey(request.sourcePath, request.allowedRoot, backends, request.targetPlatform,
+                                    request.settingsJson, &result.dependencies, error);
     if (result.cacheKey.empty()) {
         result.diagnostics.push_back({"error", error ? *error : "shader cache key failed"});
         return result;
@@ -247,8 +234,7 @@ ShaderCookResult Cook(const ShaderCookRequest& request, std::string* error)
 
     if (request.artifactPath.stem().string() == result.cacheKey) {
         if (auto cached = LoadShaderAssetFromFile(request.artifactPath.string());
-            cached && cached->IsCooked() &&
-            cached->GetStageMask() == description->GetStageMask() &&
+            cached && cached->IsCooked() && cached->GetStageMask() == description->GetStageMask() &&
             cached->GetSourceHash() == description->GetSourceHash()) {
             result.succeeded = true;
             result.cacheHit = true;
@@ -256,17 +242,16 @@ ShaderCookResult Cook(const ShaderCookRequest& request, std::string* error)
         }
     }
 
-    std::array<std::array<std::vector<uint8_t>, kShaderStageCount>,
-               kShaderBackendCount> blobs{};
+    std::array<std::array<std::vector<uint8_t>, kShaderStageCount>, kShaderBackendCount> blobs{};
     for (size_t stageIndex = 0; stageIndex < kShaderStageCount; ++stageIndex) {
-        if ((description->GetStageMask() & (1u << stageIndex)) == 0) continue;
+        if ((description->GetStageMask() & (1u << stageIndex)) == 0)
+            continue;
         const auto stage = static_cast<ShaderStage>(stageIndex);
         const auto& sourceStage = description->GetStage(stage);
         const fs::path hlsl = description->ResolveSource(stage);
         for (ShaderBackend backend : backends) {
-            if (!CompileShaderStageForBackend(
-                    hlsl, sourceStage, stage, backend, description->GetDefines(),
-                    blobs[static_cast<size_t>(backend)][stageIndex], error)) {
+            if (!CompileShaderStageForBackend(hlsl, sourceStage, stage, backend, description->GetDefines(),
+                                              blobs[static_cast<size_t>(backend)][stageIndex], error)) {
                 if (error && error->empty()) {
                     *error = "shader cook failed: " + request.sourcePath.string();
                 }
@@ -277,8 +262,7 @@ ShaderCookResult Cook(const ShaderCookRequest& request, std::string* error)
     }
 
     ShaderAsset cooked(request.artifactPath.string());
-    cooked.SetCooked(description->GetStageMask(), description->GetSourceHash(),
-                     std::move(blobs));
+    cooked.SetCooked(description->GetStageMask(), description->GetSourceHash(), std::move(blobs));
     std::error_code ec;
     fs::create_directories(request.artifactPath.parent_path(), ec);
     if (ec) {
@@ -292,4 +276,4 @@ ShaderCookResult Cook(const ShaderCookRequest& request, std::string* error)
     }
     return result;
 }
-}
+} // namespace ShaderCooker

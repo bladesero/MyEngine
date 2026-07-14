@@ -19,10 +19,8 @@ void EditorImGuiMetal_NewFrame(void* renderPassDescriptor) {
 }
 
 void EditorImGuiMetal_RenderDrawData(ImDrawData* drawData, void* commandBuffer, void* commandEncoder) {
-    ImGui_ImplMetal_RenderDrawData(
-        drawData,
-        (__bridge id<MTLCommandBuffer>)commandBuffer,
-        (__bridge id<MTLRenderCommandEncoder>)commandEncoder);
+    ImGui_ImplMetal_RenderDrawData(drawData, (__bridge id<MTLCommandBuffer>)commandBuffer,
+                                   (__bridge id<MTLRenderCommandEncoder>)commandEncoder);
 }
 
 #endif

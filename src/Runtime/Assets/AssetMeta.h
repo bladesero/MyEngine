@@ -12,8 +12,7 @@ struct AssetMeta {
 
     AssetID GetAssetID() const { return MakeAssetID(uuid); }
 
-    static std::optional<AssetMeta> Load(const std::string& sourcePath,
-                                         std::string* error = nullptr);
+    static std::optional<AssetMeta> Load(const std::string& sourcePath, std::string* error = nullptr);
     static AssetMeta Create(const std::string& sourcePath);
     static AssetMeta LoadOrCreate(const std::string& sourcePath);
     static bool Save(const AssetMeta& meta);

@@ -16,6 +16,7 @@ public:
     bool IsAutoScroll() const { return m_AutoScroll; }
     void SetAutoScroll(bool value) { m_AutoScroll = value; }
     bool ConsumeScrollRequest();
+
 private:
     void Push(const std::string& line);
     mutable std::mutex m_Mutex;

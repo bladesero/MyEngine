@@ -5,22 +5,18 @@
 
 #include <miniaudio.h>
 
-void AudioClipAsset::SetMetadata(uint32_t channels, uint32_t sampleRate,
-                                 uint64_t frameCount)
-{
+void AudioClipAsset::SetMetadata(uint32_t channels, uint32_t sampleRate, uint64_t frameCount) {
     m_Channels = channels;
     m_SampleRate = sampleRate;
     m_FrameCount = frameCount;
-    m_DurationSeconds = sampleRate == 0
-        ? 0.0f
-        : static_cast<float>(static_cast<double>(frameCount) /
-                             static_cast<double>(sampleRate));
+    m_DurationSeconds =
+        sampleRate == 0 ? 0.0f : static_cast<float>(static_cast<double>(frameCount) / static_cast<double>(sampleRate));
     MarkReady();
 }
 
-bool AudioClipAsset::ReloadFrom(const Asset& source)
-{
-    if (source.GetType() != AssetType::AudioClip) return false;
+bool AudioClipAsset::ReloadFrom(const Asset& source) {
+    if (source.GetType() != AssetType::AudioClip)
+        return false;
     const auto& clip = static_cast<const AudioClipAsset&>(source);
     m_Channels = clip.m_Channels;
     m_SampleRate = clip.m_SampleRate;
@@ -30,18 +26,15 @@ bool AudioClipAsset::ReloadFrom(const Asset& source)
     return true;
 }
 
-std::shared_ptr<AudioClipAsset> LoadAudioClipAssetFromFile(const std::string& path)
-{
+std::shared_ptr<AudioClipAsset> LoadAudioClipAssetFromFile(const std::string& path) {
     std::vector<uint8_t> bytes;
     std::string error;
     if (!RuntimeFileSystem::Get().ReadAllBytes(path, bytes, &error)) {
-        Logger::Error("[Audio] Failed to read audio clip: ", path,
-                      error.empty() ? "" : " (" + error + ")");
+        Logger::Error("[Audio] Failed to read audio clip: ", path, error.empty() ? "" : " (" + error + ")");
         return {};
     }
     ma_decoder decoder;
-    const ma_result result = ma_decoder_init_memory(
-        bytes.data(), bytes.size(), nullptr, &decoder);
+    const ma_result result = ma_decoder_init_memory(bytes.data(), bytes.size(), nullptr, &decoder);
     if (result != MA_SUCCESS) {
         Logger::Error("[Audio] Failed to decode audio clip: ", path);
         return {};
@@ -56,8 +49,7 @@ std::shared_ptr<AudioClipAsset> LoadAudioClipAssetFromFile(const std::string& pa
     clip->SetMetadata(decoder.outputChannels, decoder.outputSampleRate, frameCount);
     ma_decoder_uninit(&decoder);
 
-    Logger::Info("[Audio] Loaded clip '", clip->GetName(), "' channels=",
-                 clip->GetChannels(), " rate=", clip->GetSampleRate(),
-                 " duration=", clip->GetDurationSeconds());
+    Logger::Info("[Audio] Loaded clip '", clip->GetName(), "' channels=", clip->GetChannels(),
+                 " rate=", clip->GetSampleRate(), " duration=", clip->GetDurationSeconds());
     return clip;
 }

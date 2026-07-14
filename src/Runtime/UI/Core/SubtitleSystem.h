@@ -33,7 +33,10 @@ public:
     const SubtitleState& GetState() const { return m_State; }
 
 private:
-    struct QueuedCue { SubtitleCue cue; uint64_t sequence = 0; };
+    struct QueuedCue {
+        SubtitleCue cue;
+        uint64_t sequence = 0;
+    };
     static bool ComesBefore(const QueuedCue& a, const QueuedCue& b);
     void ActivateNext();
     void RefreshState();

@@ -16,24 +16,24 @@
 
 namespace {
 
-std::string ElementIDFor(const Actor& actor, const UIElementComponent& element)
-{
-    if (!element.GetElementID().empty()) return element.GetElementID();
+std::string ElementIDFor(const Actor& actor, const UIElementComponent& element) {
+    if (!element.GetElementID().empty())
+        return element.GetElementID();
     return "ui_actor_" + std::to_string(actor.GetID());
 }
 
-bool HitElement(Rml::ElementDocument* document, const std::string& elementID, int x, int y)
-{
-    if (!document || elementID.empty()) return false;
+bool HitElement(Rml::ElementDocument* document, const std::string& elementID, int x, int y) {
+    if (!document || elementID.empty())
+        return false;
     Rml::Element* element = document->GetElementById(elementID);
     return element && element->IsVisible(true) &&
-        element->IsPointWithinElement(Rml::Vector2f(static_cast<float>(x), static_cast<float>(y)));
+           element->IsPointWithinElement(Rml::Vector2f(static_cast<float>(x), static_cast<float>(y)));
 }
 
-bool GetRectTransformBounds(const Actor& actor, float& left, float& top, float& width, float& height)
-{
+bool GetRectTransformBounds(const Actor& actor, float& left, float& top, float& width, float& height) {
     const auto* rect = actor.GetComponent<UIRectTransformComponent>();
-    if (!rect) return false;
+    if (!rect)
+        return false;
 
     const RectTransform& r = rect->GetRect();
     if (r.anchorMin.x != r.anchorMax.x || r.anchorMin.y != r.anchorMax.y) {
@@ -47,9 +47,7 @@ bool GetRectTransformBounds(const Actor& actor, float& left, float& top, float& 
     return width > 0.0f && height > 0.0f;
 }
 
-bool HitWidget(Rml::ElementDocument* document, const std::string& elementID,
-               const Actor& actor, int x, int y)
-{
+bool HitWidget(Rml::ElementDocument* document, const std::string& elementID, const Actor& actor, int x, int y) {
     float left = 0.0f;
     float top = 0.0f;
     float width = 0.0f;
@@ -63,10 +61,10 @@ bool HitWidget(Rml::ElementDocument* document, const std::string& elementID,
     return HitElement(document, elementID, x, y);
 }
 
-float SliderValueFromMouse(const Actor& actor, Rml::Element* element, float mouseX, float minValue,
-                           float maxValue, float step)
-{
-    if (maxValue <= minValue) return minValue;
+float SliderValueFromMouse(const Actor& actor, Rml::Element* element, float mouseX, float minValue, float maxValue,
+                           float step) {
+    if (maxValue <= minValue)
+        return minValue;
     float left = 0.0f;
     float width = 0.0f;
     float fallbackTop = 0.0f;
@@ -75,7 +73,8 @@ float SliderValueFromMouse(const Actor& actor, Rml::Element* element, float mous
         left = element->GetAbsoluteLeft();
         width = element->GetClientWidth();
     }
-    if (width <= 0.0f) return minValue;
+    if (width <= 0.0f)
+        return minValue;
     width = std::max(1.0f, width);
     const float ratio = std::clamp((mouseX - left) / width, 0.0f, 1.0f);
     float value = minValue + ratio * (maxValue - minValue);
@@ -85,19 +84,15 @@ float SliderValueFromMouse(const Actor& actor, Rml::Element* element, float mous
     return std::clamp(value, minValue, maxValue);
 }
 
-bool IsMouseEvent(EventType type)
-{
-    return type == EventType::MouseMove ||
-        type == EventType::MouseButtonDown ||
-        type == EventType::MouseButtonUp ||
-        type == EventType::MouseWheel;
+bool IsMouseEvent(EventType type) {
+    return type == EventType::MouseMove || type == EventType::MouseButtonDown || type == EventType::MouseButtonUp ||
+           type == EventType::MouseWheel;
 }
 
 } // namespace
 
-bool UIInputSystem::ConvertMouseEvent(Event& event, const UIInputViewport& viewport,
-                                      Event& outLocalEvent, int& outX, int& outY) const
-{
+bool UIInputSystem::ConvertMouseEvent(Event& event, const UIInputViewport& viewport, Event& outLocalEvent, int& outX,
+                                      int& outY) const {
     outLocalEvent = event;
     int windowX = 0;
     int windowY = 0;
@@ -120,10 +115,10 @@ bool UIInputSystem::ConvertMouseEvent(Event& event, const UIInputViewport& viewp
     }
 
     if (event.type != EventType::MouseWheel) {
-        const bool inside = windowX >= viewport.x && windowY >= viewport.y &&
-            windowX < viewport.x + viewport.width &&
-            windowY < viewport.y + viewport.height;
-        if (!inside && !m_Capture.active) return false;
+        const bool inside = windowX >= viewport.x && windowY >= viewport.y && windowX < viewport.x + viewport.width &&
+                            windowY < viewport.y + viewport.height;
+        if (!inside && !m_Capture.active)
+            return false;
 
         const float sx = viewport.scaleX != 0.0f ? viewport.scaleX : 1.0f;
         const float sy = viewport.scaleY != 0.0f ? viewport.scaleY : 1.0f;
@@ -140,12 +135,11 @@ bool UIInputSystem::ConvertMouseEvent(Event& event, const UIInputViewport& viewp
     return true;
 }
 
-bool UIInputSystem::ProcessCapturedSlider(Scene& scene, Event& event, int localX,
-                                          UIEventBridge& eventBridge,
+bool UIInputSystem::ProcessCapturedSlider(Scene& scene, Event& event, int localX, UIEventBridge& eventBridge,
                                           UIDataModel* (*resolveDataModel)(void*, const std::string&),
-                                          void* dataModelUser)
-{
-    if (!m_Capture.active) return false;
+                                          void* dataModelUser) {
+    if (!m_Capture.active)
+        return false;
     Actor* canvasActor = scene.FindByID(m_Capture.canvasActorID);
     Actor* actor = scene.FindByID(m_Capture.actorID);
     if (!canvasActor || !actor) {
@@ -163,8 +157,8 @@ bool UIInputSystem::ProcessCapturedSlider(Scene& scene, Event& event, int localX
         event.type == EventType::MouseButtonUp) {
         Rml::ElementDocument* document = canvas->GetCanvas().GetDocument();
         Rml::Element* element = document ? document->GetElementById(m_Capture.elementID) : nullptr;
-        const float nextValue = SliderValueFromMouse(
-            *actor, element, static_cast<float>(localX), slider->min, slider->max, slider->step);
+        const float nextValue =
+            SliderValueFromMouse(*actor, element, static_cast<float>(localX), slider->min, slider->max, slider->step);
         if (std::abs(nextValue - slider->value) > 0.0001f) {
             slider->value = nextValue;
             if (!slider->dataBinding.empty() && resolveDataModel) {
@@ -182,30 +176,30 @@ bool UIInputSystem::ProcessCapturedSlider(Scene& scene, Event& event, int localX
     return false;
 }
 
-bool UIInputSystem::ProcessMouseEvent(Scene& scene, Event& event, int localX, int localY,
-                                      UIEventBridge& eventBridge,
+bool UIInputSystem::ProcessMouseEvent(Scene& scene, Event& event, int localX, int localY, UIEventBridge& eventBridge,
                                       UIDataModel* (*resolveDataModel)(void*, const std::string&),
-                                      void* dataModelUser)
-{
+                                      void* dataModelUser) {
     if (ProcessCapturedSlider(scene, event, localX, eventBridge, resolveDataModel, dataModelUser)) {
         return true;
     }
 
     bool consumed = false;
     scene.ForEach([&](Actor& canvasActor) {
-        if (consumed || !canvasActor.IsActive()) return;
+        if (consumed || !canvasActor.IsActive())
+            return;
         auto* canvasComponent = canvasActor.GetComponent<UICanvasComponent>();
-        if (!canvasComponent || !canvasComponent->IsEnabled() ||
-            !canvasComponent->IsVisible() || !canvasComponent->IsInteractive() ||
-            canvasComponent->GetInputMode() == UIInputMode::None) {
+        if (!canvasComponent || !canvasComponent->IsEnabled() || !canvasComponent->IsVisible() ||
+            !canvasComponent->IsInteractive() || canvasComponent->GetInputMode() == UIInputMode::None) {
             return;
         }
         UICanvas& canvas = canvasComponent->GetCanvas();
         Rml::ElementDocument* document = canvas.GetDocument();
-        if (!document) return;
+        if (!document)
+            return;
 
         std::function<void(Actor&)> visit = [&](Actor& actor) {
-            if (consumed || !actor.IsActiveSelf()) return;
+            if (consumed || !actor.IsActiveSelf())
+                return;
             if (auto* slider = actor.GetComponent<UISliderComponent>()) {
                 const std::string elementID = ElementIDFor(actor, *slider);
                 if (HitWidget(document, elementID, actor, localX, localY)) {
@@ -226,9 +220,8 @@ bool UIInputSystem::ProcessMouseEvent(Scene& scene, Event& event, int localX, in
                         m_PressedButtonActorID = actor.GetID();
                         m_PressedButtonElementID = elementID;
                     } else if (!button->disabled && event.type == EventType::MouseButtonUp &&
-                        event.mouseButton.button == 1 &&
-                        m_PressedButtonCanvasID == canvasActor.GetID() &&
-                        m_PressedButtonActorID == actor.GetID()) {
+                               event.mouseButton.button == 1 && m_PressedButtonCanvasID == canvasActor.GetID() &&
+                               m_PressedButtonActorID == actor.GetID()) {
                         eventBridge.Emit(&canvas, {elementID, "click", 0.0f, false});
                         m_PressedButtonCanvasID = 0;
                         m_PressedButtonActorID = 0;
@@ -239,13 +232,16 @@ bool UIInputSystem::ProcessMouseEvent(Scene& scene, Event& event, int localX, in
                 }
             }
             for (Actor* child : actor.GetChildren()) {
-                if (child) visit(*child);
+                if (child)
+                    visit(*child);
             }
         };
 
         for (Actor* child : canvasActor.GetChildren()) {
-            if (child) visit(*child);
-            if (consumed) break;
+            if (child)
+                visit(*child);
+            if (consumed)
+                break;
         }
     });
 
@@ -257,20 +253,21 @@ bool UIInputSystem::ProcessMouseEvent(Scene& scene, Event& event, int localX, in
     return consumed;
 }
 
-bool UIInputSystem::ProcessEvent(Scene& scene, Rml::Context& context, Event& event,
-                                 const UIInputViewport& viewport, UIEventBridge& eventBridge,
-                                 UIDataModel* (*resolveDataModel)(void*, const std::string&),
-                                 void* dataModelUser)
-{
+bool UIInputSystem::ProcessEvent(Scene& scene, Rml::Context& context, Event& event, const UIInputViewport& viewport,
+                                 UIEventBridge& eventBridge,
+                                 UIDataModel* (*resolveDataModel)(void*, const std::string&), void* dataModelUser) {
     (void)context;
-    if (!viewport.enabled || event.handled) return false;
-    if (IsMouseEvent(event.type) && !viewport.hovered && !m_Capture.active) return false;
+    if (!viewport.enabled || event.handled)
+        return false;
+    if (IsMouseEvent(event.type) && !viewport.hovered && !m_Capture.active)
+        return false;
 
     Event localEvent;
     int localX = 0;
     int localY = 0;
     if (IsMouseEvent(event.type)) {
-        if (!ConvertMouseEvent(event, viewport, localEvent, localX, localY)) return false;
+        if (!ConvertMouseEvent(event, viewport, localEvent, localX, localY))
+            return false;
         return ProcessMouseEvent(scene, localEvent, localX, localY, eventBridge, resolveDataModel, dataModelUser);
     }
     return false;

@@ -6,7 +6,10 @@
 
 // Forward declaration
 class Actor;
-struct AnimationEventData { std::string name; std::string payload; };
+struct AnimationEventData {
+    std::string name;
+    std::string payload;
+};
 
 // ==========================================================================
 // Component  –  所有组件的基类
@@ -56,12 +59,12 @@ protected:
 private:
     friend class Actor;
     friend class Scene;
-    Actor* m_Owner   = nullptr;
-    bool   m_Enabled = true;
-    bool   m_Attached = false;
-    bool   m_Initialized = false;
-    bool   m_BeganPlay = false;
-    bool   m_Started = false;
-    bool   m_EffectiveEnabled = false;
+    Actor* m_Owner = nullptr;
+    bool m_Enabled = true;
+    bool m_Attached = false;
+    bool m_Initialized = false;
+    bool m_BeganPlay = false;
+    bool m_Started = false;
+    bool m_EffectiveEnabled = false;
     nlohmann::json m_ExtensionData = nlohmann::json::object();
 };

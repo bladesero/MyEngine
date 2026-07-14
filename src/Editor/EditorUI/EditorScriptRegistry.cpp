@@ -3,8 +3,7 @@
 #include <algorithm>
 #include <utility>
 
-void EditorScriptRegistry::Clear()
-{
+void EditorScriptRegistry::Clear() {
     m_PanelByID.clear();
     m_PanelBodyByID.clear();
     m_Panels.clear();
@@ -17,33 +16,30 @@ void EditorScriptRegistry::Clear()
     m_Diagnostics.clear();
 }
 
-void EditorScriptRegistry::AddDiagnostic(std::string message)
-{
-    if (!message.empty()) m_Diagnostics.push_back(std::move(message));
+void EditorScriptRegistry::AddDiagnostic(std::string message) {
+    if (!message.empty())
+        m_Diagnostics.push_back(std::move(message));
 }
 
-bool EditorScriptRegistry::RejectProjectAppend(const char* kind, const std::string& id)
-{
-    if (m_RegistrationLayer != EditorScriptRegistrationLayer::Project ||
-        m_AllowProjectAppend) {
+bool EditorScriptRegistry::RejectProjectAppend(const char* kind, const std::string& id) {
+    if (m_RegistrationLayer != EditorScriptRegistrationLayer::Project || m_AllowProjectAppend) {
         return false;
     }
-    AddDiagnostic(std::string("project editor script append disabled for ") +
-                  kind + ": " + id);
+    AddDiagnostic(std::string("project editor script append disabled for ") + kind + ": " + id);
     return true;
 }
 
-void EditorScriptRegistry::Panel(const std::string& id, const std::string& title,
-                                 int area, const std::string& callback)
-{
+void EditorScriptRegistry::Panel(const std::string& id, const std::string& title, int area,
+                                 const std::string& callback) {
     ToolPanel(id, title, area, callback);
 }
 
-void EditorScriptRegistry::ToolPanel(const std::string& id, const std::string& title,
-                                     int area, const std::string& callback)
-{
-    if (id.empty() || callback.empty()) return;
-    if (RejectProjectAppend("ToolPanel", id)) return;
+void EditorScriptRegistry::ToolPanel(const std::string& id, const std::string& title, int area,
+                                     const std::string& callback) {
+    if (id.empty() || callback.empty())
+        return;
+    if (RejectProjectAppend("ToolPanel", id))
+        return;
     if (IsCorePanelID(id)) {
         AddDiagnostic("scripted ToolPanel rejected core panel id: " + id);
         return;
@@ -69,20 +65,17 @@ void EditorScriptRegistry::ToolPanel(const std::string& id, const std::string& t
     m_Panels.push_back(std::move(spec));
 }
 
-bool EditorScriptRegistry::IsCorePanelID(const std::string& id) const
-{
-    static const std::unordered_set<std::string> kCorePanels {
-        "toolbar", "viewport", "gameViewport", "sceneHierarchy",
-        "inspector", "assetBrowser", "log", "profiler"
-    };
+bool EditorScriptRegistry::IsCorePanelID(const std::string& id) const {
+    static const std::unordered_set<std::string> kCorePanels{
+        "toolbar", "viewport", "gameViewport", "sceneHierarchy", "inspector", "assetBrowser", "log", "profiler"};
     return kCorePanels.find(id) != kCorePanels.end();
 }
 
-void EditorScriptRegistry::PanelBody(const std::string& id, const std::string& callback)
-{
-    if (id.empty() || callback.empty()) return;
-    if (m_RegistrationLayer == EditorScriptRegistrationLayer::Project &&
-        IsCorePanelID(id) && !m_AllowProjectOverrideCore) {
+void EditorScriptRegistry::PanelBody(const std::string& id, const std::string& callback) {
+    if (id.empty() || callback.empty())
+        return;
+    if (m_RegistrationLayer == EditorScriptRegistrationLayer::Project && IsCorePanelID(id) &&
+        !m_AllowProjectOverrideCore) {
         AddDiagnostic("project PanelBody rejected core panel id: " + id);
         return;
     }
@@ -99,68 +92,69 @@ void EditorScriptRegistry::PanelBody(const std::string& id, const std::string& c
     m_PanelBodies.push_back(std::move(spec));
 }
 
-const std::string* EditorScriptRegistry::FindPanelBodyCallback(const std::string& id) const
-{
+const std::string* EditorScriptRegistry::FindPanelBodyCallback(const std::string& id) const {
     auto found = m_PanelBodyByID.find(id);
-    if (found == m_PanelBodyByID.end()) return nullptr;
+    if (found == m_PanelBodyByID.end())
+        return nullptr;
     return &m_PanelBodies[found->second].callback;
 }
 
-void EditorScriptRegistry::Menu(const std::string& path, const std::string& actionID)
-{
+void EditorScriptRegistry::Menu(const std::string& path, const std::string& actionID) {
     MenuItem(path, actionID);
 }
 
-void EditorScriptRegistry::MenuItem(const std::string& path, const std::string& target)
-{
-    if (path.empty() || target.empty()) return;
-    if (RejectProjectAppend("MenuItem", path)) return;
+void EditorScriptRegistry::MenuItem(const std::string& path, const std::string& target) {
+    if (path.empty() || target.empty())
+        return;
+    if (RejectProjectAppend("MenuItem", path))
+        return;
     m_Menus.push_back({path, target});
 }
 
-void EditorScriptRegistry::ToolbarItem(const std::string& id, int order,
-                                       const std::string& callback)
-{
-    if (id.empty() || callback.empty()) return;
-    if (RejectProjectAppend("ToolbarItem", id)) return;
+void EditorScriptRegistry::ToolbarItem(const std::string& id, int order, const std::string& callback) {
+    if (id.empty() || callback.empty())
+        return;
+    if (RejectProjectAppend("ToolbarItem", id))
+        return;
     m_ToolbarItems.push_back({id, order, callback});
     std::sort(m_ToolbarItems.begin(), m_ToolbarItems.end(),
               [](const EditorScriptToolbarItemSpec& a, const EditorScriptToolbarItemSpec& b) {
-                  if (a.order != b.order) return a.order < b.order;
+                  if (a.order != b.order)
+                      return a.order < b.order;
                   return a.id < b.id;
               });
 }
 
-void EditorScriptRegistry::Inspector(const std::string& targetType, int order,
-                                     const std::string& callback)
-{
+void EditorScriptRegistry::Inspector(const std::string& targetType, int order, const std::string& callback) {
     InspectorSection(targetType, order, callback);
 }
 
-void EditorScriptRegistry::InspectorSection(const std::string& targetType, int order,
-                                            const std::string& callback)
-{
-    if (targetType.empty() || callback.empty()) return;
-    if (RejectProjectAppend("InspectorSection", targetType)) return;
+void EditorScriptRegistry::InspectorSection(const std::string& targetType, int order, const std::string& callback) {
+    if (targetType.empty() || callback.empty())
+        return;
+    if (RejectProjectAppend("InspectorSection", targetType))
+        return;
     m_Inspectors.push_back({targetType, order, callback});
     std::sort(m_Inspectors.begin(), m_Inspectors.end(),
               [](const EditorScriptInspectorSpec& a, const EditorScriptInspectorSpec& b) {
-                  if (a.order != b.order) return a.order < b.order;
+                  if (a.order != b.order)
+                      return a.order < b.order;
                   return a.targetType < b.targetType;
               });
 }
 
-void EditorScriptRegistry::AssetContextMenu(const std::string& assetTypeOrAny,
-                                            const std::string& callback)
-{
-    if (assetTypeOrAny.empty() || callback.empty()) return;
-    if (RejectProjectAppend("AssetContextMenu", assetTypeOrAny)) return;
+void EditorScriptRegistry::AssetContextMenu(const std::string& assetTypeOrAny, const std::string& callback) {
+    if (assetTypeOrAny.empty() || callback.empty())
+        return;
+    if (RejectProjectAppend("AssetContextMenu", assetTypeOrAny))
+        return;
     m_AssetContextMenus.push_back({assetTypeOrAny, callback});
 }
 
-void EditorScriptRegistry::ActorContextMenu(const std::string& callback)
-{
-    if (callback.empty()) return;
-    if (RejectProjectAppend("ActorContextMenu", callback)) return;
+void EditorScriptRegistry::ActorContextMenu(const std::string& callback) {
+    if (callback.empty())
+        return;
+    if (RejectProjectAppend("ActorContextMenu", callback))
+        return;
     m_ActorContextMenus.push_back({"Actor", callback});
 }

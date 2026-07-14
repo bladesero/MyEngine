@@ -29,57 +29,63 @@ namespace {
 bool g_RmlCoreInitialized = false;
 std::unordered_map<std::string, std::vector<unsigned char>> g_RmlFontData;
 
-std::string ToLower(std::string value)
-{
+std::string ToLower(std::string value) {
     std::transform(value.begin(), value.end(), value.begin(),
-        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     return value;
 }
 
-std::string EscapeRmlText(std::string value)
-{
+std::string EscapeRmlText(std::string value) {
     std::string escaped;
     escaped.reserve(value.size());
     for (const char character : value) {
         switch (character) {
-        case '&': escaped += "&amp;"; break;
-        case '<': escaped += "&lt;"; break;
-        case '>': escaped += "&gt;"; break;
-        default: escaped += character; break;
+        case '&':
+            escaped += "&amp;";
+            break;
+        case '<':
+            escaped += "&lt;";
+            break;
+        case '>':
+            escaped += "&gt;";
+            break;
+        default:
+            escaped += character;
+            break;
         }
     }
     return escaped;
 }
 
-std::string DataModelValueToText(const UIDataModel::Value& value)
-{
-    return std::visit([](const auto& item) -> std::string {
-        using T = std::decay_t<decltype(item)>;
-        if constexpr (std::is_same_v<T, bool>) {
-            return item ? "true" : "false";
-        } else if constexpr (std::is_same_v<T, int>) {
-            return std::to_string(item);
-        } else if constexpr (std::is_same_v<T, float>) {
-            std::ostringstream stream;
-            stream << std::fixed << std::setprecision(1) << item;
-            return stream.str();
-        } else if constexpr (std::is_same_v<T, std::string>) {
-            return item;
-        } else if constexpr (std::is_same_v<T, Vec2>) {
-            return std::to_string(item.x) + ", " + std::to_string(item.y);
-        } else if constexpr (std::is_same_v<T, Vec3>) {
-            return std::to_string(item.x) + ", " + std::to_string(item.y) + ", " +
-                std::to_string(item.z);
-        } else {
-            return item.dump();
-        }
-    }, value);
+std::string DataModelValueToText(const UIDataModel::Value& value) {
+    return std::visit(
+        [](const auto& item) -> std::string {
+            using T = std::decay_t<decltype(item)>;
+            if constexpr (std::is_same_v<T, bool>) {
+                return item ? "true" : "false";
+            } else if constexpr (std::is_same_v<T, int>) {
+                return std::to_string(item);
+            } else if constexpr (std::is_same_v<T, float>) {
+                std::ostringstream stream;
+                stream << std::fixed << std::setprecision(1) << item;
+                return stream.str();
+            } else if constexpr (std::is_same_v<T, std::string>) {
+                return item;
+            } else if constexpr (std::is_same_v<T, Vec2>) {
+                return std::to_string(item.x) + ", " + std::to_string(item.y);
+            } else if constexpr (std::is_same_v<T, Vec3>) {
+                return std::to_string(item.x) + ", " + std::to_string(item.y) + ", " + std::to_string(item.z);
+            } else {
+                return item.dump();
+            }
+        },
+        value);
 }
 
-bool TryGetFloat(const UIDataModel& model, const char* key, float& value)
-{
+bool TryGetFloat(const UIDataModel& model, const char* key, float& value) {
     const auto found = model.GetValues().find(key);
-    if (found == model.GetValues().end()) return false;
+    if (found == model.GetValues().end())
+        return false;
     if (const float* number = std::get_if<float>(&found->second)) {
         value = *number;
         return true;
@@ -91,10 +97,7 @@ bool TryGetFloat(const UIDataModel& model, const char* key, float& value)
     return false;
 }
 
-bool TryParseFontFaceFromPath(const std::string& path,
-                              std::string& family,
-                              Rml::Style::FontWeight& weight)
-{
+bool TryParseFontFaceFromPath(const std::string& path, std::string& family, Rml::Style::FontWeight& weight) {
     const std::string stem = std::filesystem::path(path).stem().string();
     const std::size_t separator = stem.find_last_of("-_ ");
     if (separator == std::string::npos || separator == 0 || separator + 1 >= stem.size()) {
@@ -114,38 +117,40 @@ bool TryParseFontFaceFromPath(const std::string& path,
     return !family.empty();
 }
 
-bool ReadBinaryFile(const std::string& path, std::vector<unsigned char>& bytes)
-{
+bool ReadBinaryFile(const std::string& path, std::vector<unsigned char>& bytes) {
     std::vector<uint8_t> raw;
-    if (!RuntimeFileSystem::Get().ReadAllBytes(path, raw) || raw.empty()) return false;
+    if (!RuntimeFileSystem::Get().ReadAllBytes(path, raw) || raw.empty())
+        return false;
     bytes.assign(raw.begin(), raw.end());
     return true;
 }
 
-bool HasInputEnabledCanvas(Scene& scene)
-{
+bool HasInputEnabledCanvas(Scene& scene) {
     bool found = false;
     scene.ForEach([&](Actor& actor) {
-        if (found || !actor.IsActive()) return;
+        if (found || !actor.IsActive())
+            return;
         auto* canvas = actor.GetComponent<UICanvasComponent>();
-        if (!canvas || !canvas->IsEnabled()) return;
-        found = canvas->IsVisible() && canvas->IsInteractive() &&
-            canvas->GetInputMode() != UIInputMode::None;
+        if (!canvas || !canvas->IsEnabled())
+            return;
+        found = canvas->IsVisible() && canvas->IsInteractive() && canvas->GetInputMode() != UIInputMode::None;
     });
     return found;
 }
 
-bool IsValidColorVisionMode(const std::string& mode)
-{
-    return mode=="none"||mode=="protanopia"||mode=="deuteranopia"||mode=="tritanopia";
+bool IsValidColorVisionMode(const std::string& mode) {
+    return mode == "none" || mode == "protanopia" || mode == "deuteranopia" || mode == "tritanopia";
 }
 
-std::string AccentColor(const UIAccessibilitySettings& value)
-{
-    if(value.highContrast)return "#ffe45c";
-    if(value.colorVisionMode=="protanopia")return "#4cc9ff";
-    if(value.colorVisionMode=="deuteranopia")return "#5eb8ff";
-    if(value.colorVisionMode=="tritanopia")return "#ff8ac8";
+std::string AccentColor(const UIAccessibilitySettings& value) {
+    if (value.highContrast)
+        return "#ffe45c";
+    if (value.colorVisionMode == "protanopia")
+        return "#4cc9ff";
+    if (value.colorVisionMode == "deuteranopia")
+        return "#5eb8ff";
+    if (value.colorVisionMode == "tritanopia")
+        return "#ff8ac8";
     return "#4ca6ff";
 }
 
@@ -153,14 +158,13 @@ std::string AccentColor(const UIAccessibilitySettings& value)
 
 UISystem::UISystem() = default;
 
-UISystem::~UISystem()
-{
+UISystem::~UISystem() {
     Shutdown();
 }
 
-bool UISystem::Initialize(IRHIDevice* device, IRHIFrameContext* frameContext)
-{
-    if (m_Initialized) return true;
+bool UISystem::Initialize(IRHIDevice* device, IRHIFrameContext* frameContext) {
+    if (m_Initialized)
+        return true;
     m_Device = device;
     m_FrameContext = frameContext;
     m_RenderInterface.SetDevice(device);
@@ -179,11 +183,11 @@ bool UISystem::Initialize(IRHIDevice* device, IRHIFrameContext* frameContext)
         return false;
     }
     m_Initialized = true;
-    m_Diagnostics.loadedFontFaces=0;
-    m_Diagnostics.failedFontFaces=0;
+    m_Diagnostics.loadedFontFaces = 0;
+    m_Diagnostics.failedFontFaces = 0;
     m_Diagnostics.lastFontError.clear();
-    m_Diagnostics.runtimeScreenFallbacks=0;
-    m_Diagnostics.projectRuntimeScreenActive=false;
+    m_Diagnostics.runtimeScreenFallbacks = 0;
+    m_Diagnostics.projectRuntimeScreenActive = false;
     m_Diagnostics.runtimeScreenDocument.clear();
     LoadEngineFallbackFonts();
     ApplyViewportMetrics();
@@ -195,9 +199,9 @@ bool UISystem::Initialize(IRHIDevice* device, IRHIFrameContext* frameContext)
     return true;
 }
 
-void UISystem::Shutdown()
-{
-    if (!m_Initialized) return;
+void UISystem::Shutdown() {
+    if (!m_Initialized)
+        return;
     AngelScriptRuntime::ClearUIEventBridge(GetActiveEventBridge());
     AngelScriptRuntime::ClearUISystem(this);
     m_ContextManager.Destroy();
@@ -210,90 +214,116 @@ void UISystem::Shutdown()
     m_LoadedFonts.clear();
     m_ActorTreeSignatures.clear();
     m_ExternalEventBridge = nullptr;
-    m_FallbackFontsAttempted=false;
+    m_FallbackFontsAttempted = false;
     m_Initialized = false;
     m_Device = nullptr;
     m_FrameContext = nullptr;
 }
 
-void UISystem::Resize(int width, int height)
-{
-    if (width <= 0 || height <= 0) return;
+void UISystem::Resize(int width, int height) {
+    if (width <= 0 || height <= 0)
+        return;
     m_Width = width;
     m_Height = height;
     m_ContextManager.Resize(width, height);
     ApplyViewportMetrics();
 }
 
-bool UISystem::SetAccessibilitySettings(const UIAccessibilitySettings& value,std::string* error)
-{
-    if(!std::isfinite(value.uiScale)||value.uiScale<0.5f||value.uiScale>2.0f||
-       !std::isfinite(value.subtitleScale)||value.subtitleScale<0.5f||value.subtitleScale>2.0f||
-       !IsValidColorVisionMode(value.colorVisionMode)){
-        if(error)*error="invalid UI accessibility settings";return false;
+bool UISystem::SetAccessibilitySettings(const UIAccessibilitySettings& value, std::string* error) {
+    if (!std::isfinite(value.uiScale) || value.uiScale < 0.5f || value.uiScale > 2.0f ||
+        !std::isfinite(value.subtitleScale) || value.subtitleScale < 0.5f || value.subtitleScale > 2.0f ||
+        !IsValidColorVisionMode(value.colorVisionMode)) {
+        if (error)
+            *error = "invalid UI accessibility settings";
+        return false;
     }
-    m_Accessibility=value;RuntimeAccessibility::SetReduceCameraShake(value.reduceCameraShake);
-    ApplyViewportMetrics();ApplySystemOverlay();ApplyRuntimeScreen();ApplySubtitle();
-    if(error)error->clear();return true;
+    m_Accessibility = value;
+    RuntimeAccessibility::SetReduceCameraShake(value.reduceCameraShake);
+    ApplyViewportMetrics();
+    ApplySystemOverlay();
+    ApplyRuntimeScreen();
+    ApplySubtitle();
+    if (error)
+        error->clear();
+    return true;
 }
 
-bool UISystem::SetSafeAreaInsets(const UISafeAreaInsets& value,std::string* error)
-{
-    const bool finite=std::isfinite(value.left)&&std::isfinite(value.top)&&
-        std::isfinite(value.right)&&std::isfinite(value.bottom);
-    if(!finite||value.left<0||value.top<0||value.right<0||value.bottom<0||
-       value.left+value.right>=0.8f||value.top+value.bottom>=0.8f){
-        if(error)*error="invalid normalized UI safe-area insets";return false;
+bool UISystem::SetSafeAreaInsets(const UISafeAreaInsets& value, std::string* error) {
+    const bool finite = std::isfinite(value.left) && std::isfinite(value.top) && std::isfinite(value.right) &&
+                        std::isfinite(value.bottom);
+    if (!finite || value.left < 0 || value.top < 0 || value.right < 0 || value.bottom < 0 ||
+        value.left + value.right >= 0.8f || value.top + value.bottom >= 0.8f) {
+        if (error)
+            *error = "invalid normalized UI safe-area insets";
+        return false;
     }
-    m_SafeArea=value;ApplyViewportMetrics();ApplySystemOverlay();ApplyRuntimeScreen();
-    if(error)error->clear();return true;
+    m_SafeArea = value;
+    ApplyViewportMetrics();
+    ApplySystemOverlay();
+    ApplyRuntimeScreen();
+    if (error)
+        error->clear();
+    return true;
 }
 
-void UISystem::ApplyViewportMetrics()
-{
-    m_Diagnostics.viewportWidth=m_Width;m_Diagnostics.viewportHeight=m_Height;
-    m_Diagnostics.effectiveScale=m_Accessibility.uiScale;
-    m_Diagnostics.safeWidth=std::max(1,static_cast<int>(std::round(
-        m_Width*(1.0f-m_SafeArea.left-m_SafeArea.right))));
-    m_Diagnostics.safeHeight=std::max(1,static_cast<int>(std::round(
-        m_Height*(1.0f-m_SafeArea.top-m_SafeArea.bottom))));
-    m_Diagnostics.safeAreaValid=m_Diagnostics.safeWidth>=240&&m_Diagnostics.safeHeight>=160;
-    m_Diagnostics.narrowLayout=m_Diagnostics.safeWidth/std::max(0.5f,m_Accessibility.uiScale)<640;
-    if(Rml::Context* context=m_ContextManager.GetContext())
+void UISystem::ApplyViewportMetrics() {
+    m_Diagnostics.viewportWidth = m_Width;
+    m_Diagnostics.viewportHeight = m_Height;
+    m_Diagnostics.effectiveScale = m_Accessibility.uiScale;
+    m_Diagnostics.safeWidth =
+        std::max(1, static_cast<int>(std::round(m_Width * (1.0f - m_SafeArea.left - m_SafeArea.right))));
+    m_Diagnostics.safeHeight =
+        std::max(1, static_cast<int>(std::round(m_Height * (1.0f - m_SafeArea.top - m_SafeArea.bottom))));
+    m_Diagnostics.safeAreaValid = m_Diagnostics.safeWidth >= 240 && m_Diagnostics.safeHeight >= 160;
+    m_Diagnostics.narrowLayout = m_Diagnostics.safeWidth / std::max(0.5f, m_Accessibility.uiScale) < 640;
+    if (Rml::Context* context = m_ContextManager.GetContext())
         context->SetDensityIndependentPixelRatio(m_Accessibility.uiScale);
 }
 
-void UISystem::LoadEngineFallbackFonts()
-{
-    if(m_FallbackFontsAttempted)return;m_FallbackFontsAttempted=true;
-    for(const std::string& path:{"Content/UI/Fonts/LatoLatin-Regular.ttf",
-                                 "Content/UI/Fonts/LatoLatin-Bold.ttf"}){
-        if(g_RmlFontData.count(path)!=0){m_LoadedFonts[path]=true;++m_Diagnostics.loadedFontFaces;continue;}
-        const std::string resolved=AssetManager::Get().ResolvePath(path);
-        std::string family;Rml::Style::FontWeight weight=Rml::Style::FontWeight::Auto;
-        bool loaded=false;
-        if(TryParseFontFaceFromPath(path,family,weight)){
+void UISystem::LoadEngineFallbackFonts() {
+    if (m_FallbackFontsAttempted)
+        return;
+    m_FallbackFontsAttempted = true;
+    for (const std::string& path : {"Content/UI/Fonts/LatoLatin-Regular.ttf", "Content/UI/Fonts/LatoLatin-Bold.ttf"}) {
+        if (g_RmlFontData.count(path) != 0) {
+            m_LoadedFonts[path] = true;
+            ++m_Diagnostics.loadedFontFaces;
+            continue;
+        }
+        const std::string resolved = AssetManager::Get().ResolvePath(path);
+        std::string family;
+        Rml::Style::FontWeight weight = Rml::Style::FontWeight::Auto;
+        bool loaded = false;
+        if (TryParseFontFaceFromPath(path, family, weight)) {
             std::vector<unsigned char> bytes;
-            if(ReadBinaryFile(resolved,bytes)){
-                auto& stored=g_RmlFontData[path];stored=std::move(bytes);
-                loaded=Rml::LoadFontFace(Rml::Span<const Rml::byte>(stored.data(),stored.size()),
-                    family,Rml::Style::FontStyle::Normal,weight);
+            if (ReadBinaryFile(resolved, bytes)) {
+                auto& stored = g_RmlFontData[path];
+                stored = std::move(bytes);
+                loaded = Rml::LoadFontFace(Rml::Span<const Rml::byte>(stored.data(), stored.size()), family,
+                                           Rml::Style::FontStyle::Normal, weight);
             }
         }
-        if(loaded){m_LoadedFonts[path]=true;++m_Diagnostics.loadedFontFaces;}
-        else{++m_Diagnostics.failedFontFaces;m_Diagnostics.lastFontError=path;
-            Logger::Warn("[UI] Engine fallback font unavailable: ",path);}
+        if (loaded) {
+            m_LoadedFonts[path] = true;
+            ++m_Diagnostics.loadedFontFaces;
+        } else {
+            ++m_Diagnostics.failedFontFaces;
+            m_Diagnostics.lastFontError = path;
+            Logger::Warn("[UI] Engine fallback font unavailable: ", path);
+        }
     }
 }
 
-void UISystem::LoadCanvasFonts(Scene& scene)
-{
+void UISystem::LoadCanvasFonts(Scene& scene) {
     scene.ForEach([&](Actor& actor) {
-        if (!actor.IsActive()) return;
+        if (!actor.IsActive())
+            return;
         auto* canvas = actor.GetComponent<UICanvasComponent>();
-        if (!canvas || !canvas->IsEnabled()) return;
+        if (!canvas || !canvas->IsEnabled())
+            return;
         for (const std::string& fontPath : canvas->GetDefaultFontPaths()) {
-            if (fontPath.empty() || m_LoadedFonts.count(fontPath) != 0) continue;
+            if (fontPath.empty() || m_LoadedFonts.count(fontPath) != 0)
+                continue;
             // Rml font faces are process-global and retain the supplied memory.
             // Never replace the backing vector when another UISystem already loaded it.
             if (g_RmlFontData.count(fontPath) != 0) {
@@ -333,26 +363,26 @@ void UISystem::LoadCanvasFonts(Scene& scene)
     });
 }
 
-void UISystem::EnsureCanvasDocuments(Scene& scene)
-{
+void UISystem::EnsureCanvasDocuments(Scene& scene) {
     Rml::Context* context = m_ContextManager.GetContext();
-    if (!context) return;
+    if (!context)
+        return;
     scene.ForEach([&](Actor& actor) {
-        if (!actor.IsActive()) return;
+        if (!actor.IsActive())
+            return;
         auto* component = actor.GetComponent<UICanvasComponent>();
-        if (!component || !component->IsEnabled()) return;
+        if (!component || !component->IsEnabled())
+            return;
         UICanvas& canvas = component->GetCanvas();
         canvas.SetContext(context);
         if (component->GetSourceMode() == UICanvasSourceMode::ActorTree) {
             const std::size_t signature = UIActorTreeBuilder::ComputeSignature(actor);
             const auto found = m_ActorTreeSignatures.find(actor.GetID());
-            if (!canvas.GetDocument() || found == m_ActorTreeSignatures.end() ||
-                found->second != signature) {
+            if (!canvas.GetDocument() || found == m_ActorTreeSignatures.end() || found->second != signature) {
                 std::string rml;
                 std::string error;
                 if (UIActorTreeBuilder::BuildDocument(actor, *component, rml, &error)) {
-                    const std::string sourceURL = "generated://ui_actor_" +
-                        std::to_string(actor.GetID()) + ".rml";
+                    const std::string sourceURL = "generated://ui_actor_" + std::to_string(actor.GetID()) + ".rml";
                     if (canvas.LoadDocumentFromMemory(rml, sourceURL)) {
                         m_ActorTreeSignatures[actor.GetID()] = signature;
                     }
@@ -366,22 +396,26 @@ void UISystem::EnsureCanvasDocuments(Scene& scene)
     });
 }
 
-void UISystem::ApplyDataModels(Scene& scene)
-{
-    if (m_DataModels.empty()) return;
+void UISystem::ApplyDataModels(Scene& scene) {
+    if (m_DataModels.empty())
+        return;
 
     scene.ForEach([&](Actor& actor) {
-        if (!actor.IsActive()) return;
+        if (!actor.IsActive())
+            return;
         auto* component = actor.GetComponent<UICanvasComponent>();
-        if (!component || !component->IsEnabled() || !component->IsVisible()) return;
+        if (!component || !component->IsEnabled() || !component->IsVisible())
+            return;
         Rml::ElementDocument* document = component->GetCanvas().GetDocument();
-        if (!document) return;
+        if (!document)
+            return;
 
         for (const auto& [modelName, model] : m_DataModels) {
             (void)modelName;
             for (const auto& [key, value] : model.GetValues()) {
                 Rml::Element* element = document->GetElementById(key);
-                if (!element) continue;
+                if (!element)
+                    continue;
                 if (const bool* visible = std::get_if<bool>(&value)) {
                     element->SetProperty("display", *visible ? "block" : "none");
                     continue;
@@ -396,8 +430,8 @@ void UISystem::ApplyDataModels(Scene& scene)
             float health = 0.0f;
             float maxHealth = 0.0f;
             Rml::Element* healthFill = document->GetElementById("health-bar-fill");
-            if (healthFill && TryGetFloat(model, "health", health) &&
-                TryGetFloat(model, "maxHealth", maxHealth) && maxHealth > 0.0f) {
+            if (healthFill && TryGetFloat(model, "health", health) && TryGetFloat(model, "maxHealth", maxHealth) &&
+                maxHealth > 0.0f) {
                 const float percent = std::clamp(health / maxHealth, 0.0f, 1.0f) * 100.0f;
                 healthFill->SetProperty("width", std::to_string(percent) + "%");
             }
@@ -405,9 +439,9 @@ void UISystem::ApplyDataModels(Scene& scene)
     });
 }
 
-void UISystem::Update(Scene& scene, float dt)
-{
-    if (!m_Initialized) return;
+void UISystem::Update(Scene& scene, float dt) {
+    if (!m_Initialized)
+        return;
     m_Subtitles.Update(dt);
     LoadCanvasFonts(scene);
     EnsureCanvasDocuments(scene);
@@ -420,11 +454,11 @@ void UISystem::Update(Scene& scene, float dt)
     }
 }
 
-void UISystem::CreateSubtitleDocument()
-{
-    Rml::Context* context=m_ContextManager.GetContext();
-    if(!context)return;
-    static const char* source=R"(<rml><head><title>Subtitles</title><style>
+void UISystem::CreateSubtitleDocument() {
+    Rml::Context* context = m_ContextManager.GetContext();
+    if (!context)
+        return;
+    static const char* source = R"(<rml><head><title>Subtitles</title><style>
 body { margin:0; width:100%; height:100%; font-family:LatoLatin; color:#ffffff; }
 #subtitle-root { position:absolute; left:10%; bottom:8%; width:80%;
  text-align:center; z-index:2147460000; }
@@ -435,54 +469,56 @@ body { margin:0; width:100%; height:100%; font-family:LatoLatin; color:#ffffff; 
 </style></head><body><div id="subtitle-root"><div id="subtitle-card">
 <div id="subtitle-speaker"></div><div id="subtitle-text"></div>
 </div></div></body></rml>)";
-    m_SubtitleDocument=context->LoadDocumentFromMemory(source,"generated://subtitles.rml");
-    if(m_SubtitleDocument){m_SubtitleDocument->Show();ApplySubtitle();}
+    m_SubtitleDocument = context->LoadDocumentFromMemory(source, "generated://subtitles.rml");
+    if (m_SubtitleDocument) {
+        m_SubtitleDocument->Show();
+        ApplySubtitle();
+    }
 }
 
-void UISystem::ApplySubtitle()
-{
-    if(!m_SubtitleDocument)return;
-    const SubtitleState& state=m_Subtitles.GetState();
-    if(Rml::Element* root=m_SubtitleDocument->GetElementById("subtitle-root")){
-        root->SetProperty("display",m_Accessibility.subtitles&&state.visible?"block":"none");
-        const int safeLeft=static_cast<int>(std::round(m_Width*m_SafeArea.left));
-        const int safeBottom=static_cast<int>(std::round(m_Height*m_SafeArea.bottom));
-        root->SetProperty("left",std::to_string(safeLeft+std::max(0,m_Diagnostics.safeWidth/10))+"px");
-        root->SetProperty("bottom",std::to_string(safeBottom+std::max(8,m_Diagnostics.safeHeight/16))+"px");
-        root->SetProperty("width",std::to_string(std::max(180,m_Diagnostics.safeWidth*8/10))+"px");
+void UISystem::ApplySubtitle() {
+    if (!m_SubtitleDocument)
+        return;
+    const SubtitleState& state = m_Subtitles.GetState();
+    if (Rml::Element* root = m_SubtitleDocument->GetElementById("subtitle-root")) {
+        root->SetProperty("display", m_Accessibility.subtitles && state.visible ? "block" : "none");
+        const int safeLeft = static_cast<int>(std::round(m_Width * m_SafeArea.left));
+        const int safeBottom = static_cast<int>(std::round(m_Height * m_SafeArea.bottom));
+        root->SetProperty("left", std::to_string(safeLeft + std::max(0, m_Diagnostics.safeWidth / 10)) + "px");
+        root->SetProperty("bottom", std::to_string(safeBottom + std::max(8, m_Diagnostics.safeHeight / 16)) + "px");
+        root->SetProperty("width", std::to_string(std::max(180, m_Diagnostics.safeWidth * 8 / 10)) + "px");
     }
-    if(Rml::Element* card=m_SubtitleDocument->GetElementById("subtitle-card"))
-        card->SetProperty("border-color",m_Accessibility.highContrast?"#ffffff":"#52647d");
-    if(Rml::Element* speaker=m_SubtitleDocument->GetElementById("subtitle-speaker")){
+    if (Rml::Element* card = m_SubtitleDocument->GetElementById("subtitle-card"))
+        card->SetProperty("border-color", m_Accessibility.highContrast ? "#ffffff" : "#52647d");
+    if (Rml::Element* speaker = m_SubtitleDocument->GetElementById("subtitle-speaker")) {
         speaker->SetInnerRML(EscapeRmlText(state.speaker));
-        speaker->SetProperty("display",state.speaker.empty()?"none":"block");
-        speaker->SetProperty("font-size",std::to_string(
-            static_cast<int>(18*m_Accessibility.subtitleScale))+"px");
-        speaker->SetProperty("color",AccentColor(m_Accessibility));
+        speaker->SetProperty("display", state.speaker.empty() ? "none" : "block");
+        speaker->SetProperty("font-size", std::to_string(static_cast<int>(18 * m_Accessibility.subtitleScale)) + "px");
+        speaker->SetProperty("color", AccentColor(m_Accessibility));
     }
-    if(Rml::Element* text=m_SubtitleDocument->GetElementById("subtitle-text")){
+    if (Rml::Element* text = m_SubtitleDocument->GetElementById("subtitle-text")) {
         text->SetInnerRML(EscapeRmlText(state.text));
-        text->SetProperty("font-size",std::to_string(
-            static_cast<int>(22*m_Accessibility.subtitleScale))+"px");
+        text->SetProperty("font-size", std::to_string(static_cast<int>(22 * m_Accessibility.subtitleScale)) + "px");
     }
 }
 
-bool UISystem::ShowSubtitle(SubtitleCue cue,std::string* error)
-{
-    if(!m_Subtitles.Enqueue(std::move(cue),error))return false;
-    ApplySubtitle();return true;
+bool UISystem::ShowSubtitle(SubtitleCue cue, std::string* error) {
+    if (!m_Subtitles.Enqueue(std::move(cue), error))
+        return false;
+    ApplySubtitle();
+    return true;
 }
 
-void UISystem::ClearSubtitles()
-{
-    m_Subtitles.Clear();ApplySubtitle();
+void UISystem::ClearSubtitles() {
+    m_Subtitles.Clear();
+    ApplySubtitle();
 }
 
-void UISystem::CreateSystemOverlayDocument()
-{
-    Rml::Context* context=m_ContextManager.GetContext();
-    if(!context)return;
-    static const char* source=R"(<rml><head><title>System status</title><style>
+void UISystem::CreateSystemOverlayDocument() {
+    Rml::Context* context = m_ContextManager.GetContext();
+    if (!context)
+        return;
+    static const char* source = R"(<rml><head><title>System status</title><style>
 body { margin:0; width:100%; height:100%; font-family:LatoLatin; color:#f5f7fa; }
 #system-root { position:absolute; left:0; top:0; width:100%; height:100%;
  background-color:rgba(7,10,16,210); z-index:2147480000; }
@@ -499,53 +535,58 @@ body { margin:0; width:100%; height:100%; font-family:LatoLatin; color:#f5f7fa; 
 <div id="system-track"><div id="system-progress"></div></div>
 <div id="system-primary"></div><div id="system-secondary"></div>
 </div></div></body></rml>)";
-    m_SystemOverlayDocument=context->LoadDocumentFromMemory(source,"generated://system-overlay.rml");
-    if(m_SystemOverlayDocument){m_SystemOverlayDocument->Show();ApplySystemOverlay();}
+    m_SystemOverlayDocument = context->LoadDocumentFromMemory(source, "generated://system-overlay.rml");
+    if (m_SystemOverlayDocument) {
+        m_SystemOverlayDocument->Show();
+        ApplySystemOverlay();
+    }
 }
 
-void UISystem::ApplySystemOverlay()
-{
-    if(!m_SystemOverlayDocument)return;
-    Rml::Element* root=m_SystemOverlayDocument->GetElementById("system-root");
-    if(root)root->SetProperty("display",m_SystemOverlay.visible?"block":"none");
-    if(Rml::Element* card=m_SystemOverlayDocument->GetElementById("system-card")){
-        const int safeLeft=static_cast<int>(std::round(m_Width*m_SafeArea.left));
-        const int safeTop=static_cast<int>(std::round(m_Height*m_SafeArea.top));
-        const int cardWidth=std::max(180,m_Diagnostics.safeWidth*8/10);
-        card->SetProperty("left",std::to_string(safeLeft+(m_Diagnostics.safeWidth-cardWidth)/2)+"px");
-        card->SetProperty("top",std::to_string(safeTop+std::max(8,m_Diagnostics.safeHeight/4))+"px");
-        card->SetProperty("width",std::to_string(cardWidth)+"px");
-        card->SetProperty("border-color",m_Accessibility.highContrast?"#ffffff":"#52647d");
+void UISystem::ApplySystemOverlay() {
+    if (!m_SystemOverlayDocument)
+        return;
+    Rml::Element* root = m_SystemOverlayDocument->GetElementById("system-root");
+    if (root)
+        root->SetProperty("display", m_SystemOverlay.visible ? "block" : "none");
+    if (Rml::Element* card = m_SystemOverlayDocument->GetElementById("system-card")) {
+        const int safeLeft = static_cast<int>(std::round(m_Width * m_SafeArea.left));
+        const int safeTop = static_cast<int>(std::round(m_Height * m_SafeArea.top));
+        const int cardWidth = std::max(180, m_Diagnostics.safeWidth * 8 / 10);
+        card->SetProperty("left", std::to_string(safeLeft + (m_Diagnostics.safeWidth - cardWidth) / 2) + "px");
+        card->SetProperty("top", std::to_string(safeTop + std::max(8, m_Diagnostics.safeHeight / 4)) + "px");
+        card->SetProperty("width", std::to_string(cardWidth) + "px");
+        card->SetProperty("border-color", m_Accessibility.highContrast ? "#ffffff" : "#52647d");
     }
-    auto setText=[&](const char* id,const std::string& text){
-        if(Rml::Element* element=m_SystemOverlayDocument->GetElementById(id))
+    auto setText = [&](const char* id, const std::string& text) {
+        if (Rml::Element* element = m_SystemOverlayDocument->GetElementById(id))
             element->SetInnerRML(EscapeRmlText(text));
     };
-    setText("system-title",m_SystemOverlay.title);
-    setText("system-detail",m_SystemOverlay.detail);
-    setText("system-primary",m_SystemOverlay.primaryHint);
-    setText("system-secondary",m_SystemOverlay.secondaryHint);
-    if(Rml::Element* progress=m_SystemOverlayDocument->GetElementById("system-progress")){
-        const float value=std::clamp(m_SystemOverlay.progress,0.0f,1.0f)*100.0f;
-        progress->SetProperty("width",std::to_string(value)+"%");
-        progress->SetProperty("background-color",m_SystemOverlay.error?"#e56565":AccentColor(m_Accessibility));
+    setText("system-title", m_SystemOverlay.title);
+    setText("system-detail", m_SystemOverlay.detail);
+    setText("system-primary", m_SystemOverlay.primaryHint);
+    setText("system-secondary", m_SystemOverlay.secondaryHint);
+    if (Rml::Element* progress = m_SystemOverlayDocument->GetElementById("system-progress")) {
+        const float value = std::clamp(m_SystemOverlay.progress, 0.0f, 1.0f) * 100.0f;
+        progress->SetProperty("width", std::to_string(value) + "%");
+        progress->SetProperty("background-color", m_SystemOverlay.error ? "#e56565" : AccentColor(m_Accessibility));
     }
 }
 
-void UISystem::SetSystemOverlay(UISystemOverlayState state)
-{
-    m_SystemOverlay=std::move(state);
+void UISystem::SetSystemOverlay(UISystemOverlayState state) {
+    m_SystemOverlay = std::move(state);
     ApplySystemOverlay();
 }
 
-void UISystem::CreateRuntimeScreenDocument()
-{
+void UISystem::CreateRuntimeScreenDocument() {
     Rml::Context* context = m_ContextManager.GetContext();
-    if (!context) return;
-    if(m_RuntimeScreenDocument)m_RuntimeScreenDocument->Close();
-    m_RuntimeScreenDocument=nullptr;m_RuntimeScreenUsingCustomDocument=false;
-    m_Diagnostics.projectRuntimeScreenActive=false;
-    m_Diagnostics.runtimeScreenDocument="generated://runtime-screen.rml";
+    if (!context)
+        return;
+    if (m_RuntimeScreenDocument)
+        m_RuntimeScreenDocument->Close();
+    m_RuntimeScreenDocument = nullptr;
+    m_RuntimeScreenUsingCustomDocument = false;
+    m_Diagnostics.projectRuntimeScreenActive = false;
+    m_Diagnostics.runtimeScreenDocument = "generated://runtime-screen.rml";
     static const char* source = R"(<rml><head><title>Runtime screen</title><style>
 body { margin:0; width:100%; height:100%; font-family:LatoLatin; color:#f5f7fa; }
 #runtime-root { position:absolute; left:0; top:0; width:100%; height:100%;
@@ -560,114 +601,126 @@ body { margin:0; width:100%; height:100%; font-family:LatoLatin; color:#f5f7fa; 
 </style></head><body><div id="runtime-root"><div id="runtime-card">
 <div id="runtime-title"></div><div id="runtime-actions"></div><div id="runtime-input-hint"></div>
 </div></div></body></rml>)";
-    m_RuntimeScreenDocument = context->LoadDocumentFromMemory(
-        source, "generated://runtime-screen.rml");
+    m_RuntimeScreenDocument = context->LoadDocumentFromMemory(source, "generated://runtime-screen.rml");
     if (m_RuntimeScreenDocument) {
         m_RuntimeScreenDocument->Show();
         ApplyRuntimeScreen();
     }
 }
 
-void UISystem::ApplyRuntimeScreen()
-{
-    if (!m_RuntimeScreenDocument) return;
+void UISystem::ApplyRuntimeScreen() {
+    if (!m_RuntimeScreenDocument)
+        return;
     Rml::Element* root = m_RuntimeScreenDocument->GetElementById("runtime-root");
-    if (root) root->SetProperty("display",
-        m_RuntimeScreen.stableName.empty() ? "none" : "block");
-    if(Rml::Element* card=m_RuntimeScreenDocument->GetElementById("runtime-card")){
-        const int safeLeft=static_cast<int>(std::round(m_Width*m_SafeArea.left));
-        const int safeTop=static_cast<int>(std::round(m_Height*m_SafeArea.top));
-        const int cardWidth=m_Diagnostics.narrowLayout?std::max(180,m_Diagnostics.safeWidth-24):
-            std::max(240,m_Diagnostics.safeWidth*3/5);
-        card->SetProperty("left",std::to_string(safeLeft+(m_Diagnostics.safeWidth-cardWidth)/2)+"px");
-        card->SetProperty("top",std::to_string(safeTop+std::max(8,m_Diagnostics.safeHeight/12))+"px");
-        card->SetProperty("width",std::to_string(cardWidth)+"px");
-        card->SetProperty("border-color",m_Accessibility.highContrast?"#ffffff":"#52647d");
+    if (root)
+        root->SetProperty("display", m_RuntimeScreen.stableName.empty() ? "none" : "block");
+    if (Rml::Element* card = m_RuntimeScreenDocument->GetElementById("runtime-card")) {
+        const int safeLeft = static_cast<int>(std::round(m_Width * m_SafeArea.left));
+        const int safeTop = static_cast<int>(std::round(m_Height * m_SafeArea.top));
+        const int cardWidth = m_Diagnostics.narrowLayout ? std::max(180, m_Diagnostics.safeWidth - 24)
+                                                         : std::max(240, m_Diagnostics.safeWidth * 3 / 5);
+        card->SetProperty("left", std::to_string(safeLeft + (m_Diagnostics.safeWidth - cardWidth) / 2) + "px");
+        card->SetProperty("top", std::to_string(safeTop + std::max(8, m_Diagnostics.safeHeight / 12)) + "px");
+        card->SetProperty("width", std::to_string(cardWidth) + "px");
+        card->SetProperty("border-color", m_Accessibility.highContrast ? "#ffffff" : "#52647d");
     }
     if (Rml::Element* title = m_RuntimeScreenDocument->GetElementById("runtime-title"))
         title->SetInnerRML(EscapeRmlText(m_RuntimeScreen.title));
-    if(m_RuntimeScreenUsingCustomDocument){
-        for(size_t index=0;index<m_RuntimeScreen.actions.size();++index){
-            const auto& action=m_RuntimeScreen.actions[index];
-            if(Rml::Element* element=m_RuntimeScreenDocument->GetElementById(
-                    "runtime-action-"+action.stableName)){
+    if (m_RuntimeScreenUsingCustomDocument) {
+        for (size_t index = 0; index < m_RuntimeScreen.actions.size(); ++index) {
+            const auto& action = m_RuntimeScreen.actions[index];
+            if (Rml::Element* element =
+                    m_RuntimeScreenDocument->GetElementById("runtime-action-" + action.stableName)) {
                 element->SetInnerRML(EscapeRmlText(action.label));
-                element->SetClass("focused",index==m_RuntimeScreen.focusedIndex);
-                if(index==m_RuntimeScreen.focusedIndex)
-                    element->SetProperty("border-color",AccentColor(m_Accessibility));
+                element->SetClass("focused", index == m_RuntimeScreen.focusedIndex);
+                if (index == m_RuntimeScreen.focusedIndex)
+                    element->SetProperty("border-color", AccentColor(m_Accessibility));
             }
         }
     } else if (Rml::Element* actions = m_RuntimeScreenDocument->GetElementById("runtime-actions")) {
         std::string rml;
         for (size_t index = 0; index < m_RuntimeScreen.actions.size(); ++index) {
             rml += "<div id=\"runtime-action-" + std::to_string(index) + "\" class=\"runtime-action";
-            if (index == m_RuntimeScreen.focusedIndex) rml += " focused";
+            if (index == m_RuntimeScreen.focusedIndex)
+                rml += " focused";
             rml += "\">" + EscapeRmlText(m_RuntimeScreen.actions[index].label) + "</div>";
         }
         actions->SetInnerRML(rml);
-        if(Rml::Element* focused=m_RuntimeScreenDocument->GetElementById(
-                "runtime-action-"+std::to_string(m_RuntimeScreen.focusedIndex))){
-            focused->SetProperty("border-color",AccentColor(m_Accessibility));
-            if(m_Accessibility.highContrast)focused->SetProperty("background-color","#000000");
+        if (Rml::Element* focused = m_RuntimeScreenDocument->GetElementById(
+                "runtime-action-" + std::to_string(m_RuntimeScreen.focusedIndex))) {
+            focused->SetProperty("border-color", AccentColor(m_Accessibility));
+            if (m_Accessibility.highContrast)
+                focused->SetProperty("background-color", "#000000");
         }
     }
-    if(Rml::Element* hint=m_RuntimeScreenDocument->GetElementById("runtime-input-hint")){
-        const bool gamepad=Input::GetLastActiveDevice()==InputDeviceKind::Gamepad;
-        const nlohmann::json select=nlohmann::json::parse(Input::GetSourceGlyphJson(
-            gamepad?"Gamepad/South":"Keyboard/Enter"),nullptr,false);
-        const nlohmann::json back=nlohmann::json::parse(Input::GetSourceGlyphJson(
-            gamepad?"Gamepad/East":"Keyboard/Escape"),nullptr,false);
-        const std::string selectLabel=select.value("label",gamepad?"South":"Enter");
-        const std::string backLabel=back.value("label",gamepad?"East":"Esc");
-        hint->SetInnerRML(EscapeRmlText("Select: "+selectLabel+"   Back: "+backLabel));
+    if (Rml::Element* hint = m_RuntimeScreenDocument->GetElementById("runtime-input-hint")) {
+        const bool gamepad = Input::GetLastActiveDevice() == InputDeviceKind::Gamepad;
+        const nlohmann::json select = nlohmann::json::parse(
+            Input::GetSourceGlyphJson(gamepad ? "Gamepad/South" : "Keyboard/Enter"), nullptr, false);
+        const nlohmann::json back = nlohmann::json::parse(
+            Input::GetSourceGlyphJson(gamepad ? "Gamepad/East" : "Keyboard/Escape"), nullptr, false);
+        const std::string selectLabel = select.value("label", gamepad ? "South" : "Enter");
+        const std::string backLabel = back.value("label", gamepad ? "East" : "Esc");
+        hint->SetInnerRML(EscapeRmlText("Select: " + selectLabel + "   Back: " + backLabel));
     }
 }
 
-void UISystem::SetRuntimeScreen(RuntimeUIScreenView view)
-{
-    const bool documentChanged=view.documentPath!=m_RuntimeScreen.documentPath;
+void UISystem::SetRuntimeScreen(RuntimeUIScreenView view) {
+    const bool documentChanged = view.documentPath != m_RuntimeScreen.documentPath;
     m_RuntimeScreen = std::move(view);
-    if(m_Initialized&&documentChanged){
-        if(m_RuntimeScreenDocument){m_RuntimeScreenDocument->Close();m_RuntimeScreenDocument=nullptr;}
-        m_RuntimeScreenUsingCustomDocument=false;
-        Rml::Context* context=m_ContextManager.GetContext();
-        if(context&&!m_RuntimeScreen.documentPath.empty()){
-            Rml::ElementDocument* candidate=context->LoadDocument(m_RuntimeScreen.documentPath);
-            bool valid=candidate&&candidate->GetElementById("runtime-root")&&
-                candidate->GetElementById("runtime-title");
-            for(const auto& action:m_RuntimeScreen.actions)
-                valid=valid&&candidate&&candidate->GetElementById("runtime-action-"+action.stableName);
-            if(valid){m_RuntimeScreenDocument=candidate;m_RuntimeScreenUsingCustomDocument=true;
-                m_Diagnostics.projectRuntimeScreenActive=true;
-                m_Diagnostics.runtimeScreenDocument=m_RuntimeScreen.documentPath;candidate->Show();}
-            else{if(candidate)candidate->Close();++m_Diagnostics.runtimeScreenFallbacks;
-                Logger::Warn("[RuntimeUI] Project screen contract invalid; using standard fallback: ",m_RuntimeScreen.documentPath);}
+    if (m_Initialized && documentChanged) {
+        if (m_RuntimeScreenDocument) {
+            m_RuntimeScreenDocument->Close();
+            m_RuntimeScreenDocument = nullptr;
         }
-        if(!m_RuntimeScreenDocument)CreateRuntimeScreenDocument();
+        m_RuntimeScreenUsingCustomDocument = false;
+        Rml::Context* context = m_ContextManager.GetContext();
+        if (context && !m_RuntimeScreen.documentPath.empty()) {
+            Rml::ElementDocument* candidate = context->LoadDocument(m_RuntimeScreen.documentPath);
+            bool valid =
+                candidate && candidate->GetElementById("runtime-root") && candidate->GetElementById("runtime-title");
+            for (const auto& action : m_RuntimeScreen.actions)
+                valid = valid && candidate && candidate->GetElementById("runtime-action-" + action.stableName);
+            if (valid) {
+                m_RuntimeScreenDocument = candidate;
+                m_RuntimeScreenUsingCustomDocument = true;
+                m_Diagnostics.projectRuntimeScreenActive = true;
+                m_Diagnostics.runtimeScreenDocument = m_RuntimeScreen.documentPath;
+                candidate->Show();
+            } else {
+                if (candidate)
+                    candidate->Close();
+                ++m_Diagnostics.runtimeScreenFallbacks;
+                Logger::Warn("[RuntimeUI] Project screen contract invalid; using standard fallback: ",
+                             m_RuntimeScreen.documentPath);
+            }
+        }
+        if (!m_RuntimeScreenDocument)
+            CreateRuntimeScreenDocument();
     }
     ApplyRuntimeScreen();
 }
 
-bool UISystem::ProcessRuntimeScreenPointer(Event& event, const UIInputViewport& viewport,
-                                           size_t& outIndex, bool& outActivate)
-{
+bool UISystem::ProcessRuntimeScreenPointer(Event& event, const UIInputViewport& viewport, size_t& outIndex,
+                                           bool& outActivate) {
     outIndex = 0;
     outActivate = false;
-    if (!m_Initialized || !m_RuntimeScreenDocument || m_RuntimeScreen.stableName.empty() ||
-        !viewport.enabled || !viewport.hovered ||
-        (event.type != EventType::MouseMove && event.type != EventType::MouseButtonUp)) return false;
+    if (!m_Initialized || !m_RuntimeScreenDocument || m_RuntimeScreen.stableName.empty() || !viewport.enabled ||
+        !viewport.hovered || (event.type != EventType::MouseMove && event.type != EventType::MouseButtonUp))
+        return false;
     const int windowX = event.type == EventType::MouseMove ? event.mouseMove.x : event.mouseButton.x;
     const int windowY = event.type == EventType::MouseMove ? event.mouseMove.y : event.mouseButton.y;
-    if (windowX < viewport.x || windowY < viewport.y ||
-        windowX >= viewport.x + viewport.width || windowY >= viewport.y + viewport.height) return false;
+    if (windowX < viewport.x || windowY < viewport.y || windowX >= viewport.x + viewport.width ||
+        windowY >= viewport.y + viewport.height)
+        return false;
     const float x = static_cast<float>(windowX - viewport.x) * viewport.scaleX;
     const float y = static_cast<float>(windowY - viewport.y) * viewport.scaleY;
     for (size_t index = 0; index < m_RuntimeScreen.actions.size(); ++index) {
         Rml::Element* element = m_RuntimeScreenDocument->GetElementById(
-            "runtime-action-" + (m_RuntimeScreenUsingCustomDocument?
-                m_RuntimeScreen.actions[index].stableName:std::to_string(index)));
-        if (!element || !element->IsVisible(true) ||
-            !element->IsPointWithinElement(Rml::Vector2f(x, y))) continue;
+            "runtime-action-" +
+            (m_RuntimeScreenUsingCustomDocument ? m_RuntimeScreen.actions[index].stableName : std::to_string(index)));
+        if (!element || !element->IsVisible(true) || !element->IsPointWithinElement(Rml::Vector2f(x, y)))
+            continue;
         outIndex = index;
         outActivate = event.type == EventType::MouseButtonUp && event.mouseButton.button == 1;
         event.handled = true;
@@ -694,33 +747,36 @@ bool UISystem::ProcessRuntimeScreenPointer(Event& event, const UIInputViewport& 
     return false;
 }
 
-bool UISystem::ProcessEvent(Event& event)
-{
-    if (!m_Initialized || event.handled) return false;
+bool UISystem::ProcessEvent(Event& event) {
+    if (!m_Initialized || event.handled)
+        return false;
     Rml::Context* context = m_ContextManager.GetContext();
-    if (!context) return false;
+    if (!context)
+        return false;
     const bool consumed = m_InputAdapter.ProcessEvent(*context, event);
-    if (consumed) event.handled = true;
+    if (consumed)
+        event.handled = true;
     return consumed;
 }
 
-bool UISystem::ProcessEvent(Scene& scene, Event& event, const UIInputViewport& viewport)
-{
-    if (!m_Initialized || event.handled) return false;
+bool UISystem::ProcessEvent(Scene& scene, Event& event, const UIInputViewport& viewport) {
+    if (!m_Initialized || event.handled)
+        return false;
     Rml::Context* context = m_ContextManager.GetContext();
-    if (!context) return false;
-    if (!HasInputEnabledCanvas(scene)) return false;
+    if (!context)
+        return false;
+    if (!HasInputEnabledCanvas(scene))
+        return false;
     EnsureCanvasDocuments(scene);
 
     Event localEvent = event;
     bool insideViewport = true;
-    if (event.type == EventType::MouseMove ||
-        event.type == EventType::MouseButtonDown ||
+    if (event.type == EventType::MouseMove || event.type == EventType::MouseButtonDown ||
         event.type == EventType::MouseButtonUp) {
         const int x = event.type == EventType::MouseMove ? event.mouseMove.x : event.mouseButton.x;
         const int y = event.type == EventType::MouseMove ? event.mouseMove.y : event.mouseButton.y;
-        insideViewport = x >= viewport.x && y >= viewport.y &&
-            x < viewport.x + viewport.width && y < viewport.y + viewport.height;
+        insideViewport =
+            x >= viewport.x && y >= viewport.y && x < viewport.x + viewport.width && y < viewport.y + viewport.height;
         if (insideViewport) {
             const float sx = viewport.scaleX != 0.0f ? viewport.scaleX : 1.0f;
             const float sy = viewport.scaleY != 0.0f ? viewport.scaleY : 1.0f;
@@ -736,14 +792,12 @@ bool UISystem::ProcessEvent(Scene& scene, Event& event, const UIInputViewport& v
         }
     }
 
-    const bool mouseEvent = event.type == EventType::MouseMove ||
-        event.type == EventType::MouseButtonDown ||
-        event.type == EventType::MouseButtonUp ||
-        event.type == EventType::MouseWheel;
+    const bool mouseEvent = event.type == EventType::MouseMove || event.type == EventType::MouseButtonDown ||
+                            event.type == EventType::MouseButtonUp || event.type == EventType::MouseWheel;
     bool consumed = false;
     if (mouseEvent) {
-        consumed = m_UIInputSystem.ProcessEvent(
-            scene, *context, event, viewport, *GetActiveEventBridge(), &UISystem::ResolveDataModel, this);
+        consumed = m_UIInputSystem.ProcessEvent(scene, *context, event, viewport, *GetActiveEventBridge(),
+                                                &UISystem::ResolveDataModel, this);
         if (consumed) {
             event.handled = true;
             return true;
@@ -753,12 +807,12 @@ bool UISystem::ProcessEvent(Scene& scene, Event& event, const UIInputViewport& v
         const bool rmlConsumed = m_InputAdapter.ProcessEvent(*context, localEvent);
         consumed = rmlConsumed;
     }
-    if (consumed) event.handled = true;
+    if (consumed)
+        event.handled = true;
     return consumed;
 }
 
-void UISystem::CollectDrawData(Scene& scene, UIDrawList& drawList)
-{
+void UISystem::CollectDrawData(Scene& scene, UIDrawList& drawList) {
     if (!m_Initialized) {
         drawList.Clear();
         return;
@@ -774,23 +828,19 @@ void UISystem::CollectDrawData(Scene& scene, UIDrawList& drawList)
     m_RenderInterface.EndFrame();
 }
 
-UIDataModel& UISystem::CreateDataModel(const std::string& name)
-{
+UIDataModel& UISystem::CreateDataModel(const std::string& name) {
     return m_DataModels[name];
 }
 
-void UISystem::MarkActorTreeDirty(uint64_t canvasActorID)
-{
+void UISystem::MarkActorTreeDirty(uint64_t canvasActorID) {
     m_ActorTreeSignatures.erase(canvasActorID);
 }
 
-UIEventBridge* UISystem::GetActiveEventBridge()
-{
+UIEventBridge* UISystem::GetActiveEventBridge() {
     return m_ExternalEventBridge ? m_ExternalEventBridge : &m_EventBridge;
 }
 
-UIDataModel* UISystem::ResolveDataModel(void* user, const std::string& name)
-{
+UIDataModel* UISystem::ResolveDataModel(void* user, const std::string& name) {
     auto* self = static_cast<UISystem*>(user);
     return self ? &self->CreateDataModel(name) : nullptr;
 }

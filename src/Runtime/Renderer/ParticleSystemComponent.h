@@ -27,11 +27,19 @@ public:
     MeshAsset* BuildBillboardMesh(const Camera& camera);
     MaterialAsset* GetMaterial() const { return m_Material.Get(); }
     void SetMaterial(MaterialHandle material) { m_Material = std::move(material); }
-    void SetAssetPath(const std::string& path);const std::string& GetAssetPath()const{return m_AssetPath;}
+    void SetAssetPath(const std::string& path);
+    const std::string& GetAssetPath() const { return m_AssetPath; }
     void Serialize(nlohmann::json& data) const override;
     void Deserialize(const nlohmann::json& data) override;
+
 private:
-    struct Particle { Vec3 position; Vec3 velocity; float age=0.0f; float lifetime=1.0f; float rotation=0.0f; };
+    struct Particle {
+        Vec3 position;
+        Vec3 velocity;
+        float age = 0.0f;
+        float lifetime = 1.0f;
+        float rotation = 0.0f;
+    };
     void EnsureResources();
     ParticleEmitterSettings m_Settings;
     std::string m_AssetPath;

@@ -36,8 +36,6 @@ float3 DirectionFromCubeFace(uint face, float2 uv)
     return normalize(float3(-p.x, p.y, -1.0f));
 }
 
-
-
 float4 PSMain(VSOut input) : SV_TARGET
 {
     float2 uv = input.ndc * 0.5f + 0.5f;

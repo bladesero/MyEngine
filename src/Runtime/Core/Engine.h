@@ -15,9 +15,9 @@ class IWindow;
 union SDL_Event;
 
 struct EngineConfig {
-    std::string appName             = "MinimalEngine";
-    int         targetFps           = 60;
-    float       autoQuitAfterSeconds = -1.0f; // negative = run forever
+    std::string appName = "MinimalEngine";
+    int targetFps = 60;
+    float autoQuitAfterSeconds = -1.0f; // negative = run forever
 };
 
 class Engine {
@@ -48,20 +48,19 @@ public:
     void SetPlatformEventBridge(IPlatformEventBridge* bridge) { m_PlatformEventBridge = bridge; }
 
 private:
-    void PollPlatformEvents();   // translates SDL_Event → our Event
+    void PollPlatformEvents(); // translates SDL_Event → our Event
     void DispatchEvents();
     void UpdateLayers();
     void RenderLayers();
     bool IsLayerFaulted(const Layer* layer) const;
     void MarkLayerFaulted(const Layer* layer, const char* phase, const char* message);
-    static void SleepForFrameRate(float targetFrameSeconds,
-                                  Time::Clock::time_point frameStart);
+    static void SleepForFrameRate(float targetFrameSeconds, Time::Clock::time_point frameStart);
 
     EngineConfig m_Config;
-    IWindow*     m_Window  = nullptr;
-    bool         m_Running = false;
-    EventQueue   m_EventQueue;
-    LayerStack   m_Layers;
+    IWindow* m_Window = nullptr;
+    bool m_Running = false;
+    EventQueue m_EventQueue;
+    LayerStack m_Layers;
     IPlatformEventBridge* m_PlatformEventBridge = nullptr;
     FrameStats m_FrameStats;
     float m_StatsAccumulator = 0.0f;

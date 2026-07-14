@@ -28,8 +28,7 @@ void MemoryService::Init() {
     m_SceneLiveActors.store(0);
 
     m_Initialized = true;
-    Logger::Info("[Memory] MemoryService initialized (linear arena capacity ",
-                 m_FrameArena.Capacity(), " bytes)");
+    Logger::Info("[Memory] MemoryService initialized (linear arena capacity ", m_FrameArena.Capacity(), " bytes)");
 }
 
 void MemoryService::Shutdown() {
@@ -47,11 +46,7 @@ void MemoryService::Shutdown() {
     Logger::Info("[Memory] MemoryService shutdown");
 }
 
-void* MemoryService::Allocate(AllocTag tag,
-                             size_t size,
-                             size_t alignment,
-                             const char* file,
-                             int line) {
+void* MemoryService::Allocate(AllocTag tag, size_t size, size_t alignment, const char* file, int line) {
     if (!m_Initialized) {
         Logger::Error("[Memory] MemoryService::Allocate called before Init()");
         return nullptr;
@@ -112,7 +107,8 @@ void MemoryService::SceneNotifyActorsDestroyed(uint64_t count) {
         return;
     }
     const int64_t cur = m_SceneLiveActors.load();
-    const int64_t dec = static_cast<int64_t>(std::min<uint64_t>(count, static_cast<uint64_t>(std::max<int64_t>(0, cur))));
+    const int64_t dec =
+        static_cast<int64_t>(std::min<uint64_t>(count, static_cast<uint64_t>(std::max<int64_t>(0, cur))));
     if (dec > 0) {
         m_SceneLiveActors.fetch_sub(dec);
     }

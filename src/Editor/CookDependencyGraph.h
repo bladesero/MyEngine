@@ -5,8 +5,14 @@
 #include <vector>
 
 enum class PublishIssueCode {
-    MissingDependency, UnsafePath, InvalidAsset, UnsupportedReference,
-    PathCollision, ContentLimit, RuntimeDependency, Compatibility
+    MissingDependency,
+    UnsafePath,
+    InvalidAsset,
+    UnsupportedReference,
+    PathCollision,
+    ContentLimit,
+    RuntimeDependency,
+    Compatibility
 };
 struct PublishIssue {
     PublishIssueCode code = PublishIssueCode::InvalidAsset;
@@ -25,6 +31,5 @@ struct PublishPreflightReport {
 
 class CookDependencyGraph {
 public:
-    static bool Validate(const std::filesystem::path& projectRoot,
-                         PublishPreflightReport& report);
+    static bool Validate(const std::filesystem::path& projectRoot, PublishPreflightReport& report);
 };

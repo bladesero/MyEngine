@@ -40,8 +40,7 @@ public:
     // --- Menu items -------------------------------------------------------
     // Render a clickable item.  When clicked the callback fires and the
     // popup is automatically closed.
-    bool AddAction(const char* label, std::function<void()> callback,
-                   bool enabled = true);
+    bool AddAction(const char* label, std::function<void()> callback, bool enabled = true);
 
     // Render a horizontal separator.
     void AddSeparator();

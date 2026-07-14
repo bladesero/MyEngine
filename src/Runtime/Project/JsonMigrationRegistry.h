@@ -19,4 +19,3 @@ private:
     uint32_t m_CurrentVersion = 0;
     std::map<uint32_t, Migration> m_Migrations;
 };
-

@@ -7,9 +7,7 @@
 struct OrientedBox {
     Vec3 center = Vec3::Zero();
     Vec3 halfExtents = Vec3(0.5f);
-    std::array<Vec3, 3> axes = {
-        Vec3::Right(), Vec3::Up(), Vec3::Forward()
-    };
+    std::array<Vec3, 3> axes = {Vec3::Right(), Vec3::Up(), Vec3::Forward()};
 };
 
 struct SphereShape {

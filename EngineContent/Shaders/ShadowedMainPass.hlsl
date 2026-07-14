@@ -115,8 +115,6 @@ VSOut VSMain(VSIn v, uint instanceId : SV_InstanceID)
     return o;
 }
 
-
-
 void EvalSH2(float3 d, out float sh[9])
 {
     sh[0] = 0.282095f;
@@ -141,8 +139,6 @@ float3 EvaluateEnvironmentSH2(float3 direction)
     }
     return max(color, 0.0f);
 }
-
-
 
 float SampleProjectedShadow(Texture2D shadowMap, SamplerState shadowSampler,
                             float4 lightClip, float nDotL)

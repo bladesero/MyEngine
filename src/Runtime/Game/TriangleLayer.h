@@ -17,19 +17,18 @@ struct ShaderHandle;
 // --------------------------------------------------------------------------
 class TriangleLayer : public Layer {
 public:
-    explicit TriangleLayer(IRenderContext* renderer,
-                           int viewportW, int viewportH);
+    explicit TriangleLayer(IRenderContext* renderer, int viewportW, int viewportH);
 
-    void OnAttach()  override;
-    void OnDetach()  override;
+    void OnAttach() override;
+    void OnDetach() override;
     void OnEvent(Event& event) override;
-    void OnUpdate(float dt)    override;
-    void OnRender()            override;
+    void OnUpdate(float dt) override;
+    void OnRender() override;
 
 private:
-    IRenderContext* m_Renderer  = nullptr;
-    int             m_VpW       = 1280;
-    int             m_VpH       = 720;
+    IRenderContext* m_Renderer = nullptr;
+    int m_VpW = 1280;
+    int m_VpH = 720;
 
     std::shared_ptr<GpuBuffer> m_VB;
     std::shared_ptr<ShaderHandle> m_ShaderHandle;
@@ -37,10 +36,10 @@ private:
 
     Camera m_Camera;
 
-    float m_Rotation = 0.0f;   // degrees per second rotation of triangle
+    float m_Rotation = 0.0f; // degrees per second rotation of triangle
 
     // Mouse-orbit state
-    bool  m_RmbDown  = false;
-    int   m_LastMX   = 0;
-    int   m_LastMY   = 0;
+    bool m_RmbDown = false;
+    int m_LastMX = 0;
+    int m_LastMY = 0;
 };

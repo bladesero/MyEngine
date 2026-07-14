@@ -59,10 +59,8 @@ public:
     void SetRegistrationLayer(EditorScriptRegistrationLayer layer) { m_RegistrationLayer = layer; }
     void SetAllowProjectAppend(bool value) { m_AllowProjectAppend = value; }
     void SetAllowProjectOverrideCore(bool value) { m_AllowProjectOverrideCore = value; }
-    void Panel(const std::string& id, const std::string& title, int area,
-               const std::string& callback);
-    void ToolPanel(const std::string& id, const std::string& title, int area,
-                   const std::string& callback);
+    void Panel(const std::string& id, const std::string& title, int area, const std::string& callback);
+    void ToolPanel(const std::string& id, const std::string& title, int area, const std::string& callback);
     void PanelBody(const std::string& id, const std::string& callback);
     void Menu(const std::string& path, const std::string& actionID);
     void MenuItem(const std::string& path, const std::string& target);

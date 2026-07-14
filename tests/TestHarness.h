@@ -17,7 +17,7 @@ bool Check(bool cond, const std::string& msg);
 bool RegisterTest(const char* module, const char* name, bool (*fn)());
 int RunRegisteredTests(int argc, char** argv);
 
-#define MYENGINE_REGISTER_TEST(moduleName, testName, fn) \
-    namespace { \
-    const bool fn##_registered = RegisterTest(moduleName, testName, fn); \
+#define MYENGINE_REGISTER_TEST(moduleName, testName, fn)                                                               \
+    namespace {                                                                                                        \
+    const bool fn##_registered = RegisterTest(moduleName, testName, fn);                                               \
     }

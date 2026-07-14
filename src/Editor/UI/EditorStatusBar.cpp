@@ -17,33 +17,26 @@
 
 namespace Editor::UI {
 
-float EditorStatusBar::Draw(EditorContext& context,
-                            const EditorProject* project,
-                            float effectiveScale)
-{
+float EditorStatusBar::Draw(EditorContext& context, const EditorProject* project, float effectiveScale) {
 #if defined(MYENGINE_ENABLE_IMGUI)
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
     const float height = ScaleToken(EditorStyleTokens{}.statusBarHeight, effectiveScale);
     ImGui::SetNextWindowPos({viewport->WorkPos.x, viewport->WorkPos.y + viewport->WorkSize.y - height});
     ImGui::SetNextWindowSize({viewport->WorkSize.x, height});
     ImGui::SetNextWindowViewport(viewport->ID);
-    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDocking |
-        ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
-        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar |
-        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoNavFocus;
+    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoTitleBar |
+                                   ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar |
+                                   ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoNavFocus;
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,
                         {ScaleToken(8.0f, effectiveScale), ScaleToken(3.0f, effectiveScale)});
     if (ImGui::Begin("Editor Status Bar", nullptr, flags)) {
-        if (EditorWidgets::SvgIcon(context, EditorIcons::EngineEditor,
-                                   ScaleToken(14.0f, effectiveScale))) {
+        if (EditorWidgets::SvgIcon(context, EditorIcons::EngineEditor, ScaleToken(14.0f, effectiveScale))) {
             ImGui::SameLine();
         }
-        ImGui::Text("Mode: %s | Scene: %s | Selected: %s | Project: %s",
-                    FormatEditorModeText(context).c_str(),
-                    FormatSceneText(context).c_str(),
-                    FormatSelectedText(context).c_str(),
+        ImGui::Text("Mode: %s | Scene: %s | Selected: %s | Project: %s", FormatEditorModeText(context).c_str(),
+                    FormatSceneText(context).c_str(), FormatSelectedText(context).c_str(),
                     FormatProjectText(project).c_str());
     }
     ImGui::End();
@@ -57,12 +50,12 @@ float EditorStatusBar::Draw(EditorContext& context,
 #endif
 }
 
-std::string EditorStatusBar::FormatSelectedText(const EditorContext& context)
-{
+std::string EditorStatusBar::FormatSelectedText(const EditorContext& context) {
     const auto& selection = context.GetSelection();
     if (selection.HasActor()) {
         if (Scene* scene = context.GetInspectorScene()) {
-            if (Actor* actor = selection.ResolveActor(*scene)) return actor->GetName();
+            if (Actor* actor = selection.ResolveActor(*scene))
+                return actor->GetName();
         }
         return "Actor";
     }
@@ -73,27 +66,26 @@ std::string EditorStatusBar::FormatSelectedText(const EditorContext& context)
     return "None";
 }
 
-std::string EditorStatusBar::FormatEditorModeText(const EditorContext& context)
-{
+std::string EditorStatusBar::FormatEditorModeText(const EditorContext& context) {
     const SceneLayer* layer = context.GetSceneLayerBase();
-    std::string mode = !layer || layer->IsEditing() ? "Edit" :
-        (layer->IsPaused() ? "Paused" : "Play");
-    if (context.IsInspectingPlayWorld()) mode += " (Inspecting Play World)";
+    std::string mode = !layer || layer->IsEditing() ? "Edit" : (layer->IsPaused() ? "Paused" : "Play");
+    if (context.IsInspectingPlayWorld())
+        mode += " (Inspecting Play World)";
     return mode;
 }
 
-std::string EditorStatusBar::FormatSceneText(const EditorContext& context)
-{
+std::string EditorStatusBar::FormatSceneText(const EditorContext& context) {
     const Scene* scene = context.GetSceneViewScene();
     std::string text = scene && !scene->GetName().empty() ? scene->GetName() : "None";
     const SceneLayer* layer = context.GetSceneLayerBase();
-    if (layer && layer->IsDirty()) text += " *";
+    if (layer && layer->IsDirty())
+        text += " *";
     return text;
 }
 
-std::string EditorStatusBar::FormatProjectText(const EditorProject* project)
-{
-    if (!project) return "None";
+std::string EditorStatusBar::FormatProjectText(const EditorProject* project) {
+    if (!project)
+        return "None";
     const std::string& name = project->GetConfig().GetName();
     return name.empty() ? "Unnamed" : name;
 }

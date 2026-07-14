@@ -6,11 +6,7 @@
 #include <vector>
 
 struct ScriptDiagnostic {
-    enum class Severity {
-        Info,
-        Warning,
-        Error
-    };
+    enum class Severity { Info, Warning, Error };
 
     Severity severity = Severity::Error;
     std::string message;
@@ -25,10 +21,10 @@ struct ScriptDiagnostic {
 struct ScriptDiagnostics {
     void Clear() { entries.clear(); }
     void Add(ScriptDiagnostic diagnostic) { entries.push_back(std::move(diagnostic)); }
-    bool HasErrors() const
-    {
+    bool HasErrors() const {
         for (const auto& entry : entries) {
-            if (entry.severity == ScriptDiagnostic::Severity::Error) return true;
+            if (entry.severity == ScriptDiagnostic::Severity::Error)
+                return true;
         }
         return false;
     }

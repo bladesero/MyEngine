@@ -7,9 +7,8 @@
 #include "Renderer/ShaderManager.h"
 
 Application::Application(ApplicationConfig config)
-    : m_Config(std::move(config))
-    , m_Window(std::make_unique<SDLWindow>())
-    , m_Engine(m_Config.engine) {}
+    : m_Config(std::move(config)), m_Window(std::make_unique<SDLWindow>()), m_Engine(m_Config.engine) {
+}
 
 int Application::Run() {
     CrashHandler::Install(m_Config.engine.appName);

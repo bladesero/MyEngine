@@ -21,8 +21,8 @@ enum class InputDeviceKind { KeyboardMouse, Gamepad };
 // --------------------------------------------------------------------------
 class Input {
 public:
-    static constexpr int k_MaxKeys    = 512;
-    static constexpr int k_MaxButtons = 8;   // mouse buttons
+    static constexpr int k_MaxKeys = 512;
+    static constexpr int k_MaxButtons = 8; // mouse buttons
     static constexpr int k_MaxGamepads = 4;
 
     struct GamepadState {
@@ -36,25 +36,25 @@ public:
     };
 
     // ----- Keyboard ---------------------------------------------------------
-    static bool IsKeyDown(int scancode);          // held this frame
-    static bool IsKeyPressed(int scancode);       // went down this frame
-    static bool IsKeyReleased(int scancode);      // went up this frame
+    static bool IsKeyDown(int scancode);     // held this frame
+    static bool IsKeyPressed(int scancode);  // went down this frame
+    static bool IsKeyReleased(int scancode); // went up this frame
 
     // ----- Mouse ------------------------------------------------------------
-    static bool IsMouseDown(int button);          // button 1=left 2=mid 3=right
+    static bool IsMouseDown(int button); // button 1=left 2=mid 3=right
     static bool IsMousePressed(int button);
     static bool IsMouseReleased(int button);
 
-    static int GetMouseX()    { return s_MouseX; }
-    static int GetMouseY()    { return s_MouseY; }
+    static int GetMouseX() { return s_MouseX; }
+    static int GetMouseY() { return s_MouseY; }
     static int GetMouseRelX() { return s_MouseRelX; }
     static int GetMouseRelY() { return s_MouseRelY; }
 
     // ----- Gamepad ----------------------------------------------------------
-    static int            GetGamepadCount();
+    static int GetGamepadCount();
     static SDL_JoystickID GetPrimaryGamepadId();
-    static bool           IsGamepadConnected(SDL_JoystickID instanceId);
-    static const char*    GetGamepadName(SDL_JoystickID instanceId);
+    static bool IsGamepadConnected(SDL_JoystickID instanceId);
+    static const char* GetGamepadName(SDL_JoystickID instanceId);
 
     static bool IsGamepadButtonDown(SDL_JoystickID instanceId, SDL_GamepadButton button);
     static bool IsGamepadButtonPressed(SDL_JoystickID instanceId, SDL_GamepadButton button);
@@ -62,17 +62,16 @@ public:
 
     // Returns a normalized value in [-1, 1] for sticks and [0, 1] for triggers.
     static float GetGamepadAxis(SDL_JoystickID instanceId, SDL_GamepadAxis axis);
-    static bool SetGamepadVibration(SDL_JoystickID instanceId, float lowFrequency,
-                                    float highFrequency, uint32_t durationMs);
+    static bool SetGamepadVibration(SDL_JoystickID instanceId, float lowFrequency, float highFrequency,
+                                    uint32_t durationMs);
     static InputDeviceKind GetLastActiveDevice() { return s_LastActiveDevice; }
     static const char* GetGlyphSetName();
     static const char* GetGlyphFamilyName();
     static const char* GetGamepadGlyphFamily(SDL_GamepadType type);
-    static bool LoadGlyphAtlasFromFile(const std::filesystem::path& path,
-                                       std::string* error=nullptr);
-    static bool LoadGlyphAtlasFromText(const std::string& text,std::string* error=nullptr);
+    static bool LoadGlyphAtlasFromFile(const std::filesystem::path& path, std::string* error = nullptr);
+    static bool LoadGlyphAtlasFromText(const std::string& text, std::string* error = nullptr);
     static void SetGlyphLocale(std::string locale);
-    static const std::string& GetGlyphLocale(){return s_GlyphLocale;}
+    static const std::string& GetGlyphLocale() { return s_GlyphLocale; }
     static std::string GetActionGlyphJson(std::string_view actionName);
     static std::string GetSourceGlyphJson(std::string_view source);
 
@@ -85,25 +84,18 @@ public:
     static void SetGameplayInputEnabled(bool enabled);
     static bool IsGameplayInputEnabled();
 
-    static bool LoadActionMapFromFile(const std::filesystem::path& path,
-                                      std::string* error = nullptr);
+    static bool LoadActionMapFromFile(const std::filesystem::path& path, std::string* error = nullptr);
     static void SetDefaultActionMap();
     static void ClearActionMap();
     static nlohmann::json GetActionMapJson();
-    static bool ApplyActionMapOverrides(const nlohmann::json& value,
-                                        std::string* error = nullptr);
+    static bool ApplyActionMapOverrides(const nlohmann::json& value, std::string* error = nullptr);
     static void ResetActionMapOverrides();
-    static std::vector<InputBindingConflict> FindBindingConflicts(
-        std::string_view actionName, size_t bindingIndex, InputBindingPart part,
-        std::string_view source);
-    static bool RebindAction(std::string_view actionName, size_t bindingIndex,
-                             InputBindingPart part, std::string_view source,
-                             bool allowConflicts = false,
-                             std::string* error = nullptr);
-    static void SetRuntimePreferences(float mouseSensitivity, bool invertY,
-                                      float gamepadDeadZone,
-                                      float gamepadSensitivity,
-                                      float vibrationStrength);
+    static std::vector<InputBindingConflict> FindBindingConflicts(std::string_view actionName, size_t bindingIndex,
+                                                                  InputBindingPart part, std::string_view source);
+    static bool RebindAction(std::string_view actionName, size_t bindingIndex, InputBindingPart part,
+                             std::string_view source, bool allowConflicts = false, std::string* error = nullptr);
+    static void SetRuntimePreferences(float mouseSensitivity, bool invertY, float gamepadDeadZone,
+                                      float gamepadSensitivity, float vibrationStrength);
     static float GetMouseSensitivity() { return s_MouseSensitivity; }
     static bool GetInvertY() { return s_InvertY; }
     static float GetGamepadDeadZone() { return s_GamepadDeadZone; }
@@ -125,8 +117,8 @@ public:
     static void Flush();
 
 private:
-    static std::array<bool, k_MaxKeys>    s_Keys;
-    static std::array<bool, k_MaxKeys>    s_KeysPrev;
+    static std::array<bool, k_MaxKeys> s_Keys;
+    static std::array<bool, k_MaxKeys> s_KeysPrev;
     static std::array<bool, k_MaxButtons> s_Mouse;
     static std::array<bool, k_MaxButtons> s_MousePrev;
     static int s_MouseX, s_MouseY, s_MouseRelX, s_MouseRelY;

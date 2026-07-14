@@ -12,10 +12,7 @@ struct ScriptProfilerRecord {
 
 class ScriptProfiler {
 public:
-    static void Record(const std::string& scriptClass,
-                       const std::string& callback,
-                       double milliseconds,
-                       bool failed);
+    static void Record(const std::string& scriptClass, const std::string& callback, double milliseconds, bool failed);
     static std::string GetStatsJson();
     static void Reset();
 };

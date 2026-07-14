@@ -60,13 +60,11 @@ struct RuntimeUserSettings {
 class RuntimeUserSettingsStore {
 public:
     static RuntimeUserSettings Defaults();
-    static bool Validate(const RuntimeUserSettings& settings,std::string* error=nullptr);
+    static bool Validate(const RuntimeUserSettings& settings, std::string* error = nullptr);
     static nlohmann::json ToJson(const RuntimeUserSettings& settings);
-    static bool FromJson(nlohmann::json value,RuntimeUserSettings& settings,
-                         std::string* error=nullptr);
-    static bool Load(RuntimeUserSettings& settings,bool* usedBackup=nullptr,
-                     std::string* error=nullptr);
-    static bool Save(const RuntimeUserSettings& settings,std::string* error=nullptr);
+    static bool FromJson(nlohmann::json value, RuntimeUserSettings& settings, std::string* error = nullptr);
+    static bool Load(RuntimeUserSettings& settings, bool* usedBackup = nullptr, std::string* error = nullptr);
+    static bool Save(const RuntimeUserSettings& settings, std::string* error = nullptr);
     static void SetStorageRoot(std::filesystem::path root);
     static void ClearStorageRootOverride();
     static std::filesystem::path GetStorageRoot();

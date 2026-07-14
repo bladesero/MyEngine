@@ -18,12 +18,10 @@ class UIEventBridge {
 public:
     using Callback = std::function<void(const UIEvent&)>;
 
-    void Subscribe(UICanvas* canvas, const std::string& elementId,
-                   const std::string& eventName, Callback callback);
-    void SubscribeForOwner(void* owner, UICanvas* canvas, const std::string& elementId,
-                           const std::string& eventName, Callback callback);
-    void Unsubscribe(void* owner, const std::string& elementId,
-                     const std::string& eventName);
+    void Subscribe(UICanvas* canvas, const std::string& elementId, const std::string& eventName, Callback callback);
+    void SubscribeForOwner(void* owner, UICanvas* canvas, const std::string& elementId, const std::string& eventName,
+                           Callback callback);
+    void Unsubscribe(void* owner, const std::string& elementId, const std::string& eventName);
     void ClearOwner(void* owner);
     void Emit(UICanvas* canvas, const UIEvent& event) const;
 

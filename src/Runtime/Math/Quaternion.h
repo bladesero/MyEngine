@@ -6,8 +6,7 @@
 
 struct Mat4;
 
-namespace Math
-{
+namespace Math {
 
 // Unit quaternion (x, y, z, w), Hamilton product, matches LH Y-up + row-vector Mat4
 // in this project (see Quat::ToMat4 in EngineMath.h).
@@ -75,7 +74,9 @@ struct Quat {
     static Quat FromMat4(const Mat4& m);
 };
 
-inline float Dot(const Quat& a, const Quat& b) { return a.Dot(b); }
+inline float Dot(const Quat& a, const Quat& b) {
+    return a.Dot(b);
+}
 
 inline Quat Slerp(const Quat& a, const Quat& b, float t) {
     t = std::clamp(t, 0.0f, 1.0f);

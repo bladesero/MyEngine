@@ -10,4 +10,3 @@ public:
     virtual ~IPlatformEventBridge() = default;
     virtual void OnSDLEvent(const SDL_Event& event) = 0;
 };
-

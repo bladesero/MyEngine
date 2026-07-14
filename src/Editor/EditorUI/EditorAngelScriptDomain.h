@@ -21,8 +21,7 @@ public:
     EditorAngelScriptDomain(const EditorAngelScriptDomain&) = delete;
     EditorAngelScriptDomain& operator=(const EditorAngelScriptDomain&) = delete;
 
-    bool Load(const std::filesystem::path& engineScriptRoot,
-              const std::filesystem::path& projectScriptRoot,
+    bool Load(const std::filesystem::path& engineScriptRoot, const std::filesystem::path& projectScriptRoot,
               std::string* error = nullptr);
     void SetConfig(EditorScriptConfig config) { m_Config = std::move(config); }
     const EditorScriptConfig& GetConfig() const { return m_Config; }
@@ -33,15 +32,11 @@ public:
     const std::string& GetLastError() const { return m_LastError; }
     const EditorScriptRegistry& GetRegistry() const { return m_Registry; }
 
-    bool Execute(const std::string& callback, EditorContext& context,
-                 std::string* error = nullptr);
-    bool ExecuteExtension(const std::string& callback, std::string_view stateKey,
-                          EditorContext& context, std::string* error = nullptr);
-    bool ExecutePanelBody(std::string_view panelID, EditorContext& context,
+    bool Execute(const std::string& callback, EditorContext& context, std::string* error = nullptr);
+    bool ExecuteExtension(const std::string& callback, std::string_view stateKey, EditorContext& context,
                           std::string* error = nullptr);
-    bool IsScriptOnlyDebug() const {
-        return m_Config.corePanelMode == EditorScriptCorePanelMode::ScriptOnlyDebug;
-    }
+    bool ExecutePanelBody(std::string_view panelID, EditorContext& context, std::string* error = nullptr);
+    bool IsScriptOnlyDebug() const { return m_Config.corePanelMode == EditorScriptCorePanelMode::ScriptOnlyDebug; }
 
 private:
     struct ScriptSnapshot {
@@ -55,18 +50,13 @@ private:
         EditorScriptRegistrationLayer layer = EditorScriptRegistrationLayer::Engine;
     };
 
-    bool CompileFromRoots(const std::filesystem::path& engineScriptRoot,
-                          const std::filesystem::path& projectScriptRoot,
-                          EditorScriptRegistry& outRegistry,
-                          asIScriptEngine*& outEngine,
-                          asIScriptModule*& outModule,
-                          ScriptSnapshot& outSnapshot,
-                          std::string& outError);
+    bool CompileFromRoots(const std::filesystem::path& engineScriptRoot, const std::filesystem::path& projectScriptRoot,
+                          EditorScriptRegistry& outRegistry, asIScriptEngine*& outEngine, asIScriptModule*& outModule,
+                          ScriptSnapshot& outSnapshot, std::string& outError);
     ScriptSnapshot BuildSnapshot(const std::filesystem::path& engineScriptRoot,
                                  const std::filesystem::path& projectScriptRoot) const;
     std::string LoadScripts(const std::filesystem::path& engineScriptRoot,
-                            const std::filesystem::path& projectScriptRoot,
-                            ScriptSnapshot& snapshot,
+                            const std::filesystem::path& projectScriptRoot, ScriptSnapshot& snapshot,
                             std::vector<RegisterCallback>* registerCallbacks) const;
     void ReleaseCompiled();
 

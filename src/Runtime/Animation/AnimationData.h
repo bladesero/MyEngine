@@ -17,8 +17,8 @@ struct Bone {
 };
 
 struct SkinWeight {
-    std::array<uint16_t, 4> boneIndices = { 0, 0, 0, 0 };
-    std::array<float, 4> weights = { 1.0f, 0.0f, 0.0f, 0.0f };
+    std::array<uint16_t, 4> boneIndices = {0, 0, 0, 0};
+    std::array<float, 4> weights = {1.0f, 0.0f, 0.0f, 0.0f};
 };
 
 struct BoneKeyframe {

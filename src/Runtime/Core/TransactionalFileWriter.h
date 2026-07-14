@@ -22,8 +22,6 @@ struct TransactionalWriteOptions {
 class TransactionalFileWriter {
 public:
     static void SetNextFaultForTesting(TransactionalWriteFault fault);
-    static bool WriteText(const std::filesystem::path& destination,
-                          std::string_view text,
-                          const TransactionalWriteOptions& options = {},
-                          std::string* error = nullptr);
+    static bool WriteText(const std::filesystem::path& destination, std::string_view text,
+                          const TransactionalWriteOptions& options = {}, std::string* error = nullptr);
 };

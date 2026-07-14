@@ -4,9 +4,7 @@
 
 // --------------------------------------------------------------------------
 SceneLayer::SceneLayer(const std::string& layerName)
-    : Layer(layerName)
-    , m_EditorScene(std::make_unique<Scene>("Untitled"))
-{
+    : Layer(layerName), m_EditorScene(std::make_unique<Scene>("Untitled")) {
     m_EditorScene->SetSceneManager(&m_SceneManager);
     m_EditorScene->SetGameFlowController(&m_GameFlowController);
     m_GameFlowController.EnterBoot(nullptr);
@@ -16,23 +14,18 @@ SceneLayer::SceneLayer(const std::string& layerName)
 // Layer 生命周期
 // --------------------------------------------------------------------------
 
-void SceneLayer::OnAttach()
-{
-    Logger::Info("[SceneLayer] '", Name(), "' attached — scene: '",
-                 m_EditorScene->GetName(), "'");
+void SceneLayer::OnAttach() {
+    Logger::Info("[SceneLayer] '", Name(), "' attached — scene: '", m_EditorScene->GetName(), "'");
     OnSceneLoaded();
 }
 
-void SceneLayer::OnDetach()
-{
+void SceneLayer::OnDetach() {
     OnSceneUnloaded();
     Logger::Info("[SceneLayer] '", Name(), "' detached");
 }
 
-void SceneLayer::OnUpdate(float dt)
-{
-    if (m_PlayScene && m_SceneManager.IsLoading() &&
-        m_GameFlowController.GetState() != GameFlowState::Loading)
+void SceneLayer::OnUpdate(float dt) {
+    if (m_PlayScene && m_SceneManager.IsLoading() && m_GameFlowController.GetState() != GameFlowState::Loading)
         m_GameFlowController.BeginLoading(m_PlayScene.get());
     std::unique_ptr<Scene> requestedScene;
     if (m_SceneManager.Process(requestedScene) && requestedScene) {
@@ -41,11 +34,11 @@ void SceneLayer::OnUpdate(float dt)
             m_EditorScene = std::move(requestedScene);
             m_EditorScene->SetSceneManager(&m_SceneManager);
             m_EditorScene->SetGameFlowController(&m_GameFlowController);
-            m_SceneFilePath = (AssetManager::Get().GetProjectRoot() /
-                m_SceneManager.GetRequestedPath()).string();
+            m_SceneFilePath = (AssetManager::Get().GetProjectRoot() / m_SceneManager.GetRequestedPath()).string();
             m_Dirty = false;
         } else {
-            if (m_PlayScene) m_PlayScene->EndPlay();
+            if (m_PlayScene)
+                m_PlayScene->EndPlay();
             m_PlayScene = std::move(requestedScene);
             m_PlayScene->SetSceneManager(&m_SceneManager);
             m_PlayScene->SetGameFlowController(&m_GameFlowController);
@@ -69,25 +62,24 @@ void SceneLayer::OnUpdate(float dt)
             m_StepRequested = false;
             return;
         }
-        if (m_StepRequested) playScene->Resume();
+        if (m_StepRequested)
+            playScene->Resume();
         playScene->OnUpdate(dt);
-        if (m_StepRequested) playScene->Pause();
+        if (m_StepRequested)
+            playScene->Pause();
         m_StepRequested = false;
     }
 }
 
-void SceneLayer::OnEvent(Event& event)
-{
+void SceneLayer::OnEvent(Event& event) {
     if (event.type == EventType::WindowFocusLost) {
         m_WindowFocused = false;
         if (m_PauseWhenUnfocused && m_PlayScene)
-            m_GameFlowController.RequestPause(GamePauseReason::WindowInactive,
-                                               m_PlayScene.get());
+            m_GameFlowController.RequestPause(GamePauseReason::WindowInactive, m_PlayScene.get());
     } else if (event.type == EventType::WindowFocusGained) {
         m_WindowFocused = true;
         if (m_PlayScene)
-            m_GameFlowController.ReleasePause(GamePauseReason::WindowInactive,
-                                               m_PlayScene.get());
+            m_GameFlowController.ReleasePause(GamePauseReason::WindowInactive, m_PlayScene.get());
     }
 }
 
@@ -95,24 +87,24 @@ void SceneLayer::OnEvent(Event& event)
 // Scene 文件操作
 // --------------------------------------------------------------------------
 
-void SceneLayer::NewScene(const std::string& sceneName)
-{
-    if (!IsEditing()) StopPlay();
+void SceneLayer::NewScene(const std::string& sceneName) {
+    if (!IsEditing())
+        StopPlay();
     OnSceneUnloaded();
 
-    m_EditorScene    = std::make_unique<Scene>(sceneName);
+    m_EditorScene = std::make_unique<Scene>(sceneName);
     m_EditorScene->SetSceneManager(&m_SceneManager);
     m_EditorScene->SetGameFlowController(&m_GameFlowController);
-    m_SceneFilePath  = "";
-    m_Dirty          = false;
+    m_SceneFilePath = "";
+    m_Dirty = false;
 
     Logger::Info("[SceneLayer] New scene: '", sceneName, "'");
     OnSceneLoaded();
 }
 
-bool SceneLayer::LoadScene(const std::string& filepath)
-{
-    if (!IsEditing()) StopPlay();
+bool SceneLayer::LoadScene(const std::string& filepath) {
+    if (!IsEditing())
+        StopPlay();
     auto newScene = std::make_unique<Scene>();
     if (!SceneSerializer::LoadFromFile(*newScene, filepath)) {
         // 加载失败，恢复空场景
@@ -121,18 +113,17 @@ bool SceneLayer::LoadScene(const std::string& filepath)
     }
 
     OnSceneUnloaded();
-    m_EditorScene   = std::move(newScene);
+    m_EditorScene = std::move(newScene);
     m_EditorScene->SetSceneManager(&m_SceneManager);
     m_EditorScene->SetGameFlowController(&m_GameFlowController);
     m_SceneFilePath = filepath;
-    m_Dirty         = false;
+    m_Dirty = false;
 
     OnSceneLoaded();
     return true;
 }
 
-bool SceneLayer::SaveScene()
-{
+bool SceneLayer::SaveScene() {
     if (m_SceneFilePath.empty()) {
         Logger::Warn("[SceneLayer] SaveScene(): no file path set, use SaveSceneAs()");
         return false;
@@ -140,8 +131,7 @@ bool SceneLayer::SaveScene()
     return SaveSceneAs(m_SceneFilePath);
 }
 
-bool SceneLayer::SaveSceneAs(const std::string& filepath)
-{
+bool SceneLayer::SaveSceneAs(const std::string& filepath) {
     if (!IsEditing()) {
         Logger::Warn("[SceneLayer] Runtime scene cannot be saved; stop Play mode first");
         return false;
@@ -151,14 +141,13 @@ bool SceneLayer::SaveSceneAs(const std::string& filepath)
         return false;
     }
     m_SceneFilePath = filepath;
-    m_Dirty         = false;
+    m_Dirty = false;
     return true;
 }
 
-bool SceneLayer::RestoreEditorSnapshot(const std::string& serializedScene,
-                                       const std::string& originalFilepath)
-{
-    if (!IsEditing()) StopPlay();
+bool SceneLayer::RestoreEditorSnapshot(const std::string& serializedScene, const std::string& originalFilepath) {
+    if (!IsEditing())
+        StopPlay();
     auto recovered = std::make_unique<Scene>();
     if (!SceneSerializer::LoadFromString(*recovered, serializedScene)) {
         Logger::Error("[SceneLayer] Failed to deserialize recovery snapshot");
@@ -174,27 +163,25 @@ bool SceneLayer::RestoreEditorSnapshot(const std::string& serializedScene,
     return true;
 }
 
-Scene& SceneLayer::GetSimulationScene()
-{
+Scene& SceneLayer::GetSimulationScene() {
     return m_PlayScene ? *m_PlayScene : *m_EditorScene;
 }
 
-const Scene& SceneLayer::GetSimulationScene() const
-{
+const Scene& SceneLayer::GetSimulationScene() const {
     return m_PlayScene ? *m_PlayScene : *m_EditorScene;
 }
 
-std::unique_ptr<Scene> SceneLayer::CloneSceneFromJson(const std::string& json) const
-{
+std::unique_ptr<Scene> SceneLayer::CloneSceneFromJson(const std::string& json) const {
     auto clone = std::make_unique<Scene>();
-    if (!SceneSerializer::LoadFromString(*clone, json)) return nullptr;
+    if (!SceneSerializer::LoadFromString(*clone, json))
+        return nullptr;
     return clone;
 }
 
-bool SceneLayer::BeginPlay()
-{
+bool SceneLayer::BeginPlay() {
     if (m_RunState != SceneRunState::Edit) {
-        if (m_RunState == SceneRunState::Pause) ResumePlay();
+        if (m_RunState == SceneRunState::Pause)
+            ResumePlay();
         return true;
     }
 
@@ -217,10 +204,11 @@ bool SceneLayer::BeginPlay()
     return true;
 }
 
-void SceneLayer::StopPlay()
-{
-    if (m_RunState == SceneRunState::Edit) return;
-    if (m_PlayScene) m_PlayScene->EndPlay();
+void SceneLayer::StopPlay() {
+    if (m_RunState == SceneRunState::Edit)
+        return;
+    if (m_PlayScene)
+        m_PlayScene->EndPlay();
     m_PlayScene.reset();
     m_GameFlowController.EnterBoot(nullptr);
     m_Dirty = m_EditDirtySnapshot;
@@ -229,8 +217,7 @@ void SceneLayer::StopPlay()
     Logger::Info("[SceneLayer] Return to Edit mode");
 }
 
-void SceneLayer::PausePlay()
-{
+void SceneLayer::PausePlay() {
     if (m_RunState == SceneRunState::Play) {
         m_RunState = SceneRunState::Pause;
         m_GameFlowController.RequestPause(GamePauseReason::Editor, m_PlayScene.get());
@@ -238,8 +225,7 @@ void SceneLayer::PausePlay()
     }
 }
 
-void SceneLayer::ResumePlay()
-{
+void SceneLayer::ResumePlay() {
     if (m_RunState == SceneRunState::Pause) {
         m_RunState = SceneRunState::Play;
         m_GameFlowController.ReleasePause(GamePauseReason::Editor, m_PlayScene.get());
@@ -247,28 +233,30 @@ void SceneLayer::ResumePlay()
     }
 }
 
-bool SceneLayer::StepPlay()
-{
-    if (m_RunState == SceneRunState::Edit && !BeginPlay()) return false;
+bool SceneLayer::StepPlay() {
+    if (m_RunState == SceneRunState::Edit && !BeginPlay())
+        return false;
     m_RunState = SceneRunState::Pause;
     m_GameFlowController.RequestPause(GamePauseReason::Editor, m_PlayScene.get());
     m_StepRequested = true;
     return true;
 }
 
-bool SceneLayer::RequestSceneLoad(const std::string& path)
-{
-    if (!m_SceneManager.RequestLoad(path)) return false;
+bool SceneLayer::RequestSceneLoad(const std::string& path) {
+    if (!m_SceneManager.RequestLoad(path))
+        return false;
     m_LastObservedLoadState = m_SceneManager.GetState();
-    if (m_PlayScene) m_GameFlowController.BeginLoading(m_PlayScene.get());
+    if (m_PlayScene)
+        m_GameFlowController.BeginLoading(m_PlayScene.get());
     return true;
 }
 
-void SceneLayer::SetPauseWhenUnfocused(bool enabled)
-{
-    if (m_PauseWhenUnfocused == enabled) return;
+void SceneLayer::SetPauseWhenUnfocused(bool enabled) {
+    if (m_PauseWhenUnfocused == enabled)
+        return;
     m_PauseWhenUnfocused = enabled;
-    if (!m_PlayScene) return;
+    if (!m_PlayScene)
+        return;
     if (enabled && !m_WindowFocused)
         m_GameFlowController.RequestPause(GamePauseReason::WindowInactive, m_PlayScene.get());
     else if (!enabled)

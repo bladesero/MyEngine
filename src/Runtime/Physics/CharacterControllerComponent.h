@@ -9,7 +9,8 @@ public:
 
     void Move(const Vec3& velocity) { m_DesiredVelocity = velocity; }
     bool Jump(float speed = -1.0f) {
-        if (!m_Grounded || m_JumpRequested) return false;
+        if (!m_Grounded || m_JumpRequested)
+            return false;
         m_JumpRequested = true;
         m_RequestedJumpSpeed = speed > 0.0f ? speed : m_JumpSpeed;
         return true;
@@ -35,7 +36,8 @@ private:
     friend class PhysicsWorld;
     void SetGrounded(bool grounded) { m_Grounded = grounded; }
     bool ConsumeJump(float& speed) {
-        if (!m_JumpRequested) return false;
+        if (!m_JumpRequested)
+            return false;
         speed = m_RequestedJumpSpeed;
         m_JumpRequested = false;
         return true;

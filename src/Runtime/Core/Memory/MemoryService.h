@@ -13,7 +13,7 @@ class MemoryService {
 public:
     static MemoryService& Get();
 
-    MemoryService(const MemoryService&)            = delete;
+    MemoryService(const MemoryService&) = delete;
     MemoryService& operator=(const MemoryService&) = delete;
 
     void Init();
@@ -23,12 +23,12 @@ public:
 
     // General heap — tracked path (headers + optional AllocTracker).
     void* Allocate(AllocTag tag, size_t size, size_t alignment, const char* file, int line);
-    void  Free(void* ptr, const char* file, int line);
+    void Free(void* ptr, const char* file, int line);
 
-    GeneralHeapAllocator&       GeneralHeap() { return m_GeneralHeap; }
+    GeneralHeapAllocator& GeneralHeap() { return m_GeneralHeap; }
     const GeneralHeapAllocator& GeneralHeap() const { return m_GeneralHeap; }
 
-    LinearAllocator&       FrameArena() { return m_FrameArena; }
+    LinearAllocator& FrameArena() { return m_FrameArena; }
     const LinearAllocator& FrameArena() const { return m_FrameArena; }
 
     // Call once per frame before layer updates / rendering scratch.
@@ -48,9 +48,9 @@ public:
 private:
     MemoryService() = default;
 
-    bool                 m_Initialized = false;
+    bool m_Initialized = false;
     GeneralHeapAllocator m_GeneralHeap;
-    LinearAllocator      m_FrameArena;
+    LinearAllocator m_FrameArena;
 
     std::atomic<int64_t> m_SceneLiveActors{0};
     std::atomic<uint64_t> m_SceneActorBudget{0}; // 0 = unlimited

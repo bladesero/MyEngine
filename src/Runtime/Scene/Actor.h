@@ -30,18 +30,18 @@ public:
     ~Actor();
 
     // 禁止拷贝，允许移动
-    Actor(const Actor&)            = delete;
+    Actor(const Actor&) = delete;
     Actor& operator=(const Actor&) = delete;
-    Actor(Actor&&)                 = default;
-    Actor& operator=(Actor&&)      = default;
+    Actor(Actor&&) = default;
+    Actor& operator=(Actor&&) = default;
 
     // -----------------------------------------------------------------------
     // 基础属性
     // -----------------------------------------------------------------------
-    uint64_t           GetID()   const { return m_ID; }
-    ActorHandle        GetHandle() const { return m_Handle; }
+    uint64_t GetID() const { return m_ID; }
+    ActorHandle GetHandle() const { return m_Handle; }
     const std::string& GetName() const { return m_Name; }
-    void               SetName(const std::string& name) { m_Name = name; }
+    void SetName(const std::string& name) { m_Name = name; }
     const std::string& GetTag() const { return m_Tag; }
     void SetTag(std::string tag) { m_Tag = std::move(tag); }
     bool HasTag(const std::string& tag) const { return !tag.empty() && m_Tag == tag; }
@@ -51,8 +51,10 @@ public:
     void SetEditorFlags(uint32_t flags) { m_EditorFlags = flags; }
     bool IsStatic() const { return (m_EditorFlags & 1u) != 0; }
     void SetStatic(bool value) {
-        if (value) m_EditorFlags |= 1u;
-        else m_EditorFlags &= ~1u;
+        if (value)
+            m_EditorFlags |= 1u;
+        else
+            m_EditorFlags &= ~1u;
     }
 
     bool IsActive() const { return m_ActiveInHierarchy && m_State != ActorState::PendingDestroy; }
@@ -74,7 +76,7 @@ public:
     // -----------------------------------------------------------------------
     // Transform
     // -----------------------------------------------------------------------
-    Transform&       GetTransform()       { return m_Transform; }
+    Transform& GetTransform() { return m_Transform; }
     const Transform& GetTransform() const { return m_Transform; }
 
     // 世界矩阵 = Parent.WorldMatrix * LocalMatrix
@@ -100,11 +102,11 @@ public:
 
     // 添加组件（每种类型最多一个）
     // 返回指向新建组件的裸指针（所有权由 Actor 持有）
-    template<typename T, typename... Args>
-    T* AddComponent(Args&&... args) {
+    template <typename T, typename... Args> T* AddComponent(Args&&... args) {
         auto key = std::type_index(typeid(T));
         auto found = m_ComponentLookup.find(key);
-        if (found != m_ComponentLookup.end()) return static_cast<T*>(m_Components[found->second].component.get());
+        if (found != m_ComponentLookup.end())
+            return static_cast<T*>(m_Components[found->second].component.get());
         auto comp = std::make_unique<T>(std::forward<Args>(args)...);
         if (ShouldDeferStructuralMutation()) {
             nlohmann::json data = nlohmann::json::object();
@@ -112,35 +114,29 @@ public:
             QueueComponentAdd(comp->GetTypeName(), data);
             return nullptr;
         }
-        T* raw    = comp.get();
+        T* raw = comp.get();
         AddComponentObject(key, std::move(comp), true);
         return raw;
     }
 
     // 获取组件（不存在返回 nullptr）
-    template<typename T>
-    T* GetComponent() const {
+    template <typename T> T* GetComponent() const {
         auto key = std::type_index(typeid(T));
         auto it = m_ComponentLookup.find(key);
-        if (it != m_ComponentLookup.end()) return static_cast<T*>(m_Components[it->second].component.get());
+        if (it != m_ComponentLookup.end())
+            return static_cast<T*>(m_Components[it->second].component.get());
         return nullptr;
     }
 
     // 是否持有某组件
-    template<typename T>
-    bool HasComponent() const {
-        return m_ComponentLookup.count(std::type_index(typeid(T))) > 0;
-    }
+    template <typename T> bool HasComponent() const { return m_ComponentLookup.count(std::type_index(typeid(T))) > 0; }
 
     // 移除组件
     Component* GetComponentByTypeName(const std::string& typeName) const;
-    bool HasComponentType(const std::string& typeName) const {
-        return GetComponentByTypeName(typeName) != nullptr;
-    }
+    bool HasComponentType(const std::string& typeName) const { return GetComponentByTypeName(typeName) != nullptr; }
     bool RemoveComponentByTypeName(const std::string& typeName);
 
-    template<typename T>
-    bool RemoveComponent() {
+    template <typename T> bool RemoveComponent() {
         auto key = std::type_index(typeid(T));
         auto it = m_ComponentLookup.find(key);
         return it != m_ComponentLookup.end() && RemoveComponentAt(it->second);
@@ -148,7 +144,8 @@ public:
 
     // 遍历所有组件（用于序列化）
     void ForEachComponent(const std::function<void(Component&)>& fn) const {
-        for (const auto& entry : m_Components) fn(*entry.component);
+        for (const auto& entry : m_Components)
+            fn(*entry.component);
     }
 
     // -----------------------------------------------------------------------
@@ -162,8 +159,7 @@ private:
     void AddChild(Actor* child);
     void RemoveChild(Actor* child);
     bool MoveChildBefore(Actor* child, Actor* beforeChild);
-    Component* AddComponentObject(std::type_index type, std::unique_ptr<Component> component,
-                                  bool finalizeNow);
+    Component* AddComponentObject(std::type_index type, std::unique_ptr<Component> component, bool finalizeNow);
     bool RemoveComponentAt(size_t index);
     void RebuildComponentLookup();
     std::vector<Component*> OrderedComponents(bool reverse = false) const;
@@ -179,19 +175,19 @@ private:
     bool ShouldDeferStructuralMutation() const;
     void QueueComponentAdd(const std::string& type, const nlohmann::json& data);
 
-    uint64_t    m_ID;
+    uint64_t m_ID;
     ActorHandle m_Handle;
     std::string m_Name;
     std::string m_Tag;
-    uint32_t    m_Layer = 0;
-    uint32_t    m_EditorFlags = 0;
-    bool        m_ActiveSelf = true;
-    bool        m_ActiveInHierarchy = true;
-    ActorState  m_State = ActorState::Constructed;
+    uint32_t m_Layer = 0;
+    uint32_t m_EditorFlags = 0;
+    bool m_ActiveSelf = true;
+    bool m_ActiveInHierarchy = true;
+    ActorState m_State = ActorState::Constructed;
 
-    Transform   m_Transform;
+    Transform m_Transform;
 
-    Actor*              m_Parent   = nullptr;
+    Actor* m_Parent = nullptr;
     std::vector<Actor*> m_Children;
 
     struct ComponentEntry {

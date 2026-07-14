@@ -17,10 +17,7 @@ struct EditorUIScaleSettings {
     static constexpr float kMinUserScale = 0.75f;
     static constexpr float kMaxUserScale = 2.0f;
 
-    static float ClampUserScale(float value)
-    {
-        return std::clamp(value, kMinUserScale, kMaxUserScale);
-    }
+    static float ClampUserScale(float value) { return std::clamp(value, kMinUserScale, kMaxUserScale); }
 };
 
 class EditorUIScaleManager {
@@ -40,10 +37,7 @@ public:
     const EditorFontManager& GetFontManager() const { return m_FontManager; }
     EditorFontManager& GetFontManager() { return m_FontManager; }
 
-    static float ClampUserScale(float value)
-    {
-        return EditorUIScaleSettings::ClampUserScale(value);
-    }
+    static float ClampUserScale(float value) { return EditorUIScaleSettings::ClampUserScale(value); }
     static float ComputeEffectiveScale(float platformScale, float userScale);
 
 private:

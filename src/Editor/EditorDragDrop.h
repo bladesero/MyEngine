@@ -26,7 +26,7 @@ public:
 protected:
     virtual const char* GetPayloadType() const = 0;
     virtual const void* GetPayloadData() const = 0;
-    virtual size_t      GetPayloadSize() const = 0;
+    virtual size_t GetPayloadSize() const = 0;
     virtual const char* GetPreviewLabel() const = 0;
     virtual ImGuiDragDropFlags GetFlags() const { return ImGuiDragDropFlags_None; }
 };
@@ -44,11 +44,11 @@ public:
 protected:
     const char* GetPayloadType() const override;
     const void* GetPayloadData() const override;
-    size_t      GetPayloadSize() const override;
+    size_t GetPayloadSize() const override;
     const char* GetPreviewLabel() const override;
 
 private:
-    uint64_t    m_ActorId;
+    uint64_t m_ActorId;
     std::string m_Name;
 };
 
@@ -68,12 +68,12 @@ public:
 protected:
     const char* GetPayloadType() const override;
     const void* GetPayloadData() const override;
-    size_t      GetPayloadSize() const override;
+    size_t GetPayloadSize() const override;
     const char* GetPreviewLabel() const override;
     ImGuiDragDropFlags GetFlags() const override { return ImGuiDragDropFlags_SourceAllowNullID; }
 
 private:
-    const char* m_PayloadType;  // non-owning pointer to string literal
+    const char* m_PayloadType; // non-owning pointer to string literal
     std::string m_Path;
     std::string m_Label;
 };

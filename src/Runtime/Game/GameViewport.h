@@ -10,9 +10,7 @@ class Scene;
 
 class GameViewport final : public RenderViewport {
 public:
-    GameViewport(IRHIDevice* device,
-                 IRHIFrameContext* frameContext,
-                 IRHIReadbackService* readbackService);
+    GameViewport(IRHIDevice* device, IRHIFrameContext* frameContext, IRHIReadbackService* readbackService);
 
     void Initialize(int width, int height) override;
     void ResolveFrameCamera(const Scene& scene) override;

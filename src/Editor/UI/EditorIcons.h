@@ -60,35 +60,52 @@ inline constexpr const char* StopFA = "\xef\x81\x8d";
 inline constexpr const char* PauseFA = "\xef\x81\x8c";
 inline constexpr const char* StepFA = "\xef\x81\x91";
 
-inline const char* PickIcon(const char* icon, const char* fallback)
-{
+inline const char* PickIcon(const char* icon, const char* fallback) {
     return EditorFontManager::HasActiveFont(EditorFontRole::Icon) ? icon : fallback;
 }
 
-inline const char* PlayIcon() { return PickIcon(PlayFA, ">"); }
-inline const char* StopIcon() { return PickIcon(StopFA, "[]"); }
-inline const char* PauseIcon() { return PickIcon(PauseFA, "||"); }
-inline const char* StepIcon() { return PickIcon(StepFA, "|>"); }
+inline const char* PlayIcon() {
+    return PickIcon(PlayFA, ">");
+}
+inline const char* StopIcon() {
+    return PickIcon(StopFA, "[]");
+}
+inline const char* PauseIcon() {
+    return PickIcon(PauseFA, "||");
+}
+inline const char* StepIcon() {
+    return PickIcon(StepFA, "|>");
+}
 
-inline bool Matches(const char* lhs, const char* rhs)
-{
+inline bool Matches(const char* lhs, const char* rhs) {
     return lhs && rhs && std::strcmp(lhs, rhs) == 0;
 }
 
-inline const char* FallbackFor(const char* icon)
-{
-    if (Matches(icon, PlayStart)) return PlayIcon();
-    if (Matches(icon, PlayStop)) return StopIcon();
-    if (Matches(icon, PlayPause)) return PauseIcon();
-    if (Matches(icon, PlayStep)) return StepIcon();
-    if (Matches(icon, Remove)) return "X";
-    if (Matches(icon, Search)) return "?";
-    if (Matches(icon, Actor)) return "A";
-    if (Matches(icon, Folder)) return "[]";
-    if (Matches(icon, File)) return "F";
-    if (Matches(icon, EngineEditor)) return "E";
-    if (Matches(icon, EnginePlayer)) return "P";
-    if (Matches(icon, EngineCooker)) return "C";
+inline const char* FallbackFor(const char* icon) {
+    if (Matches(icon, PlayStart))
+        return PlayIcon();
+    if (Matches(icon, PlayStop))
+        return StopIcon();
+    if (Matches(icon, PlayPause))
+        return PauseIcon();
+    if (Matches(icon, PlayStep))
+        return StepIcon();
+    if (Matches(icon, Remove))
+        return "X";
+    if (Matches(icon, Search))
+        return "?";
+    if (Matches(icon, Actor))
+        return "A";
+    if (Matches(icon, Folder))
+        return "[]";
+    if (Matches(icon, File))
+        return "F";
+    if (Matches(icon, EngineEditor))
+        return "E";
+    if (Matches(icon, EnginePlayer))
+        return "P";
+    if (Matches(icon, EngineCooker))
+        return "C";
     return icon ? icon : "";
 }
 

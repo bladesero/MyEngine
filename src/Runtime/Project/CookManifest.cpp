@@ -13,34 +13,38 @@ namespace fs = std::filesystem;
 
 namespace {
 void SetError(std::string* error, std::string message) {
-    if (error) *error = std::move(message);
+    if (error)
+        *error = std::move(message);
 }
 
 bool SafeContentPath(const std::string& value) {
     const fs::path path(value);
-    if (value.empty() || path.is_absolute() || path.has_root_name() ||
-        path.has_root_directory()) return false;
+    if (value.empty() || path.is_absolute() || path.has_root_name() || path.has_root_directory())
+        return false;
     auto part = path.begin();
-    if (part == path.end() || *part != "Content") return false;
+    if (part == path.end() || *part != "Content")
+        return false;
     for (; part != path.end(); ++part) {
-        if (*part == ".." || *part == ".") return false;
+        if (*part == ".." || *part == ".")
+            return false;
     }
     return true;
 }
 
-std::vector<std::string> ExpectedRequiredBackends(const std::string& target)
-{
-    if (target == PublishTargets::kMacOSArm64.id) return {"metal"};
+std::vector<std::string> ExpectedRequiredBackends(const std::string& target) {
+    if (target == PublishTargets::kMacOSArm64.id)
+        return {"metal"};
 #if defined(MYENGINE_ENABLE_VULKAN)
     return {"d3d11", "d3d12", "vulkan"};
 #else
     return {"d3d11", "d3d12"};
 #endif
 }
-}
+} // namespace
 
 bool CookManifest::Validate(std::string* error) const {
-    if (error) error->clear();
+    if (error)
+        error->clear();
     if (version != kCurrentVersion) {
         SetError(error, "unsupported Cook manifest version: " + std::to_string(version));
         return false;
@@ -50,21 +54,22 @@ bool CookManifest::Validate(std::string* error) const {
         return false;
     }
     Sha256::Digest digest{};
-    if(projectId.empty() || engineVersion.empty() || buildId.empty() || configuration.empty() ||
-       gitCommit.empty() || compiler.empty() || shaderToolVersion.empty() ||
-       contentSchemaVersion!=RuntimeCompatibility::kContentSchemaVersion ||
-       archiveFormatVersion!=RuntimeCompatibility::kArchiveFormatVersion ||
-       hashAlgorithm!="sha256" || !Sha256::FromHex(archiveHash,digest) ||
-       !Sha256::FromHex(runtimeDependenciesHash,digest)) {
-        SetError(error,"Cook manifest compatibility contract is invalid"); return false;
+    if (projectId.empty() || engineVersion.empty() || buildId.empty() || configuration.empty() || gitCommit.empty() ||
+        compiler.empty() || shaderToolVersion.empty() ||
+        contentSchemaVersion != RuntimeCompatibility::kContentSchemaVersion ||
+        archiveFormatVersion != RuntimeCompatibility::kArchiveFormatVersion || hashAlgorithm != "sha256" ||
+        !Sha256::FromHex(archiveHash, digest) || !Sha256::FromHex(runtimeDependenciesHash, digest)) {
+        SetError(error, "Cook manifest compatibility contract is invalid");
+        return false;
     }
     if (!PublishTargets::IsSupported(target)) {
         SetError(error, "unsupported Cook target: " + target);
         return false;
     }
     const auto expectedBackends = ExpectedRequiredBackends(target);
-    if(requiredBackends != expectedBackends) {
-        SetError(error,"Cook manifest requiredBackends do not match target: " + target); return false;
+    if (requiredBackends != expectedBackends) {
+        SetError(error, "Cook manifest requiredBackends do not match target: " + target);
+        return false;
     }
     if (!SafeContentPath(startupScene)) {
         SetError(error, "Cook manifest startupScene must be a safe Content path");
@@ -84,8 +89,7 @@ bool CookManifest::Validate(std::string* error) const {
     std::unordered_set<std::string> paths;
     for (const auto& file : files) {
         Sha256::Digest fileDigest{};
-        if (!SafeContentPath(file.path) || !paths.insert(file.path).second ||
-            !Sha256::FromHex(file.hash,fileDigest)) {
+        if (!SafeContentPath(file.path) || !paths.insert(file.path).second || !Sha256::FromHex(file.hash, fileDigest)) {
             SetError(error, "Cook manifest contains an unsafe or duplicate path: " + file.path);
             return false;
         }
@@ -108,23 +112,34 @@ bool CookManifest::Validate(std::string* error) const {
 }
 
 bool CookManifest::Save(const fs::path& path, std::string* error) const {
-    if (error) error->clear();
-    if (!Validate(error)) return false;
+    if (error)
+        error->clear();
+    if (!Validate(error))
+        return false;
     try {
         nlohmann::json fileList = nlohmann::json::array();
         for (const auto& file : files) {
             fileList.push_back({
-                {"path", file.path}, {"size", file.size}, {"hash", file.hash},
+                {"path", file.path},
+                {"size", file.size},
+                {"hash", file.hash},
             });
         }
         const nlohmann::json json = {
             {"version", version},
             {"project", project},
-            {"projectId",projectId},{"engineVersion",engineVersion},{"buildId",buildId},
-            {"gitCommit",gitCommit},{"compiler",compiler},{"shaderToolVersion",shaderToolVersion},
-            {"contentSchemaVersion",contentSchemaVersion},{"archiveFormatVersion",archiveFormatVersion},
-            {"hashAlgorithm",hashAlgorithm},{"configuration",configuration},
-            {"requiredBackends",requiredBackends},{"runtimeDependenciesHash",runtimeDependenciesHash},
+            {"projectId", projectId},
+            {"engineVersion", engineVersion},
+            {"buildId", buildId},
+            {"gitCommit", gitCommit},
+            {"compiler", compiler},
+            {"shaderToolVersion", shaderToolVersion},
+            {"contentSchemaVersion", contentSchemaVersion},
+            {"archiveFormatVersion", archiveFormatVersion},
+            {"hashAlgorithm", hashAlgorithm},
+            {"configuration", configuration},
+            {"requiredBackends", requiredBackends},
+            {"runtimeDependenciesHash", runtimeDependenciesHash},
             {"target", target},
             {"startupScene", startupScene},
             {"archive", archive},
@@ -133,18 +148,20 @@ bool CookManifest::Save(const fs::path& path, std::string* error) const {
             {"files", std::move(fileList)},
         };
         TransactionalWriteOptions options;
-        options.validator=[](const fs::path& candidate,std::string* validationError){CookManifest ignored;return CookManifest::Load(candidate,ignored,validationError);};
-        return TransactionalFileWriter::WriteText(path,json.dump(2)+"\n",options,error);
-    }
-    catch (const std::exception& exception) {
+        options.validator = [](const fs::path& candidate, std::string* validationError) {
+            CookManifest ignored;
+            return CookManifest::Load(candidate, ignored, validationError);
+        };
+        return TransactionalFileWriter::WriteText(path, json.dump(2) + "\n", options, error);
+    } catch (const std::exception& exception) {
         SetError(error, "failed to save Cook manifest: " + std::string(exception.what()));
         return false;
     }
 }
 
-bool CookManifest::Load(const fs::path& path, CookManifest& manifest,
-                        std::string* error) {
-    if (error) error->clear();
+bool CookManifest::Load(const fs::path& path, CookManifest& manifest, std::string* error) {
+    if (error)
+        error->clear();
     try {
         std::ifstream input(path);
         if (!input) {
@@ -154,22 +171,23 @@ bool CookManifest::Load(const fs::path& path, CookManifest& manifest,
         nlohmann::json json;
         input >> json;
         JsonMigrationRegistry migrations("Cook manifest", kCurrentVersion);
-        if (!migrations.Migrate(json, error)) return false;
+        if (!migrations.Migrate(json, error))
+            return false;
         CookManifest loaded;
         loaded.version = json.value("version", 0);
         loaded.project = json.value("project", std::string{});
-        loaded.projectId=json.value("projectId",std::string{});
-        loaded.engineVersion=json.value("engineVersion",std::string{});
-        loaded.buildId=json.value("buildId",std::string{});
-        loaded.gitCommit=json.value("gitCommit",std::string{"unknown"});
-        loaded.compiler=json.value("compiler",std::string{"unknown"});
-        loaded.shaderToolVersion=json.value("shaderToolVersion",std::string{"unknown"});
-        loaded.contentSchemaVersion=json.value("contentSchemaVersion",0);
-        loaded.archiveFormatVersion=json.value("archiveFormatVersion",0);
-        loaded.hashAlgorithm=json.value("hashAlgorithm",std::string{});
-        loaded.configuration=json.value("configuration",std::string{});
-        loaded.requiredBackends=json.value("requiredBackends",std::vector<std::string>{});
-        loaded.runtimeDependenciesHash=json.value("runtimeDependenciesHash",std::string{});
+        loaded.projectId = json.value("projectId", std::string{});
+        loaded.engineVersion = json.value("engineVersion", std::string{});
+        loaded.buildId = json.value("buildId", std::string{});
+        loaded.gitCommit = json.value("gitCommit", std::string{"unknown"});
+        loaded.compiler = json.value("compiler", std::string{"unknown"});
+        loaded.shaderToolVersion = json.value("shaderToolVersion", std::string{"unknown"});
+        loaded.contentSchemaVersion = json.value("contentSchemaVersion", 0);
+        loaded.archiveFormatVersion = json.value("archiveFormatVersion", 0);
+        loaded.hashAlgorithm = json.value("hashAlgorithm", std::string{});
+        loaded.configuration = json.value("configuration", std::string{});
+        loaded.requiredBackends = json.value("requiredBackends", std::vector<std::string>{});
+        loaded.runtimeDependenciesHash = json.value("runtimeDependenciesHash", std::string{});
         loaded.target = json.value("target", std::string{});
         loaded.startupScene = json.value("startupScene", std::string{});
         loaded.archive = json.value("archive", std::string{});
@@ -191,11 +209,11 @@ bool CookManifest::Load(const fs::path& path, CookManifest& manifest,
                 item.value("hash", std::string{}),
             });
         }
-        if (!loaded.Validate(error)) return false;
+        if (!loaded.Validate(error))
+            return false;
         manifest = std::move(loaded);
         return true;
-    }
-    catch (const std::exception& exception) {
+    } catch (const std::exception& exception) {
         SetError(error, "failed to parse Cook manifest: " + std::string(exception.what()));
         return false;
     }

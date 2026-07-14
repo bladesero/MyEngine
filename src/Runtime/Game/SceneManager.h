@@ -11,8 +11,17 @@
 class Scene;
 class Asset;
 enum class SceneLoadState {
-    Idle, Requested, Reading, Parsing, Preloading, Instantiating,
-    Ready, Failed, Cancelled, Uploading, Activating
+    Idle,
+    Requested,
+    Reading,
+    Parsing,
+    Preloading,
+    Instantiating,
+    Ready,
+    Failed,
+    Cancelled,
+    Uploading,
+    Activating
 };
 using SceneLoadStage = SceneLoadState;
 using SceneLoadRequestID = uint64_t;
@@ -27,8 +36,7 @@ struct SceneLoadOptions {
 class SceneManager {
 public:
     ~SceneManager();
-    SceneLoadRequestID RequestLoad(std::string projectRelativePath,
-                                   SceneLoadOptions options = {});
+    SceneLoadRequestID RequestLoad(std::string projectRelativePath, SceneLoadOptions options = {});
     bool Process(std::unique_ptr<Scene>& loadedScene);
     void CancelLoad();
     bool RetryLastLoad();
@@ -41,14 +49,15 @@ public:
     SceneLoadRequestID GetRequestID() const { return m_RequestID; }
     const std::string& GetRequestedPath() const { return m_RequestedPath; }
     const std::string& GetLastError() const { return m_LastError; }
-    void SetPersistentValue(const std::string& key,nlohmann::json value);
-    nlohmann::json GetPersistentValue(const std::string& key,const nlohmann::json& fallback={})const;
-    const nlohmann::json& GetPersistentData()const{return m_PersistentData;}
-    void ClearPersistentData(){m_PersistentData=nlohmann::json::object();}
+    void SetPersistentValue(const std::string& key, nlohmann::json value);
+    nlohmann::json GetPersistentValue(const std::string& key, const nlohmann::json& fallback = {}) const;
+    const nlohmann::json& GetPersistentData() const { return m_PersistentData; }
+    void ClearPersistentData() { m_PersistentData = nlohmann::json::object(); }
+
 private:
     struct WorkerResult {
-        SceneLoadRequestID requestID=0;
-        bool success=false;
+        SceneLoadRequestID requestID = 0;
+        bool success = false;
         std::string source;
         SceneLoadPlan plan;
         std::string error;
@@ -56,15 +65,15 @@ private:
     static bool IsSafeScenePath(const std::string& path);
     void ReapStaleTasks();
     void ReleasePinnedDependencies();
-    SceneLoadState m_State=SceneLoadState::Idle;
-    std::string m_RequestedPath,m_LastError;
-    nlohmann::json m_PersistentData=nlohmann::json::object();
+    SceneLoadState m_State = SceneLoadState::Idle;
+    std::string m_RequestedPath, m_LastError;
+    nlohmann::json m_PersistentData = nlohmann::json::object();
     TaskScope m_TaskScope;
     TaskHandle<WorkerResult> m_WorkerTask;
     std::vector<TaskHandle<WorkerResult>> m_StaleTasks;
-    SceneLoadRequestID m_RequestID=0;
+    SceneLoadRequestID m_RequestID = 0;
     SceneLoadOptions m_Options;
-    float m_Progress=0.0f;
+    float m_Progress = 0.0f;
     SceneLoadPlan m_Plan;
     std::string m_Source;
     SceneInstantiationState m_Instantiation;

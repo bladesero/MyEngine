@@ -17,36 +17,31 @@ struct AtmosphereFaceConstants {
 struct EnvironmentMipmapConstants {
     float faceInfo[4];
 };
-}
+} // namespace
 
 EnvironmentPass::EnvironmentPass(IRHIDevice* device, IRHIReadbackService* readbackService)
-    : RenderPass(device, readbackService)
-{
+    : RenderPass(device, readbackService) {
     m_SH2[0][0] = 0.08f;
     m_SH2[0][1] = 0.10f;
     m_SH2[0][2] = 0.14f;
 }
 
-void EnvironmentPass::Resize(uint32_t, uint32_t) {}
+void EnvironmentPass::Resize(uint32_t, uint32_t) {
+}
 
-Vec3 EnvironmentPass::DefaultSunDirection()
-{
+Vec3 EnvironmentPass::DefaultSunDirection() {
     return Vec3{0.35f, 0.72f, 0.25f}.Normalized();
 }
 
-void EnvironmentPass::MarkDirty()
-{
+void EnvironmentPass::MarkDirty() {
     m_Generated = false;
     m_EnvironmentInShaderState = false;
     m_SHBufferInShaderState = false;
     m_Readback.reset();
 }
 
-void EnvironmentPass::SetSunDirection(const Vec3& direction)
-{
-    Vec3 normalized = direction.LengthSq() > 1e-8f
-        ? direction.Normalized()
-        : DefaultSunDirection();
+void EnvironmentPass::SetSunDirection(const Vec3& direction) {
+    Vec3 normalized = direction.LengthSq() > 1e-8f ? direction.Normalized() : DefaultSunDirection();
     const Vec3 referenceDirection = m_Generated ? m_GeneratedSunDirection : m_SunDirection;
     if ((normalized - referenceDirection).LengthSq() < 1e-6f) {
         m_SunDirection = normalized;
@@ -58,17 +53,20 @@ void EnvironmentPass::SetSunDirection(const Vec3& direction)
     }
 }
 
-bool EnvironmentPass::EnsureResources()
-{
+bool EnvironmentPass::EnsureResources() {
     auto* device = Device();
-    if (!device) return false;
-    if (device->GetBackend() == RHIBackend::Unknown) return false;
+    if (!device)
+        return false;
+    if (device->GetBackend() == RHIBackend::Unknown)
+        return false;
     auto resetResources = [&]() {
         m_Environment.reset();
         m_EnvironmentSrv.reset();
-        for (auto& view : m_MipSrvs) view.reset();
+        for (auto& view : m_MipSrvs)
+            view.reset();
         for (auto& mip : m_FaceRtvs) {
-            for (auto& view : mip) view.reset();
+            for (auto& view : mip)
+                view.reset();
         }
         m_LinearClamp.reset();
         m_AtmospherePipeline.reset();
@@ -81,12 +79,13 @@ bool EnvironmentPass::EnsureResources()
         MarkDirty();
     };
     auto resourcesComplete = [&]() {
-        bool valid = m_Environment && m_EnvironmentSrv && m_LinearClamp &&
-            m_AtmospherePipeline && m_MipmapPipeline && m_SHPipeline &&
-            m_SHBuffer && m_SHUav && m_SH2Srv;
-        for (const auto& view : m_MipSrvs) valid = valid && view != nullptr;
+        bool valid = m_Environment && m_EnvironmentSrv && m_LinearClamp && m_AtmospherePipeline && m_MipmapPipeline &&
+                     m_SHPipeline && m_SHBuffer && m_SHUav && m_SH2Srv;
+        for (const auto& view : m_MipSrvs)
+            valid = valid && view != nullptr;
         for (const auto& mip : m_FaceRtvs) {
-            for (const auto& view : mip) valid = valid && view != nullptr;
+            for (const auto& view : mip)
+                valid = valid && view != nullptr;
         }
         return valid;
     };
@@ -94,23 +93,26 @@ bool EnvironmentPass::EnsureResources()
         if (!resourcesComplete()) {
             resetResources();
         } else {
-        if ((m_AtmosphereHandle && m_AtmosphereHandle->version != m_AtmosphereVersion) ||
-            (m_MipmapHandle && m_MipmapHandle->version != m_MipmapVersion) ||
-            (m_SHHandle && m_SHHandle->version != m_SHVersion)) {
-            m_AtmosphereShader = m_AtmosphereHandle->shader;
-            m_MipmapShader = m_MipmapHandle->shader;
-            m_SHShader = m_SHHandle->shader;
-            GraphicsPipelineDesc desc; desc.colorFormats = {RHIFormat::RGBA16Float};
-            desc.depthStencil.depthTestEnable = false;
-            desc.depthStencil.depthWriteEnable = false;
-            desc.shader = m_AtmosphereShader; m_AtmospherePipeline = device->CreateGraphicsPipeline(desc);
-            desc.shader = m_MipmapShader; m_MipmapPipeline = device->CreateGraphicsPipeline(desc);
-            m_AtmosphereVersion = m_AtmosphereHandle->version;
-            m_MipmapVersion = m_MipmapHandle->version;
-            m_SHVersion = m_SHHandle->version;
-            MarkDirty();
-        }
-        return resourcesComplete();
+            if ((m_AtmosphereHandle && m_AtmosphereHandle->version != m_AtmosphereVersion) ||
+                (m_MipmapHandle && m_MipmapHandle->version != m_MipmapVersion) ||
+                (m_SHHandle && m_SHHandle->version != m_SHVersion)) {
+                m_AtmosphereShader = m_AtmosphereHandle->shader;
+                m_MipmapShader = m_MipmapHandle->shader;
+                m_SHShader = m_SHHandle->shader;
+                GraphicsPipelineDesc desc;
+                desc.colorFormats = {RHIFormat::RGBA16Float};
+                desc.depthStencil.depthTestEnable = false;
+                desc.depthStencil.depthWriteEnable = false;
+                desc.shader = m_AtmosphereShader;
+                m_AtmospherePipeline = device->CreateGraphicsPipeline(desc);
+                desc.shader = m_MipmapShader;
+                m_MipmapPipeline = device->CreateGraphicsPipeline(desc);
+                m_AtmosphereVersion = m_AtmosphereHandle->version;
+                m_MipmapVersion = m_MipmapHandle->version;
+                m_SHVersion = m_SHHandle->version;
+                MarkDirty();
+            }
+            return resourcesComplete();
         }
     }
     RHITextureDesc textureDesc;
@@ -123,7 +125,8 @@ bool EnvironmentPass::EnsureResources()
     textureDesc.cube = true;
     textureDesc.debugName = "EnvironmentCube";
     m_Environment = device->CreateTexture(textureDesc);
-    if (!m_Environment) return false;
+    if (!m_Environment)
+        return false;
 
     RHITextureViewDesc srvDesc;
     srvDesc.mipCount = kCubeMipLevels;
@@ -168,12 +171,9 @@ bool EnvironmentPass::EnsureResources()
         return false;
     }
 
-    m_AtmosphereHandle = ShaderManager::Get().GetOrCreate(
-        EngineShaders::kAtmosphereCubemap, nullptr, 0);
-    m_MipmapHandle = ShaderManager::Get().GetOrCreate(
-        EngineShaders::kEnvironmentMipmap, nullptr, 0);
-    m_SHHandle = ShaderManager::Get().GetOrCreateCompute(
-        EngineShaders::kAtmosphereSH);
+    m_AtmosphereHandle = ShaderManager::Get().GetOrCreate(EngineShaders::kAtmosphereCubemap, nullptr, 0);
+    m_MipmapHandle = ShaderManager::Get().GetOrCreate(EngineShaders::kEnvironmentMipmap, nullptr, 0);
+    m_SHHandle = ShaderManager::Get().GetOrCreateCompute(EngineShaders::kAtmosphereSH);
     m_AtmosphereShader = m_AtmosphereHandle ? m_AtmosphereHandle->shader : nullptr;
     m_MipmapShader = m_MipmapHandle ? m_MipmapHandle->shader : nullptr;
     m_AtmosphereVersion = m_AtmosphereHandle ? m_AtmosphereHandle->version : 0;
@@ -193,15 +193,15 @@ bool EnvironmentPass::EnsureResources()
     m_AtmospherePipeline = device->CreateGraphicsPipeline(graphicsDesc);
     graphicsDesc.shader = m_MipmapShader;
     m_MipmapPipeline = device->CreateGraphicsPipeline(graphicsDesc);
-    ComputePipelineDesc computeDesc; computeDesc.shader = m_SHShader;
+    ComputePipelineDesc computeDesc;
+    computeDesc.shader = m_SHShader;
     m_SHPipeline = device->CreateComputePipeline(computeDesc);
 
     RHIBufferDesc bufferDesc;
     bufferDesc.size = sizeof(m_SH2);
     bufferDesc.stride = sizeof(m_SH2[0]);
-    bufferDesc.usage = RHIResourceUsage::ShaderResource |
-                       RHIResourceUsage::UnorderedAccess |
-                       RHIResourceUsage::CopySource;
+    bufferDesc.usage =
+        RHIResourceUsage::ShaderResource | RHIResourceUsage::UnorderedAccess | RHIResourceUsage::CopySource;
     bufferDesc.debugName = "EnvironmentSH2";
     m_SHBuffer = device->CreateBuffer(bufferDesc);
     RHIBufferViewDesc uavDesc;
@@ -219,12 +219,13 @@ bool EnvironmentPass::EnsureResources()
     return true;
 }
 
-void EnvironmentPass::RenderCubemap(GpuCommandList& commands)
-{
+void EnvironmentPass::RenderCubemap(GpuCommandList& commands) {
     for (uint32_t face = 0; face < 6; ++face) {
-        RHITextureViewDesc range; range.firstLayer = face; range.layerCount = 1;
-        commands.TransitionTexture(m_Environment.get(), range,
-                                   RHIResourceState::Undefined, RHIResourceState::RenderTarget);
+        RHITextureViewDesc range;
+        range.firstLayer = face;
+        range.layerCount = 1;
+        commands.TransitionTexture(m_Environment.get(), range, RHIResourceState::Undefined,
+                                   RHIResourceState::RenderTarget);
         RenderingAttachment color;
         color.view = m_FaceRtvs[0][face].get();
         color.loadOp = RHILoadOp::Clear;
@@ -237,25 +238,24 @@ void EnvironmentPass::RenderCubemap(GpuCommandList& commands)
             commands.EndRendering();
             return;
         }
-        AtmosphereFaceConstants constants{
-            {static_cast<float>(face), 0, 0, 0},
-            {m_SunDirection.x, m_SunDirection.y, m_SunDirection.z, 0.0f}
-        };
+        AtmosphereFaceConstants constants{{static_cast<float>(face), 0, 0, 0},
+                                          {m_SunDirection.x, m_SunDirection.y, m_SunDirection.z, 0.0f}};
         bindings->SetConstants("AtmosphereFaceConstants", &constants, sizeof(constants));
         commands.SetBindGroup(0, bindings.get());
         commands.Draw(3);
         commands.EndRendering();
-        commands.TransitionTexture(m_Environment.get(), range,
-                                   RHIResourceState::RenderTarget, RHIResourceState::ShaderResource);
+        commands.TransitionTexture(m_Environment.get(), range, RHIResourceState::RenderTarget,
+                                   RHIResourceState::ShaderResource);
     }
 
     for (uint32_t mip = 1; mip < kCubeMipLevels; ++mip) {
         const uint32_t size = (std::max)(1u, kCubeSize >> mip);
         for (uint32_t face = 0; face < 6; ++face) {
             RHITextureViewDesc range;
-            range.firstMip = mip; range.firstLayer = face;
-            commands.TransitionTexture(m_Environment.get(), range,
-                                       RHIResourceState::Undefined, RHIResourceState::RenderTarget);
+            range.firstMip = mip;
+            range.firstLayer = face;
+            commands.TransitionTexture(m_Environment.get(), range, RHIResourceState::Undefined,
+                                       RHIResourceState::RenderTarget);
             RenderingAttachment color;
             color.view = m_FaceRtvs[mip][face].get();
             color.loadOp = RHILoadOp::Clear;
@@ -268,24 +268,21 @@ void EnvironmentPass::RenderCubemap(GpuCommandList& commands)
                 commands.EndRendering();
                 return;
             }
-            EnvironmentMipmapConstants constants{{static_cast<float>(face),
-                                                  static_cast<float>(mip - 1), 0, 0}};
+            EnvironmentMipmapConstants constants{{static_cast<float>(face), static_cast<float>(mip - 1), 0, 0}};
             bindings->SetConstants("EnvironmentMipmapConstants", &constants, sizeof(constants));
             bindings->SetTexture("g_SourceCube", m_MipSrvs[mip - 1]);
             bindings->SetSampler("g_SourceSampler", m_LinearClamp);
             commands.SetBindGroup(0, bindings.get());
             commands.Draw(3);
             commands.EndRendering();
-            commands.TransitionTexture(m_Environment.get(), range,
-                                       RHIResourceState::RenderTarget, RHIResourceState::ShaderResource);
+            commands.TransitionTexture(m_Environment.get(), range, RHIResourceState::RenderTarget,
+                                       RHIResourceState::ShaderResource);
         }
     }
 }
 
-void EnvironmentPass::ProjectSH(GpuCommandList& commands)
-{
-    commands.Transition(m_SHBuffer.get(), RHIResourceState::Undefined,
-                        RHIResourceState::UnorderedAccess);
+void EnvironmentPass::ProjectSH(GpuCommandList& commands) {
+    commands.Transition(m_SHBuffer.get(), RHIResourceState::Undefined, RHIResourceState::UnorderedAccess);
     commands.SetComputePipeline(m_SHPipeline.get());
     auto bindings = Device()->CreateBindGroup(m_SHShader);
     if (!bindings) {
@@ -303,16 +300,14 @@ void EnvironmentPass::ProjectSH(GpuCommandList& commands)
     commands.SetBindGroup(0, bindings.get());
     commands.Dispatch(1, 1, 1);
     commands.UAVBarrier(m_SHBuffer.get());
-    commands.Transition(m_SHBuffer.get(), RHIResourceState::UnorderedAccess,
-                        RHIResourceState::CopySource);
+    commands.Transition(m_SHBuffer.get(), RHIResourceState::UnorderedAccess, RHIResourceState::CopySource);
     m_Readback = ReadbackService() ? ReadbackService()->ReadbackBufferAsync(m_SHBuffer) : nullptr;
-    commands.Transition(m_SHBuffer.get(), RHIResourceState::CopySource,
-                        RHIResourceState::ShaderResource);
+    commands.Transition(m_SHBuffer.get(), RHIResourceState::CopySource, RHIResourceState::ShaderResource);
 }
 
-void EnvironmentPass::ConsumeReadback()
-{
-    if (!m_Readback || !m_Readback->IsReady()) return;
+void EnvironmentPass::ConsumeReadback() {
+    if (!m_Readback || !m_Readback->IsReady())
+        return;
     std::vector<uint8_t> bytes;
     if (m_Readback->Read(bytes) && bytes.size() >= sizeof(m_SH2)) {
         std::memcpy(m_SH2, bytes.data(), sizeof(m_SH2));
@@ -332,47 +327,44 @@ void EnvironmentPass::ConsumeReadback()
     m_Readback.reset();
 }
 
-bool EnvironmentPass::PrepareGraphResources()
-{
+bool EnvironmentPass::PrepareGraphResources() {
     ConsumeReadback();
     return EnsureResources();
 }
 
-EnvironmentPass::GraphResources EnvironmentPass::GetGraphResources() const
-{
+EnvironmentPass::GraphResources EnvironmentPass::GetGraphResources() const {
     GraphResources out;
     out.environment = m_Environment;
     out.environmentView = m_EnvironmentSrv;
     out.shBuffer = m_SHBuffer;
     out.shBufferView = m_SH2Srv;
-    out.environmentInitialState = m_EnvironmentInShaderState
-        ? RHIResourceState::ShaderResource : RHIResourceState::Undefined;
-    out.shInitialState = m_SHBufferInShaderState
-        ? RHIResourceState::ShaderResource : RHIResourceState::Undefined;
+    out.environmentInitialState =
+        m_EnvironmentInShaderState ? RHIResourceState::ShaderResource : RHIResourceState::Undefined;
+    out.shInitialState = m_SHBufferInShaderState ? RHIResourceState::ShaderResource : RHIResourceState::Undefined;
     out.generated = m_Generated;
     return out;
 }
 
-void EnvironmentPass::ExecuteGraphManaged(GpuCommandList& commands)
-{
-    if (m_Generated) return;
+void EnvironmentPass::ExecuteGraphManaged(GpuCommandList& commands) {
+    if (m_Generated)
+        return;
     RenderCubemap(commands);
     ProjectSH(commands);
     m_Generated = true;
     m_GeneratedSunDirection = m_SunDirection;
 }
 
-void EnvironmentPass::MarkGraphResourcesShaderResource()
-{
-    if (!m_Generated) return;
+void EnvironmentPass::MarkGraphResourcesShaderResource() {
+    if (!m_Generated)
+        return;
     m_EnvironmentInShaderState = true;
     m_SHBufferInShaderState = true;
 }
 
-void EnvironmentPass::Execute(GpuCommandList& commands, const Scene&, const Camera&)
-{
+void EnvironmentPass::Execute(GpuCommandList& commands, const Scene&, const Camera&) {
     ConsumeReadback();
-    if (!EnsureResources() || m_Generated) return;
+    if (!EnsureResources() || m_Generated)
+        return;
     RenderCubemap(commands);
     ProjectSH(commands);
     m_Generated = true;

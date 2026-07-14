@@ -9,7 +9,6 @@ struct AssetRef {
 
     bool IsValid() const { return !uuid.empty() || !fallbackPath.empty(); }
     bool operator==(const AssetRef& other) const {
-        return uuid == other.uuid && subAsset == other.subAsset &&
-               fallbackPath == other.fallbackPath;
+        return uuid == other.uuid && subAsset == other.subAsset && fallbackPath == other.fallbackPath;
     }
 };

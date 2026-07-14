@@ -17,4 +17,4 @@ inline constexpr const char* kBuildId = BuildInfo::BuildId.data();
 inline constexpr const char* kConfiguration = BuildInfo::Configuration.data();
 inline constexpr int kContentSchemaVersion = 2;
 inline constexpr int kArchiveFormatVersion = FormatVersions::ContentArchive;
-}
+} // namespace RuntimeCompatibility

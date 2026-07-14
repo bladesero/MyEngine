@@ -46,58 +46,57 @@
 namespace EditorWidgets = Editor::UI::EditorWidgets;
 
 namespace {
-RenderPath RenderPathFromProjectValue(const std::string& value)
-{
+RenderPath RenderPathFromProjectValue(const std::string& value) {
     return value == "deferred" ? RenderPath::Deferred : RenderPath::Forward;
 }
 
-std::string TrimMenuPrefix(const std::string& path, const char* topLevel)
-{
+std::string TrimMenuPrefix(const std::string& path, const char* topLevel) {
     const std::string prefix = std::string(topLevel) + "/";
-    if (path.compare(0, prefix.size(), prefix) != 0) return {};
+    if (path.compare(0, prefix.size(), prefix) != 0)
+        return {};
     return path.substr(prefix.size());
 }
 
-std::string MenuTopLevel(const std::string& path)
-{
+std::string MenuTopLevel(const std::string& path) {
     const size_t slash = path.find('/');
     return slash == std::string::npos ? path : path.substr(0, slash);
 }
 
-Actor* ResolveSelectedActor(EditorContext& context)
-{
+Actor* ResolveSelectedActor(EditorContext& context) {
     Scene* scene = context.GetScene();
     return scene ? context.GetSelection().ResolveActor(*scene) : nullptr;
 }
 
-bool HasPreviousSibling(EditorContext& context)
-{
+bool HasPreviousSibling(EditorContext& context) {
     Scene* scene = context.GetScene();
     Actor* actor = ResolveSelectedActor(context);
-    if (!scene || !actor) return false;
-    const std::vector<Actor*> siblings = actor->GetParent()
-        ? actor->GetParent()->GetChildren()
-        : scene->GetRootActors();
+    if (!scene || !actor)
+        return false;
+    const std::vector<Actor*> siblings =
+        actor->GetParent() ? actor->GetParent()->GetChildren() : scene->GetRootActors();
     Actor* previous = nullptr;
     for (Actor* sibling : siblings) {
-        if (sibling == actor) return previous != nullptr;
-        if (sibling) previous = sibling;
+        if (sibling == actor)
+            return previous != nullptr;
+        if (sibling)
+            previous = sibling;
     }
     return false;
 }
 
-bool HasNextSibling(EditorContext& context)
-{
+bool HasNextSibling(EditorContext& context) {
     Scene* scene = context.GetScene();
     Actor* actor = ResolveSelectedActor(context);
-    if (!scene || !actor) return false;
-    const std::vector<Actor*> siblings = actor->GetParent()
-        ? actor->GetParent()->GetChildren()
-        : scene->GetRootActors();
+    if (!scene || !actor)
+        return false;
+    const std::vector<Actor*> siblings =
+        actor->GetParent() ? actor->GetParent()->GetChildren() : scene->GetRootActors();
     bool found = false;
     for (Actor* sibling : siblings) {
-        if (found && sibling) return true;
-        if (sibling == actor) found = true;
+        if (found && sibling)
+            return true;
+        if (sibling == actor)
+            found = true;
     }
     return false;
 }
@@ -106,14 +105,15 @@ class EditorImGuiEventBridge final : public IPlatformEventBridge {
 public:
     explicit EditorImGuiEventBridge(class EditorImGuiBackend* backend) : m_Backend(backend) {}
     void OnSDLEvent(const SDL_Event& event) override {
-        if (m_Backend) m_Backend->ProcessSDLEvent(event);
+        if (m_Backend)
+            m_Backend->ProcessSDLEvent(event);
     }
+
 private:
     class EditorImGuiBackend* m_Backend = nullptr;
 };
 
-bool CaptureShortcutChord(EditorShortcutChord& chord)
-{
+bool CaptureShortcutChord(EditorShortcutChord& chord) {
 #if defined(MYENGINE_ENABLE_IMGUI)
     ImGuiIO& io = ImGui::GetIO();
     const auto makeChord = [&](ImGuiKey key) {
@@ -126,18 +126,19 @@ bool CaptureShortcutChord(EditorShortcutChord& chord)
         return true;
     };
     std::vector<ImGuiKey> keys;
-    for (int key = ImGuiKey_A; key <= ImGuiKey_Z; ++key) keys.push_back(static_cast<ImGuiKey>(key));
-    for (int key = ImGuiKey_0; key <= ImGuiKey_9; ++key) keys.push_back(static_cast<ImGuiKey>(key));
-    for (int key = ImGuiKey_F1; key <= ImGuiKey_F12; ++key) keys.push_back(static_cast<ImGuiKey>(key));
-    keys.insert(keys.end(), {
-        ImGuiKey_Space, ImGuiKey_Enter, ImGuiKey_Escape, ImGuiKey_Delete,
-        ImGuiKey_Backspace, ImGuiKey_Tab, ImGuiKey_Insert, ImGuiKey_Home,
-        ImGuiKey_End, ImGuiKey_PageUp, ImGuiKey_PageDown, ImGuiKey_UpArrow,
-        ImGuiKey_DownArrow, ImGuiKey_LeftArrow, ImGuiKey_RightArrow,
-        ImGuiKey_Comma, ImGuiKey_Period
-    });
+    for (int key = ImGuiKey_A; key <= ImGuiKey_Z; ++key)
+        keys.push_back(static_cast<ImGuiKey>(key));
+    for (int key = ImGuiKey_0; key <= ImGuiKey_9; ++key)
+        keys.push_back(static_cast<ImGuiKey>(key));
+    for (int key = ImGuiKey_F1; key <= ImGuiKey_F12; ++key)
+        keys.push_back(static_cast<ImGuiKey>(key));
+    keys.insert(keys.end(),
+                {ImGuiKey_Space, ImGuiKey_Enter, ImGuiKey_Escape, ImGuiKey_Delete, ImGuiKey_Backspace, ImGuiKey_Tab,
+                 ImGuiKey_Insert, ImGuiKey_Home, ImGuiKey_End, ImGuiKey_PageUp, ImGuiKey_PageDown, ImGuiKey_UpArrow,
+                 ImGuiKey_DownArrow, ImGuiKey_LeftArrow, ImGuiKey_RightArrow, ImGuiKey_Comma, ImGuiKey_Period});
     for (ImGuiKey key : keys) {
-        if (ImGui::IsKeyPressed(key, false)) return makeChord(key);
+        if (ImGui::IsKeyPressed(key, false))
+            return makeChord(key);
     }
 #else
     (void)chord;
@@ -145,39 +146,30 @@ bool CaptureShortcutChord(EditorShortcutChord& chord)
     return false;
 }
 
-std::filesystem::path FindEditorFontRoot()
-{
+std::filesystem::path FindEditorFontRoot() {
     if (const char* basePath = SDL_GetBasePath()) {
-        const std::filesystem::path candidate =
-            std::filesystem::path(basePath) / "EngineContent" / "Editor" / "Fonts";
+        const std::filesystem::path candidate = std::filesystem::path(basePath) / "EngineContent" / "Editor" / "Fonts";
         std::error_code ec;
-        if (std::filesystem::is_directory(candidate, ec) && !ec) return candidate;
+        if (std::filesystem::is_directory(candidate, ec) && !ec)
+            return candidate;
     }
-    const std::filesystem::path candidate =
-        std::filesystem::current_path() / "EngineContent" / "Editor" / "Fonts";
+    const std::filesystem::path candidate = std::filesystem::current_path() / "EngineContent" / "Editor" / "Fonts";
     return candidate.lexically_normal();
 }
 
-}
-
-
-
+} // namespace
 
 EditorLayer::EditorLayer(SceneRenderLayer* sceneLayer, IWindow* window, Engine* engine,
-                         std::filesystem::path initialProject,
-                         EditorAutomationConfig automation)
-    : Layer("EditorLayer")
-    , m_SceneLayer(sceneLayer)
-    , m_Window(window)
-    , m_Engine(engine)
-    , m_InitialProject(std::move(initialProject))
-    , m_Automation(std::move(automation)) {
+                         std::filesystem::path initialProject, EditorAutomationConfig automation)
+    : Layer("EditorLayer"), m_SceneLayer(sceneLayer), m_Window(window), m_Engine(engine),
+      m_InitialProject(std::move(initialProject)), m_Automation(std::move(automation)) {
     std::strncpy(m_ProjectName.data(), "NewProject", m_ProjectName.size() - 1);
 }
 
 void EditorLayer::OnAttach() {
 #if defined(MYENGINE_ENABLE_IMGUI)
-    if (!m_Window || !m_SceneLayer) return;
+    if (!m_Window || !m_SceneLayer)
+        return;
     m_RenderContext = m_SceneLayer->GetRenderContext();
     if (!m_RenderContext || !m_Window->GetSDLWindow()) {
         Logger::Error("[Editor] Missing window or render context");
@@ -190,8 +182,10 @@ void EditorLayer::OnAttach() {
     io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
     io.IniFilename = nullptr;
     std::string workspaceError;
-    if (!m_Workspace.Load(&workspaceError)) Logger::Warn("[Editor] ", workspaceError);
-    else if (!workspaceError.empty()) Logger::Warn("[Editor] ", workspaceError);
+    if (!m_Workspace.Load(&workspaceError))
+        Logger::Warn("[Editor] ", workspaceError);
+    else if (!workspaceError.empty())
+        Logger::Warn("[Editor] ", workspaceError);
     m_UIScaleManager.Initialize(m_Window, m_Workspace.GetUserUiScale());
     m_UIScaleManager.SetFontRoot(FindEditorFontRoot());
     m_ThemeManager.Initialize(m_Workspace.GetEditorThemeId());
@@ -228,8 +222,7 @@ void EditorLayer::OnAttach() {
     }
     m_ImGuiReady = true;
 
-    if (m_Automation.createProjectRoot.empty() &&
-        !m_InitialProject.empty() && !OpenProject(m_InitialProject)) {
+    if (m_Automation.createProjectRoot.empty() && !m_InitialProject.empty() && !OpenProject(m_InitialProject)) {
         Logger::Error("[Editor] ", m_ProjectError);
     }
     m_AutomationPending = m_Automation.Enabled();
@@ -241,10 +234,10 @@ void EditorLayer::OnAttach() {
 
 bool EditorLayer::OpenProject(const std::filesystem::path& root) {
     const auto openStart = std::chrono::steady_clock::now();
-    if (m_ProjectOpen) return false;
+    if (m_ProjectOpen)
+        return false;
     if (!m_Project.Open(root, false)) {
-        m_ProjectError = m_Project.GetLastError().empty()
-            ? "Failed to open project" : m_Project.GetLastError();
+        m_ProjectError = m_Project.GetLastError().empty() ? "Failed to open project" : m_Project.GetLastError();
         return false;
     }
     auto& projectConfig = m_Project.GetConfig();
@@ -253,8 +246,8 @@ bool EditorLayer::OpenProject(const std::filesystem::path& root) {
         projectConfig.GetPublishSettings().target = PublishTargets::kDefaultTargetId;
         std::string saveError;
         if (projectConfig.Save(&saveError)) {
-            Logger::Warn("[Editor] Updated publish target from '", oldTarget,
-                         "' to '", PublishTargets::kDefaultTargetId, "' for this platform");
+            Logger::Warn("[Editor] Updated publish target from '", oldTarget, "' to '",
+                         PublishTargets::kDefaultTargetId, "' for this platform");
         } else {
             Logger::Warn("[Editor] Failed to update publish target for this platform: ", saveError);
         }
@@ -264,8 +257,7 @@ bool EditorLayer::OpenProject(const std::filesystem::path& root) {
     ShaderManager::Get().SetShaderCacheMode(ShaderCacheMode::EditorOnDemandCompile);
     LoadProjectInputConfig();
     if (m_SceneLayer) {
-        m_SceneLayer->SetRenderPath(
-            RenderPathFromProjectValue(projectConfig.GetGraphicsSettings().renderPath));
+        m_SceneLayer->SetRenderPath(RenderPathFromProjectValue(projectConfig.GetGraphicsSettings().renderPath));
     }
     m_Context.SetProjectRoot(m_Project.GetRoot());
     m_Context.SetProfiler(&m_Profiler);
@@ -281,11 +273,11 @@ bool EditorLayer::OpenProject(const std::filesystem::path& root) {
         Logger::Warn("[EditorRecovery] ", recoveryError);
     } else {
         m_RecoverableSnapshots = m_RecoveryService.ListSnapshots(&recoveryError);
-        m_RecoveryDialogRequested = !m_RecoveryService.PreviousShutdownWasClean() &&
-                                    !m_RecoverableSnapshots.empty();
+        m_RecoveryDialogRequested = !m_RecoveryService.PreviousShutdownWasClean() && !m_RecoverableSnapshots.empty();
         for (const auto& snapshot : m_RecoverableSnapshots)
             m_LastRecoveryRevision = std::max(m_LastRecoveryRevision, snapshot.revision);
-        if (!recoveryError.empty()) Logger::Warn("[EditorRecovery] ", recoveryError);
+        if (!recoveryError.empty())
+            Logger::Warn("[EditorRecovery] ", recoveryError);
     }
     m_ProjectError.clear();
     if (!m_Project.GetLastWarning().empty()) {
@@ -294,7 +286,8 @@ bool EditorLayer::OpenProject(const std::filesystem::path& root) {
     }
     m_Workspace.AddRecentProject(m_Project.GetRoot());
     std::string workspaceError;
-    if (!m_Workspace.Save(&workspaceError)) Logger::Warn("[Editor] ", workspaceError);
+    if (!m_Workspace.Save(&workspaceError))
+        Logger::Warn("[Editor] ", workspaceError);
 
     std::filesystem::path scenePath;
     const auto& lastScene = m_Project.GetLastScenePath();
@@ -309,30 +302,28 @@ bool EditorLayer::OpenProject(const std::filesystem::path& root) {
         std::vector<std::string> modelCacheFailures;
         m_ImportService.EnsureModelCachesForScene(scenePath, &modelCacheFailures);
         if (!modelCacheFailures.empty()) {
-            Logger::Warn("[Editor] Model cache warmup failed: ",
-                         modelCacheFailures.front());
+            Logger::Warn("[Editor] Model cache warmup failed: ", modelCacheFailures.front());
         }
         const auto sceneLoadStart = std::chrono::steady_clock::now();
         loadedScene = m_SceneLayer->LoadScene(scenePath.string());
-        const double sceneLoadMs = std::chrono::duration<double, std::milli>(
-            std::chrono::steady_clock::now() - sceneLoadStart).count();
-        m_Profiler.RecordEvent("Editor", "Scene Load", sceneLoadMs,
-                               scenePath.generic_string());
+        const double sceneLoadMs =
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - sceneLoadStart).count();
+        m_Profiler.RecordEvent("Editor", "Scene Load", sceneLoadMs, scenePath.generic_string());
     }
     if (loadedScene) {
         m_CommandStack.Clear();
         m_Context.GetSelection().Clear();
     }
-    const double openMs = std::chrono::duration<double, std::milli>(
-        std::chrono::steady_clock::now() - openStart).count();
-    m_Profiler.RecordEvent("Editor", "OpenProject", openMs,
-                           m_Project.GetRoot().string());
+    const double openMs =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - openStart).count();
+    m_Profiler.RecordEvent("Editor", "OpenProject", openMs, m_Project.GetRoot().string());
     Logger::Info("[Editor] Opened project: ", m_Project.GetRoot().string());
     return true;
 }
 
 void EditorLayer::RegisterServices() {
-    if (m_ServicesRegistered) return;
+    if (m_ServicesRegistered)
+        return;
     m_ServiceCollection.Add(m_LogService);
     m_ServiceCollection.Add(m_DialogService);
     m_ServiceCollection.Add(m_ImportService);
@@ -350,43 +341,40 @@ void EditorLayer::RegisterPanels() {
     m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
         "scene.open", "Open", [this](EditorContext&) { OpenSceneDialog(); },
         [](EditorContext& context) { return context.IsEditing(); }));
+    m_ActionRegistry.Register(
+        std::make_unique<LambdaEditorAction>("scene.save", "Save", [this](EditorContext&) { SaveScene(); }));
+    m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>("asset.import", "Import",
+                                                                   [this](EditorContext&) { ImportAssetDialog(); }));
     m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
-        "scene.save", "Save", [this](EditorContext&) { SaveScene(); }));
-    m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
-        "asset.import", "Import", [this](EditorContext&) { ImportAssetDialog(); }));
-    m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
-        "asset.validate", "Validate Assets",
-        [this](EditorContext&) { ValidateAssets(); },
+        "asset.validate", "Validate Assets", [this](EditorContext&) { ValidateAssets(); },
         [](EditorContext& context) { return context.IsEditing(); }));
     m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
         "asset.open", "Open",
         [this](EditorContext& context) {
-            if (DispatchPanelAction("asset.open")) return;
+            if (DispatchPanelAction("asset.open"))
+                return;
             auto* operators = context.GetOperators();
             if (operators && context.GetSelection().HasAsset()) {
-                operators->Assets().OpenAsset(context,
-                                              context.GetSelection().GetAssetPath());
+                operators->Assets().OpenAsset(context, context.GetSelection().GetAssetPath());
             }
         },
         [this](EditorContext& context) {
             return context.IsEditing() &&
-                (context.GetSelection().HasAsset() ||
-                 CanVisiblePanelHandleAction("asset.open"));
+                   (context.GetSelection().HasAsset() || CanVisiblePanelHandleAction("asset.open"));
         }));
     m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
         "asset.reveal", "Reveal in Explorer",
         [this](EditorContext& context) {
-            if (DispatchPanelAction("asset.reveal")) return;
+            if (DispatchPanelAction("asset.reveal"))
+                return;
             auto* operators = context.GetOperators();
             if (operators && context.GetSelection().HasAsset()) {
-                operators->Assets().RevealAsset(
-                    context, context.GetSelection().GetAssetPath());
+                operators->Assets().RevealAsset(context, context.GetSelection().GetAssetPath());
             }
         },
         [this](EditorContext& context) {
             return context.IsEditing() &&
-                (context.GetSelection().HasAsset() ||
-                 CanVisiblePanelHandleAction("asset.reveal"));
+                   (context.GetSelection().HasAsset() || CanVisiblePanelHandleAction("asset.reveal"));
         }));
     m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
         "asset.createFolder", "Create Folder",
@@ -395,22 +383,17 @@ void EditorLayer::RegisterPanels() {
             DispatchPanelAction("asset.createFolder");
         },
         [this](EditorContext& context) {
-            return context.IsEditing() &&
-                CanVisiblePanelHandleAction("asset.createFolder");
+            return context.IsEditing() && CanVisiblePanelHandleAction("asset.createFolder");
         }));
-    const auto registerAssetTemplateAction =
-        [this](const char* id, const char* label) {
-            m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
-                id, label,
-                [this, id](EditorContext& context) {
-                    (void)context;
-                    DispatchPanelAction(id);
-                },
-                [this, id](EditorContext& context) {
-                    return context.IsEditing() &&
-                        CanVisiblePanelHandleAction(id);
-                }));
-        };
+    const auto registerAssetTemplateAction = [this](const char* id, const char* label) {
+        m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
+            id, label,
+            [this, id](EditorContext& context) {
+                (void)context;
+                DispatchPanelAction(id);
+            },
+            [this, id](EditorContext& context) { return context.IsEditing() && CanVisiblePanelHandleAction(id); }));
+    };
     registerAssetTemplateAction("asset.createMaterial", "Material");
     registerAssetTemplateAction("asset.createTexture", "Default Texture");
     registerAssetTemplateAction("asset.createPrefab", "Prefab");
@@ -422,45 +405,39 @@ void EditorLayer::RegisterPanels() {
     m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
         "asset.move", "Move to Current Folder",
         [this](EditorContext& context) {
-            if (DispatchPanelAction("asset.move")) return;
+            if (DispatchPanelAction("asset.move"))
+                return;
         },
-        [this](EditorContext& context) {
-            return context.IsEditing() &&
-                CanVisiblePanelHandleAction("asset.move");
-        }));
+        [this](EditorContext& context) { return context.IsEditing() && CanVisiblePanelHandleAction("asset.move"); }));
     m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
         "asset.rename", "Rename",
         [this](EditorContext& context) {
             (void)context;
             DispatchPanelAction("asset.rename");
         },
-        [this](EditorContext& context) {
-            return context.IsEditing() &&
-                CanVisiblePanelHandleAction("asset.rename");
-        }));
+        [this](EditorContext& context) { return context.IsEditing() && CanVisiblePanelHandleAction("asset.rename"); }));
     m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
-        "project.settings", "Settings",
-        [this](EditorContext&) { OpenProjectSettings(); },
+        "project.settings", "Settings", [this](EditorContext&) { OpenProjectSettings(); },
         [](EditorContext& context) { return context.IsEditing(); }));
     m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
-        "project.setStartup", "Set Startup",
-        [this](EditorContext&) { SetStartupScene(); },
+        "project.setStartup", "Set Startup", [this](EditorContext&) { SetStartupScene(); },
         [](EditorContext& context) {
             auto* layer = context.GetSceneLayer();
             return context.IsEditing() && layer && layer->HasFilePath() && !layer->IsDirty();
         }));
     m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
-        "project.publish", "Publish",
-        [this](EditorContext&) { PublishProject(); },
+        "project.publish", "Publish", [this](EditorContext&) { PublishProject(); },
         [](EditorContext& context) { return context.IsEditing(); }));
     m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
         "editor.runLua", "Run Lua",
         [](EditorContext& context) {
             auto* service = context.GetService<EditorLuaScriptService>();
             const std::string& selected = context.GetSelection().GetAssetPath();
-            if (!service || selected.empty()) return;
+            if (!service || selected.empty())
+                return;
             std::filesystem::path path(selected);
-            if (!path.is_absolute()) path = context.GetContentRoot() / path;
+            if (!path.is_absolute())
+                path = context.GetContentRoot() / path;
             std::string error;
             if (!service->RunFile(path, &error)) {
                 Logger::Error("[Editor] Run Lua failed: ", error);
@@ -468,14 +445,16 @@ void EditorLayer::RegisterPanels() {
         },
         [](EditorContext& context) {
             const std::string& selected = context.GetSelection().GetAssetPath();
-            if (!context.IsEditing() || selected.empty()) return false;
+            if (!context.IsEditing() || selected.empty())
+                return false;
             std::filesystem::path path(selected);
             return path.extension() == ".lua" || path.extension() == ".LUA";
         }));
     m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
         "edit.undo", "Undo",
         [](EditorContext& context) {
-            if (auto* stack = context.GetCommandStack()) stack->Undo(context);
+            if (auto* stack = context.GetCommandStack())
+                stack->Undo(context);
         },
         [](EditorContext& context) {
             auto* stack = context.GetCommandStack();
@@ -484,34 +463,37 @@ void EditorLayer::RegisterPanels() {
     m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
         "edit.redo", "Redo",
         [](EditorContext& context) {
-            if (auto* stack = context.GetCommandStack()) stack->Redo(context);
+            if (auto* stack = context.GetCommandStack())
+                stack->Redo(context);
         },
         [](EditorContext& context) {
             auto* stack = context.GetCommandStack();
             return context.IsEditing() && stack && stack->CanRedo();
         }));
     m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
-        "project.validate", "Validate Project",
-        [this](EditorContext&) { ValidateProject(); },
+        "project.validate", "Validate Project", [this](EditorContext&) { ValidateProject(); },
         [](EditorContext& context) { return context.IsEditing(); }));
     m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
         "edit.delete", "Delete",
         [this](EditorContext& context) {
-            if (DispatchPanelAction("edit.delete")) return;
-            if (auto* operators = context.GetOperators()) operators->Commands().DeleteSelection(context);
+            if (DispatchPanelAction("edit.delete"))
+                return;
+            if (auto* operators = context.GetOperators())
+                operators->Commands().DeleteSelection(context);
         },
         [this](EditorContext& context) {
             const EditorSelection& selection = context.GetSelection();
             return context.IsEditing() &&
-                (selection.HasActor() || selection.HasAsset() ||
-                 CanFocusedPanelHandleAction("edit.delete"));
+                   (selection.HasActor() || selection.HasAsset() || CanFocusedPanelHandleAction("edit.delete"));
         }));
     m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
         "edit.duplicate", "Duplicate",
         [this](EditorContext& context) {
-            if (DispatchPanelAction("edit.duplicate")) return;
+            if (DispatchPanelAction("edit.duplicate"))
+                return;
             auto* operators = context.GetOperators();
-            if (!operators) return;
+            if (!operators)
+                return;
             const EditorSelection& selection = context.GetSelection();
             if (selection.HasActor()) {
                 operators->Commands().DuplicateSelection(context);
@@ -522,43 +504,43 @@ void EditorLayer::RegisterPanels() {
         [this](EditorContext& context) {
             const EditorSelection& selection = context.GetSelection();
             return context.IsEditing() &&
-                (selection.HasActor() || selection.HasAsset() ||
-                 CanFocusedPanelHandleAction("edit.duplicate"));
+                   (selection.HasActor() || selection.HasAsset() || CanFocusedPanelHandleAction("edit.duplicate"));
         }));
     m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
         "edit.rename", "Rename",
         [this](EditorContext& context) {
-            if (DispatchPanelAction("edit.rename")) return;
+            if (DispatchPanelAction("edit.rename"))
+                return;
         },
-        [this](EditorContext& context) {
-            return context.IsEditing() && CanVisiblePanelHandleAction("edit.rename");
-        }));
+        [this](EditorContext& context) { return context.IsEditing() && CanVisiblePanelHandleAction("edit.rename"); }));
     m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
         "edit.copy", "Copy",
         [this](EditorContext& context) {
-            if (DispatchPanelAction("edit.copy")) return;
-            if (auto* operators = context.GetOperators()) operators->Commands().CopySelection(context);
+            if (DispatchPanelAction("edit.copy"))
+                return;
+            if (auto* operators = context.GetOperators())
+                operators->Commands().CopySelection(context);
         },
         [this](EditorContext& context) {
             const EditorSelection& selection = context.GetSelection();
             return context.IsEditing() &&
-                (selection.HasActor() || selection.HasAsset() ||
-                 CanFocusedPanelHandleAction("edit.copy"));
+                   (selection.HasActor() || selection.HasAsset() || CanFocusedPanelHandleAction("edit.copy"));
         }));
     m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
         "edit.paste", "Paste",
         [this](EditorContext& context) {
-            if (DispatchPanelAction("edit.paste")) return;
-            if (auto* operators = context.GetOperators()) operators->Commands().PasteSelection(context);
+            if (DispatchPanelAction("edit.paste"))
+                return;
+            if (auto* operators = context.GetOperators())
+                operators->Commands().PasteSelection(context);
         },
         [this](EditorContext& context) {
             auto* operators = context.GetOperators();
-            if (!context.IsEditing() || !operators) return false;
+            if (!context.IsEditing() || !operators)
+                return false;
             return CanFocusedPanelHandleAction("edit.paste") ||
-                (context.GetScene() != nullptr &&
-                    operators->Commands().HasActorClipboard()) ||
-                (IsPanelFocused("assetBrowser") &&
-                 operators->Commands().HasAssetClipboard());
+                   (context.GetScene() != nullptr && operators->Commands().HasActorClipboard()) ||
+                   (IsPanelFocused("assetBrowser") && operators->Commands().HasAssetClipboard());
         }));
     m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
         "edit.selectAll", "Select All",
@@ -576,36 +558,28 @@ void EditorLayer::RegisterPanels() {
                 operators->Viewport().FrameSelected(context);
             }
         },
-        [](EditorContext& context) {
-            return context.GetSceneViewport() && context.GetSelection().HasActor();
-        }));
+        [](EditorContext& context) { return context.GetSceneViewport() && context.GetSelection().HasActor(); }));
     m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
         "hierarchy.expandAll", "Expand All",
         [this](EditorContext& context) {
             (void)context;
             DispatchPanelAction("hierarchy.expandAll");
         },
-        [](EditorContext& context) {
-            return context.IsEditing() && context.GetScene() != nullptr;
-        }));
+        [](EditorContext& context) { return context.IsEditing() && context.GetScene() != nullptr; }));
     m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
         "hierarchy.collapseAll", "Collapse All",
         [this](EditorContext& context) {
             (void)context;
             DispatchPanelAction("hierarchy.collapseAll");
         },
-        [](EditorContext& context) {
-            return context.IsEditing() && context.GetScene() != nullptr;
-        }));
+        [](EditorContext& context) { return context.IsEditing() && context.GetScene() != nullptr; }));
     m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
         "hierarchy.createEmptyParent", "Create Empty Parent",
         [this](EditorContext& context) {
             (void)context;
             DispatchPanelAction("hierarchy.createEmptyParent");
         },
-        [](EditorContext& context) {
-            return context.IsEditing() && ResolveSelectedActor(context) != nullptr;
-        }));
+        [](EditorContext& context) { return context.IsEditing() && ResolveSelectedActor(context) != nullptr; }));
     m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
         "hierarchy.unparent", "Unparent",
         [this](EditorContext& context) {
@@ -622,18 +596,14 @@ void EditorLayer::RegisterPanels() {
             (void)context;
             DispatchPanelAction("hierarchy.moveUp");
         },
-        [](EditorContext& context) {
-            return context.IsEditing() && HasPreviousSibling(context);
-        }));
+        [](EditorContext& context) { return context.IsEditing() && HasPreviousSibling(context); }));
     m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
         "hierarchy.moveDown", "Move Down",
         [this](EditorContext& context) {
             (void)context;
             DispatchPanelAction("hierarchy.moveDown");
         },
-        [](EditorContext& context) {
-            return context.IsEditing() && HasNextSibling(context);
-        }));
+        [](EditorContext& context) { return context.IsEditing() && HasNextSibling(context); }));
     m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
         "hierarchy.selectChildren", "Select Children",
         [this](EditorContext& context) {
@@ -670,22 +640,19 @@ void EditorLayer::RegisterPanels() {
             (void)context;
             DispatchPanelAction("hierarchy.selectPreviousSibling");
         },
-        [](EditorContext& context) {
-            return context.IsEditing() && HasPreviousSibling(context);
-        }));
+        [](EditorContext& context) { return context.IsEditing() && HasPreviousSibling(context); }));
     m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
         "hierarchy.selectNextSibling", "Select Next Sibling",
         [this](EditorContext& context) {
             (void)context;
             DispatchPanelAction("hierarchy.selectNextSibling");
         },
-        [](EditorContext& context) {
-            return context.IsEditing() && HasNextSibling(context);
-        }));
+        [](EditorContext& context) { return context.IsEditing() && HasNextSibling(context); }));
     m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
         "play.start", "Play",
         [](EditorContext& context) {
-            if (auto* layer = context.GetSceneLayer()) layer->BeginPlay();
+            if (auto* layer = context.GetSceneLayer())
+                layer->BeginPlay();
         },
         [](EditorContext& context) {
             auto* layer = context.GetSceneLayer();
@@ -694,7 +661,8 @@ void EditorLayer::RegisterPanels() {
     m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
         "play.stop", "Stop",
         [](EditorContext& context) {
-            if (auto* layer = context.GetSceneLayer()) layer->StopPlay();
+            if (auto* layer = context.GetSceneLayer())
+                layer->StopPlay();
             context.SetSceneViewMode(EditorWorldViewMode::EditorWorld);
         },
         [](EditorContext& context) {
@@ -704,7 +672,8 @@ void EditorLayer::RegisterPanels() {
     m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
         "play.pause", "Pause",
         [](EditorContext& context) {
-            if (auto* layer = context.GetSceneLayer()) layer->PausePlay();
+            if (auto* layer = context.GetSceneLayer())
+                layer->PausePlay();
         },
         [](EditorContext& context) {
             auto* layer = context.GetSceneLayer();
@@ -713,7 +682,8 @@ void EditorLayer::RegisterPanels() {
     m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
         "play.resume", "Resume",
         [](EditorContext& context) {
-            if (auto* layer = context.GetSceneLayer()) layer->ResumePlay();
+            if (auto* layer = context.GetSceneLayer())
+                layer->ResumePlay();
         },
         [](EditorContext& context) {
             auto* layer = context.GetSceneLayer();
@@ -722,17 +692,14 @@ void EditorLayer::RegisterPanels() {
     m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
         "play.step", "Step",
         [](EditorContext& context) {
-            if (auto* layer = context.GetSceneLayer()) layer->StepPlay();
+            if (auto* layer = context.GetSceneLayer())
+                layer->StepPlay();
         },
-        [](EditorContext& context) {
-            return context.GetSceneLayer() != nullptr;
-        }));
+        [](EditorContext& context) { return context.GetSceneLayer() != nullptr; }));
     m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
-        "shader.recompile", "Recompile",
-        [](EditorContext&) { ShaderManager::Get().RecompileAll(); }));
-    m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
-        "editor.reloadScripts", "Reload Editor Scripts",
-        [this](EditorContext&) {
+        "shader.recompile", "Recompile", [](EditorContext&) { ShaderManager::Get().RecompileAll(); }));
+    m_ActionRegistry.Register(
+        std::make_unique<LambdaEditorAction>("editor.reloadScripts", "Reload Editor Scripts", [this](EditorContext&) {
             if (!m_ScriptDomain) {
                 Logger::Warn("[EditorScript] Reload requested, but editor script domain is not loaded");
                 return;
@@ -744,12 +711,10 @@ void EditorLayer::RegisterPanels() {
                 Logger::Warn("[EditorScript] Editor script reload failed: ", error);
             }
         }));
+    m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>("layout.save", "Save Layout",
+                                                                   [this](EditorContext&) { SaveEditorLayout(); }));
     m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
-        "layout.save", "Save Layout",
-        [this](EditorContext&) { SaveEditorLayout(); }));
-    m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
-        "layout.resetDefault", "Reset Layout",
-        [this](EditorContext&) { ResetEditorLayoutToDefault(); }));
+        "layout.resetDefault", "Reset Layout", [this](EditorContext&) { ResetEditorLayoutToDefault(); }));
     m_Context.SetActionRegistry(&m_ActionRegistry);
 
     auto gizmo = std::make_shared<EditorGizmoState>();
@@ -775,12 +740,11 @@ void EditorLayer::RegisterPanels() {
     m_ScriptDomain = std::make_unique<EditorAngelScriptDomain>();
     const std::filesystem::path engineScriptRoot =
         std::filesystem::current_path() / "EngineContent" / "Editor" / "Scripts";
-    const std::filesystem::path projectScriptRoot =
-        m_Project.GetRoot() / "Content" / "Editor" / "Scripts";
+    const std::filesystem::path projectScriptRoot = m_Project.GetRoot() / "Content" / "Editor" / "Scripts";
     std::string scriptError;
     std::string configError;
-    m_ScriptDomain->SetConfig(EditorScriptConfig::LoadFromFile(
-        m_Project.GetRoot() / "Config" / "EditorScripts.json", &configError));
+    m_ScriptDomain->SetConfig(
+        EditorScriptConfig::LoadFromFile(m_Project.GetRoot() / "Config" / "EditorScripts.json", &configError));
     if (!configError.empty()) {
         Logger::Warn("[EditorScript] Invalid EditorScripts config; using defaults: ", configError);
     }
@@ -793,7 +757,8 @@ void EditorLayer::RegisterPanels() {
             }
         }
     } else {
-        if (!scriptError.empty()) Logger::Warn("[EditorScript] Sidecar domain disabled: ", scriptError);
+        if (!scriptError.empty())
+            Logger::Warn("[EditorScript] Sidecar domain disabled: ", scriptError);
         m_Context.SetEditorScriptDomain(nullptr);
         m_ScriptHotReloadService.SetDomain(nullptr);
         m_ScriptDomain.reset();
@@ -808,13 +773,16 @@ void EditorLayer::RegisterPanels() {
 void EditorLayer::OnDetach() {
 #if defined(MYENGINE_ENABLE_IMGUI)
     m_Context.SetPanelFocusRequestHandler({});
-    for (auto it = m_Panels.rbegin(); it != m_Panels.rend(); ++it) (*it)->OnDetach();
+    for (auto it = m_Panels.rbegin(); it != m_Panels.rend(); ++it)
+        (*it)->OnDetach();
     std::string workspaceError;
-    if (!m_Workspace.Save(&workspaceError)) Logger::Warn("[Editor] ", workspaceError);
+    if (!m_Workspace.Save(&workspaceError))
+        Logger::Warn("[Editor] ", workspaceError);
     if (m_ProjectOpen) {
         auto& state = m_Project.GetState();
         for (const auto& panel : m_Panels) {
-            if (panel) state.SetPanelVisible(panel->GetID(), panel->IsVisible());
+            if (panel)
+                state.SetPanelVisible(panel->GetID(), panel->IsVisible());
         }
         m_LayoutManager.SaveCurrentLayout(state);
         if (m_SceneLayer && m_SceneLayer->HasFilePath())
@@ -834,8 +802,10 @@ void EditorLayer::OnDetach() {
     m_Context.SetActionRegistry(nullptr);
     m_Context.SetShortcutMap(nullptr);
     m_Context.SetWorkspace(nullptr);
-    if (m_ServicesRegistered) m_ServiceCollection.DetachAll(m_Context);
-    if (m_Engine) m_Engine->SetPlatformEventBridge(nullptr);
+    if (m_ServicesRegistered)
+        m_ServiceCollection.DetachAll(m_Context);
+    if (m_Engine)
+        m_Engine->SetPlatformEventBridge(nullptr);
     m_ImGuiEventBridge.reset();
     if (m_ImGuiReady) {
         m_ImGuiBackend.reset();
@@ -847,14 +817,16 @@ void EditorLayer::OnDetach() {
 }
 
 void EditorLayer::OnUpdate(float deltaSeconds) {
-    if (m_ServicesRegistered) m_ServiceCollection.UpdateAll(deltaSeconds);
+    if (m_ServicesRegistered)
+        m_ServiceCollection.UpdateAll(deltaSeconds);
     for (auto& panel : m_Panels) {
         if (panel && (panel->IsVisible() || panel->ShouldUpdateWhenHidden())) {
             panel->OnUpdate(deltaSeconds);
         }
     }
     ProcessDialogResults();
-    if (m_AutomationPending) RunAutomation();
+    if (m_AutomationPending)
+        RunAutomation();
     if (m_ProjectOpen) {
         UpdateRecovery(deltaSeconds);
         m_Context.RefreshSceneViewMode();
@@ -865,23 +837,22 @@ void EditorLayer::OnUpdate(float deltaSeconds) {
     }
 }
 
-void EditorLayer::UpdateRecovery(float deltaSeconds)
-{
+void EditorLayer::UpdateRecovery(float deltaSeconds) {
     if (!m_SceneLayer || !m_SceneLayer->IsEditing() || !m_SceneLayer->IsDirty()) {
         m_RecoveryElapsedSeconds = 0.0f;
         return;
     }
     m_RecoveryElapsedSeconds += std::max(0.0f, deltaSeconds);
-    if (m_RecoveryElapsedSeconds < 30.0f) return;
+    if (m_RecoveryElapsedSeconds < 30.0f)
+        return;
     m_RecoveryElapsedSeconds = 0.0f;
     const std::string serialized = SceneSerializer::SaveToString(m_SceneLayer->GetEditorScene());
-    if (serialized == m_LastRecoveryScene) return;
-    const std::string scenePath = m_SceneLayer->HasFilePath()
-        ? m_SceneLayer->GetSceneFilePath() : std::string{};
+    if (serialized == m_LastRecoveryScene)
+        return;
+    const std::string scenePath = m_SceneLayer->HasFilePath() ? m_SceneLayer->GetSceneFilePath() : std::string{};
     std::string error;
     const uint64_t revision = m_LastRecoveryRevision + 1;
-    if (m_RecoveryService.WriteSnapshot(scenePath.empty() ? "__unsaved__" : scenePath,
-                                        revision, serialized, &error)) {
+    if (m_RecoveryService.WriteSnapshot(scenePath.empty() ? "__unsaved__" : scenePath, revision, serialized, &error)) {
         m_LastRecoveryRevision = revision;
         m_LastRecoveryScenePath = scenePath.empty() ? "__unsaved__" : scenePath;
         m_LastRecoveryScene = serialized;
@@ -890,12 +861,11 @@ void EditorLayer::UpdateRecovery(float deltaSeconds)
     }
 }
 
-void EditorLayer::OnSceneSaveSucceeded()
-{
-    if (m_LastRecoveryRevision == 0 || m_LastRecoveryScenePath.empty()) return;
+void EditorLayer::OnSceneSaveSucceeded() {
+    if (m_LastRecoveryRevision == 0 || m_LastRecoveryScenePath.empty())
+        return;
     std::string error;
-    if (!m_RecoveryService.RemoveMatchingRevision(m_LastRecoveryScenePath,
-                                                  m_LastRecoveryRevision, &error))
+    if (!m_RecoveryService.RemoveMatchingRevision(m_LastRecoveryScenePath, m_LastRecoveryRevision, &error))
         Logger::Warn("[EditorRecovery] Failed to remove saved revision: ", error);
     m_LastRecoveryScenePath.clear();
     m_LastRecoveryScene.clear();
@@ -907,22 +877,24 @@ void EditorLayer::DrawProjectSelector() {
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Always, {0.5f, 0.5f});
     ImGui::SetNextWindowSize({720.0f, 520.0f}, ImGuiCond_Always);
-    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoCollapse |
-        ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove;
+    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove;
     if (!ImGui::Begin("MyEngine Project Selector", nullptr, flags)) {
         ImGui::End();
         return;
     }
     ImGui::TextUnformatted("Open an existing project");
     ImGui::InputText("Project folder", m_ProjectPath.data(), m_ProjectPath.size());
-    if (ImGui::Button("Browse...")) m_DialogService.RequestOpenProjectFolder(m_Window);
+    if (ImGui::Button("Browse..."))
+        m_DialogService.RequestOpenProjectFolder(m_Window);
     ImGui::SameLine();
-    if (ImGui::Button("Open") && m_ProjectPath[0] != '\0') OpenProject(m_ProjectPath.data());
+    if (ImGui::Button("Open") && m_ProjectPath[0] != '\0')
+        OpenProject(m_ProjectPath.data());
 
     ImGui::SeparatorText("Recent projects");
     for (const auto& recent : m_Workspace.GetRecentProjects()) {
         const std::string label = recent.string();
-        if (ImGui::Selectable(label.c_str())) OpenProject(recent);
+        if (ImGui::Selectable(label.c_str()))
+            OpenProject(recent);
     }
 
     ImGui::SeparatorText("Create project");
@@ -958,20 +930,17 @@ void EditorLayer::LoadProjectInputConfig() {
     std::string error;
     std::filesystem::path inputConfig;
     if (!m_Project.GetConfig().ResolveInputConfigPath(inputConfig, false, &error)) {
-        Logger::Warn("[Editor] Input config path invalid: ", error,
-                     "; using default input map");
+        Logger::Warn("[Editor] Input config path invalid: ", error, "; using default input map");
         Input::SetDefaultActionMap();
         return;
     }
     if (!std::filesystem::is_regular_file(inputConfig)) {
-        Logger::Warn("[Editor] Input config not found: ", inputConfig.string(),
-                     "; using default input map");
+        Logger::Warn("[Editor] Input config not found: ", inputConfig.string(), "; using default input map");
         Input::SetDefaultActionMap();
         return;
     }
     if (!Input::LoadActionMapFromFile(inputConfig, &error)) {
-        Logger::Warn("[Editor] Failed to load input config: ", error,
-                     "; using default input map");
+        Logger::Warn("[Editor] Failed to load input config: ", error, "; using default input map");
         return;
     }
     Logger::Info("[Editor] Loaded input config: ", inputConfig.string());
@@ -1012,34 +981,42 @@ void EditorLayer::DrawProjectSettings() {
 
 void EditorLayer::SaveEditorLayout() {
 #if defined(MYENGINE_ENABLE_IMGUI)
-    if (!m_ProjectOpen) return;
+    if (!m_ProjectOpen)
+        return;
     auto& state = m_Project.GetState();
     for (const auto& panel : m_Panels) {
-        if (panel) state.SetPanelVisible(panel->GetID(), panel->IsVisible());
+        if (panel)
+            state.SetPanelVisible(panel->GetID(), panel->IsVisible());
     }
     m_LayoutManager.SaveCurrentLayout(state);
-    if (m_Project.SaveState()) ShowProjectResult("Editor layout saved.", false);
-    else ShowProjectResult("Failed to save editor layout.", true);
+    if (m_Project.SaveState())
+        ShowProjectResult("Editor layout saved.", false);
+    else
+        ShowProjectResult("Failed to save editor layout.", true);
 #endif
 }
 
 void EditorLayer::ResetEditorLayoutToDefault() {
-    if (!m_ProjectOpen) return;
+    if (!m_ProjectOpen)
+        return;
     auto& state = m_Project.GetState();
     for (const auto& panel : m_Panels) {
-        if (!panel) continue;
+        if (!panel)
+            continue;
         panel->SetVisible(true);
         state.SetPanelVisible(panel->GetID(), true);
     }
     m_LayoutManager.ResetToDefault(state);
-    if (m_Project.SaveState()) ShowProjectResult("Editor layout reset to default.", false);
-    else ShowProjectResult("Failed to save reset editor layout.", true);
+    if (m_Project.SaveState())
+        ShowProjectResult("Editor layout reset to default.", false);
+    else
+        ShowProjectResult("Failed to save reset editor layout.", true);
 }
 
 void EditorLayer::RevealEditorLayoutConfig() {
-    if (!m_ProjectOpen) return;
-    ShowProjectResult("Default editor layout config:\n" +
-                      m_LayoutManager.GetConfigPath().string(), false);
+    if (!m_ProjectOpen)
+        return;
+    ShowProjectResult("Default editor layout config:\n" + m_LayoutManager.GetConfigPath().string(), false);
 }
 
 void EditorLayer::DrawShortcutSettingsTab() {
@@ -1053,15 +1030,17 @@ void EditorLayer::DrawShortcutSettingsTab() {
     ImGui::SameLine();
     if (ImGui::Button("Save Shortcuts")) {
         std::string error;
-        if (m_Workspace.Save(&error)) ShowProjectResult("Shortcuts saved.", false);
-        else ShowProjectResult("Failed to save shortcuts: " + error, true);
+        if (m_Workspace.Save(&error))
+            ShowProjectResult("Shortcuts saved.", false);
+        else
+            ShowProjectResult("Failed to save shortcuts: " + error, true);
     }
     if (!m_ShortcutCaptureError.empty()) {
         ImGui::TextColored({1.0f, 0.35f, 0.3f, 1.0f}, "%s", m_ShortcutCaptureError.c_str());
     }
 
     if (ImGui::BeginTable("ShortcutTable", 5,
-            ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable)) {
+                          ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable)) {
         ImGui::TableSetupColumn("Action");
         ImGui::TableSetupColumn("ID");
         ImGui::TableSetupColumn("Shortcut");
@@ -1070,7 +1049,8 @@ void EditorLayer::DrawShortcutSettingsTab() {
         ImGui::TableHeadersRow();
 
         for (EditorAction* action : m_ActionRegistry.GetOrderedActions()) {
-            if (!action) continue;
+            if (!action)
+                continue;
             const std::string actionId = action->GetID();
             const EditorShortcutChord* chord = shortcuts.FindShortcut(actionId);
             const std::string chordText = chord ? EditorShortcutMap::FormatChord(*chord) : std::string{};
@@ -1083,8 +1063,8 @@ void EditorLayer::DrawShortcutSettingsTab() {
             ImGui::TableSetColumnIndex(1);
             ImGui::TextUnformatted(action->GetID());
             ImGui::TableSetColumnIndex(2);
-            ImGui::TextUnformatted(capturing ? "Press shortcut..." :
-                (chordText.empty() ? "<none>" : chordText.c_str()));
+            ImGui::TextUnformatted(capturing ? "Press shortcut..."
+                                             : (chordText.empty() ? "<none>" : chordText.c_str()));
             ImGui::TableSetColumnIndex(3);
             if (!conflict.empty()) {
                 ImGui::TextColored({1.0f, 0.35f, 0.3f, 1.0f}, "%s", conflict.c_str());
@@ -1102,7 +1082,8 @@ void EditorLayer::DrawShortcutSettingsTab() {
             ImGui::SameLine();
             if (ImGui::Button(clearId.c_str())) {
                 shortcuts.ClearShortcut(actionId);
-                if (m_CapturingShortcutAction == actionId) m_CapturingShortcutAction.clear();
+                if (m_CapturingShortcutAction == actionId)
+                    m_CapturingShortcutAction.clear();
             }
             ImGui::SameLine();
             if (ImGui::Button(resetId.c_str())) {
@@ -1112,7 +1093,8 @@ void EditorLayer::DrawShortcutSettingsTab() {
                 } else {
                     shortcuts.ClearShortcut(actionId);
                 }
-                if (m_CapturingShortcutAction == actionId) m_CapturingShortcutAction.clear();
+                if (m_CapturingShortcutAction == actionId)
+                    m_CapturingShortcutAction.clear();
             }
         }
         ImGui::EndTable();
@@ -1121,16 +1103,14 @@ void EditorLayer::DrawShortcutSettingsTab() {
     if (!m_CapturingShortcutAction.empty()) {
         EditorShortcutChord captured;
         if (CaptureShortcutChord(captured)) {
-            if (captured.key == static_cast<int>(ImGuiKey_Escape) &&
-                !captured.ctrl && !captured.shift && !captured.alt && !captured.super) {
+            if (captured.key == static_cast<int>(ImGuiKey_Escape) && !captured.ctrl && !captured.shift &&
+                !captured.alt && !captured.super) {
                 m_CapturingShortcutAction.clear();
                 m_ShortcutCaptureError.clear();
             } else {
                 const std::string conflict = shortcuts.FindConflict(m_CapturingShortcutAction, captured);
                 shortcuts.SetShortcut(m_CapturingShortcutAction, captured);
-                m_ShortcutCaptureError = conflict.empty()
-                    ? std::string{}
-                    : "Shortcut also assigned to " + conflict;
+                m_ShortcutCaptureError = conflict.empty() ? std::string{} : "Shortcut also assigned to " + conflict;
                 m_CapturingShortcutAction.clear();
             }
         }
@@ -1140,26 +1120,29 @@ void EditorLayer::DrawShortcutSettingsTab() {
 
 void EditorLayer::DispatchEditorShortcuts() {
 #if defined(MYENGINE_ENABLE_IMGUI)
-    if (!m_ProjectOpen || !m_Context.GetActionRegistry() || !m_Context.GetShortcutMap()) return;
-    if (!m_CapturingShortcutAction.empty()) return;
+    if (!m_ProjectOpen || !m_Context.GetActionRegistry() || !m_Context.GetShortcutMap())
+        return;
+    if (!m_CapturingShortcutAction.empty())
+        return;
     ImGuiIO& io = ImGui::GetIO();
-    if (io.WantTextInput) return;
-    if (ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId)) return;
+    if (io.WantTextInput)
+        return;
+    if (ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId))
+        return;
     m_Context.GetShortcutMap()->Dispatch(*m_Context.GetActionRegistry(), m_Context);
 #endif
 }
 
 bool EditorLayer::DispatchPanelAction(std::string_view actionID) {
-    if (actionID.empty()) return false;
+    if (actionID.empty())
+        return false;
     for (auto& panel : m_Panels) {
-        if (panel && panel->IsVisible() && panel->IsFocused() &&
-            panel->HandleEditorAction(m_Context, actionID)) {
+        if (panel && panel->IsVisible() && panel->IsFocused() && panel->HandleEditorAction(m_Context, actionID)) {
             return true;
         }
     }
     for (auto& panel : m_Panels) {
-        if (panel && panel->IsVisible() &&
-            panel->HandleEditorAction(m_Context, actionID)) {
+        if (panel && panel->IsVisible() && panel->HandleEditorAction(m_Context, actionID)) {
             return true;
         }
     }
@@ -1167,10 +1150,10 @@ bool EditorLayer::DispatchPanelAction(std::string_view actionID) {
 }
 
 bool EditorLayer::CanFocusedPanelHandleAction(std::string_view actionID) const {
-    if (actionID.empty()) return false;
+    if (actionID.empty())
+        return false;
     for (const auto& panel : m_Panels) {
-        if (panel && panel->IsVisible() && panel->IsFocused() &&
-            panel->CanHandleEditorAction(m_Context, actionID)) {
+        if (panel && panel->IsVisible() && panel->IsFocused() && panel->CanHandleEditorAction(m_Context, actionID)) {
             return true;
         }
     }
@@ -1178,10 +1161,10 @@ bool EditorLayer::CanFocusedPanelHandleAction(std::string_view actionID) const {
 }
 
 bool EditorLayer::CanVisiblePanelHandleAction(std::string_view actionID) const {
-    if (actionID.empty()) return false;
+    if (actionID.empty())
+        return false;
     for (const auto& panel : m_Panels) {
-        if (panel && panel->IsVisible() &&
-            panel->CanHandleEditorAction(m_Context, actionID)) {
+        if (panel && panel->IsVisible() && panel->CanHandleEditorAction(m_Context, actionID)) {
             return true;
         }
     }
@@ -1190,7 +1173,8 @@ bool EditorLayer::CanVisiblePanelHandleAction(std::string_view actionID) const {
 
 bool EditorLayer::IsPanelFocused(std::string_view panelID) const {
     for (const auto& panel : m_Panels) {
-        if (panel && panel->GetID() == panelID) return panel->IsFocused();
+        if (panel && panel->GetID() == panelID)
+            return panel->IsFocused();
     }
     return false;
 }
@@ -1203,33 +1187,31 @@ void EditorLayer::DrawProjectResult() {
     }
     ImGui::SetNextWindowSize({620.0f, 0.0f}, ImGuiCond_Appearing);
     Editor::UI::EditorViewportPolicy::BindNextModalToMainViewport();
-    if (!ImGui::BeginPopupModal("Project Result", nullptr,
-                                ImGuiWindowFlags_AlwaysAutoResize)) return;
+    if (!ImGui::BeginPopupModal("Project Result", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        return;
     ImGui::PushTextWrapPos(580.0f);
-    EditorWidgets::InlineMessage(
-        m_ProjectResultIsError ? EditorWidgets::MessageType::Error
-                               : EditorWidgets::MessageType::Success,
-        m_ProjectResult.c_str());
+    EditorWidgets::InlineMessage(m_ProjectResultIsError ? EditorWidgets::MessageType::Error
+                                                        : EditorWidgets::MessageType::Success,
+                                 m_ProjectResult.c_str());
     ImGui::PopTextWrapPos();
-    if (ImGui::Button("OK")) ImGui::CloseCurrentPopup();
+    if (ImGui::Button("OK"))
+        ImGui::CloseCurrentPopup();
     ImGui::EndPopup();
 #endif
 }
 
-void EditorLayer::DrawRecoveryDialog()
-{
+void EditorLayer::DrawRecoveryDialog() {
 #if defined(MYENGINE_ENABLE_IMGUI)
     if (m_RecoveryDialogRequested) {
         ImGui::OpenPopup("Recover Scene");
         m_RecoveryDialogRequested = false;
     }
     Editor::UI::EditorViewportPolicy::BindNextModalToMainViewport();
-    if (!ImGui::BeginPopupModal("Recover Scene", nullptr,
-                                ImGuiWindowFlags_AlwaysAutoResize)) return;
+    if (!ImGui::BeginPopupModal("Recover Scene", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        return;
     ImGui::TextWrapped("The previous editor session did not shut down cleanly. "
                        "A recoverable scene snapshot is available.");
-    const EditorRecoverySnapshot* latest = m_RecoverableSnapshots.empty()
-        ? nullptr : &m_RecoverableSnapshots.front();
+    const EditorRecoverySnapshot* latest = m_RecoverableSnapshots.empty() ? nullptr : &m_RecoverableSnapshots.front();
     if (latest) {
         ImGui::Separator();
         ImGui::Text("Scene: %s", latest->scenePath.c_str());
@@ -1237,10 +1219,9 @@ void EditorLayer::DrawRecoveryDialog()
     }
     if (latest && ImGui::Button("Restore Latest")) {
         std::string serialized, error;
-        const std::string originalPath = latest->scenePath == "__unsaved__"
-            ? std::string{} : latest->scenePath;
-        if (m_RecoveryService.ReadSnapshot(*latest, serialized, &error) &&
-            m_SceneLayer && m_SceneLayer->RestoreEditorSnapshot(serialized, originalPath)) {
+        const std::string originalPath = latest->scenePath == "__unsaved__" ? std::string{} : latest->scenePath;
+        if (m_RecoveryService.ReadSnapshot(*latest, serialized, &error) && m_SceneLayer &&
+            m_SceneLayer->RestoreEditorSnapshot(serialized, originalPath)) {
             m_CommandStack.Clear();
             m_Context.GetSelection().Clear();
             m_LastRecoveryScenePath = latest->scenePath;
@@ -1251,7 +1232,8 @@ void EditorLayer::DrawRecoveryDialog()
             Logger::Error("[EditorRecovery] Restore failed: ", error);
         }
     }
-    if (latest) ImGui::SameLine();
+    if (latest)
+        ImGui::SameLine();
     if (ImGui::Button("Discard")) {
         for (const auto& snapshot : m_RecoverableSnapshots) {
             std::string error;
@@ -1265,18 +1247,17 @@ void EditorLayer::DrawRecoveryDialog()
 #endif
 }
 
-void EditorLayer::DrawScriptMenuItems(const char* topLevel)
-{
+void EditorLayer::DrawScriptMenuItems(const char* topLevel) {
 #if defined(MYENGINE_ENABLE_IMGUI)
     EditorAngelScriptDomain* domain = m_Context.GetEditorScriptDomain();
-    if (!domain || !domain->IsLoaded() ||
-        !domain->GetConfig().enableMenuExtensions) {
+    if (!domain || !domain->IsLoaded() || !domain->GetConfig().enableMenuExtensions) {
         return;
     }
 
     for (const auto& item : domain->GetRegistry().GetMenus()) {
         const std::string label = TrimMenuPrefix(item.path, topLevel);
-        if (label.empty() || label.find('/') != std::string::npos) continue;
+        if (label.empty() || label.find('/') != std::string::npos)
+            continue;
         EditorAction* action = m_ActionRegistry.Find(item.target.c_str());
         const bool enabled = !action || action->CanExecute(m_Context);
         if (ImGui::MenuItem(label.c_str(), nullptr, false, enabled)) {
@@ -1285,8 +1266,7 @@ void EditorLayer::DrawScriptMenuItems(const char* topLevel)
             } else {
                 std::string error;
                 const std::string stateKey = "menu:" + item.path;
-                if (!domain->ExecuteExtension(item.target, stateKey, m_Context, &error) &&
-                    !error.empty()) {
+                if (!domain->ExecuteExtension(item.target, stateKey, m_Context, &error) && !error.empty()) {
                     Logger::Warn("[EditorScript] Menu item failed for ", item.path, ": ", error);
                 }
             }
@@ -1297,22 +1277,19 @@ void EditorLayer::DrawScriptMenuItems(const char* topLevel)
 #endif
 }
 
-void EditorLayer::DrawScriptTopLevelMenus()
-{
+void EditorLayer::DrawScriptTopLevelMenus() {
 #if defined(MYENGINE_ENABLE_IMGUI)
     EditorAngelScriptDomain* domain = m_Context.GetEditorScriptDomain();
-    if (!domain || !domain->IsLoaded() ||
-        !domain->GetConfig().enableMenuExtensions) {
+    if (!domain || !domain->IsLoaded() || !domain->GetConfig().enableMenuExtensions) {
         return;
     }
 
-    static const std::set<std::string> kCoreMenus {
-        "File", "Project", "Assets", "Edit", "Build", "Build/Debug", "Tools"
-    };
+    static const std::set<std::string> kCoreMenus{"File", "Project", "Assets", "Edit", "Build", "Build/Debug", "Tools"};
     std::set<std::string> topLevels;
     for (const auto& item : domain->GetRegistry().GetMenus()) {
         const std::string top = MenuTopLevel(item.path);
-        if (!top.empty() && kCoreMenus.find(top) == kCoreMenus.end()) topLevels.insert(top);
+        if (!top.empty() && kCoreMenus.find(top) == kCoreMenus.end())
+            topLevels.insert(top);
     }
     for (const std::string& top : topLevels) {
         if (ImGui::BeginMenu(top.c_str())) {
@@ -1327,16 +1304,14 @@ void EditorLayer::DrawMainMenuBar() {
 #if defined(MYENGINE_ENABLE_IMGUI)
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
     const float scale = m_UIScaleManager.GetEffectiveScale();
-    const float height = Editor::UI::ScaleToken(
-        Editor::UI::EditorStyleTokens{}.menuBarHeight, scale);
+    const float height = Editor::UI::ScaleToken(Editor::UI::EditorStyleTokens{}.menuBarHeight, scale);
     ImGui::SetNextWindowPos(viewport->WorkPos);
     ImGui::SetNextWindowSize({viewport->WorkSize.x, height});
     ImGui::SetNextWindowViewport(viewport->ID);
-    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDocking |
-        ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
-        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar |
-        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoNavFocus |
-        ImGuiWindowFlags_MenuBar;
+    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoTitleBar |
+                                   ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar |
+                                   ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoNavFocus |
+                                   ImGuiWindowFlags_MenuBar;
 
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
@@ -1344,31 +1319,39 @@ void EditorLayer::DrawMainMenuBar() {
     if (ImGui::Begin("Editor Main Menu Bar", nullptr, flags) && ImGui::BeginMenuBar()) {
         const auto drawAction = [&](const char* actionID) {
             EditorAction* action = m_ActionRegistry.Find(actionID);
-            if (!action) return;
+            if (!action)
+                return;
             const auto iconForAction = [](const char* id) -> const char* {
-                if (std::strcmp(id, "scene.new") == 0) return Editor::UI::EditorIcons::SceneNew;
-                if (std::strcmp(id, "scene.open") == 0) return Editor::UI::EditorIcons::SceneOpen;
-                if (std::strcmp(id, "scene.save") == 0) return Editor::UI::EditorIcons::SceneSave;
-                if (std::strcmp(id, "project.settings") == 0) return Editor::UI::EditorIcons::ProjectSettings;
-                if (std::strcmp(id, "project.setStartup") == 0) return Editor::UI::EditorIcons::ProjectStartup;
-                if (std::strcmp(id, "project.publish") == 0) return Editor::UI::EditorIcons::ProjectPublish;
-                if (std::strcmp(id, "edit.undo") == 0) return Editor::UI::EditorIcons::EditUndo;
-                if (std::strcmp(id, "edit.redo") == 0) return Editor::UI::EditorIcons::EditRedo;
-                if (std::strcmp(id, "shader.recompile") == 0) return Editor::UI::EditorIcons::ShaderRecompile;
+                if (std::strcmp(id, "scene.new") == 0)
+                    return Editor::UI::EditorIcons::SceneNew;
+                if (std::strcmp(id, "scene.open") == 0)
+                    return Editor::UI::EditorIcons::SceneOpen;
+                if (std::strcmp(id, "scene.save") == 0)
+                    return Editor::UI::EditorIcons::SceneSave;
+                if (std::strcmp(id, "project.settings") == 0)
+                    return Editor::UI::EditorIcons::ProjectSettings;
+                if (std::strcmp(id, "project.setStartup") == 0)
+                    return Editor::UI::EditorIcons::ProjectStartup;
+                if (std::strcmp(id, "project.publish") == 0)
+                    return Editor::UI::EditorIcons::ProjectPublish;
+                if (std::strcmp(id, "edit.undo") == 0)
+                    return Editor::UI::EditorIcons::EditUndo;
+                if (std::strcmp(id, "edit.redo") == 0)
+                    return Editor::UI::EditorIcons::EditRedo;
+                if (std::strcmp(id, "shader.recompile") == 0)
+                    return Editor::UI::EditorIcons::ShaderRecompile;
                 return Editor::UI::EditorIcons::File;
             };
             std::string shortcutText;
-            if (const EditorShortcutChord* chord =
-                    m_Workspace.GetShortcuts().FindShortcut(actionID)) {
-                if (chord->IsValid()) shortcutText = EditorShortcutMap::FormatChord(*chord);
+            if (const EditorShortcutChord* chord = m_Workspace.GetShortcuts().FindShortcut(actionID)) {
+                if (chord->IsValid())
+                    shortcutText = EditorShortcutMap::FormatChord(*chord);
             }
             const bool enabled = action->CanExecute(m_Context);
             const char* icon = iconForAction(actionID);
-            const std::string label = std::string(Editor::UI::EditorIcons::FallbackFor(icon)) +
-                " " + action->GetLabel();
-            if (ImGui::MenuItem(label.c_str(),
-                                shortcutText.empty() ? nullptr : shortcutText.c_str(),
-                                false, enabled)) {
+            const std::string label =
+                std::string(Editor::UI::EditorIcons::FallbackFor(icon)) + " " + action->GetLabel();
+            if (ImGui::MenuItem(label.c_str(), shortcutText.empty() ? nullptr : shortcutText.c_str(), false, enabled)) {
                 m_ActionRegistry.Execute(actionID, m_Context);
             }
         };
@@ -1463,8 +1446,7 @@ void EditorLayer::DrawMainMenuBar() {
 
 float EditorLayer::DrawStatusBar() {
 #if defined(MYENGINE_ENABLE_IMGUI)
-    return m_StatusBar.Draw(m_Context, m_ProjectOpen ? &m_Project : nullptr,
-                            m_UIScaleManager.GetEffectiveScale());
+    return m_StatusBar.Draw(m_Context, m_ProjectOpen ? &m_Project : nullptr, m_UIScaleManager.GetEffectiveScale());
 #else
     return 0.0f;
 #endif
@@ -1476,18 +1458,20 @@ std::string EditorLayer::GetSelectedStatusText() const {
 
 void EditorLayer::OnRender() {
 #if defined(MYENGINE_ENABLE_IMGUI)
-    if (!m_ImGuiReady || !m_RenderContext) return;
+    if (!m_ImGuiReady || !m_RenderContext)
+        return;
     const bool scaleOrFontChanged = m_UIScaleManager.BeginFrame(m_ImGuiBackend.get());
-    if (scaleOrFontChanged) m_ThemeManager.Apply(m_UIScaleManager.GetEffectiveScale());
-    if (m_ImGuiBackend) m_ImGuiBackend->BeginFrame();
+    if (scaleOrFontChanged)
+        m_ThemeManager.Apply(m_UIScaleManager.GetEffectiveScale());
+    if (m_ImGuiBackend)
+        m_ImGuiBackend->BeginFrame();
     ImGui::NewFrame();
     ImGuizmo::BeginFrame();
     ImGuizmo::AllowAxisFlip(false);
     DispatchEditorShortcuts();
     if (m_ProjectOpen) {
-        const float menuHeight = Editor::UI::ScaleToken(
-            Editor::UI::EditorStyleTokens{}.menuBarHeight,
-            m_UIScaleManager.GetEffectiveScale());
+        const float menuHeight =
+            Editor::UI::ScaleToken(Editor::UI::EditorStyleTokens{}.menuBarHeight, m_UIScaleManager.GetEffectiveScale());
         DrawMainMenuBar();
         const float statusHeight = DrawStatusBar();
         m_LayoutManager.BeginDockSpace(m_Panels, menuHeight, statusHeight);
@@ -1495,7 +1479,8 @@ void EditorLayer::OnRender() {
             m_SceneLayer->SetSceneViewportActive(false);
             m_SceneLayer->SetGameViewportActive(false);
         }
-        for (auto& panel : m_Panels) panel->OnImGui();
+        for (auto& panel : m_Panels)
+            panel->OnImGui();
         DrawProjectSettings();
         DrawProjectResult();
         DrawRecoveryDialog();
@@ -1503,9 +1488,9 @@ void EditorLayer::OnRender() {
         DrawProjectSelector();
     }
     ImGui::Render();
-    if (m_ImGuiBackend) m_ImGuiBackend->RenderDrawData(ImGui::GetDrawData());
-    const bool renderPlatformWindowsAfterMainFrame =
-        m_RenderContext->GetBackend() == RHIBackend::Vulkan;
+    if (m_ImGuiBackend)
+        m_ImGuiBackend->RenderDrawData(ImGui::GetDrawData());
+    const bool renderPlatformWindowsAfterMainFrame = m_RenderContext->GetBackend() == RHIBackend::Vulkan;
     if (m_ImGuiBackend && !renderPlatformWindowsAfterMainFrame)
         m_ImGuiBackend->RenderPlatformWindows();
     m_RenderContext->EndFrame();
@@ -1516,20 +1501,23 @@ void EditorLayer::OnRender() {
 
 void EditorLayer::ProcessDialogResults() {
     EditorDialogResult result;
-    if (!m_DialogService.ConsumeResult(result) || result.path.empty()) return;
+    if (!m_DialogService.ConsumeResult(result) || result.path.empty())
+        return;
     if (result.operation == EditorFileOperation::OpenProjectFolder) {
         std::strncpy(m_ProjectPath.data(), result.path.c_str(), m_ProjectPath.size() - 1);
         m_ProjectPath.back() = '\0';
         return;
     }
-    if (!m_ProjectOpen) return;
+    if (!m_ProjectOpen)
+        return;
     if (result.operation == EditorFileOperation::OpenScene) {
         if (m_SceneLayer->LoadScene(result.path)) {
             m_Context.SetSceneViewMode(EditorWorldViewMode::EditorWorld);
             m_Context.GetSelection().Clear();
             m_CommandStack.Clear();
             m_Project.SetLastScenePath(result.path);
-        } else Logger::Error("[Editor] Failed to open scene: ", result.path);
+        } else
+            Logger::Error("[Editor] Failed to open scene: ", result.path);
     } else if (result.operation == EditorFileOperation::SaveScene) {
         if (!m_SceneLayer->SaveSceneAs(result.path))
             Logger::Error("[Editor] Failed to save scene: ", result.path);
@@ -1543,7 +1531,8 @@ void EditorLayer::ProcessDialogResults() {
 }
 
 void EditorLayer::NewScene() {
-    if (!m_Context.IsEditing()) return;
+    if (!m_Context.IsEditing())
+        return;
     m_SceneLayer->NewScene();
     m_Context.SetSceneViewMode(EditorWorldViewMode::EditorWorld);
     m_Context.GetSelection().Clear();
@@ -1551,15 +1540,18 @@ void EditorLayer::NewScene() {
 }
 
 void EditorLayer::OpenSceneDialog() {
-    if (m_Context.IsEditing()) m_DialogService.RequestOpenScene(m_Window);
+    if (m_Context.IsEditing())
+        m_DialogService.RequestOpenScene(m_Window);
 }
 
 void EditorLayer::SaveScene() {
-    if (!m_SceneLayer) return;
+    if (!m_SceneLayer)
+        return;
     if (m_SceneLayer->HasFilePath()) {
-        if (m_SceneLayer->SaveScene()) OnSceneSaveSucceeded();
-    }
-    else m_DialogService.RequestSaveScene(m_Window);
+        if (m_SceneLayer->SaveScene())
+            OnSceneSaveSucceeded();
+    } else
+        m_DialogService.RequestSaveScene(m_Window);
 }
 
 void EditorLayer::ImportAssetDialog() {
@@ -1581,13 +1573,11 @@ void EditorLayer::ValidateAssets() {
         return;
     }
 
-    const std::string details = report ? summary :
-        (error.empty() ? summary : error);
+    const std::string details = report ? summary : (error.empty() ? summary : error);
     Logger::Warn("[Editor] Asset validation failed: ", details);
-    ShowProjectResult(
-        "Asset validation failed (" + std::to_string(issueCount) +
-        " issue" + (issueCount == 1 ? "" : "s") + "): " + details,
-        true);
+    ShowProjectResult("Asset validation failed (" + std::to_string(issueCount) + " issue" +
+                          (issueCount == 1 ? "" : "s") + "): " + details,
+                      true);
 }
 
 void EditorLayer::ValidateProject() {
@@ -1611,11 +1601,11 @@ void EditorLayer::ValidateProject() {
 }
 
 void EditorLayer::SetStartupScene() {
-    if (!m_SceneLayer || !m_SceneLayer->HasFilePath() || m_SceneLayer->IsDirty()) return;
+    if (!m_SceneLayer || !m_SceneLayer->HasFilePath() || m_SceneLayer->IsDirty())
+        return;
     std::string error;
     auto& config = m_Project.GetConfig();
-    if (!config.SetStartupScene(m_SceneLayer->GetSceneFilePath(), &error) ||
-        !config.Save(&error)) {
+    if (!config.SetStartupScene(m_SceneLayer->GetSceneFilePath(), &error) || !config.Save(&error)) {
         Logger::Error("[Editor] Failed to set startup scene: ", error);
         return;
     }
@@ -1626,18 +1616,21 @@ void EditorLayer::PublishProject() {
     PublishProjectInternal();
 }
 
-bool EditorLayer::PublishProjectInternal(PublishReport* report, std::string* error,
-                                         bool showResult) {
-    if (error) error->clear();
+bool EditorLayer::PublishProjectInternal(PublishReport* report, std::string* error, bool showResult) {
+    if (error)
+        error->clear();
     if (!m_ProjectOpen) {
-        if (error) *error = "project is not open";
+        if (error)
+            *error = "project is not open";
         return false;
     }
     if (m_SceneLayer && m_SceneLayer->IsDirty()) {
         const std::string message = "Publish rejected: save the current scene before publishing.";
         Logger::Error("[Editor] ", message);
-        if (showResult) ShowProjectResult(message, true);
-        if (error) *error = message;
+        if (showResult)
+            ShowProjectResult(message, true);
+        if (error)
+            *error = message;
         return false;
     }
     PublishReport localReport;
@@ -1645,25 +1638,26 @@ bool EditorLayer::PublishProjectInternal(PublishReport* report, std::string* err
     const char* basePath = SDL_GetBasePath();
     const std::filesystem::path binaryDirectory = basePath ? basePath : "";
     const std::filesystem::path engineContentDirectory = binaryDirectory / "EngineContent";
-    const bool succeeded = basePath && ProjectPublisher::Publish(
-        m_Project.GetConfig(), binaryDirectory, engineContentDirectory,
-        localReport, &localError);
+    const bool succeeded = basePath && ProjectPublisher::Publish(m_Project.GetConfig(), binaryDirectory,
+                                                                 engineContentDirectory, localReport, &localError);
     if (!succeeded) {
         Logger::Error("[Editor] Publish failed: ", localError);
-        if (showResult) ShowProjectResult("Publish failed: " + localError, true);
-        if (error) *error = std::move(localError);
+        if (showResult)
+            ShowProjectResult("Publish failed: " + localError, true);
+        if (error)
+            *error = std::move(localError);
         return false;
     }
-    Logger::Info("[Editor] Published ", localReport.cookedFiles.size(),
-                 " assets (", localReport.contentBytes, " bytes) to ",
-                 localReport.outputDirectory.string());
+    Logger::Info("[Editor] Published ", localReport.cookedFiles.size(), " assets (", localReport.contentBytes,
+                 " bytes) to ", localReport.outputDirectory.string());
     if (showResult) {
-        ShowProjectResult(
-            "Published " + std::to_string(localReport.cookedFiles.size()) +
-            " files (" + std::to_string(localReport.contentBytes) + " bytes) to:\n" +
-            localReport.outputDirectory.string(), false);
+        ShowProjectResult("Published " + std::to_string(localReport.cookedFiles.size()) + " files (" +
+                              std::to_string(localReport.contentBytes) + " bytes) to:\n" +
+                              localReport.outputDirectory.string(),
+                          false);
     }
-    if (report) *report = std::move(localReport);
+    if (report)
+        *report = std::move(localReport);
     return true;
 }
 
@@ -1680,8 +1674,8 @@ void EditorLayer::RunAutomation() {
     m_AutomationPending = false;
     if (!m_Automation.createProjectRoot.empty() && !m_ProjectOpen) {
         const std::string projectName = m_Automation.projectName.empty()
-            ? m_Automation.createProjectRoot.filename().string()
-            : m_Automation.projectName;
+                                            ? m_Automation.createProjectRoot.filename().string()
+                                            : m_Automation.projectName;
         std::string createError;
         if (!m_Workspace.CreateProject(m_Automation.createProjectRoot, projectName, &createError)) {
             FailAutomation("create project failed: " + createError);

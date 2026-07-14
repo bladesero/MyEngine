@@ -4,68 +4,69 @@
 
 namespace {
 
-std::vector<std::string> ReadStringArray(const nlohmann::json& data, const char* key)
-{
+std::vector<std::string> ReadStringArray(const nlohmann::json& data, const char* key) {
     std::vector<std::string> result;
-    if (!data.contains(key) || !data[key].is_array()) return result;
+    if (!data.contains(key) || !data[key].is_array())
+        return result;
     for (const auto& entry : data[key]) {
-        if (entry.is_string()) result.push_back(entry.get<std::string>());
+        if (entry.is_string())
+            result.push_back(entry.get<std::string>());
     }
     return result;
 }
 
-const char* InputModeToString(UIInputMode mode)
-{
+const char* InputModeToString(UIInputMode mode) {
     switch (mode) {
-    case UIInputMode::None: return "None";
-    case UIInputMode::UIOnly: return "UIOnly";
-    case UIInputMode::GameAndUI: return "GameAndUI";
+    case UIInputMode::None:
+        return "None";
+    case UIInputMode::UIOnly:
+        return "UIOnly";
+    case UIInputMode::GameAndUI:
+        return "GameAndUI";
     }
     return "GameAndUI";
 }
 
-UIInputMode ParseInputMode(const std::string& value)
-{
-    if (value == "None") return UIInputMode::None;
-    if (value == "UIOnly") return UIInputMode::UIOnly;
+UIInputMode ParseInputMode(const std::string& value) {
+    if (value == "None")
+        return UIInputMode::None;
+    if (value == "UIOnly")
+        return UIInputMode::UIOnly;
     return UIInputMode::GameAndUI;
 }
 
-const char* SourceModeToString(UICanvasSourceMode mode)
-{
+const char* SourceModeToString(UICanvasSourceMode mode) {
     switch (mode) {
-    case UICanvasSourceMode::AssetDocument: return "AssetDocument";
-    case UICanvasSourceMode::ActorTree: return "ActorTree";
+    case UICanvasSourceMode::AssetDocument:
+        return "AssetDocument";
+    case UICanvasSourceMode::ActorTree:
+        return "ActorTree";
     }
     return "AssetDocument";
 }
 
-UICanvasSourceMode ParseSourceMode(const std::string& value)
-{
-    if (value == "ActorTree") return UICanvasSourceMode::ActorTree;
+UICanvasSourceMode ParseSourceMode(const std::string& value) {
+    if (value == "ActorTree")
+        return UICanvasSourceMode::ActorTree;
     return UICanvasSourceMode::AssetDocument;
 }
 
 } // namespace
 
-UICanvasComponent::UICanvasComponent()
-    : m_Canvas(std::make_unique<UICanvas>())
-{}
+UICanvasComponent::UICanvasComponent() : m_Canvas(std::make_unique<UICanvas>()) {
+}
 
 UICanvasComponent::~UICanvasComponent() = default;
 
-bool UICanvasComponent::LoadDocument(const std::string& path)
-{
+bool UICanvasComponent::LoadDocument(const std::string& path) {
     return m_Canvas->LoadDocument(path);
 }
 
-bool UICanvasComponent::Reload()
-{
+bool UICanvasComponent::Reload() {
     return m_Canvas->Reload();
 }
 
-void UICanvasComponent::Serialize(nlohmann::json& data) const
-{
+void UICanvasComponent::Serialize(nlohmann::json& data) const {
     Component::Serialize(data);
     data["documentPath"] = AssetManager::Get().MakeProjectRelativePath(GetDocumentPath());
     data["stylePaths"] = GetStylePaths();
@@ -79,8 +80,7 @@ void UICanvasComponent::Serialize(nlohmann::json& data) const
     data["interactive"] = IsInteractive();
 }
 
-void UICanvasComponent::Deserialize(const nlohmann::json& data)
-{
+void UICanvasComponent::Deserialize(const nlohmann::json& data) {
     Component::Deserialize(data);
     SetDocumentPath(data.value("documentPath", std::string{}));
     SetStylePaths(ReadStringArray(data, "stylePaths"));

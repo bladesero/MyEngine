@@ -10,12 +10,11 @@ class IRHIReadbackService {
 public:
     virtual ~IRHIReadbackService() = default;
 
-    virtual std::shared_ptr<GpuReadbackTicket> ReadbackBufferAsync(
-        const std::shared_ptr<GpuBuffer>&) {
+    virtual std::shared_ptr<GpuReadbackTicket> ReadbackBufferAsync(const std::shared_ptr<GpuBuffer>&) {
         return nullptr;
     }
-    virtual std::shared_ptr<GpuTextureReadbackTicket> ReadbackTextureAsync(
-        const std::shared_ptr<GpuTexture>&, const RHITextureRegion&) {
+    virtual std::shared_ptr<GpuTextureReadbackTicket> ReadbackTextureAsync(const std::shared_ptr<GpuTexture>&,
+                                                                           const RHITextureRegion&) {
         return nullptr;
     }
 };

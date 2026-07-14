@@ -23,7 +23,9 @@ struct Event;
 class IRHIDevice;
 class IRHIFrameContext;
 class Scene;
-namespace Rml { class ElementDocument; }
+namespace Rml {
+class ElementDocument;
+}
 
 struct UISystemOverlayState {
     bool visible = false;
@@ -35,19 +37,21 @@ struct UISystemOverlayState {
     std::string secondaryHint;
 };
 
-struct UISafeAreaInsets { float left=0,top=0,right=0,bottom=0; };
+struct UISafeAreaInsets {
+    float left = 0, top = 0, right = 0, bottom = 0;
+};
 struct UIAccessibilitySettings {
-    float uiScale=1.0f,subtitleScale=1.0f;
-    bool subtitles=true,reduceCameraShake=false,highContrast=false;
-    std::string colorVisionMode="none";
+    float uiScale = 1.0f, subtitleScale = 1.0f;
+    bool subtitles = true, reduceCameraShake = false, highContrast = false;
+    std::string colorVisionMode = "none";
 };
 struct UISystemDiagnostics {
-    int viewportWidth=1,viewportHeight=1,safeWidth=1,safeHeight=1;
-    float effectiveScale=1.0f;
-    uint32_t loadedFontFaces=0,failedFontFaces=0;
-    bool narrowLayout=false,safeAreaValid=true;
-    bool projectRuntimeScreenActive=false;
-    uint32_t runtimeScreenFallbacks=0;
+    int viewportWidth = 1, viewportHeight = 1, safeWidth = 1, safeHeight = 1;
+    float effectiveScale = 1.0f;
+    uint32_t loadedFontFaces = 0, failedFontFaces = 0;
+    bool narrowLayout = false, safeAreaValid = true;
+    bool projectRuntimeScreenActive = false;
+    uint32_t runtimeScreenFallbacks = 0;
     std::string runtimeScreenDocument;
     std::string lastFontError;
 };
@@ -56,16 +60,41 @@ class UIDataModel {
 public:
     using Value = std::variant<bool, int, float, std::string, Vec2, Vec3, nlohmann::json>;
 
-    void SetBool(const std::string& name, bool value) { m_Values[name] = value; m_Dirty = true; }
-    void SetInt(const std::string& name, int value) { m_Values[name] = value; m_Dirty = true; }
-    void SetFloat(const std::string& name, float value) { m_Values[name] = value; m_Dirty = true; }
-    void SetString(const std::string& name, std::string value) { m_Values[name] = std::move(value); m_Dirty = true; }
-    void SetVec2(const std::string& name, const Vec2& value) { m_Values[name] = value; m_Dirty = true; }
-    void SetVec3(const std::string& name, const Vec3& value) { m_Values[name] = value; m_Dirty = true; }
-    void SetJson(const std::string& name, nlohmann::json value) { m_Values[name] = std::move(value); m_Dirty = true; }
+    void SetBool(const std::string& name, bool value) {
+        m_Values[name] = value;
+        m_Dirty = true;
+    }
+    void SetInt(const std::string& name, int value) {
+        m_Values[name] = value;
+        m_Dirty = true;
+    }
+    void SetFloat(const std::string& name, float value) {
+        m_Values[name] = value;
+        m_Dirty = true;
+    }
+    void SetString(const std::string& name, std::string value) {
+        m_Values[name] = std::move(value);
+        m_Dirty = true;
+    }
+    void SetVec2(const std::string& name, const Vec2& value) {
+        m_Values[name] = value;
+        m_Dirty = true;
+    }
+    void SetVec3(const std::string& name, const Vec3& value) {
+        m_Values[name] = value;
+        m_Dirty = true;
+    }
+    void SetJson(const std::string& name, nlohmann::json value) {
+        m_Values[name] = std::move(value);
+        m_Dirty = true;
+    }
     const std::unordered_map<std::string, Value>& GetValues() const { return m_Values; }
     void MarkDirty() { m_Dirty = true; }
-    bool ConsumeDirty() { const bool dirty = m_Dirty; m_Dirty = false; return dirty; }
+    bool ConsumeDirty() {
+        const bool dirty = m_Dirty;
+        m_Dirty = false;
+        return dirty;
+    }
 
 private:
     std::unordered_map<std::string, Value> m_Values;
@@ -80,11 +109,11 @@ public:
     bool Initialize(IRHIDevice* device, IRHIFrameContext* frameContext);
     void Shutdown();
     void Resize(int width, int height);
-    bool SetAccessibilitySettings(const UIAccessibilitySettings&,std::string* error=nullptr);
-    const UIAccessibilitySettings& GetAccessibilitySettings() const{return m_Accessibility;}
-    bool SetSafeAreaInsets(const UISafeAreaInsets&,std::string* error=nullptr);
-    const UISafeAreaInsets& GetSafeAreaInsets() const{return m_SafeArea;}
-    const UISystemDiagnostics& GetDiagnostics() const{return m_Diagnostics;}
+    bool SetAccessibilitySettings(const UIAccessibilitySettings&, std::string* error = nullptr);
+    const UIAccessibilitySettings& GetAccessibilitySettings() const { return m_Accessibility; }
+    bool SetSafeAreaInsets(const UISafeAreaInsets&, std::string* error = nullptr);
+    const UISafeAreaInsets& GetSafeAreaInsets() const { return m_SafeArea; }
+    const UISystemDiagnostics& GetDiagnostics() const { return m_Diagnostics; }
 
     void Update(Scene& scene, float dt);
     bool ProcessEvent(Event& event);
@@ -95,12 +124,12 @@ public:
     bool IsSystemOverlayDocumentLoaded() const { return m_SystemOverlayDocument != nullptr; }
     void SetRuntimeScreen(RuntimeUIScreenView view);
     const RuntimeUIScreenView& GetRuntimeScreen() const { return m_RuntimeScreen; }
-    bool ProcessRuntimeScreenPointer(Event& event, const UIInputViewport& viewport,
-                                     size_t& outIndex, bool& outActivate);
-    bool ShowSubtitle(SubtitleCue cue, std::string* error=nullptr);
+    bool ProcessRuntimeScreenPointer(Event& event, const UIInputViewport& viewport, size_t& outIndex,
+                                     bool& outActivate);
+    bool ShowSubtitle(SubtitleCue cue, std::string* error = nullptr);
     void ClearSubtitles();
-    const SubtitleState& GetSubtitleState() const{return m_Subtitles.GetState();}
-    bool IsSubtitlePresented() const{return m_Accessibility.subtitles&&m_Subtitles.GetState().visible;}
+    const SubtitleState& GetSubtitleState() const { return m_Subtitles.GetState(); }
+    bool IsSubtitlePresented() const { return m_Accessibility.subtitles && m_Subtitles.GetState().visible; }
 
     UIDataModel& CreateDataModel(const std::string& name);
     UIEventBridge& GetEventBridge() { return *GetActiveEventBridge(); }
@@ -130,7 +159,7 @@ private:
     UIAccessibilitySettings m_Accessibility;
     UISafeAreaInsets m_SafeArea;
     UISystemDiagnostics m_Diagnostics;
-    bool m_FallbackFontsAttempted=false;
+    bool m_FallbackFontsAttempted = false;
     RmlAssetLoader m_AssetLoader;
     RmlRenderInterface m_RenderInterface;
     RmlContextManager m_ContextManager;

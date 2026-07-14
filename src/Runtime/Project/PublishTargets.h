@@ -22,15 +22,17 @@ inline constexpr const char* kDefaultTargetLabel = kWindowsX64.label;
 
 inline constexpr bool IsSupported(std::string_view target) {
     for (const TargetInfo& info : kSupported) {
-        if (target == info.id) return true;
+        if (target == info.id)
+            return true;
     }
     return false;
 }
 
 inline constexpr const TargetInfo* Find(std::string_view target) {
     for (const TargetInfo& info : kSupported) {
-        if (target == info.id) return &info;
+        if (target == info.id)
+            return &info;
     }
     return nullptr;
 }
-}
+} // namespace PublishTargets

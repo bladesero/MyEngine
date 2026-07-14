@@ -19,51 +19,49 @@
 namespace Editor::UI::EditorWidgets {
 namespace {
 #if defined(MYENGINE_ENABLE_IMGUI)
-void PushButtonVariant(EditorWidgetVariant variant)
-{
+void PushButtonVariant(EditorWidgetVariant variant) {
     const auto tokens = EditorThemeManager::CreateDefaultTheme().tokens;
     ImVec4 color = tokens.header;
     ImVec4 hovered = tokens.headerHovered;
     ImVec4 active = tokens.accent;
     switch (variant) {
-        case EditorWidgetVariant::Accent:
-            color = tokens.accent;
-            hovered = tokens.accentHovered;
-            active = tokens.accentHovered;
-            break;
-        case EditorWidgetVariant::Danger:
-            color = tokens.danger;
-            hovered = tokens.dangerHovered;
-            active = tokens.dangerHovered;
-            break;
-        case EditorWidgetVariant::Warning:
-            color = tokens.warning;
-            hovered = tokens.warningHovered;
-            active = tokens.warningHovered;
-            break;
-        default:
-            break;
+    case EditorWidgetVariant::Accent:
+        color = tokens.accent;
+        hovered = tokens.accentHovered;
+        active = tokens.accentHovered;
+        break;
+    case EditorWidgetVariant::Danger:
+        color = tokens.danger;
+        hovered = tokens.dangerHovered;
+        active = tokens.dangerHovered;
+        break;
+    case EditorWidgetVariant::Warning:
+        color = tokens.warning;
+        hovered = tokens.warningHovered;
+        active = tokens.warningHovered;
+        break;
+    default:
+        break;
     }
     ImGui::PushStyleColor(ImGuiCol_Button, color);
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, hovered);
     ImGui::PushStyleColor(ImGuiCol_ButtonActive, active);
 }
 #endif
-}
+} // namespace
 
-bool ToolbarActionButton(EditorContext& context, const char* actionID,
-                         const char* icon, EditorWidgetVariant variant,
-                         bool sameLineAfter)
-{
+bool ToolbarActionButton(EditorContext& context, const char* actionID, const char* icon, EditorWidgetVariant variant,
+                         bool sameLineAfter) {
 #if defined(MYENGINE_ENABLE_IMGUI)
     EditorActionRegistry* actions = context.GetActionRegistry();
     EditorAction* action = actions ? actions->Find(actionID) : nullptr;
-    if (!action) return false;
+    if (!action)
+        return false;
 
     const bool enabled = action->CanExecute(context);
     const std::string label = icon && icon[0] != '\0'
-        ? std::string(EditorIcons::FallbackFor(icon)) + " " + action->GetLabel()
-        : std::string(action->GetLabel());
+                                  ? std::string(EditorIcons::FallbackFor(icon)) + " " + action->GetLabel()
+                                  : std::string(action->GetLabel());
     if (icon && icon[0] != '\0') {
         SvgIcon(context, icon, 16.0f);
         ImGui::SameLine();
@@ -76,8 +74,10 @@ bool ToolbarActionButton(EditorContext& context, const char* actionID,
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
         ImGui::SetTooltip("%s", action->GetLabel());
     }
-    if (clicked && enabled) actions->Execute(actionID, context);
-    if (sameLineAfter) ImGui::SameLine();
+    if (clicked && enabled)
+        actions->Execute(actionID, context);
+    if (sameLineAfter)
+        ImGui::SameLine();
     return clicked && enabled;
 #else
     (void)context;
@@ -89,15 +89,15 @@ bool ToolbarActionButton(EditorContext& context, const char* actionID,
 #endif
 }
 
-bool SvgIcon(EditorContext& context, const char* icon, float size, IconColor color)
-{
+bool SvgIcon(EditorContext& context, const char* icon, float size, IconColor color) {
 #if defined(MYENGINE_ENABLE_IMGUI)
-    if (!icon || icon[0] == '\0' || size <= 0.0f) return false;
+    if (!icon || icon[0] == '\0' || size <= 0.0f)
+        return false;
     IRenderContext* renderContext = context.GetRenderContext();
     EditorImGuiBackend* backend = context.GetImGuiBackend();
-    if (!renderContext || !backend) return false;
-    GpuTextureView* view = IconsManager::Get().GetOrUpload(
-        *renderContext, icon, static_cast<int>(size + 0.5f), color);
+    if (!renderContext || !backend)
+        return false;
+    GpuTextureView* view = IconsManager::Get().GetOrUpload(*renderContext, icon, static_cast<int>(size + 0.5f), color);
     void* texture = view ? backend->GetTextureId(view) : nullptr;
     if (!texture) {
         ImGui::Dummy({size, size});
@@ -114,9 +114,7 @@ bool SvgIcon(EditorContext& context, const char* icon, float size, IconColor col
 #endif
 }
 
-bool IconButton(EditorContext& context, const char* id, const char* icon,
-                const char* tooltip, bool enabled)
-{
+bool IconButton(EditorContext& context, const char* id, const char* icon, const char* tooltip, bool enabled) {
 #if defined(MYENGINE_ENABLE_IMGUI)
     const char* fallback = EditorIcons::FallbackFor(icon);
     ImGui::PushID(id ? id : "");
@@ -124,17 +122,15 @@ bool IconButton(EditorContext& context, const char* id, const char* icon,
     bool clicked = false;
     const float size = ImGui::GetFrameHeight();
     const bool hasSvg = context.GetRenderContext() && context.GetImGuiBackend() &&
-        IconsManager::Get().ResolveIconPath(icon ? icon : "").empty() == false;
+                        IconsManager::Get().ResolveIconPath(icon ? icon : "").empty() == false;
     if (hasSvg) {
         clicked = ImGui::Button("##svgIconButton", {size, size});
         const ImVec2 min = ImGui::GetItemRectMin();
         const ImVec2 max = ImGui::GetItemRectMax();
         const ImVec2 cursorAfterButton = ImGui::GetCursorScreenPos();
         const float iconSize = ImGui::GetFontSize();
-        ImGui::SetCursorScreenPos({
-            min.x + (max.x - min.x - iconSize) * 0.5f,
-            min.y + (max.y - min.y - iconSize) * 0.5f
-        });
+        ImGui::SetCursorScreenPos(
+            {min.x + (max.x - min.x - iconSize) * 0.5f, min.y + (max.y - min.y - iconSize) * 0.5f});
         SvgIcon(context, icon, iconSize);
         ImGui::SetCursorScreenPos(cursorAfterButton);
     } else {
@@ -156,8 +152,7 @@ bool IconButton(EditorContext& context, const char* id, const char* icon,
 #endif
 }
 
-bool IconButton(const char* id, const char* icon, const char* tooltip, bool enabled)
-{
+bool IconButton(const char* id, const char* icon, const char* tooltip, bool enabled) {
 #if defined(MYENGINE_ENABLE_IMGUI)
     ImGui::BeginDisabled(!enabled);
     const std::string label = std::string(EditorIcons::FallbackFor(icon)) + "##" + id;
@@ -176,13 +171,12 @@ bool IconButton(const char* id, const char* icon, const char* tooltip, bool enab
 #endif
 }
 
-bool SectionHeader(const char* label, bool defaultOpen)
-{
+bool SectionHeader(const char* label, bool defaultOpen) {
 #if defined(MYENGINE_ENABLE_IMGUI)
-    ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_Framed |
-        ImGuiTreeNodeFlags_SpanAvailWidth |
-        ImGuiTreeNodeFlags_AllowOverlap;
-    if (defaultOpen) flags |= ImGuiTreeNodeFlags_DefaultOpen;
+    ImGuiTreeNodeFlags flags =
+        ImGuiTreeNodeFlags_Framed | ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_AllowOverlap;
+    if (defaultOpen)
+        flags |= ImGuiTreeNodeFlags_DefaultOpen;
     return ImGui::CollapsingHeader(label, flags);
 #else
     (void)label;
@@ -191,28 +185,23 @@ bool SectionHeader(const char* label, bool defaultOpen)
 #endif
 }
 
-void BeginPropertyGrid(const char* id)
-{
+void BeginPropertyGrid(const char* id) {
     EditorPropertyGrid::Begin(id);
 }
 
-void EndPropertyGrid()
-{
+void EndPropertyGrid() {
     EditorPropertyGrid::End();
 }
 
-bool BeginPropertyRow(const char* label)
-{
+bool BeginPropertyRow(const char* label) {
     return EditorPropertyGrid::BeginRow(label);
 }
 
-void EndPropertyRow()
-{
+void EndPropertyRow() {
     EditorPropertyGrid::EndRow();
 }
 
-void InlineMessage(EditorNotificationType type, const char* text)
-{
+void InlineMessage(EditorNotificationType type, const char* text) {
     EditorNotifications::Inline(type, text);
 }
 

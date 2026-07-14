@@ -28,17 +28,11 @@ struct ShaderCookResult {
 namespace ShaderCooker {
 const char* BackendName(ShaderBackend backend);
 std::vector<ShaderBackend> BackendsForTargetPlatform(const std::string& targetPlatform);
-bool CollectDependencies(const std::filesystem::path& source,
-                         const std::filesystem::path& allowedRoot,
-                         std::vector<std::string>& outDependencies,
-                         std::string* error = nullptr);
-std::string BuildCacheKey(const std::filesystem::path& source,
-                          const std::filesystem::path& allowedRoot,
-                          const std::vector<ShaderBackend>& backends,
-                          const std::string& targetPlatform,
-                          const std::string& settingsJson,
-                          std::vector<std::string>* outDependencies = nullptr,
+bool CollectDependencies(const std::filesystem::path& source, const std::filesystem::path& allowedRoot,
+                         std::vector<std::string>& outDependencies, std::string* error = nullptr);
+std::string BuildCacheKey(const std::filesystem::path& source, const std::filesystem::path& allowedRoot,
+                          const std::vector<ShaderBackend>& backends, const std::string& targetPlatform,
+                          const std::string& settingsJson, std::vector<std::string>* outDependencies = nullptr,
                           std::string* error = nullptr);
-ShaderCookResult Cook(const ShaderCookRequest& request,
-                      std::string* error = nullptr);
-}
+ShaderCookResult Cook(const ShaderCookRequest& request, std::string* error = nullptr);
+} // namespace ShaderCooker

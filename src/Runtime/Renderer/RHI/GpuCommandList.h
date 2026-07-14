@@ -42,14 +42,12 @@ public:
     virtual void BindIndexBuffer(GpuBuffer* buffer) = 0;
     virtual void SetVSConstants(const void* data, uint32_t byteSize) = 0;
     virtual void Draw(uint32_t vertexCount, uint32_t startVertex = 0) = 0;
-    virtual void DrawIndexed(uint32_t indexCount, uint32_t startIndex = 0,
-                             uint32_t baseVertex = 0) = 0;
-    virtual void DrawInstanced(uint32_t vertexCount, uint32_t instanceCount,
-                               uint32_t startVertex = 0) {
-        for (uint32_t i = 0; i < instanceCount; ++i) Draw(vertexCount, startVertex);
+    virtual void DrawIndexed(uint32_t indexCount, uint32_t startIndex = 0, uint32_t baseVertex = 0) = 0;
+    virtual void DrawInstanced(uint32_t vertexCount, uint32_t instanceCount, uint32_t startVertex = 0) {
+        for (uint32_t i = 0; i < instanceCount; ++i)
+            Draw(vertexCount, startVertex);
     }
-    virtual void DrawIndexedInstanced(uint32_t indexCount, uint32_t instanceCount,
-                                      uint32_t startIndex = 0,
+    virtual void DrawIndexedInstanced(uint32_t indexCount, uint32_t instanceCount, uint32_t startIndex = 0,
                                       uint32_t baseVertex = 0) {
         for (uint32_t i = 0; i < instanceCount; ++i) {
             DrawIndexed(indexCount, startIndex, baseVertex);
@@ -67,8 +65,8 @@ public:
     // implementations keep non-rendering test contexts source compatible while
     // concrete GPU backends opt into each capability.
     virtual void Transition(GpuResource*, RHIResourceState, RHIResourceState) {}
-    virtual void TransitionTexture(GpuTexture* texture, const RHITextureViewDesc&,
-                                   RHIResourceState before, RHIResourceState after) {
+    virtual void TransitionTexture(GpuTexture* texture, const RHITextureViewDesc&, RHIResourceState before,
+                                   RHIResourceState after) {
         Transition(texture, before, after);
     }
     virtual void BeginRendering(const RenderingInfo&) {}
@@ -83,12 +81,10 @@ public:
     virtual void Dispatch(uint32_t, uint32_t = 1, uint32_t = 1) {}
     virtual void CopyBuffer(GpuBuffer*, uint32_t, GpuBuffer*, uint32_t, uint32_t) {}
     virtual void CopyTexture(GpuTexture*, GpuTexture*) {}
-    virtual void CopyTexture(GpuTexture*, const RHITextureRegion&,
-                             GpuTexture*, const RHITextureRegion&) {}
+    virtual void CopyTexture(GpuTexture*, const RHITextureRegion&, GpuTexture*, const RHITextureRegion&) {}
     virtual void DrawIndirect(GpuBuffer*, uint64_t = 0) {}
     virtual void DrawIndexedIndirect(GpuBuffer*, uint64_t = 0) {}
     virtual void WriteTimestamp(GpuTimestampQueryPool*, uint32_t) {}
     virtual void ResolveTimestamps(GpuTimestampQueryPool*, uint32_t, uint32_t) {}
     virtual void UAVBarrier(GpuResource*) {}
-
 };

@@ -26,9 +26,8 @@ struct UIInputViewport {
 
 class UIInputSystem {
 public:
-    bool ProcessEvent(Scene& scene, Rml::Context& context, Event& event,
-                      const UIInputViewport& viewport, UIEventBridge& eventBridge,
-                      UIDataModel* (*resolveDataModel)(void*, const std::string&),
+    bool ProcessEvent(Scene& scene, Rml::Context& context, Event& event, const UIInputViewport& viewport,
+                      UIEventBridge& eventBridge, UIDataModel* (*resolveDataModel)(void*, const std::string&),
                       void* dataModelUser);
 
 private:
@@ -39,16 +38,12 @@ private:
         std::string elementID;
     };
 
-    bool ConvertMouseEvent(Event& event, const UIInputViewport& viewport,
-                           Event& outLocalEvent, int& outX, int& outY) const;
-    bool ProcessMouseEvent(Scene& scene, Event& event, int localX, int localY,
-                           UIEventBridge& eventBridge,
-                           UIDataModel* (*resolveDataModel)(void*, const std::string&),
-                           void* dataModelUser);
-    bool ProcessCapturedSlider(Scene& scene, Event& event, int localX,
-                               UIEventBridge& eventBridge,
-                               UIDataModel* (*resolveDataModel)(void*, const std::string&),
-                               void* dataModelUser);
+    bool ConvertMouseEvent(Event& event, const UIInputViewport& viewport, Event& outLocalEvent, int& outX,
+                           int& outY) const;
+    bool ProcessMouseEvent(Scene& scene, Event& event, int localX, int localY, UIEventBridge& eventBridge,
+                           UIDataModel* (*resolveDataModel)(void*, const std::string&), void* dataModelUser);
+    bool ProcessCapturedSlider(Scene& scene, Event& event, int localX, UIEventBridge& eventBridge,
+                               UIDataModel* (*resolveDataModel)(void*, const std::string&), void* dataModelUser);
 
     PointerCapture m_Capture;
     uint64_t m_PressedButtonCanvasID = 0;

@@ -18,8 +18,8 @@ struct EditorShortcutChord {
 
     bool IsValid() const { return key != 0; }
     bool operator==(const EditorShortcutChord& other) const {
-        return ctrl == other.ctrl && shift == other.shift &&
-               alt == other.alt && super == other.super && key == other.key;
+        return ctrl == other.ctrl && shift == other.shift && alt == other.alt && super == other.super &&
+               key == other.key;
     }
 };
 
@@ -36,19 +36,13 @@ public:
     bool LoadOverrides(const nlohmann::json& json, std::string* warning = nullptr);
     nlohmann::json SaveOverrides() const;
 
-    std::string FindConflict(std::string_view actionId,
-                             const EditorShortcutChord& chord) const;
-    bool DispatchChord(const EditorShortcutChord& chord,
-                       EditorActionRegistry& actions,
-                       EditorContext& context) const;
+    std::string FindConflict(std::string_view actionId, const EditorShortcutChord& chord) const;
+    bool DispatchChord(const EditorShortcutChord& chord, EditorActionRegistry& actions, EditorContext& context) const;
     bool Dispatch(EditorActionRegistry& actions, EditorContext& context) const;
 
-    const std::unordered_map<std::string, EditorShortcutChord>& GetShortcuts() const {
-        return m_Shortcuts;
-    }
+    const std::unordered_map<std::string, EditorShortcutChord>& GetShortcuts() const { return m_Shortcuts; }
 
-    static bool ParseChord(std::string_view text, EditorShortcutChord& chord,
-                           std::string* error = nullptr);
+    static bool ParseChord(std::string_view text, EditorShortcutChord& chord, std::string* error = nullptr);
     static std::string FormatChord(const EditorShortcutChord& chord);
 
 private:

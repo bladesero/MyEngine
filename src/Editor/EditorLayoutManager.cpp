@@ -17,65 +17,48 @@
 
 namespace {
 constexpr const char* kDockSpaceName = "EditorDockSpace";
-constexpr const char* kRequiredPanels[] = {
-    "toolbar", "sceneHierarchy", "viewport", "gameViewport", "inspector", "assetBrowser", "log", "profiler"
-};
+constexpr const char* kRequiredPanels[] = {"toolbar",   "sceneHierarchy", "viewport", "gameViewport",
+                                           "inspector", "assetBrowser",   "log",      "profiler"};
 
-void SetError(std::string* error, std::string message)
-{
-    if (error) *error = std::move(message);
+void SetError(std::string* error, std::string message) {
+    if (error)
+        *error = std::move(message);
 }
 
-nlohmann::json ToJson(const EditorLayoutConfig& config)
-{
+nlohmann::json ToJson(const EditorLayoutConfig& config) {
     nlohmann::json panels = nlohmann::json::array();
     for (const auto& panel : config.panels) {
-        panels.push_back({
-            {"id", panel.panelID},
-            {"title", panel.title},
-            {"area", panel.area}
-        });
+        panels.push_back({{"id", panel.panelID}, {"title", panel.title}, {"area", panel.area}});
     }
-    return {
-        {"version", config.version},
-        {"toolbarHeightRatio", config.toolbarHeightRatio},
-        {"leftWidthRatio", config.leftWidthRatio},
-        {"rightWidthRatio", config.rightWidthRatio},
-        {"bottomHeightRatio", config.bottomHeightRatio},
-        {"panels", panels}
-    };
+    return {{"version", config.version},
+            {"toolbarHeightRatio", config.toolbarHeightRatio},
+            {"leftWidthRatio", config.leftWidthRatio},
+            {"rightWidthRatio", config.rightWidthRatio},
+            {"bottomHeightRatio", config.bottomHeightRatio},
+            {"panels", panels}};
 }
 
-bool RatioValid(float value)
-{
+bool RatioValid(float value) {
     return value > 0.01f && value < 0.95f;
 }
-}
+} // namespace
 
-EditorLayoutConfig EditorLayoutConfig::CreateDefault()
-{
+EditorLayoutConfig EditorLayoutConfig::CreateDefault() {
     EditorLayoutConfig config;
-    config.panels = {
-        {"toolbar", "Toolbar", "top"},
-        {"sceneHierarchy", "Scene Outliner", "left"},
-        {"viewport", "Scene View", "center"},
-        {"gameViewport", "Game View", "center"},
-        {"inspector", "Inspector", "right"},
-        {"assetBrowser", "Asset Browser", "bottomLeft"},
-        {"log", "Log Output", "bottomCenter"},
-        {"profiler", "Profiler", "bottomCenter"}
-    };
+    config.panels = {{"toolbar", "Toolbar", "top"},         {"sceneHierarchy", "Scene Outliner", "left"},
+                     {"viewport", "Scene View", "center"},  {"gameViewport", "Game View", "center"},
+                     {"inspector", "Inspector", "right"},   {"assetBrowser", "Asset Browser", "bottomLeft"},
+                     {"log", "Log Output", "bottomCenter"}, {"profiler", "Profiler", "bottomCenter"}};
     return config;
 }
 
-bool EditorLayoutConfig::Validate(std::string* error) const
-{
+bool EditorLayoutConfig::Validate(std::string* error) const {
     if (version != 1) {
         SetError(error, "unsupported editor layout version");
         return false;
     }
-    if (!RatioValid(toolbarHeightRatio) || !RatioValid(leftWidthRatio) ||
-        !RatioValid(rightWidthRatio) || !RatioValid(bottomHeightRatio)) {
+    if (!RatioValid(toolbarHeightRatio) || !RatioValid(leftWidthRatio) || !RatioValid(rightWidthRatio) ||
+        !RatioValid(bottomHeightRatio)) {
         SetError(error, "editor layout split ratio is out of range");
         return false;
     }
@@ -100,11 +83,10 @@ bool EditorLayoutConfig::Validate(std::string* error) const
     return true;
 }
 
-bool EditorLayoutConfig::LoadFromFile(const std::filesystem::path& path,
-                                      EditorLayoutConfig& config,
-                                      std::string* error)
-{
-    if (error) error->clear();
+bool EditorLayoutConfig::LoadFromFile(const std::filesystem::path& path, EditorLayoutConfig& config,
+                                      std::string* error) {
+    if (error)
+        error->clear();
     std::ifstream input(path);
     if (!input) {
         SetError(error, "failed to open editor layout config: " + path.string());
@@ -128,14 +110,13 @@ bool EditorLayoutConfig::LoadFromFile(const std::filesystem::path& path,
         }
         loaded.panels.clear();
         for (const auto& item : panels) {
-            if (!item.is_object()) continue;
-            loaded.panels.push_back({
-                item.value("id", std::string{}),
-                item.value("title", std::string{}),
-                item.value("area", std::string{})
-            });
+            if (!item.is_object())
+                continue;
+            loaded.panels.push_back({item.value("id", std::string{}), item.value("title", std::string{}),
+                                     item.value("area", std::string{})});
         }
-        if (!loaded.Validate(error)) return false;
+        if (!loaded.Validate(error))
+            return false;
         config = std::move(loaded);
         return true;
     } catch (const std::exception& exception) {
@@ -144,11 +125,10 @@ bool EditorLayoutConfig::LoadFromFile(const std::filesystem::path& path,
     }
 }
 
-bool EditorLayoutConfig::SaveToFile(const std::filesystem::path& path,
-                                    const EditorLayoutConfig& config,
-                                    std::string* error)
-{
-    if (error) error->clear();
+bool EditorLayoutConfig::SaveToFile(const std::filesystem::path& path, const EditorLayoutConfig& config,
+                                    std::string* error) {
+    if (error)
+        error->clear();
     std::string validationError;
     if (!config.Validate(&validationError)) {
         SetError(error, validationError);
@@ -175,11 +155,8 @@ bool EditorLayoutConfig::SaveToFile(const std::filesystem::path& path,
     }
 }
 
-void EditorLayoutManager::OpenProject(
-    const std::filesystem::path& projectRoot,
-    EditorProjectState& state,
-    const std::vector<std::unique_ptr<EditorPanel>>& panels)
-{
+void EditorLayoutManager::OpenProject(const std::filesystem::path& projectRoot, EditorProjectState& state,
+                                      const std::vector<std::unique_ptr<EditorPanel>>& panels) {
     m_ProjectRoot = projectRoot;
     m_ConfigPath = m_ProjectRoot / "Config" / "EditorLayout.default.json";
     m_Config = EditorLayoutConfig::CreateDefault();
@@ -204,15 +181,16 @@ void EditorLayoutManager::OpenProject(
     }
 
     for (const auto& panel : panels) {
-        if (!panel) continue;
+        if (!panel)
+            continue;
         const auto found = state.panelVisibility.find(panel->GetID());
-        if (found != state.panelVisibility.end()) panel->SetVisible(found->second);
+        if (found != state.panelVisibility.end())
+            panel->SetVisible(found->second);
     }
     LoadUserIni(state);
 }
 
-void EditorLayoutManager::CloseProject()
-{
+void EditorLayoutManager::CloseProject() {
     m_ProjectRoot.clear();
     m_ConfigPath.clear();
     m_ProjectOpen = false;
@@ -220,42 +198,35 @@ void EditorLayoutManager::CloseProject()
     m_ApplyDefaultNextFrame = false;
 }
 
-void EditorLayoutManager::LoadUserIni(const EditorProjectState& state)
-{
+void EditorLayoutManager::LoadUserIni(const EditorProjectState& state) {
 #if defined(MYENGINE_ENABLE_IMGUI)
-    if (m_UserIniLoaded || state.imguiLayoutIni.empty()) return;
-    ImGui::LoadIniSettingsFromMemory(state.imguiLayoutIni.data(),
-                                     state.imguiLayoutIni.size());
+    if (m_UserIniLoaded || state.imguiLayoutIni.empty())
+        return;
+    ImGui::LoadIniSettingsFromMemory(state.imguiLayoutIni.data(), state.imguiLayoutIni.size());
     m_UserIniLoaded = true;
 #else
     (void)state;
 #endif
 }
 
-void EditorLayoutManager::BeginDockSpace(
-    const std::vector<std::unique_ptr<EditorPanel>>& panels,
-    float reservedTop,
-    float reservedBottom)
-{
+void EditorLayoutManager::BeginDockSpace(const std::vector<std::unique_ptr<EditorPanel>>& panels, float reservedTop,
+                                         float reservedBottom) {
 #if defined(MYENGINE_ENABLE_IMGUI)
-    if (!m_ProjectOpen) return;
+    if (!m_ProjectOpen)
+        return;
     m_ReservedTop = std::max(0.0f, reservedTop);
     m_ReservedBottom = std::max(0.0f, reservedBottom);
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
     const ImVec2 dockPos{viewport->WorkPos.x, viewport->WorkPos.y + m_ReservedTop};
-    const ImVec2 dockSize{
-        viewport->WorkSize.x,
-        std::max(1.0f, viewport->WorkSize.y - m_ReservedTop - m_ReservedBottom)
-    };
+    const ImVec2 dockSize{viewport->WorkSize.x,
+                          std::max(1.0f, viewport->WorkSize.y - m_ReservedTop - m_ReservedBottom)};
     ImGui::SetNextWindowPos(dockPos);
     ImGui::SetNextWindowSize(dockSize);
     ImGui::SetNextWindowViewport(viewport->ID);
     const ImGuiWindowFlags hostFlags =
-        ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoTitleBar |
-        ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize |
-        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBringToFrontOnFocus |
-        ImGuiWindowFlags_NoNavFocus | ImGuiWindowFlags_NoBackground |
-        ImGuiWindowFlags_NoSavedSettings;
+        ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse |
+        ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBringToFrontOnFocus |
+        ImGuiWindowFlags_NoNavFocus | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoSavedSettings;
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0.0f, 0.0f});
@@ -263,8 +234,7 @@ void EditorLayoutManager::BeginDockSpace(
     ImGui::PopStyleVar(3);
 
     const ImGuiID dockspaceID = ImGui::GetID(kDockSpaceName);
-    ImGui::DockSpace(dockspaceID, {0.0f, 0.0f},
-                     ImGuiDockNodeFlags_PassthruCentralNode);
+    ImGui::DockSpace(dockspaceID, {0.0f, 0.0f}, ImGuiDockNodeFlags_PassthruCentralNode);
     if (m_ApplyDefaultNextFrame) {
         ApplyDefaultLayout(panels);
         m_ApplyDefaultNextFrame = false;
@@ -275,29 +245,24 @@ void EditorLayoutManager::BeginDockSpace(
 #endif
 }
 
-std::string EditorLayoutManager::FindWindowName(
-    const std::vector<std::unique_ptr<EditorPanel>>& panels,
-    const std::string& panelID) const
-{
+std::string EditorLayoutManager::FindWindowName(const std::vector<std::unique_ptr<EditorPanel>>& panels,
+                                                const std::string& panelID) const {
     for (const auto& panel : panels) {
-        if (panel && panel->GetID() == panelID) return panel->GetStableWindowName();
+        if (panel && panel->GetID() == panelID)
+            return panel->GetStableWindowName();
     }
     return {};
 }
 
-void EditorLayoutManager::ApplyDefaultLayout(
-    const std::vector<std::unique_ptr<EditorPanel>>& panels)
-{
+void EditorLayoutManager::ApplyDefaultLayout(const std::vector<std::unique_ptr<EditorPanel>>& panels) {
 #if defined(MYENGINE_ENABLE_IMGUI)
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
     const ImGuiID dockspaceID = ImGui::GetID(kDockSpaceName);
     ImGui::DockBuilderRemoveNode(dockspaceID);
     ImGui::DockBuilderAddNode(dockspaceID, ImGuiDockNodeFlags_DockSpace);
     const ImVec2 dockPos{viewport->WorkPos.x, viewport->WorkPos.y + m_ReservedTop};
-    const ImVec2 dockSize{
-        viewport->WorkSize.x,
-        std::max(1.0f, viewport->WorkSize.y - m_ReservedTop - m_ReservedBottom)
-    };
+    const ImVec2 dockSize{viewport->WorkSize.x,
+                          std::max(1.0f, viewport->WorkSize.y - m_ReservedTop - m_ReservedBottom)};
     ImGui::DockBuilderSetNodePos(dockspaceID, dockPos);
     ImGui::DockBuilderSetNodeSize(dockspaceID, dockSize);
 
@@ -310,30 +275,39 @@ void EditorLayoutManager::ApplyDefaultLayout(
     ImGuiID topID = ImGui::DockBuilderSplitNode(mainID, ImGuiDir_Up, topRatio, nullptr, &mainID);
     ImGuiID leftColumnID = ImGui::DockBuilderSplitNode(mainID, ImGuiDir_Left, leftRatio, nullptr, &mainID);
     ImGuiID rightID = ImGui::DockBuilderSplitNode(mainID, ImGuiDir_Right, rightRatio, nullptr, &mainID);
-    ImGuiID leftBottomID = ImGui::DockBuilderSplitNode(leftColumnID, ImGuiDir_Down, bottomRatio,
-                                                       nullptr, &leftColumnID);
-    ImGuiID bottomCenterID = ImGui::DockBuilderSplitNode(mainID, ImGuiDir_Down, bottomRatio,
-                                                         nullptr, &mainID);
+    ImGuiID leftBottomID =
+        ImGui::DockBuilderSplitNode(leftColumnID, ImGuiDir_Down, bottomRatio, nullptr, &leftColumnID);
+    ImGuiID bottomCenterID = ImGui::DockBuilderSplitNode(mainID, ImGuiDir_Down, bottomRatio, nullptr, &mainID);
 
     const auto dockToArea = [&](const EditorPanelLayoutNode& node) {
         const std::string windowName = FindWindowName(panels, node.panelID);
-        if (windowName.empty()) return;
+        if (windowName.empty())
+            return;
         ImGuiID target = mainID;
-        if (node.area == "top") target = topID;
-        else if (node.area == "left") target = leftColumnID;
-        else if (node.area == "right") target = rightID;
-        else if (node.area == "bottomLeft") target = leftBottomID;
-        else if (node.area == "bottomCenter") target = bottomCenterID;
+        if (node.area == "top")
+            target = topID;
+        else if (node.area == "left")
+            target = leftColumnID;
+        else if (node.area == "right")
+            target = rightID;
+        else if (node.area == "bottomLeft")
+            target = leftBottomID;
+        else if (node.area == "bottomCenter")
+            target = bottomCenterID;
         ImGui::DockBuilderDockWindow(windowName.c_str(), target);
     };
 
-    for (const auto& panel : m_Config.panels) dockToArea(panel);
+    for (const auto& panel : m_Config.panels)
+        dockToArea(panel);
     std::unordered_set<std::string> configuredPanels;
-    for (const auto& panel : m_Config.panels) configuredPanels.insert(panel.panelID);
+    for (const auto& panel : m_Config.panels)
+        configuredPanels.insert(panel.panelID);
     for (const auto& panel : panels) {
-        if (!panel || configuredPanels.find(panel->GetID()) != configuredPanels.end()) continue;
+        if (!panel || configuredPanels.find(panel->GetID()) != configuredPanels.end())
+            continue;
         const std::string area = panel->GetDefaultDockArea();
-        if (area.empty()) continue;
+        if (area.empty())
+            continue;
         dockToArea({panel->GetID(), panel->GetTitle(), area});
     }
     ImGui::DockBuilderFinish(dockspaceID);
@@ -342,8 +316,7 @@ void EditorLayoutManager::ApplyDefaultLayout(
 #endif
 }
 
-void EditorLayoutManager::SaveCurrentLayout(EditorProjectState& state) const
-{
+void EditorLayoutManager::SaveCurrentLayout(EditorProjectState& state) const {
 #if defined(MYENGINE_ENABLE_IMGUI)
     size_t size = 0;
     const char* data = ImGui::SaveIniSettingsToMemory(&size);
@@ -353,13 +326,11 @@ void EditorLayoutManager::SaveCurrentLayout(EditorProjectState& state) const
 #endif
 }
 
-void EditorLayoutManager::ResetToDefault(EditorProjectState& state)
-{
+void EditorLayoutManager::ResetToDefault(EditorProjectState& state) {
     state.imguiLayoutIni.clear();
     m_ApplyDefaultNextFrame = true;
 }
 
-void EditorLayoutManager::LoadDefaultLayout(EditorProjectState& state)
-{
+void EditorLayoutManager::LoadDefaultLayout(EditorProjectState& state) {
     ResetToDefault(state);
 }

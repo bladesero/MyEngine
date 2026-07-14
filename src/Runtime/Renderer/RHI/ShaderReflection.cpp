@@ -9,28 +9,41 @@ using Microsoft::WRL::ComPtr;
 
 static ShaderBindingType ToBindingType(D3D_SHADER_INPUT_TYPE type) {
     switch (type) {
-    case D3D_SIT_CBUFFER: return ShaderBindingType::ConstantBuffer;
-    case D3D_SIT_SAMPLER: return ShaderBindingType::Sampler;
+    case D3D_SIT_CBUFFER:
+        return ShaderBindingType::ConstantBuffer;
+    case D3D_SIT_SAMPLER:
+        return ShaderBindingType::Sampler;
     case D3D_SIT_UAV_RWTYPED:
     case D3D_SIT_UAV_RWSTRUCTURED:
     case D3D_SIT_UAV_RWBYTEADDRESS:
     case D3D_SIT_STRUCTURED:
-    case D3D_SIT_BYTEADDRESS: return ShaderBindingType::StorageBuffer;
-    default: return ShaderBindingType::Texture;
+    case D3D_SIT_BYTEADDRESS:
+        return ShaderBindingType::StorageBuffer;
+    default:
+        return ShaderBindingType::Texture;
     }
 }
 
-bool ReflectDxbcStage(const void* bytecode, size_t byteSize, uint8_t stage,
-                      ShaderReflection& reflection, std::string* error) {
+bool ReflectDxbcStage(const void* bytecode, size_t byteSize, uint8_t stage, ShaderReflection& reflection,
+                      std::string* error) {
     ComPtr<ID3D11ShaderReflection> shader;
     HRESULT hr = D3DReflect(bytecode, byteSize, __uuidof(ID3D11ShaderReflection),
                             reinterpret_cast<void**>(shader.GetAddressOf()));
-    if (FAILED(hr)) { if (error) *error = "D3DReflect failed"; return false; }
+    if (FAILED(hr)) {
+        if (error)
+            *error = "D3DReflect failed";
+        return false;
+    }
     D3D11_SHADER_DESC desc{};
-    if (FAILED(shader->GetDesc(&desc))) { if (error) *error = "shader reflection description failed"; return false; }
+    if (FAILED(shader->GetDesc(&desc))) {
+        if (error)
+            *error = "shader reflection description failed";
+        return false;
+    }
     for (uint32_t i = 0; i < desc.BoundResources; ++i) {
         D3D11_SHADER_INPUT_BIND_DESC native{};
-        if (FAILED(shader->GetResourceBindingDesc(i, &native))) continue;
+        if (FAILED(shader->GetResourceBindingDesc(i, &native)))
+            continue;
         auto existing = reflection.Find(native.Name ? native.Name : "");
         if (existing) {
             const_cast<ShaderBindingDesc*>(existing)->stages |= stage;
@@ -39,11 +52,14 @@ bool ReflectDxbcStage(const void* bytecode, size_t byteSize, uint8_t stage,
         ShaderBindingDesc binding;
         binding.name = native.Name ? native.Name : "";
         binding.type = ToBindingType(native.Type);
-        binding.bindPoint = native.BindPoint; binding.bindCount = native.BindCount; binding.stages = stage;
+        binding.bindPoint = native.BindPoint;
+        binding.bindCount = native.BindCount;
+        binding.stages = stage;
         if (native.Type == D3D_SIT_CBUFFER) {
             auto* cb = shader->GetConstantBufferByName(native.Name);
             D3D11_SHADER_BUFFER_DESC cbDesc{};
-            if (cb && SUCCEEDED(cb->GetDesc(&cbDesc))) binding.byteSize = cbDesc.Size;
+            if (cb && SUCCEEDED(cb->GetDesc(&cbDesc)))
+                binding.byteSize = cbDesc.Size;
         }
         reflection.bindings.push_back(std::move(binding));
     }
@@ -57,17 +73,21 @@ bool ReflectDxbcStage(const void* bytecode, size_t byteSize, uint8_t stage,
     return true;
 }
 
-bool ReflectDxbcProgram(const void* vs, size_t vsSize, const void* ps, size_t psSize,
-                        ShaderReflection& reflection, std::string* error) {
+bool ReflectDxbcProgram(const void* vs, size_t vsSize, const void* ps, size_t psSize, ShaderReflection& reflection,
+                        std::string* error) {
     reflection = {};
     return ReflectDxbcStage(vs, vsSize, ShaderStageVertex, reflection, error) &&
            ReflectDxbcStage(ps, psSize, ShaderStagePixel, reflection, error);
 }
 #else
 bool ReflectDxbcStage(const void*, size_t, uint8_t, ShaderReflection&, std::string* error) {
-    if (error) *error = "DXBC reflection is only available on Windows"; return false;
+    if (error)
+        *error = "DXBC reflection is only available on Windows";
+    return false;
 }
 bool ReflectDxbcProgram(const void*, size_t, const void*, size_t, ShaderReflection&, std::string* error) {
-    if (error) *error = "DXBC reflection is only available on Windows"; return false;
+    if (error)
+        *error = "DXBC reflection is only available on Windows";
+    return false;
 }
 #endif

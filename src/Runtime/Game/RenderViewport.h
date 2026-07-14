@@ -14,17 +14,14 @@ class UIDrawList;
 
 class RenderViewport {
 public:
-    RenderViewport(IRHIDevice* device,
-                   IRHIFrameContext* frameContext,
-                   IRHIReadbackService* readbackService);
+    RenderViewport(IRHIDevice* device, IRHIFrameContext* frameContext, IRHIReadbackService* readbackService);
     virtual ~RenderViewport() = default;
 
     virtual void Initialize(int width, int height);
     virtual void OnUpdate(float dt) { (void)dt; }
     virtual void OnWindowResize(int width, int height);
     virtual void ResolveFrameCamera(const Scene& scene) { (void)scene; }
-    virtual void Render(Scene& scene, bool presentToSwapchain,
-                        const UIDrawList* uiDrawList = nullptr);
+    virtual void Render(Scene& scene, bool presentToSwapchain, const UIDrawList* uiDrawList = nullptr);
 
     void SetViewportRect(int x, int y, int width, int height);
     void SetInputEnabled(bool enabled);

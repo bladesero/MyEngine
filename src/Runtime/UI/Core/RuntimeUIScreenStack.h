@@ -41,12 +41,10 @@ struct RuntimeUIStackEvent {
 class RuntimeUIScreenStack {
 public:
     bool Register(RuntimeUIScreenDescriptor descriptor, std::string* error = nullptr);
-    bool SetActionLabel(const std::string& screen, const std::string& action,
-                        std::string label);
-    bool ApplyProjectOverride(const std::string& screen,std::string title,
-        std::string documentPath,
-        const std::unordered_map<std::string,std::string>& actionLabels,
-        std::string* error=nullptr);
+    bool SetActionLabel(const std::string& screen, const std::string& action, std::string label);
+    bool ApplyProjectOverride(const std::string& screen, std::string title, std::string documentPath,
+                              const std::unordered_map<std::string, std::string>& actionLabels,
+                              std::string* error = nullptr);
     static RuntimeUIScreenStack CreateStandard();
 
     bool Push(const std::string& stableName);
@@ -68,7 +66,10 @@ public:
     RuntimeUIStackEvent ProcessEvent(const Event& event);
 
 private:
-    struct Entry { std::string screen; size_t focusedIndex = 0; };
+    struct Entry {
+        std::string screen;
+        size_t focusedIndex = 0;
+    };
     const RuntimeUIScreenDescriptor* TopDescriptor() const;
 
     std::unordered_map<std::string, RuntimeUIScreenDescriptor> m_Descriptors;

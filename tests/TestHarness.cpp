@@ -26,18 +26,17 @@ struct RunOptions {
 };
 
 void PrintUsage() {
-    std::cout
-        << "MyEngineTests usage:\n"
-        << "  MyEngineTests.exe [--list] [--module <name>] [--test <name>]\n\n"
-        << "Options:\n"
-        << "  --help            Show this help text\n"
-        << "  --list            List all registered tests as Module::Test\n"
-        << "  --module <name>   Run only tests from a module, for example --module Project\n"
-        << "  --test <name>     Run one test by its registered name\n\n"
-        << "Examples:\n"
-        << "  MyEngineTests.exe --list\n"
-        << "  MyEngineTests.exe --module Project\n"
-        << "  MyEngineTests.exe --module Renderer --test TestHeadlessRendering\n";
+    std::cout << "MyEngineTests usage:\n"
+              << "  MyEngineTests.exe [--list] [--module <name>] [--test <name>]\n\n"
+              << "Options:\n"
+              << "  --help            Show this help text\n"
+              << "  --list            List all registered tests as Module::Test\n"
+              << "  --module <name>   Run only tests from a module, for example --module Project\n"
+              << "  --test <name>     Run one test by its registered name\n\n"
+              << "Examples:\n"
+              << "  MyEngineTests.exe --list\n"
+              << "  MyEngineTests.exe --module Project\n"
+              << "  MyEngineTests.exe --module Renderer --test TestHeadlessRendering\n";
 }
 
 std::string Lower(std::string value) {
@@ -52,12 +51,10 @@ bool EqualsIgnoreCase(const std::string& left, const std::string& right) {
 }
 
 bool MatchesFilter(const TestCase& test, const RunOptions& options) {
-    if (!options.moduleFilter.empty() &&
-        !EqualsIgnoreCase(test.module, options.moduleFilter)) {
+    if (!options.moduleFilter.empty() && !EqualsIgnoreCase(test.module, options.moduleFilter)) {
         return false;
     }
-    if (!options.testFilter.empty() &&
-        !EqualsIgnoreCase(test.name, options.testFilter)) {
+    if (!options.testFilter.empty() && !EqualsIgnoreCase(test.name, options.testFilter)) {
         return false;
     }
     return true;
@@ -96,7 +93,7 @@ bool ParseArgs(int argc, char** argv, RunOptions& options) {
     }
     return true;
 }
-}
+} // namespace
 
 bool NearlyEqual(float a, float b, float eps) {
     return std::fabs(a - b) <= eps;
@@ -143,7 +140,8 @@ int RunRegisteredTests(int argc, char** argv) {
     int failed = 0;
     int executed = 0;
     for (const TestCase& test : tests) {
-        if (!MatchesFilter(test, options)) continue;
+        if (!MatchesFilter(test, options))
+            continue;
         ++executed;
         std::cout << "[RUN ] " << test.module << "::" << test.name << '\n';
         if (!test.fn()) {

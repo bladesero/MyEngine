@@ -15,8 +15,8 @@
 #include <exception>
 #include <thread>
 
-Engine::Engine(EngineConfig config)
-    : m_Config(std::move(config)) {}
+Engine::Engine(EngineConfig config) : m_Config(std::move(config)) {
+}
 
 void Engine::SetWindow(IWindow* window) {
     m_Window = window;
@@ -25,7 +25,8 @@ void Engine::SetWindow(IWindow* window) {
 void Engine::Init() {
     ComponentRegistry::Get();
     std::string registryError;
-    if (!TypeRegistry::Get().Freeze(&registryError)) Logger::Error("TypeRegistry freeze failed: ", registryError);
+    if (!TypeRegistry::Get().Freeze(&registryError))
+        Logger::Error("TypeRegistry freeze failed: ", registryError);
     MemoryService::Get().Init();
     Logger::Info("Init Engine: ", m_Config.appName);
     AudioEngine::Get().Init();
@@ -65,8 +66,7 @@ void Engine::RunLoop() {
         Init();
     }
 
-    const float targetFrameSeconds =
-        1.0f / static_cast<float>(std::max(1, m_Config.targetFps));
+    const float targetFrameSeconds = 1.0f / static_cast<float>(std::max(1, m_Config.targetFps));
     Logger::Info("Main loop started, target FPS = ", m_Config.targetFps);
 
     while (m_Running) {
@@ -86,8 +86,7 @@ void Engine::RunLoop() {
         if (m_FatalHealthCheck) {
             if (const auto failure = m_FatalHealthCheck(); failure && !failure->empty()) {
                 const std::string report = CrashHandler::WriteDiagnosticReport(*failure);
-                Logger::Error("[Engine] Fatal runtime health failure: ", *failure,
-                              "; report=", report);
+                Logger::Error("[Engine] Fatal runtime health failure: ", *failure, "; report=", report);
                 m_ExitCode = 3;
                 m_Running = false;
             }
@@ -98,8 +97,7 @@ void Engine::RunLoop() {
         // This avoids a double-present when a D3D11 context is active.
 
         // Optional auto-quit (useful for headless tests / demos).
-        if (m_Config.autoQuitAfterSeconds > 0.0f &&
-            Time::TotalSeconds() > m_Config.autoQuitAfterSeconds) {
+        if (m_Config.autoQuitAfterSeconds > 0.0f && Time::TotalSeconds() > m_Config.autoQuitAfterSeconds) {
             RequestQuit();
         }
 
@@ -113,8 +111,8 @@ void Engine::RunLoop() {
         m_FrameStats.renderer = FrameStatsProvider::GetRendererStats();
         m_FrameStats.resources = FrameStatsProvider::GetResourceStats();
         m_FrameStats.smoothedFrameMs = m_FrameStats.smoothedFrameMs == 0.0f
-            ? m_FrameStats.frameMs
-            : m_FrameStats.smoothedFrameMs * 0.9f + m_FrameStats.frameMs * 0.1f;
+                                           ? m_FrameStats.frameMs
+                                           : m_FrameStats.smoothedFrameMs * 0.9f + m_FrameStats.frameMs * 0.1f;
         m_StatsAccumulator += Time::DeltaSeconds();
         ++m_StatsFrames;
         if (m_StatsAccumulator >= 0.5f) {
@@ -134,7 +132,7 @@ void Engine::RunLoop() {
 // --------------------------------------------------------------------------
 
 void Engine::PollPlatformEvents() {
-    Input::Flush();   // advance prev-frame snapshot
+    Input::Flush(); // advance prev-frame snapshot
 
     SDL_Event sdlEvent;
     while (SDL_PollEvent(&sdlEvent)) {
@@ -148,20 +146,20 @@ void Engine::PollPlatformEvents() {
         }
         case SDL_EVENT_KEY_DOWN: {
             Event e;
-            e.type          = EventType::KeyDown;
-            e.key.scancode  = static_cast<int>(sdlEvent.key.scancode);
-            e.key.keycode   = static_cast<int>(sdlEvent.key.key);
-            e.key.repeat    = sdlEvent.key.repeat != 0;
+            e.type = EventType::KeyDown;
+            e.key.scancode = static_cast<int>(sdlEvent.key.scancode);
+            e.key.keycode = static_cast<int>(sdlEvent.key.key);
+            e.key.repeat = sdlEvent.key.repeat != 0;
             Input::OnKeyDown(e.key.scancode);
             PushEvent(e);
             break;
         }
         case SDL_EVENT_KEY_UP: {
             Event e;
-            e.type          = EventType::KeyUp;
-            e.key.scancode  = static_cast<int>(sdlEvent.key.scancode);
-            e.key.keycode   = static_cast<int>(sdlEvent.key.key);
-            e.key.repeat    = false;
+            e.type = EventType::KeyUp;
+            e.key.scancode = static_cast<int>(sdlEvent.key.scancode);
+            e.key.keycode = static_cast<int>(sdlEvent.key.key);
+            e.key.repeat = false;
             Input::OnKeyUp(e.key.scancode);
             PushEvent(e);
             break;
@@ -169,8 +167,8 @@ void Engine::PollPlatformEvents() {
         case SDL_EVENT_WINDOW_RESIZED: {
             if (m_Window) {
                 Event e;
-                e.type          = EventType::WindowResize;
-                e.resize.width  = sdlEvent.window.data1;
+                e.type = EventType::WindowResize;
+                e.resize.width = sdlEvent.window.data1;
                 e.resize.height = sdlEvent.window.data2;
                 PushEvent(e);
             }
@@ -190,33 +188,32 @@ void Engine::PollPlatformEvents() {
         }
         case SDL_EVENT_MOUSE_BUTTON_DOWN: {
             Event e;
-            e.type                = EventType::MouseButtonDown;
-            e.mouseButton.button  = sdlEvent.button.button;
-            e.mouseButton.x       = static_cast<int>(sdlEvent.button.x);
-            e.mouseButton.y       = static_cast<int>(sdlEvent.button.y);
+            e.type = EventType::MouseButtonDown;
+            e.mouseButton.button = sdlEvent.button.button;
+            e.mouseButton.x = static_cast<int>(sdlEvent.button.x);
+            e.mouseButton.y = static_cast<int>(sdlEvent.button.y);
             Input::OnMouseButton(e.mouseButton.button, true);
             PushEvent(e);
             break;
         }
         case SDL_EVENT_MOUSE_BUTTON_UP: {
             Event e;
-            e.type                = EventType::MouseButtonUp;
-            e.mouseButton.button  = sdlEvent.button.button;
-            e.mouseButton.x       = static_cast<int>(sdlEvent.button.x);
-            e.mouseButton.y       = static_cast<int>(sdlEvent.button.y);
+            e.type = EventType::MouseButtonUp;
+            e.mouseButton.button = sdlEvent.button.button;
+            e.mouseButton.x = static_cast<int>(sdlEvent.button.x);
+            e.mouseButton.y = static_cast<int>(sdlEvent.button.y);
             Input::OnMouseButton(e.mouseButton.button, false);
             PushEvent(e);
             break;
         }
         case SDL_EVENT_MOUSE_MOTION: {
             Event e;
-            e.type            = EventType::MouseMove;
-            e.mouseMove.x     = static_cast<int>(sdlEvent.motion.x);
-            e.mouseMove.y     = static_cast<int>(sdlEvent.motion.y);
-            e.mouseMove.relX  = static_cast<int>(sdlEvent.motion.xrel);
-            e.mouseMove.relY  = static_cast<int>(sdlEvent.motion.yrel);
-            Input::OnMouseMove(e.mouseMove.x, e.mouseMove.y,
-                               e.mouseMove.relX, e.mouseMove.relY);
+            e.type = EventType::MouseMove;
+            e.mouseMove.x = static_cast<int>(sdlEvent.motion.x);
+            e.mouseMove.y = static_cast<int>(sdlEvent.motion.y);
+            e.mouseMove.relX = static_cast<int>(sdlEvent.motion.xrel);
+            e.mouseMove.relY = static_cast<int>(sdlEvent.motion.yrel);
+            Input::OnMouseMove(e.mouseMove.x, e.mouseMove.y, e.mouseMove.relX, e.mouseMove.relY);
             PushEvent(e);
             break;
         }
@@ -231,8 +228,7 @@ void Engine::PollPlatformEvents() {
         case SDL_EVENT_TEXT_INPUT: {
             Event e;
             e.type = EventType::TextInput;
-            std::strncpy(e.textInput.text, sdlEvent.text.text,
-                         sizeof(e.textInput.text) - 1);
+            std::strncpy(e.textInput.text, sdlEvent.text.text, sizeof(e.textInput.text) - 1);
             PushEvent(e);
             break;
         }
@@ -259,30 +255,26 @@ void Engine::PollPlatformEvents() {
         case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
         case SDL_EVENT_GAMEPAD_BUTTON_UP: {
             const bool down = (sdlEvent.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN);
-            Input::OnGamepadButton(
-                sdlEvent.gbutton.which,
-                static_cast<SDL_GamepadButton>(sdlEvent.gbutton.button),
-                down);
+            Input::OnGamepadButton(sdlEvent.gbutton.which, static_cast<SDL_GamepadButton>(sdlEvent.gbutton.button),
+                                   down);
 
             Event e;
             e.type = down ? EventType::GamepadButtonDown : EventType::GamepadButtonUp;
             e.gamepadButton.instanceId = static_cast<int>(sdlEvent.gbutton.which);
-            e.gamepadButton.button     = static_cast<int>(sdlEvent.gbutton.button);
-            e.gamepadButton.down       = down;
+            e.gamepadButton.button = static_cast<int>(sdlEvent.gbutton.button);
+            e.gamepadButton.down = down;
             PushEvent(e);
             break;
         }
         case SDL_EVENT_GAMEPAD_AXIS_MOTION: {
-            Input::OnGamepadAxis(
-                sdlEvent.gaxis.which,
-                static_cast<SDL_GamepadAxis>(sdlEvent.gaxis.axis),
-                sdlEvent.gaxis.value);
+            Input::OnGamepadAxis(sdlEvent.gaxis.which, static_cast<SDL_GamepadAxis>(sdlEvent.gaxis.axis),
+                                 sdlEvent.gaxis.value);
 
             Event e;
             e.type = EventType::GamepadAxisMotion;
             e.gamepadAxis.instanceId = static_cast<int>(sdlEvent.gaxis.which);
-            e.gamepadAxis.axis       = static_cast<int>(sdlEvent.gaxis.axis);
-            e.gamepadAxis.value      = static_cast<int>(sdlEvent.gaxis.value);
+            e.gamepadAxis.axis = static_cast<int>(sdlEvent.gaxis.axis);
+            e.gamepadAxis.value = static_cast<int>(sdlEvent.gaxis.value);
             PushEvent(e);
             break;
         }
@@ -311,12 +303,10 @@ void Engine::DispatchEvents() {
             }
             try {
                 layer->OnEvent(event);
-            }
-            catch (const std::exception& e) {
+            } catch (const std::exception& e) {
                 MarkLayerFaulted(layer, "event", e.what());
                 continue;
-            }
-            catch (...) {
+            } catch (...) {
                 MarkLayerFaulted(layer, "event", "unknown exception");
                 continue;
             }
@@ -335,11 +325,9 @@ void Engine::UpdateLayers() {
         }
         try {
             layer->OnUpdate(dt);
-        }
-        catch (const std::exception& e) {
+        } catch (const std::exception& e) {
             MarkLayerFaulted(layer, "update", e.what());
-        }
-        catch (...) {
+        } catch (...) {
             MarkLayerFaulted(layer, "update", "unknown exception");
         }
     }
@@ -352,11 +340,9 @@ void Engine::RenderLayers() {
         }
         try {
             layer->OnRender();
-        }
-        catch (const std::exception& e) {
+        } catch (const std::exception& e) {
             MarkLayerFaulted(layer, "render", e.what());
-        }
-        catch (...) {
+        } catch (...) {
             MarkLayerFaulted(layer, "render", "unknown exception");
         }
     }
@@ -367,15 +353,14 @@ bool Engine::IsLayerFaulted(const Layer* layer) const {
 }
 
 void Engine::MarkLayerFaulted(const Layer* layer, const char* phase, const char* message) {
-    if (!layer) return;
+    if (!layer)
+        return;
     if (m_FaultedLayers.insert(layer).second) {
-        Logger::Error("[Engine] Layer '", layer->Name(), "' failed during ",
-                      phase, ": ", message, "; disabling layer");
+        Logger::Error("[Engine] Layer '", layer->Name(), "' failed during ", phase, ": ", message, "; disabling layer");
     }
 }
 
-void Engine::SleepForFrameRate(float targetFrameSeconds,
-                               Time::Clock::time_point frameStart) {
+void Engine::SleepForFrameRate(float targetFrameSeconds, Time::Clock::time_point frameStart) {
     const auto frameEnd = Time::Clock::now();
     const std::chrono::duration<float> frameCost = frameEnd - frameStart;
     const float sleepSeconds = targetFrameSeconds - frameCost.count();

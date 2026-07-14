@@ -20,4 +20,4 @@ inline constexpr uint32_t InputGlyphAtlas = 1;
 inline constexpr int ContentArchive = 2;
 inline constexpr uint32_t ShaderDescription = 1;
 inline constexpr uint32_t CookedShader = 3;
-}
+} // namespace FormatVersions

@@ -13,8 +13,7 @@ public:
     virtual ~EditorAction() = default;
     virtual const char* GetID() const = 0;
     virtual const char* GetLabel() const = 0;
-    virtual bool CanExecute(EditorContext& context) const
-    {
+    virtual bool CanExecute(EditorContext& context) const {
         (void)context;
         return true;
     }
@@ -26,8 +25,7 @@ public:
     using Predicate = std::function<bool(EditorContext&)>;
     using Function = std::function<void(EditorContext&)>;
 
-    LambdaEditorAction(std::string id, std::string label, Function execute,
-                       Predicate canExecute = {});
+    LambdaEditorAction(std::string id, std::string label, Function execute, Predicate canExecute = {});
     const char* GetID() const override { return m_ID.c_str(); }
     const char* GetLabel() const override { return m_Label.c_str(); }
     bool CanExecute(EditorContext& context) const override;
@@ -47,7 +45,10 @@ public:
     bool CanExecute(const std::string& id, EditorContext& context) const;
     bool Execute(const std::string& id, EditorContext& context) const;
     const std::vector<EditorAction*>& GetOrderedActions() const { return m_Order; }
-    void Clear() { m_Actions.clear(); m_Order.clear(); }
+    void Clear() {
+        m_Actions.clear();
+        m_Order.clear();
+    }
 
 private:
     std::unordered_map<std::string, std::unique_ptr<EditorAction>> m_Actions;

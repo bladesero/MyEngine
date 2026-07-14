@@ -26,7 +26,8 @@
 #endif
 
 EditorImGuiBackend::EditorImGuiBackend(IEditorImGuiRHIInterop* interop, IWindow* window)
-    : m_Interop(interop), m_Window(window) {}
+    : m_Interop(interop), m_Window(window) {
+}
 
 EditorImGuiBackend::~EditorImGuiBackend() {
     Shutdown();
@@ -63,18 +64,16 @@ bool EditorImGuiBackend::Init() {
         m_Interop->SetImGuiTextureInteropReady(true);
     } else
 #endif
-    if (handles.backend == RHIBackend::D3D12) {
+        if (handles.backend == RHIBackend::D3D12) {
         if (!ImGui_ImplSDL3_InitForD3D(m_Window->GetSDLWindow())) {
             Logger::Error("[EditorImGuiBackend] ImGui_ImplSDL3_InitForD3D failed");
             return false;
         }
         auto* device = static_cast<ID3D12Device*>(handles.device);
         auto* heap = static_cast<ID3D12DescriptorHeap*>(handles.srvHeap);
-        const D3D12_CPU_DESCRIPTOR_HANDLE fontCpu{ handles.fontSrvCpuHandle };
-        const D3D12_GPU_DESCRIPTOR_HANDLE fontGpu{ handles.fontSrvGpuHandle };
-        if (!ImGui_ImplDX12_Init(device, handles.framesInFlight,
-                                 DXGI_FORMAT_R8G8B8A8_UNORM, heap,
-                                 fontCpu, fontGpu)) {
+        const D3D12_CPU_DESCRIPTOR_HANDLE fontCpu{handles.fontSrvCpuHandle};
+        const D3D12_GPU_DESCRIPTOR_HANDLE fontGpu{handles.fontSrvGpuHandle};
+        if (!ImGui_ImplDX12_Init(device, handles.framesInFlight, DXGI_FORMAT_R8G8B8A8_UNORM, heap, fontCpu, fontGpu)) {
             ImGui_ImplSDL3_Shutdown();
             return false;
         }
@@ -112,9 +111,7 @@ bool EditorImGuiBackend::Init() {
 
 #if defined(MYENGINE_PLATFORM_WINDOWS)
     if (handles.backend == RHIBackend::D3D11) {
-        m_Interop->SetSwapChainResizeCallback([]() {
-            ImGui_ImplDX11_InvalidateDeviceObjects();
-        });
+        m_Interop->SetSwapChainResizeCallback([]() { ImGui_ImplDX11_InvalidateDeviceObjects(); });
     }
 #endif
     m_Initialized = true;
@@ -126,23 +123,24 @@ bool EditorImGuiBackend::Init() {
 
 void EditorImGuiBackend::Shutdown() {
 #if defined(MYENGINE_ENABLE_IMGUI)
-    if (!m_Initialized) return;
+    if (!m_Initialized)
+        return;
 
     const ImGuiBackendHandles handles = m_Interop ? m_Interop->GetImGuiBackendHandles() : ImGuiBackendHandles{};
     const RHIBackend backend = handles.backend;
-    if (ImGui::GetCurrentContext() &&
-        (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable)) {
+    if (ImGui::GetCurrentContext() && (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable)) {
         ImGui::DestroyPlatformWindows();
     }
 #if defined(MYENGINE_PLATFORM_WINDOWS)
 #if defined(MYENGINE_ENABLE_VULKAN)
     if (backend == RHIBackend::Vulkan) {
-        if (m_Interop) m_Interop->SetImGuiTextureInteropReady(false);
+        if (m_Interop)
+            m_Interop->SetImGuiTextureInteropReady(false);
         ClearVulkanTextureCache();
         EditorImGuiVulkan_Shutdown();
     } else
 #endif
-    if (backend == RHIBackend::D3D12) {
+        if (backend == RHIBackend::D3D12) {
         ImGui_ImplDX12_Shutdown();
     } else {
         ImGui_ImplDX11_Shutdown();
@@ -161,14 +159,16 @@ void EditorImGuiBackend::Shutdown() {
 
 void EditorImGuiBackend::ProcessSDLEvent(const SDL_Event& event) {
 #if defined(MYENGINE_ENABLE_IMGUI)
-    if (!m_Initialized) return;
+    if (!m_Initialized)
+        return;
     ImGui_ImplSDL3_ProcessEvent(&event);
 #endif
 }
 
 void EditorImGuiBackend::BeginFrame() {
 #if defined(MYENGINE_ENABLE_IMGUI)
-    if (!m_Initialized) return;
+    if (!m_Initialized)
+        return;
 
     const ImGuiBackendHandles handles = m_Interop->GetImGuiBackendHandles();
 
@@ -181,7 +181,7 @@ void EditorImGuiBackend::BeginFrame() {
         EditorImGuiVulkan_NewFrame();
     } else
 #endif
-    if (handles.backend == RHIBackend::D3D12) {
+        if (handles.backend == RHIBackend::D3D12) {
         ImGui_ImplDX12_NewFrame();
     } else {
         // D3D11: restore backbuffer before ImGui captures the render target.
@@ -198,9 +198,7 @@ void EditorImGuiBackend::BeginFrame() {
                 viewport.MinDepth = 0.0f;
                 viewport.MaxDepth = 1.0f;
                 ctx->RSSetViewports(1, &viewport);
-                const D3D11_RECT scissor = {0, 0,
-                    static_cast<LONG>(handles.width),
-                    static_cast<LONG>(handles.height)};
+                const D3D11_RECT scissor = {0, 0, static_cast<LONG>(handles.width), static_cast<LONG>(handles.height)};
                 ctx->RSSetScissorRects(1, &scissor);
             }
         }
@@ -218,7 +216,8 @@ void EditorImGuiBackend::BeginFrame() {
 
 void EditorImGuiBackend::RenderDrawData(ImDrawData* drawData) {
 #if defined(MYENGINE_ENABLE_IMGUI)
-    if (!m_Initialized || !drawData) return;
+    if (!m_Initialized || !drawData)
+        return;
 
     const ImGuiBackendHandles handles = m_Interop->GetImGuiBackendHandles();
 
@@ -228,17 +227,16 @@ void EditorImGuiBackend::RenderDrawData(ImDrawData* drawData) {
         EditorImGuiVulkan_RenderDrawData(drawData, handles);
     } else
 #endif
-    if (handles.backend == RHIBackend::D3D12) {
+        if (handles.backend == RHIBackend::D3D12) {
         auto* cmdList = static_cast<ID3D12GraphicsCommandList*>(handles.commandList);
-        if (cmdList) ImGui_ImplDX12_RenderDrawData(drawData, cmdList);
+        if (cmdList)
+            ImGui_ImplDX12_RenderDrawData(drawData, cmdList);
     } else {
         ImGui_ImplDX11_RenderDrawData(drawData);
     }
 #elif defined(MYENGINE_PLATFORM_MACOS)
-    if (handles.backend == RHIBackend::Metal &&
-        handles.commandBuffer && handles.commandEncoder) {
-        EditorImGuiMetal_RenderDrawData(
-            drawData, handles.commandBuffer, handles.commandEncoder);
+    if (handles.backend == RHIBackend::Metal && handles.commandBuffer && handles.commandEncoder) {
+        EditorImGuiMetal_RenderDrawData(drawData, handles.commandBuffer, handles.commandEncoder);
     }
 #endif
 #endif
@@ -246,8 +244,10 @@ void EditorImGuiBackend::RenderDrawData(ImDrawData* drawData) {
 
 void EditorImGuiBackend::RenderPlatformWindows() {
 #if defined(MYENGINE_ENABLE_IMGUI)
-    if (!m_Initialized) return;
-    if ((ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable) == 0) return;
+    if (!m_Initialized)
+        return;
+    if ((ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable) == 0)
+        return;
 
     const ImGuiBackendHandles handles = m_Interop ? m_Interop->GetImGuiBackendHandles() : ImGuiBackendHandles{};
 #if defined(MYENGINE_PLATFORM_WINDOWS)
@@ -265,15 +265,18 @@ void EditorImGuiBackend::RenderPlatformWindows() {
 }
 
 bool EditorImGuiBackend::RebuildFontTexture() {
-    if (!m_Initialized || !m_Interop) return false;
-    if (!SupportsRuntimeFontTextureRebuild()) return false;
+    if (!m_Initialized || !m_Interop)
+        return false;
+    if (!SupportsRuntimeFontTextureRebuild())
+        return false;
     m_FontTextureRebuildPending = true;
     return true;
 }
 
 bool EditorImGuiBackend::SupportsRuntimeFontTextureRebuild() const {
 #if defined(MYENGINE_ENABLE_IMGUI) && defined(MYENGINE_PLATFORM_WINDOWS)
-    if (!m_Initialized || !m_Interop) return false;
+    if (!m_Initialized || !m_Interop)
+        return false;
     const ImGuiBackendHandles handles = m_Interop->GetImGuiBackendHandles();
     return handles.backend != RHIBackend::D3D12;
 #else
@@ -283,7 +286,8 @@ bool EditorImGuiBackend::SupportsRuntimeFontTextureRebuild() const {
 
 bool EditorImGuiBackend::RebuildFontTextureNow() {
 #if defined(MYENGINE_ENABLE_IMGUI) && defined(MYENGINE_PLATFORM_WINDOWS)
-    if (!m_Initialized || !m_Interop) return false;
+    if (!m_Initialized || !m_Interop)
+        return false;
     const ImGuiBackendHandles handles = m_Interop->GetImGuiBackendHandles();
 #if defined(MYENGINE_ENABLE_VULKAN)
     if (handles.backend == RHIBackend::Vulkan) {
@@ -303,15 +307,14 @@ bool EditorImGuiBackend::RebuildFontTextureNow() {
 }
 
 void* EditorImGuiBackend::GetTextureId(GpuTextureView* view) {
-    if (!view) return nullptr;
+    if (!view)
+        return nullptr;
 #if defined(MYENGINE_PLATFORM_WINDOWS) && defined(MYENGINE_ENABLE_VULKAN)
     if (m_Interop && m_Interop->GetImGuiBackendHandles().backend == RHIBackend::Vulkan) {
         const ImGuiNativeTextureInfo native = view->GetImGuiNativeTextureInfo();
         auto it = m_VulkanTextureCache.find(view);
-        if (it != m_VulkanTextureCache.end() &&
-            it->second.imageView == native.imageView &&
-            it->second.sampler == native.sampler &&
-            it->second.imageLayout == native.imageLayout) {
+        if (it != m_VulkanTextureCache.end() && it->second.imageView == native.imageView &&
+            it->second.sampler == native.sampler && it->second.imageLayout == native.imageLayout) {
             return it->second.descriptor;
         }
         void* texture = EditorImGuiVulkan_CreateTexture(native);

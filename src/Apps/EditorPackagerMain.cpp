@@ -8,11 +8,11 @@ namespace fs = std::filesystem;
 
 namespace {
 void SetError(std::string* error, std::string message) {
-    if (error) *error = std::move(message);
+    if (error)
+        *error = std::move(message);
 }
 
-bool CopyTree(const fs::path& source, const fs::path& destination,
-              std::string* error) {
+bool CopyTree(const fs::path& source, const fs::path& destination, std::string* error) {
     std::error_code ec;
     if (!fs::is_directory(source, ec) || ec) {
         SetError(error, "directory is missing: " + source.string());
@@ -39,7 +39,8 @@ bool CopyTree(const fs::path& source, const fs::path& destination,
             }
             continue;
         }
-        if (ec || !it->is_regular_file(ec)) continue;
+        if (ec || !it->is_regular_file(ec))
+            continue;
         fs::create_directories(target.parent_path(), ec);
         if (ec) {
             SetError(error, "failed to create directory: " + target.parent_path().string());
@@ -57,7 +58,7 @@ bool CopyTree(const fs::path& source, const fs::path& destination,
     }
     return true;
 }
-}
+} // namespace
 
 int main(int argc, char* argv[]) {
     fs::path binaries = fs::absolute(argv[0]).parent_path();
@@ -76,15 +77,20 @@ int main(int argc, char* argv[]) {
             return true;
         };
         if (argument == "--output") {
-            if (!consumeValue("--output", output)) return 2;
+            if (!consumeValue("--output", output))
+                return 2;
         } else if (argument == "--binaries") {
-            if (!consumeValue("--binaries", binaries)) return 2;
+            if (!consumeValue("--binaries", binaries))
+                return 2;
         } else if (argument == "--engine-content") {
-            if (!consumeValue("--engine-content", engineContent)) return 2;
+            if (!consumeValue("--engine-content", engineContent))
+                return 2;
         } else if (argument == "--project-templates") {
-            if (!consumeValue("--project-templates", projectTemplates)) return 2;
+            if (!consumeValue("--project-templates", projectTemplates))
+                return 2;
         } else if (argument == "--content") {
-            if (!consumeValue("--content", content)) return 2;
+            if (!consumeValue("--content", content))
+                return 2;
         } else if (argument.rfind("--output=", 0) == 0) {
             output = argument.substr(std::string("--output=").size());
         } else if (argument.rfind("--binaries=", 0) == 0) {
@@ -108,11 +114,7 @@ int main(int argc, char* argv[]) {
     content = fs::absolute(content);
 
     std::error_code ec;
-    const std::vector<std::string> executables = {
-        "MyEngineEditor.exe",
-        "MyEnginePlayer.exe",
-        "MyEngineCooker.exe"
-    };
+    const std::vector<std::string> executables = {"MyEngineEditor.exe", "MyEnginePlayer.exe", "MyEngineCooker.exe"};
     for (const std::string& executable : executables) {
         ec.clear();
         if (!fs::is_regular_file(binaries / executable, ec) || ec) {
@@ -131,8 +133,7 @@ int main(int argc, char* argv[]) {
 
     RuntimeDependencyManifest runtimeDependencies;
     std::string error;
-    if (!WindowsRuntimeDependencyCollector::Collect(
-            binaries, output, runtimeDependencies, executables, &error) ||
+    if (!WindowsRuntimeDependencyCollector::Collect(binaries, output, runtimeDependencies, executables, &error) ||
         !runtimeDependencies.Save(output / RuntimeDependencyManifest::kFileName, &error)) {
         std::cerr << "Packaging error: " << error << '\n';
         return 1;
@@ -146,14 +147,12 @@ int main(int argc, char* argv[]) {
         std::cerr << "Packaging error: " << error << '\n';
         return 1;
     }
-    if (fs::is_directory(content, ec) && !ec &&
-        !CopyTree(content, output / "Content", &error)) {
+    if (fs::is_directory(content, ec) && !ec && !CopyTree(content, output / "Content", &error)) {
         std::cerr << "Packaging error: " << error << '\n';
         return 1;
     }
 
     std::cout << "Packaged MyEngineEditor to " << output.string() << '\n';
-    std::cout << "Bundled " << runtimeDependencies.files.size()
-              << " runtime dependencies" << '\n';
+    std::cout << "Bundled " << runtimeDependencies.files.size() << " runtime dependencies" << '\n';
     return 0;
 }

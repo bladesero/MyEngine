@@ -15,13 +15,12 @@
 
 namespace {
 
-void SetError(std::string* error, std::string message)
-{
-    if (error) *error = std::move(message);
+void SetError(std::string* error, std::string message) {
+    if (error)
+        *error = std::move(message);
 }
 
-std::string Lower(std::string_view value)
-{
+std::string Lower(std::string_view value) {
     std::string result(value);
     for (char& ch : result) {
         ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
@@ -29,13 +28,11 @@ std::string Lower(std::string_view value)
     return result;
 }
 
-std::string TrimPrefix(std::string_view text, std::string_view prefix)
-{
+std::string TrimPrefix(std::string_view text, std::string_view prefix) {
     return std::string(text.substr(prefix.size()));
 }
 
-bool ParseType(std::string_view text, InputActionType& type)
-{
+bool ParseType(std::string_view text, InputActionType& type) {
     const std::string lower = Lower(text);
     if (lower == "button") {
         type = InputActionType::Button;
@@ -52,24 +49,22 @@ bool ParseType(std::string_view text, InputActionType& type)
     return false;
 }
 
-std::string TypeName(InputActionType type)
-{
+std::string TypeName(InputActionType type) {
     switch (type) {
-    case InputActionType::Button: return "Button";
-    case InputActionType::Axis1D: return "Axis1D";
-    case InputActionType::Axis2D: return "Axis2D";
+    case InputActionType::Button:
+        return "Button";
+    case InputActionType::Axis1D:
+        return "Axis1D";
+    case InputActionType::Axis2D:
+        return "Axis2D";
     }
     return "Button";
 }
 
-bool ParseMouse(std::string_view name, InputSource& source)
-{
+bool ParseMouse(std::string_view name, InputSource& source) {
     static const std::unordered_map<std::string, int> buttons = {
-        {"left", SDL_BUTTON_LEFT},
-        {"middle", SDL_BUTTON_MIDDLE},
-        {"right", SDL_BUTTON_RIGHT},
-        {"x1", SDL_BUTTON_X1},
-        {"x2", SDL_BUTTON_X2},
+        {"left", SDL_BUTTON_LEFT}, {"middle", SDL_BUTTON_MIDDLE}, {"right", SDL_BUTTON_RIGHT},
+        {"x1", SDL_BUTTON_X1},     {"x2", SDL_BUTTON_X2},
     };
     const std::string lower = Lower(name);
     if (lower == "deltax") {
@@ -91,8 +86,7 @@ bool ParseMouse(std::string_view name, InputSource& source)
     return false;
 }
 
-bool ParseGamepad(std::string_view name, InputSource& source)
-{
+bool ParseGamepad(std::string_view name, InputSource& source) {
     static const std::unordered_map<std::string, SDL_GamepadButton> buttons = {
         {"south", SDL_GAMEPAD_BUTTON_SOUTH},
         {"east", SDL_GAMEPAD_BUTTON_EAST},
@@ -134,21 +128,12 @@ bool ParseGamepad(std::string_view name, InputSource& source)
     return false;
 }
 
-bool ParseKeyboard(std::string_view name, InputSource& source)
-{
+bool ParseKeyboard(std::string_view name, InputSource& source) {
     static const std::unordered_map<std::string, SDL_Scancode> aliases = {
-        {"space", SDL_SCANCODE_SPACE},
-        {"escape", SDL_SCANCODE_ESCAPE},
-        {"esc", SDL_SCANCODE_ESCAPE},
-        {"enter", SDL_SCANCODE_RETURN},
-        {"return", SDL_SCANCODE_RETURN},
-        {"tab", SDL_SCANCODE_TAB},
-        {"leftshift", SDL_SCANCODE_LSHIFT},
-        {"rightshift", SDL_SCANCODE_RSHIFT},
-        {"leftctrl", SDL_SCANCODE_LCTRL},
-        {"rightctrl", SDL_SCANCODE_RCTRL},
-        {"leftalt", SDL_SCANCODE_LALT},
-        {"rightalt", SDL_SCANCODE_RALT},
+        {"space", SDL_SCANCODE_SPACE},      {"escape", SDL_SCANCODE_ESCAPE},     {"esc", SDL_SCANCODE_ESCAPE},
+        {"enter", SDL_SCANCODE_RETURN},     {"return", SDL_SCANCODE_RETURN},     {"tab", SDL_SCANCODE_TAB},
+        {"leftshift", SDL_SCANCODE_LSHIFT}, {"rightshift", SDL_SCANCODE_RSHIFT}, {"leftctrl", SDL_SCANCODE_LCTRL},
+        {"rightctrl", SDL_SCANCODE_RCTRL},  {"leftalt", SDL_SCANCODE_LALT},      {"rightalt", SDL_SCANCODE_RALT},
     };
     const std::string lower = Lower(name);
     SDL_Scancode scancode = SDL_SCANCODE_UNKNOWN;
@@ -166,40 +151,46 @@ bool ParseKeyboard(std::string_view name, InputSource& source)
     return true;
 }
 
-nlohmann::json SourceToJson(const InputSource& source)
-{
+nlohmann::json SourceToJson(const InputSource& source) {
     return source.name;
 }
 
-nlohmann::json BindingToJson(const InputBinding& binding, InputActionType type)
-{
+nlohmann::json BindingToJson(const InputBinding& binding, InputActionType type) {
     nlohmann::json json = nlohmann::json::object();
     if (type == InputActionType::Axis2D) {
-        if (binding.x.IsValid()) json["x"] = SourceToJson(binding.x);
-        if (binding.y.IsValid()) json["y"] = SourceToJson(binding.y);
-        if (binding.scaleX != 1.0f) json["scaleX"] = binding.scaleX;
-        if (binding.scaleY != 1.0f) json["scaleY"] = binding.scaleY;
+        if (binding.x.IsValid())
+            json["x"] = SourceToJson(binding.x);
+        if (binding.y.IsValid())
+            json["y"] = SourceToJson(binding.y);
+        if (binding.scaleX != 1.0f)
+            json["scaleX"] = binding.scaleX;
+        if (binding.scaleY != 1.0f)
+            json["scaleY"] = binding.scaleY;
     } else {
         json["source"] = SourceToJson(binding.source);
-        if (binding.scale != 1.0f) json["scale"] = binding.scale;
+        if (binding.scale != 1.0f)
+            json["scale"] = binding.scale;
     }
-    if (binding.deadZone > 0.0f) json["deadZone"] = binding.deadZone;
+    if (binding.deadZone > 0.0f)
+        json["deadZone"] = binding.deadZone;
     return json;
 }
 
 } // namespace
 
-bool InputActionMap::ParseSource(std::string_view text, InputSource& source, std::string* error)
-{
+bool InputActionMap::ParseSource(std::string_view text, InputSource& source, std::string* error) {
     source = {};
     const std::string value(text);
     const std::string lower = Lower(value);
     if (lower.rfind("keyboard/", 0) == 0) {
-        if (ParseKeyboard(TrimPrefix(value, "Keyboard/"), source)) return true;
+        if (ParseKeyboard(TrimPrefix(value, "Keyboard/"), source))
+            return true;
     } else if (lower.rfind("mouse/", 0) == 0) {
-        if (ParseMouse(TrimPrefix(value, "Mouse/"), source)) return true;
+        if (ParseMouse(TrimPrefix(value, "Mouse/"), source))
+            return true;
     } else if (lower.rfind("gamepad/", 0) == 0) {
-        if (ParseGamepad(TrimPrefix(value, "Gamepad/"), source)) return true;
+        if (ParseGamepad(TrimPrefix(value, "Gamepad/"), source))
+            return true;
     } else {
         SetError(error, "input source must start with Keyboard/, Mouse/, or Gamepad/: " + value);
         return false;
@@ -208,9 +199,9 @@ bool InputActionMap::ParseSource(std::string_view text, InputSource& source, std
     return false;
 }
 
-bool InputActionMap::LoadFromFile(const std::filesystem::path& path, std::string* error)
-{
-    if (error) error->clear();
+bool InputActionMap::LoadFromFile(const std::filesystem::path& path, std::string* error) {
+    if (error)
+        error->clear();
     std::string text;
     if (!RuntimeFileSystem::Get().ReadText(path.string(), text, error)) {
         SetError(error, "failed to open input config: " + path.string());
@@ -225,12 +216,13 @@ bool InputActionMap::LoadFromFile(const std::filesystem::path& path, std::string
     }
 }
 
-bool InputActionMap::LoadFromJson(const nlohmann::json& json, std::string* error)
-{
-    if (error) error->clear();
+bool InputActionMap::LoadFromJson(const nlohmann::json& json, std::string* error) {
+    if (error)
+        error->clear();
     nlohmann::json migrated = json;
     JsonMigrationRegistry migrations("input config", kCurrentVersion);
-    if (!migrations.Migrate(migrated, error)) return false;
+    if (!migrations.Migrate(migrated, error))
+        return false;
     const auto actionsIt = migrated.find("actions");
     if (actionsIt == migrated.end() || !actionsIt->is_array()) {
         SetError(error, "input config actions must be an array");
@@ -270,10 +262,12 @@ bool InputActionMap::LoadFromJson(const nlohmann::json& json, std::string* error
                 binding.scaleX = bindingJson.value("scaleX", 1.0f);
                 binding.scaleY = bindingJson.value("scaleY", 1.0f);
                 if (const auto x = bindingJson.find("x"); x != bindingJson.end()) {
-                    if (!x->is_string() || !ParseSource(x->get<std::string>(), binding.x, error)) return false;
+                    if (!x->is_string() || !ParseSource(x->get<std::string>(), binding.x, error))
+                        return false;
                 }
                 if (const auto y = bindingJson.find("y"); y != bindingJson.end()) {
-                    if (!y->is_string() || !ParseSource(y->get<std::string>(), binding.y, error)) return false;
+                    if (!y->is_string() || !ParseSource(y->get<std::string>(), binding.y, error))
+                        return false;
                 }
                 if (!binding.x.IsValid() && !binding.y.IsValid()) {
                     SetError(error, "Axis2D binding must define x or y: " + action.name);
@@ -285,7 +279,8 @@ bool InputActionMap::LoadFromJson(const nlohmann::json& json, std::string* error
                     SetError(error, "input binding source must be a string: " + action.name);
                     return false;
                 }
-                if (!ParseSource(sourceIt->get<std::string>(), binding.source, error)) return false;
+                if (!ParseSource(sourceIt->get<std::string>(), binding.source, error))
+                    return false;
                 binding.scale = bindingJson.value("scale", 1.0f);
             }
             action.bindings.push_back(std::move(binding));
@@ -296,9 +291,9 @@ bool InputActionMap::LoadFromJson(const nlohmann::json& json, std::string* error
     return true;
 }
 
-bool InputActionMap::SaveToFile(const std::filesystem::path& path, std::string* error) const
-{
-    if (error) error->clear();
+bool InputActionMap::SaveToFile(const std::filesystem::path& path, std::string* error) const {
+    if (error)
+        error->clear();
     std::error_code ec;
     const std::filesystem::path parent = path.parent_path();
     if (!parent.empty()) {
@@ -311,12 +306,14 @@ bool InputActionMap::SaveToFile(const std::filesystem::path& path, std::string* 
 
     const nlohmann::json root = ToJson();
     TransactionalWriteOptions options;
-    options.validator=[](const std::filesystem::path& candidate,std::string* validationError){InputActionMap ignored;return ignored.LoadFromFile(candidate,validationError);};
-    return TransactionalFileWriter::WriteText(path,root.dump(2)+"\n",options,error);
+    options.validator = [](const std::filesystem::path& candidate, std::string* validationError) {
+        InputActionMap ignored;
+        return ignored.LoadFromFile(candidate, validationError);
+    };
+    return TransactionalFileWriter::WriteText(path, root.dump(2) + "\n", options, error);
 }
 
-nlohmann::json InputActionMap::ToJson() const
-{
+nlohmann::json InputActionMap::ToJson() const {
     nlohmann::json actions = nlohmann::json::array();
     for (const InputAction& action : m_Actions) {
         nlohmann::json bindings = nlohmann::json::array();
@@ -335,15 +332,15 @@ nlohmann::json InputActionMap::ToJson() const
     };
 }
 
-std::vector<InputBindingConflict> InputActionMap::FindConflicts(
-    std::string_view actionName, size_t bindingIndex, InputBindingPart part,
-    std::string_view sourceText) const
-{
+std::vector<InputBindingConflict> InputActionMap::FindConflicts(std::string_view actionName, size_t bindingIndex,
+                                                                InputBindingPart part,
+                                                                std::string_view sourceText) const {
     InputSource source;
-    if (!ParseSource(sourceText, source)) return {};
+    if (!ParseSource(sourceText, source))
+        return {};
     std::vector<InputBindingConflict> result;
-    auto inspect = [&](const InputSource& candidate, const InputAction& action,
-                       size_t index, InputBindingPart candidatePart) {
+    auto inspect = [&](const InputSource& candidate, const InputAction& action, size_t index,
+                       InputBindingPart candidatePart) {
         if (!candidate.IsValid() || candidate.kind != source.kind || candidate.code != source.code)
             return;
         if (action.name == actionName && index == bindingIndex && candidatePart == part)
@@ -361,43 +358,53 @@ std::vector<InputBindingConflict> InputActionMap::FindConflicts(
     return result;
 }
 
-bool InputActionMap::Rebind(std::string_view actionName, size_t bindingIndex,
-                            InputBindingPart part, std::string_view sourceText,
-                            bool allowConflicts, std::string* error)
-{
+bool InputActionMap::Rebind(std::string_view actionName, size_t bindingIndex, InputBindingPart part,
+                            std::string_view sourceText, bool allowConflicts, std::string* error) {
     InputAction* action = nullptr;
     for (InputAction& candidate : m_Actions) {
-        if (candidate.name == actionName) { action = &candidate; break; }
+        if (candidate.name == actionName) {
+            action = &candidate;
+            break;
+        }
     }
-    if (!action) { SetError(error, "unknown input action: " + std::string(actionName)); return false; }
-    if (bindingIndex >= action->bindings.size()) { SetError(error, "input binding index is out of range"); return false; }
+    if (!action) {
+        SetError(error, "unknown input action: " + std::string(actionName));
+        return false;
+    }
+    if (bindingIndex >= action->bindings.size()) {
+        SetError(error, "input binding index is out of range");
+        return false;
+    }
     if ((action->type == InputActionType::Axis2D) != (part != InputBindingPart::Source)) {
-        SetError(error, action->type == InputActionType::Axis2D
-            ? "Axis2D bindings require X or Y" : "Button/Axis1D bindings require Source");
+        SetError(error, action->type == InputActionType::Axis2D ? "Axis2D bindings require X or Y"
+                                                                : "Button/Axis1D bindings require Source");
         return false;
     }
     InputSource source;
-    if (!ParseSource(sourceText, source, error)) return false;
+    if (!ParseSource(sourceText, source, error))
+        return false;
     const auto conflicts = FindConflicts(actionName, bindingIndex, part, sourceText);
     if (!allowConflicts && !conflicts.empty()) {
         SetError(error, "input source conflicts with action '" + conflicts.front().actionName + "'");
         return false;
     }
     InputBinding& binding = action->bindings[bindingIndex];
-    if (part == InputBindingPart::Source) binding.source = std::move(source);
-    else if (part == InputBindingPart::X) binding.x = std::move(source);
-    else binding.y = std::move(source);
-    if (error) error->clear();
+    if (part == InputBindingPart::Source)
+        binding.source = std::move(source);
+    else if (part == InputBindingPart::X)
+        binding.x = std::move(source);
+    else
+        binding.y = std::move(source);
+    if (error)
+        error->clear();
     return true;
 }
 
-void InputActionMap::Clear()
-{
+void InputActionMap::Clear() {
     m_Actions.clear();
 }
 
-const InputAction* InputActionMap::FindAction(std::string_view name) const
-{
+const InputAction* InputActionMap::FindAction(std::string_view name) const {
     for (const InputAction& action : m_Actions) {
         if (action.name == name) {
             return &action;
@@ -406,47 +413,49 @@ const InputAction* InputActionMap::FindAction(std::string_view name) const
     return nullptr;
 }
 
-InputActionMap InputActionMap::CreateDefault()
-{
+InputActionMap InputActionMap::CreateDefault() {
     const nlohmann::json json = {
         {"version", kCurrentVersion},
-        {"actions", nlohmann::json::array({
-            {
-                {"name", "Jump"},
-                {"type", "Button"},
-                {"bindings", nlohmann::json::array({
-                    {{"source", "Keyboard/Space"}},
-                    {{"source", "Gamepad/South"}},
-                })},
-            },
-            {
-                {"name", "Move"},
-                {"type", "Axis2D"},
-                {"bindings", nlohmann::json::array({
-                    {{"x", "Keyboard/D"}, {"scaleX", 1.0f}},
-                    {{"x", "Keyboard/A"}, {"scaleX", -1.0f}},
-                    {{"y", "Keyboard/W"}, {"scaleY", 1.0f}},
-                    {{"y", "Keyboard/S"}, {"scaleY", -1.0f}},
-                    {{"x", "Gamepad/LeftX"}, {"y", "Gamepad/LeftY"}, {"deadZone", 0.15f}, {"scaleY", -1.0f}},
-                })},
-            },
-            {
-                {"name", "Look"},
-                {"type", "Axis2D"},
-                {"bindings", nlohmann::json::array({
-                    {{"x", "Mouse/DeltaX"}, {"y", "Mouse/DeltaY"}, {"scaleX", 1.0f}, {"scaleY", 1.0f}},
-                    {{"x", "Gamepad/RightX"}, {"y", "Gamepad/RightY"}, {"deadZone", 0.15f}, {"scaleY", -1.0f}},
-                })},
-            },
-            {
-                {"name", "Throttle"},
-                {"type", "Axis1D"},
-                {"bindings", nlohmann::json::array({
-                    {{"source", "Gamepad/RightTrigger"}},
-                    {{"source", "Gamepad/LeftTrigger"}, {"scale", -1.0f}},
-                })},
-            },
-        })},
+        {"actions",
+         nlohmann::json::array({
+             {
+                 {"name", "Jump"},
+                 {"type", "Button"},
+                 {"bindings", nlohmann::json::array({
+                                  {{"source", "Keyboard/Space"}},
+                                  {{"source", "Gamepad/South"}},
+                              })},
+             },
+             {
+                 {"name", "Move"},
+                 {"type", "Axis2D"},
+                 {"bindings",
+                  nlohmann::json::array({
+                      {{"x", "Keyboard/D"}, {"scaleX", 1.0f}},
+                      {{"x", "Keyboard/A"}, {"scaleX", -1.0f}},
+                      {{"y", "Keyboard/W"}, {"scaleY", 1.0f}},
+                      {{"y", "Keyboard/S"}, {"scaleY", -1.0f}},
+                      {{"x", "Gamepad/LeftX"}, {"y", "Gamepad/LeftY"}, {"deadZone", 0.15f}, {"scaleY", -1.0f}},
+                  })},
+             },
+             {
+                 {"name", "Look"},
+                 {"type", "Axis2D"},
+                 {"bindings",
+                  nlohmann::json::array({
+                      {{"x", "Mouse/DeltaX"}, {"y", "Mouse/DeltaY"}, {"scaleX", 1.0f}, {"scaleY", 1.0f}},
+                      {{"x", "Gamepad/RightX"}, {"y", "Gamepad/RightY"}, {"deadZone", 0.15f}, {"scaleY", -1.0f}},
+                  })},
+             },
+             {
+                 {"name", "Throttle"},
+                 {"type", "Axis1D"},
+                 {"bindings", nlohmann::json::array({
+                                  {{"source", "Gamepad/RightTrigger"}},
+                                  {{"source", "Gamepad/LeftTrigger"}, {"scale", -1.0f}},
+                              })},
+             },
+         })},
     };
     InputActionMap map;
     std::string ignored;
@@ -454,7 +463,6 @@ InputActionMap InputActionMap::CreateDefault()
     return map;
 }
 
-bool InputActionMap::WriteDefaultFile(const std::filesystem::path& path, std::string* error)
-{
+bool InputActionMap::WriteDefaultFile(const std::filesystem::path& path, std::string* error) {
     return CreateDefault().SaveToFile(path, error);
 }

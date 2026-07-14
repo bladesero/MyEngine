@@ -15,9 +15,9 @@ public:
     void OnRender() override;
 
 private:
-    SDL_Renderer* m_Renderer            = nullptr;
-    float         m_SecondAccumulator   = 0.0f;
-    int           m_FrameInSecond       = 0;
+    SDL_Renderer* m_Renderer = nullptr;
+    float m_SecondAccumulator = 0.0f;
+    int m_FrameInSecond = 0;
     // simple demo: cycle clear colour
-    float         m_Hue                 = 0.0f;
+    float m_Hue = 0.0f;
 };

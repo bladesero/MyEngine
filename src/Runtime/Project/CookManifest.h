@@ -36,9 +36,6 @@ struct CookManifest {
     std::vector<CookedContentEntry> files;
 
     bool Validate(std::string* error = nullptr) const;
-    bool Save(const std::filesystem::path& path,
-              std::string* error = nullptr) const;
-    static bool Load(const std::filesystem::path& path,
-                     CookManifest& manifest,
-                     std::string* error = nullptr);
+    bool Save(const std::filesystem::path& path, std::string* error = nullptr) const;
+    static bool Load(const std::filesystem::path& path, CookManifest& manifest, std::string* error = nullptr);
 };

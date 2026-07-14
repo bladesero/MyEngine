@@ -39,24 +39,28 @@ public:
     uint32_t GetCount() const override { return 4; }
     uint64_t GetFrequency() const override { return 1000000; }
     bool ReadResults(uint32_t first, uint32_t count, std::vector<uint64_t>& ticks) override {
-        if (first + count > 4) return false;
-        ticks.resize(count); for (uint32_t i = 0; i < count; ++i) ticks[i] = first + i;
+        if (first + count > 4)
+            return false;
+        ticks.resize(count);
+        for (uint32_t i = 0; i < count; ++i)
+            ticks[i] = first + i;
         return true;
     }
 };
 
 class MockReadbackTicket final : public GpuReadbackTicket {
 public:
-    explicit MockReadbackTicket(std::vector<uint8_t> bytes)
-        : m_Bytes(std::move(bytes)) {}
+    explicit MockReadbackTicket(std::vector<uint8_t> bytes) : m_Bytes(std::move(bytes)) {}
     bool IsReady() const override { return ready; }
     bool Read(std::vector<uint8_t>& data) override {
-        if (!ready) return false;
+        if (!ready)
+            return false;
         data = m_Bytes;
         return true;
     }
     uint32_t GetSize() const override { return static_cast<uint32_t>(m_Bytes.size()); }
     bool ready = false;
+
 private:
     std::vector<uint8_t> m_Bytes;
 };
@@ -73,24 +77,25 @@ public:
         ++drawCalls;
         submittedInstances += instanceCount;
     }
-    void DrawIndexedInstanced(uint32_t, uint32_t instanceCount,
-                              uint32_t, uint32_t) override {
+    void DrawIndexedInstanced(uint32_t, uint32_t instanceCount, uint32_t, uint32_t) override {
         ++drawCalls;
         submittedInstances += instanceCount;
     }
     void SetViewport(float, float, float, float) override {}
     void BindPSTexture(uint32_t, GpuTexture*) override {}
     void SetBlendMode(GpuBlendMode mode) override { blendModes.push_back(mode); }
-    void Transition(GpuResource*, RHIResourceState before,
-                    RHIResourceState after) override {
+    void Transition(GpuResource*, RHIResourceState before, RHIResourceState after) override {
         transitions.emplace_back(before, after);
     }
-    void TransitionTexture(GpuTexture*, const RHITextureViewDesc& range,
-                           RHIResourceState before, RHIResourceState after) override {
+    void TransitionTexture(GpuTexture*, const RHITextureViewDesc& range, RHIResourceState before,
+                           RHIResourceState after) override {
         transitions.emplace_back(before, after);
         textureTransitions.push_back(range);
     }
-    void BeginRendering(const RenderingInfo&) override { ++renderingScopes; ++renderingBeginCalls; }
+    void BeginRendering(const RenderingInfo&) override {
+        ++renderingScopes;
+        ++renderingBeginCalls;
+    }
     void EndRendering() override { --renderingScopes; }
     void SetGraphicsPipeline(GpuGraphicsPipeline* pipeline) override {
         ++pipelineBinds;
@@ -100,12 +105,14 @@ public:
     void SetComputePipeline(GpuComputePipeline*) override { ++computePipelineBinds; }
     void SetBindGroup(uint32_t, GpuBindGroup*) override { ++bindGroupBinds; }
     void Dispatch(uint32_t x, uint32_t y, uint32_t z) override {
-        ++dispatches; dispatchGroups = {x, y, z};
+        ++dispatches;
+        dispatchGroups = {x, y, z};
     }
     void UAVBarrier(GpuResource*) override { ++uavBarriers; }
-    void CopyTexture(GpuTexture*, const RHITextureRegion& dst,
-                     GpuTexture*, const RHITextureRegion& src) override {
-        copiedDst = dst; copiedSrc = src; ++textureRegionCopies;
+    void CopyTexture(GpuTexture*, const RHITextureRegion& dst, GpuTexture*, const RHITextureRegion& src) override {
+        copiedDst = dst;
+        copiedSrc = src;
+        ++textureRegionCopies;
     }
     void DrawIndirect(GpuBuffer*, uint64_t) override { ++indirectDraws; }
     void DrawIndexedIndirect(GpuBuffer*, uint64_t) override { ++indirectDraws; }
@@ -159,76 +166,84 @@ public:
     RHIDeviceLossInfo GetDeviceLossInfo() const override { return deviceLoss; }
     GpuCommandList* GetGraphicsCommandList() override { return &commands; }
     GpuTextureView* GetCurrentBackBufferView() override { return backBufferView.get(); }
-    std::shared_ptr<GpuBuffer> CreateVertexBuffer(
-        const void*, uint32_t bytes, uint32_t stride) override {
+    std::shared_ptr<GpuBuffer> CreateVertexBuffer(const void*, uint32_t bytes, uint32_t stride) override {
         ++vertexUploads;
-        auto buffer=std::make_shared<MockBuffer>();buffer->desc.size=bytes;buffer->desc.stride=stride;
-        CommitRHIResourceAccounting(std::static_pointer_cast<GpuBuffer>(buffer));return buffer;
+        auto buffer = std::make_shared<MockBuffer>();
+        buffer->desc.size = bytes;
+        buffer->desc.stride = stride;
+        CommitRHIResourceAccounting(std::static_pointer_cast<GpuBuffer>(buffer));
+        return buffer;
     }
-    std::shared_ptr<GpuBuffer> CreateIndexBuffer(
-        const void*, uint32_t bytes) override {
+    std::shared_ptr<GpuBuffer> CreateIndexBuffer(const void*, uint32_t bytes) override {
         ++indexUploads;
-        auto buffer=std::make_shared<MockBuffer>();buffer->desc.size=bytes;
-        CommitRHIResourceAccounting(std::static_pointer_cast<GpuBuffer>(buffer));return buffer;
+        auto buffer = std::make_shared<MockBuffer>();
+        buffer->desc.size = bytes;
+        CommitRHIResourceAccounting(std::static_pointer_cast<GpuBuffer>(buffer));
+        return buffer;
     }
-    std::shared_ptr<GpuShader> CreateShader(
-        const std::string&, const std::string&, const std::string&,
-        const VertexElement*, uint32_t) override {
+    std::shared_ptr<GpuShader> CreateShader(const std::string&, const std::string&, const std::string&,
+                                            const VertexElement*, uint32_t) override {
         ++shaderCreates;
         return std::make_shared<MockShader>();
     }
-    std::shared_ptr<GpuShader> CreateShaderFromBytecode(
-        const void*, size_t, const void*, size_t,
-        const VertexElement*, uint32_t) override {
+    std::shared_ptr<GpuShader> CreateShaderFromBytecode(const void*, size_t, const void*, size_t, const VertexElement*,
+                                                        uint32_t) override {
         ++shaderCreates;
         return std::make_shared<MockShader>();
     }
-    std::shared_ptr<GpuTexture> UploadTexture2D(
-        const void*, int, int) override {
+    std::shared_ptr<GpuTexture> UploadTexture2D(const void*, int, int) override {
         ++textureUploads;
         return std::make_shared<MockTexture>();
     }
-    bool UpdateBuffer(const std::shared_ptr<GpuBuffer>& buffer, uint64_t offset,
-                      const void* data, uint64_t size) override {
-        if (!buffer || !data || offset + size > bufferBytes.size()) return false;
-        std::memcpy(bufferBytes.data() + offset, data, static_cast<size_t>(size)); return true;
+    bool UpdateBuffer(const std::shared_ptr<GpuBuffer>& buffer, uint64_t offset, const void* data,
+                      uint64_t size) override {
+        if (!buffer || !data || offset + size > bufferBytes.size())
+            return false;
+        std::memcpy(bufferBytes.data() + offset, data, static_cast<size_t>(size));
+        return true;
     }
-    std::shared_ptr<GpuTexture> UploadTexture(
-        const RHITextureDesc& desc, const RHITextureSubresourceData* data, uint32_t count) override {
-        if (!count) return nullptr;
+    std::shared_ptr<GpuTexture> UploadTexture(const RHITextureDesc& desc, const RHITextureSubresourceData* data,
+                                              uint32_t count) override {
+        if (!count)
+            return nullptr;
         ++textureUploads;
         uploadedTextureDescs.push_back(desc);
         uploadedSubresourceCounts.push_back(count);
         for (uint32_t i = 0; data && i < count; ++i) {
             uploadedSubresources.push_back(data[i]);
         }
-        auto texture = std::make_shared<MockTexture>(); texture->desc = desc;
+        auto texture = std::make_shared<MockTexture>();
+        texture->desc = desc;
         CommitRHIResourceAccounting(std::static_pointer_cast<GpuTexture>(texture));
         return texture;
     }
     RHIDeviceCapabilities GetCapabilities() const override {
-        RHIDeviceCapabilities caps; caps.maxColorAttachments = 8;
-        caps.timestampQueries = caps.indirectDraw = true; return caps;
+        RHIDeviceCapabilities caps;
+        caps.maxColorAttachments = 8;
+        caps.timestampQueries = caps.indirectDraw = true;
+        return caps;
     }
     bool IsFormatSupported(RHIFormat format, RHIResourceUsage usage) const override {
         return HasUsage(usage, RHIResourceUsage::ShaderResource) &&
-               ((supportBc1 && format == RHIFormat::BC1UNorm) ||
-                (supportBc3 && format == RHIFormat::BC3UNorm));
+               ((supportBc1 && format == RHIFormat::BC1UNorm) || (supportBc3 && format == RHIFormat::BC3UNorm));
     }
     std::shared_ptr<GpuTimestampQueryPool> CreateTimestampQueryPool(uint32_t count) override {
         return count <= 4 ? std::make_shared<MockTimestampPool>() : nullptr;
     }
     std::shared_ptr<GpuTexture> CreateTexture(const RHITextureDesc& desc) override {
-        auto texture = std::make_shared<MockTexture>(); texture->desc = desc;
-        ++graphTextureCreates; return texture;
+        auto texture = std::make_shared<MockTexture>();
+        texture->desc = desc;
+        ++graphTextureCreates;
+        return texture;
     }
-    std::shared_ptr<GpuTextureView> CreateTextureView(
-        const std::shared_ptr<GpuTexture>& texture,
-        const RHITextureViewDesc& desc) override {
+    std::shared_ptr<GpuTextureView> CreateTextureView(const std::shared_ptr<GpuTexture>& texture,
+                                                      const RHITextureViewDesc& desc) override {
         ++textureViewCreates;
         textureViewDescs.push_back(desc);
         auto view = std::make_shared<MockTextureView>();
-        view->texture = texture; view->desc = desc; return view;
+        view->texture = texture;
+        view->desc = desc;
+        return view;
     }
     std::shared_ptr<GpuSampler> CreateSampler(const RHISamplerDesc& desc) override {
         ++samplerCreates;
@@ -237,37 +252,37 @@ public:
         sampler->desc = desc;
         return sampler;
     }
-    std::shared_ptr<GpuBuffer> CreateBuffer(
-        const RHIBufferDesc& desc, const void* initialData = nullptr) override {
-        auto buffer = std::make_shared<MockBuffer>(); buffer->desc = desc;
+    std::shared_ptr<GpuBuffer> CreateBuffer(const RHIBufferDesc& desc, const void* initialData = nullptr) override {
+        auto buffer = std::make_shared<MockBuffer>();
+        buffer->desc = desc;
         bufferBytes.resize(desc.size);
-        if (initialData && desc.size) std::memcpy(bufferBytes.data(), initialData, desc.size);
+        if (initialData && desc.size)
+            std::memcpy(bufferBytes.data(), initialData, desc.size);
         ++bufferCreates;
         return buffer;
     }
-    std::shared_ptr<GpuBufferView> CreateBufferView(
-        const std::shared_ptr<GpuBuffer>& buffer,
-        const RHIBufferViewDesc& desc) override {
-        if (!buffer || !desc.elementCount) return nullptr;
+    std::shared_ptr<GpuBufferView> CreateBufferView(const std::shared_ptr<GpuBuffer>& buffer,
+                                                    const RHIBufferViewDesc& desc) override {
+        if (!buffer || !desc.elementCount)
+            return nullptr;
         auto view = std::make_shared<MockBufferView>();
-        view->buffer = buffer; view->desc = desc;
+        view->buffer = buffer;
+        view->desc = desc;
         return view;
     }
-    std::shared_ptr<GpuShader> CreateComputeShaderFromBytecode(
-        const void*, size_t) override {
+    std::shared_ptr<GpuShader> CreateComputeShaderFromBytecode(const void*, size_t) override {
         auto shader = std::make_shared<MockShader>();
         ++computeShaderCreates;
         return shader;
     }
-    std::shared_ptr<GpuReadbackTicket> ReadbackBufferAsync(
-        const std::shared_ptr<GpuBuffer>& buffer) override {
-        if (!buffer) return nullptr;
+    std::shared_ptr<GpuReadbackTicket> ReadbackBufferAsync(const std::shared_ptr<GpuBuffer>& buffer) override {
+        if (!buffer)
+            return nullptr;
         auto ticket = std::make_shared<MockReadbackTicket>(bufferBytes);
         lastReadback = ticket;
         return ticket;
     }
-    std::shared_ptr<GpuBindGroup> CreateBindGroup(
-        const std::shared_ptr<GpuShader>& shader) override {
+    std::shared_ptr<GpuBindGroup> CreateBindGroup(const std::shared_ptr<GpuShader>& shader) override {
         ++bindGroupCreates;
         return shader ? std::make_shared<GpuBindGroup>(shader) : nullptr;
     }
@@ -300,8 +315,7 @@ public:
     RHIDeviceLossInfo deviceLoss;
 };
 
-std::shared_ptr<TextureAsset> CreateCompressedTextureForUploadTest(const std::string& path)
-{
+std::shared_ptr<TextureAsset> CreateCompressedTextureForUploadTest(const std::string& path) {
     TextureDesc desc;
     desc.width = 4;
     desc.height = 4;
@@ -313,8 +327,7 @@ std::shared_ptr<TextureAsset> CreateCompressedTextureForUploadTest(const std::st
     return texture;
 }
 
-bool TestMaterialResourceCacheUploadsBc3WhenSupported()
-{
+bool TestMaterialResourceCacheUploadsBc3WhenSupported() {
     MockRenderContext context;
     context.backend = RHIBackend::D3D11;
     context.supportBc1 = true;
@@ -324,25 +337,24 @@ bool TestMaterialResourceCacheUploadsBc3WhenSupported()
     MaterialResourceCache cache(&context);
     cache.EnsureTextureUploaded(texture.get());
 
-    if (!Check(context.textureUploads == 1,
-               "BC3-capable device did not upload the texture")) return false;
+    if (!Check(context.textureUploads == 1, "BC3-capable device did not upload the texture"))
+        return false;
     if (!Check(!context.uploadedTextureDescs.empty() &&
-               context.uploadedTextureDescs.front().format == RHIFormat::BC3UNorm,
-               "BC3-capable device did not receive a BC3 texture upload")) return false;
-    if (!Check(context.uploadedSubresourceCounts.size() == 1 &&
-               context.uploadedSubresourceCounts.front() == 3,
-               "BC3 upload did not include all mip levels")) return false;
-    const bool hasBc3MipPitch = std::find_if(
-        context.uploadedSubresources.begin(), context.uploadedSubresources.end(),
-        [](const RHITextureSubresourceData& data) {
-            return data.mipLevel == 0 && data.rowPitch == 16 && data.slicePitch == 16;
-        }) != context.uploadedSubresources.end();
-    return Check(hasBc3MipPitch,
-                 "BC3 upload did not use block-compressed row or slice pitch");
+                   context.uploadedTextureDescs.front().format == RHIFormat::BC3UNorm,
+               "BC3-capable device did not receive a BC3 texture upload"))
+        return false;
+    if (!Check(context.uploadedSubresourceCounts.size() == 1 && context.uploadedSubresourceCounts.front() == 3,
+               "BC3 upload did not include all mip levels"))
+        return false;
+    const bool hasBc3MipPitch =
+        std::find_if(context.uploadedSubresources.begin(), context.uploadedSubresources.end(),
+                     [](const RHITextureSubresourceData& data) {
+                         return data.mipLevel == 0 && data.rowPitch == 16 && data.slicePitch == 16;
+                     }) != context.uploadedSubresources.end();
+    return Check(hasBc3MipPitch, "BC3 upload did not use block-compressed row or slice pitch");
 }
 
-bool TestMaterialResourceCacheFallsBackToRgbaWhenBc1Unsupported()
-{
+bool TestMaterialResourceCacheFallsBackToRgbaWhenBc1Unsupported() {
     MockRenderContext context;
     context.backend = RHIBackend::Vulkan;
     context.supportBc1 = false;
@@ -351,101 +363,113 @@ bool TestMaterialResourceCacheFallsBackToRgbaWhenBc1Unsupported()
     MaterialResourceCache cache(&context);
     cache.EnsureTextureUploaded(texture.get());
 
-    if (!Check(context.textureUploads == 1,
-               "RGBA fallback device did not upload the texture")) return false;
+    if (!Check(context.textureUploads == 1, "RGBA fallback device did not upload the texture"))
+        return false;
     if (!Check(!context.uploadedTextureDescs.empty() &&
-               context.uploadedTextureDescs.front().format == RHIFormat::RGBA8UNorm,
-               "BC1-unsupported device did not fall back to RGBA8")) return false;
-    const bool hasRgbaMipPitch = std::find_if(
-        context.uploadedSubresources.begin(), context.uploadedSubresources.end(),
-        [](const RHITextureSubresourceData& data) {
-            return data.mipLevel == 0 && data.rowPitch == 16 && data.slicePitch == 64;
-        }) != context.uploadedSubresources.end();
-    return Check(hasRgbaMipPitch,
-                 "RGBA fallback upload did not use linear RGBA row or slice pitch");
+                   context.uploadedTextureDescs.front().format == RHIFormat::RGBA8UNorm,
+               "BC1-unsupported device did not fall back to RGBA8"))
+        return false;
+    const bool hasRgbaMipPitch =
+        std::find_if(context.uploadedSubresources.begin(), context.uploadedSubresources.end(),
+                     [](const RHITextureSubresourceData& data) {
+                         return data.mipLevel == 0 && data.rowPitch == 16 && data.slicePitch == 64;
+                     }) != context.uploadedSubresources.end();
+    return Check(hasRgbaMipPitch, "RGBA fallback upload did not use linear RGBA row or slice pitch");
 }
 
-bool TestMaterialResourceCacheGpuResidencyEvictionAndReupload()
-{
-    MockRenderContext context;context.backend=RHIBackend::D3D11;
-    auto referenced=CreateCompressedTextureForUploadTest("__test__/GpuReferenced");
-    auto pinned=CreateCompressedTextureForUploadTest("__test__/GpuPinned");
-    const uint64_t baseline=RHIResourceStatsProvider::GetStats().liveResourceBytes;
+bool TestMaterialResourceCacheGpuResidencyEvictionAndReupload() {
+    MockRenderContext context;
+    context.backend = RHIBackend::D3D11;
+    auto referenced = CreateCompressedTextureForUploadTest("__test__/GpuReferenced");
+    auto pinned = CreateCompressedTextureForUploadTest("__test__/GpuPinned");
+    const uint64_t baseline = RHIResourceStatsProvider::GetStats().liveResourceBytes;
     MaterialResourceCache cache(&context);
     cache.EnsureTextureUploaded(referenced.get());
-    auto heldView=cache.GetTextureView(static_cast<GpuTexture*>(referenced->GetGpuHandle()));
+    auto heldView = cache.GetTextureView(static_cast<GpuTexture*>(referenced->GetGpuHandle()));
     cache.EnsureTextureUploaded(pinned.get());
     AssetManager::Get().Pin(pinned->GetPath());
-    const auto blocked=MaterialResourceCache::CollectGlobalTextureGarbage(
-        baseline+1,1.0f,4);
+    const auto blocked = MaterialResourceCache::CollectGlobalTextureGarbage(baseline + 1, 1.0f, 4);
     AssetManager::Get().Unpin(pinned->GetPath());
-    if(!Check(blocked.pressureDetected&&!blocked.targetReached&&blocked.evictions.empty()&&
-              blocked.blockers.size()==2&&referenced->HasGpuHandle()&&pinned->HasGpuHandle(),
-              "GPU texture eviction did not report referenced and pinned blockers"))return false;
+    if (!Check(blocked.pressureDetected && !blocked.targetReached && blocked.evictions.empty() &&
+                   blocked.blockers.size() == 2 && referenced->HasGpuHandle() && pinned->HasGpuHandle(),
+               "GPU texture eviction did not report referenced and pinned blockers"))
+        return false;
 
     heldView.reset();
-    const auto evicted=MaterialResourceCache::CollectGlobalTextureGarbage(
-        baseline+100,1.0f,1);
-    if(!Check(evicted.evictions.size()==1&&evicted.targetReached&&
-              (!referenced->HasGpuHandle()||!pinned->HasGpuHandle()),
-              "GPU texture LRU did not release one eligible texture to its low watermark"))return false;
-    TextureAsset* released=!referenced->HasGpuHandle()?referenced.get():pinned.get();
-    const int uploadsBefore=context.textureUploads;
+    const auto evicted = MaterialResourceCache::CollectGlobalTextureGarbage(baseline + 100, 1.0f, 1);
+    if (!Check(evicted.evictions.size() == 1 && evicted.targetReached &&
+                   (!referenced->HasGpuHandle() || !pinned->HasGpuHandle()),
+               "GPU texture LRU did not release one eligible texture to its low watermark"))
+        return false;
+    TextureAsset* released = !referenced->HasGpuHandle() ? referenced.get() : pinned.get();
+    const int uploadsBefore = context.textureUploads;
     cache.EnsureTextureUploaded(released);
-    if(!Check(released->HasGpuHandle()&&context.textureUploads==uploadsBefore+1,
-              "evicted GPU texture was not rebuilt on demand"))return false;
+    if (!Check(released->HasGpuHandle() && context.textureUploads == uploadsBefore + 1,
+               "evicted GPU texture was not rebuilt on demand"))
+        return false;
 
-    auto expired=CreateCompressedTextureForUploadTest("__test__/GpuExpiredAsset");
-    cache.EnsureTextureUploaded(expired.get());expired.reset();
-    const auto expiredCollected=MaterialResourceCache::CollectGlobalTextureGarbage(
-        baseline+1,1.0f,8);
-    const bool foundExpired=std::any_of(expiredCollected.evictions.begin(),
-        expiredCollected.evictions.end(),[](const GpuTextureEvictionRecord& item){
-            return item.path=="__test__/GpuExpiredAsset";});
-    return Check(foundExpired,
-                 "GPU cache did not safely collect an entry after its CPU asset expired");
+    auto expired = CreateCompressedTextureForUploadTest("__test__/GpuExpiredAsset");
+    cache.EnsureTextureUploaded(expired.get());
+    expired.reset();
+    const auto expiredCollected = MaterialResourceCache::CollectGlobalTextureGarbage(baseline + 1, 1.0f, 8);
+    const bool foundExpired =
+        std::any_of(expiredCollected.evictions.begin(), expiredCollected.evictions.end(),
+                    [](const GpuTextureEvictionRecord& item) { return item.path == "__test__/GpuExpiredAsset"; });
+    return Check(foundExpired, "GPU cache did not safely collect an entry after its CPU asset expired");
 }
 
-bool TestMaterialResourceCacheMeshResidencyAndQualityDegradation()
-{
-    RuntimeQualityDegradation::Reset();MockRenderContext context;
-    const uint64_t baseline=RHIResourceStatsProvider::GetStats().liveResourceBytes;
-    auto mesh=MeshAsset::CreateCube("GpuMeshLRU");MaterialResourceCache cache(&context);
+bool TestMaterialResourceCacheMeshResidencyAndQualityDegradation() {
+    RuntimeQualityDegradation::Reset();
+    MockRenderContext context;
+    const uint64_t baseline = RHIResourceStatsProvider::GetStats().liveResourceBytes;
+    auto mesh = MeshAsset::CreateCube("GpuMeshLRU");
+    MaterialResourceCache cache(&context);
     cache.EnsureMeshUploaded(mesh.get());
-    if(!Check(mesh->IsUploaded()&&mesh->GetGpuBufferBytes()>0,
-              "mesh residency test failed to upload buffers"))return false;
-    for(int collection=0;collection<2;++collection){
-        const auto active=MaterialResourceCache::CollectGlobalMeshGarbage(baseline+1,1.0f,4,2);
-        if(!Check(active.evictions.empty()&&!active.blockers.empty()&&mesh->IsUploaded(),
-                  "active mesh grace window did not block eviction"))return false;}
-    const auto evicted=MaterialResourceCache::CollectGlobalMeshGarbage(baseline+1,1.0f,4,2);
-    if(!Check(evicted.evictions.size()==1&&!mesh->IsUploaded(),
-              "inactive mesh was not evicted after its grace window"))return false;
+    if (!Check(mesh->IsUploaded() && mesh->GetGpuBufferBytes() > 0, "mesh residency test failed to upload buffers"))
+        return false;
+    for (int collection = 0; collection < 2; ++collection) {
+        const auto active = MaterialResourceCache::CollectGlobalMeshGarbage(baseline + 1, 1.0f, 4, 2);
+        if (!Check(active.evictions.empty() && !active.blockers.empty() && mesh->IsUploaded(),
+                   "active mesh grace window did not block eviction"))
+            return false;
+    }
+    const auto evicted = MaterialResourceCache::CollectGlobalMeshGarbage(baseline + 1, 1.0f, 4, 2);
+    if (!Check(evicted.evictions.size() == 1 && !mesh->IsUploaded(),
+               "inactive mesh was not evicted after its grace window"))
+        return false;
     cache.EnsureMeshUploaded(mesh.get());
-    if(!Check(mesh->IsUploaded()&&context.vertexUploads>=2,
-              "evicted mesh was not rebuilt on demand"))return false;
+    if (!Check(mesh->IsUploaded() && context.vertexUploads >= 2, "evicted mesh was not rebuilt on demand"))
+        return false;
 
     RuntimeQualityDegradation::SetLevel(1);
-    auto texture=CreateCompressedTextureForUploadTest("__test__/QualityMipBias");
+    auto texture = CreateCompressedTextureForUploadTest("__test__/QualityMipBias");
     cache.EnsureTextureUploaded(texture.get());
-    const auto& uploaded=context.uploadedTextureDescs.back();
-    if(!Check(uploaded.width==2&&uploaded.height==2&&uploaded.mipLevels==2,
-              "quality degradation did not bias uploaded texture mips"))return false;
-    ParticleSystemComponent particles;particles.GetSettings().maxParticles=8;
-    RuntimeQualityDegradation::SetLevel(2);particles.Emit(8);
-    const bool particleCap=particles.GetAliveCount()==2;RuntimeQualityDegradation::Reset();
-    return Check(particleCap,"quality degradation did not bound particle count");
+    const auto& uploaded = context.uploadedTextureDescs.back();
+    if (!Check(uploaded.width == 2 && uploaded.height == 2 && uploaded.mipLevels == 2,
+               "quality degradation did not bias uploaded texture mips"))
+        return false;
+    ParticleSystemComponent particles;
+    particles.GetSettings().maxParticles = 8;
+    RuntimeQualityDegradation::SetLevel(2);
+    particles.Emit(8);
+    const bool particleCap = particles.GetAliveCount() == 2;
+    RuntimeQualityDegradation::Reset();
+    return Check(particleCap, "quality degradation did not bound particle count");
 }
 
 bool TestExtendedRHIContracts() {
     MockRenderContext context;
-    RHIBufferDesc bufferDesc; bufferDesc.size = 16;
+    RHIBufferDesc bufferDesc;
+    bufferDesc.size = 16;
     auto buffer = context.CreateBuffer(bufferDesc);
     const uint32_t value = 0x12345678u;
     if (!Check(context.UpdateBuffer(buffer, 4, &value, sizeof(value)) &&
-               std::memcmp(context.bufferBytes.data() + 4, &value, sizeof(value)) == 0,
-               "RHI partial buffer update failed")) return false;
-    RHITextureDesc textureDesc; textureDesc.width = 8; textureDesc.height = 8;
+                   std::memcmp(context.bufferBytes.data() + 4, &value, sizeof(value)) == 0,
+               "RHI partial buffer update failed"))
+        return false;
+    RHITextureDesc textureDesc;
+    textureDesc.width = 8;
+    textureDesc.height = 8;
     uint32_t pixels[64]{};
     RHITextureSubresourceData upload{pixels, 8u * 4u, 8u * 8u * 4u, 0, 0};
     auto source = context.UploadTexture(textureDesc, &upload, 1);
@@ -460,29 +484,26 @@ bool TestExtendedRHIContracts() {
     context.commands.ResolveTimestamps(timestamps.get(), 0, 1);
     std::vector<uint64_t> ticks;
     const auto caps = context.GetCapabilities();
-    return Check(source && context.commands.textureRegionCopies == 1 &&
-                 context.commands.copiedSrc.x == 1 && context.commands.copiedDst.x == 4 &&
-                 context.commands.indirectDraws == 2 && context.commands.timestamps == 1 &&
-                 context.commands.timestampResolves == 1 && timestamps &&
-                 timestamps->ReadResults(0, 1, ticks) && ticks.size() == 1 &&
-                 caps.maxColorAttachments == 8 && caps.indirectDraw && caps.timestampQueries,
+    return Check(source && context.commands.textureRegionCopies == 1 && context.commands.copiedSrc.x == 1 &&
+                     context.commands.copiedDst.x == 4 && context.commands.indirectDraws == 2 &&
+                     context.commands.timestamps == 1 && context.commands.timestampResolves == 1 && timestamps &&
+                     timestamps->ReadResults(0, 1, ticks) && ticks.size() == 1 && caps.maxColorAttachments == 8 &&
+                     caps.indirectDraw && caps.timestampQueries,
                  "extended RHI transfer/query/indirect contracts were not preserved");
 }
 
 bool TestStableRHIDeviceLossContract() {
     MockRenderContext context;
-    if (!Check(!context.IsDeviceLost() &&
-               context.GetDeviceLossInfo().reason == RHIDeviceLossReason::None,
-               "healthy RHI context reported device loss")) return false;
-    context.deviceLoss = {RHIDeviceLossReason::Hung, -2005270522, 7,
-                          "present detected a hung device"};
+    if (!Check(!context.IsDeviceLost() && context.GetDeviceLossInfo().reason == RHIDeviceLossReason::None,
+               "healthy RHI context reported device loss"))
+        return false;
+    context.deviceLoss = {RHIDeviceLossReason::Hung, -2005270522, 7, "present detected a hung device"};
     const RHIDeviceLossInfo info = context.GetDeviceLossInfo();
     return Check(context.IsDeviceLost() && info.reason == RHIDeviceLossReason::Hung &&
-                 std::string(RHIDeviceLossReasonName(info.reason)) == "hung" &&
-                 info.nativeCode == -2005270522 && info.deviceGeneration == 7 &&
-                 info.diagnostic == context.GetLastDeviceError() &&
-                 std::string(RHIDeviceLossReasonName(RHIDeviceLossReason::DriverInternalError)) ==
-                     "driver_internal_error",
+                     std::string(RHIDeviceLossReasonName(info.reason)) == "hung" && info.nativeCode == -2005270522 &&
+                     info.deviceGeneration == 7 && info.diagnostic == context.GetLastDeviceError() &&
+                     std::string(RHIDeviceLossReasonName(RHIDeviceLossReason::DriverInternalError)) ==
+                         "driver_internal_error",
                  "stable RHI device-loss reason, generation, or diagnostic was lost");
 }
 
@@ -491,142 +512,149 @@ bool TestRenderGraphValidationAndExecution() {
     using RGError = RenderGraph::ErrorCode;
     RenderGraph graph(context);
     RHITextureDesc desc;
-    desc.width = 128; desc.height = 64;
+    desc.width = 128;
+    desc.height = 64;
     desc.usage = RHIResourceUsage::RenderTarget | RHIResourceUsage::ShaderResource;
     const RGTextureHandle sceneColor = graph.CreateTexture("SceneColor", desc);
     std::vector<std::string> executed;
-    graph.AddPass("Main", [&](RenderGraphBuilder& builder) {
-        builder.WriteColor(sceneColor, RHILoadOp::Clear, RHIStoreOp::Store,
-                           {0.1f, 0.2f, 0.3f, 1.0f});
-    }, [&](GpuCommandList&, const RenderGraphResources& resources) {
-        if (resources.GetTexture(sceneColor)) executed.push_back("Main");
-    });
-    graph.AddPass("Composite", [&](RenderGraphBuilder& builder) {
-        builder.ReadTexture(sceneColor);
-    }, [&](GpuCommandList&, const RenderGraphResources& resources) {
-        if (resources.GetView(sceneColor)) executed.push_back("Composite");
-    });
-    if (!Check(graph.Compile(), "RenderGraph compile failed: " + graph.GetLastError())) return false;
+    graph.AddPass(
+        "Main",
+        [&](RenderGraphBuilder& builder) {
+            builder.WriteColor(sceneColor, RHILoadOp::Clear, RHIStoreOp::Store, {0.1f, 0.2f, 0.3f, 1.0f});
+        },
+        [&](GpuCommandList&, const RenderGraphResources& resources) {
+            if (resources.GetTexture(sceneColor))
+                executed.push_back("Main");
+        });
+    graph.AddPass(
+        "Composite", [&](RenderGraphBuilder& builder) { builder.ReadTexture(sceneColor); },
+        [&](GpuCommandList&, const RenderGraphResources& resources) {
+            if (resources.GetView(sceneColor))
+                executed.push_back("Composite");
+        });
+    if (!Check(graph.Compile(), "RenderGraph compile failed: " + graph.GetLastError()))
+        return false;
     if (!Check(graph.GetExecutionOrder() == std::vector<std::string>({"Main", "Composite"}),
-               "RenderGraph execution order mismatch")) return false;
-    if (!Check(graph.Execute(context.commands), "RenderGraph execute failed: " + graph.GetLastError())) return false;
-    if (!Check(executed == std::vector<std::string>({"Main", "Composite"}) &&
-               context.graphTextureCreates == 1 && context.commands.renderingScopes == 0,
-               "RenderGraph did not execute through the RHI resource path")) return false;
+               "RenderGraph execution order mismatch"))
+        return false;
+    if (!Check(graph.Execute(context.commands), "RenderGraph execute failed: " + graph.GetLastError()))
+        return false;
+    if (!Check(executed == std::vector<std::string>({"Main", "Composite"}) && context.graphTextureCreates == 1 &&
+                   context.commands.renderingScopes == 0,
+               "RenderGraph did not execute through the RHI resource path"))
+        return false;
     if (!Check(context.commands.transitions.size() == 2 &&
-               context.commands.transitions[0].second == RHIResourceState::RenderTarget &&
-               context.commands.transitions[1].second == RHIResourceState::ShaderResource,
-               "RenderGraph state transitions mismatch")) return false;
+                   context.commands.transitions[0].second == RHIResourceState::RenderTarget &&
+                   context.commands.transitions[1].second == RHIResourceState::ShaderResource,
+               "RenderGraph state transitions mismatch"))
+        return false;
 
     graph.Reset();
     const RGTextureHandle reused = graph.CreateTexture("SceneColor", desc);
     graph.SetFinalState(reused, RHIResourceState::ShaderResource);
-    graph.AddPass("Rewrite", [&](RenderGraphBuilder& builder) {
-        builder.WriteColor(reused, RHILoadOp::Clear);
-    }, {});
+    graph.AddPass("Rewrite", [&](RenderGraphBuilder& builder) { builder.WriteColor(reused, RHILoadOp::Clear); }, {});
     if (!Check(graph.Execute(context.commands) && context.graphTextureCreates == 1,
-               "RenderGraph did not reuse a descriptor-compatible transient texture")) return false;
+               "RenderGraph did not reuse a descriptor-compatible transient texture"))
+        return false;
 
     RenderGraph invalid(context);
     const RGTextureHandle unread = invalid.CreateTexture("Unread", desc);
-    invalid.AddPass("InvalidRead", [&](RenderGraphBuilder& builder) {
-        builder.ReadTexture(unread);
-    }, {});
-    if (!Check(!invalid.Compile() &&
-               invalid.GetLastErrorCode() == RGError::UninitializedTextureRead,
-               "RenderGraph accepted an uninitialized texture read")) return false;
+    invalid.AddPass("InvalidRead", [&](RenderGraphBuilder& builder) { builder.ReadTexture(unread); }, {});
+    if (!Check(!invalid.Compile() && invalid.GetLastErrorCode() == RGError::UninitializedTextureRead,
+               "RenderGraph accepted an uninitialized texture read"))
+        return false;
 
     RenderGraph emptyPass(context);
     emptyPass.AddPass("ImplicitSideEffect", [](RenderGraphBuilder&) {}, {});
-    if (!Check(!emptyPass.Compile() &&
-               emptyPass.GetLastErrorCode() == RGError::MissingResourceAccess,
-               "RenderGraph accepted an unmarked empty pass")) return false;
+    if (!Check(!emptyPass.Compile() && emptyPass.GetLastErrorCode() == RGError::MissingResourceAccess,
+               "RenderGraph accepted an unmarked empty pass"))
+        return false;
     emptyPass.Reset();
     bool sideEffectRan = false;
-    emptyPass.AddPass("ExplicitSideEffect", [](RenderGraphBuilder&) {},
+    emptyPass.AddPass(
+        "ExplicitSideEffect", [](RenderGraphBuilder&) {},
         [&](GpuCommandList&, const RenderGraphResources&) { sideEffectRan = true; },
         RenderGraph::PassFlags::AllowNoResourceAccess);
     if (!Check(emptyPass.Execute(context.commands) && sideEffectRan,
-               "RenderGraph rejected an explicitly marked side-effect pass")) return false;
+               "RenderGraph rejected an explicitly marked side-effect pass"))
+        return false;
 
     RenderGraph invalidHandle(context);
-    invalidHandle.AddPass("InvalidHandle", [&](RenderGraphBuilder& builder) {
-        builder.ReadTexture({12345});
-    }, {});
-    if (!Check(!invalidHandle.Compile() &&
-               invalidHandle.GetLastErrorCode() == RGError::InvalidTextureHandle,
-               "RenderGraph accepted an invalid texture handle")) return false;
+    invalidHandle.AddPass("InvalidHandle", [&](RenderGraphBuilder& builder) { builder.ReadTexture({12345}); }, {});
+    if (!Check(!invalidHandle.Compile() && invalidHandle.GetLastErrorCode() == RGError::InvalidTextureHandle,
+               "RenderGraph accepted an invalid texture handle"))
+        return false;
 
     RenderGraph duplicateAccess(context);
     const auto duplicateColor = duplicateAccess.CreateTexture("DuplicateColor", desc);
-    duplicateAccess.AddPass("DuplicateAccess", [&](RenderGraphBuilder& builder) {
-        builder.WriteColor(duplicateColor);
-        builder.ReadTexture(duplicateColor);
-    }, {});
-    if (!Check(!duplicateAccess.Compile() &&
-               duplicateAccess.GetLastErrorCode() == RGError::DuplicateResourceAccess,
-               "RenderGraph accepted duplicate texture access in one pass")) return false;
+    duplicateAccess.AddPass("DuplicateAccess",
+                            [&](RenderGraphBuilder& builder) {
+                                builder.WriteColor(duplicateColor);
+                                builder.ReadTexture(duplicateColor);
+                            },
+                            {});
+    if (!Check(!duplicateAccess.Compile() && duplicateAccess.GetLastErrorCode() == RGError::DuplicateResourceAccess,
+               "RenderGraph accepted duplicate texture access in one pass"))
+        return false;
 
     RenderGraph usageMismatch(context);
     RHITextureDesc srvOnly = desc;
     srvOnly.usage = RHIResourceUsage::ShaderResource;
     const auto srvOnlyHandle = usageMismatch.CreateTexture("SrvOnly", srvOnly);
-    usageMismatch.AddPass("BadColorWrite", [&](RenderGraphBuilder& builder) {
-        builder.WriteColor(srvOnlyHandle);
-    }, {});
-    if (!Check(!usageMismatch.Compile() &&
-               usageMismatch.GetLastErrorCode() == RGError::TextureUsageMismatch,
-               "RenderGraph accepted a color write to a non-render-target texture")) return false;
+    usageMismatch.AddPass("BadColorWrite", [&](RenderGraphBuilder& builder) { builder.WriteColor(srvOnlyHandle); }, {});
+    if (!Check(!usageMismatch.Compile() && usageMismatch.GetLastErrorCode() == RGError::TextureUsageMismatch,
+               "RenderGraph accepted a color write to a non-render-target texture"))
+        return false;
 
     RenderGraph attachmentMismatch(context);
     RHITextureDesc small = desc;
     small.width = 32;
     const auto colorA = attachmentMismatch.CreateTexture("ColorA", desc);
     const auto colorB = attachmentMismatch.CreateTexture("ColorB", small);
-    attachmentMismatch.AddPass("MismatchedAttachments", [&](RenderGraphBuilder& builder) {
-        builder.WriteColor(colorA);
-        builder.WriteColor(colorB);
-    }, {});
+    attachmentMismatch.AddPass("MismatchedAttachments",
+                               [&](RenderGraphBuilder& builder) {
+                                   builder.WriteColor(colorA);
+                                   builder.WriteColor(colorB);
+                               },
+                               {});
     if (!Check(!attachmentMismatch.Compile() &&
-               attachmentMismatch.GetLastErrorCode() == RGError::AttachmentSizeMismatch,
-               "RenderGraph accepted mismatched attachment sizes")) return false;
+                   attachmentMismatch.GetLastErrorCode() == RGError::AttachmentSizeMismatch,
+               "RenderGraph accepted mismatched attachment sizes"))
+        return false;
 
     RenderGraph depthFormatMismatch(context);
     const auto nonDepth = depthFormatMismatch.CreateTexture("NonDepth", desc);
-    depthFormatMismatch.AddPass("BadDepth", [&](RenderGraphBuilder& builder) {
-        builder.WriteDepth(nonDepth);
-    }, {});
+    depthFormatMismatch.AddPass("BadDepth", [&](RenderGraphBuilder& builder) { builder.WriteDepth(nonDepth); }, {});
     if (!Check(!depthFormatMismatch.Compile() &&
-               depthFormatMismatch.GetLastErrorCode() == RGError::TextureUsageMismatch,
-               "RenderGraph accepted a depth write to a non-depth texture")) return false;
+                   depthFormatMismatch.GetLastErrorCode() == RGError::TextureUsageMismatch,
+               "RenderGraph accepted a depth write to a non-depth texture"))
+        return false;
 
     RenderGraph colorFormatMismatch(context);
     RHITextureDesc depthDesc = desc;
     depthDesc.format = RHIFormat::D24S8;
     depthDesc.usage = RHIResourceUsage::RenderTarget | RHIResourceUsage::DepthStencil;
     const auto depthAsColor = colorFormatMismatch.CreateTexture("DepthAsColor", depthDesc);
-    colorFormatMismatch.AddPass("DepthAsColor", [&](RenderGraphBuilder& builder) {
-        builder.WriteColor(depthAsColor);
-    }, {});
+    colorFormatMismatch.AddPass("DepthAsColor", [&](RenderGraphBuilder& builder) { builder.WriteColor(depthAsColor); },
+                                {});
     if (!Check(!colorFormatMismatch.Compile() &&
-               colorFormatMismatch.GetLastErrorCode() == RGError::AttachmentFormatMismatch,
-               "RenderGraph accepted a depth-format texture as a color attachment")) return false;
+                   colorFormatMismatch.GetLastErrorCode() == RGError::AttachmentFormatMismatch,
+               "RenderGraph accepted a depth-format texture as a color attachment"))
+        return false;
 
     MockRenderContext finalContext;
     RenderGraph importedFinal(finalContext);
     auto importedTexture = std::make_shared<MockTexture>();
     importedTexture->desc = desc;
     const auto importedHandle = importedFinal.ImportTexture(
-        "ImportedColor", importedTexture, RHIResourceState::Undefined,
-        RHIResourceState::ShaderResource);
-    importedFinal.AddPass("WriteImported", [&](RenderGraphBuilder& builder) {
-        builder.WriteColor(importedHandle);
-    }, {});
-    if (!Check(importedFinal.Execute(finalContext.commands) &&
-               finalContext.commands.transitions.size() == 2 &&
-               finalContext.commands.transitions[0].second == RHIResourceState::RenderTarget &&
-               finalContext.commands.transitions[1].second == RHIResourceState::ShaderResource,
-               "RenderGraph did not transition imported texture to its final state")) return false;
+        "ImportedColor", importedTexture, RHIResourceState::Undefined, RHIResourceState::ShaderResource);
+    importedFinal.AddPass("WriteImported", [&](RenderGraphBuilder& builder) { builder.WriteColor(importedHandle); },
+                          {});
+    if (!Check(importedFinal.Execute(finalContext.commands) && finalContext.commands.transitions.size() == 2 &&
+                   finalContext.commands.transitions[0].second == RHIResourceState::RenderTarget &&
+                   finalContext.commands.transitions[1].second == RHIResourceState::ShaderResource,
+               "RenderGraph did not transition imported texture to its final state"))
+        return false;
 
     MockRenderContext finalBufferContext;
     RenderGraph importedBufferFinal(finalBufferContext);
@@ -637,57 +665,61 @@ bool TestRenderGraphValidationAndExecution() {
     storageDesc.usage = RHIResourceUsage::UnorderedAccess | RHIResourceUsage::ShaderResource;
     importedBuffer->desc = storageDesc;
     const auto importedBufferHandle = importedBufferFinal.ImportBuffer(
-        "ImportedStorage", importedBuffer, RHIResourceState::Undefined,
-        RHIResourceState::ShaderResource);
-    importedBufferFinal.AddPass("WriteImportedBuffer", [&](RenderGraphBuilder& builder) {
-        builder.ReadWriteUAV(importedBufferHandle);
-    }, {});
+        "ImportedStorage", importedBuffer, RHIResourceState::Undefined, RHIResourceState::ShaderResource);
+    importedBufferFinal.AddPass("WriteImportedBuffer",
+                                [&](RenderGraphBuilder& builder) { builder.ReadWriteUAV(importedBufferHandle); }, {});
     if (!Check(importedBufferFinal.Execute(finalBufferContext.commands) &&
-               finalBufferContext.commands.transitions.size() == 2 &&
-               finalBufferContext.commands.transitions[0].second == RHIResourceState::UnorderedAccess &&
-               finalBufferContext.commands.transitions[1].second == RHIResourceState::ShaderResource,
-               "RenderGraph did not transition imported buffer to its final state")) return false;
+                   finalBufferContext.commands.transitions.size() == 2 &&
+                   finalBufferContext.commands.transitions[0].second == RHIResourceState::UnorderedAccess &&
+                   finalBufferContext.commands.transitions[1].second == RHIResourceState::ShaderResource,
+               "RenderGraph did not transition imported buffer to its final state"))
+        return false;
 
     RenderGraph tooManyColors(context);
     std::vector<RGTextureHandle> colors;
     for (uint32_t i = 0; i < 9; ++i) {
         colors.push_back(tooManyColors.CreateTexture("Color" + std::to_string(i), desc));
     }
-    tooManyColors.AddPass("TooManyColors", [&](RenderGraphBuilder& builder) {
-        for (const auto& handle : colors) builder.WriteColor(handle);
-    }, {});
-    return Check(!tooManyColors.Compile() &&
-                 tooManyColors.GetLastErrorCode() == RGError::TooManyColorAttachments,
+    tooManyColors.AddPass("TooManyColors",
+                          [&](RenderGraphBuilder& builder) {
+                              for (const auto& handle : colors)
+                                  builder.WriteColor(handle);
+                          },
+                          {});
+    return Check(!tooManyColors.Compile() && tooManyColors.GetLastErrorCode() == RGError::TooManyColorAttachments,
                  "RenderGraph accepted more color attachments than the device supports");
 }
 
 bool TestNamedShaderBindings() {
     auto shader = std::make_shared<MockShader>();
-    shader->reflection.bindings = {
-        {"FrameConstants", ShaderBindingType::ConstantBuffer, 0, 1, 16, ShaderStageVertex},
-        {"SceneColor", ShaderBindingType::Texture, 0, 1, 0, ShaderStagePixel},
-        {"LinearClamp", ShaderBindingType::Sampler, 0, 1, 0, ShaderStagePixel}};
+    shader->reflection.bindings = {{"FrameConstants", ShaderBindingType::ConstantBuffer, 0, 1, 16, ShaderStageVertex},
+                                   {"SceneColor", ShaderBindingType::Texture, 0, 1, 0, ShaderStagePixel},
+                                   {"LinearClamp", ShaderBindingType::Sampler, 0, 1, 0, ShaderStagePixel}};
     GpuBindGroup bindings(shader);
     float constants[4] = {};
     if (!Check(!bindings.SetConstants("FrameConstants", constants, 12),
-               "named binding accepted an invalid constant-buffer size")) return false;
-    if (!Check(bindings.SetConstants("FrameConstants", constants, sizeof(constants)),
-               "named constant binding failed")) return false;
+               "named binding accepted an invalid constant-buffer size"))
+        return false;
+    if (!Check(bindings.SetConstants("FrameConstants", constants, sizeof(constants)), "named constant binding failed"))
+        return false;
     std::string error;
     if (!Check(!bindings.Validate(&error) && error.find("SceneColor") != std::string::npos,
-               "bind group did not report a missing reflected binding")) return false;
+               "bind group did not report a missing reflected binding"))
+        return false;
     auto texture = std::make_shared<MockTexture>();
-    auto view = std::make_shared<MockTextureView>(); view->texture = texture;
+    auto view = std::make_shared<MockTextureView>();
+    view->texture = texture;
     auto sampler = std::make_shared<MockSampler>();
-    return Check(bindings.SetTexture("SceneColor", view) &&
-                 bindings.SetSampler("LinearClamp", sampler) && bindings.Validate(&error),
+    return Check(bindings.SetTexture("SceneColor", view) && bindings.SetSampler("LinearClamp", sampler) &&
+                     bindings.Validate(&error),
                  "complete named bind group failed validation: " + error);
 }
 
 bool TestBackendIndependentPassRecording() {
     MockRenderContext context;
     auto shader = std::make_shared<MockShader>();
-    GraphicsPipelineDesc pipelineDesc; pipelineDesc.shader = shader;
+    GraphicsPipelineDesc pipelineDesc;
+    pipelineDesc.shader = shader;
     pipelineDesc.topology = RHIPrimitiveTopology::TriangleStrip;
     pipelineDesc.depthStencil.depthCompareOp = RHICompareOp::GreaterEqual;
     pipelineDesc.depthStencil.stencilEnable = true;
@@ -701,32 +733,32 @@ bool TestBackendIndependentPassRecording() {
     pipelineDesc.blend.attachments[0].dstColorFactor = RHIBlendFactor::OneMinusSrcAlpha;
     pipelineDesc.multisample.sampleCount = 4;
     auto pipeline = context.CreateGraphicsPipeline(pipelineDesc);
-    if (!Check(pipeline &&
-               pipeline->desc.topology == RHIPrimitiveTopology::TriangleStrip &&
-               pipeline->desc.depthStencil.depthCompareOp == RHICompareOp::GreaterEqual &&
-               pipeline->desc.depthStencil.frontFace.passOp == RHIStencilOp::Replace &&
-               pipeline->desc.depthStencil.stencilReference == 7 &&
-               pipeline->desc.rasterizer.cullMode == RHICullMode::Front &&
-               pipeline->desc.rasterizer.depthBias == 8 &&
-               pipeline->desc.blend.attachments[0].blendEnable &&
-               pipeline->desc.multisample.sampleCount == 4,
-               "graphics pipeline state was not preserved by the RHI")) return false;
+    if (!Check(pipeline && pipeline->desc.topology == RHIPrimitiveTopology::TriangleStrip &&
+                   pipeline->desc.depthStencil.depthCompareOp == RHICompareOp::GreaterEqual &&
+                   pipeline->desc.depthStencil.frontFace.passOp == RHIStencilOp::Replace &&
+                   pipeline->desc.depthStencil.stencilReference == 7 &&
+                   pipeline->desc.rasterizer.cullMode == RHICullMode::Front &&
+                   pipeline->desc.rasterizer.depthBias == 8 && pipeline->desc.blend.attachments[0].blendEnable &&
+                   pipeline->desc.multisample.sampleCount == 4,
+               "graphics pipeline state was not preserved by the RHI"))
+        return false;
     auto bindings = context.CreateBindGroup(shader);
     RHITextureDesc targetDesc;
-    targetDesc.width = 32; targetDesc.height = 32;
+    targetDesc.width = 32;
+    targetDesc.height = 32;
     targetDesc.usage = RHIResourceUsage::RenderTarget | RHIResourceUsage::ShaderResource;
     RenderGraph graph(context);
     const auto target = graph.CreateTexture("ValidationTarget", targetDesc);
     graph.SetFinalState(target, RHIResourceState::ShaderResource);
-    graph.AddPass("RHIValidationPass", [&](RenderGraphBuilder& builder) {
-        builder.WriteColor(target, RHILoadOp::Clear);
-    }, [&](GpuCommandList& commands, const RenderGraphResources&) {
-        commands.SetGraphicsPipeline(pipeline.get());
-        commands.SetBindGroup(0, bindings.get());
-        commands.Draw(3);
-    });
+    graph.AddPass(
+        "RHIValidationPass", [&](RenderGraphBuilder& builder) { builder.WriteColor(target, RHILoadOp::Clear); },
+        [&](GpuCommandList& commands, const RenderGraphResources&) {
+            commands.SetGraphicsPipeline(pipeline.get());
+            commands.SetBindGroup(0, bindings.get());
+            commands.Draw(3);
+        });
     return Check(graph.Execute(context.commands) && context.commands.pipelineBinds == 1 &&
-                 context.commands.bindGroupBinds == 1 && context.commands.drawCalls == 1,
+                     context.commands.bindGroupBinds == 1 && context.commands.drawCalls == 1,
                  "backend-independent validation pass did not record the expected RHI commands");
 }
 
@@ -734,41 +766,43 @@ bool TestComputeStorageBufferAndAsyncReadback() {
     MockRenderContext context;
     const std::array<uint32_t, 4> initial = {1, 2, 3, 4};
     RHIBufferDesc bufferDesc;
-    bufferDesc.size = sizeof(initial); bufferDesc.stride = sizeof(uint32_t);
-    bufferDesc.usage = RHIResourceUsage::UnorderedAccess |
-                       RHIResourceUsage::ShaderResource |
-                       RHIResourceUsage::CopySource;
+    bufferDesc.size = sizeof(initial);
+    bufferDesc.stride = sizeof(uint32_t);
+    bufferDesc.usage =
+        RHIResourceUsage::UnorderedAccess | RHIResourceUsage::ShaderResource | RHIResourceUsage::CopySource;
     auto buffer = context.CreateBuffer(bufferDesc, initial.data());
     RHIBufferViewDesc viewDesc;
     viewDesc.elementCount = static_cast<uint32_t>(initial.size());
     viewDesc.usage = RHIResourceUsage::UnorderedAccess;
     auto view = context.CreateBufferView(buffer, viewDesc);
     auto shader = std::make_shared<MockShader>();
-    shader->reflection.bindings = {
-        {"SHOutput", ShaderBindingType::StorageBuffer, 0, 1, 0, ShaderStageCompute}};
+    shader->reflection.bindings = {{"SHOutput", ShaderBindingType::StorageBuffer, 0, 1, 0, ShaderStageCompute}};
     auto bindings = context.CreateBindGroup(shader);
-    if (!Check(view && bindings->SetStorageBuffer("SHOutput", view),
-               "compute storage-buffer named binding failed")) return false;
+    if (!Check(view && bindings->SetStorageBuffer("SHOutput", view), "compute storage-buffer named binding failed"))
+        return false;
     std::string error;
-    if (!Check(bindings->Validate(&error), "compute bind group validation failed: " + error)) return false;
-    ComputePipelineDesc pipelineDesc; pipelineDesc.shader = shader;
+    if (!Check(bindings->Validate(&error), "compute bind group validation failed: " + error))
+        return false;
+    ComputePipelineDesc pipelineDesc;
+    pipelineDesc.shader = shader;
     auto pipeline = context.CreateComputePipeline(pipelineDesc);
     auto* commands = context.GetGraphicsCommandList();
     commands->SetComputePipeline(pipeline.get());
     commands->SetBindGroup(0, bindings.get());
     commands->Dispatch(2, 3, 4);
     commands->UAVBarrier(buffer.get());
-    if (!Check(context.commands.computePipelineBinds == 1 &&
-               context.commands.dispatches == 1 && context.commands.uavBarriers == 1 &&
-               context.commands.dispatchGroups == std::array<uint32_t, 3>{2, 3, 4},
-               "compute pass did not record the expected RHI commands")) return false;
+    if (!Check(context.commands.computePipelineBinds == 1 && context.commands.dispatches == 1 &&
+                   context.commands.uavBarriers == 1 &&
+                   context.commands.dispatchGroups == std::array<uint32_t, 3>{2, 3, 4},
+               "compute pass did not record the expected RHI commands"))
+        return false;
     auto ticket = context.ReadbackBufferAsync(buffer);
     std::vector<uint8_t> bytes;
-    if (!Check(ticket && !ticket->IsReady() && !ticket->Read(bytes),
-               "async readback completed synchronously")) return false;
+    if (!Check(ticket && !ticket->IsReady() && !ticket->Read(bytes), "async readback completed synchronously"))
+        return false;
     context.lastReadback->ready = true;
     return Check(ticket->IsReady() && ticket->Read(bytes) && bytes.size() == sizeof(initial) &&
-                 std::memcmp(bytes.data(), initial.data(), sizeof(initial)) == 0,
+                     std::memcmp(bytes.data(), initial.data(), sizeof(initial)) == 0,
                  "async readback returned incorrect buffer contents");
 }
 
@@ -777,35 +811,33 @@ bool TestRenderGraphComputeBufferDependencies() {
     using RGError = RenderGraph::ErrorCode;
     RenderGraph graph(context);
     RHIBufferDesc desc;
-    desc.size = 9 * 16; desc.stride = 16;
-    desc.usage = RHIResourceUsage::UnorderedAccess |
-                 RHIResourceUsage::ShaderResource |
-                 RHIResourceUsage::CopySource;
+    desc.size = 9 * 16;
+    desc.stride = 16;
+    desc.usage = RHIResourceUsage::UnorderedAccess | RHIResourceUsage::ShaderResource | RHIResourceUsage::CopySource;
     const auto output = graph.CreateBuffer("SHOutput", desc);
     std::vector<std::string> executed;
-    graph.AddPass("ProjectSH", [&](RenderGraphBuilder& builder) {
-        builder.ReadWriteUAV(output);
-    }, [&](GpuCommandList& commands, const RenderGraphResources& resources) {
-        if (resources.GetBuffer(output) && resources.GetBufferView(output)) {
-            commands.Dispatch(1, 1, 1); executed.push_back("ProjectSH");
-        }
-    });
-    graph.AddPass("ConsumeSH", [&](RenderGraphBuilder& builder) {
-        builder.ReadBuffer(output);
-    }, [&](GpuCommandList&, const RenderGraphResources& resources) {
-        if (resources.GetBuffer(output)) executed.push_back("ConsumeSH");
-    });
-    if (!Check(graph.Execute(context.commands) &&
-               executed == std::vector<std::string>({"ProjectSH", "ConsumeSH"}) &&
-               context.bufferCreates == 1 && context.commands.dispatches == 1,
-               "RenderGraph compute-buffer dependency execution failed")) return false;
+    graph.AddPass(
+        "ProjectSH", [&](RenderGraphBuilder& builder) { builder.ReadWriteUAV(output); },
+        [&](GpuCommandList& commands, const RenderGraphResources& resources) {
+            if (resources.GetBuffer(output) && resources.GetBufferView(output)) {
+                commands.Dispatch(1, 1, 1);
+                executed.push_back("ProjectSH");
+            }
+        });
+    graph.AddPass(
+        "ConsumeSH", [&](RenderGraphBuilder& builder) { builder.ReadBuffer(output); },
+        [&](GpuCommandList&, const RenderGraphResources& resources) {
+            if (resources.GetBuffer(output))
+                executed.push_back("ConsumeSH");
+        });
+    if (!Check(graph.Execute(context.commands) && executed == std::vector<std::string>({"ProjectSH", "ConsumeSH"}) &&
+                   context.bufferCreates == 1 && context.commands.dispatches == 1,
+               "RenderGraph compute-buffer dependency execution failed"))
+        return false;
     RenderGraph invalid(context);
     const auto unread = invalid.CreateBuffer("UnreadBuffer", desc);
-    invalid.AddPass("InvalidBufferRead", [&](RenderGraphBuilder& builder) {
-        builder.ReadBuffer(unread);
-    }, {});
-    return Check(!invalid.Compile() &&
-                 invalid.GetLastErrorCode() == RGError::UninitializedBufferRead,
+    invalid.AddPass("InvalidBufferRead", [&](RenderGraphBuilder& builder) { builder.ReadBuffer(unread); }, {});
+    return Check(!invalid.Compile() && invalid.GetLastErrorCode() == RGError::UninitializedBufferRead,
                  "RenderGraph accepted an uninitialized buffer read");
 }
 
@@ -823,56 +855,68 @@ bool TestRenderGraphTextureSubresourceAccess() {
     imported->desc = desc;
     const auto texture = graph.ImportTexture("MipChain", imported, RHIResourceState::ShaderResource);
     bool foundMip1View = false;
-    graph.AddPass("ReadDisjointMips", [texture](RenderGraphBuilder& builder) {
-        builder.ReadTexture(texture, RGTextureSubresource{0, 1, 0, 1});
-        builder.ReadTexture(texture, RGTextureSubresource{1, 1, 0, 1});
-    }, [&](GpuCommandList&, const RenderGraphResources& resources) {
-        foundMip1View = resources.GetView(texture, RGTextureSubresource{1, 1, 0, 1}) != nullptr;
-    });
+    graph.AddPass(
+        "ReadDisjointMips",
+        [texture](RenderGraphBuilder& builder) {
+            builder.ReadTexture(texture, RGTextureSubresource{0, 1, 0, 1});
+            builder.ReadTexture(texture, RGTextureSubresource{1, 1, 0, 1});
+        },
+        [&](GpuCommandList&, const RenderGraphResources& resources) {
+            foundMip1View = resources.GetView(texture, RGTextureSubresource{1, 1, 0, 1}) != nullptr;
+        });
     if (!Check(graph.Execute(context.commands),
                "RenderGraph rejected disjoint subresource reads: " + graph.GetLastError())) {
         return false;
     }
-    if (!Check(foundMip1View, "RenderGraph did not expose a subresource view")) return false;
+    if (!Check(foundMip1View, "RenderGraph did not expose a subresource view"))
+        return false;
 
     MockRenderContext transitionContext;
     RenderGraph transitions(transitionContext);
     const auto transitionTexture = transitions.CreateTexture("MipChainTransitions", desc);
     transitions.SetFinalState(transitionTexture, RHIResourceState::ShaderResource);
-    transitions.AddPass("WriteMip0", [transitionTexture](RenderGraphBuilder& builder) {
-        builder.WriteColor(transitionTexture, RGTextureSubresource{0, 1, 0, 1}, RHILoadOp::Clear);
-    }, {});
-    transitions.AddPass("WriteMip1", [transitionTexture](RenderGraphBuilder& builder) {
-        builder.WriteColor(transitionTexture, RGTextureSubresource{1, 1, 0, 1}, RHILoadOp::Clear);
-    }, {});
+    transitions.AddPass("WriteMip0",
+                        [transitionTexture](RenderGraphBuilder& builder) {
+                            builder.WriteColor(transitionTexture, RGTextureSubresource{0, 1, 0, 1}, RHILoadOp::Clear);
+                        },
+                        {});
+    transitions.AddPass("WriteMip1",
+                        [transitionTexture](RenderGraphBuilder& builder) {
+                            builder.WriteColor(transitionTexture, RGTextureSubresource{1, 1, 0, 1}, RHILoadOp::Clear);
+                        },
+                        {});
     if (!Check(transitions.Execute(transitionContext.commands),
                "RenderGraph failed subresource transitions: " + transitions.GetLastError())) {
         return false;
     }
     if (!Check(transitionContext.commands.textureTransitions.size() >= 2 &&
-               transitionContext.commands.textureTransitions[0].firstMip == 0 &&
-               transitionContext.commands.textureTransitions[1].firstMip == 1,
-               "RenderGraph did not transition individual texture subresources")) return false;
-    if (!Check(transitionContext.textureViewCreates >= 2,
-               "RenderGraph did not create access-local subresource views")) return false;
+                   transitionContext.commands.textureTransitions[0].firstMip == 0 &&
+                   transitionContext.commands.textureTransitions[1].firstMip == 1,
+               "RenderGraph did not transition individual texture subresources"))
+        return false;
+    if (!Check(transitionContext.textureViewCreates >= 2, "RenderGraph did not create access-local subresource views"))
+        return false;
 
     RenderGraph overlap(context);
     const auto overlapTexture = overlap.CreateTexture("Overlap", desc);
-    overlap.AddPass("OverlapMips", [overlapTexture](RenderGraphBuilder& builder) {
-        builder.WriteColor(overlapTexture, RGTextureSubresource{0, 2, 0, 1});
-        builder.ReadTexture(overlapTexture, RGTextureSubresource{1, 1, 0, 1});
-    }, {});
-    if (!Check(!overlap.Compile() &&
-               overlap.GetLastErrorCode() == RGError::DuplicateResourceAccess,
-               "RenderGraph accepted overlapping texture subresource access")) return false;
+    overlap.AddPass("OverlapMips",
+                    [overlapTexture](RenderGraphBuilder& builder) {
+                        builder.WriteColor(overlapTexture, RGTextureSubresource{0, 2, 0, 1});
+                        builder.ReadTexture(overlapTexture, RGTextureSubresource{1, 1, 0, 1});
+                    },
+                    {});
+    if (!Check(!overlap.Compile() && overlap.GetLastErrorCode() == RGError::DuplicateResourceAccess,
+               "RenderGraph accepted overlapping texture subresource access"))
+        return false;
 
     RenderGraph invalidRange(context);
     const auto invalidTexture = invalidRange.CreateTexture("InvalidRange", desc);
-    invalidRange.AddPass("InvalidRange", [invalidTexture](RenderGraphBuilder& builder) {
-        builder.ReadTexture(invalidTexture, RGTextureSubresource{2, 1, 0, 1});
-    }, {});
-    return Check(!invalidRange.Compile() &&
-                 invalidRange.GetLastErrorCode() == RGError::InvalidTextureHandle,
+    invalidRange.AddPass("InvalidRange",
+                         [invalidTexture](RenderGraphBuilder& builder) {
+                             builder.ReadTexture(invalidTexture, RGTextureSubresource{2, 1, 0, 1});
+                         },
+                         {});
+    return Check(!invalidRange.Compile() && invalidRange.GetLastErrorCode() == RGError::InvalidTextureHandle,
                  "RenderGraph accepted an out-of-range texture subresource");
 }
 
@@ -886,45 +930,37 @@ bool TestRenderGraphPassCullingAndLifetime() {
     const auto used = graph.CreateTexture("Used", desc);
     const auto unused = graph.CreateTexture("Unused", desc);
     std::vector<std::string> executed;
-    graph.AddPass("ProduceUsed", [used](RenderGraphBuilder& builder) {
-        builder.WriteColor(used, RHILoadOp::Clear);
-    }, [&](GpuCommandList&, const RenderGraphResources&) {
-        executed.push_back("ProduceUsed");
-    });
-    graph.AddPass("ProduceUnused", [unused](RenderGraphBuilder& builder) {
-        builder.WriteColor(unused, RHILoadOp::Clear);
-    }, [&](GpuCommandList&, const RenderGraphResources&) {
-        executed.push_back("ProduceUnused");
-    });
-    graph.AddPass("ConsumeUsed", [used](RenderGraphBuilder& builder) {
-        builder.ReadTexture(used);
-    }, [&](GpuCommandList&, const RenderGraphResources&) {
-        executed.push_back("ConsumeUsed");
-    });
+    graph.AddPass(
+        "ProduceUsed", [used](RenderGraphBuilder& builder) { builder.WriteColor(used, RHILoadOp::Clear); },
+        [&](GpuCommandList&, const RenderGraphResources&) { executed.push_back("ProduceUsed"); });
+    graph.AddPass(
+        "ProduceUnused", [unused](RenderGraphBuilder& builder) { builder.WriteColor(unused, RHILoadOp::Clear); },
+        [&](GpuCommandList&, const RenderGraphResources&) { executed.push_back("ProduceUnused"); });
+    graph.AddPass(
+        "ConsumeUsed", [used](RenderGraphBuilder& builder) { builder.ReadTexture(used); },
+        [&](GpuCommandList&, const RenderGraphResources&) { executed.push_back("ConsumeUsed"); });
     if (!Check(graph.Compile(), "RenderGraph culling compile failed: " + graph.GetLastError()))
         return false;
-    if (!Check(graph.GetExecutionOrder() ==
-               std::vector<std::string>({"ProduceUsed", "ConsumeUsed"}),
-               "RenderGraph culling execution order mismatch")) return false;
+    if (!Check(graph.GetExecutionOrder() == std::vector<std::string>({"ProduceUsed", "ConsumeUsed"}),
+               "RenderGraph culling execution order mismatch"))
+        return false;
     if (!Check(graph.GetCulledPasses() == std::vector<std::string>({"ProduceUnused"}),
-               "RenderGraph did not report the culled pass")) return false;
-    if (!Check(graph.Execute(context.commands) &&
-               executed == std::vector<std::string>({"ProduceUsed", "ConsumeUsed"}),
-               "RenderGraph executed a culled pass")) return false;
-    if (!Check(context.graphTextureCreates == 1,
-               "RenderGraph created a culled transient texture")) return false;
+               "RenderGraph did not report the culled pass"))
+        return false;
+    if (!Check(graph.Execute(context.commands) && executed == std::vector<std::string>({"ProduceUsed", "ConsumeUsed"}),
+               "RenderGraph executed a culled pass"))
+        return false;
+    if (!Check(context.graphTextureCreates == 1, "RenderGraph created a culled transient texture"))
+        return false;
 
     RenderGraph finalOutput(context);
     const auto output = finalOutput.CreateTexture("FinalOutput", desc);
     finalOutput.SetFinalState(output, RHIResourceState::ShaderResource);
     bool finalRan = false;
-    finalOutput.AddPass("ProduceFinal", [output](RenderGraphBuilder& builder) {
-        builder.WriteColor(output);
-    }, [&](GpuCommandList&, const RenderGraphResources&) {
-        finalRan = true;
-    });
-    return Check(finalOutput.Execute(context.commands) && finalRan &&
-                 finalOutput.GetCulledPasses().empty(),
+    finalOutput.AddPass(
+        "ProduceFinal", [output](RenderGraphBuilder& builder) { builder.WriteColor(output); },
+        [&](GpuCommandList&, const RenderGraphResources&) { finalRan = true; });
+    return Check(finalOutput.Execute(context.commands) && finalRan && finalOutput.GetCulledPasses().empty(),
                  "RenderGraph culled a pass writing a final-state resource");
 }
 
@@ -938,20 +974,19 @@ bool TestRenderGraphDescriptorKeyedPooling() {
 
     auto first = graph.CreateTexture("FrameAColor", textureDesc);
     graph.SetFinalState(first, RHIResourceState::ShaderResource);
-    graph.AddPass("WriteA", [first](RenderGraphBuilder& builder) {
-        builder.WriteColor(first, RHILoadOp::Clear);
-    }, {});
+    graph.AddPass("WriteA", [first](RenderGraphBuilder& builder) { builder.WriteColor(first, RHILoadOp::Clear); }, {});
     if (!Check(graph.Execute(context.commands) && context.graphTextureCreates == 1,
-               "RenderGraph initial descriptor-keyed texture allocation failed")) return false;
+               "RenderGraph initial descriptor-keyed texture allocation failed"))
+        return false;
 
     graph.Reset();
     auto second = graph.CreateTexture("FrameBColorDifferentName", textureDesc);
     graph.SetFinalState(second, RHIResourceState::ShaderResource);
-    graph.AddPass("WriteB", [second](RenderGraphBuilder& builder) {
-        builder.WriteColor(second, RHILoadOp::Clear);
-    }, {});
+    graph.AddPass("WriteB", [second](RenderGraphBuilder& builder) { builder.WriteColor(second, RHILoadOp::Clear); },
+                  {});
     if (!Check(graph.Execute(context.commands) && context.graphTextureCreates == 1,
-               "RenderGraph did not reuse same-desc texture with a different name")) return false;
+               "RenderGraph did not reuse same-desc texture with a different name"))
+        return false;
 
     RHIBufferDesc bufferDesc;
     bufferDesc.size = 128;
@@ -960,38 +995,34 @@ bool TestRenderGraphDescriptorKeyedPooling() {
     graph.Reset();
     auto firstBuffer = graph.CreateBuffer("FrameABuffer", bufferDesc);
     graph.SetFinalState(firstBuffer, RHIResourceState::ShaderResource);
-    graph.AddPass("WriteBufferA", [firstBuffer](RenderGraphBuilder& builder) {
-        builder.ReadWriteUAV(firstBuffer);
-    }, {});
+    graph.AddPass("WriteBufferA", [firstBuffer](RenderGraphBuilder& builder) { builder.ReadWriteUAV(firstBuffer); },
+                  {});
     if (!Check(graph.Execute(context.commands) && context.bufferCreates == 1,
-               "RenderGraph initial descriptor-keyed buffer allocation failed")) return false;
+               "RenderGraph initial descriptor-keyed buffer allocation failed"))
+        return false;
 
     graph.Reset();
     auto secondBuffer = graph.CreateBuffer("FrameBBufferDifferentName", bufferDesc);
     graph.SetFinalState(secondBuffer, RHIResourceState::ShaderResource);
-    graph.AddPass("WriteBufferB", [secondBuffer](RenderGraphBuilder& builder) {
-        builder.ReadWriteUAV(secondBuffer);
-    }, {});
+    graph.AddPass("WriteBufferB", [secondBuffer](RenderGraphBuilder& builder) { builder.ReadWriteUAV(secondBuffer); },
+                  {});
     if (!Check(graph.Execute(context.commands) && context.bufferCreates == 1,
-               "RenderGraph did not reuse same-desc buffer with a different name")) return false;
+               "RenderGraph did not reuse same-desc buffer with a different name"))
+        return false;
 
     MockRenderContext culledContext;
     RenderGraph culledGraph(culledContext);
     auto culled = culledGraph.CreateTexture("CulledTransient", textureDesc);
-    culledGraph.AddPass("WriteCulled", [culled](RenderGraphBuilder& builder) {
-        builder.WriteColor(culled);
-    }, {});
-    if (!Check(culledGraph.Execute(culledContext.commands) &&
-               culledContext.graphTextureCreates == 0,
-               "RenderGraph created a culled transient before pooling check")) return false;
+    culledGraph.AddPass("WriteCulled", [culled](RenderGraphBuilder& builder) { builder.WriteColor(culled); }, {});
+    if (!Check(culledGraph.Execute(culledContext.commands) && culledContext.graphTextureCreates == 0,
+               "RenderGraph created a culled transient before pooling check"))
+        return false;
     culledGraph.Reset();
     auto afterCulled = culledGraph.CreateTexture("AfterCulled", textureDesc);
     culledGraph.SetFinalState(afterCulled, RHIResourceState::ShaderResource);
-    culledGraph.AddPass("WriteAfterCulled", [afterCulled](RenderGraphBuilder& builder) {
-        builder.WriteColor(afterCulled);
-    }, {});
-    return Check(culledGraph.Execute(culledContext.commands) &&
-                 culledContext.graphTextureCreates == 1,
+    culledGraph.AddPass("WriteAfterCulled",
+                        [afterCulled](RenderGraphBuilder& builder) { builder.WriteColor(afterCulled); }, {});
+    return Check(culledGraph.Execute(culledContext.commands) && culledContext.graphTextureCreates == 1,
                  "RenderGraph let a culled transient pollute the descriptor pool");
 }
 
@@ -1005,7 +1036,8 @@ bool TestEnvironmentRadianceHorizonContract() {
     std::string source;
     for (const char* path : candidates) {
         std::ifstream file(path, std::ios::binary);
-        if (!file) continue;
+        if (!file)
+            continue;
         std::ostringstream contents;
         contents << file.rdbuf();
         source = contents.str();
@@ -1014,8 +1046,7 @@ bool TestEnvironmentRadianceHorizonContract() {
     if (!Check(!source.empty(), "EnvironmentRadiance shader source was not found")) {
         return false;
     }
-    if (!Check(source.find("float3 EnvironmentRadiance(float3 direction, float3 sunDirection)") !=
-                   std::string::npos,
+    if (!Check(source.find("float3 EnvironmentRadiance(float3 direction, float3 sunDirection)") != std::string::npos,
                "environment radiance does not accept runtime sun direction")) {
         return false;
     }
@@ -1032,7 +1063,7 @@ bool TestEnvironmentRadianceHorizonContract() {
         return false;
     }
     if (!Check(source.find("float3 groundRadiance") != std::string::npos &&
-               source.find("float3 skyRadiance") != std::string::npos,
+                   source.find("float3 skyRadiance") != std::string::npos,
                "environment radiance does not separate ground and sky hemispheres")) {
         return false;
     }
@@ -1051,36 +1082,37 @@ bool TestEnvironmentPassSunDirectionDirtyState() {
     std::string source;
     for (const char* path : candidates) {
         std::ifstream file(path, std::ios::binary);
-        if (!file) continue;
+        if (!file)
+            continue;
         std::ostringstream contents;
         contents << file.rdbuf();
         source = contents.str();
         break;
     }
-    if (!Check(!source.empty(), "EnvironmentPass source was not found")) return false;
+    if (!Check(!source.empty(), "EnvironmentPass source was not found"))
+        return false;
     if (!Check(source.find("void EnvironmentPass::MarkDirty()") != std::string::npos &&
-               source.find("m_Generated = false;") != std::string::npos &&
-               source.find("m_EnvironmentInShaderState = false;") != std::string::npos &&
-               source.find("m_SHBufferInShaderState = false;") != std::string::npos,
+                   source.find("m_Generated = false;") != std::string::npos &&
+                   source.find("m_EnvironmentInShaderState = false;") != std::string::npos &&
+                   source.find("m_SHBufferInShaderState = false;") != std::string::npos,
                "environment dirty path does not reset generated shader state")) {
         return false;
     }
-    if (!Check(source.find("void EnvironmentPass::SetSunDirection(const Vec3& direction)") !=
-                   std::string::npos &&
-               source.find("direction.Normalized()") != std::string::npos &&
-               source.find("DefaultSunDirection()") != std::string::npos,
+    if (!Check(source.find("void EnvironmentPass::SetSunDirection(const Vec3& direction)") != std::string::npos &&
+                   source.find("direction.Normalized()") != std::string::npos &&
+                   source.find("DefaultSunDirection()") != std::string::npos,
                "environment pass does not normalize or default sun direction")) {
         return false;
     }
     if (!Check(source.find("referenceDirection") != std::string::npos &&
-               source.find("LengthSq() < 1e-6f") != std::string::npos &&
-               source.find("return;") != std::string::npos,
+                   source.find("LengthSq() < 1e-6f") != std::string::npos &&
+                   source.find("return;") != std::string::npos,
                "environment pass does not preserve generated state for unchanged sun direction")) {
         return false;
     }
     return Check(source.find("if (m_Generated)") != std::string::npos &&
-                 source.find("MarkDirty();") != std::string::npos &&
-                 source.find("m_GeneratedSunDirection = m_SunDirection;") != std::string::npos,
+                     source.find("MarkDirty();") != std::string::npos &&
+                     source.find("m_GeneratedSunDirection = m_SunDirection;") != std::string::npos,
                  "environment pass does not dirty generated resources after sun direction changes");
 }
 
@@ -1094,24 +1126,22 @@ bool TestRendererSynchronizesEnvironmentSunBeforePrepare() {
     std::string source;
     for (const char* path : candidates) {
         std::ifstream file(path, std::ios::binary);
-        if (!file) continue;
+        if (!file)
+            continue;
         std::ostringstream contents;
         contents << file.rdbuf();
         source = contents.str();
         break;
     }
-    if (!Check(!source.empty(), "Renderer source was not found")) return false;
+    if (!Check(!source.empty(), "Renderer source was not found"))
+        return false;
     const size_t collect = source.find("CollectEnvironmentSunDirection(scene)");
     const size_t environmentSet = source.find("m_EnvironmentPass->SetSunDirection(environmentSunDirection)");
     const size_t mainSet = source.find("m_MainPass->SetSunDirection(environmentSunDirection)");
     const size_t prepare = source.find("m_EnvironmentPass->PrepareGraphResources()");
-    return Check(collect != std::string::npos &&
-                 environmentSet != std::string::npos &&
-                 mainSet != std::string::npos &&
-                 prepare != std::string::npos &&
-                 collect < environmentSet &&
-                 environmentSet < prepare &&
-                 mainSet < prepare,
+    return Check(collect != std::string::npos && environmentSet != std::string::npos && mainSet != std::string::npos &&
+                     prepare != std::string::npos && collect < environmentSet && environmentSet < prepare &&
+                     mainSet < prepare,
                  "renderer does not synchronize sun direction before preparing environment graph resources");
 }
 
@@ -1125,7 +1155,8 @@ bool TestShadowedMainPassDirectShadowVisibilityContract() {
     std::string source;
     for (const char* path : candidates) {
         std::ifstream file(path, std::ios::binary);
-        if (!file) continue;
+        if (!file)
+            continue;
         std::ostringstream contents;
         contents << file.rdbuf();
         source = contents.str();
@@ -1139,19 +1170,18 @@ bool TestShadowedMainPassDirectShadowVisibilityContract() {
         return false;
     }
     if (!Check(source.find("? 1.0f : 0.35f") == std::string::npos &&
-               source.find("lerp(0.35f, 1.0f") == std::string::npos,
+                   source.find("lerp(0.35f, 1.0f") == std::string::npos,
                "direct shadows still preserve 35 percent direct lighting")) {
         return false;
     }
     if (!Check(source.find("float4 g_ShadowIntensity;") != std::string::npos &&
-               source.find("saturate(g_ShadowIntensity.x)") != std::string::npos &&
-               source.find("saturate(g_ShadowIntensity.y)") != std::string::npos &&
-               source.find("saturate(g_ShadowIntensity.z)") != std::string::npos,
+                   source.find("saturate(g_ShadowIntensity.x)") != std::string::npos &&
+                   source.find("saturate(g_ShadowIntensity.y)") != std::string::npos &&
+                   source.find("saturate(g_ShadowIntensity.z)") != std::string::npos,
                "shadowed shader does not expose per-light shadow intensity")) {
         return false;
     }
-    return Check(source.find("g_LightColor.rgb * max(g_LightDirection.w, 0.0f) * shadow") !=
-                     std::string::npos,
+    return Check(source.find("g_LightColor.rgb * max(g_LightDirection.w, 0.0f) * shadow") != std::string::npos,
                  "directional direct light is not multiplied by shadow visibility");
 }
 
@@ -1163,12 +1193,12 @@ bool TestHeadlessRendering() {
     meshRenderer->SetMesh(AssetManager::Get().GetCubeMesh());
     meshRenderer->SetMaterial(AssetManager::Get().GetDefaultMaterial());
     Actor* culledActor = scene.CreateActor("CulledCube");
-    culledActor->GetTransform().position = { 10000.0f, 0.0f, 0.0f };
+    culledActor->GetTransform().position = {10000.0f, 0.0f, 0.0f};
     auto* culledRenderer = culledActor->AddComponent<MeshRendererComponent>();
     culledRenderer->SetMesh(AssetManager::Get().GetCubeMesh());
     culledRenderer->SetMaterial(AssetManager::Get().GetDefaultMaterial());
     Actor* transparentActor = scene.CreateActor("TransparentCube");
-    transparentActor->GetTransform().position = { 0.0f, 0.0f, 1.0f };
+    transparentActor->GetTransform().position = {0.0f, 0.0f, 1.0f};
     auto* transparentRenderer = transparentActor->AddComponent<MeshRendererComponent>();
     transparentRenderer->SetMesh(AssetManager::Get().GetCubeMesh());
     auto transparentMaterial = MaterialAsset::CreateDefault("TransparentTest");
@@ -1176,7 +1206,7 @@ bool TestHeadlessRendering() {
     transparentRenderer->SetMaterial(AssetManager::Get().Register(transparentMaterial));
 
     Camera camera;
-    camera.LookAt({ 0.0f, 0.0f, -4.0f }, Vec3::Zero());
+    camera.LookAt({0.0f, 0.0f, -4.0f}, Vec3::Zero());
     camera.SetPerspective(60.0f, 16.0f / 9.0f);
 
     MockRenderContext context;
@@ -1184,45 +1214,47 @@ bool TestHeadlessRendering() {
     int queuedUploadRuns = 0;
     const GpuUploadFence uploadFence = GpuUploadQueue::Get().Enqueue([&queuedUploadRuns](IRHIDevice& uploadContext) {
         ++queuedUploadRuns;
-        const uint8_t pixel[4] = { 255, 255, 255, 255 };
+        const uint8_t pixel[4] = {255, 255, 255, 255};
         uploadContext.UploadTexture2D(pixel, 1, 1);
     });
     if (!Check(!GpuUploadQueue::Get().IsFenceComplete(uploadFence),
-               "GPU upload fence completed before render-thread execution")) return false;
+               "GPU upload fence completed before render-thread execution"))
+        return false;
     renderer.RenderScene(scene, camera, true);
 
     if (!Check(queuedUploadRuns == 1 && GpuUploadQueue::Get().PendingCount() == 0 &&
-               GpuUploadQueue::Get().IsFenceComplete(uploadFence),
-               "GPU upload queue was not consumed on the render thread")) return false;
-    if (!Check(context.beginFrames == 1 && context.endFrames == 1,
-               "headless renderer frame lifecycle mismatch")) return false;
-    if (!Check(context.shaderCreates >= 1, "headless shader was not created")) return false;
-    if (!Check(context.vertexUploads == 1 && context.indexUploads == 1,
-               "headless mesh upload mismatch")) return false;
-    if (!Check(context.textureUploads == 3,
-               "headless texture uploads missing material or named-binding fallback")) return false;
-    if (!Check(context.commands.drawCalls == 3,
-               "frustum culling emitted an unexpected draw count")) return false;
+                   GpuUploadQueue::Get().IsFenceComplete(uploadFence),
+               "GPU upload queue was not consumed on the render thread"))
+        return false;
+    if (!Check(context.beginFrames == 1 && context.endFrames == 1, "headless renderer frame lifecycle mismatch"))
+        return false;
+    if (!Check(context.shaderCreates >= 1, "headless shader was not created"))
+        return false;
+    if (!Check(context.vertexUploads == 1 && context.indexUploads == 1, "headless mesh upload mismatch"))
+        return false;
+    if (!Check(context.textureUploads == 3, "headless texture uploads missing material or named-binding fallback"))
+        return false;
+    if (!Check(context.commands.drawCalls == 3, "frustum culling emitted an unexpected draw count"))
+        return false;
     const auto hasSampler = [&](RHIFilter filter, RHIAddressMode addressMode) {
         return std::find_if(context.samplerDescs.begin(), context.samplerDescs.end(),
-            [filter, addressMode](const RHISamplerDesc& desc) {
-                return desc.filter == filter &&
-                       desc.addressU == addressMode &&
-                       desc.addressV == addressMode &&
-                       desc.addressW == addressMode;
-            }) != context.samplerDescs.end();
+                            [filter, addressMode](const RHISamplerDesc& desc) {
+                                return desc.filter == filter && desc.addressU == addressMode &&
+                                       desc.addressV == addressMode && desc.addressW == addressMode;
+                            }) != context.samplerDescs.end();
     };
     if (!Check(hasSampler(RHIFilter::Linear, RHIAddressMode::Repeat),
-               "main material texture sampler did not default to repeat wrap mode")) return false;
+               "main material texture sampler did not default to repeat wrap mode"))
+        return false;
     if (!Check(hasSampler(RHIFilter::ComparisonLinear, RHIAddressMode::Clamp),
-               "shadow comparison sampler should remain clamp wrap mode")) return false;
-    const auto transparentPipeline = std::find(
-        context.commands.pipelineBlendEnabled.begin(),
-        context.commands.pipelineBlendEnabled.end(), true);
+               "shadow comparison sampler should remain clamp wrap mode"))
+        return false;
+    const auto transparentPipeline =
+        std::find(context.commands.pipelineBlendEnabled.begin(), context.commands.pipelineBlendEnabled.end(), true);
     return Check(transparentPipeline != context.commands.pipelineBlendEnabled.end() &&
-                 transparentPipeline != context.commands.pipelineBlendEnabled.begin() &&
-                 std::count(context.commands.pipelineBlendEnabled.begin(),
-                            context.commands.pipelineBlendEnabled.end(), true) == 1,
+                     transparentPipeline != context.commands.pipelineBlendEnabled.begin() &&
+                     std::count(context.commands.pipelineBlendEnabled.begin(),
+                                context.commands.pipelineBlendEnabled.end(), true) == 1,
                  "opaque/transparent render ordering or blend state mismatch");
 }
 
@@ -1231,15 +1263,15 @@ bool TestMeshRendererSubMeshMaterialSlotDraws() {
     assets.Clear();
 
     std::vector<MeshVertex> vertices(4);
-    vertices[0].position = { -1.0f, -1.0f, 0.0f };
-    vertices[1].position = {  1.0f, -1.0f, 0.0f };
-    vertices[2].position = { -1.0f,  1.0f, 0.0f };
-    vertices[3].position = {  1.0f,  1.0f, 0.0f };
-    std::vector<uint32_t> indices { 0, 1, 2, 1, 3, 2, 0, 2, 3 };
-    std::vector<SubMesh> subMeshes {
-        SubMesh{ 0, 3, 0, 0, "OpaqueTri" },
-        SubMesh{ 3, 3, 0, 1, "TransparentTri" },
-        SubMesh{ 6, 3, 0, 0, "OpaqueTriReuseMaterial" },
+    vertices[0].position = {-1.0f, -1.0f, 0.0f};
+    vertices[1].position = {1.0f, -1.0f, 0.0f};
+    vertices[2].position = {-1.0f, 1.0f, 0.0f};
+    vertices[3].position = {1.0f, 1.0f, 0.0f};
+    std::vector<uint32_t> indices{0, 1, 2, 1, 3, 2, 0, 2, 3};
+    std::vector<SubMesh> subMeshes{
+        SubMesh{0, 3, 0, 0, "OpaqueTri"},
+        SubMesh{3, 3, 0, 1, "TransparentTri"},
+        SubMesh{6, 3, 0, 0, "OpaqueTriReuseMaterial"},
     };
     auto mesh = std::make_shared<MeshAsset>("__test__/TwoSubMeshes");
     mesh->SetGeometry(std::move(vertices), std::move(indices), std::move(subMeshes));
@@ -1264,68 +1296,64 @@ bool TestMeshRendererSubMeshMaterialSlotDraws() {
     Actor* actor = scene.CreateActor("TwoSlotMesh");
     auto* renderer = actor->AddComponent<MeshRendererComponent>();
     renderer->SetMesh(meshHandle);
-    renderer->SetMaterials({ opaqueHandle, transparentHandle });
+    renderer->SetMaterials({opaqueHandle, transparentHandle});
 
     Camera camera;
-    camera.LookAt({ 0.0f, 0.0f, -4.0f }, Vec3::Zero());
+    camera.LookAt({0.0f, 0.0f, -4.0f}, Vec3::Zero());
     camera.SetPerspective(60.0f, 16.0f / 9.0f);
 
     MockRenderContext context;
     Renderer rendererSystem(&context, &context, &context);
     rendererSystem.RenderScene(scene, camera, true);
 
-    if (!Check(context.vertexUploads == 1 && context.indexUploads == 1,
-               "submesh slot mesh was not uploaded once")) return false;
-    if (!Check(context.commands.drawCalls == 4,
-               "submesh slot renderer did not emit sky plus one draw per submesh")) return false;
+    if (!Check(context.vertexUploads == 1 && context.indexUploads == 1, "submesh slot mesh was not uploaded once"))
+        return false;
+    if (!Check(context.commands.drawCalls == 4, "submesh slot renderer did not emit sky plus one draw per submesh"))
+        return false;
     if (!Check(context.bindGroupCreates == 3,
-               "main pass did not reuse cached material bind groups across same-material submeshes")) return false;
-    const bool uploadedClampTextureMips = std::find_if(
-        context.uploadedTextureDescs.begin(), context.uploadedTextureDescs.end(),
-        [](const RHITextureDesc& desc) {
-            return desc.width == 4 && desc.height == 4 && desc.mipLevels == 3;
-        }) != context.uploadedTextureDescs.end();
-    if (!Check(uploadedClampTextureMips,
-               "texture upload did not include the generated mip chain")) return false;
+               "main pass did not reuse cached material bind groups across same-material submeshes"))
+        return false;
+    const bool uploadedClampTextureMips =
+        std::find_if(context.uploadedTextureDescs.begin(), context.uploadedTextureDescs.end(),
+                     [](const RHITextureDesc& desc) {
+                         return desc.width == 4 && desc.height == 4 && desc.mipLevels == 3;
+                     }) != context.uploadedTextureDescs.end();
+    if (!Check(uploadedClampTextureMips, "texture upload did not include the generated mip chain"))
+        return false;
     const bool uploadedThreeSubresources =
-        std::find(context.uploadedSubresourceCounts.begin(),
-                  context.uploadedSubresourceCounts.end(), 3u) !=
+        std::find(context.uploadedSubresourceCounts.begin(), context.uploadedSubresourceCounts.end(), 3u) !=
         context.uploadedSubresourceCounts.end();
-    if (!Check(uploadedThreeSubresources,
-               "texture upload subresource count did not match mip count")) return false;
+    if (!Check(uploadedThreeSubresources, "texture upload subresource count did not match mip count"))
+        return false;
     const bool hasExpectedMipPitches =
         std::find_if(context.uploadedSubresources.begin(), context.uploadedSubresources.end(),
-            [](const RHITextureSubresourceData& data) {
-                return data.mipLevel == 0 && data.rowPitch == 16 && data.slicePitch == 64;
-            }) != context.uploadedSubresources.end() &&
+                     [](const RHITextureSubresourceData& data) {
+                         return data.mipLevel == 0 && data.rowPitch == 16 && data.slicePitch == 64;
+                     }) != context.uploadedSubresources.end() &&
         std::find_if(context.uploadedSubresources.begin(), context.uploadedSubresources.end(),
-            [](const RHITextureSubresourceData& data) {
-                return data.mipLevel == 1 && data.rowPitch == 8 && data.slicePitch == 16;
-            }) != context.uploadedSubresources.end() &&
+                     [](const RHITextureSubresourceData& data) {
+                         return data.mipLevel == 1 && data.rowPitch == 8 && data.slicePitch == 16;
+                     }) != context.uploadedSubresources.end() &&
         std::find_if(context.uploadedSubresources.begin(), context.uploadedSubresources.end(),
-            [](const RHITextureSubresourceData& data) {
-                return data.mipLevel == 2 && data.rowPitch == 4 && data.slicePitch == 4;
-            }) != context.uploadedSubresources.end();
-    if (!Check(hasExpectedMipPitches,
-               "texture mip subresources used unexpected row or slice pitches")) return false;
-    const bool hasMipView = std::find_if(
-        context.textureViewDescs.begin(), context.textureViewDescs.end(),
-        [](const RHITextureViewDesc& desc) { return desc.mipCount == 3; }) !=
-        context.textureViewDescs.end();
-    if (!Check(hasMipView,
-               "texture view did not expose the full mip chain")) return false;
-    const bool hasNearestClampSampler = std::find_if(
-        context.samplerDescs.begin(), context.samplerDescs.end(),
-        [](const RHISamplerDesc& desc) {
-            return desc.filter == RHIFilter::Point &&
-                   desc.addressU == RHIAddressMode::Clamp &&
-                   desc.addressV == RHIAddressMode::Clamp &&
-                   desc.addressW == RHIAddressMode::Repeat;
+                     [](const RHITextureSubresourceData& data) {
+                         return data.mipLevel == 2 && data.rowPitch == 4 && data.slicePitch == 4;
+                     }) != context.uploadedSubresources.end();
+    if (!Check(hasExpectedMipPitches, "texture mip subresources used unexpected row or slice pitches"))
+        return false;
+    const bool hasMipView = std::find_if(context.textureViewDescs.begin(), context.textureViewDescs.end(),
+                                         [](const RHITextureViewDesc& desc) { return desc.mipCount == 3; }) !=
+                            context.textureViewDescs.end();
+    if (!Check(hasMipView, "texture view did not expose the full mip chain"))
+        return false;
+    const bool hasNearestClampSampler =
+        std::find_if(context.samplerDescs.begin(), context.samplerDescs.end(), [](const RHISamplerDesc& desc) {
+            return desc.filter == RHIFilter::Point && desc.addressU == RHIAddressMode::Clamp &&
+                   desc.addressV == RHIAddressMode::Clamp && desc.addressW == RHIAddressMode::Repeat;
         }) != context.samplerDescs.end();
-    if (!Check(hasNearestClampSampler,
-               "texture-specific sampler settings were not bound for material texture")) return false;
-    return Check(std::count(context.commands.pipelineBlendEnabled.begin(),
-                            context.commands.pipelineBlendEnabled.end(), true) == 1,
+    if (!Check(hasNearestClampSampler, "texture-specific sampler settings were not bound for material texture"))
+        return false;
+    return Check(std::count(context.commands.pipelineBlendEnabled.begin(), context.commands.pipelineBlendEnabled.end(),
+                            true) == 1,
                  "submesh material slots did not classify transparent material independently");
 }
 
@@ -1334,15 +1362,15 @@ bool TestMainPassSamplerCacheDeduplicatesTextureSamplerStates() {
     assets.Clear();
 
     std::vector<MeshVertex> vertices(3);
-    vertices[0].position = { -1.0f, -1.0f, 0.0f };
-    vertices[1].position = {  1.0f, -1.0f, 0.0f };
-    vertices[2].position = {  0.0f,  1.0f, 0.0f };
-    std::vector<uint32_t> indices { 0, 1, 2 };
+    vertices[0].position = {-1.0f, -1.0f, 0.0f};
+    vertices[1].position = {1.0f, -1.0f, 0.0f};
+    vertices[2].position = {0.0f, 1.0f, 0.0f};
+    std::vector<uint32_t> indices{0, 1, 2};
     std::vector<SubMesh> subMeshes;
     constexpr uint32_t kMaterialCount = 48;
     subMeshes.reserve(kMaterialCount);
     for (uint32_t i = 0; i < kMaterialCount; ++i) {
-        subMeshes.push_back(SubMesh{ 0, 3, 0, static_cast<int>(i), "SamplerCacheSubMesh" });
+        subMeshes.push_back(SubMesh{0, 3, 0, static_cast<int>(i), "SamplerCacheSubMesh"});
     }
     auto mesh = std::make_shared<MeshAsset>("__test__/SamplerCacheMesh");
     mesh->SetGeometry(std::move(vertices), std::move(indices), std::move(subMeshes));
@@ -1351,17 +1379,15 @@ bool TestMainPassSamplerCacheDeduplicatesTextureSamplerStates() {
     std::vector<MaterialHandle> materials;
     materials.reserve(kMaterialCount);
     for (uint32_t i = 0; i < kMaterialCount; ++i) {
-        auto texture = std::make_shared<TextureAsset>(
-            "__test__/SamplerCacheTexture" + std::to_string(i));
+        auto texture = std::make_shared<TextureAsset>("__test__/SamplerCacheTexture" + std::to_string(i));
         TextureDesc textureDesc;
         textureDesc.width = 1;
         textureDesc.height = 1;
-        std::vector<uint8_t> pixels { 255, 255, 255, 255 };
+        std::vector<uint8_t> pixels{255, 255, 255, 255};
         texture->SetPixelData(std::move(pixels), textureDesc);
         TextureHandle textureHandle = assets.Register(std::move(texture));
 
-        auto material = MaterialAsset::CreateDefault(
-            "__test__/SamplerCacheMaterial" + std::to_string(i));
+        auto material = MaterialAsset::CreateDefault("__test__/SamplerCacheMaterial" + std::to_string(i));
         material->SetTexture("BaseColorMap", textureHandle);
         materials.push_back(assets.Register(std::move(material)));
     }
@@ -1373,23 +1399,19 @@ bool TestMainPassSamplerCacheDeduplicatesTextureSamplerStates() {
     meshRenderer->SetMaterials(materials);
 
     Camera camera;
-    camera.LookAt({ 0.0f, 0.0f, -4.0f }, Vec3::Zero());
+    camera.LookAt({0.0f, 0.0f, -4.0f}, Vec3::Zero());
     camera.SetPerspective(60.0f, 16.0f / 9.0f);
 
     MockRenderContext context;
     Renderer renderer(&context, &context, &context);
     renderer.RenderScene(scene, camera, true);
 
-    const int linearRepeatSamplers = static_cast<int>(std::count_if(
-        context.samplerDescs.begin(), context.samplerDescs.end(),
-        [](const RHISamplerDesc& desc) {
-            return desc.filter == RHIFilter::Linear &&
-                   desc.addressU == RHIAddressMode::Repeat &&
-                   desc.addressV == RHIAddressMode::Repeat &&
-                   desc.addressW == RHIAddressMode::Repeat;
+    const int linearRepeatSamplers = static_cast<int>(
+        std::count_if(context.samplerDescs.begin(), context.samplerDescs.end(), [](const RHISamplerDesc& desc) {
+            return desc.filter == RHIFilter::Linear && desc.addressU == RHIAddressMode::Repeat &&
+                   desc.addressV == RHIAddressMode::Repeat && desc.addressW == RHIAddressMode::Repeat;
         }));
-    if (!Check(linearRepeatSamplers == 1,
-               "main pass created duplicate Linear/Repeat samplers for texture assets")) {
+    if (!Check(linearRepeatSamplers == 1, "main pass created duplicate Linear/Repeat samplers for texture assets")) {
         return false;
     }
     return Check(context.textureUploads == static_cast<int>(kMaterialCount) + 1,
@@ -1401,20 +1423,23 @@ bool TestDeferredPassResourceContracts() {
 
     GBufferPass gbuffer(&context);
     gbuffer.Resize(320, 180);
-    if (!Check(gbuffer.PrepareGraphResources(),
-               "GBufferPass failed to prepare graph resources")) return false;
+    if (!Check(gbuffer.PrepareGraphResources(), "GBufferPass failed to prepare graph resources"))
+        return false;
     const auto gbufferResources = gbuffer.GetGraphResources();
-    if (!Check(gbufferResources.albedo && gbufferResources.normal &&
-               gbufferResources.material && gbufferResources.emissive,
-               "GBufferPass did not create all GBuffer textures")) return false;
-    if (!Check(gbufferResources.albedoSrv && gbufferResources.normalSrv &&
-               gbufferResources.materialSrv && gbufferResources.emissiveSrv,
-               "GBufferPass did not create all shader-resource views")) return false;
+    if (!Check(gbufferResources.albedo && gbufferResources.normal && gbufferResources.material &&
+                   gbufferResources.emissive,
+               "GBufferPass did not create all GBuffer textures"))
+        return false;
+    if (!Check(gbufferResources.albedoSrv && gbufferResources.normalSrv && gbufferResources.materialSrv &&
+                   gbufferResources.emissiveSrv,
+               "GBufferPass did not create all shader-resource views"))
+        return false;
     if (!Check(gbufferResources.albedo->desc.format == RHIFormat::RGBA8UNorm &&
-               gbufferResources.normal->desc.format == RHIFormat::RGBA16Float &&
-               gbufferResources.material->desc.format == RHIFormat::RGBA8UNorm &&
-               gbufferResources.emissive->desc.format == RHIFormat::RGBA16Float,
-               "GBufferPass resource formats do not match the deferred contract")) return false;
+                   gbufferResources.normal->desc.format == RHIFormat::RGBA16Float &&
+                   gbufferResources.material->desc.format == RHIFormat::RGBA8UNorm &&
+                   gbufferResources.emissive->desc.format == RHIFormat::RGBA16Float,
+               "GBufferPass resource formats do not match the deferred contract"))
+        return false;
 
     AssetManager::Get().Clear();
     Scene scene("GBufferContract");
@@ -1425,7 +1450,7 @@ bool TestDeferredPassResourceContracts() {
     opaqueRenderer->SetMaterial(AssetManager::Get().Register(opaqueMaterial));
 
     Actor* transparentActor = scene.CreateActor("Transparent");
-    transparentActor->GetTransform().position = { 0.0f, 0.0f, 1.0f };
+    transparentActor->GetTransform().position = {0.0f, 0.0f, 1.0f};
     auto* transparentRenderer = transparentActor->AddComponent<MeshRendererComponent>();
     transparentRenderer->SetMesh(AssetManager::Get().GetCubeMesh());
     auto transparentMaterial = MaterialAsset::CreateDefault("GBufferTransparent");
@@ -1433,7 +1458,7 @@ bool TestDeferredPassResourceContracts() {
     transparentRenderer->SetMaterial(AssetManager::Get().Register(transparentMaterial));
 
     Camera camera;
-    camera.LookAt({ 0.0f, 0.0f, -4.0f }, Vec3::Zero());
+    camera.LookAt({0.0f, 0.0f, -4.0f}, Vec3::Zero());
     camera.SetPerspective(60.0f, 16.0f / 9.0f);
 
     MockRenderContext drawContext;
@@ -1442,27 +1467,29 @@ bool TestDeferredPassResourceContracts() {
     GBufferPass drawableGBuffer(&drawContext);
     drawableGBuffer.Execute(drawContext.commands, scene, camera);
     if (!Check(drawContext.shaderCreates >= 1 && drawContext.commands.pipelineBinds == 1,
-               "GBufferPass did not create a shader and graphics pipeline")) return false;
+               "GBufferPass did not create a shader and graphics pipeline"))
+        return false;
     if (!Check(drawContext.commands.drawCalls == 1,
-               "GBufferPass should draw opaque/alpha-test geometry and skip transparent")) return false;
-    if (!Check(!drawContext.commands.pipelineBlendEnabled.empty() &&
-               !drawContext.commands.pipelineBlendEnabled.front(),
-               "GBufferPass pipeline should write material data without alpha blending")) return false;
+               "GBufferPass should draw opaque/alpha-test geometry and skip transparent"))
+        return false;
+    if (!Check(!drawContext.commands.pipelineBlendEnabled.empty() && !drawContext.commands.pipelineBlendEnabled.front(),
+               "GBufferPass pipeline should write material data without alpha blending"))
+        return false;
 
     DeferredLightingPass lighting(&context);
     lighting.Resize(320, 180);
     ShaderManager::Get().Clear();
     ShaderManager::Get().SetDevice(&context);
-    if (!Check(lighting.PrepareGraphResources(),
-               "DeferredLightingPass failed to prepare graph resources")) return false;
+    if (!Check(lighting.PrepareGraphResources(), "DeferredLightingPass failed to prepare graph resources"))
+        return false;
     const auto lightingResources = lighting.GetGraphResources();
-    if (!Check(lightingResources.sceneColor && lightingResources.sceneColorRtv &&
-               lightingResources.sceneColorSrv &&
-               lightingResources.sceneColor->desc.format == RHIFormat::RGBA16Float,
-               "DeferredLightingPass scene color contract is invalid")) return false;
+    if (!Check(lightingResources.sceneColor && lightingResources.sceneColorRtv && lightingResources.sceneColorSrv &&
+                   lightingResources.sceneColor->desc.format == RHIFormat::RGBA16Float,
+               "DeferredLightingPass scene color contract is invalid"))
+        return false;
 
-    return Check(context.graphTextureCreates == 5 && context.textureViewCreates == 10 &&
-                 context.samplerCreates >= 3 && context.shaderCreates >= 1,
+    return Check(context.graphTextureCreates == 5 && context.textureViewCreates == 10 && context.samplerCreates >= 3 &&
+                     context.shaderCreates >= 1,
                  "deferred resource passes created an unexpected number of resources");
 }
 
@@ -1471,16 +1498,20 @@ bool TestDeferredLightingShaderSourceContract() {
     std::stringstream buffer;
     buffer << sourceFile.rdbuf();
     const std::string source = buffer.str();
-    if (!Check(!source.empty(), "DeferredLightingPass shader source is missing")) return false;
+    if (!Check(!source.empty(), "DeferredLightingPass shader source is missing"))
+        return false;
     if (!Check(source.find("WorldPosFromDepth") != std::string::npos &&
-               source.find("g_InvViewProj") != std::string::npos,
-               "DeferredLightingPass does not reconstruct world position from depth")) return false;
+                   source.find("g_InvViewProj") != std::string::npos,
+               "DeferredLightingPass does not reconstruct world position from depth"))
+        return false;
     if (!Check(source.find("g_EnvironmentSH2") != std::string::npos &&
-               source.find("PbrEnvironmentLighting") != std::string::npos,
-               "DeferredLightingPass does not consume environment SH/PBR lighting")) return false;
+                   source.find("PbrEnvironmentLighting") != std::string::npos,
+               "DeferredLightingPass does not consume environment SH/PBR lighting"))
+        return false;
     if (!Check(source.find("SampleDirectionalShadow") != std::string::npos &&
-               source.find("g_ShadowMap.SampleCmpLevelZero") != std::string::npos,
-               "DeferredLightingPass does not sample directional shadows")) return false;
+                   source.find("g_ShadowMap.SampleCmpLevelZero") != std::string::npos,
+               "DeferredLightingPass does not sample directional shadows"))
+        return false;
     return Check(source.find("EnvironmentRadiance(viewDir") != std::string::npos,
                  "DeferredLightingPass does not include sky fallback for far depth");
 }
@@ -1518,13 +1549,14 @@ bool TestRendererDeferredPathSubmitsGBufferLightingTransparentAndComposite() {
     renderer.SetOutputOffscreen(true);
     renderer.RenderScene(scene, camera, true);
 
-    if (!Check(context.beginFrames == 1 && context.endFrames == 1,
-               "deferred renderer frame lifecycle mismatch")) return false;
-    if (!Check(context.commands.renderingScopes == 0 &&
-               context.commands.renderingBeginCalls >= 7,
-               "deferred graph did not submit expected render scopes")) return false;
+    if (!Check(context.beginFrames == 1 && context.endFrames == 1, "deferred renderer frame lifecycle mismatch"))
+        return false;
+    if (!Check(context.commands.renderingScopes == 0 && context.commands.renderingBeginCalls >= 7,
+               "deferred graph did not submit expected render scopes"))
+        return false;
     if (!Check(context.commands.pipelineBinds >= 7 && context.commands.bindGroupBinds >= 5,
-               "deferred graph did not bind GBuffer, lighting, transparent, and composite passes")) return false;
+               "deferred graph did not bind GBuffer, lighting, transparent, and composite passes"))
+        return false;
     return Check(context.commands.drawCalls >= 5 && renderer.GetSceneColorView() != nullptr,
                  "deferred graph did not submit expected draw calls or output view");
 }
@@ -1532,8 +1564,8 @@ bool TestRendererDeferredPathSubmitsGBufferLightingTransparentAndComposite() {
 bool TestRendererRenderPathDefaultsToForward() {
     MockRenderContext context;
     Renderer renderer(&context, &context, &context);
-    if (!Check(renderer.GetRenderPath() == RenderPath::Forward,
-               "Renderer did not default to the forward render path")) return false;
+    if (!Check(renderer.GetRenderPath() == RenderPath::Forward, "Renderer did not default to the forward render path"))
+        return false;
     renderer.SetRenderPath(RenderPath::Deferred);
     return Check(renderer.GetRenderPath() == RenderPath::Deferred,
                  "Renderer render path setter did not persist deferred mode");
@@ -1547,7 +1579,7 @@ bool TestRendererOffscreenGraphPostProcessPath() {
     light->SetLightType(LightType::Directional);
     light->SetCastShadows(true);
     Camera camera;
-    camera.LookAt({ 0.0f, 0.0f, -4.0f }, Vec3::Zero());
+    camera.LookAt({0.0f, 0.0f, -4.0f}, Vec3::Zero());
     camera.SetPerspective(60.0f, 16.0f / 9.0f);
 
     MockRenderContext context;
@@ -1558,44 +1590,40 @@ bool TestRendererOffscreenGraphPostProcessPath() {
     renderer.RenderScene(scene, camera, true);
 
     const auto hasTransitionTo = [&](RHIResourceState state) {
-        return std::find_if(context.commands.transitions.begin(),
-                            context.commands.transitions.end(),
-                            [state](const auto& transition) {
-                                return transition.second == state;
-                            }) != context.commands.transitions.end();
+        return std::find_if(context.commands.transitions.begin(), context.commands.transitions.end(),
+                            [state](const auto& transition) { return transition.second == state; }) !=
+               context.commands.transitions.end();
     };
     const auto countTransitionsTo = [&](RHIResourceState state) {
-        return std::count_if(context.commands.transitions.begin(),
-                             context.commands.transitions.end(),
-                             [state](const auto& transition) {
-                                 return transition.second == state;
-                             });
+        return std::count_if(context.commands.transitions.begin(), context.commands.transitions.end(),
+                             [state](const auto& transition) { return transition.second == state; });
     };
-    if (!Check(context.beginFrames == 1 && context.endFrames == 1,
-               "offscreen graph renderer frame lifecycle mismatch")) return false;
+    if (!Check(context.beginFrames == 1 && context.endFrames == 1, "offscreen graph renderer frame lifecycle mismatch"))
+        return false;
     if (!Check(context.graphTextureCreates >= 5 && context.samplerCreates >= 3,
-               "offscreen graph post-process resources were not prepared")) return false;
-    if (!Check(context.commands.renderingScopes == 0 &&
-               context.commands.renderingBeginCalls >= 5,
-               "offscreen graph did not manage expected render scopes")) return false;
-    if (!Check(context.commands.dispatches >= 1,
-               "offscreen graph did not execute environment SH projection")) return false;
-    if (!Check(hasTransitionTo(RHIResourceState::RenderTarget) &&
-               hasTransitionTo(RHIResourceState::DepthWrite) &&
-               hasTransitionTo(RHIResourceState::UnorderedAccess) &&
-               hasTransitionTo(RHIResourceState::ShaderResource),
-               "offscreen graph did not transition render graph resources")) return false;
+               "offscreen graph post-process resources were not prepared"))
+        return false;
+    if (!Check(context.commands.renderingScopes == 0 && context.commands.renderingBeginCalls >= 5,
+               "offscreen graph did not manage expected render scopes"))
+        return false;
+    if (!Check(context.commands.dispatches >= 1, "offscreen graph did not execute environment SH projection"))
+        return false;
+    if (!Check(hasTransitionTo(RHIResourceState::RenderTarget) && hasTransitionTo(RHIResourceState::DepthWrite) &&
+                   hasTransitionTo(RHIResourceState::UnorderedAccess) &&
+                   hasTransitionTo(RHIResourceState::ShaderResource),
+               "offscreen graph did not transition render graph resources"))
+        return false;
     if (!Check(countTransitionsTo(RHIResourceState::DepthWrite) >= 2,
-                "offscreen graph did not transition shadow and scene depth resources")) return false;
-    return Check(renderer.GetSceneColorView() != nullptr,
-                 "offscreen graph renderer did not expose a scene color view");
+               "offscreen graph did not transition shadow and scene depth resources"))
+        return false;
+    return Check(renderer.GetSceneColorView() != nullptr, "offscreen graph renderer did not expose a scene color view");
 }
 
 bool TestRendererBackbufferCompositeGraphTarget() {
     AssetManager::Get().Clear();
     Scene scene;
     Camera camera;
-    camera.LookAt({ 0.0f, 0.0f, -4.0f }, Vec3::Zero());
+    camera.LookAt({0.0f, 0.0f, -4.0f}, Vec3::Zero());
     camera.SetPerspective(60.0f, 16.0f / 9.0f);
 
     MockRenderContext context;
@@ -1605,14 +1633,15 @@ bool TestRendererBackbufferCompositeGraphTarget() {
     renderer.RenderScene(scene, camera, true);
 
     if (!Check(context.beginFrames == 1 && context.endFrames == 1,
-               "backbuffer graph renderer frame lifecycle mismatch")) return false;
-    if (!Check(context.commands.renderingScopes == 0 &&
-               context.commands.renderingBeginCalls >= 5,
-               "backbuffer graph composite did not use graph-managed render scopes")) return false;
+               "backbuffer graph renderer frame lifecycle mismatch"))
+        return false;
+    if (!Check(context.commands.renderingScopes == 0 && context.commands.renderingBeginCalls >= 5,
+               "backbuffer graph composite did not use graph-managed render scopes"))
+        return false;
     if (!Check(context.commands.pipelineBinds >= 5 && context.commands.bindGroupBinds >= 4,
-               "backbuffer graph composite did not draw post-process passes")) return false;
-    return Check(context.commands.drawCalls >= 5,
-                 "backbuffer graph composite emitted too few draw calls");
+               "backbuffer graph composite did not draw post-process passes"))
+        return false;
+    return Check(context.commands.drawCalls >= 5, "backbuffer graph composite emitted too few draw calls");
 }
 
 bool TestRendererGraphHasNoEmptyCompatibilityPasses() {
@@ -1625,45 +1654,61 @@ bool TestRendererGraphHasNoEmptyCompatibilityPasses() {
     std::string source;
     for (const char* path : candidates) {
         std::ifstream file(path, std::ios::binary);
-        if (!file) continue;
+        if (!file)
+            continue;
         std::ostringstream contents;
         contents << file.rdbuf();
         source = contents.str();
         break;
     }
-    return Check(!source.empty() &&
-                 source.find("AllowNoResourceAccess") == std::string::npos &&
-                 source.find("\"PrepareMain\"") == std::string::npos,
+    return Check(!source.empty() && source.find("AllowNoResourceAccess") == std::string::npos &&
+                     source.find("\"PrepareMain\"") == std::string::npos,
                  "Renderer should not register CPU-only RenderGraph compatibility passes");
 }
 
 MYENGINE_REGISTER_TEST("Renderer", "TestExtendedRHIContracts", TestExtendedRHIContracts);
 MYENGINE_REGISTER_TEST("Renderer", "TestStableRHIDeviceLossContract", TestStableRHIDeviceLossContract);
-MYENGINE_REGISTER_TEST("Renderer", "TestMaterialResourceCacheUploadsBc3WhenSupported", TestMaterialResourceCacheUploadsBc3WhenSupported);
-MYENGINE_REGISTER_TEST("Renderer", "TestMaterialResourceCacheFallsBackToRgbaWhenBc1Unsupported", TestMaterialResourceCacheFallsBackToRgbaWhenBc1Unsupported);
-MYENGINE_REGISTER_TEST("Renderer", "TestMaterialResourceCacheGpuResidencyEvictionAndReupload", TestMaterialResourceCacheGpuResidencyEvictionAndReupload);
-MYENGINE_REGISTER_TEST("Renderer", "TestMaterialResourceCacheMeshResidencyAndQualityDegradation", TestMaterialResourceCacheMeshResidencyAndQualityDegradation);
+MYENGINE_REGISTER_TEST("Renderer", "TestMaterialResourceCacheUploadsBc3WhenSupported",
+                       TestMaterialResourceCacheUploadsBc3WhenSupported);
+MYENGINE_REGISTER_TEST("Renderer", "TestMaterialResourceCacheFallsBackToRgbaWhenBc1Unsupported",
+                       TestMaterialResourceCacheFallsBackToRgbaWhenBc1Unsupported);
+MYENGINE_REGISTER_TEST("Renderer", "TestMaterialResourceCacheGpuResidencyEvictionAndReupload",
+                       TestMaterialResourceCacheGpuResidencyEvictionAndReupload);
+MYENGINE_REGISTER_TEST("Renderer", "TestMaterialResourceCacheMeshResidencyAndQualityDegradation",
+                       TestMaterialResourceCacheMeshResidencyAndQualityDegradation);
 MYENGINE_REGISTER_TEST("Renderer", "TestRenderGraphValidationAndExecution", TestRenderGraphValidationAndExecution);
 MYENGINE_REGISTER_TEST("Renderer", "TestNamedShaderBindings", TestNamedShaderBindings);
 MYENGINE_REGISTER_TEST("Renderer", "TestBackendIndependentPassRecording", TestBackendIndependentPassRecording);
-MYENGINE_REGISTER_TEST("Renderer", "TestComputeStorageBufferAndAsyncReadback", TestComputeStorageBufferAndAsyncReadback);
-MYENGINE_REGISTER_TEST("Renderer", "TestRenderGraphComputeBufferDependencies", TestRenderGraphComputeBufferDependencies);
+MYENGINE_REGISTER_TEST("Renderer", "TestComputeStorageBufferAndAsyncReadback",
+                       TestComputeStorageBufferAndAsyncReadback);
+MYENGINE_REGISTER_TEST("Renderer", "TestRenderGraphComputeBufferDependencies",
+                       TestRenderGraphComputeBufferDependencies);
 MYENGINE_REGISTER_TEST("Renderer", "TestRenderGraphTextureSubresourceAccess", TestRenderGraphTextureSubresourceAccess);
 MYENGINE_REGISTER_TEST("Renderer", "TestRenderGraphPassCullingAndLifetime", TestRenderGraphPassCullingAndLifetime);
 MYENGINE_REGISTER_TEST("Renderer", "TestRenderGraphDescriptorKeyedPooling", TestRenderGraphDescriptorKeyedPooling);
 MYENGINE_REGISTER_TEST("Renderer", "TestEnvironmentRadianceHorizonContract", TestEnvironmentRadianceHorizonContract);
-MYENGINE_REGISTER_TEST("Renderer", "TestEnvironmentPassSunDirectionDirtyState", TestEnvironmentPassSunDirectionDirtyState);
-MYENGINE_REGISTER_TEST("Renderer", "TestRendererSynchronizesEnvironmentSunBeforePrepare", TestRendererSynchronizesEnvironmentSunBeforePrepare);
-MYENGINE_REGISTER_TEST("Renderer", "TestShadowedMainPassDirectShadowVisibilityContract", TestShadowedMainPassDirectShadowVisibilityContract);
+MYENGINE_REGISTER_TEST("Renderer", "TestEnvironmentPassSunDirectionDirtyState",
+                       TestEnvironmentPassSunDirectionDirtyState);
+MYENGINE_REGISTER_TEST("Renderer", "TestRendererSynchronizesEnvironmentSunBeforePrepare",
+                       TestRendererSynchronizesEnvironmentSunBeforePrepare);
+MYENGINE_REGISTER_TEST("Renderer", "TestShadowedMainPassDirectShadowVisibilityContract",
+                       TestShadowedMainPassDirectShadowVisibilityContract);
 MYENGINE_REGISTER_TEST("Renderer", "TestHeadlessRendering", TestHeadlessRendering);
-MYENGINE_REGISTER_TEST("Renderer", "TestMeshRendererSubMeshMaterialSlotDraws", TestMeshRendererSubMeshMaterialSlotDraws);
-MYENGINE_REGISTER_TEST("Renderer", "TestMainPassSamplerCacheDeduplicatesTextureSamplerStates", TestMainPassSamplerCacheDeduplicatesTextureSamplerStates);
+MYENGINE_REGISTER_TEST("Renderer", "TestMeshRendererSubMeshMaterialSlotDraws",
+                       TestMeshRendererSubMeshMaterialSlotDraws);
+MYENGINE_REGISTER_TEST("Renderer", "TestMainPassSamplerCacheDeduplicatesTextureSamplerStates",
+                       TestMainPassSamplerCacheDeduplicatesTextureSamplerStates);
 MYENGINE_REGISTER_TEST("Renderer", "TestDeferredPassResourceContracts", TestDeferredPassResourceContracts);
-MYENGINE_REGISTER_TEST("Renderer", "TestDeferredLightingShaderSourceContract", TestDeferredLightingShaderSourceContract);
-MYENGINE_REGISTER_TEST("Renderer", "TestRendererDeferredPathSubmitsGBufferLightingTransparentAndComposite", TestRendererDeferredPathSubmitsGBufferLightingTransparentAndComposite);
+MYENGINE_REGISTER_TEST("Renderer", "TestDeferredLightingShaderSourceContract",
+                       TestDeferredLightingShaderSourceContract);
+MYENGINE_REGISTER_TEST("Renderer", "TestRendererDeferredPathSubmitsGBufferLightingTransparentAndComposite",
+                       TestRendererDeferredPathSubmitsGBufferLightingTransparentAndComposite);
 MYENGINE_REGISTER_TEST("Renderer", "TestRendererRenderPathDefaultsToForward", TestRendererRenderPathDefaultsToForward);
-MYENGINE_REGISTER_TEST("Renderer", "TestRendererOffscreenGraphPostProcessPath", TestRendererOffscreenGraphPostProcessPath);
-MYENGINE_REGISTER_TEST("Renderer", "TestRendererBackbufferCompositeGraphTarget", TestRendererBackbufferCompositeGraphTarget);
-MYENGINE_REGISTER_TEST("Renderer", "TestRendererGraphHasNoEmptyCompatibilityPasses", TestRendererGraphHasNoEmptyCompatibilityPasses);
+MYENGINE_REGISTER_TEST("Renderer", "TestRendererOffscreenGraphPostProcessPath",
+                       TestRendererOffscreenGraphPostProcessPath);
+MYENGINE_REGISTER_TEST("Renderer", "TestRendererBackbufferCompositeGraphTarget",
+                       TestRendererBackbufferCompositeGraphTarget);
+MYENGINE_REGISTER_TEST("Renderer", "TestRendererGraphHasNoEmptyCompatibilityPasses",
+                       TestRendererGraphHasNoEmptyCompatibilityPasses);
 
 } // namespace

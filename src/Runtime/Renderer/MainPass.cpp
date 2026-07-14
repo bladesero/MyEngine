@@ -32,54 +32,37 @@ struct SkyConstants {
 };
 
 constexpr uint32_t kMainTextureSlotCount = 9;
-const char* kMainTextureNames[kMainTextureSlotCount] = {
-    "g_BaseColorMap", "g_ShadowMap", "g_NormalMap",
-    "g_MetallicRoughnessMap", "g_OcclusionMap", "g_EmissiveMap",
-    "g_SpotShadowMap", "g_PointShadowMap", "g_IBLCubemap"
-};
+const char* kMainTextureNames[kMainTextureSlotCount] = {"g_BaseColorMap",         "g_ShadowMap",      "g_NormalMap",
+                                                        "g_MetallicRoughnessMap", "g_OcclusionMap",   "g_EmissiveMap",
+                                                        "g_SpotShadowMap",        "g_PointShadowMap", "g_IBLCubemap"};
 const char* kMainSamplerNames[kMainTextureSlotCount] = {
-    "g_Sampler", "g_ShadowSampler", "g_NormalSampler",
-    "g_MetallicRoughnessSampler", "g_OcclusionSampler", "g_EmissiveSampler",
-    "g_SpotShadowSampler", "g_PointShadowSampler", "g_IBLSampler"
-};
+    "g_Sampler",          "g_ShadowSampler",   "g_NormalSampler",     "g_MetallicRoughnessSampler",
+    "g_OcclusionSampler", "g_EmissiveSampler", "g_SpotShadowSampler", "g_PointShadowSampler",
+    "g_IBLSampler"};
 
-void AppendPointer(std::string& out, const void* ptr)
-{
+void AppendPointer(std::string& out, const void* ptr) {
     out += std::to_string(reinterpret_cast<uintptr_t>(ptr));
 }
 
 } // namespace
 
 MainPass::MainPass(IRHIDevice* device)
-    : RenderPass(device)
-    , m_ResourceCache(device)
-    , m_SkyPass(std::make_unique<SkyPass>(*this))
-    , m_ForwardOpaquePass(std::make_unique<ForwardOpaquePass>(*this))
-    , m_ForwardTransparentPass(std::make_unique<ForwardTransparentPass>(*this))
-{}
+    : RenderPass(device), m_ResourceCache(device), m_SkyPass(std::make_unique<SkyPass>(*this)),
+      m_ForwardOpaquePass(std::make_unique<ForwardOpaquePass>(*this)),
+      m_ForwardTransparentPass(std::make_unique<ForwardTransparentPass>(*this)) {
+}
 
 MainPass::~MainPass() = default;
 
-void MainPass::Resize(uint32_t, uint32_t)
-{
+void MainPass::Resize(uint32_t, uint32_t) {
     // Viewport is controlled by SceneRenderLayer through the active command list.
 }
 
-void MainPass::SetShadowInput(const Mat4& lightViewProj,
-                              const Vec3& lightDirection,
-                              bool directionalShadowEnabled,
-                              GpuTexture* shadowMap,
-                              const Mat4& spotLightViewProj,
-                              int spotShadowIndex,
-                              GpuTexture* spotShadowMap,
-                              const Vec3& pointShadowPosition,
-                              float pointShadowRange,
-                              int pointShadowIndex,
-                              GpuTexture* pointShadowMap,
-                              const Mat4* cascadeViewProj,
-                              uint32_t cascadeCount,
-                              const float* cascadeSplits)
-{
+void MainPass::SetShadowInput(const Mat4& lightViewProj, const Vec3& lightDirection, bool directionalShadowEnabled,
+                              GpuTexture* shadowMap, const Mat4& spotLightViewProj, int spotShadowIndex,
+                              GpuTexture* spotShadowMap, const Vec3& pointShadowPosition, float pointShadowRange,
+                              int pointShadowIndex, GpuTexture* pointShadowMap, const Mat4* cascadeViewProj,
+                              uint32_t cascadeCount, const float* cascadeSplits) {
     m_LightViewProj = lightViewProj;
     m_LightDirection = lightDirection;
     m_DirectionalShadowEnabled = directionalShadowEnabled;
@@ -92,8 +75,7 @@ void MainPass::SetShadowInput(const Mat4& lightViewProj,
     m_PointShadowIndex = pointShadowIndex;
     m_PointShadowMap = pointShadowMap;
     for (uint32_t i = 0; i < 3; ++i) {
-        m_LightViewProjCascade[i] =
-            (cascadeViewProj && i < cascadeCount) ? cascadeViewProj[i] : Mat4::Identity();
+        m_LightViewProjCascade[i] = (cascadeViewProj && i < cascadeCount) ? cascadeViewProj[i] : Mat4::Identity();
     }
     if (cascadeSplits) {
         std::memcpy(m_CascadeSplits, cascadeSplits, sizeof(m_CascadeSplits));
@@ -102,13 +84,10 @@ void MainPass::SetShadowInput(const Mat4& lightViewProj,
     }
 }
 
-void MainPass::SetCascadeShadowInput(const Mat4* cascadeViewProj, uint32_t cascadeCount,
-                                     const float* cascadeSplits)
-{
+void MainPass::SetCascadeShadowInput(const Mat4* cascadeViewProj, uint32_t cascadeCount, const float* cascadeSplits) {
     const uint32_t count = (std::min)(cascadeCount, 3u);
     for (uint32_t i = 0; i < 3; ++i) {
-        m_LightViewProjCascade[i] =
-            (cascadeViewProj && i < count) ? cascadeViewProj[i] : Mat4::Identity();
+        m_LightViewProjCascade[i] = (cascadeViewProj && i < count) ? cascadeViewProj[i] : Mat4::Identity();
     }
     if (cascadeSplits) {
         for (uint32_t i = 0; i < 4; ++i) {
@@ -119,10 +98,8 @@ void MainPass::SetCascadeShadowInput(const Mat4* cascadeViewProj, uint32_t casca
     }
 }
 
-void MainPass::SetEnvironmentInput(GpuTexture* environmentCubemap,
-                                   std::shared_ptr<GpuBufferView> sh2Buffer,
-                                   const float* sh2Coefficients)
-{
+void MainPass::SetEnvironmentInput(GpuTexture* environmentCubemap, std::shared_ptr<GpuBufferView> sh2Buffer,
+                                   const float* sh2Coefficients) {
     m_EnvironmentCubemap = environmentCubemap;
     m_EnvironmentSH2Buffer = sh2Buffer;
     if (sh2Coefficients) {
@@ -132,55 +109,46 @@ void MainPass::SetEnvironmentInput(GpuTexture* environmentCubemap,
     }
 }
 
-void MainPass::SetSunDirection(const Vec3& direction)
-{
-    if (direction.LengthSq() < 1e-8f) return;
+void MainPass::SetSunDirection(const Vec3& direction) {
+    if (direction.LengthSq() < 1e-8f)
+        return;
     m_SunDirection = direction.Normalized();
 }
 
-void MainPass::EnsureMeshUploaded(MeshAsset* mesh)
-{
+void MainPass::EnsureMeshUploaded(MeshAsset* mesh) {
     m_ResourceCache.EnsureMeshUploaded(mesh);
 }
 
-void MainPass::EnsureTextureUploaded(TextureAsset* tex)
-{
+void MainPass::EnsureTextureUploaded(TextureAsset* tex) {
     m_ResourceCache.EnsureTextureUploaded(tex);
 }
 
-void MainPass::EnsureNamedBindingDefaults()
-{
+void MainPass::EnsureNamedBindingDefaults() {
     m_ResourceCache.EnsureNamedBindingDefaults();
 }
 
-std::shared_ptr<GpuTextureView> MainPass::GetTextureView(GpuTexture* texture)
-{
+std::shared_ptr<GpuTextureView> MainPass::GetTextureView(GpuTexture* texture) {
     return m_ResourceCache.GetTextureView(texture);
 }
 
-std::shared_ptr<GpuSampler> MainPass::GetSamplerForTexture(TextureAsset* texture)
-{
+std::shared_ptr<GpuSampler> MainPass::GetSamplerForTexture(TextureAsset* texture) {
     return m_ResourceCache.GetSamplerForTexture(texture);
 }
 
-bool MainPass::CanReuseMaterialBindGroups() const
-{
-    if (!Device()) return false;
+bool MainPass::CanReuseMaterialBindGroups() const {
+    if (!Device())
+        return false;
     const RHIBackend backend = Device()->GetBackend();
-    return backend == RHIBackend::D3D11 ||
-           backend == RHIBackend::D3D12 ||
-           backend == RHIBackend::Metal ||
+    return backend == RHIBackend::D3D11 || backend == RHIBackend::D3D12 || backend == RHIBackend::Metal ||
            backend == RHIBackend::Unknown;
 }
 
-std::shared_ptr<GpuBindGroup> MainPass::GetOrCreateMaterialBindGroup(
-    GpuShader* shader,
-    const MaterialAsset& material,
-    bool shadowedPbr,
-    const std::array<GpuTexture*, 9>& textures,
-    const std::array<TextureAsset*, 9>& textureAssets)
-{
-    if (!Device() || !shader) return nullptr;
+std::shared_ptr<GpuBindGroup>
+MainPass::GetOrCreateMaterialBindGroup(GpuShader* shader, const MaterialAsset& material, bool shadowedPbr,
+                                       const std::array<GpuTexture*, 9>& textures,
+                                       const std::array<TextureAsset*, 9>& textureAssets) {
+    if (!Device() || !shader)
+        return nullptr;
     EnsureNamedBindingDefaults();
 
     std::string signature;
@@ -213,9 +181,9 @@ std::shared_ptr<GpuBindGroup> MainPass::GetOrCreateMaterialBindGroup(
 
     auto createBindGroup = [&]() -> std::shared_ptr<GpuBindGroup> {
         ++m_LastStats.bindGroupCreates;
-        auto bindings = Device()->CreateBindGroup(
-            m_MainShaderHandle ? m_MainShaderHandle->shader : nullptr);
-        if (!bindings) return nullptr;
+        auto bindings = Device()->CreateBindGroup(m_MainShaderHandle ? m_MainShaderHandle->shader : nullptr);
+        if (!bindings)
+            return nullptr;
         for (uint32_t slot = 0; slot < slotCount; ++slot) {
             bindings->SetTexture(kMainTextureNames[slot], GetTextureView(textures[slot]));
             std::shared_ptr<GpuSampler> sampler = linearSampler;
@@ -230,8 +198,7 @@ std::shared_ptr<GpuBindGroup> MainPass::GetOrCreateMaterialBindGroup(
             if (!bindings->SetStorageBuffer("g_EnvironmentSH2", m_EnvironmentSH2Buffer)) {
                 if (!m_LoggedEnvironmentSHBindingFailure) {
                     Logger::Error("[MainPass] Failed to bind g_EnvironmentSH2: shaderMode=",
-                                  static_cast<int>(m_ShaderMode),
-                                  " environmentView=", m_EnvironmentSH2Buffer ? 1 : 0);
+                                  static_cast<int>(m_ShaderMode), " environmentView=", m_EnvironmentSH2Buffer ? 1 : 0);
                     m_LoggedEnvironmentSHBindingFailure = true;
                 }
             }
@@ -251,9 +218,9 @@ std::shared_ptr<GpuBindGroup> MainPass::GetOrCreateMaterialBindGroup(
     return entry.bindGroup;
 }
 
-GpuShader* MainPass::GetOrCreateShader()
-{
-    if (!Device()) return nullptr;
+GpuShader* MainPass::GetOrCreateShader() {
+    if (!Device())
+        return nullptr;
 
 #ifdef MYENGINE_PLATFORM_WINDOWS
     const bool supportsWindowsPbr = Device()->GetBackend() == RHIBackend::D3D11 ||
@@ -261,59 +228,55 @@ GpuShader* MainPass::GetOrCreateShader()
                                     Device()->GetBackend() == RHIBackend::Vulkan;
     if (supportsWindowsPbr) {
         if (!m_MainShaderHandle) {
-            m_MainShaderHandle = ShaderManager::Get().GetOrCreate(
-                EngineShaders::kShadowedMainPass,
-                k_MeshVertexLayout, k_MeshVertexLayoutCount);
+            m_MainShaderHandle = ShaderManager::Get().GetOrCreate(EngineShaders::kShadowedMainPass, k_MeshVertexLayout,
+                                                                  k_MeshVertexLayoutCount);
             m_ShaderMode = ShaderMode::ShadowedPbr;
         }
-        if ((!m_MainShaderHandle || !m_MainShaderHandle->shader) &&
-            m_ShaderMode == ShaderMode::ShadowedPbr) {
+        if ((!m_MainShaderHandle || !m_MainShaderHandle->shader) && m_ShaderMode == ShaderMode::ShadowedPbr) {
             Logger::Warn("[MainPass] PBR shader failed; fallback to legacy shader");
-            m_MainShaderHandle = ShaderManager::Get().GetOrCreate(
-                EngineShaders::kMesh,
-                k_MeshVertexLayout, k_MeshVertexLayoutCount);
+            m_MainShaderHandle =
+                ShaderManager::Get().GetOrCreate(EngineShaders::kMesh, k_MeshVertexLayout, k_MeshVertexLayoutCount);
             m_ShaderMode = ShaderMode::Legacy;
         }
     } else {
         if (!m_MainShaderHandle) {
-            m_MainShaderHandle = ShaderManager::Get().GetOrCreate(
-                EngineShaders::kMesh,
-                k_MeshVertexLayout, k_MeshVertexLayoutCount);
+            m_MainShaderHandle =
+                ShaderManager::Get().GetOrCreate(EngineShaders::kMesh, k_MeshVertexLayout, k_MeshVertexLayoutCount);
             m_ShaderMode = ShaderMode::Legacy;
         }
     }
 #else
     if (Device()->GetBackend() == RHIBackend::Metal) {
         if (!m_MainShaderHandle) {
-            m_MainShaderHandle = ShaderManager::Get().GetOrCreate(
-                EngineShaders::kShadowedMainPass,
-                k_MeshVertexLayout, k_MeshVertexLayoutCount);
+            m_MainShaderHandle = ShaderManager::Get().GetOrCreate(EngineShaders::kShadowedMainPass, k_MeshVertexLayout,
+                                                                  k_MeshVertexLayoutCount);
             m_ShaderMode = ShaderMode::ShadowedPbr;
         }
-        if ((!m_MainShaderHandle || !m_MainShaderHandle->shader) &&
-            m_ShaderMode == ShaderMode::ShadowedPbr) {
+        if ((!m_MainShaderHandle || !m_MainShaderHandle->shader) && m_ShaderMode == ShaderMode::ShadowedPbr) {
             Logger::Warn("[MainPass] Metal PBR shader failed; fallback to legacy shader");
             m_MainShaderHandle = std::make_shared<ShaderHandle>();
-            m_MainShaderHandle->shader = Device()->CreateShader(
-                k_MeshShaderSource, "VSMain", "PSMain",
-                k_MeshVertexLayout, k_MeshVertexLayoutCount);
-            if (m_MainShaderHandle->shader) ++m_MainShaderHandle->version;
+            m_MainShaderHandle->shader = Device()->CreateShader(k_MeshShaderSource, "VSMain", "PSMain",
+                                                                k_MeshVertexLayout, k_MeshVertexLayoutCount);
+            if (m_MainShaderHandle->shader)
+                ++m_MainShaderHandle->version;
             m_ShaderMode = ShaderMode::Legacy;
         }
     } else if (!m_MainShaderHandle) {
         m_MainShaderHandle = std::make_shared<ShaderHandle>();
-        m_MainShaderHandle->shader = Device()->CreateShader(
-            k_MeshShaderSource, "VSMain", "PSMain",
-            k_MeshVertexLayout, k_MeshVertexLayoutCount);
-        if (m_MainShaderHandle->shader) ++m_MainShaderHandle->version;
+        m_MainShaderHandle->shader =
+            Device()->CreateShader(k_MeshShaderSource, "VSMain", "PSMain", k_MeshVertexLayout, k_MeshVertexLayoutCount);
+        if (m_MainShaderHandle->shader)
+            ++m_MainShaderHandle->version;
         m_ShaderMode = ShaderMode::Legacy;
     }
 #endif
 
-    if (!m_MainShaderHandle) return nullptr;
+    if (!m_MainShaderHandle)
+        return nullptr;
     if (m_MainShaderVersion != m_MainShaderHandle->version) {
         m_MainShaderVersion = m_MainShaderHandle->version;
-        for (auto& pipeline : m_MainPipelines) pipeline.reset();
+        for (auto& pipeline : m_MainPipelines)
+            pipeline.reset();
         m_MaterialBindGroups.clear();
     }
     if (m_MainShaderHandle->shader && m_ShaderMode == ShaderMode::Unknown) {
@@ -322,27 +285,24 @@ GpuShader* MainPass::GetOrCreateShader()
     return m_MainShaderHandle->shader.get();
 }
 
-void MainPass::SetHdrPassthrough(bool passthrough)
-{
-    if (m_HdrPassthrough == passthrough) return;
+void MainPass::SetHdrPassthrough(bool passthrough) {
+    if (m_HdrPassthrough == passthrough)
+        return;
     m_HdrPassthrough = passthrough;
-    for (auto& pipeline : m_MainPipelines) pipeline.reset();
+    for (auto& pipeline : m_MainPipelines)
+        pipeline.reset();
     m_SkyPipeline.reset();
 }
 
-GpuGraphicsPipeline* MainPass::GetOrCreateMainPipeline(
-    bool transparent, bool twoSided, bool wireframe)
-{
-    if (!Device() || !m_MainShaderHandle || !m_MainShaderHandle->shader) return nullptr;
-    const size_t index = (transparent ? 1u : 0u) |
-                         (twoSided ? 2u : 0u) |
-                         (wireframe ? 4u : 0u);
+GpuGraphicsPipeline* MainPass::GetOrCreateMainPipeline(bool transparent, bool twoSided, bool wireframe) {
+    if (!Device() || !m_MainShaderHandle || !m_MainShaderHandle->shader)
+        return nullptr;
+    const size_t index = (transparent ? 1u : 0u) | (twoSided ? 2u : 0u) | (wireframe ? 4u : 0u);
     auto& pipeline = m_MainPipelines[index];
     if (!pipeline) {
         GraphicsPipelineDesc desc;
         desc.shader = m_MainShaderHandle->shader;
-        desc.colorFormats = {m_HdrPassthrough ? RHIFormat::RGBA16Float
-                                               : RHIFormat::RGBA8UNorm};
+        desc.colorFormats = {m_HdrPassthrough ? RHIFormat::RGBA16Float : RHIFormat::RGBA8UNorm};
         desc.depthFormat = RHIFormat::D24S8;
         desc.rasterizer.cullMode = twoSided ? RHICullMode::None : RHICullMode::Back;
         desc.rasterizer.fillMode = wireframe ? RHIFillMode::Wireframe : RHIFillMode::Solid;
@@ -352,20 +312,17 @@ GpuGraphicsPipeline* MainPass::GetOrCreateMainPipeline(
     return pipeline.get();
 }
 
-GpuGraphicsPipeline* MainPass::GetOrCreateMaterialPipeline(const MaterialAsset& material)
-{
-    if (!Device() || !material.GetShader()) return nullptr;
+GpuGraphicsPipeline* MainPass::GetOrCreateMaterialPipeline(const MaterialAsset& material) {
+    if (!Device() || !material.GetShader())
+        return nullptr;
     auto& pipeline = m_MaterialPipelines[&material];
     const bool transparent = material.GetBlendMode() == BlendMode::Transparent;
     const RHICullMode cull = material.IsTwoSided() ? RHICullMode::None : RHICullMode::Back;
     const RHIFillMode fill = material.IsWireframe() ? RHIFillMode::Wireframe : RHIFillMode::Solid;
-    const RHIFormat colorFormat = m_HdrPassthrough ? RHIFormat::RGBA16Float
-                                                    : RHIFormat::RGBA8UNorm;
-    if (!pipeline || pipeline->desc.shader.get() != material.GetShader() ||
-        pipeline->desc.colorFormats.empty() || pipeline->desc.colorFormats[0] != colorFormat ||
-        pipeline->desc.rasterizer.cullMode != cull ||
-        pipeline->desc.rasterizer.fillMode != fill ||
-        pipeline->desc.blend.attachments[0].blendEnable != transparent) {
+    const RHIFormat colorFormat = m_HdrPassthrough ? RHIFormat::RGBA16Float : RHIFormat::RGBA8UNorm;
+    if (!pipeline || pipeline->desc.shader.get() != material.GetShader() || pipeline->desc.colorFormats.empty() ||
+        pipeline->desc.colorFormats[0] != colorFormat || pipeline->desc.rasterizer.cullMode != cull ||
+        pipeline->desc.rasterizer.fillMode != fill || pipeline->desc.blend.attachments[0].blendEnable != transparent) {
         GraphicsPipelineDesc desc;
         desc.shader = material.GetShaderHandle();
         desc.colorFormats = {colorFormat};
@@ -378,9 +335,9 @@ GpuGraphicsPipeline* MainPass::GetOrCreateMaterialPipeline(const MaterialAsset& 
     return pipeline.get();
 }
 
-GpuGraphicsPipeline* MainPass::GetOrCreateSkyPipeline()
-{
-    if (!Device() || !m_SkyShaderHandle || !m_SkyShaderHandle->shader) return nullptr;
+GpuGraphicsPipeline* MainPass::GetOrCreateSkyPipeline() {
+    if (!Device() || !m_SkyShaderHandle || !m_SkyShaderHandle->shader)
+        return nullptr;
     if (m_SkyShaderVersion != m_SkyShaderHandle->version) {
         m_SkyShaderVersion = m_SkyShaderHandle->version;
         m_SkyPipeline.reset();
@@ -388,8 +345,7 @@ GpuGraphicsPipeline* MainPass::GetOrCreateSkyPipeline()
     if (!m_SkyPipeline) {
         GraphicsPipelineDesc desc;
         desc.shader = m_SkyShaderHandle->shader;
-        desc.colorFormats = {m_HdrPassthrough ? RHIFormat::RGBA16Float
-                                               : RHIFormat::RGBA8UNorm};
+        desc.colorFormats = {m_HdrPassthrough ? RHIFormat::RGBA16Float : RHIFormat::RGBA8UNorm};
         desc.depthFormat = RHIFormat::D24S8;
         desc.depthStencil.depthTestEnable = false;
         desc.depthStencil.depthWriteEnable = false;
@@ -399,20 +355,19 @@ GpuGraphicsPipeline* MainPass::GetOrCreateSkyPipeline()
     return m_SkyPipeline.get();
 }
 
-GpuShader* MainPass::GetOrCreateSkyShader()
-{
-    if (!Device()) return nullptr;
+GpuShader* MainPass::GetOrCreateSkyShader() {
+    if (!Device())
+        return nullptr;
     if (!m_SkyShaderHandle) {
-        m_SkyShaderHandle = ShaderManager::Get().GetOrCreate(
-            EngineShaders::kProceduralSky, nullptr, 0);
+        m_SkyShaderHandle = ShaderManager::Get().GetOrCreate(EngineShaders::kProceduralSky, nullptr, 0);
     }
     return m_SkyShaderHandle ? m_SkyShaderHandle->shader.get() : nullptr;
 }
 
-void MainPass::RenderSky(const Camera& camera, GpuCommandList& cmd)
-{
+void MainPass::RenderSky(const Camera& camera, GpuCommandList& cmd) {
     GpuShader* skyShader = GetOrCreateSkyShader();
-    if (!skyShader) return;
+    if (!skyShader)
+        return;
     SkyConstants constants{};
     const Vec3 forward = camera.GetForward();
     const Vec3 right = camera.GetRight();
@@ -436,26 +391,27 @@ void MainPass::RenderSky(const Camera& camera, GpuCommandList& cmd)
     constants.parameters[3] = m_HdrPassthrough ? 1.0f : 0.0f;
 
     GpuGraphicsPipeline* skyPipeline = GetOrCreateSkyPipeline();
-    if (!skyPipeline) return;
+    if (!skyPipeline)
+        return;
     cmd.SetGraphicsPipeline(skyPipeline);
     cmd.BindVertexBuffer(nullptr);
     cmd.BindIndexBuffer(nullptr);
     ++m_LastStats.bindGroupCreates;
-    auto bindings = Device()->CreateBindGroup(
-        m_SkyShaderHandle ? m_SkyShaderHandle->shader : nullptr);
+    auto bindings = Device()->CreateBindGroup(m_SkyShaderHandle ? m_SkyShaderHandle->shader : nullptr);
     if (bindings && bindings->SetConstants("SkyConstants", &constants, sizeof(constants)))
         cmd.SetBindGroup(0, bindings.get());
     cmd.Draw(3);
     ++m_LastStats.drawCalls;
 }
 
-void MainPass::Execute(GpuCommandList& commands, const Scene& scene, const Camera& camera)
-{
+void MainPass::Execute(GpuCommandList& commands, const Scene& scene, const Camera& camera) {
     m_LastStats = {};
-    if (!Device()) return;
+    if (!Device())
+        return;
 
     GpuShader* shader = GetOrCreateShader();
-    if (!shader) return;
+    if (!shader)
+        return;
 
     // BeginFrame/EndFrame moved to Renderer for offscreen pipeline.
 
@@ -474,12 +430,10 @@ void MainPass::Execute(GpuCommandList& commands, const Scene& scene, const Camer
     forwardContext.sceneLights = &sceneLights;
     forwardContext.postProcess = &postProcess;
     if (m_ForwardOpaquePass) {
-        m_ForwardOpaquePass->Execute(
-            commands, scene, camera, collection.opaqueItems, forwardContext);
+        m_ForwardOpaquePass->Execute(commands, scene, camera, collection.opaqueItems, forwardContext);
     }
     if (m_ForwardTransparentPass) {
-        m_ForwardTransparentPass->Execute(
-            commands, scene, camera, collection.transparentItems, forwardContext);
+        m_ForwardTransparentPass->Execute(commands, scene, camera, collection.transparentItems, forwardContext);
     }
 
     const MaterialResourceCacheStats& resourceStats = m_ResourceCache.GetFrameStats();
@@ -490,14 +444,14 @@ void MainPass::Execute(GpuCommandList& commands, const Scene& scene, const Camer
     // EndFrame called by Renderer after PostProcessPass.
 }
 
-void MainPass::ExecuteTransparentOnly(GpuCommandList& commands, const Scene& scene,
-                                      const Camera& camera)
-{
+void MainPass::ExecuteTransparentOnly(GpuCommandList& commands, const Scene& scene, const Camera& camera) {
     m_LastStats = {};
-    if (!Device()) return;
+    if (!Device())
+        return;
 
     GpuShader* shader = GetOrCreateShader();
-    if (!shader) return;
+    if (!shader)
+        return;
 
     const SceneLightData sceneLights = CollectSceneLights(scene);
     const ScenePostProcessData postProcess = CollectScenePostProcessData(scene);
@@ -511,8 +465,7 @@ void MainPass::ExecuteTransparentOnly(GpuCommandList& commands, const Scene& sce
     forwardContext.sceneLights = &sceneLights;
     forwardContext.postProcess = &postProcess;
     if (m_ForwardTransparentPass) {
-        m_ForwardTransparentPass->Execute(
-            commands, scene, camera, collection.transparentItems, forwardContext);
+        m_ForwardTransparentPass->Execute(commands, scene, camera, collection.transparentItems, forwardContext);
     }
 
     const MaterialResourceCacheStats& resourceStats = m_ResourceCache.GetFrameStats();

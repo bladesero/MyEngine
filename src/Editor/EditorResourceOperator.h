@@ -45,8 +45,7 @@ public:
 
 class AssetModifier : public IResourceOperator {
 public:
-    explicit AssetModifier(std::string assetPath)
-        : m_AssetPath(std::move(assetPath)) {}
+    explicit AssetModifier(std::string assetPath) : m_AssetPath(std::move(assetPath)) {}
 
     const std::string& GetAssetPath() const { return m_AssetPath; }
 

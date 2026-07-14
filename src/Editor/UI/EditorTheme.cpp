@@ -6,27 +6,24 @@
 
 namespace Editor::UI {
 
-float ScaleToken(float value, float effectiveScale)
-{
+float ScaleToken(float value, float effectiveScale) {
     const float scale = effectiveScale > 0.0f ? effectiveScale : 1.0f;
     return value * scale;
 }
 
-void EditorThemeManager::Initialize(std::string themeID)
-{
+void EditorThemeManager::Initialize(std::string themeID) {
     SetThemeID(std::move(themeID));
 }
 
-void EditorThemeManager::SetThemeID(std::string themeID)
-{
+void EditorThemeManager::SetThemeID(std::string themeID) {
     m_Theme = CreateDefaultTheme();
     m_Theme.id = NormalizeThemeID(themeID);
 }
 
-void EditorThemeManager::Apply(float effectiveScale)
-{
+void EditorThemeManager::Apply(float effectiveScale) {
 #if defined(MYENGINE_ENABLE_IMGUI)
-    if (!ImGui::GetCurrentContext()) return;
+    if (!ImGui::GetCurrentContext())
+        return;
     ImGui::StyleColorsDark();
     ImGuiStyle& style = ImGui::GetStyle();
     const auto& t = m_Theme.tokens;
@@ -39,12 +36,9 @@ void EditorThemeManager::Apply(float effectiveScale)
     style.TabRounding = ScaleValue(t.tabRounding, effectiveScale);
     style.WindowBorderSize = t.windowBorderSize;
     style.FrameBorderSize = t.frameBorderSize;
-    style.ItemSpacing = {ScaleValue(t.itemSpacingX, effectiveScale),
-                         ScaleValue(t.itemSpacingY, effectiveScale)};
-    style.FramePadding = {ScaleValue(t.framePaddingX, effectiveScale),
-                          ScaleValue(t.framePaddingY, effectiveScale)};
-    style.WindowPadding = {ScaleValue(t.windowPaddingX, effectiveScale),
-                           ScaleValue(t.windowPaddingY, effectiveScale)};
+    style.ItemSpacing = {ScaleValue(t.itemSpacingX, effectiveScale), ScaleValue(t.itemSpacingY, effectiveScale)};
+    style.FramePadding = {ScaleValue(t.framePaddingX, effectiveScale), ScaleValue(t.framePaddingY, effectiveScale)};
+    style.WindowPadding = {ScaleValue(t.windowPaddingX, effectiveScale), ScaleValue(t.windowPaddingY, effectiveScale)};
     style.IndentSpacing = ScaleValue(t.indentSpacing, effectiveScale);
 
     style.Colors[ImGuiCol_WindowBg] = t.windowBg;
@@ -72,18 +66,15 @@ void EditorThemeManager::Apply(float effectiveScale)
 #endif
 }
 
-EditorTheme EditorThemeManager::CreateDefaultTheme()
-{
+EditorTheme EditorThemeManager::CreateDefaultTheme() {
     return {};
 }
 
-std::string EditorThemeManager::NormalizeThemeID(const std::string& themeID)
-{
+std::string EditorThemeManager::NormalizeThemeID(const std::string& themeID) {
     return themeID == "dark" || themeID.empty() ? "dark" : "dark";
 }
 
-float EditorThemeManager::ScaleValue(float value, float effectiveScale)
-{
+float EditorThemeManager::ScaleValue(float value, float effectiveScale) {
     return ScaleToken(value, effectiveScale);
 }
 

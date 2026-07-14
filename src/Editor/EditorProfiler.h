@@ -18,8 +18,8 @@ class EditorProfiler {
 public:
     explicit EditorProfiler(size_t capacity = 512);
 
-    void RecordEvent(std::string category, std::string name, double durationMs,
-                     std::string details = {}, uint64_t frameIndex = 0);
+    void RecordEvent(std::string category, std::string name, double durationMs, std::string details = {},
+                     uint64_t frameIndex = 0);
     std::vector<EditorProfilerEvent> Snapshot() const;
     void Clear();
     void SetEnabled(bool enabled) { m_Enabled = enabled; }

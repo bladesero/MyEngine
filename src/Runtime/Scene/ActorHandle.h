@@ -16,9 +16,7 @@ struct ActorHandle {
         return {static_cast<uint32_t>(value), static_cast<uint32_t>(value >> 32u)};
     }
     explicit operator bool() const { return IsValid(); }
-    friend bool operator==(ActorHandle a, ActorHandle b) {
-        return a.index == b.index && a.generation == b.generation;
-    }
+    friend bool operator==(ActorHandle a, ActorHandle b) { return a.index == b.index && a.generation == b.generation; }
     friend bool operator!=(ActorHandle a, ActorHandle b) { return !(a == b); }
 };
 

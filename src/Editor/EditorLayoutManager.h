@@ -25,22 +25,18 @@ struct EditorLayoutConfig {
 
     static EditorLayoutConfig CreateDefault();
     bool Validate(std::string* error = nullptr) const;
-    static bool LoadFromFile(const std::filesystem::path& path,
-                             EditorLayoutConfig& config,
+    static bool LoadFromFile(const std::filesystem::path& path, EditorLayoutConfig& config,
                              std::string* error = nullptr);
-    static bool SaveToFile(const std::filesystem::path& path,
-                           const EditorLayoutConfig& config,
+    static bool SaveToFile(const std::filesystem::path& path, const EditorLayoutConfig& config,
                            std::string* error = nullptr);
 };
 
 class EditorLayoutManager {
 public:
-    void OpenProject(const std::filesystem::path& projectRoot,
-                     EditorProjectState& state,
+    void OpenProject(const std::filesystem::path& projectRoot, EditorProjectState& state,
                      const std::vector<std::unique_ptr<EditorPanel>>& panels);
     void CloseProject();
-    void BeginDockSpace(const std::vector<std::unique_ptr<EditorPanel>>& panels,
-                        float reservedTop = 0.0f,
+    void BeginDockSpace(const std::vector<std::unique_ptr<EditorPanel>>& panels, float reservedTop = 0.0f,
                         float reservedBottom = 0.0f);
     void SaveCurrentLayout(EditorProjectState& state) const;
     void ResetToDefault(EditorProjectState& state);

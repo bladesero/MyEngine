@@ -7,10 +7,7 @@
 #include <string>
 #include <vector>
 
-enum class ShaderCacheMode {
-    EditorOnDemandCompile,
-    RuntimeCookedOnly
-};
+enum class ShaderCacheMode { EditorOnDemandCompile, RuntimeCookedOnly };
 
 struct ShaderCacheRequest {
     std::filesystem::path sourcePath;

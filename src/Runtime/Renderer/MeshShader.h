@@ -79,13 +79,13 @@ inline constexpr const char* k_MeshShaderSource = "";
 // Vertex layout – semantic names match HLSL; attribute indices match MSL.
 // ---------------------------------------------------------------------------
 inline const VertexElement k_MeshVertexLayout[] = {
-    { "POSITION", 0, VertexFormat::Float3, offsetof(MeshVertex, position) },
-    { "NORMAL",   0, VertexFormat::Float3, offsetof(MeshVertex, normal)   },
-    { "TANGENT",  0, VertexFormat::Float3, offsetof(MeshVertex, tangent)  },
-    { "TEXCOORD", 0, VertexFormat::Float2, offsetof(MeshVertex, u)       },
-    { "BLENDINDICES", 0, VertexFormat::Float4, offsetof(MeshVertex, boneIndices) },
-    { "BLENDWEIGHT",  0, VertexFormat::Float4, offsetof(MeshVertex, boneWeights) },
-    { "COLOR", 0, VertexFormat::Float4, offsetof(MeshVertex, color) },
+    {"POSITION", 0, VertexFormat::Float3, offsetof(MeshVertex, position)},
+    {"NORMAL", 0, VertexFormat::Float3, offsetof(MeshVertex, normal)},
+    {"TANGENT", 0, VertexFormat::Float3, offsetof(MeshVertex, tangent)},
+    {"TEXCOORD", 0, VertexFormat::Float2, offsetof(MeshVertex, u)},
+    {"BLENDINDICES", 0, VertexFormat::Float4, offsetof(MeshVertex, boneIndices)},
+    {"BLENDWEIGHT", 0, VertexFormat::Float4, offsetof(MeshVertex, boneWeights)},
+    {"COLOR", 0, VertexFormat::Float4, offsetof(MeshVertex, color)},
 };
 inline constexpr uint32_t k_MeshVertexLayoutCount = 7;
 

@@ -13,10 +13,7 @@ bool EditorDragDropSource::Draw() {
     if (!ImGui::BeginDragDropSource(GetFlags()))
         return false;
 
-    ImGui::SetDragDropPayload(
-        GetPayloadType(),
-        GetPayloadData(),
-        GetPayloadSize());
+    ImGui::SetDragDropPayload(GetPayloadType(), GetPayloadData(), GetPayloadSize());
 
     ImGui::TextUnformatted(GetPreviewLabel());
     ImGui::EndDragDropSource();
@@ -35,9 +32,12 @@ constexpr const char kActorPayload[] = "MYENGINE_ACTOR_ID";
 }
 
 ActorDragDropSource::ActorDragDropSource(uint64_t actorId, std::string name)
-    : m_ActorId(actorId), m_Name(std::move(name)) {}
+    : m_ActorId(actorId), m_Name(std::move(name)) {
+}
 
-const char* ActorDragDropSource::GetPayloadType() const { return kActorPayload; }
+const char* ActorDragDropSource::GetPayloadType() const {
+    return kActorPayload;
+}
 
 const void* ActorDragDropSource::GetPayloadData() const {
     return &m_ActorId;
@@ -55,20 +55,20 @@ const char* ActorDragDropSource::GetPreviewLabel() const {
 // AssetDragDropSource
 // ============================================================
 
-AssetDragDropSource::AssetDragDropSource(
-    const char* payloadType, std::string path, std::string label)
-    : m_PayloadType(payloadType)
-    , m_Path(std::move(path))
-    , m_Label(std::move(label)) {}
+AssetDragDropSource::AssetDragDropSource(const char* payloadType, std::string path, std::string label)
+    : m_PayloadType(payloadType), m_Path(std::move(path)), m_Label(std::move(label)) {
+}
 
-const char* AssetDragDropSource::GetPayloadType() const { return m_PayloadType; }
+const char* AssetDragDropSource::GetPayloadType() const {
+    return m_PayloadType;
+}
 
 const void* AssetDragDropSource::GetPayloadData() const {
     return m_Path.c_str();
 }
 
 size_t AssetDragDropSource::GetPayloadSize() const {
-    return m_Path.size() + 1;  // include null terminator
+    return m_Path.size() + 1; // include null terminator
 }
 
 const char* AssetDragDropSource::GetPreviewLabel() const {

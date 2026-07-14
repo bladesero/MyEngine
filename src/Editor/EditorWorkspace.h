@@ -10,20 +10,16 @@
 
 class EditorWorkspace {
 public:
-    explicit EditorWorkspace(std::filesystem::path settingsPath = {},
-                             std::filesystem::path templateRoot = {});
+    explicit EditorWorkspace(std::filesystem::path settingsPath = {}, std::filesystem::path templateRoot = {});
 
     bool Load(std::string* error = nullptr);
     bool Save(std::string* error = nullptr) const;
     void AddRecentProject(const std::filesystem::path& projectRoot);
     void SetTemplateRoot(std::filesystem::path templateRoot);
-    bool CreateProject(const std::filesystem::path& projectRoot,
-                       const std::string& projectName,
+    bool CreateProject(const std::filesystem::path& projectRoot, const std::string& projectName,
                        std::string* error = nullptr);
 
-    const std::vector<std::filesystem::path>& GetRecentProjects() const {
-        return m_RecentProjects;
-    }
+    const std::vector<std::filesystem::path>& GetRecentProjects() const { return m_RecentProjects; }
     const std::filesystem::path& GetSettingsPath() const { return m_SettingsPath; }
     const std::filesystem::path& GetTemplateRoot() const { return m_TemplateRoot; }
     EditorShortcutMap& GetShortcuts() { return m_Shortcuts; }
@@ -32,10 +28,8 @@ public:
     void SetUserUiScale(float value);
     const std::string& GetEditorThemeId() const { return m_EditorThemeId; }
     void SetEditorThemeId(std::string value);
-    void SetPanelStateValue(const std::string& panelID, const std::string& key,
-                            std::string value);
-    std::optional<std::string> GetPanelStateValue(const std::string& panelID,
-                                                  const std::string& key) const;
+    void SetPanelStateValue(const std::string& panelID, const std::string& key, std::string value);
+    std::optional<std::string> GetPanelStateValue(const std::string& panelID, const std::string& key) const;
     void ClearPanelState(const std::string& panelID);
 
 private:

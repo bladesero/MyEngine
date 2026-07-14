@@ -3,17 +3,17 @@
 #include <algorithm>
 #include <cmath>
 
-bool SubtitleSystem::ComesBefore(const QueuedCue& a, const QueuedCue& b)
-{
-    if (a.cue.priority != b.cue.priority) return a.cue.priority > b.cue.priority;
+bool SubtitleSystem::ComesBefore(const QueuedCue& a, const QueuedCue& b) {
+    if (a.cue.priority != b.cue.priority)
+        return a.cue.priority > b.cue.priority;
     return a.sequence < b.sequence;
 }
 
-bool SubtitleSystem::Enqueue(SubtitleCue cue, std::string* error)
-{
+bool SubtitleSystem::Enqueue(SubtitleCue cue, std::string* error) {
     if (cue.stableId.empty() || cue.text.empty() || !std::isfinite(cue.durationSeconds) ||
         cue.durationSeconds <= 0.0f || cue.durationSeconds > 300.0f) {
-        if (error) *error = "subtitle id, text, or duration is invalid";
+        if (error)
+            *error = "subtitle id, text, or duration is invalid";
         return false;
     }
     cue.priority = std::clamp(cue.priority, -1000, 1000);
@@ -21,7 +21,8 @@ bool SubtitleSystem::Enqueue(SubtitleCue cue, std::string* error)
         m_Active.cue = std::move(cue);
         m_Remaining = m_Active.cue.durationSeconds;
         RefreshState();
-        if (error) error->clear();
+        if (error)
+            error->clear();
         return true;
     }
     for (QueuedCue& queued : m_Queue) {
@@ -29,7 +30,8 @@ bool SubtitleSystem::Enqueue(SubtitleCue cue, std::string* error)
             queued.cue = std::move(cue);
             std::stable_sort(m_Queue.begin(), m_Queue.end(), ComesBefore);
             RefreshState();
-            if (error) error->clear();
+            if (error)
+                error->clear();
             return true;
         }
     }
@@ -53,13 +55,14 @@ bool SubtitleSystem::Enqueue(SubtitleCue cue, std::string* error)
         ++m_Dropped;
     }
     RefreshState();
-    if (error) error->clear();
+    if (error)
+        error->clear();
     return true;
 }
 
-void SubtitleSystem::Update(float unscaledDeltaSeconds)
-{
-    if (!m_HasActive || !std::isfinite(unscaledDeltaSeconds) || unscaledDeltaSeconds <= 0.0f) return;
+void SubtitleSystem::Update(float unscaledDeltaSeconds) {
+    if (!m_HasActive || !std::isfinite(unscaledDeltaSeconds) || unscaledDeltaSeconds <= 0.0f)
+        return;
     float remainingDelta = unscaledDeltaSeconds;
     while (m_HasActive && remainingDelta > 0.0f) {
         if (remainingDelta < m_Remaining) {
@@ -75,25 +78,23 @@ void SubtitleSystem::Update(float unscaledDeltaSeconds)
     RefreshState();
 }
 
-void SubtitleSystem::Clear()
-{
+void SubtitleSystem::Clear() {
     m_Queue.clear();
     m_HasActive = false;
     m_Remaining = 0.0f;
     RefreshState();
 }
 
-void SubtitleSystem::ActivateNext()
-{
-    if (m_Queue.empty()) return;
+void SubtitleSystem::ActivateNext() {
+    if (m_Queue.empty())
+        return;
     m_Active = std::move(m_Queue.front());
     m_Queue.erase(m_Queue.begin());
     m_HasActive = true;
     m_Remaining = m_Active.cue.durationSeconds;
 }
 
-void SubtitleSystem::RefreshState()
-{
+void SubtitleSystem::RefreshState() {
     m_State.visible = m_HasActive;
     m_State.stableId = m_HasActive ? m_Active.cue.stableId : std::string{};
     m_State.speaker = m_HasActive ? m_Active.cue.speaker : std::string{};

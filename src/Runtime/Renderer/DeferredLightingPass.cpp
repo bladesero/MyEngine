@@ -37,15 +37,14 @@ struct DeferredLightingConstants {
 
 } // namespace
 
-DeferredLightingPass::DeferredLightingPass(IRHIDevice* device)
-    : RenderPass(device)
-{}
+DeferredLightingPass::DeferredLightingPass(IRHIDevice* device) : RenderPass(device) {
+}
 
-void DeferredLightingPass::Resize(uint32_t width, uint32_t height)
-{
+void DeferredLightingPass::Resize(uint32_t width, uint32_t height) {
     width = width > 0 ? width : 1;
     height = height > 0 ? height : 1;
-    if (m_Width == width && m_Height == height) return;
+    if (m_Width == width && m_Height == height)
+        return;
     m_Width = width;
     m_Height = height;
     m_SceneColor.reset();
@@ -57,38 +56,27 @@ void DeferredLightingPass::Resize(uint32_t width, uint32_t height)
 void DeferredLightingPass::SetGBufferInput(std::shared_ptr<GpuTextureView> albedo,
                                            std::shared_ptr<GpuTextureView> normal,
                                            std::shared_ptr<GpuTextureView> material,
-                                           std::shared_ptr<GpuTextureView> emissive)
-{
+                                           std::shared_ptr<GpuTextureView> emissive) {
     m_GBufferAlbedo = std::move(albedo);
     m_GBufferNormal = std::move(normal);
     m_GBufferMaterial = std::move(material);
     m_GBufferEmissive = std::move(emissive);
 }
 
-void DeferredLightingPass::SetDepthInput(std::shared_ptr<GpuTextureView> depth)
-{
+void DeferredLightingPass::SetDepthInput(std::shared_ptr<GpuTextureView> depth) {
     m_SceneDepth = std::move(depth);
 }
 
-void DeferredLightingPass::SetLightingInput(const SceneLightData& lights)
-{
+void DeferredLightingPass::SetLightingInput(const SceneLightData& lights) {
     m_Lights = lights;
 }
 
-void DeferredLightingPass::SetShadowInput(const Mat4& lightViewProj,
-                                          bool directionalShadowEnabled,
-                                          GpuTexture* shadowMap,
-                                          const Mat4& spotLightViewProj,
-                                          int spotShadowIndex,
-                                          GpuTexture* spotShadowMap,
-                                          const Vec3& pointShadowPosition,
-                                          float pointShadowRange,
-                                          int pointShadowIndex,
-                                          GpuTexture* pointShadowMap,
-                                          const Mat4* cascadeViewProj,
-                                          uint32_t cascadeCount,
-                                          const float* cascadeSplits)
-{
+void DeferredLightingPass::SetShadowInput(const Mat4& lightViewProj, bool directionalShadowEnabled,
+                                          GpuTexture* shadowMap, const Mat4& spotLightViewProj, int spotShadowIndex,
+                                          GpuTexture* spotShadowMap, const Vec3& pointShadowPosition,
+                                          float pointShadowRange, int pointShadowIndex, GpuTexture* pointShadowMap,
+                                          const Mat4* cascadeViewProj, uint32_t cascadeCount,
+                                          const float* cascadeSplits) {
     m_LightViewProj = lightViewProj;
     m_DirectionalShadowEnabled = directionalShadowEnabled;
     m_ShadowMap = shadowMap;
@@ -100,8 +88,7 @@ void DeferredLightingPass::SetShadowInput(const Mat4& lightViewProj,
     m_PointShadowIndex = pointShadowIndex;
     m_PointShadowMap = pointShadowMap;
     for (uint32_t i = 0; i < 3; ++i) {
-        m_LightViewProjCascade[i] =
-            (cascadeViewProj && i < cascadeCount) ? cascadeViewProj[i] : Mat4::Identity();
+        m_LightViewProjCascade[i] = (cascadeViewProj && i < cascadeCount) ? cascadeViewProj[i] : Mat4::Identity();
     }
     if (cascadeSplits) {
         std::memcpy(m_CascadeSplits, cascadeSplits, sizeof(m_CascadeSplits));
@@ -111,19 +98,16 @@ void DeferredLightingPass::SetShadowInput(const Mat4& lightViewProj,
 }
 
 void DeferredLightingPass::SetEnvironmentInput(GpuTexture* environmentCubemap,
-                                               std::shared_ptr<GpuBufferView> sh2Buffer)
-{
+                                               std::shared_ptr<GpuBufferView> sh2Buffer) {
     m_EnvironmentCubemap = environmentCubemap;
     m_EnvironmentSH2Buffer = std::move(sh2Buffer);
 }
 
-bool DeferredLightingPass::PrepareGraphResources()
-{
+bool DeferredLightingPass::PrepareGraphResources() {
     return EnsureResources();
 }
 
-DeferredLightingPass::GraphResources DeferredLightingPass::GetGraphResources() const
-{
+DeferredLightingPass::GraphResources DeferredLightingPass::GetGraphResources() const {
     GraphResources resources;
     resources.sceneColor = m_SceneColor;
     resources.sceneColorRtv = m_SceneColorRtv;
@@ -132,14 +116,13 @@ DeferredLightingPass::GraphResources DeferredLightingPass::GetGraphResources() c
     return resources;
 }
 
-void DeferredLightingPass::MarkGraphResourcesShaderResource()
-{
+void DeferredLightingPass::MarkGraphResourcesShaderResource() {
     m_SceneColorState = RHIResourceState::ShaderResource;
 }
 
-bool DeferredLightingPass::EnsureResources()
-{
-    if (!Device()) return false;
+bool DeferredLightingPass::EnsureResources() {
+    if (!Device())
+        return false;
     if (!m_SceneColor) {
         RHITextureDesc desc;
         desc.width = m_Width;
@@ -184,14 +167,14 @@ bool DeferredLightingPass::EnsureResources()
     return GetOrCreateShader() && GetOrCreatePipeline();
 }
 
-GpuShader* DeferredLightingPass::GetOrCreateShader()
-{
-    if (!Device()) return nullptr;
+GpuShader* DeferredLightingPass::GetOrCreateShader() {
+    if (!Device())
+        return nullptr;
     if (!m_ShaderHandle) {
-        m_ShaderHandle = ShaderManager::Get().GetOrCreate(
-            EngineShaders::kDeferredLighting, nullptr, 0);
+        m_ShaderHandle = ShaderManager::Get().GetOrCreate(EngineShaders::kDeferredLighting, nullptr, 0);
     }
-    if (!m_ShaderHandle || !m_ShaderHandle->shader) return nullptr;
+    if (!m_ShaderHandle || !m_ShaderHandle->shader)
+        return nullptr;
     if (m_ShaderVersion != m_ShaderHandle->version) {
         m_ShaderVersion = m_ShaderHandle->version;
         m_Pipeline.reset();
@@ -199,9 +182,9 @@ GpuShader* DeferredLightingPass::GetOrCreateShader()
     return m_ShaderHandle->shader.get();
 }
 
-GpuGraphicsPipeline* DeferredLightingPass::GetOrCreatePipeline()
-{
-    if (!Device() || !m_ShaderHandle || !m_ShaderHandle->shader) return nullptr;
+GpuGraphicsPipeline* DeferredLightingPass::GetOrCreatePipeline() {
+    if (!Device() || !m_ShaderHandle || !m_ShaderHandle->shader)
+        return nullptr;
     if (!m_Pipeline) {
         GraphicsPipelineDesc desc;
         desc.shader = m_ShaderHandle->shader;
@@ -217,26 +200,26 @@ GpuGraphicsPipeline* DeferredLightingPass::GetOrCreatePipeline()
     return m_Pipeline.get();
 }
 
-std::shared_ptr<GpuTextureView> DeferredLightingPass::GetTextureView(GpuTexture* texture)
-{
-    if (!Device() || !texture) return nullptr;
+std::shared_ptr<GpuTextureView> DeferredLightingPass::GetTextureView(GpuTexture* texture) {
+    if (!Device() || !texture)
+        return nullptr;
     auto found = m_TextureViews.find(texture);
-    if (found != m_TextureViews.end()) return found->second;
+    if (found != m_TextureViews.end())
+        return found->second;
     RHITextureViewDesc desc;
     desc.mipCount = texture->desc.mipLevels;
     desc.layerCount = texture->desc.arrayLayers;
     desc.usage = RHIResourceUsage::ShaderResource;
-    auto view = Device()->CreateTextureView(
-        std::shared_ptr<GpuTexture>(texture, [](GpuTexture*) {}), desc);
-    if (view) m_TextureViews[texture] = view;
+    auto view = Device()->CreateTextureView(std::shared_ptr<GpuTexture>(texture, [](GpuTexture*) {}), desc);
+    if (view)
+        m_TextureViews[texture] = view;
     return view;
 }
 
-void DeferredLightingPass::Execute(GpuCommandList& commands, const Scene&, const Camera& camera)
-{
-    if (!EnsureResources() || !m_Pipeline || !m_ShaderHandle || !m_ShaderHandle->shader) return;
-    if (!m_GBufferAlbedo || !m_GBufferNormal || !m_GBufferMaterial ||
-        !m_GBufferEmissive || !m_SceneDepth) {
+void DeferredLightingPass::Execute(GpuCommandList& commands, const Scene&, const Camera& camera) {
+    if (!EnsureResources() || !m_Pipeline || !m_ShaderHandle || !m_ShaderHandle->shader)
+        return;
+    if (!m_GBufferAlbedo || !m_GBufferNormal || !m_GBufferMaterial || !m_GBufferEmissive || !m_SceneDepth) {
         Logger::Error("[DeferredLightingPass] Missing GBuffer or depth inputs");
         return;
     }
@@ -253,8 +236,7 @@ void DeferredLightingPass::Execute(GpuCommandList& commands, const Scene&, const
                     sizeof(constants.lightViewProjCascade[i]));
     }
     std::memcpy(constants.cascadeSplits, m_CascadeSplits, sizeof(constants.cascadeSplits));
-    std::memcpy(constants.spotLightViewProj, m_SpotLightViewProj.Data(),
-                sizeof(constants.spotLightViewProj));
+    std::memcpy(constants.spotLightViewProj, m_SpotLightViewProj.Data(), sizeof(constants.spotLightViewProj));
 
     constants.lightDirection[0] = m_Lights.direction.x;
     constants.lightDirection[1] = m_Lights.direction.y;
@@ -312,17 +294,14 @@ void DeferredLightingPass::Execute(GpuCommandList& commands, const Scene&, const
     constants.shadowInfo[2] = static_cast<float>(m_PointShadowIndex);
     constants.shadowInfo[3] = 0.05f;
     constants.shadowIntensity[0] = m_Lights.directionalShadowIntensity;
-    constants.shadowIntensity[1] =
-        (m_SpotShadowIndex >= 0 && static_cast<size_t>(m_SpotShadowIndex) < spotCount)
-            ? m_Lights.spotLights[static_cast<size_t>(m_SpotShadowIndex)].shadowIntensity
-            : 1.0f;
-    constants.shadowIntensity[2] =
-        (m_PointShadowIndex >= 0 && static_cast<size_t>(m_PointShadowIndex) < pointCount)
-            ? m_Lights.pointLights[static_cast<size_t>(m_PointShadowIndex)].shadowIntensity
-            : 1.0f;
+    constants.shadowIntensity[1] = (m_SpotShadowIndex >= 0 && static_cast<size_t>(m_SpotShadowIndex) < spotCount)
+                                       ? m_Lights.spotLights[static_cast<size_t>(m_SpotShadowIndex)].shadowIntensity
+                                       : 1.0f;
+    constants.shadowIntensity[2] = (m_PointShadowIndex >= 0 && static_cast<size_t>(m_PointShadowIndex) < pointCount)
+                                       ? m_Lights.pointLights[static_cast<size_t>(m_PointShadowIndex)].shadowIntensity
+                                       : 1.0f;
     constants.shadowIntensity[3] = 1.0f;
-    constants.iblInfo[0] =
-        (m_EnvironmentCubemap && m_EnvironmentCubemap->IsCube()) ? 1.0f : 0.0f;
+    constants.iblInfo[0] = (m_EnvironmentCubemap && m_EnvironmentCubemap->IsCube()) ? 1.0f : 0.0f;
     constants.iblInfo[1] = 1.0f;
     constants.screenSize[0] = 1.0f / static_cast<float>(m_Width);
     constants.screenSize[1] = 1.0f / static_cast<float>(m_Height);
@@ -330,7 +309,8 @@ void DeferredLightingPass::Execute(GpuCommandList& commands, const Scene&, const
     constants.screenSize[3] = static_cast<float>(m_Height);
 
     auto bindings = Device()->CreateBindGroup(m_ShaderHandle->shader);
-    if (!bindings) return;
+    if (!bindings)
+        return;
     bindings->SetConstants("DeferredLightingParams", &constants, sizeof(constants));
     bindings->SetTexture("g_GBufferAlbedo", m_GBufferAlbedo);
     bindings->SetTexture("g_GBufferNormal", m_GBufferNormal);
@@ -344,8 +324,7 @@ void DeferredLightingPass::Execute(GpuCommandList& commands, const Scene&, const
     bindings->SetSampler("g_LinearSampler", m_LinearSampler);
     bindings->SetSampler("g_PointSampler", m_PointSampler);
     bindings->SetSampler("g_ShadowSampler", m_ShadowSampler);
-    if (!bindings->SetStorageBuffer("g_EnvironmentSH2", m_EnvironmentSH2Buffer) &&
-        !m_LoggedMissingEnvironmentSH) {
+    if (!bindings->SetStorageBuffer("g_EnvironmentSH2", m_EnvironmentSH2Buffer) && !m_LoggedMissingEnvironmentSH) {
         Logger::Error("[DeferredLightingPass] Failed to bind g_EnvironmentSH2");
         m_LoggedMissingEnvironmentSH = true;
     }

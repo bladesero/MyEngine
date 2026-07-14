@@ -7,8 +7,7 @@ class UITween {
 public:
     using UpdateCallback = std::function<void(float)>;
 
-    void Play(float from, float to, float durationSeconds, UpdateCallback callback)
-    {
+    void Play(float from, float to, float durationSeconds, UpdateCallback callback) {
         m_From = from;
         m_To = to;
         m_Duration = std::max(0.0001f, durationSeconds);
@@ -21,13 +20,14 @@ public:
     void Resume() { m_Playing = true; }
     bool IsPlaying() const { return m_Playing; }
 
-    void Update(float dt)
-    {
-        if (!m_Playing || !m_Callback) return;
+    void Update(float dt) {
+        if (!m_Playing || !m_Callback)
+            return;
         m_Time = std::min(m_Duration, m_Time + std::max(0.0f, dt));
         const float t = m_Time / m_Duration;
         m_Callback(m_From + (m_To - m_From) * t);
-        if (m_Time >= m_Duration) m_Playing = false;
+        if (m_Time >= m_Duration)
+            m_Playing = false;
     }
 
 private:

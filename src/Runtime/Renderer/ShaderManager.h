@@ -21,9 +21,8 @@ public:
     void SetShaderCacheMode(ShaderCacheMode mode) { m_CacheMode = mode; }
     ShaderCacheMode GetShaderCacheMode() const { return m_CacheMode; }
 
-    std::shared_ptr<ShaderHandle> GetOrCreate(
-        const std::string& shaderAssetPath,
-        const VertexElement* layout, uint32_t layoutCount);
+    std::shared_ptr<ShaderHandle> GetOrCreate(const std::string& shaderAssetPath, const VertexElement* layout,
+                                              uint32_t layoutCount);
     std::shared_ptr<ShaderHandle> GetOrCreateCompute(const std::string& shaderAssetPath);
 
     void Recompile(const std::string& shaderAssetPath = "");
@@ -40,10 +39,9 @@ private:
         std::shared_ptr<ShaderHandle> handle;
     };
     std::shared_ptr<GpuShader> CompileRecord(const ShaderRecord& rec);
-    std::string MakeKey(const ShaderAsset& asset, const VertexElement* layout,
-                        uint32_t layoutCount, bool compute) const;
-    std::shared_ptr<ShaderHandle> GetOrCreateInternal(
-        const std::string&, const VertexElement*, uint32_t, bool);
+    std::string MakeKey(const ShaderAsset& asset, const VertexElement* layout, uint32_t layoutCount,
+                        bool compute) const;
+    std::shared_ptr<ShaderHandle> GetOrCreateInternal(const std::string&, const VertexElement*, uint32_t, bool);
 
     IRHIDevice* m_Device = nullptr;
     ShaderCacheMode m_CacheMode = ShaderCacheMode::EditorOnDemandCompile;

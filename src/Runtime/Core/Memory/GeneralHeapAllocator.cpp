@@ -12,13 +12,13 @@ namespace {
 constexpr uint64_t kMemMagic = 0x4D454D524B44524FULL; // "MEMRKDR"
 
 struct MemHeader {
-    uint64_t   magic = 0;
-    size_t     userSize = 0;
-    size_t     userAlign = 0;
-    AllocTag   tag = AllocTag::Unknown;
+    uint64_t magic = 0;
+    size_t userSize = 0;
+    size_t userAlign = 0;
+    AllocTag tag = AllocTag::Unknown;
 #if defined(MYENGINE_MEM_TRACKING)
     const char* file = nullptr;
-    int         line = 0;
+    int line = 0;
 #endif
 };
 
@@ -45,19 +45,14 @@ GeneralHeapAllocator::GeneralHeapAllocator() = default;
 
 GeneralHeapAllocator::~GeneralHeapAllocator() = default;
 
-void* GeneralHeapAllocator::Allocate(size_t size,
-                                     size_t alignment,
-                                     AllocTag tag,
-                                     const char* file,
-                                     int line) {
+void* GeneralHeapAllocator::Allocate(size_t size, size_t alignment, AllocTag tag, const char* file, int line) {
     if (alignment < sizeof(void*)) {
         alignment = sizeof(void*);
     }
 
     const size_t baseAlign = std::max(alignment, alignof(MemHeader));
     // Offset from block start to user pointer (room for header + back-pointer slot before user).
-    const size_t prefix =
-        AlignUp(sizeof(MemHeader) + sizeof(MemHeader*), alignment);
+    const size_t prefix = AlignUp(sizeof(MemHeader) + sizeof(MemHeader*), alignment);
 
 #if defined(MYENGINE_MEM_GUARD)
     const size_t tail = sizeof(uint32_t);
@@ -71,8 +66,7 @@ void* GeneralHeapAllocator::Allocate(size_t size,
 
     void* block = PlatformAlignedAlloc(roundedTotal, blockAlign);
     if (!block) {
-        Logger::Error("[Memory] GeneralHeapAllocator: out of memory (size=", size,
-                      ", align=", alignment, ")");
+        Logger::Error("[Memory] GeneralHeapAllocator: out of memory (size=", size, ", align=", alignment, ")");
         return nullptr;
     }
 
@@ -128,14 +122,12 @@ void GeneralHeapAllocator::Free(void* ptr, const char* file, int line) {
 
     MemHeader* h = HeaderFromUserPointer(ptr);
     if (!h) {
-        Logger::Error("[Memory] GeneralHeapAllocator::Free: invalid user pointer (bad magic / use-after-free?) ",
-                      ptr);
+        Logger::Error("[Memory] GeneralHeapAllocator::Free: invalid user pointer (bad magic / use-after-free?) ", ptr);
         return;
     }
 
 #if defined(MYENGINE_MEM_GUARD)
-    const std::uint32_t* guard =
-        reinterpret_cast<const std::uint32_t*>(static_cast<const char*>(ptr) + h->userSize);
+    const std::uint32_t* guard = reinterpret_cast<const std::uint32_t*>(static_cast<const char*>(ptr) + h->userSize);
     if (*guard != kGuardValue) {
         Logger::Error("[Memory] Heap corruption detected (tail canary mismatch) ptr=", ptr);
     }
@@ -146,7 +138,7 @@ void GeneralHeapAllocator::Free(void* ptr, const char* file, int line) {
 #endif
 
     void* block = h; // header at block start
-    h->magic = 0; // poison
+    h->magic = 0;    // poison
 
     // Clear back-pointer so a stale user address is less likely to look "valid" after free.
     auto** slot = reinterpret_cast<MemHeader**>(static_cast<char*>(ptr) - sizeof(MemHeader*));

@@ -36,12 +36,10 @@ struct PrefabAsset {
     std::vector<PrefabNode> nodes;
     std::vector<PrefabNestedInstance> nestedInstances;
 
-    static bool Load(const std::filesystem::path& path, PrefabAsset& result,
-                     std::string* error = nullptr);
+    static bool Load(const std::filesystem::path& path, PrefabAsset& result, std::string* error = nullptr);
     bool Save(const std::filesystem::path& path, std::string* error = nullptr) const;
     bool Validate(std::string* error = nullptr) const;
 };
 
 nlohmann::json PrefabNodeToJson(const PrefabNode& node);
-bool PrefabNodeFromJson(const nlohmann::json& json, PrefabNode& node,
-                        std::string* error = nullptr);
+bool PrefabNodeFromJson(const nlohmann::json& json, PrefabNode& node, std::string* error = nullptr);

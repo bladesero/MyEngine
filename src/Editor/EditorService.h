@@ -21,14 +21,10 @@ private:
 
 class EditorServiceCollection {
 public:
-    template <typename T>
-    void Add(T& service)
-    {
+    template <typename T> void Add(T& service) {
         Entry entry;
         entry.service = &service;
-        entry.registerService = [&service](EditorContext& context) {
-            context.RegisterService(service);
-        };
+        entry.registerService = [&service](EditorContext& context) { context.RegisterService(service); };
         m_Entries.push_back(std::move(entry));
     }
 

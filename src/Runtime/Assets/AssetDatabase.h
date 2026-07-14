@@ -71,8 +71,7 @@ public:
     std::vector<const AssetRecord*> GetReferencers(const std::string& uuid) const;
     std::vector<AssetRecord> GetAll() const;
     bool Validate(std::string* error = nullptr) const;
-    bool ValidateAgainstProject(const std::filesystem::path& projectRoot,
-                                AssetDatabaseValidationReport& report) const;
+    bool ValidateAgainstProject(const std::filesystem::path& projectRoot, AssetDatabaseValidationReport& report) const;
 
     const std::filesystem::path& GetPath() const { return m_Path; }
 

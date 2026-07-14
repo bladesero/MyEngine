@@ -42,8 +42,8 @@ public:
     }
     std::filesystem::path ResolveSource(ShaderStage stage) const;
 
-    void SetDescription(uint32_t stageMask, std::array<ShaderStageSource, 3> sources,
-                        std::vector<std::string> defines, uint64_t sourceHash);
+    void SetDescription(uint32_t stageMask, std::array<ShaderStageSource, 3> sources, std::vector<std::string> defines,
+                        uint64_t sourceHash);
     void SetCooked(uint32_t stageMask, uint64_t sourceHash,
                    std::array<std::array<std::vector<uint8_t>, kShaderStageCount>, kShaderBackendCount> bytecode);
     void MarkReady() { SetState(AssetState::Ready); }
@@ -61,5 +61,4 @@ private:
 using ShaderAssetHandle = AssetHandle<ShaderAsset>;
 
 std::shared_ptr<ShaderAsset> LoadShaderAssetFromFile(const std::string& path);
-bool SaveCookedShaderAsset(const ShaderAsset& shader, const std::filesystem::path& path,
-                           std::string* error = nullptr);
+bool SaveCookedShaderAsset(const ShaderAsset& shader, const std::filesystem::path& path, std::string* error = nullptr);

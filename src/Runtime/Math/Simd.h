@@ -26,12 +26,20 @@ namespace Simd {
 
 using Packed4f = __m128;
 
-inline Packed4f Set4(float x, float y, float z, float w) { return _mm_set_ps(w, z, y, x); }
+inline Packed4f Set4(float x, float y, float z, float w) {
+    return _mm_set_ps(w, z, y, x);
+}
 
-inline Packed4f Load4Unaligned(const float* p) { return _mm_loadu_ps(p); }
-inline Packed4f Load4(const Vec4& v) { return _mm_loadu_ps(&v.x); }
+inline Packed4f Load4Unaligned(const float* p) {
+    return _mm_loadu_ps(p);
+}
+inline Packed4f Load4(const Vec4& v) {
+    return _mm_loadu_ps(&v.x);
+}
 
-inline void Store4Unaligned(float* p, Packed4f v) { _mm_storeu_ps(p, v); }
+inline void Store4Unaligned(float* p, Packed4f v) {
+    _mm_storeu_ps(p, v);
+}
 
 inline Vec4 ToVec4(Packed4f v) {
     Vec4 r;
@@ -47,22 +55,38 @@ inline float HorizontalSum(Packed4f v) {
     return _mm_cvtss_f32(sums);
 }
 
-inline float Dot4(Packed4f a, Packed4f b) { return HorizontalSum(_mm_mul_ps(a, b)); }
+inline float Dot4(Packed4f a, Packed4f b) {
+    return HorizontalSum(_mm_mul_ps(a, b));
+}
 
 inline float Dot3(Packed4f a, Packed4f b) {
     const __m128 mask = _mm_castsi128_ps(_mm_set_epi32(0, -1, -1, -1));
     return HorizontalSum(_mm_and_ps(_mm_mul_ps(a, b), mask));
 }
 
-inline Packed4f Add(Packed4f a, Packed4f b) { return _mm_add_ps(a, b); }
-inline Packed4f Sub(Packed4f a, Packed4f b) { return _mm_sub_ps(a, b); }
-inline Packed4f Mul(Packed4f a, Packed4f b) { return _mm_mul_ps(a, b); }
-inline Packed4f Div(Packed4f a, Packed4f b) { return _mm_div_ps(a, b); }
+inline Packed4f Add(Packed4f a, Packed4f b) {
+    return _mm_add_ps(a, b);
+}
+inline Packed4f Sub(Packed4f a, Packed4f b) {
+    return _mm_sub_ps(a, b);
+}
+inline Packed4f Mul(Packed4f a, Packed4f b) {
+    return _mm_mul_ps(a, b);
+}
+inline Packed4f Div(Packed4f a, Packed4f b) {
+    return _mm_div_ps(a, b);
+}
 
-inline Packed4f MulScalar(Packed4f a, float s) { return _mm_mul_ps(a, _mm_set1_ps(s)); }
+inline Packed4f MulScalar(Packed4f a, float s) {
+    return _mm_mul_ps(a, _mm_set1_ps(s));
+}
 
-inline Packed4f Min(Packed4f a, Packed4f b) { return _mm_min_ps(a, b); }
-inline Packed4f Max(Packed4f a, Packed4f b) { return _mm_max_ps(a, b); }
+inline Packed4f Min(Packed4f a, Packed4f b) {
+    return _mm_min_ps(a, b);
+}
+inline Packed4f Max(Packed4f a, Packed4f b) {
+    return _mm_max_ps(a, b);
+}
 
 // |a×b| with w = 0 (lanes xyz).
 inline Packed4f Cross3(Packed4f a, Packed4f b) {
@@ -75,8 +99,12 @@ inline Packed4f Cross3(Packed4f a, Packed4f b) {
     return _mm_and_ps(c, mask);
 }
 
-inline float LengthSq3(Packed4f a) { return Dot3(a, a); }
-inline float LengthSq4(Packed4f a) { return Dot4(a, a); }
+inline float LengthSq3(Packed4f a) {
+    return Dot3(a, a);
+}
+inline float LengthSq4(Packed4f a) {
+    return Dot4(a, a);
+}
 
 inline Vec3 ToVec3XYZ(Packed4f a) {
     Vec4 t = ToVec4(a);
@@ -92,10 +120,16 @@ inline Packed4f Lerp(Packed4f a, Packed4f b, float t) {
 
 using Packed4f = Vec4;
 
-inline Packed4f Set4(float x, float y, float z, float w) { return Vec4(x, y, z, w); }
+inline Packed4f Set4(float x, float y, float z, float w) {
+    return Vec4(x, y, z, w);
+}
 
-inline Packed4f Load4Unaligned(const float* p) { return Vec4(p[0], p[1], p[2], p[3]); }
-inline Packed4f Load4(const Vec4& v) { return v; }
+inline Packed4f Load4Unaligned(const float* p) {
+    return Vec4(p[0], p[1], p[2], p[3]);
+}
+inline Packed4f Load4(const Vec4& v) {
+    return v;
+}
 
 inline void Store4Unaligned(float* p, Packed4f v) {
     p[0] = v.x;
@@ -104,16 +138,28 @@ inline void Store4Unaligned(float* p, Packed4f v) {
     p[3] = v.w;
 }
 
-inline Vec4 ToVec4(Packed4f v) { return v; }
+inline Vec4 ToVec4(Packed4f v) {
+    return v;
+}
 
-inline float HorizontalSum(Packed4f v) { return v.x + v.y + v.z + v.w; }
+inline float HorizontalSum(Packed4f v) {
+    return v.x + v.y + v.z + v.w;
+}
 
-inline float Dot4(Packed4f a, Packed4f b) { return a.Dot(b); }
+inline float Dot4(Packed4f a, Packed4f b) {
+    return a.Dot(b);
+}
 
-inline float Dot3(Packed4f a, Packed4f b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
+inline float Dot3(Packed4f a, Packed4f b) {
+    return a.x * b.x + a.y * b.y + a.z * b.z;
+}
 
-inline Packed4f Add(Packed4f a, Packed4f b) { return a + b; }
-inline Packed4f Sub(Packed4f a, Packed4f b) { return a - b; }
+inline Packed4f Add(Packed4f a, Packed4f b) {
+    return a + b;
+}
+inline Packed4f Sub(Packed4f a, Packed4f b) {
+    return a - b;
+}
 inline Packed4f Mul(Packed4f a, Packed4f b) {
     return {a.x * b.x, a.y * b.y, a.z * b.z, a.w * b.w};
 }
@@ -121,7 +167,9 @@ inline Packed4f Div(Packed4f a, Packed4f b) {
     return {a.x / b.x, a.y / b.y, a.z / b.z, a.w / b.w};
 }
 
-inline Packed4f MulScalar(Packed4f a, float s) { return a * s; }
+inline Packed4f MulScalar(Packed4f a, float s) {
+    return a * s;
+}
 
 inline Packed4f Min(Packed4f a, Packed4f b) {
     return {std::min(a.x, b.x), std::min(a.y, b.y), std::min(a.z, b.z), std::min(a.w, b.w)};
@@ -134,10 +182,16 @@ inline Packed4f Cross3(Packed4f a, Packed4f b) {
     return {a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x, 0.0f};
 }
 
-inline float LengthSq3(Packed4f a) { return Dot3(a, a); }
-inline float LengthSq4(Packed4f a) { return Dot4(a, a); }
+inline float LengthSq3(Packed4f a) {
+    return Dot3(a, a);
+}
+inline float LengthSq4(Packed4f a) {
+    return Dot4(a, a);
+}
 
-inline Vec3 ToVec3XYZ(Packed4f a) { return {a.x, a.y, a.z}; }
+inline Vec3 ToVec3XYZ(Packed4f a) {
+    return {a.x, a.y, a.z};
+}
 
 inline Packed4f Lerp(Packed4f a, Packed4f b, float t) {
     return Add(a, MulScalar(Sub(b, a), t));

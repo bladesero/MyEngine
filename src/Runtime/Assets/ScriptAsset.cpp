@@ -6,29 +6,23 @@
 #include <fstream>
 #include <sstream>
 
-ScriptAsset::ScriptAsset(const std::string& path)
-    : Asset(AssetType::Script, path)
-{
+ScriptAsset::ScriptAsset(const std::string& path) : Asset(AssetType::Script, path) {
 }
 
-void ScriptAsset::SetSource(std::string source)
-{
+void ScriptAsset::SetSource(std::string source) {
     m_Source = std::move(source);
     SetState(AssetState::Ready);
 }
 
-void ScriptAsset::SetClasses(std::vector<ScriptClassInfo> classes)
-{
+void ScriptAsset::SetClasses(std::vector<ScriptClassInfo> classes) {
     m_Classes = std::move(classes);
 }
 
-void ScriptAsset::SetDependencies(std::vector<std::string> dependencies)
-{
+void ScriptAsset::SetDependencies(std::vector<std::string> dependencies) {
     m_Dependencies = std::move(dependencies);
 }
 
-void ScriptAsset::SetLastError(std::string error)
-{
+void ScriptAsset::SetLastError(std::string error) {
     m_LastError = std::move(error);
     m_Diagnostics.Clear();
     if (!m_LastError.empty()) {
@@ -38,13 +32,14 @@ void ScriptAsset::SetLastError(std::string error)
         diagnostic.section = GetPath();
         m_Diagnostics.Add(std::move(diagnostic));
     }
-    if (!m_LastError.empty()) SetState(AssetState::Failed);
+    if (!m_LastError.empty())
+        SetState(AssetState::Failed);
 }
 
-bool ScriptAsset::ReloadFrom(const Asset& source)
-{
+bool ScriptAsset::ReloadFrom(const Asset& source) {
     const auto* script = dynamic_cast<const ScriptAsset*>(&source);
-    if (!script) return false;
+    if (!script)
+        return false;
     m_Source = script->m_Source;
     m_Classes = script->m_Classes;
     m_Dependencies = script->m_Dependencies;
@@ -54,8 +49,7 @@ bool ScriptAsset::ReloadFrom(const Asset& source)
     return true;
 }
 
-std::shared_ptr<ScriptAsset> LoadScriptAssetFromFile(const std::string& path)
-{
+std::shared_ptr<ScriptAsset> LoadScriptAssetFromFile(const std::string& path) {
     auto asset = std::make_shared<ScriptAsset>(path);
     std::string source;
     if (!RuntimeFileSystem::Get().ReadText(path, source)) {
@@ -73,6 +67,7 @@ std::shared_ptr<ScriptAsset> LoadScriptAssetFromFile(const std::string& path)
     }
     asset->SetDependencies(std::move(dependencies));
     asset->SetClasses(AngelScriptRuntime::DiscoverClasses(expandedSource, path, error));
-    if (!error.empty()) asset->SetLastError(std::move(error));
+    if (!error.empty())
+        asset->SetLastError(std::move(error));
     return asset;
 }

@@ -29,8 +29,7 @@ std::string g_LastReportPath;
 std::terminate_handler g_PreviousTerminate = nullptr;
 std::mutex g_ReportMutex;
 
-std::string BuildReportPath()
-{
+std::string BuildReportPath() {
     namespace fs = std::filesystem;
     fs::create_directories("logs");
     const auto now = std::chrono::system_clock::now();
@@ -46,8 +45,7 @@ std::string BuildReportPath()
     return (fs::path("logs") / name.str()).string();
 }
 
-void WriteReport(const std::string& reason, const void* address = nullptr)
-{
+void WriteReport(const std::string& reason, const void* address = nullptr) {
     std::lock_guard<std::mutex> lock(g_ReportMutex);
     g_LastReportPath = BuildReportPath();
     std::ofstream output(g_LastReportPath, std::ios::out | std::ios::trunc);
@@ -60,7 +58,8 @@ void WriteReport(const std::string& reason, const void* address = nullptr)
     output << "shader_tool=" << BuildInfo::ShaderTool << '\n';
     output << "reason=" << reason << '\n';
     output << "thread=" << std::this_thread::get_id() << '\n';
-    if (address) output << "address=" << address << '\n';
+    if (address)
+        output << "address=" << address << '\n';
 #ifdef MYENGINE_PLATFORM_WINDOWS
     void* frames[64] = {};
     const USHORT count = CaptureStackBackTrace(0, 64, frames, nullptr);
@@ -94,15 +93,13 @@ void WriteReport(const std::string& reason, const void* address = nullptr)
     DWORD needed = 0;
     if (EnumProcessModules(process, modules, sizeof(modules), &needed)) {
         output << "modules=" << (needed / sizeof(HMODULE)) << '\n';
-        const DWORD moduleCount = (std::min)(needed / static_cast<DWORD>(sizeof(HMODULE)),
-                                             static_cast<DWORD>(256));
+        const DWORD moduleCount = (std::min)(needed / static_cast<DWORD>(sizeof(HMODULE)), static_cast<DWORD>(256));
         for (DWORD i = 0; i < moduleCount; ++i) {
             MODULEINFO info = {};
             char moduleName[MAX_PATH] = {};
             GetModuleInformation(process, modules[i], &info, sizeof(info));
             GetModuleFileNameA(modules[i], moduleName, MAX_PATH);
-            output << "module=" << modules[i]
-                   << " size=0x" << std::hex << info.SizeOfImage << std::dec
+            output << "module=" << modules[i] << " size=0x" << std::hex << info.SizeOfImage << std::dec
                    << " path=" << moduleName << '\n';
         }
     }
@@ -111,8 +108,7 @@ void WriteReport(const std::string& reason, const void* address = nullptr)
     output.flush();
 }
 
-void OnTerminate()
-{
+void OnTerminate() {
     std::string reason = "std::terminate";
     if (const std::exception_ptr current = std::current_exception()) {
         try {
@@ -128,13 +124,11 @@ void OnTerminate()
 }
 
 #ifdef MYENGINE_PLATFORM_WINDOWS
-LONG WINAPI OnUnhandledException(EXCEPTION_POINTERS* info)
-{
+LONG WINAPI OnUnhandledException(EXCEPTION_POINTERS* info) {
     std::ostringstream reason;
     reason << "unhandled SEH code=0x" << std::hex
            << (info && info->ExceptionRecord ? info->ExceptionRecord->ExceptionCode : 0);
-    const void* address =
-        info && info->ExceptionRecord ? info->ExceptionRecord->ExceptionAddress : nullptr;
+    const void* address = info && info->ExceptionRecord ? info->ExceptionRecord->ExceptionAddress : nullptr;
     WriteReport(reason.str(), address);
     return EXCEPTION_EXECUTE_HANDLER;
 }
@@ -142,8 +136,7 @@ LONG WINAPI OnUnhandledException(EXCEPTION_POINTERS* info)
 
 } // namespace
 
-void CrashHandler::Install(const std::string& applicationName)
-{
+void CrashHandler::Install(const std::string& applicationName) {
     g_ApplicationName = applicationName.empty() ? "MyEngine" : applicationName;
     g_PreviousTerminate = std::set_terminate(OnTerminate);
 #ifdef MYENGINE_PLATFORM_WINDOWS
@@ -152,23 +145,21 @@ void CrashHandler::Install(const std::string& applicationName)
     Logger::Info("[CrashHandler] Installed; reports directory: logs");
 }
 
-void CrashHandler::Uninstall()
-{
-    if (g_PreviousTerminate) std::set_terminate(g_PreviousTerminate);
+void CrashHandler::Uninstall() {
+    if (g_PreviousTerminate)
+        std::set_terminate(g_PreviousTerminate);
     g_PreviousTerminate = nullptr;
 #ifdef MYENGINE_PLATFORM_WINDOWS
     SetUnhandledExceptionFilter(nullptr);
 #endif
 }
 
-std::string CrashHandler::WriteDiagnosticReport(const std::string& reason)
-{
+std::string CrashHandler::WriteDiagnosticReport(const std::string& reason) {
     WriteReport("diagnostic: " + reason);
     return GetLastCrashReportPath();
 }
 
-std::string CrashHandler::GetLastCrashReportPath()
-{
+std::string CrashHandler::GetLastCrashReportPath() {
     std::lock_guard<std::mutex> lock(g_ReportMutex);
     return g_LastReportPath;
 }

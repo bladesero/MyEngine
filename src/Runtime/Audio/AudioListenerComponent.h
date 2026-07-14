@@ -11,6 +11,7 @@ public:
     bool IsPrimary() const { return m_Primary; }
     void Serialize(nlohmann::json& data) const override;
     void Deserialize(const nlohmann::json& data) override;
+
 private:
     bool m_Primary = true;
 };

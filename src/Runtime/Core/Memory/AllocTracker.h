@@ -10,11 +10,11 @@
 #include <unordered_map>
 
 struct AllocRecord {
-    size_t       size      = 0;
-    size_t       alignment = 0;
-    AllocTag     tag       = AllocTag::Unknown;
-    const char*  file      = nullptr;
-    int          line      = 0;
+    size_t size = 0;
+    size_t alignment = 0;
+    AllocTag tag = AllocTag::Unknown;
+    const char* file = nullptr;
+    int line = 0;
 };
 
 // Snapshot of ME_* heap counters (atomics read without holding m_Mutex).

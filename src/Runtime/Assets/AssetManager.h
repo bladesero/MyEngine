@@ -75,9 +75,9 @@ struct AssetChangedEvent {
 using AssetLoaderFn = std::function<std::shared_ptr<Asset>(const std::string& path)>;
 
 std::shared_ptr<TextureAsset> LoadTextureAssetFromFile(const std::string& path);
-std::shared_ptr<ModelAsset>   LoadModelAssetFromObj(const std::string& path);
-std::shared_ptr<ModelAsset>   LoadModelAssetFromGltf(const std::string& path);
-std::shared_ptr<ScriptAsset>  LoadScriptAssetFromFile(const std::string& path);
+std::shared_ptr<ModelAsset> LoadModelAssetFromObj(const std::string& path);
+std::shared_ptr<ModelAsset> LoadModelAssetFromGltf(const std::string& path);
+std::shared_ptr<ScriptAsset> LoadScriptAssetFromFile(const std::string& path);
 
 class AssetManager {
 public:
@@ -87,7 +87,7 @@ public:
     // instance owned by MyEngineRuntime.
     static AssetManager& Get();
 
-    AssetManager(const AssetManager&)            = delete;
+    AssetManager(const AssetManager&) = delete;
     AssetManager& operator=(const AssetManager&) = delete;
 
     void RegisterLoader(const std::string& extension, AssetLoaderFn fn) {
@@ -95,15 +95,14 @@ public:
         m_Loaders[extension] = std::move(fn);
     }
 
-    template<typename T = Asset>
-    AssetHandle<T> Load(const std::string& path) {
+    template <typename T = Asset> AssetHandle<T> Load(const std::string& path) {
         std::shared_ptr<Asset> asset = LoadAsset(path);
         auto typed = std::dynamic_pointer_cast<T>(asset);
         if (!typed) {
             Logger::Warn("[AssetManager] Loaded asset type mismatch: ", path);
             return {};
         }
-        return AssetHandle<T>{ typed };
+        return AssetHandle<T>{typed};
     }
 
     std::shared_ptr<Asset> LoadAsset(const std::string& path);
@@ -114,9 +113,9 @@ public:
     ListenerID SubscribeAssetChanged(AssetChangedCallback callback);
     void UnsubscribeAssetChanged(ListenerID listenerID);
 
-    template<typename T>
-    AssetHandle<T> Register(std::shared_ptr<T> asset) {
-        if (!asset) return {};
+    template <typename T> AssetHandle<T> Register(std::shared_ptr<T> asset) {
+        if (!asset)
+            return {};
         std::lock_guard<std::recursive_mutex> lock(m_Mutex);
         ApplyPersistentIdentity(*asset);
         const AssetID id = asset->GetID();
@@ -130,7 +129,7 @@ public:
                     RefreshDependencies(*existing);
                     RegisterAssetMemoryFor(*existing);
                     m_PathToID[NormalizePath(existing->GetPath())] = id;
-                    return AssetHandle<T>{ std::move(existing) };
+                    return AssetHandle<T>{std::move(existing)};
                 }
                 RegisterAssetMemoryFor(*existing);
             } else {
@@ -141,21 +140,21 @@ public:
         m_PathToID[NormalizePath(asset->GetPath())] = id;
         RefreshDependencies(*asset);
         RegisterAssetMemoryFor(*asset);
-        return AssetHandle<T>{ std::move(asset) };
+        return AssetHandle<T>{std::move(asset)};
     }
 
-    template<typename T = Asset>
-    AssetHandle<T> GetByID(AssetID id) const {
+    template <typename T = Asset> AssetHandle<T> GetByID(AssetID id) const {
         std::lock_guard<std::recursive_mutex> lock(m_Mutex);
         auto it = m_Cache.find(id);
-        if (it == m_Cache.end()) return {};
+        if (it == m_Cache.end())
+            return {};
         auto typed = std::dynamic_pointer_cast<T>(it->second);
-        if (typed) m_LastUsed[id] = ++m_UseClock;
-        return typed ? AssetHandle<T>{ typed } : AssetHandle<T>{};
+        if (typed)
+            m_LastUsed[id] = ++m_UseClock;
+        return typed ? AssetHandle<T>{typed} : AssetHandle<T>{};
     }
 
-    template<typename T = Asset>
-    AssetHandle<T> GetByPath(const std::string& path) const {
+    template <typename T = Asset> AssetHandle<T> GetByPath(const std::string& path) const {
         std::lock_guard<std::recursive_mutex> lock(m_Mutex);
         const auto it = m_PathToID.find(NormalizePath(path));
         return it != m_PathToID.end() ? GetByID<T>(it->second) : AssetHandle<T>{};
@@ -191,16 +190,15 @@ public:
     std::string ResolvePath(const std::string& path) const;
     std::string MakeProjectRelativePath(const std::string& path) const;
     MeshHandle ResolveMeshReference(const std::string& path);
-    MaterialHandle ResolveMaterialReference(const std::string& path,
-                                             const std::string& meshPath = {});
+    MaterialHandle ResolveMaterialReference(const std::string& path, const std::string& meshPath = {});
 
-    TextureHandle  GetWhiteTexture();
-    TextureHandle  GetBlackTexture();
-    TextureHandle  GetNormalTexture();
+    TextureHandle GetWhiteTexture();
+    TextureHandle GetBlackTexture();
+    TextureHandle GetNormalTexture();
 
-    MeshHandle     GetTriangleMesh();
-    MeshHandle     GetQuadMesh();
-    MeshHandle     GetCubeMesh();
+    MeshHandle GetTriangleMesh();
+    MeshHandle GetQuadMesh();
+    MeshHandle GetCubeMesh();
 
     MaterialHandle GetDefaultMaterial();
 
@@ -227,7 +225,7 @@ public:
         return m_AssetCpuTotalBytes;
     }
     size_t GetEstimatedAssetCpuBytesByType(AssetType type) const;
-    void   LogAssetMemorySummary() const;
+    void LogAssetMemorySummary() const;
 
 private:
     AssetManager();
@@ -240,12 +238,15 @@ private:
             for (auto& c : suffix) {
                 c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
             }
-            if (suffix == uiJson) return "ui.json";
+            if (suffix == uiJson)
+                return "ui.json";
         }
         const auto dot = path.rfind('.');
-        if (dot == std::string::npos) return "";
+        if (dot == std::string::npos)
+            return "";
         const auto slash = path.find_last_of("/\\");
-        if (slash != std::string::npos && dot < slash) return "";
+        if (slash != std::string::npos && dot < slash)
+            return "";
         std::string ext = path.substr(dot + 1);
         for (auto& c : ext) {
             c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
@@ -254,12 +255,10 @@ private:
     }
 
     std::string NormalizePath(const std::string& path) const;
-    std::string ResolveImportedArtifactPath(const std::string& normalizedPath,
-                                            std::string* outUuid = nullptr) const;
+    std::string ResolveImportedArtifactPath(const std::string& normalizedPath, std::string* outUuid = nullptr) const;
     void ApplyPersistentIdentity(Asset& asset);
     void RefreshDependencies(Asset& asset);
-    std::shared_ptr<Asset> InvokeLoader(const std::string& normalizedPath,
-                                        const AssetLoaderFn& loader) const;
+    std::shared_ptr<Asset> InvokeLoader(const std::string& normalizedPath, const AssetLoaderFn& loader) const;
     bool CaptureSourceWriteTime(AssetID id, const std::string& normalizedPath);
     void PublishAssetChanged(AssetChangedEvent event);
 
@@ -267,14 +266,14 @@ private:
     void ReleaseAssetMemoryFor(const Asset& asset);
     void MaybeWarnAssetBudget() const;
 
-    std::unordered_map<AssetID,     std::shared_ptr<Asset>> m_Cache;
-    std::unordered_map<std::string, AssetID>                m_PathToID;
-    std::unordered_map<std::string, AssetLoaderFn>          m_Loaders;
-    std::unordered_map<std::string, std::string>            m_RegisteredIdentities;
-    std::unordered_map<std::string, std::string>            m_ArtifactToSourcePath;
+    std::unordered_map<AssetID, std::shared_ptr<Asset>> m_Cache;
+    std::unordered_map<std::string, AssetID> m_PathToID;
+    std::unordered_map<std::string, AssetLoaderFn> m_Loaders;
+    std::unordered_map<std::string, std::string> m_RegisteredIdentities;
+    std::unordered_map<std::string, std::string> m_ArtifactToSourcePath;
 
-    size_t              m_AssetCpuBudgetBytes = 512ull * 1024ull * 1024ull;
-    size_t              m_AssetCpuTotalBytes = 0;
+    size_t m_AssetCpuBudgetBytes = 512ull * 1024ull * 1024ull;
+    size_t m_AssetCpuTotalBytes = 0;
     std::array<size_t, 13> m_AssetCpuBytesByType{};
     std::unordered_map<AssetID, std::filesystem::file_time_type> m_SourceWriteTimes;
     std::unordered_map<AssetID, std::string> m_SourceHashes;

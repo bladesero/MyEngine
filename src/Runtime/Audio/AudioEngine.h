@@ -84,10 +84,9 @@ public:
     bool GetBusPauseWithGame(AudioBus bus) const;
     void SetMaxVoices(uint32_t maxVoices);
     AudioDiagnostics GetDiagnostics() const;
-    static AudioVoiceAdmission EvaluateVoiceAdmission(
-        const std::vector<AudioVoiceCandidate>& active, uint32_t maxVoices,
-        const std::string& concurrencyGroup, uint32_t maxInstances,
-        int newPriority);
+    static AudioVoiceAdmission EvaluateVoiceAdmission(const std::vector<AudioVoiceCandidate>& active,
+                                                      uint32_t maxVoices, const std::string& concurrencyGroup,
+                                                      uint32_t maxInstances, int newPriority);
     bool IsPlaying(SoundID id) const;
     void SetSoundPosition(SoundID id, const Vec3& position);
     void SetSoundBus(SoundID id, AudioBus bus);

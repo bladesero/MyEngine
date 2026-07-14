@@ -30,6 +30,14 @@ function Fail-Smoke {
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 Set-Location $repoRoot
 
+Invoke-Step "Check format hygiene" {
+    & powershell -NoProfile -ExecutionPolicy Bypass -File `
+        (Join-Path $PSScriptRoot "check-format.ps1")
+    if ($LASTEXITCODE -ne 0) {
+        Fail-Smoke "Format hygiene check failed."
+    }
+}
+
 $xmake = Get-Command xmake -ErrorAction SilentlyContinue
 if (-not $xmake) {
     Fail-Smoke "xmake was not found on PATH. Install xmake 2.8+ and retry."

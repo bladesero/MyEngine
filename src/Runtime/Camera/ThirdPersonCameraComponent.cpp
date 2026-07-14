@@ -8,44 +8,53 @@
 #include <cmath>
 
 namespace {
-nlohmann::json VecToJson(const Vec3& value) { return nlohmann::json::array({value.x, value.y, value.z}); }
-Vec3 JsonToVec(const nlohmann::json& value, const Vec3& fallback)
-{
+nlohmann::json VecToJson(const Vec3& value) {
+    return nlohmann::json::array({value.x, value.y, value.z});
+}
+Vec3 JsonToVec(const nlohmann::json& value, const Vec3& fallback) {
     return value.is_array() && value.size() == 3
-        ? Vec3(value[0].get<float>(), value[1].get<float>(), value[2].get<float>()) : fallback;
+               ? Vec3(value[0].get<float>(), value[1].get<float>(), value[2].get<float>())
+               : fallback;
 }
-}
+} // namespace
 
-void ThirdPersonCameraComponent::AddOrbit(float yawDegrees, float pitchDegrees)
-{
+void ThirdPersonCameraComponent::AddOrbit(float yawDegrees, float pitchDegrees) {
     m_Yaw += yawDegrees * m_Sensitivity;
     m_Pitch = std::clamp(m_Pitch + pitchDegrees * m_Sensitivity, -80.0f, 80.0f);
 }
 
-void ThirdPersonCameraComponent::SetTarget(ActorHandle target)
-{
+void ThirdPersonCameraComponent::SetTarget(ActorHandle target) {
     m_Target = target;
     m_TargetActorID = 0;
     if (Actor* owner = GetOwner()) {
         if (Scene* scene = owner->GetScene()) {
-            if (Actor* actor = scene->TryGetActor(target)) m_TargetActorID = actor->GetID();
+            if (Actor* actor = scene->TryGetActor(target))
+                m_TargetActorID = actor->GetID();
         }
     }
 }
 
-void ThirdPersonCameraComponent::SetDistance(float value) { m_Distance = std::max(0.1f, value); }
-void ThirdPersonCameraComponent::SetSensitivity(float value) { m_Sensitivity = std::max(0.0f, value); }
-void ThirdPersonCameraComponent::SetCollisionRadius(float value) { m_CollisionRadius = std::max(0.0f, value); }
-void ThirdPersonCameraComponent::SetFollowSharpness(float value) { m_FollowSharpness = std::max(0.0f, value); }
+void ThirdPersonCameraComponent::SetDistance(float value) {
+    m_Distance = std::max(0.1f, value);
+}
+void ThirdPersonCameraComponent::SetSensitivity(float value) {
+    m_Sensitivity = std::max(0.0f, value);
+}
+void ThirdPersonCameraComponent::SetCollisionRadius(float value) {
+    m_CollisionRadius = std::max(0.0f, value);
+}
+void ThirdPersonCameraComponent::SetFollowSharpness(float value) {
+    m_FollowSharpness = std::max(0.0f, value);
+}
 
-void ThirdPersonCameraComponent::OnLateUpdate(float deltaSeconds)
-{
+void ThirdPersonCameraComponent::OnLateUpdate(float deltaSeconds) {
     Actor* owner = GetOwner();
     Scene* scene = owner ? owner->GetScene() : nullptr;
     if (scene && !scene->TryGetActor(m_Target) && m_TargetActorID != 0)
         m_Target = scene->GetHandle(m_TargetActorID);
     Actor* target = scene ? scene->TryGetActor(m_Target) : nullptr;
-    if (!owner || !target) return;
+    if (!owner || !target)
+        return;
     const Vec3 focus = target->GetWorldPosition() + m_TargetOffset;
     const float yaw = m_Yaw * kDeg2Rad;
     const float pitch = m_Pitch * kDeg2Rad;
@@ -53,9 +62,11 @@ void ThirdPersonCameraComponent::OnLateUpdate(float deltaSeconds)
     float distance = m_Distance;
     RaycastHit hit;
     if (scene->GetPhysicsWorld().Raycast(*scene, Ray{focus, -forward}, m_Distance, 0xffffffffu, hit) &&
-        hit.actor != target) distance = std::max(0.1f, hit.distance - m_CollisionRadius);
+        hit.actor != target)
+        distance = std::max(0.1f, hit.distance - m_CollisionRadius);
     const Vec3 desired = focus - forward * distance;
-    const float alpha = m_FollowSharpness <= 0.0f ? 1.0f : 1.0f - std::exp(-m_FollowSharpness * std::max(0.0f, deltaSeconds));
+    const float alpha =
+        m_FollowSharpness <= 0.0f ? 1.0f : 1.0f - std::exp(-m_FollowSharpness * std::max(0.0f, deltaSeconds));
     Transform& transform = owner->GetTransform();
     transform.position = Vec3::Lerp(transform.position, desired, alpha);
     const Vec3 look = focus - transform.position;
@@ -64,12 +75,12 @@ void ThirdPersonCameraComponent::OnLateUpdate(float deltaSeconds)
     transform.rotation.y = std::atan2(look.x, look.z) * kRad2Deg;
 }
 
-void ThirdPersonCameraComponent::Serialize(nlohmann::json& data) const
-{
+void ThirdPersonCameraComponent::Serialize(nlohmann::json& data) const {
     uint64_t targetID = m_TargetActorID;
     if (const Actor* owner = GetOwner()) {
         if (const Scene* scene = owner->GetScene()) {
-            if (const Actor* target = scene->TryGetActor(m_Target)) targetID = target->GetID();
+            if (const Actor* target = scene->TryGetActor(m_Target))
+                targetID = target->GetID();
         }
     }
     data["targetActorId"] = targetID;
@@ -82,11 +93,11 @@ void ThirdPersonCameraComponent::Serialize(nlohmann::json& data) const
     data["followSharpness"] = m_FollowSharpness;
 }
 
-void ThirdPersonCameraComponent::Deserialize(const nlohmann::json& data)
-{
+void ThirdPersonCameraComponent::Deserialize(const nlohmann::json& data) {
     m_Target = {};
     m_TargetActorID = data.value("targetActorId", uint64_t(0));
-    if (data.contains("targetOffset")) m_TargetOffset = JsonToVec(data["targetOffset"], m_TargetOffset);
+    if (data.contains("targetOffset"))
+        m_TargetOffset = JsonToVec(data["targetOffset"], m_TargetOffset);
     SetDistance(data.value("distance", 4.0f));
     m_Yaw = data.value("yaw", 180.0f);
     m_Pitch = std::clamp(data.value("pitch", 15.0f), -80.0f, 80.0f);

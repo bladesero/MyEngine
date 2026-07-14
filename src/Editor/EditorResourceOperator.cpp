@@ -11,8 +11,7 @@
 // AssetModifier
 // ==========================================================================
 
-bool AssetModifier::Modify(EditorContext& context)
-{
+bool AssetModifier::Modify(EditorContext& context) {
     // 1. Read current file content (before snapshot)
     std::string beforeContent;
     {
@@ -21,8 +20,7 @@ bool AssetModifier::Modify(EditorContext& context)
             Logger::Warn("[AssetModifier] Cannot read asset before edit: ", m_AssetPath);
             return false;
         }
-        beforeContent = std::string(std::istreambuf_iterator<char>(in),
-                                     std::istreambuf_iterator<char>());
+        beforeContent = std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
     }
 
     // 2. Load the asset
@@ -49,8 +47,7 @@ bool AssetModifier::Modify(EditorContext& context)
             Logger::Warn("[AssetModifier] Cannot read asset after edit: ", m_AssetPath);
             return false;
         }
-        afterContent = std::string(std::istreambuf_iterator<char>(in),
-                                    std::istreambuf_iterator<char>());
+        afterContent = std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
     }
 
     // If ApplyTo already saved the file, afterContent should differ.
@@ -61,17 +58,15 @@ bool AssetModifier::Modify(EditorContext& context)
 
     // 5. Push undo command
     if (auto* stack = context.GetCommandStack()) {
-        if (!stack->ExecuteCommand(
-                std::make_unique<ModifyAssetCommand>(m_AssetPath, beforeContent, afterContent),
-                context)) {
+        if (!stack->ExecuteCommand(std::make_unique<ModifyAssetCommand>(m_AssetPath, beforeContent, afterContent),
+                                   context)) {
             std::ofstream restore(m_AssetPath, std::ios::binary | std::ios::trunc);
-            restore.write(beforeContent.data(),
-                          static_cast<std::streamsize>(beforeContent.size()));
+            restore.write(beforeContent.data(), static_cast<std::streamsize>(beforeContent.size()));
             restore.close();
             AssetManager::Get().Reload(m_AssetPath);
-            if (auto* registry = context.GetAssetRegistry()) registry->Refresh();
-            Logger::Warn("[AssetModifier] Failed to commit asset modification: ",
-                         m_AssetPath);
+            if (auto* registry = context.GetAssetRegistry())
+                registry->Refresh();
+            Logger::Warn("[AssetModifier] Failed to commit asset modification: ", m_AssetPath);
             return false;
         }
     }
@@ -91,8 +86,7 @@ bool AssetModifier::Modify(EditorContext& context)
 // MaterialModifier
 // ==========================================================================
 
-bool MaterialModifier::ApplyTo(Asset& asset)
-{
+bool MaterialModifier::ApplyTo(Asset& asset) {
     auto* mat = dynamic_cast<MaterialAsset*>(&asset);
     if (!mat) {
         Logger::Warn("[MaterialModifier] Asset is not a Material: ", m_AssetPath);
@@ -104,7 +98,8 @@ bool MaterialModifier::ApplyTo(Asset& asset)
     before->ReloadFrom(*mat);
 
     // Apply user modification
-    if (!m_Fn(*mat)) return false;
+    if (!m_Fn(*mat))
+        return false;
 
     // Save to disk
     if (!SaveMaterialAssetToFile(*mat, m_AssetPath)) {
@@ -121,30 +116,29 @@ bool MaterialModifier::ApplyTo(Asset& asset)
 // SceneModifier
 // ==========================================================================
 
-bool SceneModifier::CanModify(EditorContext& context) const
-{
+bool SceneModifier::CanModify(EditorContext& context) const {
     return context.GetScene() != nullptr;
 }
 
-bool SceneModifier::Modify(EditorContext& context)
-{
+bool SceneModifier::Modify(EditorContext& context) {
     Scene* scene = context.GetScene();
-    if (!scene || !context.IsEditing()) return false;
+    if (!scene || !context.IsEditing())
+        return false;
 
     const std::string beforeJson = SceneSerializer::SaveToString(*scene);
     const uint64_t selection = context.GetSelection().GetActorID();
 
-    if (!ApplyTo(context)) return false;
+    if (!ApplyTo(context))
+        return false;
 
     const std::string afterJson = SceneSerializer::SaveToString(*scene);
-    if (beforeJson == afterJson) return false;
+    if (beforeJson == afterJson)
+        return false;
 
     SceneSerializer::LoadFromString(*scene, beforeJson);
     if (auto* stack = context.GetCommandStack()) {
         stack->ExecuteCommand(
-            std::make_unique<SceneSnapshotCommand>(GetLabel(), beforeJson, afterJson,
-                                                    selection, selection),
-            context);
+            std::make_unique<SceneSnapshotCommand>(GetLabel(), beforeJson, afterJson, selection, selection), context);
     }
     context.MarkSceneDirty();
     return true;

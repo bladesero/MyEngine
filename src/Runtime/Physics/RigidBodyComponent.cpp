@@ -4,52 +4,60 @@
 #include <string>
 
 namespace {
-void WriteVec3(nlohmann::json& data, const char* key, const Vec3& value)
-{ data[key] = nlohmann::json::array({value.x, value.y, value.z}); }
+void WriteVec3(nlohmann::json& data, const char* key, const Vec3& value) {
+    data[key] = nlohmann::json::array({value.x, value.y, value.z});
+}
 
-Vec3 ReadVec3(const nlohmann::json& data, const char* key, const Vec3& fallback = Vec3::Zero())
-{
+Vec3 ReadVec3(const nlohmann::json& data, const char* key, const Vec3& fallback = Vec3::Zero()) {
     const auto it = data.find(key);
-    if (it == data.end() || !it->is_array() || it->size() != 3) return fallback;
+    if (it == data.end() || !it->is_array() || it->size() != 3)
+        return fallback;
     return {(*it)[0].get<float>(), (*it)[1].get<float>(), (*it)[2].get<float>()};
 }
+} // namespace
+
+void RigidBodyComponent::SetMass(float mass) {
+    m_Mass = mass > 0.0001f ? mass : 0.0001f;
+    m_SettingsDirty = true;
 }
 
-void RigidBodyComponent::SetMass(float mass)
-{ m_Mass = mass > 0.0001f ? mass : 0.0001f; m_SettingsDirty = true; }
+void RigidBodyComponent::SetRestitution(float value) {
+    m_Restitution = std::clamp(value, 0.0f, 1.0f);
+    m_SettingsDirty = true;
+}
 
-void RigidBodyComponent::SetRestitution(float value)
-{ m_Restitution = std::clamp(value, 0.0f, 1.0f); m_SettingsDirty = true; }
+void RigidBodyComponent::SetLinearDamping(float value) {
+    m_LinearDamping = std::max(0.0f, value);
+    m_SettingsDirty = true;
+}
 
-void RigidBodyComponent::SetLinearDamping(float value)
-{ m_LinearDamping = std::max(0.0f, value); m_SettingsDirty = true; }
+void RigidBodyComponent::SetAngularDamping(float value) {
+    m_AngularDamping = std::max(0.0f, value);
+    m_SettingsDirty = true;
+}
 
-void RigidBodyComponent::SetAngularDamping(float value)
-{ m_AngularDamping = std::max(0.0f, value); m_SettingsDirty = true; }
+void RigidBodyComponent::SetFriction(float value) {
+    m_Friction = std::clamp(value, 0.0f, 2.0f);
+    m_SettingsDirty = true;
+}
 
-void RigidBodyComponent::SetFriction(float value)
-{ m_Friction = std::clamp(value, 0.0f, 2.0f); m_SettingsDirty = true; }
-
-void RigidBodyComponent::Teleport(const Vec3& position, const Vec3& rotation)
-{
+void RigidBodyComponent::Teleport(const Vec3& position, const Vec3& rotation) {
     m_TeleportPosition = position;
     m_TeleportRotation = rotation;
     m_TeleportPending = true;
     WakeUp();
 }
 
-void RigidBodyComponent::SetKinematicTarget(const Vec3& position, const Vec3& rotation)
-{
+void RigidBodyComponent::SetKinematicTarget(const Vec3& position, const Vec3& rotation) {
     m_KinematicTargetPosition = position;
     m_KinematicTargetRotation = rotation;
     m_KinematicTargetPending = true;
     WakeUp();
 }
 
-void RigidBodyComponent::Serialize(nlohmann::json& data) const
-{
-    const char* type = m_Type == BodyType::Static ? "static" :
-        (m_Type == BodyType::Kinematic ? "kinematic" : "dynamic");
+void RigidBodyComponent::Serialize(nlohmann::json& data) const {
+    const char* type =
+        m_Type == BodyType::Static ? "static" : (m_Type == BodyType::Kinematic ? "kinematic" : "dynamic");
     data["bodyType"] = type;
     data["mass"] = m_Mass;
     WriteVec3(data, "velocity", m_Velocity);
@@ -61,15 +69,12 @@ void RigidBodyComponent::Serialize(nlohmann::json& data) const
     data["useGravity"] = m_UseGravity;
     WriteVec3(data, "linearAxisLocks", m_LinearAxisLocks);
     WriteVec3(data, "angularAxisLocks", m_AngularAxisLocks);
-    data["collisionDetection"] = m_CollisionMode == CollisionDetectionMode::Continuous
-        ? "continuous" : "discrete";
+    data["collisionDetection"] = m_CollisionMode == CollisionDetectionMode::Continuous ? "continuous" : "discrete";
 }
 
-void RigidBodyComponent::Deserialize(const nlohmann::json& data)
-{
+void RigidBodyComponent::Deserialize(const nlohmann::json& data) {
     const std::string type = data.value("bodyType", std::string("dynamic"));
-    SetBodyType(type == "static" ? BodyType::Static :
-        (type == "kinematic" ? BodyType::Kinematic : BodyType::Dynamic));
+    SetBodyType(type == "static" ? BodyType::Static : (type == "kinematic" ? BodyType::Kinematic : BodyType::Dynamic));
     SetMass(data.value("mass", 1.0f));
     SetVelocity(ReadVec3(data, "velocity"));
     SetAngularVelocity(ReadVec3(data, "angularVelocity"));
@@ -81,5 +86,6 @@ void RigidBodyComponent::Deserialize(const nlohmann::json& data)
     SetLinearAxisLocks(ReadVec3(data, "linearAxisLocks"));
     SetAngularAxisLocks(ReadVec3(data, "angularAxisLocks"));
     SetCollisionDetectionMode(data.value("collisionDetection", std::string("discrete")) == "continuous"
-        ? CollisionDetectionMode::Continuous : CollisionDetectionMode::Discrete);
+                                  ? CollisionDetectionMode::Continuous
+                                  : CollisionDetectionMode::Discrete);
 }

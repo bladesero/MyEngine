@@ -19,14 +19,9 @@ struct ContentLimits {
 
 class ContentPathPolicy {
 public:
-    static bool ResolveContained(const std::filesystem::path& root,
-                                 const std::filesystem::path& candidate,
-                                 std::filesystem::path& resolved,
-                                 std::string* error = nullptr,
+    static bool ResolveContained(const std::filesystem::path& root, const std::filesystem::path& candidate,
+                                 std::filesystem::path& resolved, std::string* error = nullptr,
                                  bool requireFile = true);
-    static bool Enumerate(const std::filesystem::path& root,
-                          std::vector<ContentFileInfo>& files,
-                          uint64_t& totalBytes,
-                          std::string* error = nullptr,
-                          const ContentLimits& limits = {});
+    static bool Enumerate(const std::filesystem::path& root, std::vector<ContentFileInfo>& files, uint64_t& totalBytes,
+                          std::string* error = nullptr, const ContentLimits& limits = {});
 };

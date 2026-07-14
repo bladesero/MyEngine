@@ -28,6 +28,7 @@ public:
     const DamageEvent& GetLastDamage() const { return m_LastDamage; }
     void Serialize(nlohmann::json& data) const override;
     void Deserialize(const nlohmann::json& data) override;
+
 private:
     float m_MaxHealth = 100.0f;
     float m_Health = 100.0f;
@@ -44,6 +45,7 @@ public:
     float GetDamageMultiplier() const { return m_DamageMultiplier; }
     void Serialize(nlohmann::json& data) const override;
     void Deserialize(const nlohmann::json& data) override;
+
 private:
     uint32_t m_Team = 0;
     float m_DamageMultiplier = 1.0f;
@@ -70,6 +72,7 @@ public:
     uint32_t GetLayerMask() const { return m_LayerMask; }
     void Serialize(nlohmann::json& data) const override;
     void Deserialize(const nlohmann::json& data) override;
+
 private:
     float m_Damage = 10.0f;
     float m_Radius = 0.75f;
@@ -93,13 +96,14 @@ public:
     float GetRange() const { return m_Range; }
     void SetSingleUse(bool value) { m_SingleUse = value; }
     bool IsSingleUse() const { return m_SingleUse; }
-    void SetDestroyOnUse(bool value){m_DestroyOnUse=value;}
-    bool GetDestroyOnUse()const{return m_DestroyOnUse;}
+    void SetDestroyOnUse(bool value) { m_DestroyOnUse = value; }
+    bool GetDestroyOnUse() const { return m_DestroyOnUse; }
     bool CanInteract() const { return !m_Consumed && IsEnabled(); }
     bool Interact(ActorHandle instigator);
     ActorHandle GetLastInstigator() const { return m_LastInstigator; }
     void Serialize(nlohmann::json& data) const override;
     void Deserialize(const nlohmann::json& data) override;
+
 private:
     InteractionKind m_Kind = InteractionKind::Generic;
     std::string m_Prompt = "Interact";
@@ -119,14 +123,16 @@ public:
     void Shake(float amplitude, float duration);
     void Flash(float intensity, float duration);
     void SlowMotion(float scale, float duration);
-    bool IsActive() const { return m_ShakeRemaining>0.0f||m_FlashRemaining>0.0f||m_SlowRemaining>0.0f; }
-    const Vec3& GetAppliedShakeOffset() const{return m_LastShakeOffset;}
+    bool IsActive() const { return m_ShakeRemaining > 0.0f || m_FlashRemaining > 0.0f || m_SlowRemaining > 0.0f; }
+    const Vec3& GetAppliedShakeOffset() const { return m_LastShakeOffset; }
     void Serialize(nlohmann::json& data) const override;
     void Deserialize(const nlohmann::json& data) override;
+
 private:
-    Vec3 m_LastShakeOffset=Vec3::Zero();
-    float m_ShakeAmplitude=0.0f,m_ShakeRemaining=0.0f,m_FlashIntensity=0.0f,m_FlashRemaining=0.0f,m_SlowRemaining=0.0f;
-    float m_OriginalVignette=0.0f,m_OriginalSaturation=1.0f;
-    bool m_FlashCaptured=false;
-    uint32_t m_NoiseState=0x12345678u;
+    Vec3 m_LastShakeOffset = Vec3::Zero();
+    float m_ShakeAmplitude = 0.0f, m_ShakeRemaining = 0.0f, m_FlashIntensity = 0.0f, m_FlashRemaining = 0.0f,
+          m_SlowRemaining = 0.0f;
+    float m_OriginalVignette = 0.0f, m_OriginalSaturation = 1.0f;
+    bool m_FlashCaptured = false;
+    uint32_t m_NoiseState = 0x12345678u;
 };

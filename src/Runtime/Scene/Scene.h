@@ -58,10 +58,10 @@ public:
     SceneLifetimeGuard& operator=(const SceneLifetimeGuard&) = delete;
     explicit operator bool() const { return static_cast<bool>(m_State); }
     uint64_t GetGeneration() const { return m_State ? m_State->generation : 0; }
+
 private:
     friend class SceneLifetimeToken;
-    SceneLifetimeGuard(std::shared_ptr<SceneLifetimeState> state,
-                       std::shared_lock<std::shared_mutex> lock)
+    SceneLifetimeGuard(std::shared_ptr<SceneLifetimeState> state, std::shared_lock<std::shared_mutex> lock)
         : m_State(std::move(state)), m_Lock(std::move(lock)) {}
     std::shared_ptr<SceneLifetimeState> m_State;
     std::shared_lock<std::shared_mutex> m_Lock;
@@ -80,11 +80,14 @@ public:
     }
     SceneLifetimeGuard TryAcquire() const {
         auto state = m_State.lock();
-        if (!state) return {};
+        if (!state)
+            return {};
         std::shared_lock<std::shared_mutex> lock(state->gate);
-        if (!state->alive.load(std::memory_order_acquire)) return {};
+        if (!state->alive.load(std::memory_order_acquire))
+            return {};
         return SceneLifetimeGuard(std::move(state), std::move(lock));
     }
+
 private:
     friend class Scene;
     explicit SceneLifetimeToken(const std::shared_ptr<SceneLifetimeState>& state) : m_State(state) {}
@@ -114,9 +117,7 @@ public:
     uint64_t GetMainCameraHintActorID() const { return m_MainCameraHintActorID; }
     void SetMainCameraHintActorID(uint64_t actorID) { m_MainCameraHintActorID = actorID; }
     float GetAmbientIntensity() const { return m_AmbientIntensity; }
-    void SetAmbientIntensity(float intensity) {
-        m_AmbientIntensity = intensity < 0.0f ? 0.0f : intensity;
-    }
+    void SetAmbientIntensity(float intensity) { m_AmbientIntensity = intensity < 0.0f ? 0.0f : intensity; }
 
     ActorHandle QueueCreateActor(const ActorCreateDesc& desc = {});
     void QueueDestroyActor(ActorHandle actor);
@@ -155,8 +156,14 @@ public:
 
     void BeginPlay();
     void EndPlay();
-    void Pause() { if (m_State == SceneState::Playing) m_State = SceneState::Paused; }
-    void Resume() { if (m_State == SceneState::Paused) m_State = SceneState::Playing; }
+    void Pause() {
+        if (m_State == SceneState::Playing)
+            m_State = SceneState::Paused;
+    }
+    void Resume() {
+        if (m_State == SceneState::Paused)
+            m_State = SceneState::Playing;
+    }
     void OnUpdate(float deltaSeconds);
     SceneState GetState() const { return m_State; }
     bool IsPlaying() const { return m_State == SceneState::Playing; }
@@ -177,16 +184,18 @@ public:
     class WorldZoneStreamer& GetZoneStreamer();
     const class WorldZoneStreamer& GetZoneStreamer() const;
 
-    template<typename Function>
+    template <typename Function>
     auto SubmitZoneTask(WorldZoneID zone, TaskDescriptor descriptor, Function&& function)
         -> TaskHandle<std::invoke_result_t<Function, CancellationToken, WorldZoneLifetimeToken>> {
-        auto found=m_Zones.find(zone);
-        if(found==m_Zones.end())throw std::invalid_argument("unknown world zone");
+        auto found = m_Zones.find(zone);
+        if (found == m_Zones.end())
+            throw std::invalid_argument("unknown world zone");
         WorldZoneLifetimeToken lifetime(found->second->lifetime);
-        return TaskService::Get().Submit(found->second->tasks,std::move(descriptor),
-            [lifetime,function=std::forward<Function>(function)](CancellationToken cancellation)mutable{
+        return TaskService::Get().Submit(
+            found->second->tasks, std::move(descriptor),
+            [lifetime, function = std::forward<Function>(function)](CancellationToken cancellation) mutable {
                 cancellation.ThrowIfCancellationRequested();
-                return function(cancellation,lifetime);
+                return function(cancellation, lifetime);
             });
     }
     WorldFrameScheduler& GetFrameScheduler() { return m_FrameScheduler; }
@@ -196,14 +205,14 @@ public:
     const PhysicsWorld& GetPhysicsWorld() const { return m_PhysicsWorld; }
     NavigationWorld& GetNavigationWorld() { return m_NavigationWorld; }
     const NavigationWorld& GetNavigationWorld() const { return m_NavigationWorld; }
-    void SetNavMeshAssetPath(std::string path){m_NavMeshAssetPath=std::move(path);}
-    const std::string& GetNavMeshAssetPath()const{return m_NavMeshAssetPath;}
-    void SetPreloadAssets(std::vector<std::string> paths){m_PreloadAssets=std::move(paths);}
-    const std::vector<std::string>& GetPreloadAssets()const{return m_PreloadAssets;}
-    void SetSceneManager(class SceneManager* manager){m_SceneManager=manager;}
-    class SceneManager* GetSceneManager()const{return m_SceneManager;}
-    void SetGameFlowController(class GameFlowController* controller){m_GameFlowController=controller;}
-    class GameFlowController* GetGameFlowController()const{return m_GameFlowController;}
+    void SetNavMeshAssetPath(std::string path) { m_NavMeshAssetPath = std::move(path); }
+    const std::string& GetNavMeshAssetPath() const { return m_NavMeshAssetPath; }
+    void SetPreloadAssets(std::vector<std::string> paths) { m_PreloadAssets = std::move(paths); }
+    const std::vector<std::string>& GetPreloadAssets() const { return m_PreloadAssets; }
+    void SetSceneManager(class SceneManager* manager) { m_SceneManager = manager; }
+    class SceneManager* GetSceneManager() const { return m_SceneManager; }
+    void SetGameFlowController(class GameFlowController* controller) { m_GameFlowController = controller; }
+    class GameFlowController* GetGameFlowController() const { return m_GameFlowController; }
 
 private:
     void ReleaseAssetPins();
@@ -216,9 +225,28 @@ private:
         std::vector<std::string> pinnedAssets;
         TaskScope tasks;
     };
-    struct Slot { Actor* actor = nullptr; uint32_t generation = 1; bool reserved = false; };
-    struct PendingCreate { ActorHandle handle; ActorCreateDesc desc; bool cancelled = false; };
-    enum class CommandKind { Destroy, SetParent, MoveActor, SetActive, SetTag, SetLayer, SetEditorFlags, AddComponent, RemoveComponent, SetComponentEnabled };
+    struct Slot {
+        Actor* actor = nullptr;
+        uint32_t generation = 1;
+        bool reserved = false;
+    };
+    struct PendingCreate {
+        ActorHandle handle;
+        ActorCreateDesc desc;
+        bool cancelled = false;
+    };
+    enum class CommandKind {
+        Destroy,
+        SetParent,
+        MoveActor,
+        SetActive,
+        SetTag,
+        SetLayer,
+        SetEditorFlags,
+        AddComponent,
+        RemoveComponent,
+        SetComponentEnabled
+    };
     struct Command {
         CommandKind kind;
         ActorHandle actor;
@@ -262,7 +290,7 @@ private:
     class GameFlowController* m_GameFlowController = nullptr;
     std::shared_ptr<SceneLifetimeState> m_Lifetime;
     std::vector<std::string> m_OwnedAssetPins;
-    std::unordered_map<WorldZoneID,std::unique_ptr<WorldZone>> m_Zones;
+    std::unordered_map<WorldZoneID, std::unique_ptr<WorldZone>> m_Zones;
     WorldZoneID m_NextZoneID = 1;
     std::unique_ptr<class WorldZoneStreamer> m_ZoneStreamer;
 };

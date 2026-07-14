@@ -25,13 +25,12 @@ using Json = nlohmann::json;
 // --------------------------------------------------------------------------
 
 static Json Vec3ToJson(const Vec3& v) {
-    return Json::array({ v.x, v.y, v.z });
+    return Json::array({v.x, v.y, v.z});
 }
 
 static Vec3 Vec3FromJson(const Json& j) {
     Vec3 out;
-    if (!j.is_array() || j.size() < 3 ||
-        !j[0].is_number() || !j[1].is_number() || !j[2].is_number()) {
+    if (!j.is_array() || j.size() < 3 || !j[0].is_number() || !j[1].is_number() || !j[2].is_number()) {
         Logger::Warn("SceneSerializer: invalid Vec3 field, using default");
         return out;
     }
@@ -45,15 +44,18 @@ static Json TransformToJson(const Transform& t) {
     Json j;
     j["position"] = Vec3ToJson(t.position);
     j["rotation"] = Vec3ToJson(t.rotation);
-    j["scale"]    = Vec3ToJson(t.scale);
+    j["scale"] = Vec3ToJson(t.scale);
     return j;
 }
 
 static Transform TransformFromJson(const Json& j) {
     Transform t;
-    if (j.contains("position")) t.position = Vec3FromJson(j["position"]);
-    if (j.contains("rotation")) t.rotation = Vec3FromJson(j["rotation"]);
-    if (j.contains("scale"))    t.scale    = Vec3FromJson(j["scale"]);
+    if (j.contains("position"))
+        t.position = Vec3FromJson(j["position"]);
+    if (j.contains("rotation"))
+        t.rotation = Vec3FromJson(j["rotation"]);
+    if (j.contains("scale"))
+        t.scale = Vec3FromJson(j["scale"]);
     return t;
 }
 
@@ -61,33 +63,39 @@ static Transform TransformFromJson(const Json& j) {
 // Serialize Scene → JSON object
 // --------------------------------------------------------------------------
 
-static Json SceneToJson(const Scene& scene)
-{
+static Json SceneToJson(const Scene& scene) {
     Json root;
     root["version"] = FormatVersions::Scene;
-    root["name"]   = scene.GetName();
+    root["name"] = scene.GetName();
     if (scene.GetMainCameraHintActorID() != 0) {
         root["mainCameraHintActorID"] = scene.GetMainCameraHintActorID();
     }
     if (scene.GetAmbientIntensity() != 1.0f) {
         root["ambientIntensity"] = scene.GetAmbientIntensity();
     }
-    if(!scene.GetNavMeshAssetPath().empty())root["navMeshAsset"]=scene.GetNavMeshAssetPath();
-    if(!scene.GetPreloadAssets().empty())root["preloadAssets"]=scene.GetPreloadAssets();
+    if (!scene.GetNavMeshAssetPath().empty())
+        root["navMeshAsset"] = scene.GetNavMeshAssetPath();
+    if (!scene.GetPreloadAssets().empty())
+        root["preloadAssets"] = scene.GetPreloadAssets();
 
     Json actorsArr = Json::array();
 
     scene.ForEach([&](Actor& actor) {
-        for (Actor* parent=actor.GetParent();parent;parent=parent->GetParent())
-            if (parent->IsPrefabRoot()) return;
-        if (actor.IsPrefabInstance() && !actor.IsPrefabRoot()) return;
+        for (Actor* parent = actor.GetParent(); parent; parent = parent->GetParent())
+            if (parent->IsPrefabRoot())
+                return;
+        if (actor.IsPrefabInstance() && !actor.IsPrefabRoot())
+            return;
         Json a;
-        a["id"]       = actor.GetID();
-        a["name"]     = actor.GetName();
-        a["active"]   = actor.IsActiveSelf();
-        if (!actor.GetTag().empty()) a["tag"] = actor.GetTag();
-        if (actor.GetLayer() != 0) a["layer"] = actor.GetLayer();
-        if (actor.GetEditorFlags() != 0) a["editorFlags"] = actor.GetEditorFlags();
+        a["id"] = actor.GetID();
+        a["name"] = actor.GetName();
+        a["active"] = actor.IsActiveSelf();
+        if (!actor.GetTag().empty())
+            a["tag"] = actor.GetTag();
+        if (actor.GetLayer() != 0)
+            a["layer"] = actor.GetLayer();
+        if (actor.GetEditorFlags() != 0)
+            a["editorFlags"] = actor.GetEditorFlags();
         a["parentID"] = actor.GetParent() ? actor.GetParent()->GetID() : uint64_t(0);
         a["transform"] = TransformToJson(actor.GetTransform());
 
@@ -95,11 +103,9 @@ static Json SceneToJson(const Scene& scene)
             std::string error;
             if (!PrefabSystem::CaptureOverrides(actor, &error))
                 throw std::runtime_error("failed to capture prefab overrides: " + error);
-            a["prefabInstance"] = {
-                {"asset", actor.GetPrefabAssetPath()},
-                {"uuid", actor.GetPrefabAssetUuid()},
-                {"overrides", actor.GetPrefabOverrides()}
-            };
+            a["prefabInstance"] = {{"asset", actor.GetPrefabAssetPath()},
+                                   {"uuid", actor.GetPrefabAssetUuid()},
+                                   {"overrides", actor.GetPrefabOverrides()}};
             actorsArr.push_back(std::move(a));
             return;
         }
@@ -108,12 +114,13 @@ static Json SceneToJson(const Scene& scene)
         Json comps = Json::array();
         actor.ForEachComponent([&](Component& comp) {
             Json c;
-            c["type"]    = comp.GetTypeName();
+            c["type"] = comp.GetTypeName();
             c["enabled"] = comp.IsEnabled();
-            Json data    = Json::object();
+            Json data = Json::object();
             uint32_t version = 0;
             std::string typeError;
-            if (!TypeRegistry::Get().Serialize(comp, data, version, &typeError)) comp.Serialize(data);
+            if (!TypeRegistry::Get().Serialize(comp, data, version, &typeError))
+                comp.Serialize(data);
             c["version"] = version;
             c["data"] = data;
             comps.push_back(c);
@@ -128,8 +135,9 @@ static Json SceneToJson(const Scene& scene)
     // Record next ID so we can restore it exactly
     // Derive it from max existing ID + 1 (safe even without a getter)
     uint64_t maxID = 0;
-    scene.ForEach([&](Actor& actor){
-        if (actor.GetID() > maxID) maxID = actor.GetID();
+    scene.ForEach([&](Actor& actor) {
+        if (actor.GetID() > maxID)
+            maxID = actor.GetID();
     });
     root["nextID"] = maxID + 1;
 
@@ -140,8 +148,7 @@ static Json SceneToJson(const Scene& scene)
 // Deserialize JSON object → Scene
 // --------------------------------------------------------------------------
 
-static bool JsonToScene(const Json& root, Scene& scene)
-{
+static bool JsonToScene(const Json& root, Scene& scene) {
     const int version = root.value("version", 0);
     if (version < 0 || version > FormatVersions::Scene) {
         Logger::Error("SceneSerializer: unsupported scene version ", version);
@@ -150,14 +157,18 @@ static bool JsonToScene(const Json& root, Scene& scene)
     try {
         scene.Clear();
         scene.SetName(root.value("name", "Scene"));
-        scene.SetMainCameraHintActorID(
-            root.value("mainCameraHintActorID", uint64_t{0}));
+        scene.SetMainCameraHintActorID(root.value("mainCameraHintActorID", uint64_t{0}));
         scene.SetAmbientIntensity(root.value("ambientIntensity", 1.0f));
-        scene.SetNavMeshAssetPath(root.value("navMeshAsset",std::string{}));
-        scene.SetPreloadAssets(root.value("preloadAssets",std::vector<std::string>{}));
-        if(!scene.GetNavMeshAssetPath().empty()){auto nav=AssetManager::Get().Load<NavMeshAsset>(scene.GetNavMeshAssetPath());if(nav)nav->Apply(scene.GetNavigationWorld());}
+        scene.SetNavMeshAssetPath(root.value("navMeshAsset", std::string{}));
+        scene.SetPreloadAssets(root.value("preloadAssets", std::vector<std::string>{}));
+        if (!scene.GetNavMeshAssetPath().empty()) {
+            auto nav = AssetManager::Get().Load<NavMeshAsset>(scene.GetNavMeshAssetPath());
+            if (nav)
+                nav->Apply(scene.GetNavigationWorld());
+        }
 
-        if (!root.contains("actors")) return true; // empty scene is valid
+        if (!root.contains("actors"))
+            return true; // empty scene is valid
 
         const Json& actorsArr = root["actors"];
         if (!actorsArr.is_array()) {
@@ -174,24 +185,30 @@ static bool JsonToScene(const Json& root, Scene& scene)
                 continue;
             }
 
-            uint64_t    id     = a.value("id",     uint64_t(0));
-            std::string name   = a.value("name",   std::string("Actor"));
-            bool        active = a.value("active", true);
+            uint64_t id = a.value("id", uint64_t(0));
+            std::string name = a.value("name", std::string("Actor"));
+            bool active = a.value("active", true);
 
             if (a.contains("prefabInstance")) {
                 const Json& prefab = a["prefabInstance"];
-                if (!prefab.is_object()) throw std::runtime_error("prefabInstance must be an object");
+                if (!prefab.is_object())
+                    throw std::runtime_error("prefabInstance must be an object");
                 PrefabInstantiateOptions options;
                 options.persistentRootID = id;
                 options.rootTransform = a.contains("transform") ? TransformFromJson(a["transform"]) : Transform{};
                 options.expectedUuid = prefab.value("uuid", std::string{});
                 options.overrides = prefab.value("overrides", Json::array());
                 std::string error;
-                ActorHandle handle = PrefabSystem::QueueInstantiate(scene, prefab.value("asset", std::string{}), options, &error);
-                if (!handle) throw std::runtime_error("failed to instantiate prefab: " + error);
-                if (a.contains("tag")) scene.QueueSetTag(handle, a.value("tag", std::string{}));
-                if (a.contains("layer")) scene.QueueSetLayer(handle, a.value("layer", uint32_t{0}));
-                if (a.contains("editorFlags")) scene.QueueSetEditorFlags(handle, a.value("editorFlags", uint32_t{0}));
+                ActorHandle handle =
+                    PrefabSystem::QueueInstantiate(scene, prefab.value("asset", std::string{}), options, &error);
+                if (!handle)
+                    throw std::runtime_error("failed to instantiate prefab: " + error);
+                if (a.contains("tag"))
+                    scene.QueueSetTag(handle, a.value("tag", std::string{}));
+                if (a.contains("layer"))
+                    scene.QueueSetLayer(handle, a.value("layer", uint32_t{0}));
+                if (a.contains("editorFlags"))
+                    scene.QueueSetEditorFlags(handle, a.value("editorFlags", uint32_t{0}));
                 handles[id] = handle;
                 continue;
             }
@@ -203,16 +220,19 @@ static bool JsonToScene(const Json& root, Scene& scene)
             desc.tag = a.value("tag", std::string{});
             desc.layer = a.value("layer", uint32_t{0});
             desc.editorFlags = a.value("editorFlags", uint32_t{0});
-            if (a.contains("transform")) desc.transform = TransformFromJson(a["transform"]);
+            if (a.contains("transform"))
+                desc.transform = TransformFromJson(a["transform"]);
             if (a.contains("components") && a["components"].is_array()) {
                 for (const Json& c : a["components"]) {
-                    if (!c.is_object()) continue;
+                    if (!c.is_object())
+                        continue;
                     ComponentCreateDesc component;
                     component.type = c.value("type", std::string{});
                     component.enabled = c.value("enabled", true);
                     component.version = c.value("version", uint32_t{0});
                     component.data = c.contains("data") ? c["data"] : Json::object();
-                    if (!component.type.empty()) desc.components.push_back(std::move(component));
+                    if (!component.type.empty())
+                        desc.components.push_back(std::move(component));
                 }
             }
             handles[id] = scene.QueueCreateActor(desc);
@@ -225,8 +245,9 @@ static bool JsonToScene(const Json& root, Scene& scene)
 
         // Pass 2: queue relationships after every handle has been reserved.
         for (const Json& a : actorsArr) {
-            if (!a.is_object()) continue;
-            uint64_t id       = a.value("id",       uint64_t(0));
+            if (!a.is_object())
+                continue;
+            uint64_t id = a.value("id", uint64_t(0));
             uint64_t parentID = a.value("parentID", uint64_t(0));
             if (parentID != 0) {
                 const auto actor = handles.find(id);
@@ -240,8 +261,7 @@ static bool JsonToScene(const Json& root, Scene& scene)
             return false;
         }
         return true;
-    }
-    catch (const std::exception& e) {
+    } catch (const std::exception& e) {
         Logger::Error("SceneSerializer: parse error: ", e.what());
         scene.Clear();
         return false;
@@ -252,27 +272,37 @@ static bool JsonToScene(const Json& root, Scene& scene)
 // Public API
 // --------------------------------------------------------------------------
 
-bool SceneSerializer::SaveToFile(const Scene& scene, const std::string& filepath)
-{
+bool SceneSerializer::SaveToFile(const Scene& scene, const std::string& filepath) {
     try {
         Json root = SceneToJson(scene);
         TransactionalWriteOptions options;
-        options.validator=[](const std::filesystem::path& candidate,std::string* validationError){try{std::ifstream input(candidate);const std::string text((std::istreambuf_iterator<char>(input)),{});SceneLoadPlan plan;return SceneSerializer::BuildLoadPlan(text,plan,validationError);}catch(const std::exception& e){if(validationError)*validationError=e.what();return false;}};
+        options.validator = [](const std::filesystem::path& candidate, std::string* validationError) {
+            try {
+                std::ifstream input(candidate);
+                const std::string text((std::istreambuf_iterator<char>(input)), {});
+                SceneLoadPlan plan;
+                return SceneSerializer::BuildLoadPlan(text, plan, validationError);
+            } catch (const std::exception& e) {
+                if (validationError)
+                    *validationError = e.what();
+                return false;
+            }
+        };
         std::string writeError;
-        if(!TransactionalFileWriter::WriteText(filepath,root.dump(4)+"\n",options,&writeError)){Logger::Error("SceneSerializer: save failed: ",writeError);return false;}
-        Logger::Info("SceneSerializer: saved '", scene.GetName(),
-                     "' → ", filepath,
-                     "  (", scene.ActorCount(), " actors)");
+        if (!TransactionalFileWriter::WriteText(filepath, root.dump(4) + "\n", options, &writeError)) {
+            Logger::Error("SceneSerializer: save failed: ", writeError);
+            return false;
+        }
+        Logger::Info("SceneSerializer: saved '", scene.GetName(), "' → ", filepath, "  (", scene.ActorCount(),
+                     " actors)");
         return true;
-    }
-    catch (const std::exception& e) {
+    } catch (const std::exception& e) {
         Logger::Error("SceneSerializer: save error: ", e.what());
         return false;
     }
 }
 
-bool SceneSerializer::LoadFromFile(Scene& scene, const std::string& filepath)
-{
+bool SceneSerializer::LoadFromFile(Scene& scene, const std::string& filepath) {
     try {
         std::string source;
         if (!RuntimeFileSystem::Get().ReadText(filepath, source)) {
@@ -281,61 +311,59 @@ bool SceneSerializer::LoadFromFile(Scene& scene, const std::string& filepath)
         }
         bool ok = LoadFromString(scene, source);
         if (ok) {
-            Logger::Info("SceneSerializer: loaded '", scene.GetName(),
-                         "' ← ", filepath,
-                         "  (", scene.ActorCount(), " actors)");
+            Logger::Info("SceneSerializer: loaded '", scene.GetName(), "' ← ", filepath, "  (", scene.ActorCount(),
+                         " actors)");
         }
         return ok;
-    }
-    catch (const std::exception& e) {
+    } catch (const std::exception& e) {
         Logger::Error("SceneSerializer: load error: ", e.what());
         return false;
     }
 }
 
-std::string SceneSerializer::SaveToString(const Scene& scene)
-{
+std::string SceneSerializer::SaveToString(const Scene& scene) {
     return SceneToJson(scene).dump(4);
 }
 
-bool SceneSerializer::LoadFromString(Scene& scene, const std::string& jsonStr)
-{
-    SceneLoadPlan plan; std::string error;
+bool SceneSerializer::LoadFromString(Scene& scene, const std::string& jsonStr) {
+    SceneLoadPlan plan;
+    std::string error;
     if (!BuildLoadPlan(jsonStr, plan, &error)) {
-        Logger::Error("SceneSerializer: parse error: ", error); return false;
+        Logger::Error("SceneSerializer: parse error: ", error);
+        return false;
     }
-    SceneInstantiationState state; bool complete = false;
+    SceneInstantiationState state;
+    bool complete = false;
     if (!InstantiateLoadPlan(scene, plan, state, std::max<size_t>(1, plan.actors.size()), complete, &error)) {
-        Logger::Error("SceneSerializer: instantiate error: ", error); return false;
+        Logger::Error("SceneSerializer: instantiate error: ", error);
+        return false;
     }
     return complete;
 }
 
 namespace {
-void CollectAssetDependencies(const Json& value, std::unordered_set<std::string>& paths)
-{
+void CollectAssetDependencies(const Json& value, std::unordered_set<std::string>& paths) {
     if (value.is_string()) {
         const std::string path = value.get<std::string>();
         if (path.rfind("Content/", 0) == 0 || path.rfind("EngineContent/", 0) == 0)
             paths.insert(path);
     } else if (value.is_array()) {
-        for (const auto& child : value) CollectAssetDependencies(child, paths);
+        for (const auto& child : value)
+            CollectAssetDependencies(child, paths);
     } else if (value.is_object()) {
         for (auto it = value.begin(); it != value.end(); ++it)
             CollectAssetDependencies(it.value(), paths);
     }
 }
-}
+} // namespace
 
-bool SceneSerializer::BuildLoadPlan(const std::string& jsonStr, SceneLoadPlan& plan,
-                                    std::string* error)
-{
+bool SceneSerializer::BuildLoadPlan(const std::string& jsonStr, SceneLoadPlan& plan, std::string* error) {
     try {
         Json root = Json::parse(jsonStr);
         JsonMigrationRegistry migrations("scene", FormatVersions::Scene);
         std::string migrationError;
-        if (!migrations.Register(0, [](Json&, std::string*) { return true; },
-                                 &migrationError) ||
+        if (!migrations.Register(
+                0, [](Json&, std::string*) { return true; }, &migrationError) ||
             !migrations.Migrate(root, &migrationError))
             throw std::runtime_error(migrationError);
         if (root.contains("actors") && !root["actors"].is_array())
@@ -344,25 +372,25 @@ bool SceneSerializer::BuildLoadPlan(const std::string& jsonStr, SceneLoadPlan& p
         candidate.root = std::move(root);
         if (candidate.root.contains("actors"))
             for (const auto& actor : candidate.root["actors"])
-                if (actor.is_object()) candidate.actors.push_back(actor);
+                if (actor.is_object())
+                    candidate.actors.push_back(actor);
         std::unordered_set<std::string> dependencies;
         CollectAssetDependencies(candidate.root, dependencies);
         candidate.assetDependencies.assign(dependencies.begin(), dependencies.end());
         std::sort(candidate.assetDependencies.begin(), candidate.assetDependencies.end());
         plan = std::move(candidate);
-        if (error) error->clear();
+        if (error)
+            error->clear();
         return true;
     } catch (const std::exception& e) {
-        if (error) *error = e.what();
+        if (error)
+            *error = e.what();
         return false;
     }
 }
 
-bool SceneSerializer::InstantiateLoadPlan(Scene& scene, const SceneLoadPlan& plan,
-                                          SceneInstantiationState& state,
-                                          size_t maxActors, bool& complete,
-                                          std::string* error)
-{
+bool SceneSerializer::InstantiateLoadPlan(Scene& scene, const SceneLoadPlan& plan, SceneInstantiationState& state,
+                                          size_t maxActors, bool& complete, std::string* error) {
     complete = false;
     try {
         if (!state.initialized) {
@@ -372,7 +400,8 @@ bool SceneSerializer::InstantiateLoadPlan(Scene& scene, const SceneLoadPlan& pla
             scene.SetAmbientIntensity(plan.root.value("ambientIntensity", 1.0f));
             scene.SetNavMeshAssetPath(plan.root.value("navMeshAsset", std::string{}));
             scene.SetPreloadAssets(plan.root.value("preloadAssets", std::vector<std::string>{}));
-            if (plan.root.contains("nextID")) scene.SetNextID(plan.root["nextID"].get<uint64_t>());
+            if (plan.root.contains("nextID"))
+                scene.SetNextID(plan.root["nextID"].get<uint64_t>());
             state.initialized = true;
         }
         const size_t end = std::min(plan.actors.size(), state.nextActor + std::max<size_t>(1, maxActors));
@@ -381,62 +410,82 @@ bool SceneSerializer::InstantiateLoadPlan(Scene& scene, const SceneLoadPlan& pla
             const uint64_t id = a.value("id", uint64_t{0});
             if (a.contains("prefabInstance")) {
                 const Json& prefab = a["prefabInstance"];
-                if (!prefab.is_object()) throw std::runtime_error("prefabInstance must be an object");
+                if (!prefab.is_object())
+                    throw std::runtime_error("prefabInstance must be an object");
                 PrefabInstantiateOptions options;
                 options.persistentRootID = id;
                 options.rootTransform = a.contains("transform") ? TransformFromJson(a["transform"]) : Transform{};
                 options.expectedUuid = prefab.value("uuid", std::string{});
                 options.overrides = prefab.value("overrides", Json::array());
                 std::string prefabError;
-                ActorHandle handle = PrefabSystem::QueueInstantiate(scene, prefab.value("asset", std::string{}), options, &prefabError);
-                if (!handle) throw std::runtime_error("failed to instantiate prefab: " + prefabError);
+                ActorHandle handle =
+                    PrefabSystem::QueueInstantiate(scene, prefab.value("asset", std::string{}), options, &prefabError);
+                if (!handle)
+                    throw std::runtime_error("failed to instantiate prefab: " + prefabError);
                 state.handles[id] = handle;
                 continue;
             }
             ActorCreateDesc desc;
-            desc.name = a.value("name", std::string("Actor")); desc.persistentID = id;
-            desc.activeSelf = a.value("active", true); desc.tag = a.value("tag", std::string{});
-            desc.layer = a.value("layer", uint32_t{0}); desc.editorFlags = a.value("editorFlags", uint32_t{0});
-            if (a.contains("transform")) desc.transform = TransformFromJson(a["transform"]);
-            if (a.contains("components") && a["components"].is_array()) for (const Json& c : a["components"]) {
-                if (!c.is_object()) continue;
-                ComponentCreateDesc component;
-                component.type = c.value("type", std::string{}); component.enabled = c.value("enabled", true);
-                component.version = c.value("version", uint32_t{0});
-                component.data = c.contains("data") ? c["data"] : Json::object();
-                if (!component.type.empty()) desc.components.push_back(std::move(component));
-            }
+            desc.name = a.value("name", std::string("Actor"));
+            desc.persistentID = id;
+            desc.activeSelf = a.value("active", true);
+            desc.tag = a.value("tag", std::string{});
+            desc.layer = a.value("layer", uint32_t{0});
+            desc.editorFlags = a.value("editorFlags", uint32_t{0});
+            if (a.contains("transform"))
+                desc.transform = TransformFromJson(a["transform"]);
+            if (a.contains("components") && a["components"].is_array())
+                for (const Json& c : a["components"]) {
+                    if (!c.is_object())
+                        continue;
+                    ComponentCreateDesc component;
+                    component.type = c.value("type", std::string{});
+                    component.enabled = c.value("enabled", true);
+                    component.version = c.value("version", uint32_t{0});
+                    component.data = c.contains("data") ? c["data"] : Json::object();
+                    if (!component.type.empty())
+                        desc.components.push_back(std::move(component));
+                }
             state.handles[id] = scene.QueueCreateActor(desc);
         }
-        if (!scene.FlushCommands()) throw std::runtime_error("failed to flush actor batch");
-        if (state.nextActor < plan.actors.size()) return true;
+        if (!scene.FlushCommands())
+            throw std::runtime_error("failed to flush actor batch");
+        if (state.nextActor < plan.actors.size())
+            return true;
         if (!state.relationshipsQueued) {
             for (const Json& a : plan.actors) {
                 const uint64_t id = a.value("id", uint64_t{0}), parentID = a.value("parentID", uint64_t{0});
-                if (!parentID) continue;
+                if (!parentID)
+                    continue;
                 const auto child = state.handles.find(id), parent = state.handles.find(parentID);
-                if (child != state.handles.end() && parent != state.handles.end()) scene.QueueSetParent(child->second, parent->second);
+                if (child != state.handles.end() && parent != state.handles.end())
+                    scene.QueueSetParent(child->second, parent->second);
             }
-            if (!scene.FlushCommands()) throw std::runtime_error("failed to restore scene relationships");
+            if (!scene.FlushCommands())
+                throw std::runtime_error("failed to restore scene relationships");
             if (!scene.GetNavMeshAssetPath().empty()) {
                 auto nav = AssetManager::Get().Load<NavMeshAsset>(scene.GetNavMeshAssetPath());
-                if (nav) nav->Apply(scene.GetNavigationWorld());
+                if (nav)
+                    nav->Apply(scene.GetNavigationWorld());
             }
             state.relationshipsQueued = true;
         }
         complete = true;
-        if (error) error->clear();
+        if (error)
+            error->clear();
         return true;
     } catch (const std::exception& e) {
-        scene.Clear(); if (error) *error = e.what(); return false;
+        scene.Clear();
+        if (error)
+            *error = e.what();
+        return false;
     }
 }
 
-bool SceneSerializer::InstantiateLoadPlanAdditive(
-    Scene& scene, const SceneLoadPlan& plan, SceneInstantiationState& state,
-    size_t maxActors, std::vector<ActorHandle>& createdRoots, bool& complete,
-    std::string* error)
-{
+bool SceneSerializer::InstantiateLoadPlanAdditive(Scene& scene, const SceneLoadPlan& plan,
+                                                  SceneInstantiationState& state, size_t maxActors,
+                                                  std::vector<ActorHandle>& createdRoots, bool& complete,
+                                                  std::string* error) {
     complete = false;
     createdRoots.clear();
     try {
@@ -449,8 +498,7 @@ bool SceneSerializer::InstantiateLoadPlanAdditive(
             }
             state.initialized = true;
         }
-        const size_t end = std::min(plan.actors.size(), state.nextActor +
-            std::max<size_t>(1, maxActors));
+        const size_t end = std::min(plan.actors.size(), state.nextActor + std::max<size_t>(1, maxActors));
         for (; state.nextActor < end; ++state.nextActor) {
             const Json& actor = plan.actors[state.nextActor];
             const uint64_t localID = actor.value("id", uint64_t{0});
@@ -460,13 +508,13 @@ bool SceneSerializer::InstantiateLoadPlanAdditive(
                 if (!prefab.is_object())
                     throw std::runtime_error("prefabInstance must be an object");
                 PrefabInstantiateOptions options;
-                options.rootTransform = actor.contains("transform")
-                    ? TransformFromJson(actor["transform"]) : Transform{};
+                options.rootTransform =
+                    actor.contains("transform") ? TransformFromJson(actor["transform"]) : Transform{};
                 options.expectedUuid = prefab.value("uuid", std::string{});
                 options.overrides = prefab.value("overrides", Json::array());
                 std::string prefabError;
-                handle = PrefabSystem::QueueInstantiate(
-                    scene, prefab.value("asset", std::string{}), options, &prefabError);
+                handle =
+                    PrefabSystem::QueueInstantiate(scene, prefab.value("asset", std::string{}), options, &prefabError);
                 if (!handle)
                     throw std::runtime_error("failed to instantiate additive prefab: " + prefabError);
             } else {
@@ -476,17 +524,19 @@ bool SceneSerializer::InstantiateLoadPlanAdditive(
                 desc.tag = actor.value("tag", std::string{});
                 desc.layer = actor.value("layer", uint32_t{0});
                 desc.editorFlags = actor.value("editorFlags", uint32_t{0});
-                if (actor.contains("transform")) desc.transform = TransformFromJson(actor["transform"]);
+                if (actor.contains("transform"))
+                    desc.transform = TransformFromJson(actor["transform"]);
                 if (actor.contains("components") && actor["components"].is_array()) {
                     for (const Json& componentJson : actor["components"]) {
-                        if (!componentJson.is_object()) continue;
+                        if (!componentJson.is_object())
+                            continue;
                         ComponentCreateDesc component;
                         component.type = componentJson.value("type", std::string{});
                         component.enabled = componentJson.value("enabled", true);
                         component.version = componentJson.value("version", uint32_t{0});
-                        component.data = componentJson.contains("data")
-                            ? componentJson["data"] : Json::object();
-                        if (!component.type.empty()) desc.components.push_back(std::move(component));
+                        component.data = componentJson.contains("data") ? componentJson["data"] : Json::object();
+                        if (!component.type.empty())
+                            desc.components.push_back(std::move(component));
                     }
                 }
                 handle = scene.QueueCreateActor(desc);
@@ -496,17 +546,18 @@ bool SceneSerializer::InstantiateLoadPlanAdditive(
         }
         if (!scene.FlushCommands())
             throw std::runtime_error("failed to flush additive actor batch");
-        if (state.nextActor < plan.actors.size()) return true;
+        if (state.nextActor < plan.actors.size())
+            return true;
         if (!state.relationshipsQueued) {
             for (const Json& actor : plan.actors) {
                 const uint64_t id = actor.value("id", uint64_t{0});
                 const uint64_t parentID = actor.value("parentID", uint64_t{0});
-                if (!parentID) continue;
+                if (!parentID)
+                    continue;
                 const auto child = state.handles.find(id);
                 const auto parent = state.handles.find(parentID);
                 if (child == state.handles.end() || parent == state.handles.end())
-                    throw std::runtime_error(
-                        "additive zone parent references must remain inside the zone");
+                    throw std::runtime_error("additive zone parent references must remain inside the zone");
                 scene.QueueSetParent(child->second, parent->second);
             }
             if (!scene.FlushCommands())
@@ -514,10 +565,12 @@ bool SceneSerializer::InstantiateLoadPlanAdditive(
             state.relationshipsQueued = true;
         }
         complete = true;
-        if (error) error->clear();
+        if (error)
+            error->clear();
         return true;
     } catch (const std::exception& exception) {
-        if (error) *error = exception.what();
+        if (error)
+            *error = exception.what();
         return false;
     }
 }

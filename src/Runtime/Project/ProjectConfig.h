@@ -26,22 +26,15 @@ public:
     static constexpr int kCurrentVersion = FormatVersions::Project;
     static constexpr const char* kFileName = "MyEngine.project.json";
 
-    bool Open(std::filesystem::path projectRoot, bool allowMissing = false,
-              std::string* error = nullptr);
+    bool Open(std::filesystem::path projectRoot, bool allowMissing = false, std::string* error = nullptr);
     bool Save(std::string* error = nullptr);
 
-    bool SetStartupScene(const std::filesystem::path& scenePath,
-                         std::string* error = nullptr);
-    bool ResolveStartupScene(std::filesystem::path& resolved,
-                             std::string* error = nullptr) const;
-    bool ResolveScenePath(const std::string& projectRelativePath,
-                          std::filesystem::path& resolved,
-                          bool requireExists = true,
-                          std::string* error = nullptr) const;
-    bool SetInputConfigPath(const std::filesystem::path& configPath,
-                            std::string* error = nullptr);
-    bool ResolveInputConfigPath(std::filesystem::path& resolved,
-                                bool requireExists = false,
+    bool SetStartupScene(const std::filesystem::path& scenePath, std::string* error = nullptr);
+    bool ResolveStartupScene(std::filesystem::path& resolved, std::string* error = nullptr) const;
+    bool ResolveScenePath(const std::string& projectRelativePath, std::filesystem::path& resolved,
+                          bool requireExists = true, std::string* error = nullptr) const;
+    bool SetInputConfigPath(const std::filesystem::path& configPath, std::string* error = nullptr);
+    bool ResolveInputConfigPath(std::filesystem::path& resolved, bool requireExists = false,
                                 std::string* error = nullptr) const;
 
     int GetVersion() const { return m_Version; }
@@ -64,8 +57,7 @@ public:
 
 private:
     static void SetError(std::string* error, std::string message);
-    static bool IsWithin(const std::filesystem::path& path,
-                         const std::filesystem::path& parent);
+    static bool IsWithin(const std::filesystem::path& path, const std::filesystem::path& parent);
 
     std::filesystem::path m_Root;
     std::filesystem::path m_ManifestPath;

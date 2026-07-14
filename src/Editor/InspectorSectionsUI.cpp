@@ -6,11 +6,11 @@ public:
     const char* GetID() const override { return "uiCanvas"; }
     int GetOrder() const override { return 520; }
 
-    void Draw(EditorContext& context) override
-    {
+    void Draw(EditorContext& context) override {
         Actor* actor = SelectedActor(context);
         auto* canvas = actor ? actor->GetComponent<UICanvasComponent>() : nullptr;
-        if (!canvas) return;
+        if (!canvas)
+            return;
 
         ImGui::Separator();
         ImGui::PushID("UICanvas");
@@ -21,51 +21,41 @@ public:
 
         bool visible = canvas->IsVisible();
         if (ImGui::Checkbox("Visible", &visible)) {
-            CommitComponentEdit(context, *actor, *canvas, "visible", [&] {
-                canvas->SetVisible(visible);
-            });
+            CommitComponentEdit(context, *actor, *canvas, "visible", [&] { canvas->SetVisible(visible); });
         }
         bool interactive = canvas->IsInteractive();
         if (ImGui::Checkbox("Interactive", &interactive)) {
-            CommitComponentEdit(context, *actor, *canvas, "interactive", [&] {
-                canvas->SetInteractive(interactive);
-            });
+            CommitComponentEdit(context, *actor, *canvas, "interactive", [&] { canvas->SetInteractive(interactive); });
         }
         int sortOrder = canvas->GetSortOrder();
         if (ImGui::DragInt("Sort Order", &sortOrder, 1.0f)) {
-            CommitComponentEdit(context, *actor, *canvas, "sortOrder", [&] {
-                canvas->SetSortOrder(sortOrder);
-            });
+            CommitComponentEdit(context, *actor, *canvas, "sortOrder", [&] { canvas->SetSortOrder(sortOrder); });
         }
         int inputMode = static_cast<int>(canvas->GetInputMode());
         if (ImGui::Combo("Input Mode", &inputMode, "None\0UI Only\0Game And UI\0")) {
-            CommitComponentEdit(context, *actor, *canvas, "inputMode", [&] {
-                canvas->SetInputMode(static_cast<UIInputMode>(inputMode));
-            });
+            CommitComponentEdit(context, *actor, *canvas, "inputMode",
+                                [&] { canvas->SetInputMode(static_cast<UIInputMode>(inputMode)); });
         }
         int sourceMode = static_cast<int>(canvas->GetSourceMode());
         if (ImGui::Combo("Source Mode", &sourceMode, "Asset Document\0Actor Tree\0")) {
-            CommitComponentEdit(context, *actor, *canvas, "sourceMode", [&] {
-                canvas->SetSourceMode(static_cast<UICanvasSourceMode>(sourceMode));
-            });
+            CommitComponentEdit(context, *actor, *canvas, "sourceMode",
+                                [&] { canvas->SetSourceMode(static_cast<UICanvasSourceMode>(sourceMode)); });
         }
 
         if (canvas->GetSourceMode() == UICanvasSourceMode::AssetDocument) {
             std::array<char, 260> document{};
             std::strncpy(document.data(), canvas->GetDocumentPath().c_str(), document.size() - 1);
             if (ImGui::InputText("Document", document.data(), document.size())) {
-                CommitComponentEdit(context, *actor, *canvas, "documentPath", [&] {
-                    canvas->SetDocumentPath(document.data());
-                });
+                CommitComponentEdit(context, *actor, *canvas, "documentPath",
+                                    [&] { canvas->SetDocumentPath(document.data()); });
             }
         } else {
             auto generatedStyles = canvas->GetGeneratedStylePaths();
             std::string firstStyle = generatedStyles.empty() ? std::string{} : generatedStyles.front();
             if (DrawStringField("Generated Style", firstStyle)) {
                 CommitComponentEdit(context, *actor, *canvas, "generatedStylePaths", [&] {
-                    canvas->SetGeneratedStylePaths(firstStyle.empty()
-                        ? std::vector<std::string>{}
-                        : std::vector<std::string>{firstStyle});
+                    canvas->SetGeneratedStylePaths(firstStyle.empty() ? std::vector<std::string>{}
+                                                                      : std::vector<std::string>{firstStyle});
                 });
             }
         }
@@ -84,11 +74,11 @@ public:
     const char* GetID() const override { return "uiRectTransform"; }
     int GetOrder() const override { return 530; }
 
-    void Draw(EditorContext& context) override
-    {
+    void Draw(EditorContext& context) override {
         Actor* actor = SelectedActor(context);
         auto* rect = actor ? actor->GetComponent<UIRectTransformComponent>() : nullptr;
-        if (!rect) return;
+        if (!rect)
+            return;
 
         ImGui::Separator();
         ImGui::PushID("UIRectTransform");
@@ -104,9 +94,7 @@ public:
         changed |= DrawVec2Field("Offset Max", next.offsetMax);
         changed |= DrawVec2Field("Pivot", next.pivot);
         if (changed) {
-            CommitComponentEdit(context, *actor, *rect, "Rect Transform", [&]() {
-                rect->GetRect() = next;
-            });
+            CommitComponentEdit(context, *actor, *rect, "Rect Transform", [&]() { rect->GetRect() = next; });
         }
         if (EditorWidgets::IconButton("RemoveUIRectTransform", "X", "Remove UI Rect Transform")) {
             RemoveComponentByType(context, *actor, "UIRectTransform");
@@ -120,10 +108,10 @@ public:
     const char* GetID() const override { return "uiWidget"; }
     int GetOrder() const override { return 540; }
 
-    void Draw(EditorContext& context) override
-    {
+    void Draw(EditorContext& context) override {
         Actor* actor = SelectedActor(context);
-        if (!actor) return;
+        if (!actor)
+            return;
 
         DrawText(context, *actor);
         DrawImage(context, *actor);
@@ -134,9 +122,7 @@ public:
     }
 
 private:
-    template <typename T>
-    bool DrawCommon(EditorContext& context, Actor& actor, T& component, const char* label)
-    {
+    template <typename T> bool DrawCommon(EditorContext& context, Actor& actor, T& component, const char* label) {
         ImGui::Separator();
         ImGui::PushID(label);
         if (!SectionHeaderWithIcon(context, EditorIcons::Input, label)) {
@@ -157,11 +143,12 @@ private:
         return true;
     }
 
-    void DrawText(EditorContext& context, Actor& actor)
-    {
+    void DrawText(EditorContext& context, Actor& actor) {
         auto* component = actor.GetComponent<UITextComponent>();
-        if (!component) return;
-        if (!DrawCommon(context, actor, *component, "UI Text")) return;
+        if (!component)
+            return;
+        if (!DrawCommon(context, actor, *component, "UI Text"))
+            return;
         std::string text = component->text;
         float fontSize = component->fontSize;
         Color color = component->color;
@@ -179,11 +166,12 @@ private:
         ImGui::PopID();
     }
 
-    void DrawImage(EditorContext& context, Actor& actor)
-    {
+    void DrawImage(EditorContext& context, Actor& actor) {
         auto* component = actor.GetComponent<UIImageComponent>();
-        if (!component) return;
-        if (!DrawCommon(context, actor, *component, "UI Image")) return;
+        if (!component)
+            return;
+        if (!DrawCommon(context, actor, *component, "UI Image"))
+            return;
         std::string source = component->source;
         Color tint = component->tint;
         bool changed = DrawStringField("Source", source);
@@ -197,11 +185,12 @@ private:
         ImGui::PopID();
     }
 
-    void DrawButton(EditorContext& context, Actor& actor)
-    {
+    void DrawButton(EditorContext& context, Actor& actor) {
         auto* component = actor.GetComponent<UIButtonComponent>();
-        if (!component) return;
-        if (!DrawCommon(context, actor, *component, "UI Button")) return;
+        if (!component)
+            return;
+        if (!DrawCommon(context, actor, *component, "UI Button"))
+            return;
         std::string text = component->text;
         bool disabled = component->disabled;
         bool changed = DrawStringField("Text", text);
@@ -215,11 +204,12 @@ private:
         ImGui::PopID();
     }
 
-    void DrawSlider(EditorContext& context, Actor& actor)
-    {
+    void DrawSlider(EditorContext& context, Actor& actor) {
         auto* component = actor.GetComponent<UISliderComponent>();
-        if (!component) return;
-        if (!DrawCommon(context, actor, *component, "UI Slider")) return;
+        if (!component)
+            return;
+        if (!DrawCommon(context, actor, *component, "UI Slider"))
+            return;
         float value = component->value;
         float min = component->min;
         float max = component->max;
@@ -242,11 +232,12 @@ private:
         ImGui::PopID();
     }
 
-    void DrawProgress(EditorContext& context, Actor& actor)
-    {
+    void DrawProgress(EditorContext& context, Actor& actor) {
         auto* component = actor.GetComponent<UIProgressBarComponent>();
-        if (!component) return;
-        if (!DrawCommon(context, actor, *component, "UI Progress Bar")) return;
+        if (!component)
+            return;
+        if (!DrawCommon(context, actor, *component, "UI Progress Bar"))
+            return;
         float value = component->value;
         float max = component->max;
         bool changed = ImGui::DragFloat("Value", &value, 0.01f);
@@ -260,11 +251,12 @@ private:
         ImGui::PopID();
     }
 
-    void DrawScrollView(EditorContext& context, Actor& actor)
-    {
+    void DrawScrollView(EditorContext& context, Actor& actor) {
         auto* component = actor.GetComponent<UIScrollViewComponent>();
-        if (!component) return;
-        if (!DrawCommon(context, actor, *component, "UI Scroll View")) return;
+        if (!component)
+            return;
+        if (!DrawCommon(context, actor, *component, "UI Scroll View"))
+            return;
         bool horizontal = component->horizontal;
         bool vertical = component->vertical;
         bool changed = ImGui::Checkbox("Horizontal", &horizontal);
@@ -284,10 +276,10 @@ public:
     const char* GetID() const override { return "uiLayout"; }
     int GetOrder() const override { return 550; }
 
-    void Draw(EditorContext& context) override
-    {
+    void Draw(EditorContext& context) override {
         Actor* actor = SelectedActor(context);
-        if (!actor) return;
+        if (!actor)
+            return;
         if (auto* layout = actor->GetComponent<UIVerticalLayoutComponent>()) {
             DrawLayout(context, *actor, *layout, "UI Vertical Layout");
         }
@@ -300,9 +292,7 @@ public:
     }
 
 private:
-    template <typename T>
-    bool DrawLayout(EditorContext& context, Actor& actor, T& layout, const char* label)
-    {
+    template <typename T> bool DrawLayout(EditorContext& context, Actor& actor, T& layout, const char* label) {
         ImGui::Separator();
         ImGui::PushID(label);
         if (!SectionHeaderWithIcon(context, EditorIcons::Input, label)) {
@@ -332,9 +322,9 @@ private:
         return true;
     }
 
-    void DrawGrid(EditorContext& context, Actor& actor, UIGridLayoutComponent& grid)
-    {
-        if (!DrawLayout(context, actor, grid, "UI Grid Layout")) return;
+    void DrawGrid(EditorContext& context, Actor& actor, UIGridLayoutComponent& grid) {
+        if (!DrawLayout(context, actor, grid, "UI Grid Layout"))
+            return;
         int columns = grid.columns;
         int rows = grid.rows;
         float gap = grid.gap;
@@ -351,11 +341,9 @@ private:
     }
 };
 
-
 } // namespace
 
-void RegisterUIInspectorSections(std::vector<std::unique_ptr<EditorInspectorSection>>& sections)
-{
+void RegisterUIInspectorSections(std::vector<std::unique_ptr<EditorInspectorSection>>& sections) {
     sections.push_back(std::make_unique<UICanvasInspectorSection>());
     sections.push_back(std::make_unique<UIRectTransformInspectorSection>());
     sections.push_back(std::make_unique<UIWidgetInspectorSection>());

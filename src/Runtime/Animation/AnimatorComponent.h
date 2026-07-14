@@ -26,7 +26,11 @@ public:
     std::vector<AnimatorEvent> ConsumeEvents();
     void SetApplyRootMotion(bool enabled) { m_ApplyRootMotion = enabled; }
     bool AppliesRootMotion() const { return m_ApplyRootMotion; }
-    Vec3 ConsumeRootMotionDelta() { Vec3 value = m_RootMotionDelta; m_RootMotionDelta = Vec3::Zero(); return value; }
+    Vec3 ConsumeRootMotionDelta() {
+        Vec3 value = m_RootMotionDelta;
+        m_RootMotionDelta = Vec3::Zero();
+        return value;
+    }
 
     void Serialize(nlohmann::json& data) const override;
     void Deserialize(const nlohmann::json& data) override;

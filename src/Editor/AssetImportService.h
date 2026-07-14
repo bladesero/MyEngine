@@ -23,23 +23,16 @@ enum class AssetImportFault {
 
 class AssetImportService {
 public:
-    bool OpenProject(const std::filesystem::path& projectRoot,
-                     std::string* error = nullptr);
+    bool OpenProject(const std::filesystem::path& projectRoot, std::string* error = nullptr);
     void RegisterImporter(std::unique_ptr<IAssetImporter> importer);
-    AssetImportReport Import(const std::filesystem::path& externalSource,
-                             const std::string& settingsJson = "{}",
+    AssetImportReport Import(const std::filesystem::path& externalSource, const std::string& settingsJson = "{}",
                              std::string* error = nullptr);
-    AssetImportReport ImportSource(const std::filesystem::path& source,
-                                   const std::string& settingsJson = "{}",
-                                   const std::string& existingUuid = {},
-                                   std::string* error = nullptr);
+    AssetImportReport ImportSource(const std::filesystem::path& source, const std::string& settingsJson = "{}",
+                                   const std::string& existingUuid = {}, std::string* error = nullptr);
     AssetImportReport ImportEngineShaderSource(const std::filesystem::path& source,
-                                               const std::string& settingsJson = "{}",
-                                               std::string* error = nullptr);
-    AssetImportReport Reimport(const std::string& uuid,
-                               std::string* error = nullptr);
-    AssetImportReport ReimportWithSettings(const std::string& uuid,
-                                           const std::string& settingsJson,
+                                               const std::string& settingsJson = "{}", std::string* error = nullptr);
+    AssetImportReport Reimport(const std::string& uuid, std::string* error = nullptr);
+    AssetImportReport ReimportWithSettings(const std::string& uuid, const std::string& settingsJson,
                                            std::string* error = nullptr);
     size_t ReimportAll(std::vector<std::string>* failures = nullptr);
 
@@ -52,10 +45,8 @@ public:
 
 private:
     const IAssetImporter* FindImporter(const std::filesystem::path& path) const;
-    std::string BuildCacheKey(const IAssetImporter& importer,
-                              const std::filesystem::path& source,
-                              const std::string& settingsJson,
-                              std::string* error) const;
+    std::string BuildCacheKey(const IAssetImporter& importer, const std::filesystem::path& source,
+                              const std::string& settingsJson, std::string* error) const;
 
     std::filesystem::path m_ProjectRoot;
     AssetDatabase m_Database;
@@ -63,10 +54,7 @@ private:
     std::vector<std::unique_ptr<IAssetImporter>> m_Importers;
     AssetImportFault m_InjectedFault = AssetImportFault::None;
 
-    AssetImportReport ImportSourceInternal(const std::filesystem::path& source,
-                                           const std::string& settingsJson,
-                                           const std::string& existingUuid,
-                                           const std::string& virtualUuid,
-                                           bool writeMeta,
-                                           std::string* error);
+    AssetImportReport ImportSourceInternal(const std::filesystem::path& source, const std::string& settingsJson,
+                                           const std::string& existingUuid, const std::string& virtualUuid,
+                                           bool writeMeta, std::string* error);
 };

@@ -44,17 +44,11 @@ public:
     void Clear();
 
     std::filesystem::path ResolveIconPath(std::string_view iconName) const;
-    std::shared_ptr<IconPixels> Rasterize(std::string_view iconName,
-                                          int size,
-                                          IconColor color = IconColor::White());
-    GpuTextureView* GetOrUpload(IRHIDevice& device,
-                                std::string_view iconName,
-                                int size,
+    std::shared_ptr<IconPixels> Rasterize(std::string_view iconName, int size, IconColor color = IconColor::White());
+    GpuTextureView* GetOrUpload(IRHIDevice& device, std::string_view iconName, int size,
                                 IconColor color = IconColor::White());
     bool ApplyWindowIcon(IWindow& window, std::string_view iconName, int size = 64);
-    bool WriteIco(std::string_view iconName,
-                  const std::filesystem::path& output,
-                  const std::vector<int>& sizes,
+    bool WriteIco(std::string_view iconName, const std::filesystem::path& output, const std::vector<int>& sizes,
                   IconColor color = IconColor::White());
 
 private:
@@ -62,8 +56,7 @@ private:
 
     std::filesystem::path FindDefaultIconRoot() const;
     std::string MakePixelKey(std::string_view iconName, int size, IconColor color) const;
-    std::string MakeUploadKey(RHIBackend backend, std::string_view iconName,
-                              int size, IconColor color) const;
+    std::string MakeUploadKey(RHIBackend backend, std::string_view iconName, int size, IconColor color) const;
 
     std::filesystem::path m_IconRoot;
     std::unordered_map<std::string, std::shared_ptr<IconPixels>> m_PixelCache;

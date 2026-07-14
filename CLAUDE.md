@@ -23,6 +23,21 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\smoke.ps1 -Vulkan
 ```
 
 This checks that `xmake` itself starts, configures debug mode, builds, and runs `MyEngineTests`.
+Run the standalone format hygiene gate with:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\check-format.ps1
+```
+
+Check or repair C/C++ formatting with the repository-pinned clang-format version:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\clang-format.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\clang-format.ps1 -Fix
+```
+
+Repository text uses UTF-8 with LF line endings. C++ formatting follows the root
+`.clang-format`; editors should also honor `.editorconfig`.
 - **Configure and build** (from repo root):
 
 ```bash

@@ -26,9 +26,7 @@ class IEditorImGuiRHIInterop;
 // Compatibility facade for existing code. New renderer code should depend on
 // the smallest split interface it needs: IRHIDevice, IRHIFrameContext,
 // or IRHIReadbackService. Editor-only ImGui integration is queried explicitly.
-class IRHIContext : public IRHIDevice,
-                    public IRHIFrameContext,
-                    public IRHIReadbackService {
+class IRHIContext : public IRHIDevice, public IRHIFrameContext, public IRHIReadbackService {
 public:
     virtual ~IRHIContext() = default;
 

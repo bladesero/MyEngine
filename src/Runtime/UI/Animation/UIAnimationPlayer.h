@@ -6,15 +6,14 @@
 
 class UIAnimationPlayer {
 public:
-    UITween& AddTween()
-    {
+    UITween& AddTween() {
         m_Tweens.emplace_back();
         return m_Tweens.back();
     }
 
-    void Update(float dt)
-    {
-        for (auto& tween : m_Tweens) tween.Update(dt);
+    void Update(float dt) {
+        for (auto& tween : m_Tweens)
+            tween.Update(dt);
     }
 
     void Clear() { m_Tweens.clear(); }

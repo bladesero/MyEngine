@@ -110,9 +110,9 @@ namespace {
 bool TestPublishHardeningPrimitives() {
     Sha256 sha;
     sha.Update("abc", 3);
-    if (!Check(Sha256::ToHex(sha.Final()) ==
-               "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
-               "SHA-256 known vector mismatch")) return false;
+    if (!Check(Sha256::ToHex(sha.Final()) == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+               "SHA-256 known vector mismatch"))
+        return false;
 
     namespace fs = std::filesystem;
     const auto root = fs::temp_directory_path() / "myengine_publish_hardening_test";
@@ -122,17 +122,17 @@ bool TestPublishHardeningPrimitives() {
     std::ofstream(root / "outside.bin") << "outside";
     fs::path resolved;
     std::string error;
-    if (!Check(!ContentPathPolicy::ResolveContained(root / "Content", "../outside.bin",
-                                                    resolved, &error),
-               "Content path traversal was accepted")) return false;
+    if (!Check(!ContentPathPolicy::ResolveContained(root / "Content", "../outside.bin", resolved, &error),
+               "Content path traversal was accepted"))
+        return false;
 
     std::ofstream(root / "Content/Scenes/Main.scene.json")
         << R"({"actors":[{"components":[{"data":{"language":"angelscript","scriptPath":"Content/Scripts/missing.as"}}]}]})";
     PublishPreflightReport preflight;
-    if (!Check(!CookDependencyGraph::Validate(root, preflight) &&
-               !preflight.errors.empty() &&
-               preflight.errors.front().code == PublishIssueCode::MissingDependency,
-               "publish preflight accepted a missing script dependency")) return false;
+    if (!Check(!CookDependencyGraph::Validate(root, preflight) && !preflight.errors.empty() &&
+                   preflight.errors.front().code == PublishIssueCode::MissingDependency,
+               "publish preflight accepted a missing script dependency"))
+        return false;
 
     CookManifest manifest;
     manifest.project = "ContractTest";
@@ -153,17 +153,21 @@ bool TestPublishHardeningPrimitives() {
     manifest.archiveHash = std::string(64, '1');
     manifest.startupScene = "Content/Scenes/Main.scene.json";
     manifest.files = {{manifest.startupScene, 0, std::string(64, '2')}};
-    if (!Check(manifest.Validate(&error), "valid Manifest v2 was rejected: " + error)) return false;
+    if (!Check(manifest.Validate(&error), "valid Manifest v2 was rejected: " + error))
+        return false;
     manifest.version = 1;
     if (!Check(!manifest.Validate(&error) && error.find("unsupported") != std::string::npos,
-               "legacy Manifest v1 was not rejected explicitly")) return false;
+               "legacy Manifest v1 was not rejected explicitly"))
+        return false;
     manifest.version = CookManifest::kCurrentVersion;
 #if defined(MYENGINE_ENABLE_VULKAN)
     manifest.requiredBackends = {"d3d11", "d3d12"};
-    if (!Check(!manifest.Validate(&error), "manifest with missing Vulkan backend was accepted")) return false;
+    if (!Check(!manifest.Validate(&error), "manifest with missing Vulkan backend was accepted"))
+        return false;
 #else
     manifest.requiredBackends = {"d3d11", "d3d12", "vulkan"};
-    if (!Check(!manifest.Validate(&error), "manifest with extra Vulkan backend was accepted")) return false;
+    if (!Check(!manifest.Validate(&error), "manifest with extra Vulkan backend was accepted"))
+        return false;
 #endif
 #if defined(__APPLE__)
     manifest.requiredBackends = {"metal"};
@@ -177,39 +181,40 @@ bool TestPublishHardeningPrimitives() {
     const auto dependency = root / "Runtime/test.dll";
     std::ofstream(dependency, std::ios::binary) << "dependency";
     RuntimeDependencyManifest dependencies;
-    dependencies.files.push_back({"test.dll", "x64", fs::file_size(dependency),
-                                  Sha256::HashFile(dependency, &error)});
-    if (!Check(dependencies.ValidateFiles(root / "Runtime", &error),
-               "valid runtime dependency was rejected: " + error)) return false;
+    dependencies.files.push_back({"test.dll", "x64", fs::file_size(dependency), Sha256::HashFile(dependency, &error)});
+    if (!Check(dependencies.ValidateFiles(root / "Runtime", &error), "valid runtime dependency was rejected: " + error))
+        return false;
     std::ofstream(dependency, std::ios::binary | std::ios::app) << "tampered";
-    if (!Check(!dependencies.ValidateFiles(root / "Runtime", &error),
-               "tampered runtime dependency was accepted")) return false;
+    if (!Check(!dependencies.ValidateFiles(root / "Runtime", &error), "tampered runtime dependency was accepted"))
+        return false;
 
     const auto package = root / "Package";
     fs::create_directories(package / "Content/Scenes");
     const auto packageDependency = package / "test.dll";
     std::ofstream(packageDependency, std::ios::binary) << "package dependency";
     RuntimeDependencyManifest packageDependencies;
-    packageDependencies.files.push_back({"test.dll", "x64",
-        fs::file_size(packageDependency), Sha256::HashFile(packageDependency, &error)});
-    if (!Check(packageDependencies.Save(package / RuntimeDependencyManifest::kFileName,
-                                        &error),
-               "failed to save runtime dependency manifest: " + error)) return false;
+    packageDependencies.files.push_back(
+        {"test.dll", "x64", fs::file_size(packageDependency), Sha256::HashFile(packageDependency, &error)});
+    if (!Check(packageDependencies.Save(package / RuntimeDependencyManifest::kFileName, &error),
+               "failed to save runtime dependency manifest: " + error))
+        return false;
     CookManifest packageManifest = manifest;
-    packageManifest.runtimeDependenciesHash =
-        Sha256::HashFile(package / RuntimeDependencyManifest::kFileName, &error);
+    packageManifest.runtimeDependenciesHash = Sha256::HashFile(package / RuntimeDependencyManifest::kFileName, &error);
     if (!Check(packageManifest.Save(package / CookManifest::kFileName, &error),
-               "failed to save package Cook manifest: " + error)) return false;
+               "failed to save package Cook manifest: " + error))
+        return false;
     if (!Check(RuntimeDependencyManifest::ValidatePackage(package, &error),
-               "valid package runtime dependencies were rejected: " + error)) return false;
-    std::ofstream(package / RuntimeDependencyManifest::kFileName,
-                  std::ios::binary | std::ios::app) << " ";
+               "valid package runtime dependencies were rejected: " + error))
+        return false;
+    std::ofstream(package / RuntimeDependencyManifest::kFileName, std::ios::binary | std::ios::app) << " ";
     if (!Check(!RuntimeDependencyManifest::ValidatePackage(package, &error),
-               "tampered runtime dependency manifest was accepted")) return false;
+               "tampered runtime dependency manifest was accepted"))
+        return false;
     packageDependencies.Save(package / RuntimeDependencyManifest::kFileName, &error);
     fs::remove(packageDependency);
     if (!Check(!RuntimeDependencyManifest::ValidatePackage(package, &error),
-               "package with missing runtime dependency was accepted")) return false;
+               "package with missing runtime dependency was accepted"))
+        return false;
     fs::remove_all(root, ec);
     return true;
 }
@@ -217,44 +222,61 @@ bool TestPublishHardeningPrimitives() {
 bool TestShaderAssetFormats() {
     namespace fs = std::filesystem;
     const fs::path root = fs::temp_directory_path() / "myengine_shader_asset_test";
-    std::error_code ec; fs::remove_all(root, ec); fs::create_directories(root);
+    std::error_code ec;
+    fs::remove_all(root, ec);
+    fs::create_directories(root);
     auto write = [&](const char* name, const char* json) {
-        const fs::path path = root / name; std::ofstream(path) << json; return path;
+        const fs::path path = root / name;
+        std::ofstream(path) << json;
+        return path;
     };
-    const auto graphics = write("Mesh.shader",
+    const auto graphics = write(
+        "Mesh.shader",
         R"({"type":"Shader","version":1,"stages":{"vertex":{"source":"Mesh.hlsl","entry":"VSMain"},"pixel":{"source":"Mesh.hlsl","entry":"PSMain"}},"defines":[]})");
     auto asset = LoadShaderAssetFromFile(graphics.string());
-    if (!Check(asset && !asset->IsCooked() && !asset->IsCompute(),
-               "valid graphics shader description was rejected")) return false;
-    const auto compute = write("Compute.shader",
+    if (!Check(asset && !asset->IsCooked() && !asset->IsCompute(), "valid graphics shader description was rejected"))
+        return false;
+    const auto compute = write(
+        "Compute.shader",
         R"({"type":"Shader","version":1,"stages":{"compute":{"source":"Compute.hlsl","entry":"CSMain"}},"defines":[]})");
-    if (!Check(LoadShaderAssetFromFile(compute.string())->IsCompute(),
-               "valid compute shader description was rejected")) return false;
+    if (!Check(LoadShaderAssetFromFile(compute.string())->IsCompute(), "valid compute shader description was rejected"))
+        return false;
     const char* invalid[] = {
         R"({"type":"Shader","version":2,"stages":{"compute":{"source":"A.hlsl","entry":"CSMain"}}})",
         R"({"type":"Shader","version":1,"stages":{"vertex":{"source":"A.hlsl","entry":"VSMain"}}})",
         R"({"type":"Shader","version":1,"stages":{"compute":{"source":"../A.hlsl","entry":"CSMain"}}})",
         R"({"type":"Shader","version":1,"stages":{"compute":{"source":"C:/A.hlsl","entry":"CSMain"},"pixel":{"source":"A.hlsl","entry":"PSMain"}}})",
         R"({"type":"Shader","version":1,"stages":{"compute":{"source":"A.hlsl","entry":"CSMain"},"compute":{"source":"B.hlsl","entry":"CSMain"}}})",
-        R"({"type":"Shader","version":1,"stages":{"geometry":{"source":"A.hlsl","entry":"GSMain"}}})"
-    };
+        R"({"type":"Shader","version":1,"stages":{"geometry":{"source":"A.hlsl","entry":"GSMain"}}})"};
     for (size_t i = 0; i < std::size(invalid); ++i)
-        if (!Check(!LoadShaderAssetFromFile(write(("Invalid" + std::to_string(i) + ".shader").c_str(), invalid[i]).string()),
-                   "invalid shader description was accepted")) return false;
+        if (!Check(!LoadShaderAssetFromFile(
+                       write(("Invalid" + std::to_string(i) + ".shader").c_str(), invalid[i]).string()),
+                   "invalid shader description was accepted"))
+            return false;
     std::array<std::array<std::vector<uint8_t>, kShaderStageCount>, kShaderBackendCount> blobs{};
-    for (auto& backend : blobs) { backend[0] = {1,2,3}; backend[1] = {4,5}; }
+    for (auto& backend : blobs) {
+        backend[0] = {1, 2, 3};
+        backend[1] = {4, 5};
+    }
     ShaderAsset cooked(graphics.string());
     cooked.SetCooked(ShaderAsset::kVertexMask | ShaderAsset::kPixelMask, 42, std::move(blobs));
-    const fs::path cookedPath = root / "Cooked.shader"; std::string error;
-    if (!Check(SaveCookedShaderAsset(cooked, cookedPath, &error), error)) return false;
+    const fs::path cookedPath = root / "Cooked.shader";
+    std::string error;
+    if (!Check(SaveCookedShaderAsset(cooked, cookedPath, &error), error))
+        return false;
     auto loaded = LoadShaderAssetFromFile(cookedPath.string());
     if (!Check(loaded && loaded->IsCooked() &&
-               loaded->GetBytecode(ShaderBackend::D3D12, ShaderStage::Pixel).size() == 2,
-               "cooked shader container round-trip failed")) return false;
-    { std::ofstream append(cookedPath, std::ios::binary | std::ios::app); append.put('x'); }
-    if (!Check(!LoadShaderAssetFromFile(cookedPath.string()),
-               "corrupt shader container was accepted")) return false;
-    fs::remove_all(root, ec); return true;
+                   loaded->GetBytecode(ShaderBackend::D3D12, ShaderStage::Pixel).size() == 2,
+               "cooked shader container round-trip failed"))
+        return false;
+    {
+        std::ofstream append(cookedPath, std::ios::binary | std::ios::app);
+        append.put('x');
+    }
+    if (!Check(!LoadShaderAssetFromFile(cookedPath.string()), "corrupt shader container was accepted"))
+        return false;
+    fs::remove_all(root, ec);
+    return true;
 }
 
 bool TestSceneSerializationRegression() {
@@ -262,28 +284,27 @@ bool TestSceneSerializationRegression() {
 
     Scene scene("SerializeCase");
     Actor* parent = scene.CreateActor("Parent");
-    parent->GetTransform().position = Vec3 { 2.0f, 3.0f, 4.0f };
+    parent->GetTransform().position = Vec3{2.0f, 3.0f, 4.0f};
 
     Actor* child = scene.CreateActor("Child", parent);
-    child->GetTransform().position = Vec3 { 1.0f, 0.0f, 0.0f };
+    child->GetTransform().position = Vec3{1.0f, 0.0f, 0.0f};
 
     auto* mr = parent->AddComponent<MeshRendererComponent>();
     mr->SetMesh(AssetManager::Get().GetCubeMesh());
     mr->SetMaterial(AssetManager::Get().GetDefaultMaterial());
     auto* script = parent->AddComponent<ScriptComponent>();
-    script->SetSource(
-        "class Script {\n"
-        "  void Update(float dt) { Actor::Rotate(Vec3(0, 90 * dt, 0)); }\n"
-        "}\n");
+    script->SetSource("class Script {\n"
+                      "  void Update(float dt) { Actor::Rotate(Vec3(0, 90 * dt, 0)); }\n"
+                      "}\n");
     auto* body = parent->AddComponent<RigidBodyComponent>();
-    body->SetVelocity({ 1.0f, 2.0f, 3.0f });
+    body->SetVelocity({1.0f, 2.0f, 3.0f});
     parent->AddComponent<BoxColliderComponent>();
     auto* light = parent->AddComponent<LightComponent>();
     light->SetLightType(LightType::Spot);
-    light->SetColor({ 0.7f, 0.8f, 1.0f });
+    light->SetColor({0.7f, 0.8f, 1.0f});
     light->SetIntensity(4.0f);
     light->SetRange(12.0f);
-    light->SetDirection({ 0.0f, -1.0f, 0.0f });
+    light->SetDirection({0.0f, -1.0f, 0.0f});
     light->SetInnerConeAngle(18.0f);
     light->SetOuterConeAngle(32.0f);
     light->SetShadowIntensity(0.42f);
@@ -300,52 +321,60 @@ bool TestSceneSerializationRegression() {
     const std::string json = SceneSerializer::SaveToString(scene);
 
     Scene loaded("Loaded");
-    if (!Check(SceneSerializer::LoadFromString(loaded, json), "LoadFromString failed")) return false;
+    if (!Check(SceneSerializer::LoadFromString(loaded, json), "LoadFromString failed"))
+        return false;
 
-    if (!Check(loaded.GetName() == "SerializeCase", "scene name mismatch")) return false;
-    if (!Check(loaded.ActorCount() == 2, "actor count mismatch")) return false;
+    if (!Check(loaded.GetName() == "SerializeCase", "scene name mismatch"))
+        return false;
+    if (!Check(loaded.ActorCount() == 2, "actor count mismatch"))
+        return false;
 
     Actor* loadedParent = loaded.FindByName("Parent");
     Actor* loadedChild = loaded.FindByName("Child");
-    if (!Check(loadedParent != nullptr, "parent not found")) return false;
-    if (!Check(loadedChild != nullptr, "child not found")) return false;
-    if (!Check(loadedChild->GetParent() == loadedParent, "child-parent relation mismatch")) return false;
+    if (!Check(loadedParent != nullptr, "parent not found"))
+        return false;
+    if (!Check(loadedChild != nullptr, "child not found"))
+        return false;
+    if (!Check(loadedChild->GetParent() == loadedParent, "child-parent relation mismatch"))
+        return false;
 
     const Vec3 p = loadedParent->GetTransform().position;
-    if (!Check(NearlyEqual(p.x, 2.0f) && NearlyEqual(p.y, 3.0f) && NearlyEqual(p.z, 4.0f),
-               "parent transform mismatch")) return false;
+    if (!Check(NearlyEqual(p.x, 2.0f) && NearlyEqual(p.y, 3.0f) && NearlyEqual(p.z, 4.0f), "parent transform mismatch"))
+        return false;
 
     auto* loadedMr = loadedParent->GetComponent<MeshRendererComponent>();
-    if (!Check(loadedMr != nullptr, "MeshRenderer missing after deserialize")) return false;
-    if (!Check(loadedMr->IsValid(), "MeshRenderer handles are invalid after deserialize")) return false;
+    if (!Check(loadedMr != nullptr, "MeshRenderer missing after deserialize"))
+        return false;
+    if (!Check(loadedMr->IsValid(), "MeshRenderer handles are invalid after deserialize"))
+        return false;
     auto* loadedScript = loadedParent->GetComponent<ScriptComponent>();
-    if (!Check(loadedScript && loadedScript->IsCompiled(), "Script missing after deserialize")) return false;
+    if (!Check(loadedScript && loadedScript->IsCompiled(), "Script missing after deserialize"))
+        return false;
     auto* loadedBody = loadedParent->GetComponent<RigidBodyComponent>();
-    if (!Check(loadedBody && NearlyEqual(loadedBody->GetVelocity().y, 2.0f),
-               "RigidBody missing after deserialize")) return false;
-    if (!Check(loadedParent->GetComponent<BoxColliderComponent>() != nullptr,
-               "BoxCollider missing after deserialize")) return false;
+    if (!Check(loadedBody && NearlyEqual(loadedBody->GetVelocity().y, 2.0f), "RigidBody missing after deserialize"))
+        return false;
+    if (!Check(loadedParent->GetComponent<BoxColliderComponent>() != nullptr, "BoxCollider missing after deserialize"))
+        return false;
     auto* loadedLight = loadedParent->GetComponent<LightComponent>();
-    if (!Check(loadedLight && loadedLight->GetLightType() == LightType::Spot,
-               "Light missing after deserialize")) return false;
-    if (!Check(NearlyEqual(loadedLight->GetIntensity(), 4.0f) &&
-               NearlyEqual(loadedLight->GetRange(), 12.0f) &&
-               NearlyEqual(loadedLight->GetInnerConeAngle(), 18.0f) &&
-               NearlyEqual(loadedLight->GetOuterConeAngle(), 32.0f) &&
-               NearlyEqual(loadedLight->GetShadowIntensity(), 0.42f) &&
-               NearlyEqual(loadedLight->GetColor().z, 1.0f),
-               "Light fields mismatch after deserialize")) return false;
+    if (!Check(loadedLight && loadedLight->GetLightType() == LightType::Spot, "Light missing after deserialize"))
+        return false;
+    if (!Check(NearlyEqual(loadedLight->GetIntensity(), 4.0f) && NearlyEqual(loadedLight->GetRange(), 12.0f) &&
+                   NearlyEqual(loadedLight->GetInnerConeAngle(), 18.0f) &&
+                   NearlyEqual(loadedLight->GetOuterConeAngle(), 32.0f) &&
+                   NearlyEqual(loadedLight->GetShadowIntensity(), 0.42f) &&
+                   NearlyEqual(loadedLight->GetColor().z, 1.0f),
+               "Light fields mismatch after deserialize"))
+        return false;
     auto* loadedPost = loadedParent->GetComponent<PostProcessComponent>();
-    if (!Check(loadedPost, "PostProcess missing after deserialize")) return false;
-    if (!Check(!loadedPost->IsToneMappingEnabled() &&
-               NearlyEqual(loadedPost->GetExposure(), 1.4f) &&
-               NearlyEqual(loadedPost->GetGamma(), 2.0f) &&
-               NearlyEqual(loadedPost->GetAntiAliasingStrength(), 0.6f) &&
-               NearlyEqual(loadedPost->GetSSAORadius(), 2.4f) &&
-               NearlyEqual(loadedPost->GetSSAOBias(), 0.04f) &&
-               NearlyEqual(loadedPost->GetSSAOPower(), 2.2f) &&
-               NearlyEqual(loadedPost->GetSSAOIntensity(), 0.75f),
-               "PostProcess fields mismatch after deserialize")) return false;
+    if (!Check(loadedPost, "PostProcess missing after deserialize"))
+        return false;
+    if (!Check(!loadedPost->IsToneMappingEnabled() && NearlyEqual(loadedPost->GetExposure(), 1.4f) &&
+                   NearlyEqual(loadedPost->GetGamma(), 2.0f) &&
+                   NearlyEqual(loadedPost->GetAntiAliasingStrength(), 0.6f) &&
+                   NearlyEqual(loadedPost->GetSSAORadius(), 2.4f) && NearlyEqual(loadedPost->GetSSAOBias(), 0.04f) &&
+                   NearlyEqual(loadedPost->GetSSAOPower(), 2.2f) && NearlyEqual(loadedPost->GetSSAOIntensity(), 0.75f),
+               "PostProcess fields mismatch after deserialize"))
+        return false;
 
     return true;
 }
@@ -369,22 +398,28 @@ bool TestBuiltinSceneMaterialRoundTrip() {
     AssetManager::Get().Clear();
 
     Scene loaded("LoadedBuiltinMaterialScene");
-    if (!Check(SceneSerializer::LoadFromString(loaded, json),
-               "builtin material scene deserialize failed")) return false;
+    if (!Check(SceneSerializer::LoadFromString(loaded, json), "builtin material scene deserialize failed"))
+        return false;
 
     Actor* loadedActor = loaded.FindByName("BuiltinMaterialActor");
-    if (!Check(loadedActor != nullptr, "builtin material actor missing after deserialize")) return false;
+    if (!Check(loadedActor != nullptr, "builtin material actor missing after deserialize"))
+        return false;
     auto* loadedRenderer = loadedActor->GetComponent<MeshRendererComponent>();
-    if (!Check(loadedRenderer != nullptr, "builtin material renderer missing after deserialize")) return false;
-    if (!Check(loadedRenderer->GetMaterial().IsValid(), "builtin material handle invalid after deserialize")) return false;
+    if (!Check(loadedRenderer != nullptr, "builtin material renderer missing after deserialize"))
+        return false;
+    if (!Check(loadedRenderer->GetMaterial().IsValid(), "builtin material handle invalid after deserialize"))
+        return false;
     if (!Check(loadedRenderer->GetMaterial()->GetPath() == "__builtin__/SceneOnlyTestMat",
-               "builtin material path mismatch after deserialize")) return false;
+               "builtin material path mismatch after deserialize"))
+        return false;
     if (!Check(loadedRenderer->GetMaterial()->GetTexture("BaseColorMap").IsValid(),
-               "builtin material texture missing after deserialize")) return false;
+               "builtin material texture missing after deserialize"))
+        return false;
     if (!Check(NearlyEqual(loadedRenderer->GetMaterial()->GetFloat("Metallic", 0.0f), 0.3f) &&
-               NearlyEqual(loadedRenderer->GetMaterial()->GetFloat("Roughness", 0.0f), 0.7f) &&
-               NearlyEqual(loadedRenderer->GetMaterial()->GetColor("BaseColor").x, 0.2f),
-               "builtin material parameters mismatch after deserialize")) return false;
+                   NearlyEqual(loadedRenderer->GetMaterial()->GetFloat("Roughness", 0.0f), 0.7f) &&
+                   NearlyEqual(loadedRenderer->GetMaterial()->GetColor("BaseColor").x, 0.2f),
+               "builtin material parameters mismatch after deserialize"))
+        return false;
     return true;
 }
 
@@ -392,27 +427,27 @@ bool TestScriptRuntimeLifecycle() {
     Scene scene("ScriptCase");
     Actor* actor = scene.CreateActor("Scripted");
     auto* script = actor->AddComponent<ScriptComponent>();
-    script->SetSource(
-        "class Script {\n"
-        "  void Start() { Actor::SetPosition(Vec3(1, 2, 3)); }\n"
-        "  void Update(float dt) {\n"
-        "    Actor::Translate(Vec3(2 * dt, 0, 0));\n"
-        "    Actor::Rotate(Vec3(0, 90 * dt, 0));\n"
-        "  }\n"
-        "}\n");
-    if (!Check(script->IsCompiled(), "script should compile: " + script->GetLastError())) return false;
+    script->SetSource("class Script {\n"
+                      "  void Start() { Actor::SetPosition(Vec3(1, 2, 3)); }\n"
+                      "  void Update(float dt) {\n"
+                      "    Actor::Translate(Vec3(2 * dt, 0, 0));\n"
+                      "    Actor::Rotate(Vec3(0, 90 * dt, 0));\n"
+                      "  }\n"
+                      "}\n");
+    if (!Check(script->IsCompiled(), "script should compile: " + script->GetLastError()))
+        return false;
 
     scene.OnUpdate(0.5f);
     const Transform& transform = actor->GetTransform();
-    if (!Check(NearlyEqual(transform.position.x, 2.0f) &&
-               NearlyEqual(transform.position.y, 2.0f),
-               "script start/update position mismatch")) return false;
-    if (!Check(NearlyEqual(transform.rotation.y, 45.0f),
-               "script update rotation mismatch")) return false;
+    if (!Check(NearlyEqual(transform.position.x, 2.0f) && NearlyEqual(transform.position.y, 2.0f),
+               "script start/update position mismatch"))
+        return false;
+    if (!Check(NearlyEqual(transform.rotation.y, 45.0f), "script update rotation mismatch"))
+        return false;
     nlohmann::json serialized;
     script->Serialize(serialized);
     return Check(serialized.value("language", std::string{}) == "angelscript" &&
-                 serialized.value("className", std::string{}) == "Script",
+                     serialized.value("className", std::string{}) == "Script",
                  "AngelScript schema fields missing");
 }
 
@@ -420,87 +455,87 @@ bool TestAngelScriptFilesErrorsAndPhysicsBindings() {
     Scene scene("AngelBindings");
 
     Actor* target = scene.CreateActor("Target");
-    target->GetTransform().position = { 0.0f, 0.0f, 0.0f };
+    target->GetTransform().position = {0.0f, 0.0f, 0.0f};
     target->AddComponent<BoxColliderComponent>();
 
     Actor* actor = scene.CreateActor("Caster");
     auto* script = actor->AddComponent<ScriptComponent>();
-    script->SetSource(
-        "class Script {\n"
-        "  void Start() {\n"
-        "    RaycastHit hit = Physics::Raycast(Vec3(0, 0, 5), Vec3(0, 0, -1), 20);\n"
-        "    if (hit.hit) Actor::SetPosition(Vec3(hit.distance, 0, 0));\n"
-        "  }\n"
-        "}\n");
+    script->SetSource("class Script {\n"
+                      "  void Start() {\n"
+                      "    RaycastHit hit = Physics::Raycast(Vec3(0, 0, 5), Vec3(0, 0, -1), 20);\n"
+                      "    if (hit.hit) Actor::SetPosition(Vec3(hit.distance, 0, 0));\n"
+                      "  }\n"
+                      "}\n");
     scene.OnUpdate(1.0f / 60.0f);
     if (!Check(actor->GetTransform().position.x > 0.0f,
-               "AngelScript Physics::Raycast binding failed: " + script->GetLastError())) return false;
+               "AngelScript Physics::Raycast binding failed: " + script->GetLastError()))
+        return false;
 
     Scene controllerScene("AngelControllerBindings");
     Actor* player = controllerScene.CreateActor("Player");
-    player->GetTransform().position = { 0.0f, 1.0f, 0.0f };
+    player->GetTransform().position = {0.0f, 1.0f, 0.0f};
     auto* capsule = player->AddComponent<CapsuleColliderComponent>();
     capsule->SetRadius(0.35f);
     capsule->SetHalfHeight(0.55f);
     auto* controller = player->AddComponent<CharacterControllerComponent>();
     auto* controllerScript = player->AddComponent<ScriptComponent>();
-    controllerScript->SetSource(
-        "class Script {\n"
-        "  void Start() {\n"
-        "    CharacterController::SetUseGravity(false);\n"
-        "    Actor::SetRotation(Vec3(0, 90, 0));\n"
-        "  }\n"
-        "  void Update(float dt) {\n"
-        "    Vec2 move = Input::Axis2(\"Move\");\n"
-        "    Vec3 rotation = Actor::GetRotation();\n"
-        "    Vec3 forward = Actor::GetForward();\n"
-        "    Vec3 right = Actor::GetRight();\n"
-        "    CharacterController::Move((forward + right * move.x) * 2.0f);\n"
-        "    if (!CharacterController::IsGrounded()) Actor::SetRotation(rotation);\n"
-        "  }\n"
-        "}\n");
+    controllerScript->SetSource("class Script {\n"
+                                "  void Start() {\n"
+                                "    CharacterController::SetUseGravity(false);\n"
+                                "    Actor::SetRotation(Vec3(0, 90, 0));\n"
+                                "  }\n"
+                                "  void Update(float dt) {\n"
+                                "    Vec2 move = Input::Axis2(\"Move\");\n"
+                                "    Vec3 rotation = Actor::GetRotation();\n"
+                                "    Vec3 forward = Actor::GetForward();\n"
+                                "    Vec3 right = Actor::GetRight();\n"
+                                "    CharacterController::Move((forward + right * move.x) * 2.0f);\n"
+                                "    if (!CharacterController::IsGrounded()) Actor::SetRotation(rotation);\n"
+                                "  }\n"
+                                "}\n");
     if (!Check(controllerScript->IsCompiled(),
-               "AngelScript FPS bindings should compile: " + controllerScript->GetLastError())) return false;
-    for (int i = 0; i < 30; ++i) controllerScene.OnUpdate(1.0f / 60.0f);
+               "AngelScript FPS bindings should compile: " + controllerScript->GetLastError()))
+        return false;
+    for (int i = 0; i < 30; ++i)
+        controllerScene.OnUpdate(1.0f / 60.0f);
     const Vec3 controllerPosition = player->GetTransform().position;
-    if (!Check(controllerPosition.x * controllerPosition.x +
-                   controllerPosition.z * controllerPosition.z > 0.1f &&
-               !controller->UsesGravity(),
-               "AngelScript CharacterController/Actor direction bindings failed: " +
-                   controllerScript->GetLastError())) return false;
+    if (!Check(controllerPosition.x * controllerPosition.x + controllerPosition.z * controllerPosition.z > 0.1f &&
+                   !controller->UsesGravity(),
+               "AngelScript CharacterController/Actor direction bindings failed: " + controllerScript->GetLastError()))
+        return false;
 
     Actor* cameraRig = controllerScene.CreateActor("CameraRig");
     Actor* camera = controllerScene.CreateActor("Camera");
     camera->SetParent(cameraRig);
     auto* cameraScript = camera->AddComponent<ScriptComponent>();
-    cameraScript->SetSource(
-        "class Script {\n"
-        "  void Update(float dt) {\n"
-        "    Vec3 parentRotation = Actor::GetParentRotation();\n"
-        "    Vec3 parentForward = Actor::GetParentForward();\n"
-        "    Vec3 parentRight = Actor::GetParentRight();\n"
-        "    Actor::SetParentRotation(Vec3(parentRotation.x, 45, parentRotation.z));\n"
-        "    Actor::SetRotation(Vec3(-20, 0, 0));\n"
-        "    if (parentForward.z < -2 || parentRight.x < -2) Actor::SetRotation(Vec3(0, 0, 0));\n"
-        "  }\n"
-        "}\n");
+    cameraScript->SetSource("class Script {\n"
+                            "  void Update(float dt) {\n"
+                            "    Vec3 parentRotation = Actor::GetParentRotation();\n"
+                            "    Vec3 parentForward = Actor::GetParentForward();\n"
+                            "    Vec3 parentRight = Actor::GetParentRight();\n"
+                            "    Actor::SetParentRotation(Vec3(parentRotation.x, 45, parentRotation.z));\n"
+                            "    Actor::SetRotation(Vec3(-20, 0, 0));\n"
+                            "    if (parentForward.z < -2 || parentRight.x < -2) Actor::SetRotation(Vec3(0, 0, 0));\n"
+                            "  }\n"
+                            "}\n");
     if (!Check(cameraScript->IsCompiled(),
-               "AngelScript parent transform bindings should compile: " +
-                   cameraScript->GetLastError())) return false;
+               "AngelScript parent transform bindings should compile: " + cameraScript->GetLastError()))
+        return false;
     controllerScene.OnUpdate(1.0f / 60.0f);
     if (!Check(NearlyEqual(cameraRig->GetTransform().rotation.y, 45.0f) &&
-               NearlyEqual(camera->GetTransform().rotation.x, -20.0f),
-               "AngelScript parent rotation bindings failed: " +
-                   cameraScript->GetLastError())) return false;
+                   NearlyEqual(camera->GetTransform().rotation.x, -20.0f),
+               "AngelScript parent rotation bindings failed: " + cameraScript->GetLastError()))
+        return false;
 
-    script->SetSource(
-        "class Script {\n"
-        "  void Update(float dt) { Script@ other = null; other.Update(dt); }\n"
-        "}\n");
+    script->SetSource("class Script {\n"
+                      "  void Update(float dt) { Script@ other = null; other.Update(dt); }\n"
+                      "}\n");
     scene.OnUpdate(1.0f / 60.0f);
-    if (!Check(!script->IsCompiled(), "AngelScript runtime error should disable script")) return false;
+    if (!Check(!script->IsCompiled(), "AngelScript runtime error should disable script"))
+        return false;
     if (!Check(script->GetLastError().find("AngelScript execution failed") != std::string::npos,
-               "AngelScript error should include execution diagnostic")) return false;
+               "AngelScript error should include execution diagnostic"))
+        return false;
 
     const auto path = std::filesystem::temp_directory_path() / "myengine_hot_reload.as";
     {
@@ -510,8 +545,8 @@ bool TestAngelScriptFilesErrorsAndPhysicsBindings() {
     actor->GetTransform().position = {};
     script->SetScriptPath(path.string());
     scene.OnUpdate(1.0f);
-    if (!Check(NearlyEqual(actor->GetTransform().position.x, 1.0f),
-               "AngelScript file initial run failed")) return false;
+    if (!Check(NearlyEqual(actor->GetTransform().position.x, 1.0f), "AngelScript file initial run failed"))
+        return false;
     {
         std::ofstream output(path, std::ios::binary | std::ios::trunc);
         output << "class Script { void Update(float dt) { Actor::Translate(Vec3(3 * dt, 0, 0)); } }\n";
@@ -519,8 +554,7 @@ bool TestAngelScriptFilesErrorsAndPhysicsBindings() {
     std::filesystem::last_write_time(path, std::filesystem::file_time_type::clock::now());
     scene.OnUpdate(1.0f);
     std::filesystem::remove(path);
-    return Check(NearlyEqual(actor->GetTransform().position.x, 4.0f),
-                 "AngelScript file hot reload failed");
+    return Check(NearlyEqual(actor->GetTransform().position.x, 4.0f), "AngelScript file hot reload failed");
 }
 
 bool TestAngelScriptInputAndOverlapBindings() {
@@ -541,24 +575,23 @@ bool TestAngelScriptInputAndOverlapBindings() {
 
     Actor* actor = scene.CreateActor("Scripted");
     auto* script = actor->AddComponent<ScriptComponent>();
-    script->SetSource(
-        "class Script {\n"
-        "  void Update(float dt) {\n"
-        "    uint score = 0;\n"
-        "    if (Input::KeyDown(26)) score += 1;\n"
-        "    if (Input::KeyPressed(26)) score += 2;\n"
-        "    if (Input::MouseDown(1)) score += 4;\n"
-        "    if (Input::MousePressed(1)) score += 8;\n"
-        "    if (Input::GamepadCount() == 0 && Input::PrimaryGamepadId() == 0) score += 16;\n"
-        "    UInt64Array@ hits = Physics::OverlapSphere(Vec3(0, 0, 0), 2.0f, 4);\n"
-        "    if (hits.Length() == 1 && hits.At(0) != 0) score += 32;\n"
-        "    Vec2 mouse = Input::MousePosition();\n"
-        "    Vec2 delta = Input::MouseDelta();\n"
-        "    Actor::SetPosition(Vec3(float(score), mouse.x, delta.x));\n"
-        "  }\n"
-        "}\n");
-    if (!Check(script->IsCompiled(),
-               "AngelScript input/overlap script should compile: " + script->GetLastError())) return false;
+    script->SetSource("class Script {\n"
+                      "  void Update(float dt) {\n"
+                      "    uint score = 0;\n"
+                      "    if (Input::KeyDown(26)) score += 1;\n"
+                      "    if (Input::KeyPressed(26)) score += 2;\n"
+                      "    if (Input::MouseDown(1)) score += 4;\n"
+                      "    if (Input::MousePressed(1)) score += 8;\n"
+                      "    if (Input::GamepadCount() == 0 && Input::PrimaryGamepadId() == 0) score += 16;\n"
+                      "    UInt64Array@ hits = Physics::OverlapSphere(Vec3(0, 0, 0), 2.0f, 4);\n"
+                      "    if (hits.Length() == 1 && hits.At(0) != 0) score += 32;\n"
+                      "    Vec2 mouse = Input::MousePosition();\n"
+                      "    Vec2 delta = Input::MouseDelta();\n"
+                      "    Actor::SetPosition(Vec3(float(score), mouse.x, delta.x));\n"
+                      "  }\n"
+                      "}\n");
+    if (!Check(script->IsCompiled(), "AngelScript input/overlap script should compile: " + script->GetLastError()))
+        return false;
     scene.OnUpdate(1.0f / 60.0f);
 
     Input::OnKeyUp(26);
@@ -567,9 +600,7 @@ bool TestAngelScriptInputAndOverlapBindings() {
     Input::SetDefaultActionMap();
 
     const Vec3 position = actor->GetTransform().position;
-    return Check(NearlyEqual(position.x, 63.0f) &&
-                 NearlyEqual(position.y, 42.0f) &&
-                 NearlyEqual(position.z, 3.0f),
+    return Check(NearlyEqual(position.x, 63.0f) && NearlyEqual(position.y, 42.0f) && NearlyEqual(position.z, 3.0f),
                  "AngelScript raw input or overlap binding failed: " + script->GetLastError());
 }
 
@@ -602,7 +633,8 @@ bool TestAngelScriptSceneComponentsEventsAndTimers() {
         "      ActorHandleArray@ matches = Scene::FindAllByName(\"SpawnedByScript\");\n"
         "      if (matches.Length() == 1 && matches.At(0).IsValid()) stage = 1;\n"
         "      if (Components::Has(found, \"AudioSource\")) {\n"
-        "        Components::SetJson(found, \"AudioSource\", \"{\\\"volume\\\":0.25,\\\"loop\\\":true,\\\"playOnStart\\\":false}\");\n"
+        "        Components::SetJson(found, \"AudioSource\", "
+        "\"{\\\"volume\\\":0.25,\\\"loop\\\":true,\\\"playOnStart\\\":false}\");\n"
         "        AudioSource::SetVolume(found, 0.5f);\n"
         "        AudioSource::SetLoop(found, true);\n"
         "      }\n"
@@ -615,28 +647,26 @@ bool TestAngelScriptSceneComponentsEventsAndTimers() {
         "}\n");
     auto* script = controller->GetComponent<ScriptComponent>();
     if (!Check(script && script->IsCompiled(),
-               "AngelScript scene v2 script should compile: " + (script ? script->GetLastError() : std::string{}))) return false;
+               "AngelScript scene v2 script should compile: " + (script ? script->GetLastError() : std::string{})))
+        return false;
 
     scene.OnUpdate(1.0f / 60.0f);
     scene.OnUpdate(1.0f / 60.0f);
 
     Actor* renamed = scene.FindByName("ControllerRenamed");
     Actor* spawned = scene.FindByName("SpawnedByScript");
-    if (!Check(renamed == controller && spawned,
-               "AngelScript Scene handle operations failed: renamed=" +
-               std::string(renamed == controller ? "true" : "false") +
-               " spawned=" + std::string(spawned ? "true" : "false") +
-               " lastError=" + script->GetLastError())) return false;
+    if (!Check(renamed == controller && spawned, "AngelScript Scene handle operations failed: renamed=" +
+                                                     std::string(renamed == controller ? "true" : "false") +
+                                                     " spawned=" + std::string(spawned ? "true" : "false") +
+                                                     " lastError=" + script->GetLastError()))
+        return false;
     auto* audio = spawned->GetComponent<AudioSourceComponent>();
     const nlohmann::json properties = script->GetProperties();
-    return Check(spawned->IsActiveSelf() &&
-                 NearlyEqual(spawned->GetTransform().position.x, 2.0f) &&
-                 audio && audio->GetLoop() && NearlyEqual(audio->GetVolume(), 0.5f) &&
-                 properties.value("stage", 0) == 1 &&
-                 properties.value("eventCount", 0) >= 1 &&
-                 properties.value("timerCount", 0) == 1 &&
-                 properties.value("everyCount", 0) == 1 &&
-                 properties.value("payload", std::string{}).find("\"ok\"") != std::string::npos,
+    return Check(spawned->IsActiveSelf() && NearlyEqual(spawned->GetTransform().position.x, 2.0f) && audio &&
+                     audio->GetLoop() && NearlyEqual(audio->GetVolume(), 0.5f) && properties.value("stage", 0) == 1 &&
+                     properties.value("eventCount", 0) >= 1 && properties.value("timerCount", 0) == 1 &&
+                     properties.value("everyCount", 0) == 1 &&
+                     properties.value("payload", std::string{}).find("\"ok\"") != std::string::npos,
                  "AngelScript Scene/Components/Events/Timer v2 bindings failed: " + script->GetLastError());
 }
 
@@ -653,8 +683,8 @@ bool TestAngelScriptPrefabAndTypedFacades() {
     prefabRoot->GetTransform().position = {1.0f, 0.0f, 0.0f};
     const fs::path prefabPath = project / "Content" / "Prefabs" / "Unit.prefab.json";
     std::string error;
-    if (!Check(PrefabSystem::SaveSubtree(*prefabRoot, prefabPath, &error),
-               "prefab save failed: " + error)) return false;
+    if (!Check(PrefabSystem::SaveSubtree(*prefabRoot, prefabPath, &error), "prefab save failed: " + error))
+        return false;
 
     Scene scene("AngelPrefabV2");
     Actor* controller = scene.CreateActor("Controller");
@@ -663,22 +693,26 @@ bool TestAngelScriptPrefabAndTypedFacades() {
         "class Script {\n"
         "  int ok = 0;\n"
         "  void Start() {\n"
-        "    ActorHandle prefab = Scene::InstantiatePrefab(\"Content/Prefabs/Unit.prefab.json\", Vec3(3, 4, 5), Vec3(0, 45, 0));\n"
+        "    ActorHandle prefab = Scene::InstantiatePrefab(\"Content/Prefabs/Unit.prefab.json\", Vec3(3, 4, 5), "
+        "Vec3(0, 45, 0));\n"
         "    ActorHandle bad = Scene::InstantiatePrefab(\"C:/absolute/blocked.prefab.json\", Vec3(), Vec3());\n"
         "    ActorHandle camera = Scene::CreateActor(\"RuntimeCamera\");\n"
         "    Components::Add(camera, \"Camera\");\n"
         "    ActorHandle light = Scene::CreateActor(\"RuntimeLight\");\n"
         "    Components::Add(light, \"Light\");\n"
-        "    if (prefab.IsValid() && !bad.IsValid() && Assets::Exists(\"Content/Prefabs/Unit.prefab.json\") && Assets::GetType(\"Content/Prefabs/Unit.prefab.json\") == \"Prefab\") ok = 1;\n"
+        "    if (prefab.IsValid() && !bad.IsValid() && Assets::Exists(\"Content/Prefabs/Unit.prefab.json\") && "
+        "Assets::GetType(\"Content/Prefabs/Unit.prefab.json\") == \"Prefab\") ok = 1;\n"
         "  }\n"
         "  void Update(float dt) {\n"
         "    ActorHandle camera = Scene::FindByName(\"RuntimeCamera\");\n"
         "    if (Components::Has(camera, \"Camera\")) { Camera::SetFovY(camera, 75); }\n"
         "    ActorHandle light = Scene::FindByName(\"RuntimeLight\");\n"
-        "    if (Components::Has(light, \"Light\")) { Light::SetIntensity(light, 6); Light::SetColor(light, Vec3(0.25f, 0.5f, 1.0f)); }\n"
+        "    if (Components::Has(light, \"Light\")) { Light::SetIntensity(light, 6); Light::SetColor(light, "
+        "Vec3(0.25f, 0.5f, 1.0f)); }\n"
         "  }\n"
         "}\n");
-    if (!Check(script->IsCompiled(), "AngelScript prefab script should compile: " + script->GetLastError())) return false;
+    if (!Check(script->IsCompiled(), "AngelScript prefab script should compile: " + script->GetLastError()))
+        return false;
     scene.OnUpdate(1.0f / 60.0f);
     scene.OnUpdate(1.0f / 60.0f);
 
@@ -689,20 +723,16 @@ bool TestAngelScriptPrefabAndTypedFacades() {
     auto* lightComponent = light ? light->GetComponent<LightComponent>() : nullptr;
     const nlohmann::json properties = script->GetProperties();
     AssetManager::Get().SetProjectRoot({});
-    const bool ok = instance && instance->IsPrefabRoot() &&
-                 NearlyEqual(instance->GetTransform().position.x, 3.0f) &&
-                 cameraComponent && NearlyEqual(cameraComponent->GetFovYDegrees(), 75.0f) &&
-                 lightComponent && NearlyEqual(lightComponent->GetIntensity(), 6.0f) &&
-                 NearlyEqual(lightComponent->GetColor().z, 1.0f) &&
-                 properties.value("ok", 0) == 1;
-    return Check(ok,
-                 "AngelScript prefab/assets/camera/light v2 bindings failed: instance=" +
-                 std::string(instance ? "true" : "false") +
-                 " prefabRoot=" + std::string(instance && instance->IsPrefabRoot() ? "true" : "false") +
-                 " camera=" + std::string(cameraComponent ? "true" : "false") +
-                 " light=" + std::string(lightComponent ? "true" : "false") +
-                 " okProp=" + std::to_string(properties.value("ok", 0)) +
-                 " lastError=" + script->GetLastError());
+    const bool ok = instance && instance->IsPrefabRoot() && NearlyEqual(instance->GetTransform().position.x, 3.0f) &&
+                    cameraComponent && NearlyEqual(cameraComponent->GetFovYDegrees(), 75.0f) && lightComponent &&
+                    NearlyEqual(lightComponent->GetIntensity(), 6.0f) &&
+                    NearlyEqual(lightComponent->GetColor().z, 1.0f) && properties.value("ok", 0) == 1;
+    return Check(ok, "AngelScript prefab/assets/camera/light v2 bindings failed: instance=" +
+                         std::string(instance ? "true" : "false") +
+                         " prefabRoot=" + std::string(instance && instance->IsPrefabRoot() ? "true" : "false") +
+                         " camera=" + std::string(cameraComponent ? "true" : "false") +
+                         " light=" + std::string(lightComponent ? "true" : "false") + " okProp=" +
+                         std::to_string(properties.value("ok", 0)) + " lastError=" + script->GetLastError());
 }
 
 bool TestAngelScriptAssetsClassesAndFields() {
@@ -710,37 +740,42 @@ bool TestAngelScriptAssetsClassesAndFields() {
     const fs::path path = fs::temp_directory_path() / "myengine_script_asset_fields.as";
     {
         std::ofstream output(path, std::ios::binary);
-        output
-            << "class Rotator {\n"
-            << "  float speed = 35.0f;\n"
-            << "  Vec3 axis = Vec3(0, 1, 0);\n"
-            << "  string label = \"cube\";\n"
-            << "  Rotator@ ignored;\n"
-            << "  void Update(float dt) { Actor::Rotate(axis * speed * dt); }\n"
-            << "}\n"
-            << "class Mover {\n"
-            << "  int steps = 2;\n"
-            << "  void Update(float dt) { Actor::Translate(Vec3(steps * dt, 0, 0)); }\n"
-            << "}\n";
+        output << "class Rotator {\n"
+               << "  float speed = 35.0f;\n"
+               << "  Vec3 axis = Vec3(0, 1, 0);\n"
+               << "  string label = \"cube\";\n"
+               << "  Rotator@ ignored;\n"
+               << "  void Update(float dt) { Actor::Rotate(axis * speed * dt); }\n"
+               << "}\n"
+               << "class Mover {\n"
+               << "  int steps = 2;\n"
+               << "  void Update(float dt) { Actor::Translate(Vec3(steps * dt, 0, 0)); }\n"
+               << "}\n";
     }
 
     auto asset = AssetManager::Get().Load<ScriptAsset>(path.string());
-    if (!Check(asset.IsValid(), "script asset should load: " + (asset.Get() ? asset->GetLastError() : std::string{}))) return false;
-    if (!Check(asset->GetClasses().size() == 2, "script asset should discover two classes")) return false;
+    if (!Check(asset.IsValid(), "script asset should load: " + (asset.Get() ? asset->GetLastError() : std::string{})))
+        return false;
+    if (!Check(asset->GetClasses().size() == 2, "script asset should discover two classes"))
+        return false;
 
     bool foundRotator = false;
     for (const auto& cls : asset->GetClasses()) {
-        if (cls.name != "Rotator") continue;
+        if (cls.name != "Rotator")
+            continue;
         foundRotator = true;
         bool speed = false, axis = false, label = false, ignored = false;
         for (const auto& field : cls.fields) {
             if (field.name == "speed" && field.type == ScriptFieldType::Float &&
-                NearlyEqual(field.defaultValue.get<float>(), 35.0f)) speed = true;
-            if (field.name == "axis" && field.type == ScriptFieldType::Vec3 &&
-                field.defaultValue.is_array() && NearlyEqual(field.defaultValue[1].get<float>(), 1.0f)) axis = true;
-            if (field.name == "label" && field.type == ScriptFieldType::String &&
-                field.defaultValue == "cube") label = true;
-            if (field.name == "ignored") ignored = true;
+                NearlyEqual(field.defaultValue.get<float>(), 35.0f))
+                speed = true;
+            if (field.name == "axis" && field.type == ScriptFieldType::Vec3 && field.defaultValue.is_array() &&
+                NearlyEqual(field.defaultValue[1].get<float>(), 1.0f))
+                axis = true;
+            if (field.name == "label" && field.type == ScriptFieldType::String && field.defaultValue == "cube")
+                label = true;
+            if (field.name == "ignored")
+                ignored = true;
         }
         if (!(speed && axis && label && !ignored)) {
             std::ostringstream fields;
@@ -750,47 +785,50 @@ bool TestAngelScriptAssetsClassesAndFields() {
             return Check(false, "script field reflection mismatch: " + fields.str());
         }
     }
-    if (!Check(foundRotator, "Rotator class missing from script asset")) return false;
+    if (!Check(foundRotator, "Rotator class missing from script asset"))
+        return false;
 
     Scene scene("ScriptAssetFields");
     Actor* actor = scene.CreateActor("Scripted");
     auto* script = actor->AddComponent<ScriptComponent>();
     script->SetScriptPath(path.string());
     script->SetClassName("Rotator");
-    if (!Check(script->IsCompiled(), "script asset component should compile: " + script->GetLastError())) return false;
-    if (!Check(script->SetPropertyValue("speed", 10.0f), "script property edit failed")) return false;
+    if (!Check(script->IsCompiled(), "script asset component should compile: " + script->GetLastError()))
+        return false;
+    if (!Check(script->SetPropertyValue("speed", 10.0f), "script property edit failed"))
+        return false;
     if (!Check(script->SetPropertyValue("axis", nlohmann::json::array({0.0f, 2.0f, 0.0f})),
-               "script Vec3 property edit failed")) return false;
+               "script Vec3 property edit failed"))
+        return false;
     scene.OnUpdate(1.0f);
-    if (!Check(NearlyEqual(actor->GetTransform().rotation.y, 20.0f),
-               "script reflected properties were not applied")) return false;
+    if (!Check(NearlyEqual(actor->GetTransform().rotation.y, 20.0f), "script reflected properties were not applied"))
+        return false;
 
     nlohmann::json data;
     script->Serialize(data);
-    if (!Check(!data.contains("source") &&
-               data.value("className", std::string{}) == "Rotator" &&
-               data.contains("properties") &&
-               NearlyEqual(data["properties"]["speed"].get<float>(), 10.0f),
-               "file script serialization shape mismatch")) return false;
+    if (!Check(!data.contains("source") && data.value("className", std::string{}) == "Rotator" &&
+                   data.contains("properties") && NearlyEqual(data["properties"]["speed"].get<float>(), 10.0f),
+               "file script serialization shape mismatch"))
+        return false;
 
     Scene commandScene("ScriptCommand");
     Actor* commandActor = commandScene.CreateActor("CommandActor");
     EditorContext context(&commandScene);
     EditorCommandStack stack;
     context.SetCommandStack(&stack);
-    nlohmann::json initialData = {
-        {"language", "angelscript"},
-        {"scriptPath", path.string()},
-        {"className", "Mover"},
-        {"properties", {{"steps", 4}}},
-        {"state", nlohmann::json::object()}
-    };
-    if (!Check(stack.ExecuteCommand(std::make_unique<AddComponentCommand>(
-            commandActor->GetID(), "Script", initialData), context),
-            "AddComponentCommand should create script component")) return false;
+    nlohmann::json initialData = {{"language", "angelscript"},
+                                  {"scriptPath", path.string()},
+                                  {"className", "Mover"},
+                                  {"properties", {{"steps", 4}}},
+                                  {"state", nlohmann::json::object()}};
+    if (!Check(stack.ExecuteCommand(std::make_unique<AddComponentCommand>(commandActor->GetID(), "Script", initialData),
+                                    context),
+               "AddComponentCommand should create script component"))
+        return false;
     auto* added = commandActor->GetComponent<ScriptComponent>();
     if (!Check(added && added->IsCompiled() && added->GetClassName() == "Mover",
-               "script component command initial data failed")) return false;
+               "script component command initial data failed"))
+        return false;
     commandScene.OnUpdate(1.0f);
     fs::remove(path);
     return Check(NearlyEqual(commandActor->GetTransform().position.x, 4.0f),
@@ -808,26 +846,28 @@ bool TestProjectFPSContentSmoke() {
             projectRoot = candidate;
             break;
         }
-        if (cursor == cursor.parent_path()) break;
+        if (cursor == cursor.parent_path())
+            break;
     }
-    if (!Check(!projectRoot.empty(), "ProjectFPS project root should be discoverable")) return false;
+    if (!Check(!projectRoot.empty(), "ProjectFPS project root should be discoverable"))
+        return false;
 
     ProjectConfig project;
-    if (!Check(project.Open(projectRoot, false, &error),
-               "ProjectFPS manifest should open: " + error)) return false;
-    if (!Check(project.GetName() == "ProjectFPS" &&
-               project.GetStartupScene() == "Content/Scenes/Main.scene.json",
-               "ProjectFPS manifest fields mismatch")) return false;
+    if (!Check(project.Open(projectRoot, false, &error), "ProjectFPS manifest should open: " + error))
+        return false;
+    if (!Check(project.GetName() == "ProjectFPS" && project.GetStartupScene() == "Content/Scenes/Main.scene.json",
+               "ProjectFPS manifest fields mismatch"))
+        return false;
 
     fs::path inputPath;
     if (!Check(project.ResolveInputConfigPath(inputPath, true, &error),
-               "ProjectFPS input config should resolve: " + error)) return false;
-    if (!Check(Input::LoadActionMapFromFile(inputPath, &error),
-               "ProjectFPS input config should load: " + error)) return false;
+               "ProjectFPS input config should resolve: " + error))
+        return false;
+    if (!Check(Input::LoadActionMapFromFile(inputPath, &error), "ProjectFPS input config should load: " + error))
+        return false;
 
     fs::path scenePath;
-    if (!Check(project.ResolveStartupScene(scenePath, &error),
-               "ProjectFPS startup scene should resolve: " + error)) {
+    if (!Check(project.ResolveStartupScene(scenePath, &error), "ProjectFPS startup scene should resolve: " + error)) {
         Input::SetDefaultActionMap();
         return false;
     }
@@ -845,25 +885,27 @@ bool TestProjectFPSContentSmoke() {
         ok = Check(weapon != nullptr, "ProjectFPS WeaponRay actor missing") && ok;
         if (player) {
             auto* script = player->GetComponent<ScriptComponent>();
-            ok = Check(player->GetComponent<CharacterControllerComponent>() != nullptr &&
-                       player->GetComponent<CapsuleColliderComponent>() != nullptr &&
-                       script && script->IsCompiled(),
-                       script ? "ProjectFPS player script failed: " + script->GetLastError()
-                              : "ProjectFPS player script missing") && ok;
+            ok =
+                Check(player->GetComponent<CharacterControllerComponent>() != nullptr &&
+                          player->GetComponent<CapsuleColliderComponent>() != nullptr && script && script->IsCompiled(),
+                      script ? "ProjectFPS player script failed: " + script->GetLastError()
+                             : "ProjectFPS player script missing") &&
+                ok;
         }
         if (camera) {
             auto* cameraComponent = camera->GetComponent<CameraComponent>();
             auto* script = camera->GetComponent<ScriptComponent>();
-            ok = Check(cameraComponent && cameraComponent->IsMainCamera() &&
-                       script && script->IsCompiled(),
+            ok = Check(cameraComponent && cameraComponent->IsMainCamera() && script && script->IsCompiled(),
                        script ? "ProjectFPS camera script failed: " + script->GetLastError()
-                              : "ProjectFPS camera component/script missing") && ok;
+                              : "ProjectFPS camera component/script missing") &&
+                 ok;
         }
         if (weapon) {
             auto* script = weapon->GetComponent<ScriptComponent>();
             ok = Check(script && script->IsCompiled(),
                        script ? "ProjectFPS weapon script failed: " + script->GetLastError()
-                              : "ProjectFPS weapon script missing") && ok;
+                              : "ProjectFPS weapon script missing") &&
+                 ok;
         }
     }
     AssetManager::Get().SetProjectRoot({});
@@ -879,40 +921,40 @@ bool TestEditorLuaScriptService() {
     EditorLuaScriptService service;
     service.OnAttach(context);
     std::string error;
-    if (!Check(service.RunSource(
-            "local id = Scene.create_actor('LuaActor')\n"
-            "Selection.select_actor(id)\n"
-            "Scene.set_selected_position(3, 4, 5)\n",
-            "EditorLuaTest", &error),
-            "editor Lua script failed: " + error)) return false;
+    if (!Check(service.RunSource("local id = Scene.create_actor('LuaActor')\n"
+                                 "Selection.select_actor(id)\n"
+                                 "Scene.set_selected_position(3, 4, 5)\n",
+                                 "EditorLuaTest", &error),
+               "editor Lua script failed: " + error))
+        return false;
     Actor* actor = scene.FindByName("LuaActor");
     if (!Check(actor && NearlyEqual(actor->GetTransform().position.x, 3.0f) &&
-               context.GetSelection().GetActorID() == actor->GetID(),
-               "editor Lua did not create/select/move actor")) return false;
-    if (!Check(stack.CanUndo() && stack.Undo(context),
-               "editor Lua command was not undoable")) return false;
+                   context.GetSelection().GetActorID() == actor->GetID(),
+               "editor Lua did not create/select/move actor"))
+        return false;
+    if (!Check(stack.CanUndo() && stack.Undo(context), "editor Lua command was not undoable"))
+        return false;
     service.OnDetach();
     return true;
 }
 
 bool TestLegacyLuaScriptCompatibility() {
-    nlohmann::json legacy = {
-        {"source", "function Update(dt) Actor.translate(1 * dt, 0, 0) end\n"},
-        {"scriptPath", ""},
-        {"inspector", nlohmann::json::object({{"speed", 2.0}})},
-        {"state", nlohmann::json::object({{"updates", 3}})}
-    };
+    nlohmann::json legacy = {{"source", "function Update(dt) Actor.translate(1 * dt, 0, 0) end\n"},
+                             {"scriptPath", ""},
+                             {"inspector", nlohmann::json::object({{"speed", 2.0}})},
+                             {"state", nlohmann::json::object({{"updates", 3}})}};
     ScriptComponent script;
     script.Deserialize(legacy);
-    if (!Check(script.IsLegacyLua() && !script.IsCompiled(),
-               "legacy Lua script should be retained but not compiled")) return false;
+    if (!Check(script.IsLegacyLua() && !script.IsCompiled(), "legacy Lua script should be retained but not compiled"))
+        return false;
     if (!Check(script.GetLastError().find("Legacy Lua gameplay scripts") != std::string::npos,
-               "legacy Lua diagnostic missing")) return false;
+               "legacy Lua diagnostic missing"))
+        return false;
     nlohmann::json saved;
     script.Serialize(saved);
     return Check(!saved.contains("language") &&
-                 saved.value("source", std::string{}) == legacy["source"].get<std::string>() &&
-                 saved["inspector"].value("speed", 0.0) == 2.0,
+                     saved.value("source", std::string{}) == legacy["source"].get<std::string>() &&
+                     saved["inspector"].value("speed", 0.0) == 2.0,
                  "legacy Lua fields were not preserved");
 }
 
@@ -920,13 +962,13 @@ bool TestPhysicsGroundCollision() {
     Scene scene("PhysicsCase");
 
     Actor* ground = scene.CreateActor("Ground");
-    ground->GetTransform().position = { 0.0f, -0.5f, 0.0f };
+    ground->GetTransform().position = {0.0f, -0.5f, 0.0f};
     auto* groundBody = ground->AddComponent<RigidBodyComponent>();
     groundBody->SetBodyType(BodyType::Static);
     ground->AddComponent<BoxColliderComponent>();
 
     Actor* box = scene.CreateActor("Box");
-    box->GetTransform().position = { 0.0f, 2.0f, 0.0f };
+    box->GetTransform().position = {0.0f, 2.0f, 0.0f};
     auto* body = box->AddComponent<RigidBodyComponent>();
     body->SetRestitution(0.0f);
     box->AddComponent<BoxColliderComponent>();
@@ -935,53 +977,52 @@ bool TestPhysicsGroundCollision() {
         scene.OnUpdate(1.0f / 60.0f);
     }
 
-    if (!Check(box->GetTransform().position.y >= 0.49f,
-               "dynamic box penetrated static ground")) return false;
-    return Check(std::fabs(body->GetVelocity().y) < 0.2f,
-                 "dynamic box did not settle on ground");
+    if (!Check(box->GetTransform().position.y >= 0.49f, "dynamic box penetrated static ground"))
+        return false;
+    return Check(std::fabs(body->GetVelocity().y) < 0.2f, "dynamic box did not settle on ground");
 }
 
 bool TestExtendedCollisionShapes() {
     OrientedBox box;
     box.center = Vec3::Zero();
     const float angle = 35.0f * kDeg2Rad;
-    box.axes[0] = Vec3{ std::cos(angle), 0.0f, -std::sin(angle) };
+    box.axes[0] = Vec3{std::cos(angle), 0.0f, -std::sin(angle)};
     box.axes[1] = Vec3::Up();
-    box.axes[2] = Vec3{ std::sin(angle), 0.0f, std::cos(angle) };
+    box.axes[2] = Vec3{std::sin(angle), 0.0f, std::cos(angle)};
 
     SphereShape sphere;
-    sphere.center = { 0.8f, 0.0f, 0.0f };
+    sphere.center = {0.8f, 0.0f, 0.0f};
     sphere.radius = 0.5f;
     ContactManifold contact;
-    if (!Check(Collide(sphere, box, contact) && contact.depth > 0.0f,
-               "sphere/OBB narrow phase failed")) return false;
+    if (!Check(Collide(sphere, box, contact) && contact.depth > 0.0f, "sphere/OBB narrow phase failed"))
+        return false;
 
     CapsuleShape capsuleA;
-    capsuleA.pointA = { 0.0f, -1.0f, 0.0f };
-    capsuleA.pointB = { 0.0f, 1.0f, 0.0f };
+    capsuleA.pointA = {0.0f, -1.0f, 0.0f};
+    capsuleA.pointB = {0.0f, 1.0f, 0.0f};
     capsuleA.radius = 0.35f;
     CapsuleShape capsuleB = capsuleA;
     capsuleB.pointA.x = capsuleB.pointB.x = 0.5f;
-    if (!Check(Collide(capsuleA, capsuleB, contact),
-               "capsule/capsule narrow phase failed")) return false;
+    if (!Check(Collide(capsuleA, capsuleB, contact), "capsule/capsule narrow phase failed"))
+        return false;
 
     Scene scene("SphereGround");
     Actor* ground = scene.CreateActor("Ground");
-    ground->GetTransform().position = { 0.0f, -0.5f, 0.0f };
-    ground->GetTransform().rotation = { 0.0f, 0.0f, 0.1f };
+    ground->GetTransform().position = {0.0f, -0.5f, 0.0f};
+    ground->GetTransform().rotation = {0.0f, 0.0f, 0.1f};
     auto* groundBody = ground->AddComponent<RigidBodyComponent>();
     groundBody->SetBodyType(BodyType::Static);
     auto* groundCollider = ground->AddComponent<BoxColliderComponent>();
-    groundCollider->SetHalfExtents({ 3.0f, 0.5f, 3.0f });
+    groundCollider->SetHalfExtents({3.0f, 0.5f, 3.0f});
 
     Actor* ball = scene.CreateActor("Ball");
-    ball->GetTransform().position = { 0.0f, 2.0f, 0.0f };
+    ball->GetTransform().position = {0.0f, 2.0f, 0.0f};
     auto* ballBody = ball->AddComponent<RigidBodyComponent>();
     auto* ballCollider = ball->AddComponent<SphereColliderComponent>();
     ballCollider->SetRadius(0.5f);
-    for (int i = 0; i < 180; ++i) scene.OnUpdate(1.0f / 60.0f);
-    return Check(ball->GetTransform().position.y > 0.35f &&
-                 std::fabs(ballBody->GetVelocity().y) < 0.3f,
+    for (int i = 0; i < 180; ++i)
+        scene.OnUpdate(1.0f / 60.0f);
+    return Check(ball->GetTransform().position.y > 0.35f && std::fabs(ballBody->GetVelocity().y) < 0.3f,
                  "sphere did not settle on rotated OBB ground");
 }
 
@@ -989,9 +1030,12 @@ class CollisionProbeComponent final : public Component {
 public:
     const char* GetTypeName() const override { return "CollisionProbe"; }
     void OnCollisionEvent(const CollisionEvent& event) override {
-        if (event.phase == CollisionEventPhase::Enter) ++enters;
-        else if (event.phase == CollisionEventPhase::Stay) ++stays;
-        else if (event.phase == CollisionEventPhase::Exit) ++exits;
+        if (event.phase == CollisionEventPhase::Enter)
+            ++enters;
+        else if (event.phase == CollisionEventPhase::Stay)
+            ++stays;
+        else if (event.phase == CollisionEventPhase::Exit)
+            ++exits;
         lastWasTrigger = event.trigger;
     }
     int enters = 0;
@@ -1031,35 +1075,39 @@ bool TestPhysicsBroadPhaseTriggersAndSleep() {
 
     scene.OnUpdate(1.0f / 60.0f);
     scene.OnUpdate(1.0f / 60.0f);
-    if (!Check(probe->enters == 1 && probe->stays >= 1 && probe->lastWasTrigger,
-               "trigger enter/stay events failed")) return false;
+    if (!Check(probe->enters == 1 && probe->stays >= 1 && probe->lastWasTrigger, "trigger enter/stay events failed"))
+        return false;
     if (!Check(NearlyEqual(mover->GetTransform().position.x, 0.0f),
-               "trigger incorrectly applied positional correction")) return false;
+               "trigger incorrectly applied positional correction"))
+        return false;
 
-    mover->GetTransform().position = { 10.0f, 0.0f, 0.0f };
+    mover->GetTransform().position = {10.0f, 0.0f, 0.0f};
     scene.OnUpdate(1.0f / 60.0f);
-    if (!Check(probe->exits == 1, "trigger exit event failed")) return false;
+    if (!Check(probe->exits == 1, "trigger exit event failed"))
+        return false;
 
     moverCollider->SetLayerMask(0);
     mover->GetTransform().position = Vec3::Zero();
     scene.OnUpdate(1.0f / 60.0f);
-    if (!Check(probe->enters == 1, "layer mask did not filter collision pair")) return false;
+    if (!Check(probe->enters == 1, "layer mask did not filter collision pair"))
+        return false;
 
     Scene sleepScene("Sleep");
     Actor* ground = sleepScene.CreateActor("Ground");
-    ground->GetTransform().position = { 0.0f, -0.5f, 0.0f };
+    ground->GetTransform().position = {0.0f, -0.5f, 0.0f};
     auto* groundBody = ground->AddComponent<RigidBodyComponent>();
     groundBody->SetBodyType(BodyType::Static);
     auto* groundShape = ground->AddComponent<BoxColliderComponent>();
-    groundShape->SetHalfExtents({ 4.0f, 0.5f, 4.0f });
+    groundShape->SetHalfExtents({4.0f, 0.5f, 4.0f});
 
     Actor* bodyActor = sleepScene.CreateActor("SleepingBody");
-    bodyActor->GetTransform().position = { 0.0f, 1.0f, 0.0f };
+    bodyActor->GetTransform().position = {0.0f, 1.0f, 0.0f};
     auto* body = bodyActor->AddComponent<RigidBodyComponent>();
     body->SetFriction(1.0f);
-    body->SetVelocity({ 1.0f, 0.0f, 0.0f });
+    body->SetVelocity({1.0f, 0.0f, 0.0f});
     bodyActor->AddComponent<SphereColliderComponent>();
-    for (int i = 0; i < 360; ++i) sleepScene.OnUpdate(1.0f / 60.0f);
+    for (int i = 0; i < 360; ++i)
+        sleepScene.OnUpdate(1.0f / 60.0f);
     return Check(body->IsSleeping() && body->GetVelocity().LengthSq() < 1e-6f,
                  "resting rigid body did not enter sleep state");
 }
@@ -1067,10 +1115,10 @@ bool TestPhysicsBroadPhaseTriggersAndSleep() {
 bool TestRaycastAndCharacterController() {
     Scene rayScene("Raycast");
     Actor* ignored = rayScene.CreateActor("IgnoredNear");
-    ignored->GetTransform().position = { 0.0f, 0.0f, 2.0f };
+    ignored->GetTransform().position = {0.0f, 0.0f, 2.0f};
     ignored->AddComponent<SphereColliderComponent>()->SetLayer(2);
     Actor* target = rayScene.CreateActor("Target");
-    target->GetTransform().position = { 0.0f, 0.0f, 4.0f };
+    target->GetTransform().position = {0.0f, 0.0f, 4.0f};
     target->AddComponent<SphereColliderComponent>()->SetLayer(4);
 
     RaycastHit hit;
@@ -1078,38 +1126,40 @@ bool TestRaycastAndCharacterController() {
     ray.origin = Vec3::Zero();
     ray.direction = Vec3::Forward();
     if (!Check(rayScene.GetPhysicsWorld().Raycast(rayScene, ray, 10.0f, 4, hit),
-               "layer-filtered raycast missed target")) return false;
+               "layer-filtered raycast missed target"))
+        return false;
     if (!Check(hit.actor == target && NearlyEqual(hit.distance, 3.5f, 0.05f),
-               "raycast did not return nearest permitted collider")) return false;
+               "raycast did not return nearest permitted collider"))
+        return false;
 
     Scene controllerScene("Controller");
     Actor* ground = controllerScene.CreateActor("Ground");
-    ground->GetTransform().position = { 0.0f, -0.5f, 0.0f };
+    ground->GetTransform().position = {0.0f, -0.5f, 0.0f};
     auto* groundBody = ground->AddComponent<RigidBodyComponent>();
     groundBody->SetBodyType(BodyType::Static);
-    ground->AddComponent<BoxColliderComponent>()->SetHalfExtents({ 5.0f, 0.5f, 5.0f });
+    ground->AddComponent<BoxColliderComponent>()->SetHalfExtents({5.0f, 0.5f, 5.0f});
 
     Actor* player = controllerScene.CreateActor("Player");
-    player->GetTransform().position = { 0.0f, 2.0f, 0.0f };
+    player->GetTransform().position = {0.0f, 2.0f, 0.0f};
     auto* capsule = player->AddComponent<CapsuleColliderComponent>();
     capsule->SetRadius(0.5f);
     capsule->SetHalfHeight(0.5f);
     auto* controller = player->AddComponent<CharacterControllerComponent>();
-    controller->Move({ 1.0f, 0.0f, 0.0f });
-    for (int i = 0; i < 180; ++i) controllerScene.OnUpdate(1.0f / 60.0f);
-    return Check(controller->IsGrounded() &&
-                 player->GetTransform().position.x > 2.0f &&
-                 player->GetTransform().position.y > 0.9f,
+    controller->Move({1.0f, 0.0f, 0.0f});
+    for (int i = 0; i < 180; ++i)
+        controllerScene.OnUpdate(1.0f / 60.0f);
+    return Check(controller->IsGrounded() && player->GetTransform().position.x > 2.0f &&
+                     player->GetTransform().position.y > 0.9f,
                  "character controller did not move and settle on ground");
 }
 
 bool TestGpuSkinningAnimationBlend() {
     std::vector<MeshVertex> vertices(3);
-    vertices[0].position = { 0.0f, 0.0f, 0.0f };
-    vertices[1].position = { 0.0f, 1.0f, 0.0f };
-    vertices[2].position = { 1.0f, 0.0f, 0.0f };
-    std::vector<uint32_t> indices = { 0, 1, 2 };
-    std::vector<SubMesh> submeshes = { { 0, 3, 0, 0, "Triangle" } };
+    vertices[0].position = {0.0f, 0.0f, 0.0f};
+    vertices[1].position = {0.0f, 1.0f, 0.0f};
+    vertices[2].position = {1.0f, 0.0f, 0.0f};
+    std::vector<uint32_t> indices = {0, 1, 2};
+    std::vector<SubMesh> submeshes = {{0, 3, 0, 0, "Triangle"}};
 
     auto source = std::make_shared<MeshAsset>("__builtin__/SkinnedTriangle");
     source->SetGeometry(std::move(vertices), std::move(indices), std::move(submeshes));
@@ -1132,60 +1182,61 @@ bool TestGpuSkinningAnimationBlend() {
     BoneTrack track;
     track.boneIndex = 0;
     track.keys = {
-        { 0.0f, Vec3::Zero(), Quat::Identity(), Vec3::One() },
-        { 1.0f, Vec3{1.0f, 0.0f, 0.0f}, Quat::Identity(), Vec3::One() },
+        {0.0f, Vec3::Zero(), Quat::Identity(), Vec3::One()},
+        {1.0f, Vec3{1.0f, 0.0f, 0.0f}, Quat::Identity(), Vec3::One()},
     };
     clip.tracks.push_back(std::move(track));
     skinned->SetAnimation(std::move(clip));
     skinned->SetAnimationTime(1.0f);
 
     MeshAsset* result = skinned->GetRenderMesh();
-    if (!Check(result && result->VertexCount() == 3, "skinned render mesh missing")) return false;
+    if (!Check(result && result->VertexCount() == 3, "skinned render mesh missing"))
+        return false;
     if (!Check(NearlyEqual(result->GetVertices()[0].position.x, 0.0f),
-               "GPU skinning unexpectedly modified CPU vertex data")) return false;
+               "GPU skinning unexpectedly modified CPU vertex data"))
+        return false;
     if (!Check(skinned->UsesGpuSkinning() &&
-               NearlyEqual(skinned->GetSkinMatrices()[0].TransformPoint(Vec3::Zero()).x, 1.0f),
-               "GPU skinning pose matrix mismatch")) return false;
+                   NearlyEqual(skinned->GetSkinMatrices()[0].TransformPoint(Vec3::Zero()).x, 1.0f),
+               "GPU skinning pose matrix mismatch"))
+        return false;
 
     AnimationClip blendClip;
     blendClip.name = "MoveFurther";
     blendClip.duration = 1.0f;
     BoneTrack blendTrack;
     blendTrack.boneIndex = 0;
-    blendTrack.keys = {
-        { 0.0f, Vec3{3.0f, 0.0f, 0.0f}, Quat::Identity(), Vec3::One() }
-    };
+    blendTrack.keys = {{0.0f, Vec3{3.0f, 0.0f, 0.0f}, Quat::Identity(), Vec3::One()}};
     blendClip.tracks.push_back(std::move(blendTrack));
     skinned->SetBlendAnimation(std::move(blendClip), 0.5f);
-    if (!Check(NearlyEqual(
-            skinned->GetSkinMatrices()[0].TransformPoint(Vec3::Zero()).x, 2.0f),
-            "animation blend pose mismatch")) return false;
+    if (!Check(NearlyEqual(skinned->GetSkinMatrices()[0].TransformPoint(Vec3::Zero()).x, 2.0f),
+               "animation blend pose mismatch"))
+        return false;
 
     MeshHandle builtinCube = AssetManager::Get().GetCubeMesh();
     skinned->SetSourceMesh(builtinCube);
     std::vector<Bone> serialBones(1);
     serialBones[0].name = "Root";
-    skinned->SetSkeleton(std::move(serialBones),
-                         std::vector<SkinWeight>(builtinCube->VertexCount()));
+    skinned->SetSkeleton(std::move(serialBones), std::vector<SkinWeight>(builtinCube->VertexCount()));
 
     Scene loaded("LoadedSkin");
     if (!Check(SceneSerializer::LoadFromString(loaded, SceneSerializer::SaveToString(scene)),
-               "skinned scene deserialize failed")) return false;
+               "skinned scene deserialize failed"))
+        return false;
     auto* loadedSkin = loaded.FindByName("Skinned")->GetComponent<SkinnedMeshRendererComponent>();
     if (!Check(loadedSkin && loadedSkin->GetWeights().size() == builtinCube->VertexCount(),
-               "skin weights missing after deserialize")) return false;
-    return Check(loadedSkin->GetAnimation().tracks.size() == 1,
-                 "animation tracks missing after deserialize");
+               "skin weights missing after deserialize"))
+        return false;
+    return Check(loadedSkin->GetAnimation().tracks.size() == 1, "animation tracks missing after deserialize");
 }
 
 bool TestPbrMaterialParameters() {
     auto material = MaterialAsset::CreateDefault("PbrTest");
     material->SetParam("Metallic", MaterialParam::FromFloat(0.8f));
     material->SetParam("Roughness", MaterialParam::FromFloat(0.25f));
-    if (!Check(NearlyEqual(material->GetFloat("Metallic", 0.0f), 0.8f),
-               "PBR metallic parameter mismatch")) return false;
-    if (!Check(NearlyEqual(material->GetFloat("Roughness", 1.0f), 0.25f),
-               "PBR roughness parameter mismatch")) return false;
+    if (!Check(NearlyEqual(material->GetFloat("Metallic", 0.0f), 0.8f), "PBR metallic parameter mismatch"))
+        return false;
+    if (!Check(NearlyEqual(material->GetFloat("Roughness", 1.0f), 0.25f), "PBR roughness parameter mismatch"))
+        return false;
     return Check(NearlyEqual(material->GetFloat("AmbientOcclusion", 0.7f), 0.7f),
                  "material default parameter fallback mismatch");
 }
@@ -1200,22 +1251,21 @@ bool TestMaterialAssetFileRoundTrip() {
     {
         std::ofstream output(texPath, std::ios::binary);
         output << "P6\n1 1\n255\n";
-        const char pixel[3] = {
-            static_cast<char>(255),
-            static_cast<char>(64),
-            static_cast<char>(32)
-        };
+        const char pixel[3] = {static_cast<char>(255), static_cast<char>(64), static_cast<char>(32)};
         output.write(pixel, sizeof(pixel));
     }
 
     AssetManager& manager = AssetManager::Get();
     manager.Clear();
     TextureHandle texture = manager.Load<TextureAsset>(texPath.string());
-    if (!Check(texture.IsValid(), "material test texture load failed")) return false;
+    if (!Check(texture.IsValid(), "material test texture load failed"))
+        return false;
     const fs::path shaderPath = root / "material.shader";
-    std::ofstream(shaderPath) << R"({"type":"Shader","version":1,"stages":{"vertex":{"source":"material.hlsl","entry":"VSMain"},"pixel":{"source":"material.hlsl","entry":"PSMain"}},"defines":[]})";
+    std::ofstream(shaderPath)
+        << R"({"type":"Shader","version":1,"stages":{"vertex":{"source":"material.hlsl","entry":"VSMain"},"pixel":{"source":"material.hlsl","entry":"PSMain"}},"defines":[]})";
     ShaderAssetHandle shaderAsset = manager.Load<ShaderAsset>(shaderPath.string());
-    if (!Check(shaderAsset.IsValid(), "material test shader load failed")) return false;
+    if (!Check(shaderAsset.IsValid(), "material test shader load failed"))
+        return false;
 
     const fs::path matPath = root / "test.mat";
     auto material = std::make_shared<MaterialAsset>(matPath.string());
@@ -1229,23 +1279,25 @@ bool TestMaterialAssetFileRoundTrip() {
     material->SetParam("AmbientOcclusion", MaterialParam::FromFloat(0.8f));
     material->SetTexture("BaseColorMap", texture);
     material->SetShaderAsset(shaderAsset);
-    if (!Check(SaveMaterialAssetToFile(*material, matPath.string()),
-               "material save failed")) return false;
+    if (!Check(SaveMaterialAssetToFile(*material, matPath.string()), "material save failed"))
+        return false;
 
     manager.Clear();
     MaterialHandle loaded = manager.Load<MaterialAsset>(matPath.string());
-    if (!Check(loaded.IsValid(), "material load failed")) return false;
+    if (!Check(loaded.IsValid(), "material load failed"))
+        return false;
     if (!Check(loaded->GetBlendMode() == BlendMode::Transparent && loaded->IsTwoSided(),
-               "material render state roundtrip failed")) return false;
-    if (!Check(NearlyEqual(loaded->GetAlphaThreshold(), 0.33f) &&
-               NearlyEqual(loaded->GetFloat("Metallic"), 0.9f) &&
-               NearlyEqual(loaded->GetFloat("Roughness"), 0.21f) &&
-               NearlyEqual(loaded->GetFloat("AmbientOcclusion"), 0.8f),
-               "material scalar roundtrip failed")) return false;
-    if (!Check(loaded->GetTexture("BaseColorMap").IsValid(),
-               "material texture slot roundtrip failed")) return false;
-    if (!Check(loaded->GetShaderAsset().IsValid(),
-               "material shader asset reference roundtrip failed")) return false;
+               "material render state roundtrip failed"))
+        return false;
+    if (!Check(NearlyEqual(loaded->GetAlphaThreshold(), 0.33f) && NearlyEqual(loaded->GetFloat("Metallic"), 0.9f) &&
+                   NearlyEqual(loaded->GetFloat("Roughness"), 0.21f) &&
+                   NearlyEqual(loaded->GetFloat("AmbientOcclusion"), 0.8f),
+               "material scalar roundtrip failed"))
+        return false;
+    if (!Check(loaded->GetTexture("BaseColorMap").IsValid(), "material texture slot roundtrip failed"))
+        return false;
+    if (!Check(loaded->GetShaderAsset().IsValid(), "material shader asset reference roundtrip failed"))
+        return false;
 
     manager.Clear();
     fs::remove_all(root);
@@ -1264,48 +1316,46 @@ bool TestAssetManagerSharedAcrossRuntimeBoundary() {
     renderer->SetMaterial(AssetManager::Get().GetDefaultMaterial());
 
     Scene loaded("Loaded");
-    if (!Check(SceneSerializer::LoadFromString(
-            loaded, SceneSerializer::SaveToString(source)),
-            "DLL boundary scene load failed")) return false;
+    if (!Check(SceneSerializer::LoadFromString(loaded, SceneSerializer::SaveToString(source)),
+               "DLL boundary scene load failed"))
+        return false;
 
-    auto* loadedRenderer =
-        loaded.FindByName("SharedMesh")->GetComponent<MeshRendererComponent>();
+    auto* loadedRenderer = loaded.FindByName("SharedMesh")->GetComponent<MeshRendererComponent>();
     if (!Check(loadedRenderer && loadedRenderer->GetMesh().IsValid(),
-               "runtime DLL could not see executable-registered asset")) return false;
-    return Check(loadedRenderer->GetMesh()->GetPath() == path,
-                 "shared asset path changed across DLL boundary");
+               "runtime DLL could not see executable-registered asset"))
+        return false;
+    return Check(loadedRenderer->GetMesh()->GetPath() == path, "shared asset path changed across DLL boundary");
 }
 
 bool TestComponentRegistry() {
     ComponentRegistry& registry = ComponentRegistry::Get();
     const char* required[] = {
-        "MeshRenderer", "SkinnedMeshRenderer", "Script", "RigidBody", "BoxCollider",
-        "SphereCollider", "CapsuleCollider", "CharacterController", "Camera", "Light", "PostProcess",
-        "AudioSource"
-    };
+        "MeshRenderer",    "SkinnedMeshRenderer", "Script", "RigidBody", "BoxCollider", "SphereCollider",
+        "CapsuleCollider", "CharacterController", "Camera", "Light",     "PostProcess", "AudioSource"};
     for (const char* type : required) {
-        if (!Check(registry.IsRegistered(type),
-                   std::string("component type not registered: ") + type)) return false;
+        if (!Check(registry.IsRegistered(type), std::string("component type not registered: ") + type))
+            return false;
     }
 
     Scene scene("Registry");
     Actor* actor = scene.CreateActor("Actor");
     Component* component = registry.Create("Script", *actor);
-    if (!Check(component != nullptr, "registry factory returned null")) return false;
-    if (!Check(std::string(component->GetTypeName()) == "Script",
-               "registry created wrong component type")) return false;
-    if (!Check(actor->HasComponentType("Script"),
-               "actor type-name component query failed")) return false;
+    if (!Check(component != nullptr, "registry factory returned null"))
+        return false;
+    if (!Check(std::string(component->GetTypeName()) == "Script", "registry created wrong component type"))
+        return false;
+    if (!Check(actor->HasComponentType("Script"), "actor type-name component query failed"))
+        return false;
     if (!Check(actor->GetComponentByTypeName("Script") == component,
-               "actor type-name component lookup returned wrong component")) return false;
+               "actor type-name component lookup returned wrong component"))
+        return false;
 
     Component* duplicate = registry.Create("Script", *actor);
-    if (!Check(duplicate == component,
-               "registry duplicate create should return existing component")) return false;
-    if (!Check(actor->RemoveComponentByTypeName("Script"),
-               "actor type-name component remove failed")) return false;
-    return Check(!actor->HasComponentType("Script"),
-                 "actor type-name component remove left component behind");
+    if (!Check(duplicate == component, "registry duplicate create should return existing component"))
+        return false;
+    if (!Check(actor->RemoveComponentByTypeName("Script"), "actor type-name component remove failed"))
+        return false;
+    return Check(!actor->HasComponentType("Script"), "actor type-name component remove left component behind");
 }
 
 bool TestSceneRunStates() {
@@ -1313,63 +1363,65 @@ bool TestSceneRunStates() {
     Scene* editorScene = &layer.GetEditorScene();
     Actor* actor = editorScene->CreateActor("Scripted");
     auto* script = actor->AddComponent<ScriptComponent>();
-    script->SetSource(
-        "class Script {\n"
-        "  void Update(float dt) { Actor::Translate(Vec3(2 * dt, 0, 0)); }\n"
-        "}\n");
+    script->SetSource("class Script {\n"
+                      "  void Update(float dt) { Actor::Translate(Vec3(2 * dt, 0, 0)); }\n"
+                      "}\n");
     layer.MarkDirty();
 
     layer.OnUpdate(0.5f);
-    if (!Check(NearlyEqual(actor->GetTransform().position.x, 0.0f),
-               "Edit mode should not simulate scene")) return false;
+    if (!Check(NearlyEqual(actor->GetTransform().position.x, 0.0f), "Edit mode should not simulate scene"))
+        return false;
 
-    if (!Check(layer.BeginPlay(), "BeginPlay failed")) return false;
-    if (!Check(&layer.GetEditorScene() == editorScene,
-               "BeginPlay replaced the editor scene")) return false;
-    if (!Check(layer.HasPlayWorld() && layer.GetPlayScene(),
-               "BeginPlay did not create PlayWorld")) return false;
+    if (!Check(layer.BeginPlay(), "BeginPlay failed"))
+        return false;
+    if (!Check(&layer.GetEditorScene() == editorScene, "BeginPlay replaced the editor scene"))
+        return false;
+    if (!Check(layer.HasPlayWorld() && layer.GetPlayScene(), "BeginPlay did not create PlayWorld"))
+        return false;
     Actor* runtimeActor = layer.GetPlayScene()->FindByName("Scripted");
-    if (!Check(runtimeActor && runtimeActor != actor,
-               "PlayWorld did not clone the edit scene")) return false;
+    if (!Check(runtimeActor && runtimeActor != actor, "PlayWorld did not clone the edit scene"))
+        return false;
     layer.OnUpdate(0.5f);
-    if (!Check(NearlyEqual(runtimeActor->GetTransform().position.x, 1.0f),
-               "Play mode did not update runtime scene")) return false;
-    if (!Check(NearlyEqual(actor->GetTransform().position.x, 0.0f),
-               "PlayWorld update leaked into EditorWorld")) return false;
+    if (!Check(NearlyEqual(runtimeActor->GetTransform().position.x, 1.0f), "Play mode did not update runtime scene"))
+        return false;
+    if (!Check(NearlyEqual(actor->GetTransform().position.x, 0.0f), "PlayWorld update leaked into EditorWorld"))
+        return false;
 
     layer.PausePlay();
     layer.OnUpdate(0.5f);
-    if (!Check(NearlyEqual(runtimeActor->GetTransform().position.x, 1.0f),
-               "Pause mode advanced scene")) return false;
-    if (!Check(layer.StepPlay(), "StepPlay failed")) return false;
+    if (!Check(NearlyEqual(runtimeActor->GetTransform().position.x, 1.0f), "Pause mode advanced scene"))
+        return false;
+    if (!Check(layer.StepPlay(), "StepPlay failed"))
+        return false;
     layer.OnUpdate(0.5f);
-    if (!Check(NearlyEqual(runtimeActor->GetTransform().position.x, 2.0f),
-               "Step did not advance exactly one update")) return false;
+    if (!Check(NearlyEqual(runtimeActor->GetTransform().position.x, 2.0f), "Step did not advance exactly one update"))
+        return false;
     layer.OnUpdate(0.5f);
-    if (!Check(NearlyEqual(runtimeActor->GetTransform().position.x, 2.0f),
-               "paused scene advanced after Step")) return false;
+    if (!Check(NearlyEqual(runtimeActor->GetTransform().position.x, 2.0f), "paused scene advanced after Step"))
+        return false;
 
     layer.StopPlay();
     Actor* restored = layer.GetEditorScene().FindByName("Scripted");
-    if (!Check(layer.IsEditing() && !layer.HasPlayWorld() && restored,
-               "StopPlay did not restore Edit mode")) return false;
+    if (!Check(layer.IsEditing() && !layer.HasPlayWorld() && restored, "StopPlay did not restore Edit mode"))
+        return false;
     if (!Check(restored == actor && &layer.GetEditorScene() == editorScene,
-               "StopPlay should keep the original EditorWorld alive")) return false;
-    if (!Check(NearlyEqual(restored->GetTransform().position.x, 0.0f),
-               "runtime changes leaked into edit scene")) return false;
-    if (!Check(layer.IsDirty(), "edit dirty state was not restored")) return false;
+               "StopPlay should keep the original EditorWorld alive"))
+        return false;
+    if (!Check(NearlyEqual(restored->GetTransform().position.x, 0.0f), "runtime changes leaked into edit scene"))
+        return false;
+    if (!Check(layer.IsDirty(), "edit dirty state was not restored"))
+        return false;
 
     Scene recovery("Recovered");
     recovery.CreateActor("RecoveredActor");
     const std::string snapshot = SceneSerializer::SaveToString(recovery);
-    if (!Check(layer.RestoreEditorSnapshot(snapshot, "Content/Scenes/Main.scene.json") &&
-               layer.IsDirty() && layer.HasFilePath() &&
-               layer.GetEditorScene().FindByName("RecoveredActor"),
-               "editor recovery snapshot was not restored atomically")) return false;
+    if (!Check(layer.RestoreEditorSnapshot(snapshot, "Content/Scenes/Main.scene.json") && layer.IsDirty() &&
+                   layer.HasFilePath() && layer.GetEditorScene().FindByName("RecoveredActor"),
+               "editor recovery snapshot was not restored atomically"))
+        return false;
     Scene* recoveredScene = &layer.GetEditorScene();
     return Check(!layer.RestoreEditorSnapshot("{broken", "ignored.scene.json") &&
-                 &layer.GetEditorScene() == recoveredScene &&
-                 layer.GetEditorScene().FindByName("RecoveredActor"),
+                     &layer.GetEditorScene() == recoveredScene && layer.GetEditorScene().FindByName("RecoveredActor"),
                  "failed recovery replaced the last valid editor scene");
 }
 
@@ -1384,24 +1436,28 @@ public:
     uint32_t GetCount() const override { return 4; }
     uint64_t GetFrequency() const override { return 1000000; }
     bool ReadResults(uint32_t first, uint32_t count, std::vector<uint64_t>& ticks) override {
-        if (first + count > 4) return false;
-        ticks.resize(count); for (uint32_t i = 0; i < count; ++i) ticks[i] = first + i;
+        if (first + count > 4)
+            return false;
+        ticks.resize(count);
+        for (uint32_t i = 0; i < count; ++i)
+            ticks[i] = first + i;
         return true;
     }
 };
 
 class MockReadbackTicket final : public GpuReadbackTicket {
 public:
-    explicit MockReadbackTicket(std::vector<uint8_t> bytes)
-        : m_Bytes(std::move(bytes)) {}
+    explicit MockReadbackTicket(std::vector<uint8_t> bytes) : m_Bytes(std::move(bytes)) {}
     bool IsReady() const override { return ready; }
     bool Read(std::vector<uint8_t>& data) override {
-        if (!ready) return false;
+        if (!ready)
+            return false;
         data = m_Bytes;
         return true;
     }
     uint32_t GetSize() const override { return static_cast<uint32_t>(m_Bytes.size()); }
     bool ready = false;
+
 private:
     std::vector<uint8_t> m_Bytes;
 };
@@ -1418,16 +1474,14 @@ public:
         ++drawCalls;
         submittedInstances += instanceCount;
     }
-    void DrawIndexedInstanced(uint32_t, uint32_t instanceCount,
-                              uint32_t, uint32_t) override {
+    void DrawIndexedInstanced(uint32_t, uint32_t instanceCount, uint32_t, uint32_t) override {
         ++drawCalls;
         submittedInstances += instanceCount;
     }
     void SetViewport(float, float, float, float) override {}
     void BindPSTexture(uint32_t, GpuTexture*) override {}
     void SetBlendMode(GpuBlendMode mode) override { blendModes.push_back(mode); }
-    void Transition(GpuResource*, RHIResourceState before,
-                    RHIResourceState after) override {
+    void Transition(GpuResource*, RHIResourceState before, RHIResourceState after) override {
         transitions.emplace_back(before, after);
     }
     void BeginRendering(const RenderingInfo&) override { ++renderingScopes; }
@@ -1440,12 +1494,14 @@ public:
     void SetComputePipeline(GpuComputePipeline*) override { ++computePipelineBinds; }
     void SetBindGroup(uint32_t, GpuBindGroup*) override { ++bindGroupBinds; }
     void Dispatch(uint32_t x, uint32_t y, uint32_t z) override {
-        ++dispatches; dispatchGroups = {x, y, z};
+        ++dispatches;
+        dispatchGroups = {x, y, z};
     }
     void UAVBarrier(GpuResource*) override { ++uavBarriers; }
-    void CopyTexture(GpuTexture*, const RHITextureRegion& dst,
-                     GpuTexture*, const RHITextureRegion& src) override {
-        copiedDst = dst; copiedSrc = src; ++textureRegionCopies;
+    void CopyTexture(GpuTexture*, const RHITextureRegion& dst, GpuTexture*, const RHITextureRegion& src) override {
+        copiedDst = dst;
+        copiedSrc = src;
+        ++textureRegionCopies;
     }
     void DrawIndirect(GpuBuffer*, uint64_t) override { ++indirectDraws; }
     void DrawIndexedIndirect(GpuBuffer*, uint64_t) override { ++indirectDraws; }
@@ -1482,79 +1538,86 @@ public:
     void BeginFrame(float, float, float, float) override { ++beginFrames; }
     void EndFrame() override { ++endFrames; }
     GpuCommandList* GetGraphicsCommandList() override { return &commands; }
-    std::shared_ptr<GpuBuffer> CreateVertexBuffer(
-        const void*, uint32_t, uint32_t) override {
+    std::shared_ptr<GpuBuffer> CreateVertexBuffer(const void*, uint32_t, uint32_t) override {
         ++vertexUploads;
         return std::make_shared<MockBuffer>();
     }
-    std::shared_ptr<GpuBuffer> CreateIndexBuffer(
-        const void*, uint32_t) override {
+    std::shared_ptr<GpuBuffer> CreateIndexBuffer(const void*, uint32_t) override {
         ++indexUploads;
         return std::make_shared<MockBuffer>();
     }
-    std::shared_ptr<GpuShader> CreateShader(
-        const std::string&, const std::string&, const std::string&,
-        const VertexElement*, uint32_t) override {
+    std::shared_ptr<GpuShader> CreateShader(const std::string&, const std::string&, const std::string&,
+                                            const VertexElement*, uint32_t) override {
         ++shaderCreates;
         return std::make_shared<MockShader>();
     }
-    std::shared_ptr<GpuTexture> UploadTexture2D(
-        const void*, int, int) override {
+    std::shared_ptr<GpuTexture> UploadTexture2D(const void*, int, int) override {
         ++textureUploads;
         return std::make_shared<MockTexture>();
     }
-    bool UpdateBuffer(const std::shared_ptr<GpuBuffer>& buffer, uint64_t offset,
-                      const void* data, uint64_t size) override {
-        if (!buffer || !data || offset + size > bufferBytes.size()) return false;
-        std::memcpy(bufferBytes.data() + offset, data, static_cast<size_t>(size)); return true;
+    bool UpdateBuffer(const std::shared_ptr<GpuBuffer>& buffer, uint64_t offset, const void* data,
+                      uint64_t size) override {
+        if (!buffer || !data || offset + size > bufferBytes.size())
+            return false;
+        std::memcpy(bufferBytes.data() + offset, data, static_cast<size_t>(size));
+        return true;
     }
-    std::shared_ptr<GpuTexture> UploadTexture(
-        const RHITextureDesc& desc, const RHITextureSubresourceData*, uint32_t count) override {
-        if (!count) return nullptr;
-        auto texture = std::make_shared<MockTexture>(); texture->desc = desc; return texture;
+    std::shared_ptr<GpuTexture> UploadTexture(const RHITextureDesc& desc, const RHITextureSubresourceData*,
+                                              uint32_t count) override {
+        if (!count)
+            return nullptr;
+        auto texture = std::make_shared<MockTexture>();
+        texture->desc = desc;
+        return texture;
     }
     RHIDeviceCapabilities GetCapabilities() const override {
-        RHIDeviceCapabilities caps; caps.maxColorAttachments = 8;
-        caps.timestampQueries = caps.indirectDraw = true; return caps;
+        RHIDeviceCapabilities caps;
+        caps.maxColorAttachments = 8;
+        caps.timestampQueries = caps.indirectDraw = true;
+        return caps;
     }
     std::shared_ptr<GpuTimestampQueryPool> CreateTimestampQueryPool(uint32_t count) override {
         return count <= 4 ? std::make_shared<MockTimestampPool>() : nullptr;
     }
     std::shared_ptr<GpuTexture> CreateTexture(const RHITextureDesc& desc) override {
-        auto texture = std::make_shared<MockTexture>(); texture->desc = desc;
-        ++graphTextureCreates; return texture;
+        auto texture = std::make_shared<MockTexture>();
+        texture->desc = desc;
+        ++graphTextureCreates;
+        return texture;
     }
-    std::shared_ptr<GpuTextureView> CreateTextureView(
-        const std::shared_ptr<GpuTexture>& texture,
-        const RHITextureViewDesc& desc) override {
+    std::shared_ptr<GpuTextureView> CreateTextureView(const std::shared_ptr<GpuTexture>& texture,
+                                                      const RHITextureViewDesc& desc) override {
         auto view = std::make_shared<MockTextureView>();
-        view->texture = texture; view->desc = desc; return view;
+        view->texture = texture;
+        view->desc = desc;
+        return view;
     }
-    std::shared_ptr<GpuBuffer> CreateBuffer(
-        const RHIBufferDesc& desc, const void* initialData = nullptr) override {
-        auto buffer = std::make_shared<MockBuffer>(); buffer->desc = desc;
+    std::shared_ptr<GpuBuffer> CreateBuffer(const RHIBufferDesc& desc, const void* initialData = nullptr) override {
+        auto buffer = std::make_shared<MockBuffer>();
+        buffer->desc = desc;
         bufferBytes.resize(desc.size);
-        if (initialData && desc.size) std::memcpy(bufferBytes.data(), initialData, desc.size);
+        if (initialData && desc.size)
+            std::memcpy(bufferBytes.data(), initialData, desc.size);
         ++bufferCreates;
         return buffer;
     }
-    std::shared_ptr<GpuBufferView> CreateBufferView(
-        const std::shared_ptr<GpuBuffer>& buffer,
-        const RHIBufferViewDesc& desc) override {
-        if (!buffer || !desc.elementCount) return nullptr;
+    std::shared_ptr<GpuBufferView> CreateBufferView(const std::shared_ptr<GpuBuffer>& buffer,
+                                                    const RHIBufferViewDesc& desc) override {
+        if (!buffer || !desc.elementCount)
+            return nullptr;
         auto view = std::make_shared<MockBufferView>();
-        view->buffer = buffer; view->desc = desc;
+        view->buffer = buffer;
+        view->desc = desc;
         return view;
     }
-    std::shared_ptr<GpuShader> CreateComputeShaderFromBytecode(
-        const void*, size_t) override {
+    std::shared_ptr<GpuShader> CreateComputeShaderFromBytecode(const void*, size_t) override {
         auto shader = std::make_shared<MockShader>();
         ++computeShaderCreates;
         return shader;
     }
-    std::shared_ptr<GpuReadbackTicket> ReadbackBufferAsync(
-        const std::shared_ptr<GpuBuffer>& buffer) override {
-        if (!buffer) return nullptr;
+    std::shared_ptr<GpuReadbackTicket> ReadbackBufferAsync(const std::shared_ptr<GpuBuffer>& buffer) override {
+        if (!buffer)
+            return nullptr;
         auto ticket = std::make_shared<MockReadbackTicket>(bufferBytes);
         lastReadback = ticket;
         return ticket;
@@ -1574,35 +1637,31 @@ public:
     std::shared_ptr<MockReadbackTicket> lastReadback;
 };
 
-bool TestIconsManagerSvgRasterizeIcoAndUploadCache()
-{
+bool TestIconsManagerSvgRasterizeIcoAndUploadCache() {
     namespace fs = std::filesystem;
     IconsManager& icons = IconsManager::Get();
     icons.Clear();
     icons.SetIconRoot(fs::current_path() / "EngineContent" / "Editor" / "Icons");
 
     if (!Check(fs::is_regular_file(icons.ResolveIconPath(IconsManager::kEditorIcon)),
-               "engine-editor.svg was not resolved")) return false;
+               "engine-editor.svg was not resolved"))
+        return false;
 
-    const char* required[] = {
-        IconsManager::kEditorIcon,
-        IconsManager::kPlayerIcon,
-        IconsManager::kCookerIcon,
-        "play-start"
-    };
+    const char* required[] = {IconsManager::kEditorIcon, IconsManager::kPlayerIcon, IconsManager::kCookerIcon,
+                              "play-start"};
     for (const char* icon : required) {
         for (int size : {16, 32, 64}) {
             auto pixels = icons.Rasterize(icon, size, {220, 40, 60, 255});
             if (!Check(pixels && pixels->width == size && pixels->height == size &&
-                       pixels->rgba8.size() == static_cast<size_t>(size * size * 4),
-                       std::string("failed to rasterize icon: ") + icon)) return false;
+                           pixels->rgba8.size() == static_cast<size_t>(size * size * 4),
+                       std::string("failed to rasterize icon: ") + icon))
+                return false;
             bool hasVisiblePixel = false;
             bool hasTintedPixel = false;
             for (size_t i = 0; i + 3 < pixels->rgba8.size(); i += 4) {
                 if (pixels->rgba8[i + 3] != 0) {
                     hasVisiblePixel = true;
-                    if (pixels->rgba8[i] > pixels->rgba8[i + 1] &&
-                        pixels->rgba8[i] > pixels->rgba8[i + 2]) {
+                    if (pixels->rgba8[i] > pixels->rgba8[i + 1] && pixels->rgba8[i] > pixels->rgba8[i + 2]) {
                         hasTintedPixel = true;
                     }
                 }
@@ -1614,41 +1673,45 @@ bool TestIconsManagerSvgRasterizeIcoAndUploadCache()
         }
     }
 
-    if (!Check(!icons.Rasterize("__missing_icon__", 32),
-               "missing icon should fail without producing pixels")) return false;
+    if (!Check(!icons.Rasterize("__missing_icon__", 32), "missing icon should fail without producing pixels"))
+        return false;
 
     const fs::path output = fs::temp_directory_path() / "myengine_icon_test.ico";
     std::error_code ec;
     fs::remove(output, ec);
-    if (!Check(icons.WriteIco(IconsManager::kEditorIcon, output,
-                              std::vector<int>{16, 24, 32, 48, 64, 128, 256}),
-               "ico generation failed")) return false;
+    if (!Check(icons.WriteIco(IconsManager::kEditorIcon, output, std::vector<int>{16, 24, 32, 48, 64, 128, 256}),
+               "ico generation failed"))
+        return false;
     std::ifstream ico(output, std::ios::binary);
     unsigned char header[6] = {};
     ico.read(reinterpret_cast<char*>(header), sizeof(header));
     const int count = header[4] | (header[5] << 8);
     if (!Check(ico.good() && count == 7 && fs::file_size(output) > 1024,
-               "ico did not contain all requested image sizes")) return false;
+               "ico did not contain all requested image sizes"))
+        return false;
     fs::remove(output, ec);
 
     MockRenderContext context;
     GpuTextureView* first = icons.GetOrUpload(context, "play-start", 24, {255, 255, 255, 255});
     GpuTextureView* second = icons.GetOrUpload(context, "play-start", 24, {255, 255, 255, 255});
     GpuTextureView* third = icons.GetOrUpload(context, "play-start", 24, {128, 255, 128, 255});
-    return Check(first && second && third && first == second && first != third &&
-                 context.textureUploads == 2,
+    return Check(first && second && third && first == second && first != third && context.textureUploads == 2,
                  "icon upload cache key did not include name/size/color");
 }
 
 bool TestExtendedRHIContracts() {
     MockRenderContext context;
-    RHIBufferDesc bufferDesc; bufferDesc.size = 16;
+    RHIBufferDesc bufferDesc;
+    bufferDesc.size = 16;
     auto buffer = context.CreateBuffer(bufferDesc);
     const uint32_t value = 0x12345678u;
     if (!Check(context.UpdateBuffer(buffer, 4, &value, sizeof(value)) &&
-               std::memcmp(context.bufferBytes.data() + 4, &value, sizeof(value)) == 0,
-               "RHI partial buffer update failed")) return false;
-    RHITextureDesc textureDesc; textureDesc.width = 8; textureDesc.height = 8;
+                   std::memcmp(context.bufferBytes.data() + 4, &value, sizeof(value)) == 0,
+               "RHI partial buffer update failed"))
+        return false;
+    RHITextureDesc textureDesc;
+    textureDesc.width = 8;
+    textureDesc.height = 8;
     uint32_t pixels[64]{};
     RHITextureSubresourceData upload{pixels, 8u * 4u, 8u * 8u * 4u, 0, 0};
     auto source = context.UploadTexture(textureDesc, &upload, 1);
@@ -1663,12 +1726,11 @@ bool TestExtendedRHIContracts() {
     context.commands.ResolveTimestamps(timestamps.get(), 0, 1);
     std::vector<uint64_t> ticks;
     const auto caps = context.GetCapabilities();
-    return Check(source && context.commands.textureRegionCopies == 1 &&
-                 context.commands.copiedSrc.x == 1 && context.commands.copiedDst.x == 4 &&
-                 context.commands.indirectDraws == 2 && context.commands.timestamps == 1 &&
-                 context.commands.timestampResolves == 1 && timestamps &&
-                 timestamps->ReadResults(0, 1, ticks) && ticks.size() == 1 &&
-                 caps.maxColorAttachments == 8 && caps.indirectDraw && caps.timestampQueries,
+    return Check(source && context.commands.textureRegionCopies == 1 && context.commands.copiedSrc.x == 1 &&
+                     context.commands.copiedDst.x == 4 && context.commands.indirectDraws == 2 &&
+                     context.commands.timestamps == 1 && context.commands.timestampResolves == 1 && timestamps &&
+                     timestamps->ReadResults(0, 1, ticks) && ticks.size() == 1 && caps.maxColorAttachments == 8 &&
+                     caps.indirectDraw && caps.timestampQueries,
                  "extended RHI transfer/query/indirect contracts were not preserved");
 }
 
@@ -1676,78 +1738,87 @@ bool TestRenderGraphValidationAndExecution() {
     MockRenderContext context;
     RenderGraph graph(context);
     RHITextureDesc desc;
-    desc.width = 128; desc.height = 64;
+    desc.width = 128;
+    desc.height = 64;
     desc.usage = RHIResourceUsage::RenderTarget | RHIResourceUsage::ShaderResource;
     const RGTextureHandle sceneColor = graph.CreateTexture("SceneColor", desc);
     std::vector<std::string> executed;
-    graph.AddPass("Main", [&](RenderGraphBuilder& builder) {
-        builder.WriteColor(sceneColor, RHILoadOp::Clear, RHIStoreOp::Store,
-                           {0.1f, 0.2f, 0.3f, 1.0f});
-    }, [&](GpuCommandList&, const RenderGraphResources& resources) {
-        if (resources.GetTexture(sceneColor)) executed.push_back("Main");
-    });
-    graph.AddPass("Composite", [&](RenderGraphBuilder& builder) {
-        builder.ReadTexture(sceneColor);
-    }, [&](GpuCommandList&, const RenderGraphResources& resources) {
-        if (resources.GetView(sceneColor)) executed.push_back("Composite");
-    });
-    if (!Check(graph.Compile(), "RenderGraph compile failed: " + graph.GetLastError())) return false;
+    graph.AddPass(
+        "Main",
+        [&](RenderGraphBuilder& builder) {
+            builder.WriteColor(sceneColor, RHILoadOp::Clear, RHIStoreOp::Store, {0.1f, 0.2f, 0.3f, 1.0f});
+        },
+        [&](GpuCommandList&, const RenderGraphResources& resources) {
+            if (resources.GetTexture(sceneColor))
+                executed.push_back("Main");
+        });
+    graph.AddPass(
+        "Composite", [&](RenderGraphBuilder& builder) { builder.ReadTexture(sceneColor); },
+        [&](GpuCommandList&, const RenderGraphResources& resources) {
+            if (resources.GetView(sceneColor))
+                executed.push_back("Composite");
+        });
+    if (!Check(graph.Compile(), "RenderGraph compile failed: " + graph.GetLastError()))
+        return false;
     if (!Check(graph.GetExecutionOrder() == std::vector<std::string>({"Main", "Composite"}),
-               "RenderGraph execution order mismatch")) return false;
-    if (!Check(graph.Execute(context.commands), "RenderGraph execute failed: " + graph.GetLastError())) return false;
-    if (!Check(executed == std::vector<std::string>({"Main", "Composite"}) &&
-               context.graphTextureCreates == 1 && context.commands.renderingScopes == 0,
-               "RenderGraph did not execute through the RHI resource path")) return false;
+               "RenderGraph execution order mismatch"))
+        return false;
+    if (!Check(graph.Execute(context.commands), "RenderGraph execute failed: " + graph.GetLastError()))
+        return false;
+    if (!Check(executed == std::vector<std::string>({"Main", "Composite"}) && context.graphTextureCreates == 1 &&
+                   context.commands.renderingScopes == 0,
+               "RenderGraph did not execute through the RHI resource path"))
+        return false;
     if (!Check(context.commands.transitions.size() == 2 &&
-               context.commands.transitions[0].second == RHIResourceState::RenderTarget &&
-               context.commands.transitions[1].second == RHIResourceState::ShaderResource,
-               "RenderGraph state transitions mismatch")) return false;
+                   context.commands.transitions[0].second == RHIResourceState::RenderTarget &&
+                   context.commands.transitions[1].second == RHIResourceState::ShaderResource,
+               "RenderGraph state transitions mismatch"))
+        return false;
 
     graph.Reset();
     const RGTextureHandle reused = graph.CreateTexture("SceneColor", desc);
-    graph.AddPass("Rewrite", [&](RenderGraphBuilder& builder) {
-        builder.WriteColor(reused, RHILoadOp::Clear);
-    }, {});
+    graph.AddPass("Rewrite", [&](RenderGraphBuilder& builder) { builder.WriteColor(reused, RHILoadOp::Clear); }, {});
     if (!Check(graph.Execute(context.commands) && context.graphTextureCreates == 1,
-               "RenderGraph did not reuse a descriptor-compatible transient texture")) return false;
+               "RenderGraph did not reuse a descriptor-compatible transient texture"))
+        return false;
 
     RenderGraph invalid(context);
     const RGTextureHandle unread = invalid.CreateTexture("Unread", desc);
-    invalid.AddPass("InvalidRead", [&](RenderGraphBuilder& builder) {
-        builder.ReadTexture(unread);
-    }, {});
-    return Check(!invalid.Compile() &&
-                 invalid.GetLastError().find("uninitialized") != std::string::npos,
+    invalid.AddPass("InvalidRead", [&](RenderGraphBuilder& builder) { builder.ReadTexture(unread); }, {});
+    return Check(!invalid.Compile() && invalid.GetLastError().find("uninitialized") != std::string::npos,
                  "RenderGraph accepted an uninitialized texture read");
 }
 
 bool TestNamedShaderBindings() {
     auto shader = std::make_shared<MockShader>();
-    shader->reflection.bindings = {
-        {"FrameConstants", ShaderBindingType::ConstantBuffer, 0, 1, 16, ShaderStageVertex},
-        {"SceneColor", ShaderBindingType::Texture, 0, 1, 0, ShaderStagePixel},
-        {"LinearClamp", ShaderBindingType::Sampler, 0, 1, 0, ShaderStagePixel}};
+    shader->reflection.bindings = {{"FrameConstants", ShaderBindingType::ConstantBuffer, 0, 1, 16, ShaderStageVertex},
+                                   {"SceneColor", ShaderBindingType::Texture, 0, 1, 0, ShaderStagePixel},
+                                   {"LinearClamp", ShaderBindingType::Sampler, 0, 1, 0, ShaderStagePixel}};
     GpuBindGroup bindings(shader);
     float constants[4] = {};
     if (!Check(!bindings.SetConstants("FrameConstants", constants, 12),
-               "named binding accepted an invalid constant-buffer size")) return false;
-    if (!Check(bindings.SetConstants("FrameConstants", constants, sizeof(constants)),
-               "named constant binding failed")) return false;
+               "named binding accepted an invalid constant-buffer size"))
+        return false;
+    if (!Check(bindings.SetConstants("FrameConstants", constants, sizeof(constants)), "named constant binding failed"))
+        return false;
     std::string error;
     if (!Check(!bindings.Validate(&error) && error.find("SceneColor") != std::string::npos,
-               "bind group did not report a missing reflected binding")) return false;
+               "bind group did not report a missing reflected binding"))
+        return false;
     auto texture = std::make_shared<MockTexture>();
-    auto view = std::make_shared<MockTextureView>(); view->texture = texture;
+    auto view = std::make_shared<MockTextureView>();
+    view->texture = texture;
     auto sampler = std::make_shared<MockSampler>();
-    return Check(bindings.SetTexture("SceneColor", view) &&
-                 bindings.SetSampler("LinearClamp", sampler) && bindings.Validate(&error),
+    return Check(bindings.SetTexture("SceneColor", view) && bindings.SetSampler("LinearClamp", sampler) &&
+                     bindings.Validate(&error),
                  "complete named bind group failed validation: " + error);
 }
 
 bool TestBackendIndependentPassRecording() {
     MockRenderContext context;
     auto shader = std::make_shared<MockShader>();
-    GraphicsPipelineDesc pipelineDesc; pipelineDesc.shader = shader;
+    GraphicsPipelineDesc pipelineDesc;
+    pipelineDesc.shader = shader;
     pipelineDesc.topology = RHIPrimitiveTopology::TriangleStrip;
     pipelineDesc.depthStencil.depthCompareOp = RHICompareOp::GreaterEqual;
     pipelineDesc.depthStencil.stencilEnable = true;
@@ -1761,31 +1832,31 @@ bool TestBackendIndependentPassRecording() {
     pipelineDesc.blend.attachments[0].dstColorFactor = RHIBlendFactor::OneMinusSrcAlpha;
     pipelineDesc.multisample.sampleCount = 4;
     auto pipeline = context.CreateGraphicsPipeline(pipelineDesc);
-    if (!Check(pipeline &&
-               pipeline->desc.topology == RHIPrimitiveTopology::TriangleStrip &&
-               pipeline->desc.depthStencil.depthCompareOp == RHICompareOp::GreaterEqual &&
-               pipeline->desc.depthStencil.frontFace.passOp == RHIStencilOp::Replace &&
-               pipeline->desc.depthStencil.stencilReference == 7 &&
-               pipeline->desc.rasterizer.cullMode == RHICullMode::Front &&
-               pipeline->desc.rasterizer.depthBias == 8 &&
-               pipeline->desc.blend.attachments[0].blendEnable &&
-               pipeline->desc.multisample.sampleCount == 4,
-               "graphics pipeline state was not preserved by the RHI")) return false;
+    if (!Check(pipeline && pipeline->desc.topology == RHIPrimitiveTopology::TriangleStrip &&
+                   pipeline->desc.depthStencil.depthCompareOp == RHICompareOp::GreaterEqual &&
+                   pipeline->desc.depthStencil.frontFace.passOp == RHIStencilOp::Replace &&
+                   pipeline->desc.depthStencil.stencilReference == 7 &&
+                   pipeline->desc.rasterizer.cullMode == RHICullMode::Front &&
+                   pipeline->desc.rasterizer.depthBias == 8 && pipeline->desc.blend.attachments[0].blendEnable &&
+                   pipeline->desc.multisample.sampleCount == 4,
+               "graphics pipeline state was not preserved by the RHI"))
+        return false;
     auto bindings = context.CreateBindGroup(shader);
     RHITextureDesc targetDesc;
-    targetDesc.width = 32; targetDesc.height = 32;
+    targetDesc.width = 32;
+    targetDesc.height = 32;
     targetDesc.usage = RHIResourceUsage::RenderTarget | RHIResourceUsage::ShaderResource;
     RenderGraph graph(context);
     const auto target = graph.CreateTexture("ValidationTarget", targetDesc);
-    graph.AddPass("RHIValidationPass", [&](RenderGraphBuilder& builder) {
-        builder.WriteColor(target, RHILoadOp::Clear);
-    }, [&](GpuCommandList& commands, const RenderGraphResources&) {
-        commands.SetGraphicsPipeline(pipeline.get());
-        commands.SetBindGroup(0, bindings.get());
-        commands.Draw(3);
-    });
+    graph.AddPass(
+        "RHIValidationPass", [&](RenderGraphBuilder& builder) { builder.WriteColor(target, RHILoadOp::Clear); },
+        [&](GpuCommandList& commands, const RenderGraphResources&) {
+            commands.SetGraphicsPipeline(pipeline.get());
+            commands.SetBindGroup(0, bindings.get());
+            commands.Draw(3);
+        });
     return Check(graph.Execute(context.commands) && context.commands.pipelineBinds == 1 &&
-                 context.commands.bindGroupBinds == 1 && context.commands.drawCalls == 1,
+                     context.commands.bindGroupBinds == 1 && context.commands.drawCalls == 1,
                  "backend-independent validation pass did not record the expected RHI commands");
 }
 
@@ -1793,41 +1864,43 @@ bool TestComputeStorageBufferAndAsyncReadback() {
     MockRenderContext context;
     const std::array<uint32_t, 4> initial = {1, 2, 3, 4};
     RHIBufferDesc bufferDesc;
-    bufferDesc.size = sizeof(initial); bufferDesc.stride = sizeof(uint32_t);
-    bufferDesc.usage = RHIResourceUsage::UnorderedAccess |
-                       RHIResourceUsage::ShaderResource |
-                       RHIResourceUsage::CopySource;
+    bufferDesc.size = sizeof(initial);
+    bufferDesc.stride = sizeof(uint32_t);
+    bufferDesc.usage =
+        RHIResourceUsage::UnorderedAccess | RHIResourceUsage::ShaderResource | RHIResourceUsage::CopySource;
     auto buffer = context.CreateBuffer(bufferDesc, initial.data());
     RHIBufferViewDesc viewDesc;
     viewDesc.elementCount = static_cast<uint32_t>(initial.size());
     viewDesc.usage = RHIResourceUsage::UnorderedAccess;
     auto view = context.CreateBufferView(buffer, viewDesc);
     auto shader = std::make_shared<MockShader>();
-    shader->reflection.bindings = {
-        {"SHOutput", ShaderBindingType::StorageBuffer, 0, 1, 0, ShaderStageCompute}};
+    shader->reflection.bindings = {{"SHOutput", ShaderBindingType::StorageBuffer, 0, 1, 0, ShaderStageCompute}};
     auto bindings = context.CreateBindGroup(shader);
-    if (!Check(view && bindings->SetStorageBuffer("SHOutput", view),
-               "compute storage-buffer named binding failed")) return false;
+    if (!Check(view && bindings->SetStorageBuffer("SHOutput", view), "compute storage-buffer named binding failed"))
+        return false;
     std::string error;
-    if (!Check(bindings->Validate(&error), "compute bind group validation failed: " + error)) return false;
-    ComputePipelineDesc pipelineDesc; pipelineDesc.shader = shader;
+    if (!Check(bindings->Validate(&error), "compute bind group validation failed: " + error))
+        return false;
+    ComputePipelineDesc pipelineDesc;
+    pipelineDesc.shader = shader;
     auto pipeline = context.CreateComputePipeline(pipelineDesc);
     auto* commands = context.GetGraphicsCommandList();
     commands->SetComputePipeline(pipeline.get());
     commands->SetBindGroup(0, bindings.get());
     commands->Dispatch(2, 3, 4);
     commands->UAVBarrier(buffer.get());
-    if (!Check(context.commands.computePipelineBinds == 1 &&
-               context.commands.dispatches == 1 && context.commands.uavBarriers == 1 &&
-               context.commands.dispatchGroups == std::array<uint32_t, 3>{2, 3, 4},
-               "compute pass did not record the expected RHI commands")) return false;
+    if (!Check(context.commands.computePipelineBinds == 1 && context.commands.dispatches == 1 &&
+                   context.commands.uavBarriers == 1 &&
+                   context.commands.dispatchGroups == std::array<uint32_t, 3>{2, 3, 4},
+               "compute pass did not record the expected RHI commands"))
+        return false;
     auto ticket = context.ReadbackBufferAsync(buffer);
     std::vector<uint8_t> bytes;
-    if (!Check(ticket && !ticket->IsReady() && !ticket->Read(bytes),
-               "async readback completed synchronously")) return false;
+    if (!Check(ticket && !ticket->IsReady() && !ticket->Read(bytes), "async readback completed synchronously"))
+        return false;
     context.lastReadback->ready = true;
     return Check(ticket->IsReady() && ticket->Read(bytes) && bytes.size() == sizeof(initial) &&
-                 std::memcmp(bytes.data(), initial.data(), sizeof(initial)) == 0,
+                     std::memcmp(bytes.data(), initial.data(), sizeof(initial)) == 0,
                  "async readback returned incorrect buffer contents");
 }
 
@@ -1835,35 +1908,33 @@ bool TestRenderGraphComputeBufferDependencies() {
     MockRenderContext context;
     RenderGraph graph(context);
     RHIBufferDesc desc;
-    desc.size = 9 * 16; desc.stride = 16;
-    desc.usage = RHIResourceUsage::UnorderedAccess |
-                 RHIResourceUsage::ShaderResource |
-                 RHIResourceUsage::CopySource;
+    desc.size = 9 * 16;
+    desc.stride = 16;
+    desc.usage = RHIResourceUsage::UnorderedAccess | RHIResourceUsage::ShaderResource | RHIResourceUsage::CopySource;
     const auto output = graph.CreateBuffer("SHOutput", desc);
     std::vector<std::string> executed;
-    graph.AddPass("ProjectSH", [&](RenderGraphBuilder& builder) {
-        builder.ReadWriteUAV(output);
-    }, [&](GpuCommandList& commands, const RenderGraphResources& resources) {
-        if (resources.GetBuffer(output) && resources.GetBufferView(output)) {
-            commands.Dispatch(1, 1, 1); executed.push_back("ProjectSH");
-        }
-    });
-    graph.AddPass("ConsumeSH", [&](RenderGraphBuilder& builder) {
-        builder.ReadBuffer(output);
-    }, [&](GpuCommandList&, const RenderGraphResources& resources) {
-        if (resources.GetBuffer(output)) executed.push_back("ConsumeSH");
-    });
-    if (!Check(graph.Execute(context.commands) &&
-               executed == std::vector<std::string>({"ProjectSH", "ConsumeSH"}) &&
-               context.bufferCreates == 1 && context.commands.dispatches == 1,
-               "RenderGraph compute-buffer dependency execution failed")) return false;
+    graph.AddPass(
+        "ProjectSH", [&](RenderGraphBuilder& builder) { builder.ReadWriteUAV(output); },
+        [&](GpuCommandList& commands, const RenderGraphResources& resources) {
+            if (resources.GetBuffer(output) && resources.GetBufferView(output)) {
+                commands.Dispatch(1, 1, 1);
+                executed.push_back("ProjectSH");
+            }
+        });
+    graph.AddPass(
+        "ConsumeSH", [&](RenderGraphBuilder& builder) { builder.ReadBuffer(output); },
+        [&](GpuCommandList&, const RenderGraphResources& resources) {
+            if (resources.GetBuffer(output))
+                executed.push_back("ConsumeSH");
+        });
+    if (!Check(graph.Execute(context.commands) && executed == std::vector<std::string>({"ProjectSH", "ConsumeSH"}) &&
+                   context.bufferCreates == 1 && context.commands.dispatches == 1,
+               "RenderGraph compute-buffer dependency execution failed"))
+        return false;
     RenderGraph invalid(context);
     const auto unread = invalid.CreateBuffer("UnreadBuffer", desc);
-    invalid.AddPass("InvalidBufferRead", [&](RenderGraphBuilder& builder) {
-        builder.ReadBuffer(unread);
-    }, {});
-    return Check(!invalid.Compile() &&
-                 invalid.GetLastError().find("uninitialized buffer") != std::string::npos,
+    invalid.AddPass("InvalidBufferRead", [&](RenderGraphBuilder& builder) { builder.ReadBuffer(unread); }, {});
+    return Check(!invalid.Compile() && invalid.GetLastError().find("uninitialized buffer") != std::string::npos,
                  "RenderGraph accepted an uninitialized buffer read");
 }
 
@@ -1875,12 +1946,12 @@ bool TestHeadlessRendering() {
     meshRenderer->SetMesh(AssetManager::Get().GetCubeMesh());
     meshRenderer->SetMaterial(AssetManager::Get().GetDefaultMaterial());
     Actor* culledActor = scene.CreateActor("CulledCube");
-    culledActor->GetTransform().position = { 10000.0f, 0.0f, 0.0f };
+    culledActor->GetTransform().position = {10000.0f, 0.0f, 0.0f};
     auto* culledRenderer = culledActor->AddComponent<MeshRendererComponent>();
     culledRenderer->SetMesh(AssetManager::Get().GetCubeMesh());
     culledRenderer->SetMaterial(AssetManager::Get().GetDefaultMaterial());
     Actor* transparentActor = scene.CreateActor("TransparentCube");
-    transparentActor->GetTransform().position = { 0.0f, 0.0f, 1.0f };
+    transparentActor->GetTransform().position = {0.0f, 0.0f, 1.0f};
     auto* transparentRenderer = transparentActor->AddComponent<MeshRendererComponent>();
     transparentRenderer->SetMesh(AssetManager::Get().GetCubeMesh());
     auto transparentMaterial = MaterialAsset::CreateDefault("TransparentTest");
@@ -1888,7 +1959,7 @@ bool TestHeadlessRendering() {
     transparentRenderer->SetMaterial(AssetManager::Get().Register(transparentMaterial));
 
     Camera camera;
-    camera.LookAt({ 0.0f, 0.0f, -4.0f }, Vec3::Zero());
+    camera.LookAt({0.0f, 0.0f, -4.0f}, Vec3::Zero());
     camera.SetPerspective(60.0f, 16.0f / 9.0f);
 
     MockRenderContext context;
@@ -1896,56 +1967,52 @@ bool TestHeadlessRendering() {
     int queuedUploadRuns = 0;
     const GpuUploadFence uploadFence = GpuUploadQueue::Get().Enqueue([&queuedUploadRuns](IRHIDevice& uploadContext) {
         ++queuedUploadRuns;
-        const uint8_t pixel[4] = { 255, 255, 255, 255 };
+        const uint8_t pixel[4] = {255, 255, 255, 255};
         uploadContext.UploadTexture2D(pixel, 1, 1);
     });
     if (!Check(!GpuUploadQueue::Get().IsFenceComplete(uploadFence),
-               "GPU upload fence completed before render-thread execution")) return false;
+               "GPU upload fence completed before render-thread execution"))
+        return false;
     renderer.RenderScene(scene, camera, true);
 
     if (!Check(queuedUploadRuns == 1 && GpuUploadQueue::Get().PendingCount() == 0 &&
-               GpuUploadQueue::Get().IsFenceComplete(uploadFence),
-               "GPU upload queue was not consumed on the render thread")) return false;
-    if (!Check(context.beginFrames == 1 && context.endFrames == 1,
-               "headless renderer frame lifecycle mismatch")) return false;
-    if (!Check(context.shaderCreates >= 1, "headless shader was not created")) return false;
-    if (!Check(context.vertexUploads == 1 && context.indexUploads == 1,
-               "headless mesh upload mismatch")) return false;
-    if (!Check(context.textureUploads == 3,
-               "headless texture uploads missing material or named-binding fallback")) return false;
-    if (!Check(context.commands.drawCalls == 3,
-               "frustum culling emitted an unexpected draw count")) return false;
-    const auto transparentPipeline = std::find(
-        context.commands.pipelineBlendEnabled.begin(),
-        context.commands.pipelineBlendEnabled.end(), true);
+                   GpuUploadQueue::Get().IsFenceComplete(uploadFence),
+               "GPU upload queue was not consumed on the render thread"))
+        return false;
+    if (!Check(context.beginFrames == 1 && context.endFrames == 1, "headless renderer frame lifecycle mismatch"))
+        return false;
+    if (!Check(context.shaderCreates >= 1, "headless shader was not created"))
+        return false;
+    if (!Check(context.vertexUploads == 1 && context.indexUploads == 1, "headless mesh upload mismatch"))
+        return false;
+    if (!Check(context.textureUploads == 3, "headless texture uploads missing material or named-binding fallback"))
+        return false;
+    if (!Check(context.commands.drawCalls == 3, "frustum culling emitted an unexpected draw count"))
+        return false;
+    const auto transparentPipeline =
+        std::find(context.commands.pipelineBlendEnabled.begin(), context.commands.pipelineBlendEnabled.end(), true);
     return Check(transparentPipeline != context.commands.pipelineBlendEnabled.end() &&
-                 transparentPipeline != context.commands.pipelineBlendEnabled.begin() &&
-                 std::count(context.commands.pipelineBlendEnabled.begin(),
-                            context.commands.pipelineBlendEnabled.end(), true) == 1,
+                     transparentPipeline != context.commands.pipelineBlendEnabled.begin() &&
+                     std::count(context.commands.pipelineBlendEnabled.begin(),
+                                context.commands.pipelineBlendEnabled.end(), true) == 1,
                  "opaque/transparent render ordering or blend state mismatch");
 }
 
 bool TestCrashReportWriting() {
     CrashHandler::Install("MyEngineTests");
-    const std::string path =
-        CrashHandler::WriteDiagnosticReport("automated crash pipeline test");
+    const std::string path = CrashHandler::WriteDiagnosticReport("automated crash pipeline test");
     CrashHandler::Uninstall();
-    if (!Check(!path.empty() && std::filesystem::exists(path),
-               "crash diagnostic report was not created")) return false;
+    if (!Check(!path.empty() && std::filesystem::exists(path), "crash diagnostic report was not created"))
+        return false;
 
     std::ifstream input(path);
-    const std::string text(
-        (std::istreambuf_iterator<char>(input)),
-        std::istreambuf_iterator<char>());
-    const bool valid =
-        text.find("application=MyEngineTests") != std::string::npos &&
-        text.find("engine_version=") != std::string::npos &&
-        text.find("build_id=") != std::string::npos &&
-        text.find("git_commit=") != std::string::npos &&
-        text.find("configuration=") != std::string::npos &&
-        text.find("compiler=") != std::string::npos &&
-        text.find("shader_tool=") != std::string::npos &&
-        text.find("automated crash pipeline test") != std::string::npos;
+    const std::string text((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+    const bool valid = text.find("application=MyEngineTests") != std::string::npos &&
+                       text.find("engine_version=") != std::string::npos &&
+                       text.find("build_id=") != std::string::npos && text.find("git_commit=") != std::string::npos &&
+                       text.find("configuration=") != std::string::npos &&
+                       text.find("compiler=") != std::string::npos && text.find("shader_tool=") != std::string::npos &&
+                       text.find("automated crash pipeline test") != std::string::npos;
     input.close();
     std::error_code removeError;
     std::filesystem::remove(path, removeError);
@@ -1955,114 +2022,121 @@ bool TestCrashReportWriting() {
 bool TestTransformHierarchyWorldPosition() {
     Scene scene("TransformCase");
     Actor* root = scene.CreateActor("Root");
-    root->GetTransform().position = Vec3 { 10.0f, 0.0f, 0.0f };
+    root->GetTransform().position = Vec3{10.0f, 0.0f, 0.0f};
 
     Actor* child = scene.CreateActor("Child", root);
-    child->GetTransform().position = Vec3 { 1.0f, 2.0f, 3.0f };
+    child->GetTransform().position = Vec3{1.0f, 2.0f, 3.0f};
 
     const Vec3 world = child->GetWorldPosition();
-    if (!Check(
-        NearlyEqual(world.x, 11.0f) &&
-        NearlyEqual(world.y, 2.0f) &&
-        NearlyEqual(world.z, 3.0f),
-        "child world position mismatch")) return false;
+    if (!Check(NearlyEqual(world.x, 11.0f) && NearlyEqual(world.y, 2.0f) && NearlyEqual(world.z, 3.0f),
+               "child world position mismatch"))
+        return false;
 
     Actor* rotated = scene.CreateActor("Rotated");
-    rotated->GetTransform().position = Vec3{ 2.0f, 0.0f, 0.0f };
-    rotated->GetTransform().rotation = Vec3{ 0.0f, 90.0f, 0.0f };
-    rotated->GetTransform().scale = Vec3{ 2.0f, 3.0f, 4.0f };
+    rotated->GetTransform().position = Vec3{2.0f, 0.0f, 0.0f};
+    rotated->GetTransform().rotation = Vec3{0.0f, 90.0f, 0.0f};
+    rotated->GetTransform().scale = Vec3{2.0f, 3.0f, 4.0f};
     const Mat4 rotatedWorld = rotated->GetWorldMatrix();
     const Vec3 rotatedOrigin = rotatedWorld.TransformPoint(Vec3::Zero());
-    if (!Check(NearlyEqual(rotatedOrigin.x, 2.0f) &&
-               NearlyEqual(rotatedOrigin.y, 0.0f) &&
-               NearlyEqual(rotatedOrigin.z, 0.0f),
-               "rotated transform should not rotate its translation")) return false;
+    if (!Check(NearlyEqual(rotatedOrigin.x, 2.0f) && NearlyEqual(rotatedOrigin.y, 0.0f) &&
+                   NearlyEqual(rotatedOrigin.z, 0.0f),
+               "rotated transform should not rotate its translation"))
+        return false;
     if (!Check(NearlyEqual(rotatedWorld.TransformDir(Vec3::Right()).Length(), 2.0f) &&
-               NearlyEqual(rotatedWorld.TransformDir(Vec3::Up()).Length(), 3.0f) &&
-               NearlyEqual(rotatedWorld.TransformDir(Vec3::Forward()).Length(), 4.0f),
-               "row-vector transform scale axes mismatch")) return false;
+                   NearlyEqual(rotatedWorld.TransformDir(Vec3::Up()).Length(), 3.0f) &&
+                   NearlyEqual(rotatedWorld.TransformDir(Vec3::Forward()).Length(), 4.0f),
+               "row-vector transform scale axes mismatch"))
+        return false;
 
     Actor* rotatedParent = scene.CreateActor("RotatedParent");
-    rotatedParent->GetTransform().position = Vec3{ 5.0f, 0.0f, 0.0f };
-    rotatedParent->GetTransform().rotation = Vec3{ 0.0f, 90.0f, 0.0f };
-    rotatedParent->GetTransform().scale = Vec3{ 2.0f, 3.0f, 4.0f };
+    rotatedParent->GetTransform().position = Vec3{5.0f, 0.0f, 0.0f};
+    rotatedParent->GetTransform().rotation = Vec3{0.0f, 90.0f, 0.0f};
+    rotatedParent->GetTransform().scale = Vec3{2.0f, 3.0f, 4.0f};
     Actor* nested = scene.CreateActor("Nested", rotatedParent);
-    nested->GetTransform().position = Vec3{ 0.0f, 0.0f, 1.0f };
+    nested->GetTransform().position = Vec3{0.0f, 0.0f, 1.0f};
     const Vec3 nestedWorld = nested->GetWorldPosition();
-    if (!Check(NearlyEqual(nestedWorld.x, 9.0f) &&
-               NearlyEqual(nestedWorld.y, 0.0f) &&
-               NearlyEqual(nestedWorld.z, 0.0f),
-               "row-vector parent-child matrix order mismatch")) return false;
+    if (!Check(NearlyEqual(nestedWorld.x, 9.0f) && NearlyEqual(nestedWorld.y, 0.0f) && NearlyEqual(nestedWorld.z, 0.0f),
+               "row-vector parent-child matrix order mismatch"))
+        return false;
 
     Mat4 invParent{};
-    if (!Check(Mat4Invert(rotatedParent->GetWorldMatrix(), invParent),
-               "parent matrix inversion failed")) return false;
+    if (!Check(Mat4Invert(rotatedParent->GetWorldMatrix(), invParent), "parent matrix inversion failed"))
+        return false;
     const Mat4 recoveredLocal = nested->GetWorldMatrix() * invParent;
     const Vec3 recoveredOrigin = recoveredLocal.TransformPoint(Vec3::Zero());
-    if (!Check(NearlyEqual(recoveredOrigin.x, 0.0f) &&
-               NearlyEqual(recoveredOrigin.y, 0.0f) &&
-               NearlyEqual(recoveredOrigin.z, 1.0f),
-               "row-vector world-to-local recovery order mismatch")) return false;
+    if (!Check(NearlyEqual(recoveredOrigin.x, 0.0f) && NearlyEqual(recoveredOrigin.y, 0.0f) &&
+                   NearlyEqual(recoveredOrigin.z, 1.0f),
+               "row-vector world-to-local recovery order mismatch"))
+        return false;
     return true;
 }
 
 bool TestCameraViewportProjectionStability() {
     Camera camera;
-    camera.LookAt({ 0.0f, 0.0f, -4.0f }, Vec3::Zero());
+    camera.LookAt({0.0f, 0.0f, -4.0f}, Vec3::Zero());
     camera.SetPerspective(60.0f, 16.0f / 9.0f, 0.1f, 1000.0f);
 
-    if (!Check(NearlyEqual(camera.GetForward().x, 0.0f) &&
-               NearlyEqual(camera.GetForward().y, 0.0f) &&
-               NearlyEqual(camera.GetForward().z, 1.0f),
-               "camera forward basis mismatch")) return false;
-    if (!Check(NearlyEqual(camera.GetRight().x, 1.0f) &&
-               NearlyEqual(camera.GetRight().y, 0.0f) &&
-               NearlyEqual(camera.GetRight().z, 0.0f),
-               "camera right basis mismatch")) return false;
-    if (!Check(NearlyEqual(camera.GetCamUp().x, 0.0f) &&
-               NearlyEqual(camera.GetCamUp().y, 1.0f) &&
-               NearlyEqual(camera.GetCamUp().z, 0.0f),
-               "camera up basis mismatch")) return false;
+    if (!Check(NearlyEqual(camera.GetForward().x, 0.0f) && NearlyEqual(camera.GetForward().y, 0.0f) &&
+                   NearlyEqual(camera.GetForward().z, 1.0f),
+               "camera forward basis mismatch"))
+        return false;
+    if (!Check(NearlyEqual(camera.GetRight().x, 1.0f) && NearlyEqual(camera.GetRight().y, 0.0f) &&
+                   NearlyEqual(camera.GetRight().z, 0.0f),
+               "camera right basis mismatch"))
+        return false;
+    if (!Check(NearlyEqual(camera.GetCamUp().x, 0.0f) && NearlyEqual(camera.GetCamUp().y, 1.0f) &&
+                   NearlyEqual(camera.GetCamUp().z, 0.0f),
+               "camera up basis mismatch"))
+        return false;
     camera.Rotate(0.0f, 0.0f);
-    if (!Check(NearlyEqual(camera.GetForward().x, 0.0f) &&
-               NearlyEqual(camera.GetForward().y, 0.0f) &&
-               camera.GetForward().z > 0.99f,
-               "camera fly rotation basis jumps after LookAt")) return false;
+    if (!Check(NearlyEqual(camera.GetForward().x, 0.0f) && NearlyEqual(camera.GetForward().y, 0.0f) &&
+                   camera.GetForward().z > 0.99f,
+               "camera fly rotation basis jumps after LookAt"))
+        return false;
 
     Ray center;
     Ray right;
     Ray left;
     Ray top;
     Ray bottom;
-    if (!Check(camera.BuildRayFromNdc(0.0f, 0.0f, center), "center ray failed")) return false;
-    if (!Check(camera.BuildRayFromNdc(1.0f, 0.0f, right), "right ray failed")) return false;
-    if (!Check(camera.BuildRayFromNdc(-1.0f, 0.0f, left), "left ray failed")) return false;
-    if (!Check(camera.BuildRayFromNdc(0.0f, 1.0f, top), "top ray failed")) return false;
-    if (!Check(camera.BuildRayFromNdc(0.0f, -1.0f, bottom), "bottom ray failed")) return false;
+    if (!Check(camera.BuildRayFromNdc(0.0f, 0.0f, center), "center ray failed"))
+        return false;
+    if (!Check(camera.BuildRayFromNdc(1.0f, 0.0f, right), "right ray failed"))
+        return false;
+    if (!Check(camera.BuildRayFromNdc(-1.0f, 0.0f, left), "left ray failed"))
+        return false;
+    if (!Check(camera.BuildRayFromNdc(0.0f, 1.0f, top), "top ray failed"))
+        return false;
+    if (!Check(camera.BuildRayFromNdc(0.0f, -1.0f, bottom), "bottom ray failed"))
+        return false;
 
-    if (!Check(NearlyEqual(center.direction.x, 0.0f) &&
-               NearlyEqual(center.direction.y, 0.0f) &&
-               center.direction.z > 0.99f,
-               "center ray direction mismatch")) return false;
-    if (!Check(right.direction.x > 0.0f && left.direction.x < 0.0f,
-               "horizontal NDC ray directions are flipped")) return false;
-    if (!Check(top.direction.y > 0.0f && bottom.direction.y < 0.0f,
-               "vertical NDC ray directions are flipped")) return false;
+    if (!Check(NearlyEqual(center.direction.x, 0.0f) && NearlyEqual(center.direction.y, 0.0f) &&
+                   center.direction.z > 0.99f,
+               "center ray direction mismatch"))
+        return false;
+    if (!Check(right.direction.x > 0.0f && left.direction.x < 0.0f, "horizontal NDC ray directions are flipped"))
+        return false;
+    if (!Check(top.direction.y > 0.0f && bottom.direction.y < 0.0f, "vertical NDC ray directions are flipped"))
+        return false;
 
     const Mat4 viewProj = camera.GetViewProj();
     auto checkProjected = [&](const Ray& ray, float expectedX, float expectedY) {
         Vec4 clip = viewProj.Transform(Vec4::FromVec3(ray.origin, 1.0f));
-        if (std::fabs(clip.w) < 1e-8f) return false;
+        if (std::fabs(clip.w) < 1e-8f)
+            return false;
         clip = clip * (1.0f / clip.w);
-        return NearlyEqual(clip.x, expectedX, 1e-3f) &&
-               NearlyEqual(clip.y, expectedY, 1e-3f) &&
-               clip.z >= -1e-4f && clip.z <= 1.0f + 1e-4f;
+        return NearlyEqual(clip.x, expectedX, 1e-3f) && NearlyEqual(clip.y, expectedY, 1e-3f) && clip.z >= -1e-4f &&
+               clip.z <= 1.0f + 1e-4f;
     };
 
-    if (!Check(checkProjected(center, 0.0f, 0.0f), "center ray projection drift")) return false;
-    if (!Check(checkProjected(right, 1.0f, 0.0f), "right ray projection drift")) return false;
-    if (!Check(checkProjected(left, -1.0f, 0.0f), "left ray projection drift")) return false;
-    if (!Check(checkProjected(top, 0.0f, 1.0f), "top ray projection drift")) return false;
+    if (!Check(checkProjected(center, 0.0f, 0.0f), "center ray projection drift"))
+        return false;
+    if (!Check(checkProjected(right, 1.0f, 0.0f), "right ray projection drift"))
+        return false;
+    if (!Check(checkProjected(left, -1.0f, 0.0f), "left ray projection drift"))
+        return false;
+    if (!Check(checkProjected(top, 0.0f, 1.0f), "top ray projection drift"))
+        return false;
     return Check(checkProjected(bottom, 0.0f, -1.0f), "bottom ray projection drift");
 }
 
@@ -2070,13 +2144,15 @@ bool TestCameraComponentAndGameViewport() {
     Scene scene("CameraViewport");
     scene.SetAmbientIntensity(0.42f);
     if (!Check(NearlyEqual(CollectSceneLights(scene).ambientIntensity, 0.42f),
-               "scene lighting did not use scene ambient intensity")) return false;
+               "scene lighting did not use scene ambient intensity"))
+        return false;
     GameViewport viewport(nullptr, nullptr, nullptr);
     viewport.Initialize(800, 400);
     viewport.ResolveFrameCamera(scene);
-    if (!Check(!viewport.HasMainCamera(), "empty scene reported a main camera")) return false;
-    if (!Check(NearlyEqual(viewport.GetCamera().GetAspect(), 2.0f),
-               "fallback camera aspect mismatch")) return false;
+    if (!Check(!viewport.HasMainCamera(), "empty scene reported a main camera"))
+        return false;
+    if (!Check(NearlyEqual(viewport.GetCamera().GetAspect(), 2.0f), "fallback camera aspect mismatch"))
+        return false;
 
     Actor* inactive = scene.CreateActor("InactiveCamera");
     auto* inactiveCamera = inactive->AddComponent<CameraComponent>();
@@ -2095,11 +2171,13 @@ bool TestCameraComponentAndGameViewport() {
 
     viewport.ResolveFrameCamera(scene);
     if (!Check(viewport.HasMainCamera() && viewport.GetMainCameraComponent() == camera,
-               "game viewport did not resolve enabled main camera")) return false;
+               "game viewport did not resolve enabled main camera"))
+        return false;
     if (!Check(NearlyEqual(viewport.GetCamera().GetFovY(), 72.0f) &&
-               NearlyEqual(viewport.GetCamera().GetNear(), 0.25f) &&
-               NearlyEqual(viewport.GetCamera().GetFar(), 500.0f),
-               "game viewport camera settings mismatch")) return false;
+                   NearlyEqual(viewport.GetCamera().GetNear(), 0.25f) &&
+                   NearlyEqual(viewport.GetCamera().GetFar(), 500.0f),
+               "game viewport camera settings mismatch"))
+        return false;
 
     Actor* hinted = scene.CreateActor("HintedCamera");
     hinted->GetTransform().position = {-2.0f, 3.0f, -8.0f};
@@ -2108,25 +2186,23 @@ bool TestCameraComponentAndGameViewport() {
     hintedCamera->SetFovYDegrees(45.0f);
     scene.SetMainCameraHintActorID(hinted->GetID());
     viewport.ResolveFrameCamera(scene);
-    if (!Check(viewport.HasMainCamera() &&
-               viewport.GetMainCameraComponent() == hintedCamera &&
-               NearlyEqual(viewport.GetCamera().GetFovY(), 45.0f),
-               "game viewport did not prioritize scene main camera hint")) return false;
+    if (!Check(viewport.HasMainCamera() && viewport.GetMainCameraComponent() == hintedCamera &&
+                   NearlyEqual(viewport.GetCamera().GetFovY(), 45.0f),
+               "game viewport did not prioritize scene main camera hint"))
+        return false;
 
     const std::string serialized = SceneSerializer::SaveToString(scene);
     Scene loaded("LoadedCamera");
-    if (!Check(SceneSerializer::LoadFromString(loaded, serialized),
-               "camera component scene load failed")) return false;
+    if (!Check(SceneSerializer::LoadFromString(loaded, serialized), "camera component scene load failed"))
+        return false;
     Actor* loadedActor = loaded.FindByName("MainCamera");
     auto* loadedCamera = loadedActor ? loadedActor->GetComponent<CameraComponent>() : nullptr;
     Actor* loadedHinted = loaded.FindByName("HintedCamera");
-    return Check(loadedCamera && loadedCamera->IsMainCamera() &&
-                 NearlyEqual(loadedCamera->GetFovYDegrees(), 72.0f) &&
-                 NearlyEqual(loadedCamera->GetClearColor().y, 0.3f) &&
-                 loadedHinted &&
-                 loaded.GetMainCameraHintActorID() == loadedHinted->GetID() &&
-                 NearlyEqual(loaded.GetAmbientIntensity(), 0.42f) &&
-                 NearlyEqual(CollectSceneLights(loaded).ambientIntensity, 0.42f),
+    return Check(loadedCamera && loadedCamera->IsMainCamera() && NearlyEqual(loadedCamera->GetFovYDegrees(), 72.0f) &&
+                     NearlyEqual(loadedCamera->GetClearColor().y, 0.3f) && loadedHinted &&
+                     loaded.GetMainCameraHintActorID() == loadedHinted->GetID() &&
+                     NearlyEqual(loaded.GetAmbientIntensity(), 0.42f) &&
+                     NearlyEqual(CollectSceneLights(loaded).ambientIntensity, 0.42f),
                  "camera component, scene ambient, or main camera hint round trip mismatch");
 }
 
@@ -2134,30 +2210,36 @@ bool TestTypeRegistryMetadataAndWorldScheduler() {
     ComponentRegistry::Get();
     const TypeDescriptor* cameraType = TypeRegistry::Get().Find("Camera");
     if (!Check(cameraType && cameraType->schemaVersion == 1 &&
-               TypeRegistry::Get().FindProperty(*cameraType, "fovYDegrees"),
-               "camera metadata descriptor missing")) return false;
+                   TypeRegistry::Get().FindProperty(*cameraType, "fovYDegrees"),
+               "camera metadata descriptor missing"))
+        return false;
     const std::vector<std::string> incomplete = TypeRegistry::Get().GetIncompleteMetadataTypes();
-    if (!Check(incomplete.empty(), "persistent component metadata audit is incomplete")) return false;
+    if (!Check(incomplete.empty(), "persistent component metadata audit is incomplete"))
+        return false;
     const TypeDescriptor* healthType = TypeRegistry::Get().Find("Health");
     if (!Check(healthType && TypeRegistry::Get().FindProperty(*healthType, "maxHealth") &&
-               TypeRegistry::Get().FindProperty(*healthType, "health"),
-               "reflected gameplay component properties are missing")) return false;
-    for (const char* migrated : {"Camera","Light","PostProcess","RigidBody","BoxCollider",
-                                 "SphereCollider","CapsuleCollider","CharacterController"}) {
-        if (!Check(std::find(incomplete.begin(),incomplete.end(),migrated)==incomplete.end(),
-                   std::string("metadata audit still reports migrated type ")+migrated)) return false;
+                   TypeRegistry::Get().FindProperty(*healthType, "health"),
+               "reflected gameplay component properties are missing"))
+        return false;
+    for (const char* migrated : {"Camera", "Light", "PostProcess", "RigidBody", "BoxCollider", "SphereCollider",
+                                 "CapsuleCollider", "CharacterController"}) {
+        if (!Check(std::find(incomplete.begin(), incomplete.end(), migrated) == incomplete.end(),
+                   std::string("metadata audit still reports migrated type ") + migrated))
+            return false;
     }
 
     CameraComponent camera;
     std::string error;
     if (!Check(TypeRegistry::Get().SetProperty(camera, "fovYDegrees", 75.0f, &error) &&
-               NearlyEqual(camera.GetFovYDegrees(), 75.0f),
-               "metadata property setter failed")) return false;
+                   NearlyEqual(camera.GetFovYDegrees(), 75.0f),
+               "metadata property setter failed"))
+        return false;
     nlohmann::json data;
     uint32_t version = 0;
-    if (!Check(TypeRegistry::Get().Serialize(camera, data, version, &error) &&
-               version == 1 && data["properties"]["fovYDegrees"] == 75.0f,
-               "metadata serialization failed")) return false;
+    if (!Check(TypeRegistry::Get().Serialize(camera, data, version, &error) && version == 1 &&
+                   data["properties"]["fovYDegrees"] == 75.0f,
+               "metadata serialization failed"))
+        return false;
 
     Scene scene("SchedulerCase");
     scene.CreateActor("Root");
@@ -2165,27 +2247,35 @@ bool TestTypeRegistryMetadataAndWorldScheduler() {
     scene.OnUpdate(0.1f);
     const WorldSchedulerStats& stats = scene.GetFrameScheduler().GetStats();
     if (!Check(stats.fixedTicks == 4 && stats.droppedFixedTicks >= 1 &&
-               stats.phaseMilliseconds[static_cast<size_t>(WorldPhase::Update)] >= 0.0f,
-               "world scheduler fixed-tick cap or phase profiling was not enforced")) return false;
+                   stats.phaseMilliseconds[static_cast<size_t>(WorldPhase::Update)] >= 0.0f,
+               "world scheduler fixed-tick cap or phase profiling was not enforced"))
+        return false;
 
     std::vector<std::string> order;
     WorldFrameScheduler deterministic(false, false);
-    if (!Check(deterministic.RegisterSystem({"B",WorldPhase::Update,0,{"A"},{},false,[&](WorldTickContext&){order.push_back("B");}},&error) &&
-               deterministic.RegisterSystem({"A",WorldPhase::Update,0,{}, {},false,[&](WorldTickContext&){order.push_back("A");}},&error) &&
-               deterministic.RegisterSystem({"C",WorldPhase::Update,1,{}, {},false,[&](WorldTickContext&){order.push_back("C");}},&error) &&
-               deterministic.Freeze(&error), "custom scheduler freeze failed: " + error)) return false;
+    if (!Check(deterministic.RegisterSystem(
+                   {"B", WorldPhase::Update, 0, {"A"}, {}, false, [&](WorldTickContext&) { order.push_back("B"); }},
+                   &error) &&
+                   deterministic.RegisterSystem(
+                       {"A", WorldPhase::Update, 0, {}, {}, false, [&](WorldTickContext&) { order.push_back("A"); }},
+                       &error) &&
+                   deterministic.RegisterSystem(
+                       {"C", WorldPhase::Update, 1, {}, {}, false, [&](WorldTickContext&) { order.push_back("C"); }},
+                       &error) &&
+                   deterministic.Freeze(&error),
+               "custom scheduler freeze failed: " + error))
+        return false;
     deterministic.Tick(scene, 1.0f / 60.0f);
-    if (!Check(order == std::vector<std::string>({"A","B","C"}),
-               "scheduler dependency order is not deterministic")) return false;
+    if (!Check(order == std::vector<std::string>({"A", "B", "C"}), "scheduler dependency order is not deterministic"))
+        return false;
 
     WorldFrameScheduler cyclic(false, false);
-    cyclic.RegisterSystem({"A",WorldPhase::Update,0,{"B"},{},false,[](WorldTickContext&){}},nullptr);
-    cyclic.RegisterSystem({"B",WorldPhase::Update,0,{"A"},{},false,[](WorldTickContext&){}},nullptr);
+    cyclic.RegisterSystem({"A", WorldPhase::Update, 0, {"B"}, {}, false, [](WorldTickContext&) {}}, nullptr);
+    cyclic.RegisterSystem({"B", WorldPhase::Update, 0, {"A"}, {}, false, [](WorldTickContext&) {}}, nullptr);
     return Check(!cyclic.Freeze(&error), "scheduler dependency cycle was accepted");
 }
 
-bool TestAnimatorControllerAndThirdPersonCamera()
-{
+bool TestAnimatorControllerAndThirdPersonCamera() {
     AnimatorController controller;
     AnimatorState idle;
     idle.name = "Idle";
@@ -2193,13 +2283,13 @@ bool TestAnimatorControllerAndThirdPersonCamera()
     idle.events.push_back({0.5f, "Footstep", "left"});
     idle.events.push_back({0.5f, "Particle.Burst", "2"});
     idle.events.push_back({0.5f, "Hitbox.Begin", "7"});
-    idle.transitions.push_back({"Run", 0.1f, false, 1.0f,
-        {{"Speed", AnimatorConditionMode::Greater, 0.5f}}});
+    idle.transitions.push_back({"Run", 0.1f, false, 1.0f, {{"Speed", AnimatorConditionMode::Greater, 0.5f}}});
     AnimatorState run;
     run.name = "Run";
     run.clip = {"RunClip", 0.8f, true, {}};
     if (!Check(controller.AddState(std::move(idle)) && controller.AddState(std::move(run)),
-               "animator controller states were not accepted")) return false;
+               "animator controller states were not accepted"))
+        return false;
     controller.SetEntryState("Idle");
 
     Scene scene("ActionP0");
@@ -2207,10 +2297,13 @@ bool TestAnimatorControllerAndThirdPersonCamera()
     auto* renderer = player->AddComponent<SkinnedMeshRendererComponent>();
     auto* animator = player->AddComponent<AnimatorComponent>();
     animator->SetController(controller);
-    auto* eventParticles=player->AddComponent<ParticleSystemComponent>();eventParticles->GetSettings().playOnStart=false;eventParticles->GetSettings().rate=0.0f;
-    auto* eventHitbox=player->AddComponent<HitboxComponent>();
-    auto* eventScript=player->AddComponent<ScriptComponent>();
-    eventScript->SetSource("class Script { int events = 0; void OnAnimationEvent(const string &in name, const string &in payload) { events++; } }");
+    auto* eventParticles = player->AddComponent<ParticleSystemComponent>();
+    eventParticles->GetSettings().playOnStart = false;
+    eventParticles->GetSettings().rate = 0.0f;
+    auto* eventHitbox = player->AddComponent<HitboxComponent>();
+    auto* eventScript = player->AddComponent<ScriptComponent>();
+    eventScript->SetSource("class Script { int events = 0; void OnAnimationEvent(const string &in name, const string "
+                           "&in payload) { events++; } }");
 
     Actor* camera = scene.CreateActor("FollowCamera");
     camera->AddComponent<CameraComponent>();
@@ -2220,192 +2313,565 @@ bool TestAnimatorControllerAndThirdPersonCamera()
     scene.BeginPlay();
     scene.OnUpdate(0.55f);
     const auto events = animator->ConsumeEvents();
-    if (!Check(events.size() == 3 && events[0].name == "Footstep" && eventParticles->GetAliveCount()==2 && eventHitbox->IsAttackActive() && eventScript->GetProperties().value("events",0)==3,
-               "animator event did not fire")) return false;
+    if (!Check(events.size() == 3 && events[0].name == "Footstep" && eventParticles->GetAliveCount() == 2 &&
+                   eventHitbox->IsAttackActive() && eventScript->GetProperties().value("events", 0) == 3,
+               "animator event did not fire"))
+        return false;
     animator->SetFloat("Speed", 1.0f);
     scene.OnUpdate(1.0f / 60.0f);
     if (!Check(animator->GetCurrentState() == "Run" && renderer->GetAnimation().name == "RunClip",
-               "animator transition did not update the renderer")) return false;
+               "animator transition did not update the renderer"))
+        return false;
     if (!Check((camera->GetWorldPosition() - player->GetWorldPosition()).Length() > 3.0f,
-               "third-person camera did not follow its target")) return false;
+               "third-person camera did not follow its target"))
+        return false;
 
     const std::string serialized = SceneSerializer::SaveToString(scene);
     Scene loaded("LoadedActionP0");
-    if (!Check(SceneSerializer::LoadFromString(loaded, serialized),
-               "P0 component scene round-trip failed")) return false;
+    if (!Check(SceneSerializer::LoadFromString(loaded, serialized), "P0 component scene round-trip failed"))
+        return false;
     Actor* loadedPlayer = loaded.FindByName("Player");
     Actor* loadedCamera = loaded.FindByName("FollowCamera");
-    return Check(loadedPlayer && loadedPlayer->GetComponent<AnimatorComponent>() &&
-                 loadedCamera && loadedCamera->GetComponent<ThirdPersonCameraComponent>() &&
-                 ComponentRegistry::Get().IsRegistered("Animator") &&
-                 ComponentRegistry::Get().IsRegistered("ThirdPersonCamera"),
+    return Check(loadedPlayer && loadedPlayer->GetComponent<AnimatorComponent>() && loadedCamera &&
+                     loadedCamera->GetComponent<ThirdPersonCameraComponent>() &&
+                     ComponentRegistry::Get().IsRegistered("Animator") &&
+                     ComponentRegistry::Get().IsRegistered("ThirdPersonCamera"),
                  "P0 components were not registered or serialized");
 }
 
-bool TestGameplayCombatAndInteractionComponents()
-{
+bool TestGameplayCombatAndInteractionComponents() {
     Scene scene("CombatSlice");
-    Actor* attacker=scene.CreateActor("Attacker"); attacker->GetTransform().position={0,1,0};
-    auto* hitbox=attacker->AddComponent<HitboxComponent>(); hitbox->SetTeam(1); hitbox->SetRadius(2.0f); hitbox->SetOffset(Vec3::Zero());
-    Actor* target=scene.CreateActor("Target"); target->GetTransform().position={0.5f,1,0};
-    auto* capsule=target->AddComponent<CapsuleColliderComponent>(); capsule->SetRadius(0.5f); capsule->SetHalfHeight(0.5f);
-    auto* health=target->AddComponent<HealthComponent>(); health->SetMaxHealth(50.0f); health->SetHealth(50.0f);
-    auto* hurtbox=target->AddComponent<HurtboxComponent>(); hurtbox->SetTeam(2); hurtbox->SetDamageMultiplier(2.0f);
+    Actor* attacker = scene.CreateActor("Attacker");
+    attacker->GetTransform().position = {0, 1, 0};
+    auto* hitbox = attacker->AddComponent<HitboxComponent>();
+    hitbox->SetTeam(1);
+    hitbox->SetRadius(2.0f);
+    hitbox->SetOffset(Vec3::Zero());
+    Actor* target = scene.CreateActor("Target");
+    target->GetTransform().position = {0.5f, 1, 0};
+    auto* capsule = target->AddComponent<CapsuleColliderComponent>();
+    capsule->SetRadius(0.5f);
+    capsule->SetHalfHeight(0.5f);
+    auto* health = target->AddComponent<HealthComponent>();
+    health->SetMaxHealth(50.0f);
+    health->SetHealth(50.0f);
+    auto* hurtbox = target->AddComponent<HurtboxComponent>();
+    hurtbox->SetTeam(2);
+    hurtbox->SetDamageMultiplier(2.0f);
     scene.BeginPlay();
     hitbox->BeginAttack(5.0f);
-    for(int i=0;i<4;++i)scene.OnUpdate(1.0f/60.0f);
-    if(!Check(NearlyEqual(health->GetHealth(),40.0f),"hitbox damaged a target more than once per attack window"))return false;
-    hitbox->EndAttack(); hitbox->BeginAttack(5.0f); scene.OnUpdate(1.0f/60.0f);
-    if(!Check(NearlyEqual(health->GetHealth(),30.0f),"new attack window did not reset hit tracking"))return false;
+    for (int i = 0; i < 4; ++i)
+        scene.OnUpdate(1.0f / 60.0f);
+    if (!Check(NearlyEqual(health->GetHealth(), 40.0f), "hitbox damaged a target more than once per attack window"))
+        return false;
+    hitbox->EndAttack();
+    hitbox->BeginAttack(5.0f);
+    scene.OnUpdate(1.0f / 60.0f);
+    if (!Check(NearlyEqual(health->GetHealth(), 30.0f), "new attack window did not reset hit tracking"))
+        return false;
 
-    Actor* chest=scene.CreateActor("Chest"); chest->GetTransform().position={1,1,0};
-    auto* interaction=chest->AddComponent<InteractionComponent>(); interaction->SetRange(2.0f); interaction->SetSingleUse(true); interaction->SetPrompt("Open");
-    if(!Check(interaction->Interact(attacker->GetHandle()) && !interaction->Interact(attacker->GetHandle()) && interaction->GetPrompt()=="Open",
-              "single-use interaction semantics failed"))return false;
-    nlohmann::json healthJson;health->Serialize(healthJson);HealthComponent loaded;loaded.Deserialize(healthJson);
-    return Check(NearlyEqual(loaded.GetHealth(),30.0f)&&ComponentRegistry::Get().IsRegistered("Hitbox")&&ComponentRegistry::Get().IsRegistered("Interaction"),
+    Actor* chest = scene.CreateActor("Chest");
+    chest->GetTransform().position = {1, 1, 0};
+    auto* interaction = chest->AddComponent<InteractionComponent>();
+    interaction->SetRange(2.0f);
+    interaction->SetSingleUse(true);
+    interaction->SetPrompt("Open");
+    if (!Check(interaction->Interact(attacker->GetHandle()) && !interaction->Interact(attacker->GetHandle()) &&
+                   interaction->GetPrompt() == "Open",
+               "single-use interaction semantics failed"))
+        return false;
+    nlohmann::json healthJson;
+    health->Serialize(healthJson);
+    HealthComponent loaded;
+    loaded.Deserialize(healthJson);
+    return Check(NearlyEqual(loaded.GetHealth(), 30.0f) && ComponentRegistry::Get().IsRegistered("Hitbox") &&
+                     ComponentRegistry::Get().IsRegistered("Interaction"),
                  "gameplay components did not serialize or register");
 }
 
-bool TestParticleAndAudioListenerFeedbackComponents()
-{
+bool TestParticleAndAudioListenerFeedbackComponents() {
     Scene scene("FeedbackP2");
-    Actor* emitter=scene.CreateActor("Emitter");
-    auto* particles=emitter->AddComponent<ParticleSystemComponent>();
-    particles->GetSettings().playOnStart=false;particles->GetSettings().rate=0.0f;particles->GetSettings().lifetime=0.5f;particles->GetSettings().startSize=0.5f;particles->GetSettings().startColor=Vec3::One();particles->GetSettings().endColor=Vec3::Zero();
-    particles->Play();particles->Emit(3);particles->OnUpdate(0.1f);
-    Camera camera;camera.LookAt({0,1,-5},{0,1,0});camera.SetPerspective(60.0f,1.0f);
-    MeshAsset* mesh=particles->BuildBillboardMesh(camera);
-    particles->OnUpdate(0.15f);particles->Emit(1);mesh=particles->BuildBillboardMesh(camera);const auto& particleVertices=mesh->GetVertices();
-    if(!Check(particles->GetAliveCount()==4&&mesh&&mesh->VertexCount()==16&&mesh->IndexCount()==24&&(particleVertices[0].color-particleVertices[12].color).LengthSq()>0.001f,"particle simulation did not build billboard geometry with per-particle color lifetime"))return false;
-    SceneRenderCollection collection=SceneRenderCollector().Collect(scene,camera);
-    if(!Check(collection.transparentItems.size()==1,"particles were not submitted to transparent rendering"))return false;
+    Actor* emitter = scene.CreateActor("Emitter");
+    auto* particles = emitter->AddComponent<ParticleSystemComponent>();
+    particles->GetSettings().playOnStart = false;
+    particles->GetSettings().rate = 0.0f;
+    particles->GetSettings().lifetime = 0.5f;
+    particles->GetSettings().startSize = 0.5f;
+    particles->GetSettings().startColor = Vec3::One();
+    particles->GetSettings().endColor = Vec3::Zero();
+    particles->Play();
+    particles->Emit(3);
+    particles->OnUpdate(0.1f);
+    Camera camera;
+    camera.LookAt({0, 1, -5}, {0, 1, 0});
+    camera.SetPerspective(60.0f, 1.0f);
+    MeshAsset* mesh = particles->BuildBillboardMesh(camera);
+    particles->OnUpdate(0.15f);
+    particles->Emit(1);
+    mesh = particles->BuildBillboardMesh(camera);
+    const auto& particleVertices = mesh->GetVertices();
+    if (!Check(particles->GetAliveCount() == 4 && mesh && mesh->VertexCount() == 16 && mesh->IndexCount() == 24 &&
+                   (particleVertices[0].color - particleVertices[12].color).LengthSq() > 0.001f,
+               "particle simulation did not build billboard geometry with per-particle color lifetime"))
+        return false;
+    SceneRenderCollection collection = SceneRenderCollector().Collect(scene, camera);
+    if (!Check(collection.transparentItems.size() == 1, "particles were not submitted to transparent rendering"))
+        return false;
     particles->OnUpdate(1.0f);
-    if(!Check(particles->GetAliveCount()==0,"expired particles were not removed"))return false;
-    particles->GetSettings().loop=false;particles->GetSettings().rate=10.0f;particles->Play();particles->OnUpdate(0.6f);
-    if(!Check(!particles->IsPlaying(),"non-looping particle emitter did not stop"))return false;
+    if (!Check(particles->GetAliveCount() == 0, "expired particles were not removed"))
+        return false;
+    particles->GetSettings().loop = false;
+    particles->GetSettings().rate = 10.0f;
+    particles->Play();
+    particles->OnUpdate(0.6f);
+    if (!Check(!particles->IsPlaying(), "non-looping particle emitter did not stop"))
+        return false;
 
-    Actor* listenerActor=scene.CreateActor("Listener");
-    listenerActor->GetTransform().position={1,2,3};auto* listener=listenerActor->AddComponent<AudioListenerComponent>();listener->SetPrimary(true);
-    Actor* secondListenerActor=scene.CreateActor("SecondListener");secondListenerActor->GetTransform().position={8,4,2};auto* secondListener=secondListenerActor->AddComponent<AudioListenerComponent>();secondListener->SetPrimary(true);
-    auto* post=listenerActor->AddComponent<PostProcessComponent>();
-    auto* feedback=listenerActor->AddComponent<GameplayFeedbackComponent>();
-    feedback->Shake(0.1f,0.1f);feedback->Flash(0.8f,0.1f);feedback->SlowMotion(0.5f,0.15f);
-    AudioEngine::Get().Shutdown();scene.BeginPlay();scene.OnUpdate(0.1f);listener->OnLateUpdate(0.0f);
-    if(!Check(AudioEngine::Get().IsSilent()&&(AudioEngine::Get().GetListenerPosition()-listenerActor->GetWorldPosition()).LengthSq()<0.001f,"primary listener did not update in silent mode"))return false;
-    listener->SetEnabled(false);scene.OnUpdate(0.01f);secondListener->OnLateUpdate(0.0f);
-    if(!Check((AudioEngine::Get().GetListenerPosition()-secondListenerActor->GetWorldPosition()).LengthSq()<0.001f,"listener priority did not switch after disabling the primary listener"))return false;
-    if(!Check(NearlyEqual(AudioEngine::CalculateDistanceAttenuation(1.0f,1.0f,9.0f),1.0f)&&NearlyEqual(AudioEngine::CalculateDistanceAttenuation(5.0f,1.0f,9.0f),0.5f)&&NearlyEqual(AudioEngine::CalculateDistanceAttenuation(9.0f,1.0f,9.0f),0.0f),"3D audio distance attenuation contract failed"))return false;
-    AudioSourceComponent source;source.SetSpatial(true);source.SetMinDistance(3.0f);source.SetMaxDistance(2.0f);nlohmann::json sourceData;source.Serialize(sourceData);AudioSourceComponent loadedSource;loadedSource.Deserialize(sourceData);if(!Check(loadedSource.GetSpatial()&&NearlyEqual(loadedSource.GetMinDistance(),3.0f)&&NearlyEqual(loadedSource.GetMaxDistance(),3.0f),"audio source spatial distance settings did not remain valid through serialization"))return false;
-    if(!Check(scene.GetTimeScale()<1.0f&&feedback->IsActive(),"feedback service did not apply slow motion"))return false;
+    Actor* listenerActor = scene.CreateActor("Listener");
+    listenerActor->GetTransform().position = {1, 2, 3};
+    auto* listener = listenerActor->AddComponent<AudioListenerComponent>();
+    listener->SetPrimary(true);
+    Actor* secondListenerActor = scene.CreateActor("SecondListener");
+    secondListenerActor->GetTransform().position = {8, 4, 2};
+    auto* secondListener = secondListenerActor->AddComponent<AudioListenerComponent>();
+    secondListener->SetPrimary(true);
+    auto* post = listenerActor->AddComponent<PostProcessComponent>();
+    auto* feedback = listenerActor->AddComponent<GameplayFeedbackComponent>();
+    feedback->Shake(0.1f, 0.1f);
+    feedback->Flash(0.8f, 0.1f);
+    feedback->SlowMotion(0.5f, 0.15f);
+    AudioEngine::Get().Shutdown();
+    scene.BeginPlay();
     scene.OnUpdate(0.1f);
-    if(!Check(NearlyEqual(scene.GetTimeScale(),1.0f)&&NearlyEqual(post->GetVignette(),0.0f),"feedback service did not restore runtime state"))return false;
-    nlohmann::json data;listener->Serialize(data);AudioListenerComponent loaded;loaded.Deserialize(data);
-    return Check(loaded.IsPrimary()&&ComponentRegistry::Get().IsRegistered("AudioListener")&&ComponentRegistry::Get().IsRegistered("ParticleSystem")&&ComponentRegistry::Get().IsRegistered("GameplayFeedback")&&EditorAssetRegistry::Classify("Effect.particle")==EditorAssetType::Particle&&EditorAssetRegistry::Classify("Level.navmesh")==EditorAssetType::Navigation,"P2/P3 assets, feedback components, or serialization are incomplete");
+    listener->OnLateUpdate(0.0f);
+    if (!Check(AudioEngine::Get().IsSilent() &&
+                   (AudioEngine::Get().GetListenerPosition() - listenerActor->GetWorldPosition()).LengthSq() < 0.001f,
+               "primary listener did not update in silent mode"))
+        return false;
+    listener->SetEnabled(false);
+    scene.OnUpdate(0.01f);
+    secondListener->OnLateUpdate(0.0f);
+    if (!Check((AudioEngine::Get().GetListenerPosition() - secondListenerActor->GetWorldPosition()).LengthSq() < 0.001f,
+               "listener priority did not switch after disabling the primary listener"))
+        return false;
+    if (!Check(NearlyEqual(AudioEngine::CalculateDistanceAttenuation(1.0f, 1.0f, 9.0f), 1.0f) &&
+                   NearlyEqual(AudioEngine::CalculateDistanceAttenuation(5.0f, 1.0f, 9.0f), 0.5f) &&
+                   NearlyEqual(AudioEngine::CalculateDistanceAttenuation(9.0f, 1.0f, 9.0f), 0.0f),
+               "3D audio distance attenuation contract failed"))
+        return false;
+    AudioSourceComponent source;
+    source.SetSpatial(true);
+    source.SetMinDistance(3.0f);
+    source.SetMaxDistance(2.0f);
+    nlohmann::json sourceData;
+    source.Serialize(sourceData);
+    AudioSourceComponent loadedSource;
+    loadedSource.Deserialize(sourceData);
+    if (!Check(loadedSource.GetSpatial() && NearlyEqual(loadedSource.GetMinDistance(), 3.0f) &&
+                   NearlyEqual(loadedSource.GetMaxDistance(), 3.0f),
+               "audio source spatial distance settings did not remain valid through serialization"))
+        return false;
+    if (!Check(scene.GetTimeScale() < 1.0f && feedback->IsActive(), "feedback service did not apply slow motion"))
+        return false;
+    scene.OnUpdate(0.1f);
+    if (!Check(NearlyEqual(scene.GetTimeScale(), 1.0f) && NearlyEqual(post->GetVignette(), 0.0f),
+               "feedback service did not restore runtime state"))
+        return false;
+    nlohmann::json data;
+    listener->Serialize(data);
+    AudioListenerComponent loaded;
+    loaded.Deserialize(data);
+    return Check(loaded.IsPrimary() && ComponentRegistry::Get().IsRegistered("AudioListener") &&
+                     ComponentRegistry::Get().IsRegistered("ParticleSystem") &&
+                     ComponentRegistry::Get().IsRegistered("GameplayFeedback") &&
+                     EditorAssetRegistry::Classify("Effect.particle") == EditorAssetType::Particle &&
+                     EditorAssetRegistry::Classify("Level.navmesh") == EditorAssetType::Navigation,
+                 "P2/P3 assets, feedback components, or serialization are incomplete");
 }
 
-bool TestNavigationPerceptionAndEnemyStateMachine()
-{
-    Scene scene("NavigationP3");NavigationWorld::BakeSettings settings;settings.bounds={{-5,0,-5},{5,2,5}};settings.cellSize=1.0f;settings.agentRadius=0.1f;
-    if(!Check(scene.GetNavigationWorld().Bake(settings,{{{-0.5f,0,-2},{0.5f,2,2}}}),"navigation bake failed"))return false;
-    std::vector<Vec3> path;if(!Check(scene.GetNavigationWorld().FindPath({-4,0,0},{4,0,0},path)&&path.size()>8,"A* did not route around obstacle"))return false;
-    if(!Check(!scene.GetNavigationWorld().FindPath({-20,0,0},{4,0,0},path),"navigation accepted an out-of-bounds target"))return false;
-    const std::filesystem::path navPath=std::filesystem::temp_directory_path()/"myengine_navigation_test.navmesh";NavMeshAsset baked(navPath.string());baked.Capture(scene.GetNavigationWorld());if(!Check(SaveNavMeshAssetToFile(baked,navPath.string()),"navmesh asset save failed"))return false;auto loadedNav=LoadNavMeshAssetFromFile(navPath.string());NavigationWorld restored;if(!Check(loadedNav&&loadedNav->Apply(restored)&&restored.FindPath({-4,0,0},{4,0,0},path),"navmesh asset round-trip failed")){std::filesystem::remove(navPath);return false;}std::filesystem::remove(navPath);
+bool TestNavigationPerceptionAndEnemyStateMachine() {
+    Scene scene("NavigationP3");
+    NavigationWorld::BakeSettings settings;
+    settings.bounds = {{-5, 0, -5}, {5, 2, 5}};
+    settings.cellSize = 1.0f;
+    settings.agentRadius = 0.1f;
+    if (!Check(scene.GetNavigationWorld().Bake(settings, {{{-0.5f, 0, -2}, {0.5f, 2, 2}}}), "navigation bake failed"))
+        return false;
+    std::vector<Vec3> path;
+    if (!Check(scene.GetNavigationWorld().FindPath({-4, 0, 0}, {4, 0, 0}, path) && path.size() > 8,
+               "A* did not route around obstacle"))
+        return false;
+    if (!Check(!scene.GetNavigationWorld().FindPath({-20, 0, 0}, {4, 0, 0}, path),
+               "navigation accepted an out-of-bounds target"))
+        return false;
+    const std::filesystem::path navPath = std::filesystem::temp_directory_path() / "myengine_navigation_test.navmesh";
+    NavMeshAsset baked(navPath.string());
+    baked.Capture(scene.GetNavigationWorld());
+    if (!Check(SaveNavMeshAssetToFile(baked, navPath.string()), "navmesh asset save failed"))
+        return false;
+    auto loadedNav = LoadNavMeshAssetFromFile(navPath.string());
+    NavigationWorld restored;
+    if (!Check(loadedNav && loadedNav->Apply(restored) && restored.FindPath({-4, 0, 0}, {4, 0, 0}, path),
+               "navmesh asset round-trip failed")) {
+        std::filesystem::remove(navPath);
+        return false;
+    }
+    std::filesystem::remove(navPath);
 
-    Actor* player=scene.CreateActor("Player");player->GetTransform().position={3,0,3};auto* playerHealth=player->AddComponent<HealthComponent>();playerHealth->SetMaxHealth(30);playerHealth->SetHealth(30);
-    Actor* enemy=scene.CreateActor("Enemy");enemy->GetTransform().position={-3,0,3};enemy->GetTransform().rotation.y=90.0f;auto* agent=enemy->AddComponent<NavAgentComponent>();agent->SetSpeed(2.0f);auto* enemyHealth=enemy->AddComponent<HealthComponent>();auto* ai=enemy->AddComponent<EnemyAIComponent>();ai->SetDetectionRange(20);ai->SetFieldOfViewDegrees(90);ai->SetAttackRange(1.2f);ai->SetAttackDamage(5);ai->SetTarget(player->GetHandle());
-    scene.BeginPlay();scene.OnUpdate(0.1f);
-    if(!Check(ai->GetState()==EnemyState::Chase&&agent->HasPath(),"enemy did not enter chase using navigation"))return false;
-    const Vec3 enemyForward=enemy->GetWorldMatrix().TransformDir(Vec3::Forward()).Normalized();player->GetTransform().position=enemy->GetWorldPosition()-enemyForward*3.0f;scene.OnUpdate(0.1f);if(!Check(ai->GetState()==EnemyState::Idle,"enemy detected a target behind its field of view"))return false;
-    player->GetTransform().position=enemy->GetWorldPosition()+enemyForward*3.0f;scene.OnUpdate(0.1f);if(!Check(ai->GetState()==EnemyState::Chase,"enemy did not reacquire a target inside its field of view"))return false;
-    const uint64_t revision=scene.GetNavigationWorld().GetRevision();const bool invalidated=scene.GetNavigationWorld().SetAreaWalkable({{-4,0,-4},{-3,2,-3}},false);scene.OnUpdate(0.05f);if(!Check(invalidated&&scene.GetNavigationWorld().GetRevision()>revision&&agent->HasPath(),"dynamic nav invalidation did not replan agent"))return false;
-    enemy->GetTransform().position=player->GetWorldPosition()-enemyForward*0.5f;scene.OnUpdate(0.1f);
-    if(!Check(ai->GetState()==EnemyState::Attack&&NearlyEqual(playerHealth->GetHealth(),25.0f),"enemy attack state did not apply damage"))return false;
-    ai->Stagger(0.2f);scene.OnUpdate(0.1f);if(!Check(ai->GetState()==EnemyState::Stagger,"enemy stagger state failed"))return false;
-    enemyHealth->ApplyDamage({player->GetHandle(),enemy->GetHandle(),1000,enemy->GetWorldPosition(),Vec3::Zero()});scene.OnUpdate(0.1f);
-    if(!Check(ai->GetState()==EnemyState::Dead,"enemy dead state failed"))return false;
-    scene.GetNavigationWorld().EmitSound(player->GetWorldPosition(),5.0f,player->GetHandle());nlohmann::json aiJson;ai->Serialize(aiJson);EnemyAIComponent loadedAI;loadedAI.Deserialize(aiJson);
-    return Check(!scene.GetNavigationWorld().QuerySounds(enemy->GetWorldPosition()).empty()&&NearlyEqual(loadedAI.GetFieldOfViewDegrees(),90.0f)&&ComponentRegistry::Get().IsRegistered("NavAgent")&&ComponentRegistry::Get().IsRegistered("EnemyAI"),"P3 perception, field of view serialization, or component registration failed");
+    Actor* player = scene.CreateActor("Player");
+    player->GetTransform().position = {3, 0, 3};
+    auto* playerHealth = player->AddComponent<HealthComponent>();
+    playerHealth->SetMaxHealth(30);
+    playerHealth->SetHealth(30);
+    Actor* enemy = scene.CreateActor("Enemy");
+    enemy->GetTransform().position = {-3, 0, 3};
+    enemy->GetTransform().rotation.y = 90.0f;
+    auto* agent = enemy->AddComponent<NavAgentComponent>();
+    agent->SetSpeed(2.0f);
+    auto* enemyHealth = enemy->AddComponent<HealthComponent>();
+    auto* ai = enemy->AddComponent<EnemyAIComponent>();
+    ai->SetDetectionRange(20);
+    ai->SetFieldOfViewDegrees(90);
+    ai->SetAttackRange(1.2f);
+    ai->SetAttackDamage(5);
+    ai->SetTarget(player->GetHandle());
+    scene.BeginPlay();
+    scene.OnUpdate(0.1f);
+    if (!Check(ai->GetState() == EnemyState::Chase && agent->HasPath(), "enemy did not enter chase using navigation"))
+        return false;
+    const Vec3 enemyForward = enemy->GetWorldMatrix().TransformDir(Vec3::Forward()).Normalized();
+    player->GetTransform().position = enemy->GetWorldPosition() - enemyForward * 3.0f;
+    scene.OnUpdate(0.1f);
+    if (!Check(ai->GetState() == EnemyState::Idle, "enemy detected a target behind its field of view"))
+        return false;
+    player->GetTransform().position = enemy->GetWorldPosition() + enemyForward * 3.0f;
+    scene.OnUpdate(0.1f);
+    if (!Check(ai->GetState() == EnemyState::Chase, "enemy did not reacquire a target inside its field of view"))
+        return false;
+    const uint64_t revision = scene.GetNavigationWorld().GetRevision();
+    const bool invalidated = scene.GetNavigationWorld().SetAreaWalkable({{-4, 0, -4}, {-3, 2, -3}}, false);
+    scene.OnUpdate(0.05f);
+    if (!Check(invalidated && scene.GetNavigationWorld().GetRevision() > revision && agent->HasPath(),
+               "dynamic nav invalidation did not replan agent"))
+        return false;
+    enemy->GetTransform().position = player->GetWorldPosition() - enemyForward * 0.5f;
+    scene.OnUpdate(0.1f);
+    if (!Check(ai->GetState() == EnemyState::Attack && NearlyEqual(playerHealth->GetHealth(), 25.0f),
+               "enemy attack state did not apply damage"))
+        return false;
+    ai->Stagger(0.2f);
+    scene.OnUpdate(0.1f);
+    if (!Check(ai->GetState() == EnemyState::Stagger, "enemy stagger state failed"))
+        return false;
+    enemyHealth->ApplyDamage({player->GetHandle(), enemy->GetHandle(), 1000, enemy->GetWorldPosition(), Vec3::Zero()});
+    scene.OnUpdate(0.1f);
+    if (!Check(ai->GetState() == EnemyState::Dead, "enemy dead state failed"))
+        return false;
+    scene.GetNavigationWorld().EmitSound(player->GetWorldPosition(), 5.0f, player->GetHandle());
+    nlohmann::json aiJson;
+    ai->Serialize(aiJson);
+    EnemyAIComponent loadedAI;
+    loadedAI.Deserialize(aiJson);
+    return Check(!scene.GetNavigationWorld().QuerySounds(enemy->GetWorldPosition()).empty() &&
+                     NearlyEqual(loadedAI.GetFieldOfViewDegrees(), 90.0f) &&
+                     ComponentRegistry::Get().IsRegistered("NavAgent") &&
+                     ComponentRegistry::Get().IsRegistered("EnemyAI"),
+                 "P3 perception, field of view serialization, or component registration failed");
 }
 
-bool TestSceneManagerAndVersionedSaveGame()
-{
-    namespace fs=std::filesystem;const fs::path oldRoot=AssetManager::Get().GetProjectRoot();const fs::path root=fs::temp_directory_path()/"myengine_p4_scene_save";fs::remove_all(root);fs::create_directories(root/"Content"/"Scenes");AssetManager::Get().SetProjectRoot(root);
-    Scene first("First");first.CreateActor("KeepMe");Scene second("Second");second.CreateActor("LoadedActor");
-    const fs::path firstPath=root/"Content"/"Scenes"/"First.scene.json",secondPath=root/"Content"/"Scenes"/"Second.scene.json";SceneSerializer::SaveToFile(first,firstPath.string());SceneSerializer::SaveToFile(second,secondPath.string());
-    SceneLayer layer;if(!Check(layer.LoadScene(firstPath.string()),"initial scene load failed")){AssetManager::Get().SetProjectRoot(oldRoot);return false;}
-    if(!Check(!layer.LoadScene((root/"Content"/"Scenes"/"Missing.scene.json").string())&&layer.GetEditorScene().GetName()=="First"&&layer.GetEditorScene().FindByName("KeepMe"),"failed load destroyed current scene")){AssetManager::Get().SetProjectRoot(oldRoot);return false;}
-    layer.GetSceneManager().SetPersistentValue("spawn",{{"checkpoint","gate"}});if(!Check(layer.RequestSceneLoad("Content/Scenes/Second.scene.json"),"scene request rejected valid path")){AssetManager::Get().SetProjectRoot(oldRoot);return false;}for(int attempt=0;attempt<100&&layer.GetSceneManager().GetState()!=SceneLoadState::Ready&&layer.GetSceneManager().GetState()!=SceneLoadState::Failed;++attempt){layer.OnUpdate(0.0f);std::this_thread::sleep_for(std::chrono::milliseconds(1));}
-    if(!Check(layer.GetEditorScene().GetName()=="Second"&&layer.GetSceneManager().GetPersistentValue("spawn").value("checkpoint",std::string{})=="gate","requested scene or persistent parameters failed")){AssetManager::Get().SetProjectRoot(oldRoot);return false;}
-    if(!Check(!layer.RequestSceneLoad("../Outside.scene.json"),"scene manager accepted path escape")){AssetManager::Get().SetProjectRoot(oldRoot);return false;}
-    SaveGameData save;save.metadata.displayName="Courtyard";save.metadata.scene="Content/Scenes/Second.scene.json";save.metadata.playTimeSeconds=42.0;save.checkpoint="gate";save.player={{"health",80}};save.collected={"key","coin"};save.settings={{"volume",0.5f}};std::string error;
-    if(!Check(SaveGame::Write("slot1.json",save,&error)&&SaveGame::Exists("slot1.json"),"versioned save write failed: "+error)){AssetManager::Get().SetProjectRoot(oldRoot);return false;}SaveGameData loaded;if(!Check(SaveGame::Read("slot1.json",loaded,&error)&&loaded.version==SaveGameData::CurrentVersion&&loaded.checkpoint=="gate"&&loaded.collected.size()==2,"versioned save read failed: "+error)){AssetManager::Get().SetProjectRoot(oldRoot);return false;}
-    save.checkpoint="newer";if(!Check(SaveGame::Write("slot1.json",save,&error),"second save write failed: "+error)){AssetManager::Get().SetProjectRoot(oldRoot);return false;}
-    const auto slots=SaveGame::ListSlots();if(!Check(slots.size()==1&&slots[0].valid&&slots[0].hasBackup&&slots[0].metadata.displayName=="Courtyard"&&!slots[0].metadata.savedAtUtc.empty(),"save slot metadata/listing failed")){AssetManager::Get().SetProjectRoot(oldRoot);return false;}
-    {std::ofstream corrupt(root/"Saved"/"SaveGames"/"slot1.json",std::ios::trunc);corrupt<<"{broken";}
-    SaveGameData recovered;if(!Check(!SaveGame::Read("slot1.json",recovered)&&SaveGame::ReadBackup("slot1.json",recovered,&error)&&recovered.checkpoint=="gate"&&SaveGame::RestoreBackup("slot1.json",&error)&&SaveGame::Read("slot1.json",recovered,&error),"save backup recovery failed: "+error)){AssetManager::Get().SetProjectRoot(oldRoot);return false;}
-    std::string autosaveSlot;for(int index=0;index<4;++index){save.checkpoint="auto"+std::to_string(index);if(!Check(SaveGame::WriteAutosave(save,3,&autosaveSlot,&error),"autosave ring write failed: "+error)){AssetManager::Get().SetProjectRoot(oldRoot);return false;}std::this_thread::sleep_for(std::chrono::milliseconds(2));}
-    SaveGameSlotInfo latest;if(!Check(autosaveSlot=="autosave_0.json"&&SaveGame::FindLatestAutosave(latest)&&latest.slot=="autosave_0.json"&&SaveGame::Read(latest.slot,recovered,&error)&&recovered.checkpoint=="auto3","autosave ring/latest selection failed")){AssetManager::Get().SetProjectRoot(oldRoot);return false;}
-    std::string checkpointSlot;if(!Check(SaveGame::WriteCheckpoint("courtyard",save,&checkpointSlot,&error)&&checkpointSlot=="checkpoint_courtyard.json"&&!SaveGame::WriteCheckpoint("../escape",save,nullptr,&error),"checkpoint slot policy failed")){AssetManager::Get().SetProjectRoot(oldRoot);return false;}
-    nlohmann::json legacy={{"version",1},{"checkpoint","old"},{"player",nlohmann::json::object()},{"collected",nlohmann::json::array()}};SaveGameData migrated;if(!Check(SaveGame::FromJson(legacy,migrated,&error)&&migrated.version==SaveGameData::CurrentVersion&&migrated.settings.is_object()&&migrated.metadata.displayName.empty(),"save migration failed")){AssetManager::Get().SetProjectRoot(oldRoot);return false;}
-    const bool safe=!SaveGame::Write("../escape.json",save)&&SaveGame::Remove("slot1.json");AssetManager::Get().SetProjectRoot(oldRoot);fs::remove_all(root);return Check(safe,"save path policy failed");
+bool TestSceneManagerAndVersionedSaveGame() {
+    namespace fs = std::filesystem;
+    const fs::path oldRoot = AssetManager::Get().GetProjectRoot();
+    const fs::path root = fs::temp_directory_path() / "myengine_p4_scene_save";
+    fs::remove_all(root);
+    fs::create_directories(root / "Content" / "Scenes");
+    AssetManager::Get().SetProjectRoot(root);
+    Scene first("First");
+    first.CreateActor("KeepMe");
+    Scene second("Second");
+    second.CreateActor("LoadedActor");
+    const fs::path firstPath = root / "Content" / "Scenes" / "First.scene.json",
+                   secondPath = root / "Content" / "Scenes" / "Second.scene.json";
+    SceneSerializer::SaveToFile(first, firstPath.string());
+    SceneSerializer::SaveToFile(second, secondPath.string());
+    SceneLayer layer;
+    if (!Check(layer.LoadScene(firstPath.string()), "initial scene load failed")) {
+        AssetManager::Get().SetProjectRoot(oldRoot);
+        return false;
+    }
+    if (!Check(!layer.LoadScene((root / "Content" / "Scenes" / "Missing.scene.json").string()) &&
+                   layer.GetEditorScene().GetName() == "First" && layer.GetEditorScene().FindByName("KeepMe"),
+               "failed load destroyed current scene")) {
+        AssetManager::Get().SetProjectRoot(oldRoot);
+        return false;
+    }
+    layer.GetSceneManager().SetPersistentValue("spawn", {{"checkpoint", "gate"}});
+    if (!Check(layer.RequestSceneLoad("Content/Scenes/Second.scene.json"), "scene request rejected valid path")) {
+        AssetManager::Get().SetProjectRoot(oldRoot);
+        return false;
+    }
+    for (int attempt = 0; attempt < 100 && layer.GetSceneManager().GetState() != SceneLoadState::Ready &&
+                          layer.GetSceneManager().GetState() != SceneLoadState::Failed;
+         ++attempt) {
+        layer.OnUpdate(0.0f);
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    if (!Check(layer.GetEditorScene().GetName() == "Second" &&
+                   layer.GetSceneManager().GetPersistentValue("spawn").value("checkpoint", std::string{}) == "gate",
+               "requested scene or persistent parameters failed")) {
+        AssetManager::Get().SetProjectRoot(oldRoot);
+        return false;
+    }
+    if (!Check(!layer.RequestSceneLoad("../Outside.scene.json"), "scene manager accepted path escape")) {
+        AssetManager::Get().SetProjectRoot(oldRoot);
+        return false;
+    }
+    SaveGameData save;
+    save.metadata.displayName = "Courtyard";
+    save.metadata.scene = "Content/Scenes/Second.scene.json";
+    save.metadata.playTimeSeconds = 42.0;
+    save.checkpoint = "gate";
+    save.player = {{"health", 80}};
+    save.collected = {"key", "coin"};
+    save.settings = {{"volume", 0.5f}};
+    std::string error;
+    if (!Check(SaveGame::Write("slot1.json", save, &error) && SaveGame::Exists("slot1.json"),
+               "versioned save write failed: " + error)) {
+        AssetManager::Get().SetProjectRoot(oldRoot);
+        return false;
+    }
+    SaveGameData loaded;
+    if (!Check(SaveGame::Read("slot1.json", loaded, &error) && loaded.version == SaveGameData::CurrentVersion &&
+                   loaded.checkpoint == "gate" && loaded.collected.size() == 2,
+               "versioned save read failed: " + error)) {
+        AssetManager::Get().SetProjectRoot(oldRoot);
+        return false;
+    }
+    save.checkpoint = "newer";
+    if (!Check(SaveGame::Write("slot1.json", save, &error), "second save write failed: " + error)) {
+        AssetManager::Get().SetProjectRoot(oldRoot);
+        return false;
+    }
+    const auto slots = SaveGame::ListSlots();
+    if (!Check(slots.size() == 1 && slots[0].valid && slots[0].hasBackup &&
+                   slots[0].metadata.displayName == "Courtyard" && !slots[0].metadata.savedAtUtc.empty(),
+               "save slot metadata/listing failed")) {
+        AssetManager::Get().SetProjectRoot(oldRoot);
+        return false;
+    }
+    {
+        std::ofstream corrupt(root / "Saved" / "SaveGames" / "slot1.json", std::ios::trunc);
+        corrupt << "{broken";
+    }
+    SaveGameData recovered;
+    if (!Check(!SaveGame::Read("slot1.json", recovered) && SaveGame::ReadBackup("slot1.json", recovered, &error) &&
+                   recovered.checkpoint == "gate" && SaveGame::RestoreBackup("slot1.json", &error) &&
+                   SaveGame::Read("slot1.json", recovered, &error),
+               "save backup recovery failed: " + error)) {
+        AssetManager::Get().SetProjectRoot(oldRoot);
+        return false;
+    }
+    std::string autosaveSlot;
+    for (int index = 0; index < 4; ++index) {
+        save.checkpoint = "auto" + std::to_string(index);
+        if (!Check(SaveGame::WriteAutosave(save, 3, &autosaveSlot, &error), "autosave ring write failed: " + error)) {
+            AssetManager::Get().SetProjectRoot(oldRoot);
+            return false;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    SaveGameSlotInfo latest;
+    if (!Check(autosaveSlot == "autosave_0.json" && SaveGame::FindLatestAutosave(latest) &&
+                   latest.slot == "autosave_0.json" && SaveGame::Read(latest.slot, recovered, &error) &&
+                   recovered.checkpoint == "auto3",
+               "autosave ring/latest selection failed")) {
+        AssetManager::Get().SetProjectRoot(oldRoot);
+        return false;
+    }
+    std::string checkpointSlot;
+    if (!Check(SaveGame::WriteCheckpoint("courtyard", save, &checkpointSlot, &error) &&
+                   checkpointSlot == "checkpoint_courtyard.json" &&
+                   !SaveGame::WriteCheckpoint("../escape", save, nullptr, &error),
+               "checkpoint slot policy failed")) {
+        AssetManager::Get().SetProjectRoot(oldRoot);
+        return false;
+    }
+    nlohmann::json legacy = {{"version", 1},
+                             {"checkpoint", "old"},
+                             {"player", nlohmann::json::object()},
+                             {"collected", nlohmann::json::array()}};
+    SaveGameData migrated;
+    if (!Check(SaveGame::FromJson(legacy, migrated, &error) && migrated.version == SaveGameData::CurrentVersion &&
+                   migrated.settings.is_object() && migrated.metadata.displayName.empty(),
+               "save migration failed")) {
+        AssetManager::Get().SetProjectRoot(oldRoot);
+        return false;
+    }
+    const bool safe = !SaveGame::Write("../escape.json", save) && SaveGame::Remove("slot1.json");
+    AssetManager::Get().SetProjectRoot(oldRoot);
+    fs::remove_all(root);
+    return Check(safe, "save path policy failed");
 }
 
-bool TestThirdPersonAdventureTemplateCompilesAndRuns()
-{
-    std::ifstream input("EngineContent/Scripts/Templates/ThirdPersonAdventure.as",std::ios::binary);
-    std::ostringstream stream;stream<<input.rdbuf();
-    if(!Check(input.good()||!stream.str().empty(),"adventure template is missing"))return false;
-    Scene scene("AdventureTemplate");Actor* player=scene.CreateActor("Player");
-    player->AddComponent<CapsuleColliderComponent>();player->AddComponent<CharacterControllerComponent>();
-    player->AddComponent<HealthComponent>();player->AddComponent<HitboxComponent>();player->AddComponent<AnimatorComponent>();
-    auto* script=player->AddComponent<ScriptComponent>();script->SetSource(stream.str());script->SetClassName("ThirdPersonAdventure");
-    if(!Check(script->IsCompiled(),"adventure template did not compile: "+script->GetLastError()))return false;
-    scene.BeginPlay();scene.OnUpdate(1.0f/60.0f);
-    if(!Check(script->IsCompiled()&&NearlyEqual(player->GetComponent<HealthComponent>()->GetHealth(),100.0f),"adventure template failed during runtime: "+script->GetLastError()))return false;
-    std::string inputError;if(!Check(Input::LoadActionMapFromFile("Content/Config/Input.input.json",&inputError),"adventure input map failed: "+inputError))return false;
-    auto tapMouse=[&](Scene& target){Input::Flush();Input::OnMouseButton(1,true);target.OnUpdate(1.0f/60.0f);Input::Flush();Input::OnMouseButton(1,false);target.OnUpdate(1.0f/60.0f);Input::Flush();};
-    tapMouse(scene);auto combo=script->GetProperties();
-    if(!Check(combo.value("attacking",false)&&combo.value("comboIndex",-1)==0,"first combo attack did not start"))return false;
-    tapMouse(scene);combo=script->GetProperties();
-    if(!Check(combo.value("attackQueued",false),"attack input was not buffered"))return false;
-    script->OnAnimationEvent({"Attack.HitStart",{}});if(!Check(player->GetComponent<HitboxComponent>()->IsAttackActive(),"animation event did not open hitbox"))return false;
-    script->OnAnimationEvent({"Attack.HitEnd",{}});if(!Check(!player->GetComponent<HitboxComponent>()->IsAttackActive(),"animation event did not close hitbox"))return false;
-    script->OnAnimationEvent({"Attack.End",{}});combo=script->GetProperties();
-    if(!Check(combo.value("attacking",false)&&combo.value("comboIndex",-1)==1&&!combo.value("attackQueued",true),"buffered attack did not advance combo"))return false;
+bool TestThirdPersonAdventureTemplateCompilesAndRuns() {
+    std::ifstream input("EngineContent/Scripts/Templates/ThirdPersonAdventure.as", std::ios::binary);
+    std::ostringstream stream;
+    stream << input.rdbuf();
+    if (!Check(input.good() || !stream.str().empty(), "adventure template is missing"))
+        return false;
+    Scene scene("AdventureTemplate");
+    Actor* player = scene.CreateActor("Player");
+    player->AddComponent<CapsuleColliderComponent>();
+    player->AddComponent<CharacterControllerComponent>();
+    player->AddComponent<HealthComponent>();
+    player->AddComponent<HitboxComponent>();
+    player->AddComponent<AnimatorComponent>();
+    auto* script = player->AddComponent<ScriptComponent>();
+    script->SetSource(stream.str());
+    script->SetClassName("ThirdPersonAdventure");
+    if (!Check(script->IsCompiled(), "adventure template did not compile: " + script->GetLastError()))
+        return false;
+    scene.BeginPlay();
+    scene.OnUpdate(1.0f / 60.0f);
+    if (!Check(script->IsCompiled() && NearlyEqual(player->GetComponent<HealthComponent>()->GetHealth(), 100.0f),
+               "adventure template failed during runtime: " + script->GetLastError()))
+        return false;
+    std::string inputError;
+    if (!Check(Input::LoadActionMapFromFile("Content/Config/Input.input.json", &inputError),
+               "adventure input map failed: " + inputError))
+        return false;
+    auto tapMouse = [&](Scene& target) {
+        Input::Flush();
+        Input::OnMouseButton(1, true);
+        target.OnUpdate(1.0f / 60.0f);
+        Input::Flush();
+        Input::OnMouseButton(1, false);
+        target.OnUpdate(1.0f / 60.0f);
+        Input::Flush();
+    };
+    tapMouse(scene);
+    auto combo = script->GetProperties();
+    if (!Check(combo.value("attacking", false) && combo.value("comboIndex", -1) == 0,
+               "first combo attack did not start"))
+        return false;
+    tapMouse(scene);
+    combo = script->GetProperties();
+    if (!Check(combo.value("attackQueued", false), "attack input was not buffered"))
+        return false;
+    script->OnAnimationEvent({"Attack.HitStart", {}});
+    if (!Check(player->GetComponent<HitboxComponent>()->IsAttackActive(), "animation event did not open hitbox"))
+        return false;
+    script->OnAnimationEvent({"Attack.HitEnd", {}});
+    if (!Check(!player->GetComponent<HitboxComponent>()->IsAttackActive(), "animation event did not close hitbox"))
+        return false;
+    script->OnAnimationEvent({"Attack.End", {}});
+    combo = script->GetProperties();
+    if (!Check(combo.value("attacking", false) && combo.value("comboIndex", -1) == 1 &&
+                   !combo.value("attackQueued", true),
+               "buffered attack did not advance combo"))
+        return false;
 
-    const auto oldRoot=AssetManager::Get().GetProjectRoot();AssetManager::Get().SetProjectRoot(std::filesystem::current_path());
-    Scene sample;const bool loaded=SceneSerializer::LoadFromFile(sample,"Content/Scenes/AdventureSample.scene.json");
-    Actor* samplePlayer=sample.FindByName("Player");Actor* sampleEnemy=sample.FindByName("Enemy");
-    bool sampleOk=loaded&&sample.GetNavigationWorld().IsBaked()&&samplePlayer&&sampleEnemy&&
-        sample.FindByName("AncientKey")&&sample.FindByName("LockedDoor")&&sample.FindByName("Checkpoint")&&sample.FindByName("LevelExit")&&
-        samplePlayer->GetComponent<ScriptComponent>()&&sampleEnemy->GetComponent<EnemyAIComponent>()&&sample.GetPreloadAssets().size()==1;
-    MockRenderContext renderContext;UISystem ui;UIDrawList drawList;
-    if(sampleOk&&ui.Initialize(&renderContext,&renderContext)){
-        ui.Resize(1280,720);SceneManager scenarioManager;sample.SetSceneManager(&scenarioManager);sample.BeginPlay();samplePlayer->GetComponent<CharacterControllerComponent>()->SetEnabled(false);
-        auto tapInteract=[&](Actor* target){const Vec3 playerPosition=samplePlayer->GetWorldPosition();for(const char* name:{"AncientKey","Checkpoint","LockedDoor","LevelExit"})if(Actor* actor=sample.FindByName(name))actor->GetTransform().position=actor==target?playerPosition:playerPosition+Vec3(100,0,0);auto* interaction=target?target->GetComponent<InteractionComponent>():nullptr;sampleOk=sampleOk&&Check(interaction&&interaction->CanInteract()&&(target->GetWorldPosition()-samplePlayer->GetWorldPosition()).Length()<=interaction->GetRange(),"interaction target precondition failed");Input::Flush();Input::OnKeyDown(SDL_SCANCODE_E);sampleOk=sampleOk&&Check(Input::IsActionPressed("Interact"),"Interact action was not present in input snapshot");sample.OnUpdate(1.0f/60.0f);Input::Flush();Input::OnKeyUp(SDL_SCANCODE_E);sample.OnUpdate(1.0f/60.0f);Input::Flush();};
+    const auto oldRoot = AssetManager::Get().GetProjectRoot();
+    AssetManager::Get().SetProjectRoot(std::filesystem::current_path());
+    Scene sample;
+    const bool loaded = SceneSerializer::LoadFromFile(sample, "Content/Scenes/AdventureSample.scene.json");
+    Actor* samplePlayer = sample.FindByName("Player");
+    Actor* sampleEnemy = sample.FindByName("Enemy");
+    bool sampleOk = loaded && sample.GetNavigationWorld().IsBaked() && samplePlayer && sampleEnemy &&
+                    sample.FindByName("AncientKey") && sample.FindByName("LockedDoor") &&
+                    sample.FindByName("Checkpoint") && sample.FindByName("LevelExit") &&
+                    samplePlayer->GetComponent<ScriptComponent>() && sampleEnemy->GetComponent<EnemyAIComponent>() &&
+                    sample.GetPreloadAssets().size() == 1;
+    MockRenderContext renderContext;
+    UISystem ui;
+    UIDrawList drawList;
+    if (sampleOk && ui.Initialize(&renderContext, &renderContext)) {
+        ui.Resize(1280, 720);
+        SceneManager scenarioManager;
+        sample.SetSceneManager(&scenarioManager);
+        sample.BeginPlay();
+        samplePlayer->GetComponent<CharacterControllerComponent>()->SetEnabled(false);
+        auto tapInteract = [&](Actor* target) {
+            const Vec3 playerPosition = samplePlayer->GetWorldPosition();
+            for (const char* name : {"AncientKey", "Checkpoint", "LockedDoor", "LevelExit"})
+                if (Actor* actor = sample.FindByName(name))
+                    actor->GetTransform().position =
+                        actor == target ? playerPosition : playerPosition + Vec3(100, 0, 0);
+            auto* interaction = target ? target->GetComponent<InteractionComponent>() : nullptr;
+            sampleOk = sampleOk && Check(interaction && interaction->CanInteract() &&
+                                             (target->GetWorldPosition() - samplePlayer->GetWorldPosition()).Length() <=
+                                                 interaction->GetRange(),
+                                         "interaction target precondition failed");
+            Input::Flush();
+            Input::OnKeyDown(SDL_SCANCODE_E);
+            sampleOk = sampleOk &&
+                       Check(Input::IsActionPressed("Interact"), "Interact action was not present in input snapshot");
+            sample.OnUpdate(1.0f / 60.0f);
+            Input::Flush();
+            Input::OnKeyUp(SDL_SCANCODE_E);
+            sample.OnUpdate(1.0f / 60.0f);
+            Input::Flush();
+        };
         SaveGame::Remove("profile.json");
-        tapInteract(sample.FindByName("AncientKey"));const auto keyState=samplePlayer->GetComponent<ScriptComponent>()->GetProperties();sampleOk=Check(keyState.value("interactionInputCount",0)==1,"script did not observe Interact input")&&Check(keyState.value("hasKey",false),"key interaction did not update script state")&&Check(sample.FindByName("AncientKey")==nullptr,"key interaction did not consume pickup");
-        tapInteract(sample.FindByName("Checkpoint"));SaveGameData checkpoint;sampleOk=sampleOk&&Check(SaveGame::Read("profile.json",checkpoint)&&checkpoint.checkpoint=="courtyard","checkpoint interaction did not write save");
-        tapInteract(sample.FindByName("LockedDoor"));sampleOk=sampleOk&&Check(sample.FindByName("LockedDoor")==nullptr,"door interaction did not consume key and open door");
-        tapInteract(sample.FindByName("LevelExit"));sampleOk=sampleOk&&Check(scenarioManager.GetState()==SceneLoadState::Requested&&scenarioManager.GetRequestedPath()=="Content/Scenes/AdventureComplete.scene.json","exit interaction did not request next scene");
-        std::unique_ptr<Scene> completedScene;for(int attempt=0;attempt<100&&!completedScene&&scenarioManager.GetState()!=SceneLoadState::Failed;++attempt){scenarioManager.Process(completedScene);std::this_thread::sleep_for(std::chrono::milliseconds(1));}
-        sampleOk=sampleOk&&Check(completedScene&&completedScene->GetName()=="AdventureComplete","exit scene request did not load completion scene");
-        samplePlayer->GetComponent<HealthComponent>()->ApplyDamage({{},samplePlayer->GetHandle(),1000.0f,{},{}});sample.OnUpdate(1.0f/60.0f);
-        sampleOk=sampleOk&&Check(scenarioManager.GetState()==SceneLoadState::Requested&&scenarioManager.GetRequestedPath()=="Content/Scenes/AdventureSample.scene.json","player death did not request checkpoint scene reload");
-        sampleOk=sampleOk&&Check(samplePlayer->GetComponent<ScriptComponent>()->GetProperties().value("spawnTimer",uint64_t{0})!=0,"AdventureSample did not schedule spawn timer");
-        for(int frame=0;frame<490;++frame)sample.OnUpdate(1.0f/60.0f);sample.FlushCommands();
-        ui.Update(sample,1.0f/60.0f);ui.CollectDrawData(sample,drawList);
-        sampleOk=sampleOk&&Check(samplePlayer->GetComponent<ScriptComponent>()->IsCompiled(),"AdventureSample script failed after gameplay update")&&
-            Check(samplePlayer->GetComponent<ScriptComponent>()->GetProperties().value("spawnCount",0)==1,"AdventureSample spawn timer callback or prefab request failed")&&
-            Check(sample.FindByName("SpawnedEnemy")!=nullptr,"AdventureSample timer did not instantiate enemy prefab")&&
-            Check(!drawList.Empty(),"AdventureSample HUD produced no draw commands");
-        Scene roundTrip;if(sampleOk)sampleOk=Check(SceneSerializer::LoadFromString(roundTrip,SceneSerializer::SaveToString(sample))&&!roundTrip.GetPreloadAssets().empty(),"AdventureSample preload assets did not survive scene round-trip");
+        tapInteract(sample.FindByName("AncientKey"));
+        const auto keyState = samplePlayer->GetComponent<ScriptComponent>()->GetProperties();
+        sampleOk = Check(keyState.value("interactionInputCount", 0) == 1, "script did not observe Interact input") &&
+                   Check(keyState.value("hasKey", false), "key interaction did not update script state") &&
+                   Check(sample.FindByName("AncientKey") == nullptr, "key interaction did not consume pickup");
+        tapInteract(sample.FindByName("Checkpoint"));
+        SaveGameData checkpoint;
+        sampleOk = sampleOk && Check(SaveGame::Read("profile.json", checkpoint) && checkpoint.checkpoint == "courtyard",
+                                     "checkpoint interaction did not write save");
+        tapInteract(sample.FindByName("LockedDoor"));
+        sampleOk = sampleOk && Check(sample.FindByName("LockedDoor") == nullptr,
+                                     "door interaction did not consume key and open door");
+        tapInteract(sample.FindByName("LevelExit"));
+        sampleOk =
+            sampleOk && Check(scenarioManager.GetState() == SceneLoadState::Requested &&
+                                  scenarioManager.GetRequestedPath() == "Content/Scenes/AdventureComplete.scene.json",
+                              "exit interaction did not request next scene");
+        std::unique_ptr<Scene> completedScene;
+        for (int attempt = 0; attempt < 100 && !completedScene && scenarioManager.GetState() != SceneLoadState::Failed;
+             ++attempt) {
+            scenarioManager.Process(completedScene);
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        sampleOk = sampleOk && Check(completedScene && completedScene->GetName() == "AdventureComplete",
+                                     "exit scene request did not load completion scene");
+        samplePlayer->GetComponent<HealthComponent>()->ApplyDamage({{}, samplePlayer->GetHandle(), 1000.0f, {}, {}});
+        sample.OnUpdate(1.0f / 60.0f);
+        sampleOk =
+            sampleOk && Check(scenarioManager.GetState() == SceneLoadState::Requested &&
+                                  scenarioManager.GetRequestedPath() == "Content/Scenes/AdventureSample.scene.json",
+                              "player death did not request checkpoint scene reload");
+        sampleOk =
+            sampleOk &&
+            Check(samplePlayer->GetComponent<ScriptComponent>()->GetProperties().value("spawnTimer", uint64_t{0}) != 0,
+                  "AdventureSample did not schedule spawn timer");
+        for (int frame = 0; frame < 490; ++frame)
+            sample.OnUpdate(1.0f / 60.0f);
+        sample.FlushCommands();
+        ui.Update(sample, 1.0f / 60.0f);
+        ui.CollectDrawData(sample, drawList);
+        sampleOk = sampleOk &&
+                   Check(samplePlayer->GetComponent<ScriptComponent>()->IsCompiled(),
+                         "AdventureSample script failed after gameplay update") &&
+                   Check(samplePlayer->GetComponent<ScriptComponent>()->GetProperties().value("spawnCount", 0) == 1,
+                         "AdventureSample spawn timer callback or prefab request failed") &&
+                   Check(sample.FindByName("SpawnedEnemy") != nullptr,
+                         "AdventureSample timer did not instantiate enemy prefab") &&
+                   Check(!drawList.Empty(), "AdventureSample HUD produced no draw commands");
+        Scene roundTrip;
+        if (sampleOk)
+            sampleOk = Check(SceneSerializer::LoadFromString(roundTrip, SceneSerializer::SaveToString(sample)) &&
+                                 !roundTrip.GetPreloadAssets().empty(),
+                             "AdventureSample preload assets did not survive scene round-trip");
         ui.Shutdown();
         SaveGame::Remove("profile.json");
-    }else sampleOk=false;
+    } else
+        sampleOk = false;
     AssetManager::Get().SetProjectRoot(oldRoot);
-    return Check(sampleOk,"AdventureSample gameplay loop, prefab spawn, scene data, or HUD failed");
+    return Check(sampleOk, "AdventureSample gameplay loop, prefab spawn, scene data, or HUD failed");
 }
 
 bool TestSceneViewportControllerRayStability() {
@@ -2414,42 +2880,44 @@ bool TestSceneViewportControllerRayStability() {
 
     int x = -1, y = -1, w = 0, h = 0;
     viewport.GetViewportRect(x, y, w, h);
-    if (!Check(x == 0 && y == 0 && w == 800 && h == 600,
-               "initial viewport rect mismatch")) return false;
+    if (!Check(x == 0 && y == 0 && w == 800 && h == 600, "initial viewport rect mismatch"))
+        return false;
 
     Ray center;
-    if (!Check(viewport.BuildRayFromScreen(400.0f, 300.0f, center),
-               "center screen ray failed")) return false;
-    if (!Check(NearlyEqual(center.direction.x, 0.0f) &&
-               NearlyEqual(center.direction.y, 0.0f) &&
-               center.direction.z > 0.99f,
-               "center screen ray direction drifted")) return false;
+    if (!Check(viewport.BuildRayFromScreen(400.0f, 300.0f, center), "center screen ray failed"))
+        return false;
+    if (!Check(NearlyEqual(center.direction.x, 0.0f) && NearlyEqual(center.direction.y, 0.0f) &&
+                   center.direction.z > 0.99f,
+               "center screen ray direction drifted"))
+        return false;
 
     viewport.SetViewportRect(100, 50, 400, 200);
     viewport.GetViewportRect(x, y, w, h);
-    if (!Check(x == 100 && y == 50 && w == 400 && h == 200,
-               "editor viewport rect mismatch")) return false;
+    if (!Check(x == 100 && y == 50 && w == 400 && h == 200, "editor viewport rect mismatch"))
+        return false;
 
     Ray topLeft;
     Ray bottomRight;
-    if (!Check(viewport.BuildRayFromScreen(100.0f, 50.0f, topLeft),
-               "top-left editor ray failed")) return false;
-    if (!Check(viewport.BuildRayFromScreen(500.0f, 250.0f, bottomRight),
-               "bottom-right editor ray failed")) return false;
-    if (!Check(topLeft.direction.x < 0.0f && topLeft.direction.y > 0.0f,
-               "top-left editor ray direction mismatch")) return false;
+    if (!Check(viewport.BuildRayFromScreen(100.0f, 50.0f, topLeft), "top-left editor ray failed"))
+        return false;
+    if (!Check(viewport.BuildRayFromScreen(500.0f, 250.0f, bottomRight), "bottom-right editor ray failed"))
+        return false;
+    if (!Check(topLeft.direction.x < 0.0f && topLeft.direction.y > 0.0f, "top-left editor ray direction mismatch"))
+        return false;
     if (!Check(bottomRight.direction.x > 0.0f && bottomRight.direction.y < 0.0f,
-               "bottom-right editor ray direction mismatch")) return false;
+               "bottom-right editor ray direction mismatch"))
+        return false;
 
     viewport.FrameDirection(SceneViewDirection::Front, Vec3::Zero(), 8.0f);
     if (!Check(NearlyEqual(viewport.GetCamera().GetForward().x, 0.0f) &&
-               NearlyEqual(viewport.GetCamera().GetForward().y, 0.0f) &&
-               viewport.GetCamera().GetForward().z > 0.99f,
-               "front view direction mismatch")) return false;
+                   NearlyEqual(viewport.GetCamera().GetForward().y, 0.0f) &&
+                   viewport.GetCamera().GetForward().z > 0.99f,
+               "front view direction mismatch"))
+        return false;
     viewport.FrameDirection(SceneViewDirection::Top, Vec3::Zero(), 8.0f);
-    if (!Check(viewport.GetCamera().GetForward().y < -0.99f,
-               "top view direction mismatch")) return false;
-    const Vec3 orbitTarget {1.0f, 2.0f, 3.0f};
+    if (!Check(viewport.GetCamera().GetForward().y < -0.99f, "top view direction mismatch"))
+        return false;
+    const Vec3 orbitTarget{1.0f, 2.0f, 3.0f};
     viewport.FrameDirection(SceneViewDirection::Front, orbitTarget, 8.0f);
     const Vec3 beforeOrbitPosition = viewport.GetCamera().GetPosition();
     const float beforeOrbitDistance = (beforeOrbitPosition - orbitTarget).Length();
@@ -2457,92 +2925,103 @@ bool TestSceneViewportControllerRayStability() {
     const Vec3 afterOrbitPosition = viewport.GetCamera().GetPosition();
     const float afterOrbitDistance = (afterOrbitPosition - orbitTarget).Length();
     if (!Check(NearlyEqual(beforeOrbitDistance, afterOrbitDistance, 1e-3f),
-               "scene viewport orbit changed focus distance")) return false;
-    if (!Check((afterOrbitPosition - beforeOrbitPosition).Length() > 0.1f,
-               "scene viewport orbit did not move camera")) return false;
+               "scene viewport orbit changed focus distance"))
+        return false;
+    if (!Check((afterOrbitPosition - beforeOrbitPosition).Length() > 0.1f, "scene viewport orbit did not move camera"))
+        return false;
     if (!Check((viewport.GetCamera().GetTarget() - orbitTarget).Length() < 1e-3f,
-               "scene viewport orbit target mismatch")) return false;
+               "scene viewport orbit target mismatch"))
+        return false;
 
-    const Vec3 frameTarget {4.0f, 3.0f, -2.0f};
+    const Vec3 frameTarget{4.0f, 3.0f, -2.0f};
     viewport.FrameTarget(frameTarget, 2.0f);
     const float frameDistance = (viewport.GetCamera().GetPosition() - frameTarget).Length();
     if (!Check((viewport.GetCamera().GetTarget() - frameTarget).Length() < 1e-3f &&
-               NearlyEqual(frameDistance, 8.0f, 1e-3f),
-               "scene viewport frame target perspective mismatch")) return false;
+                   NearlyEqual(frameDistance, 8.0f, 1e-3f),
+               "scene viewport frame target perspective mismatch"))
+        return false;
 
     const float aspect = viewport.GetCamera().GetAspect();
     viewport.ToggleProjectionMode();
-    if (!Check(viewport.IsOrthographic() &&
-               viewport.GetCamera().GetProjectionMode() == ProjectionMode::Orthographic,
-               "scene viewport did not switch to orthographic")) return false;
+    if (!Check(viewport.IsOrthographic() && viewport.GetCamera().GetProjectionMode() == ProjectionMode::Orthographic,
+               "scene viewport did not switch to orthographic"))
+        return false;
     viewport.FrameTarget(frameTarget, 3.0f);
     if (!Check(NearlyEqual(viewport.GetCamera().GetOrthoWidth(), 6.0f, 1e-3f),
-               "scene viewport frame target did not update orthographic width")) return false;
-    if (!Check(NearlyEqual(
-            viewport.GetCamera().GetOrthoWidth() / viewport.GetCamera().GetOrthoHeight(),
-            aspect,
-            1e-3f),
-            "orthographic aspect mismatch")) return false;
+               "scene viewport frame target did not update orthographic width"))
+        return false;
+    if (!Check(NearlyEqual(viewport.GetCamera().GetOrthoWidth() / viewport.GetCamera().GetOrthoHeight(), aspect, 1e-3f),
+               "orthographic aspect mismatch"))
+        return false;
     Ray orthoCenter;
-    if (!Check(viewport.BuildRayFromScreen(300.0f, 150.0f, orthoCenter),
-               "orthographic center ray failed")) return false;
+    if (!Check(viewport.BuildRayFromScreen(300.0f, 150.0f, orthoCenter), "orthographic center ray failed"))
+        return false;
 
     viewport.SetViewportRect(100, 50, 300, 300);
     const float squareAspect = viewport.GetCamera().GetAspect();
-    if (!Check(NearlyEqual(
-            viewport.GetCamera().GetOrthoWidth() / viewport.GetCamera().GetOrthoHeight(),
-            squareAspect,
-            1e-3f),
-            "orthographic resize did not preserve aspect")) return false;
+    if (!Check(NearlyEqual(viewport.GetCamera().GetOrthoWidth() / viewport.GetCamera().GetOrthoHeight(), squareAspect,
+                           1e-3f),
+               "orthographic resize did not preserve aspect"))
+        return false;
 
     viewport.ToggleProjectionMode();
     return Check(!viewport.IsOrthographic() &&
-                 viewport.GetCamera().GetProjectionMode() == ProjectionMode::Perspective &&
-                 NearlyEqual(viewport.GetCamera().GetAspect(), squareAspect),
+                     viewport.GetCamera().GetProjectionMode() == ProjectionMode::Perspective &&
+                     NearlyEqual(viewport.GetCamera().GetAspect(), squareAspect),
                  "scene viewport did not restore perspective aspect");
 }
 
 bool TestDefaultSceneFactoryLeavesScenesUnmodified() {
     Scene scene("DefaultFactory");
     DefaultSceneFactory::PopulateIfEmpty(scene);
-    if (!Check(scene.ActorCount() == 0,
-               "default scene factory should leave empty scenes empty")) return false;
+    if (!Check(scene.ActorCount() == 0, "default scene factory should leave empty scenes empty"))
+        return false;
 
     scene.CreateActor("UserActor");
     const size_t count = scene.ActorCount();
     DefaultSceneFactory::PopulateIfEmpty(scene);
-    return Check(scene.ActorCount() == count,
-                 "default scene factory should not mutate authored scenes");
+    return Check(scene.ActorCount() == count, "default scene factory should not mutate authored scenes");
 }
 
 bool TestInputBoundaries() {
     Input::Flush();
 
-    if (!Check(!Input::IsKeyDown(-1), "negative key index should be false")) return false;
-    if (!Check(!Input::IsKeyDown(Input::k_MaxKeys), "overflow key index should be false")) return false;
-    if (!Check(!Input::IsMouseDown(0), "mouse button 0 should be invalid")) return false;
-    if (!Check(!Input::IsMouseDown(Input::k_MaxButtons), "overflow mouse index should be false")) return false;
+    if (!Check(!Input::IsKeyDown(-1), "negative key index should be false"))
+        return false;
+    if (!Check(!Input::IsKeyDown(Input::k_MaxKeys), "overflow key index should be false"))
+        return false;
+    if (!Check(!Input::IsMouseDown(0), "mouse button 0 should be invalid"))
+        return false;
+    if (!Check(!Input::IsMouseDown(Input::k_MaxButtons), "overflow mouse index should be false"))
+        return false;
 
     const int key = Input::k_MaxKeys - 1;
     Input::OnKeyUp(key);
     Input::Flush();
     Input::OnKeyDown(key);
-    if (!Check(Input::IsKeyDown(key), "key should be down")) return false;
-    if (!Check(Input::IsKeyPressed(key), "key should be pressed on transition")) return false;
+    if (!Check(Input::IsKeyDown(key), "key should be down"))
+        return false;
+    if (!Check(Input::IsKeyPressed(key), "key should be pressed on transition"))
+        return false;
     Input::Flush();
-    if (!Check(!Input::IsKeyPressed(key), "key pressed should clear next frame")) return false;
+    if (!Check(!Input::IsKeyPressed(key), "key pressed should clear next frame"))
+        return false;
     Input::OnKeyUp(key);
-    if (!Check(Input::IsKeyReleased(key), "key release transition failed")) return false;
+    if (!Check(Input::IsKeyReleased(key), "key release transition failed"))
+        return false;
 
     const int btn = Input::k_MaxButtons - 1;
     Input::OnMouseButton(btn, false);
     Input::Flush();
     Input::OnMouseButton(btn, true);
-    if (!Check(Input::IsMouseDown(btn), "mouse button should be down")) return false;
-    if (!Check(Input::IsMousePressed(btn), "mouse button pressed transition failed")) return false;
+    if (!Check(Input::IsMouseDown(btn), "mouse button should be down"))
+        return false;
+    if (!Check(Input::IsMousePressed(btn), "mouse button pressed transition failed"))
+        return false;
     Input::Flush();
     Input::OnMouseButton(btn, false);
-    if (!Check(Input::IsMouseReleased(btn), "mouse button release transition failed")) return false;
+    if (!Check(Input::IsMouseReleased(btn), "mouse button release transition failed"))
+        return false;
 
     return true;
 }
@@ -2551,26 +3030,35 @@ bool TestGamepadStateTransitions() {
     const SDL_JoystickID pad = 42;
 
     Input::OnGamepadAdded(pad);
-    if (!Check(Input::IsGamepadConnected(pad), "gamepad should be connected after add")) return false;
-    if (!Check(Input::GetGamepadCount() == 1, "gamepad count should be 1")) return false;
+    if (!Check(Input::IsGamepadConnected(pad), "gamepad should be connected after add"))
+        return false;
+    if (!Check(Input::GetGamepadCount() == 1, "gamepad count should be 1"))
+        return false;
 
     Input::Flush();
     Input::OnGamepadButton(pad, SDL_GAMEPAD_BUTTON_SOUTH, true);
-    if (!Check(Input::IsGamepadButtonDown(pad, SDL_GAMEPAD_BUTTON_SOUTH), "gamepad button should be down")) return false;
-    if (!Check(Input::IsGamepadButtonPressed(pad, SDL_GAMEPAD_BUTTON_SOUTH), "gamepad button press transition failed")) return false;
+    if (!Check(Input::IsGamepadButtonDown(pad, SDL_GAMEPAD_BUTTON_SOUTH), "gamepad button should be down"))
+        return false;
+    if (!Check(Input::IsGamepadButtonPressed(pad, SDL_GAMEPAD_BUTTON_SOUTH), "gamepad button press transition failed"))
+        return false;
 
     Input::Flush();
-    if (!Check(!Input::IsGamepadButtonPressed(pad, SDL_GAMEPAD_BUTTON_SOUTH), "pressed should clear next frame")) return false;
+    if (!Check(!Input::IsGamepadButtonPressed(pad, SDL_GAMEPAD_BUTTON_SOUTH), "pressed should clear next frame"))
+        return false;
 
     Input::OnGamepadButton(pad, SDL_GAMEPAD_BUTTON_SOUTH, false);
-    if (!Check(Input::IsGamepadButtonReleased(pad, SDL_GAMEPAD_BUTTON_SOUTH), "gamepad button release transition failed")) return false;
+    if (!Check(Input::IsGamepadButtonReleased(pad, SDL_GAMEPAD_BUTTON_SOUTH),
+               "gamepad button release transition failed"))
+        return false;
 
     Input::OnGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTX, 16384);
     if (!Check(NearlyEqual(Input::GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTX), 0.5f, 0.02f),
-               "gamepad axis normalization failed")) return false;
+               "gamepad axis normalization failed"))
+        return false;
 
     Input::OnGamepadRemoved(pad);
-    if (!Check(!Input::IsGamepadConnected(pad), "gamepad should be disconnected after remove")) return false;
+    if (!Check(!Input::IsGamepadConnected(pad), "gamepad should be disconnected after remove"))
+        return false;
 
     return true;
 }
@@ -2595,38 +3083,38 @@ bool TestAudioSourceComponentSerialization() {
 
     Scene loaded("LoadedAudio");
     if (!Check(SceneSerializer::LoadFromString(loaded, SceneSerializer::SaveToString(scene)),
-               "audio source scene roundtrip failed")) return false;
+               "audio source scene roundtrip failed"))
+        return false;
     Actor* loadedActor = loaded.FindByName("Emitter");
     auto* loadedAudio = loadedActor ? loadedActor->GetComponent<AudioSourceComponent>() : nullptr;
-    if (!Check(loadedAudio, "audio source component was not restored")) return false;
-    if (!Check(loadedAudio->GetClipPath() == "Content/Audio/beep.wav",
-               "audio clip path changed after serialization")) return false;
-    if (!Check(!loadedAudio->GetPlayOnStart() && loadedAudio->GetLoop() &&
-                   !loadedAudio->GetSpatial(),
-               "audio playback flags changed after serialization")) return false;
-    if (!Check(NearlyEqual(loadedAudio->GetVolume(), 0.35f) &&
-                   NearlyEqual(loadedAudio->GetPitch(), 1.25f) &&
+    if (!Check(loadedAudio, "audio source component was not restored"))
+        return false;
+    if (!Check(loadedAudio->GetClipPath() == "Content/Audio/beep.wav", "audio clip path changed after serialization"))
+        return false;
+    if (!Check(!loadedAudio->GetPlayOnStart() && loadedAudio->GetLoop() && !loadedAudio->GetSpatial(),
+               "audio playback flags changed after serialization"))
+        return false;
+    if (!Check(NearlyEqual(loadedAudio->GetVolume(), 0.35f) && NearlyEqual(loadedAudio->GetPitch(), 1.25f) &&
                    NearlyEqual(loadedAudio->GetMinDistance(), 2.0f) &&
                    NearlyEqual(loadedAudio->GetMaxDistance(), 25.0f),
-               "audio numeric fields changed after serialization")) return false;
-    if (!Check(loadedAudio->GetBus() == AudioBus::Voice,
-               "audio bus changed after serialization")) return false;
-    if (!Check(loadedAudio->GetPriority() == 42,
-               "audio priority changed after serialization")) return false;
-    if (!Check(loadedAudio->GetConcurrencyGroup() == "dialogue" &&
-                   loadedAudio->GetMaxInstances() == 2,
-               "audio concurrency settings changed after serialization")) return false;
-    return Check(loadedAudio->GetStreaming(),
-                 "audio source streaming flag changed after serialization");
+               "audio numeric fields changed after serialization"))
+        return false;
+    if (!Check(loadedAudio->GetBus() == AudioBus::Voice, "audio bus changed after serialization"))
+        return false;
+    if (!Check(loadedAudio->GetPriority() == 42, "audio priority changed after serialization"))
+        return false;
+    if (!Check(loadedAudio->GetConcurrencyGroup() == "dialogue" && loadedAudio->GetMaxInstances() == 2,
+               "audio concurrency settings changed after serialization"))
+        return false;
+    return Check(loadedAudio->GetStreaming(), "audio source streaming flag changed after serialization");
 }
 
-bool TestAudioMixerBusSettingsPauseAndScriptContract()
-{
+bool TestAudioMixerBusSettingsPauseAndScriptContract() {
     AudioEngine& audio = AudioEngine::Get();
     AudioBus parsed = AudioBus::Count;
-    if (!Check(ParseAudioBus("music", parsed) && parsed == AudioBus::Music &&
-                   !ParseAudioBus("unknown", parsed),
-               "audio bus stable-name parsing failed")) return false;
+    if (!Check(ParseAudioBus("music", parsed) && parsed == AudioBus::Music && !ParseAudioBus("unknown", parsed),
+               "audio bus stable-name parsing failed"))
+        return false;
 
     audio.SetMasterVolume(2.0f);
     audio.SetBusVolume(AudioBus::Music, 0.35f);
@@ -2635,51 +3123,44 @@ bool TestAudioMixerBusSettingsPauseAndScriptContract()
     audio.SetMaxVoices(0);
     audio.SetPaused(true);
     const AudioDiagnostics diagnostics = audio.GetDiagnostics();
-    if (!Check(NearlyEqual(audio.GetMasterVolume(), 1.0f) &&
-                   NearlyEqual(audio.GetBusVolume(AudioBus::Music), 0.35f) &&
-                   NearlyEqual(audio.GetBusVolume(AudioBus::Effects), 0.6f) &&
-                   audio.IsBusMuted(AudioBus::Voice) &&
-                   audio.GetBusPauseWithGame(AudioBus::Music) &&
-                   !audio.GetBusPauseWithGame(AudioBus::UI) &&
+    if (!Check(NearlyEqual(audio.GetMasterVolume(), 1.0f) && NearlyEqual(audio.GetBusVolume(AudioBus::Music), 0.35f) &&
+                   NearlyEqual(audio.GetBusVolume(AudioBus::Effects), 0.6f) && audio.IsBusMuted(AudioBus::Voice) &&
+                   audio.GetBusPauseWithGame(AudioBus::Music) && !audio.GetBusPauseWithGame(AudioBus::UI) &&
                    diagnostics.maxVoices == 1 && audio.IsPaused(),
-               "audio mixer bus or pause policy contract failed")) return false;
+               "audio mixer bus or pause policy contract failed"))
+        return false;
 
-    const std::vector<AudioVoiceCandidate> candidates = {
-        {1, 5, 2, "impact"}, {2, 5, 1, "impact"}, {3, 20, 3, "music"}};
-    const AudioVoiceAdmission groupSteal = AudioEngine::EvaluateVoiceAdmission(
-        candidates, 8, "impact", 2, 5);
-    const AudioVoiceAdmission priorityReject = AudioEngine::EvaluateVoiceAdmission(
-        candidates, 8, "impact", 2, 4);
-    const AudioVoiceAdmission globalSteal = AudioEngine::EvaluateVoiceAdmission(
-        candidates, 3, "", 0, 10);
-    if (!Check(groupSteal.accepted && groupSteal.victimID == 2 &&
-                   !priorityReject.accepted && priorityReject.victimID == 0 &&
-                   globalSteal.accepted && globalSteal.victimID == 2,
-               "audio voice admission was not deterministic by priority and age")) return false;
+    const std::vector<AudioVoiceCandidate> candidates = {{1, 5, 2, "impact"}, {2, 5, 1, "impact"}, {3, 20, 3, "music"}};
+    const AudioVoiceAdmission groupSteal = AudioEngine::EvaluateVoiceAdmission(candidates, 8, "impact", 2, 5);
+    const AudioVoiceAdmission priorityReject = AudioEngine::EvaluateVoiceAdmission(candidates, 8, "impact", 2, 4);
+    const AudioVoiceAdmission globalSteal = AudioEngine::EvaluateVoiceAdmission(candidates, 3, "", 0, 10);
+    if (!Check(groupSteal.accepted && groupSteal.victimID == 2 && !priorityReject.accepted &&
+                   priorityReject.victimID == 0 && globalSteal.accepted && globalSteal.victimID == 2,
+               "audio voice admission was not deterministic by priority and age"))
+        return false;
 
     Scene scene("MixerScript");
     auto* script = scene.CreateActor("Controller")->AddComponent<ScriptComponent>();
-    script->SetSource(
-        "class Script {\n"
-        "  void Awake() {\n"
-        "    AudioMixer::SetMasterVolume(0.8f);\n"
-        "    AudioMixer::SetBusVolume(\"music\", 0.25f);\n"
-        "    AudioMixer::SetBusMuted(\"voice\", false);\n"
-        "    string report = AudioMixer::GetDiagnosticsJson();\n"
-        "    string flow = Game::GetFlowState();\n"
-        "    string streaming = WorldStreaming::GetStatsJson();\n"
-        "    AudioSource::SetBus(\"ui\");\n"
-        "    AudioSource::SetPriority(10);\n"
-        "    AudioSource::SetConcurrency(\"menu\", 2);\n"
-        "    AudioSource::SetStreaming(true);\n"
-        "  }\n"
-        "}\n");
-    if (!Check(script->IsCompiled(), "AudioMixer AngelScript API did not compile: " +
-               script->GetLastError())) return false;
+    script->SetSource("class Script {\n"
+                      "  void Awake() {\n"
+                      "    AudioMixer::SetMasterVolume(0.8f);\n"
+                      "    AudioMixer::SetBusVolume(\"music\", 0.25f);\n"
+                      "    AudioMixer::SetBusMuted(\"voice\", false);\n"
+                      "    string report = AudioMixer::GetDiagnosticsJson();\n"
+                      "    string flow = Game::GetFlowState();\n"
+                      "    string streaming = WorldStreaming::GetStatsJson();\n"
+                      "    AudioSource::SetBus(\"ui\");\n"
+                      "    AudioSource::SetPriority(10);\n"
+                      "    AudioSource::SetConcurrency(\"menu\", 2);\n"
+                      "    AudioSource::SetStreaming(true);\n"
+                      "  }\n"
+                      "}\n");
+    if (!Check(script->IsCompiled(), "AudioMixer AngelScript API did not compile: " + script->GetLastError()))
+        return false;
     scene.BeginPlay();
     const bool scriptApplied = NearlyEqual(audio.GetMasterVolume(), 0.8f) &&
-        NearlyEqual(audio.GetBusVolume(AudioBus::Music), 0.25f) &&
-        !audio.IsBusMuted(AudioBus::Voice);
+                               NearlyEqual(audio.GetBusVolume(AudioBus::Music), 0.25f) &&
+                               !audio.IsBusMuted(AudioBus::Voice);
     scene.EndPlay();
 
     audio.SetPaused(false);
@@ -2701,25 +3182,30 @@ bool TestInputActionMapJsonAndEvaluation() {
     Input::OnKeyUp(SDL_SCANCODE_SPACE);
     Input::Flush();
     Input::OnKeyDown(SDL_SCANCODE_SPACE);
-    if (!Check(Input::IsActionDown("Jump"), "Jump action should be down from keyboard")) return false;
-    if (!Check(Input::IsActionPressed("Jump"), "Jump action should be pressed from keyboard")) return false;
+    if (!Check(Input::IsActionDown("Jump"), "Jump action should be down from keyboard"))
+        return false;
+    if (!Check(Input::IsActionPressed("Jump"), "Jump action should be pressed from keyboard"))
+        return false;
     Input::Flush();
-    if (!Check(!Input::IsActionPressed("Jump"), "Jump pressed should clear next frame")) return false;
+    if (!Check(!Input::IsActionPressed("Jump"), "Jump pressed should clear next frame"))
+        return false;
     Input::OnKeyUp(SDL_SCANCODE_SPACE);
-    if (!Check(Input::IsActionReleased("Jump"), "Jump action should be released from keyboard")) return false;
+    if (!Check(Input::IsActionReleased("Jump"), "Jump action should be released from keyboard"))
+        return false;
 
     Input::Flush();
     Input::OnKeyDown(SDL_SCANCODE_D);
     Input::OnKeyDown(SDL_SCANCODE_W);
     const Math::Vec2 move = Input::GetAxis2D("Move");
     if (!Check(NearlyEqual(move.x, 1.0f) && NearlyEqual(move.y, 1.0f),
-               "Move action should combine keyboard X/Y bindings")) return false;
+               "Move action should combine keyboard X/Y bindings"))
+        return false;
     Input::OnKeyUp(SDL_SCANCODE_D);
     Input::OnKeyUp(SDL_SCANCODE_W);
 
-    const auto path = fs::temp_directory_path() /
-        ("myengine_input_map_" + std::to_string(
-            std::chrono::steady_clock::now().time_since_epoch().count()) + ".json");
+    const auto path =
+        fs::temp_directory_path() /
+        ("myengine_input_map_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".json");
     {
         std::ofstream output(path);
         output << R"({
@@ -2745,96 +3231,106 @@ bool TestInputActionMapJsonAndEvaluation() {
 })";
     }
     std::string error;
-    if (!Check(Input::LoadActionMapFromFile(path, &error), "custom input map load failed: " + error)) return false;
+    if (!Check(Input::LoadActionMapFromFile(path, &error), "custom input map load failed: " + error))
+        return false;
     Input::Flush();
     Input::OnKeyDown(SDL_SCANCODE_A);
-    if (!Check(NearlyEqual(Input::GetAxis1D("Throttle"), -1.0f),
-               "Axis1D keyboard scale should clamp")) return false;
+    if (!Check(NearlyEqual(Input::GetAxis1D("Throttle"), -1.0f), "Axis1D keyboard scale should clamp"))
+        return false;
     Input::OnKeyUp(SDL_SCANCODE_A);
 
     const SDL_JoystickID pad = 77;
     Input::OnGamepadAdded(pad);
     Input::OnGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTX, 1000);
-    if (!Check(NearlyEqual(Input::GetAxis1D("Throttle"), 0.0f),
-               "Axis1D gamepad dead zone should zero small input")) return false;
+    if (!Check(NearlyEqual(Input::GetAxis1D("Throttle"), 0.0f), "Axis1D gamepad dead zone should zero small input"))
+        return false;
     Input::OnGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTX, 20000);
-    if (!Check(Input::GetAxis1D("Throttle") > 0.55f,
-               "Axis1D gamepad axis should evaluate above dead zone")) return false;
+    if (!Check(Input::GetAxis1D("Throttle") > 0.55f, "Axis1D gamepad axis should evaluate above dead zone"))
+        return false;
 
     Input::OnMouseMove(10, 12, 2, -3);
     const Math::Vec2 look = Input::GetAxis2D("Look");
-    if (!Check(NearlyEqual(look.x, 1.0f) && NearlyEqual(look.y, -1.0f),
-               "Axis2D mouse delta should clamp")) return false;
+    if (!Check(NearlyEqual(look.x, 1.0f) && NearlyEqual(look.y, -1.0f), "Axis2D mouse delta should clamp"))
+        return false;
 
     Input::SetRuntimePreferences(2.0f, true, 0.8f, 1.0f, 0.5f);
-    if (!Check(NearlyEqual(Input::GetAxis1D("Throttle"), 0.0f),
-               "runtime gamepad dead zone was not applied")) return false;
+    if (!Check(NearlyEqual(Input::GetAxis1D("Throttle"), 0.0f), "runtime gamepad dead zone was not applied"))
+        return false;
     Input::OnMouseMove(10, 12, 0, 0);
     Input::OnGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTX, 25000);
-    if (!Check(std::string(Input::GetGlyphSetName()) == "gamepad",
-               "gamepad activity did not select gamepad glyphs")) return false;
+    if (!Check(std::string(Input::GetGlyphSetName()) == "gamepad", "gamepad activity did not select gamepad glyphs"))
+        return false;
     Input::OnKeyDown(SDL_SCANCODE_A);
     if (!Check(std::string(Input::GetGlyphSetName()) == "keyboardMouse",
-               "keyboard activity did not restore keyboard glyphs")) return false;
+               "keyboard activity did not restore keyboard glyphs"))
+        return false;
     Input::OnKeyUp(SDL_SCANCODE_A);
 
     Input::SetDefaultActionMap();
-    if(!Check(Input::LoadGlyphAtlasFromFile(InputGlyphAtlas::DefaultPath,&error),
-              "checked-in input glyph atlas failed to load: "+error))return false;
+    if (!Check(Input::LoadGlyphAtlasFromFile(InputGlyphAtlas::DefaultPath, &error),
+               "checked-in input glyph atlas failed to load: " + error))
+        return false;
     InputGlyphAtlas invalidAtlas;
-    if(!Check(!InputGlyphAtlas::FromText(
-            R"({"version":99,"atlas":"Content/UI/Glyphs/InputGlyphAtlas.svg","families":{}})",
-            invalidAtlas,&error),"future input glyph atlas version was accepted"))return false;
-    if(!Check(std::string(Input::GetGamepadGlyphFamily(SDL_GAMEPAD_TYPE_PS5))=="playstation"&&
-              std::string(Input::GetGamepadGlyphFamily(SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_PRO))=="nintendo"&&
-              std::string(Input::GetGamepadGlyphFamily(SDL_GAMEPAD_TYPE_XBOXONE))=="xbox",
-              "SDL controller types did not map to stable glyph families"))return false;
+    if (!Check(!InputGlyphAtlas::FromText(
+                   R"({"version":99,"atlas":"Content/UI/Glyphs/InputGlyphAtlas.svg","families":{}})", invalidAtlas,
+                   &error),
+               "future input glyph atlas version was accepted"))
+        return false;
+    if (!Check(std::string(Input::GetGamepadGlyphFamily(SDL_GAMEPAD_TYPE_PS5)) == "playstation" &&
+                   std::string(Input::GetGamepadGlyphFamily(SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_PRO)) == "nintendo" &&
+                   std::string(Input::GetGamepadGlyphFamily(SDL_GAMEPAD_TYPE_XBOXONE)) == "xbox",
+               "SDL controller types did not map to stable glyph families"))
+        return false;
     Input::SetGlyphLocale("zh-CN");
-    Input::OnGamepadButton(pad,SDL_GAMEPAD_BUTTON_SOUTH,true);
-    const nlohmann::json gamepadGlyph=nlohmann::json::parse(Input::GetActionGlyphJson("Jump"));
-    if(!Check(gamepadGlyph.value("valid",false)&&gamepadGlyph.value("family","")=="xbox"&&
-              gamepadGlyph.value("sprite","")=="xbox-a"&&gamepadGlyph.value("label","")=="A键",
-              "gamepad action did not resolve its localized Xbox glyph"))return false;
-    Input::OnGamepadButton(pad,SDL_GAMEPAD_BUTTON_SOUTH,false);
+    Input::OnGamepadButton(pad, SDL_GAMEPAD_BUTTON_SOUTH, true);
+    const nlohmann::json gamepadGlyph = nlohmann::json::parse(Input::GetActionGlyphJson("Jump"));
+    if (!Check(gamepadGlyph.value("valid", false) && gamepadGlyph.value("family", "") == "xbox" &&
+                   gamepadGlyph.value("sprite", "") == "xbox-a" && gamepadGlyph.value("label", "") == "A键",
+               "gamepad action did not resolve its localized Xbox glyph"))
+        return false;
+    Input::OnGamepadButton(pad, SDL_GAMEPAD_BUTTON_SOUTH, false);
     Input::OnKeyDown(SDL_SCANCODE_SPACE);
-    const nlohmann::json keyboardGlyph=nlohmann::json::parse(Input::GetActionGlyphJson("Jump"));
-    Input::OnKeyUp(SDL_SCANCODE_SPACE);Input::SetGlyphLocale("en");
-    if(!Check(keyboardGlyph.value("valid",false)&&
-              keyboardGlyph.value("family","")=="keyboardMouse"&&
-              keyboardGlyph.value("sprite","")=="key-space"&&
-              keyboardGlyph.value("label","")=="空格",
-              "keyboard action did not hot-switch to its localized glyph"))return false;
-    const auto conflicts = Input::FindBindingConflicts(
-        "Jump", 0, InputBindingPart::Source, "Keyboard/W");
+    const nlohmann::json keyboardGlyph = nlohmann::json::parse(Input::GetActionGlyphJson("Jump"));
+    Input::OnKeyUp(SDL_SCANCODE_SPACE);
+    Input::SetGlyphLocale("en");
+    if (!Check(keyboardGlyph.value("valid", false) && keyboardGlyph.value("family", "") == "keyboardMouse" &&
+                   keyboardGlyph.value("sprite", "") == "key-space" && keyboardGlyph.value("label", "") == "空格",
+               "keyboard action did not hot-switch to its localized glyph"))
+        return false;
+    const auto conflicts = Input::FindBindingConflicts("Jump", 0, InputBindingPart::Source, "Keyboard/W");
     if (!Check(!conflicts.empty() && conflicts.front().actionName == "Move",
-               "binding conflict lookup did not find Move/Keyboard-W")) return false;
-    if (!Check(!Input::RebindAction("Jump", 0, InputBindingPart::Source,
-                                    "Keyboard/W", false, &error),
-               "conflicting rebind should be rejected")) return false;
-    if (!Check(Input::RebindAction("Jump", 0, InputBindingPart::Source,
-                                   "Keyboard/W", true, &error),
-               "explicit conflicting rebind failed: " + error)) return false;
+               "binding conflict lookup did not find Move/Keyboard-W"))
+        return false;
+    if (!Check(!Input::RebindAction("Jump", 0, InputBindingPart::Source, "Keyboard/W", false, &error),
+               "conflicting rebind should be rejected"))
+        return false;
+    if (!Check(Input::RebindAction("Jump", 0, InputBindingPart::Source, "Keyboard/W", true, &error),
+               "explicit conflicting rebind failed: " + error))
+        return false;
     Input::OnKeyDown(SDL_SCANCODE_W);
-    if (!Check(Input::IsActionDown("Jump"), "runtime rebound action was not evaluated")) return false;
+    if (!Check(Input::IsActionDown("Jump"), "runtime rebound action was not evaluated"))
+        return false;
     Input::OnKeyUp(SDL_SCANCODE_W);
     const nlohmann::json overriddenMap = Input::GetActionMapJson();
     Input::ResetActionMapOverrides();
     Input::OnKeyDown(SDL_SCANCODE_SPACE);
-    if (!Check(Input::IsActionDown("Jump"), "reset did not restore project/default bindings")) return false;
+    if (!Check(Input::IsActionDown("Jump"), "reset did not restore project/default bindings"))
+        return false;
     Input::OnKeyUp(SDL_SCANCODE_SPACE);
     if (!Check(Input::ApplyActionMapOverrides(overriddenMap, &error),
-               "serialized action override failed to reload: " + error)) return false;
+               "serialized action override failed to reload: " + error))
+        return false;
 
     InputActionMap invalid;
     const nlohmann::json invalidJson = {
         {"version", 1},
-        {"actions", nlohmann::json::array({
-            {{"name", "Bad"}, {"type", "Button"},
-             {"bindings", nlohmann::json::array({{{"source", "Keyboard/NoSuchKey"}}})}}
-        })},
+        {"actions",
+         nlohmann::json::array({{{"name", "Bad"},
+                                 {"type", "Button"},
+                                 {"bindings", nlohmann::json::array({{{"source", "Keyboard/NoSuchKey"}}})}}})},
     };
-    if (!Check(!invalid.LoadFromJson(invalidJson, &error),
-               "invalid input source should fail parsing")) return false;
+    if (!Check(!invalid.LoadFromJson(invalidJson, &error), "invalid input source should fail parsing"))
+        return false;
 
     std::error_code ec;
     fs::remove(path, ec);
@@ -2856,10 +3352,7 @@ bool TestAssetFileImporters() {
         std::ofstream tex(texPath, std::ios::binary);
         tex << "P6\n2 2\n255\n";
         const unsigned char pixels[] = {
-            255, 0,   0,
-            0,   255, 0,
-            0,   0,   255,
-            255, 255, 255,
+            255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 255,
         };
         tex.write(reinterpret_cast<const char*>(pixels), sizeof(pixels));
     }
@@ -2890,24 +3383,31 @@ bool TestAssetFileImporters() {
 
     AssetManager& am = AssetManager::Get();
     auto tex = am.Load<TextureAsset>(texPath.string());
-    if (!Check(tex.IsValid(), "texture import should succeed")) return false;
-    if (!Check(tex->GetWidth() == 2 && tex->GetHeight() == 2, "texture dimensions mismatch")) return false;
-    if (!Check(tex->GetPixelData().size() == 16, "texture pixel data size mismatch")) return false;
+    if (!Check(tex.IsValid(), "texture import should succeed"))
+        return false;
+    if (!Check(tex->GetWidth() == 2 && tex->GetHeight() == 2, "texture dimensions mismatch"))
+        return false;
+    if (!Check(tex->GetPixelData().size() == 16, "texture pixel data size mismatch"))
+        return false;
 
     auto model = am.Load<ModelAsset>(objPath.string());
-    if (!Check(model.IsValid(), "model import should succeed")) return false;
-    if (!Check(model->GetMesh() && model->GetMesh()->VertexCount() == 3, "model vertex count mismatch")) return false;
-    if (!Check(model->MaterialCount() == 1, "model material count mismatch")) return false;
-    if (!Check(model->GetMaterial(0).IsValid(), "model material should be valid")) return false;
-    if (!Check(model->GetMaterial(0)->HasTexture("BaseColorMap"), "material should keep imported texture")) return false;
+    if (!Check(model.IsValid(), "model import should succeed"))
+        return false;
+    if (!Check(model->GetMesh() && model->GetMesh()->VertexCount() == 3, "model vertex count mismatch"))
+        return false;
+    if (!Check(model->MaterialCount() == 1, "model material count mismatch"))
+        return false;
+    if (!Check(model->GetMaterial(0).IsValid(), "model material should be valid"))
+        return false;
+    if (!Check(model->GetMaterial(0)->HasTexture("BaseColorMap"), "material should keep imported texture"))
+        return false;
 
     am.Clear();
     fs::remove_all(root);
     return true;
 }
 
-template<typename T>
-void AppendBinary(std::vector<uint8_t>& output, const std::vector<T>& values) {
+template <typename T> void AppendBinary(std::vector<uint8_t>& output, const std::vector<T>& values) {
     const uint8_t* bytes = reinterpret_cast<const uint8_t*>(values.data());
     output.insert(output.end(), bytes, bytes + values.size() * sizeof(T));
 }
@@ -2921,112 +3421,78 @@ bool TestGltfImportAndStableMeta() {
     const fs::path binPath = root / "skinned_triangle.bin";
 
     std::vector<uint8_t> binary;
-    AppendBinary(binary, std::vector<float>{
-        0,0,0, 1,0,0, 0,1,0
-    }); // 0: positions, 36 bytes
-    AppendBinary(binary, std::vector<float>{
-        0,0,1, 0,0,1, 0,0,1
-    }); // 36: normals
-    AppendBinary(binary, std::vector<float>{
-        0,0, 1,0, 0,1
-    }); // 72: uv
-    AppendBinary(binary, std::vector<uint16_t>{
-        0,0,0,0, 0,0,0,0, 0,0,0,0
-    }); // 96: joints
-    AppendBinary(binary, std::vector<float>{
-        1,0,0,0, 1,0,0,0, 1,0,0,0
-    }); // 120: weights
-    AppendBinary(binary, std::vector<uint16_t>{ 0,1,2 }); // 168: indices
-    binary.resize(176, 0); // 4-byte align
-    AppendBinary(binary, std::vector<float>{
-        1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1
-    }); // 176: inverse bind
-    AppendBinary(binary, std::vector<float>{ 0,1 }); // 240: times
-    AppendBinary(binary, std::vector<float>{
-        0,0,0, 1,0,0
-    }); // 248: translations
+    AppendBinary(binary, std::vector<float>{0, 0, 0, 1, 0, 0, 0, 1, 0});                      // 0: positions, 36 bytes
+    AppendBinary(binary, std::vector<float>{0, 0, 1, 0, 0, 1, 0, 0, 1});                      // 36: normals
+    AppendBinary(binary, std::vector<float>{0, 0, 1, 0, 0, 1});                               // 72: uv
+    AppendBinary(binary, std::vector<uint16_t>{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0});          // 96: joints
+    AppendBinary(binary, std::vector<float>{1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0});             // 120: weights
+    AppendBinary(binary, std::vector<uint16_t>{0, 1, 2});                                     // 168: indices
+    binary.resize(176, 0);                                                                    // 4-byte align
+    AppendBinary(binary, std::vector<float>{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1}); // 176: inverse bind
+    AppendBinary(binary, std::vector<float>{0, 1});                                           // 240: times
+    AppendBinary(binary, std::vector<float>{0, 0, 0, 1, 0, 0});                               // 248: translations
 
     {
         std::ofstream output(binPath, std::ios::binary);
-        output.write(reinterpret_cast<const char*>(binary.data()),
-                     static_cast<std::streamsize>(binary.size()));
+        output.write(reinterpret_cast<const char*>(binary.data()), static_cast<std::streamsize>(binary.size()));
     }
 
     nlohmann::json gltf;
-    gltf["asset"] = { { "version", "2.0" }, { "generator", "MyEngineTests" } };
-    gltf["buffers"] = nlohmann::json::array({
-        { { "uri", "skinned_triangle.bin" }, { "byteLength", binary.size() } }
-    });
+    gltf["asset"] = {{"version", "2.0"}, {"generator", "MyEngineTests"}};
+    gltf["buffers"] = nlohmann::json::array({{{"uri", "skinned_triangle.bin"}, {"byteLength", binary.size()}}});
     gltf["bufferViews"] = nlohmann::json::array({
-        { { "buffer",0 }, { "byteOffset",0 },   { "byteLength",36 } },
-        { { "buffer",0 }, { "byteOffset",36 },  { "byteLength",36 } },
-        { { "buffer",0 }, { "byteOffset",72 },  { "byteLength",24 } },
-        { { "buffer",0 }, { "byteOffset",96 },  { "byteLength",24 } },
-        { { "buffer",0 }, { "byteOffset",120 }, { "byteLength",48 } },
-        { { "buffer",0 }, { "byteOffset",168 }, { "byteLength",6 } },
-        { { "buffer",0 }, { "byteOffset",176 }, { "byteLength",64 } },
-        { { "buffer",0 }, { "byteOffset",240 }, { "byteLength",8 } },
-        { { "buffer",0 }, { "byteOffset",248 }, { "byteLength",24 } },
+        {{"buffer", 0}, {"byteOffset", 0}, {"byteLength", 36}},
+        {{"buffer", 0}, {"byteOffset", 36}, {"byteLength", 36}},
+        {{"buffer", 0}, {"byteOffset", 72}, {"byteLength", 24}},
+        {{"buffer", 0}, {"byteOffset", 96}, {"byteLength", 24}},
+        {{"buffer", 0}, {"byteOffset", 120}, {"byteLength", 48}},
+        {{"buffer", 0}, {"byteOffset", 168}, {"byteLength", 6}},
+        {{"buffer", 0}, {"byteOffset", 176}, {"byteLength", 64}},
+        {{"buffer", 0}, {"byteOffset", 240}, {"byteLength", 8}},
+        {{"buffer", 0}, {"byteOffset", 248}, {"byteLength", 24}},
     });
     gltf["accessors"] = nlohmann::json::array({
-        { { "bufferView",0 }, { "componentType",5126 }, { "count",3 }, { "type","VEC3" },
-          { "min", nlohmann::json::array({0,0,0}) }, { "max", nlohmann::json::array({1,1,0}) } },
-        { { "bufferView",1 }, { "componentType",5126 }, { "count",3 }, { "type","VEC3" } },
-        { { "bufferView",2 }, { "componentType",5126 }, { "count",3 }, { "type","VEC2" } },
-        { { "bufferView",3 }, { "componentType",5123 }, { "count",3 }, { "type","VEC4" } },
-        { { "bufferView",4 }, { "componentType",5126 }, { "count",3 }, { "type","VEC4" } },
-        { { "bufferView",5 }, { "componentType",5123 }, { "count",3 }, { "type","SCALAR" } },
-        { { "bufferView",6 }, { "componentType",5126 }, { "count",1 }, { "type","MAT4" } },
-        { { "bufferView",7 }, { "componentType",5126 }, { "count",2 }, { "type","SCALAR" },
-          { "min", nlohmann::json::array({0}) }, { "max", nlohmann::json::array({1}) } },
-        { { "bufferView",8 }, { "componentType",5126 }, { "count",2 }, { "type","VEC3" } },
+        {{"bufferView", 0},
+         {"componentType", 5126},
+         {"count", 3},
+         {"type", "VEC3"},
+         {"min", nlohmann::json::array({0, 0, 0})},
+         {"max", nlohmann::json::array({1, 1, 0})}},
+        {{"bufferView", 1}, {"componentType", 5126}, {"count", 3}, {"type", "VEC3"}},
+        {{"bufferView", 2}, {"componentType", 5126}, {"count", 3}, {"type", "VEC2"}},
+        {{"bufferView", 3}, {"componentType", 5123}, {"count", 3}, {"type", "VEC4"}},
+        {{"bufferView", 4}, {"componentType", 5126}, {"count", 3}, {"type", "VEC4"}},
+        {{"bufferView", 5}, {"componentType", 5123}, {"count", 3}, {"type", "SCALAR"}},
+        {{"bufferView", 6}, {"componentType", 5126}, {"count", 1}, {"type", "MAT4"}},
+        {{"bufferView", 7},
+         {"componentType", 5126},
+         {"count", 2},
+         {"type", "SCALAR"},
+         {"min", nlohmann::json::array({0})},
+         {"max", nlohmann::json::array({1})}},
+        {{"bufferView", 8}, {"componentType", 5126}, {"count", 2}, {"type", "VEC3"}},
     });
-    gltf["materials"] = nlohmann::json::array({
-        {
-            { "name","RedMetal" },
-            { "pbrMetallicRoughness", {
-                { "baseColorFactor", nlohmann::json::array({0.8,0.1,0.05,1.0}) },
-                { "metallicFactor",0.7 },
-                { "roughnessFactor",0.25 }
-            }}
-        }
-    });
-    gltf["meshes"] = nlohmann::json::array({
-        {
-            { "name","Triangle" },
-            { "primitives", nlohmann::json::array({
-                {
-                    { "attributes", {
-                        { "POSITION",0 }, { "NORMAL",1 }, { "TEXCOORD_0",2 },
-                        { "JOINTS_0",3 }, { "WEIGHTS_0",4 }
-                    }},
-                    { "indices",5 }, { "material",0 }
-                }
-            })}
-        }
-    });
-    gltf["nodes"] = nlohmann::json::array({
-        { { "name","RootBone" } },
-        { { "name","MeshNode" }, { "mesh",0 }, { "skin",0 } }
-    });
-    gltf["skins"] = nlohmann::json::array({
-        { { "name","Skin" }, { "joints",nlohmann::json::array({0}) },
-          { "inverseBindMatrices",6 } }
-    });
-    gltf["animations"] = nlohmann::json::array({
-        {
-            { "name","Move" },
-            { "samplers", nlohmann::json::array({
-                { { "input",7 }, { "output",8 }, { "interpolation","LINEAR" } }
-            })},
-            { "channels", nlohmann::json::array({
-                { { "sampler",0 }, { "target", { { "node",0 }, { "path","translation" } } } }
-            })}
-        }
-    });
-    gltf["scenes"] = nlohmann::json::array({
-        { { "nodes",nlohmann::json::array({0,1}) } }
-    });
+    gltf["materials"] = nlohmann::json::array({{{"name", "RedMetal"},
+                                                {"pbrMetallicRoughness",
+                                                 {{"baseColorFactor", nlohmann::json::array({0.8, 0.1, 0.05, 1.0})},
+                                                  {"metallicFactor", 0.7},
+                                                  {"roughnessFactor", 0.25}}}}});
+    gltf["meshes"] = nlohmann::json::array(
+        {{{"name", "Triangle"},
+          {"primitives",
+           nlohmann::json::array(
+               {{{"attributes", {{"POSITION", 0}, {"NORMAL", 1}, {"TEXCOORD_0", 2}, {"JOINTS_0", 3}, {"WEIGHTS_0", 4}}},
+                 {"indices", 5},
+                 {"material", 0}}})}}});
+    gltf["nodes"] = nlohmann::json::array({{{"name", "RootBone"}}, {{"name", "MeshNode"}, {"mesh", 0}, {"skin", 0}}});
+    gltf["skins"] =
+        nlohmann::json::array({{{"name", "Skin"}, {"joints", nlohmann::json::array({0})}, {"inverseBindMatrices", 6}}});
+    gltf["animations"] = nlohmann::json::array(
+        {{{"name", "Move"},
+          {"samplers", nlohmann::json::array({{{"input", 7}, {"output", 8}, {"interpolation", "LINEAR"}}})},
+          {"channels",
+           nlohmann::json::array({{{"sampler", 0}, {"target", {{"node", 0}, {"path", "translation"}}}}})}}});
+    gltf["scenes"] = nlohmann::json::array({{{"nodes", nlohmann::json::array({0, 1})}}});
     gltf["scene"] = 0;
     {
         std::ofstream output(gltfPath);
@@ -3036,35 +3502,37 @@ bool TestGltfImportAndStableMeta() {
     AssetManager& manager = AssetManager::Get();
     manager.Clear();
     AssetMeta meta = AssetMeta::Create(gltfPath.string());
-    if (!Check(AssetMeta::Save(meta), "failed to author glTF metadata")) return false;
+    if (!Check(AssetMeta::Save(meta), "failed to author glTF metadata"))
+        return false;
     ModelHandle model = manager.Load<ModelAsset>(gltfPath.string());
-    if (!Check(model.IsValid(), "glTF model import failed")) return false;
-    if (!Check(model->GetMesh()->VertexCount() == 3 && model->GetMesh()->IndexCount() == 3,
-               "glTF geometry mismatch")) return false;
-    if (!Check(model->MaterialCount() == 1 &&
-               NearlyEqual(model->GetMaterial(0)->GetFloat("Metallic"), 0.7f),
-               "glTF PBR material mismatch")) return false;
-    if (!Check(model->HasSkin() && model->GetBones().size() == 1 &&
-               model->GetSkinWeights().size() == 3,
-               "glTF skin import mismatch")) return false;
-    if (!Check(model->GetAnimations().size() == 1 &&
-               model->GetAnimations()[0].tracks.size() == 1,
-               "glTF animation import mismatch")) return false;
-    if (!Check(model->GetMesh()->GetVertices()[0].tangent.LengthSq() > 0.5f,
-               "glTF tangent generation failed")) return false;
-    if (!Check(model->GetDependencies().size() >= 2,
-               "glTF model dependencies were not tracked")) return false;
-    if (!Check(!model->GetUuid().empty() &&
-               fs::exists(gltfPath.string() + ".meta"),
-               "glTF stable metadata was not generated")) return false;
+    if (!Check(model.IsValid(), "glTF model import failed"))
+        return false;
+    if (!Check(model->GetMesh()->VertexCount() == 3 && model->GetMesh()->IndexCount() == 3, "glTF geometry mismatch"))
+        return false;
+    if (!Check(model->MaterialCount() == 1 && NearlyEqual(model->GetMaterial(0)->GetFloat("Metallic"), 0.7f),
+               "glTF PBR material mismatch"))
+        return false;
+    if (!Check(model->HasSkin() && model->GetBones().size() == 1 && model->GetSkinWeights().size() == 3,
+               "glTF skin import mismatch"))
+        return false;
+    if (!Check(model->GetAnimations().size() == 1 && model->GetAnimations()[0].tracks.size() == 1,
+               "glTF animation import mismatch"))
+        return false;
+    if (!Check(model->GetMesh()->GetVertices()[0].tangent.LengthSq() > 0.5f, "glTF tangent generation failed"))
+        return false;
+    if (!Check(model->GetDependencies().size() >= 2, "glTF model dependencies were not tracked"))
+        return false;
+    if (!Check(!model->GetUuid().empty() && fs::exists(gltfPath.string() + ".meta"),
+               "glTF stable metadata was not generated"))
+        return false;
 
     const AssetID firstID = model->GetID();
     const std::string firstUuid = model->GetUuid();
     manager.Clear();
     model = manager.Load<ModelAsset>(gltfPath.string());
-    if (!Check(model.IsValid() && model->GetID() == firstID &&
-               model->GetUuid() == firstUuid,
-               "asset UUID changed after reload")) return false;
+    if (!Check(model.IsValid() && model->GetID() == firstID && model->GetUuid() == firstUuid,
+               "asset UUID changed after reload"))
+        return false;
 
     manager.Clear();
     fs::remove_all(root);
@@ -3081,11 +3549,7 @@ bool TestAssetAsyncLoadingAndHotReload() {
     auto writeTexture = [&texturePath](uint8_t red, uint8_t green, uint8_t blue) {
         std::ofstream output(texturePath, std::ios::binary);
         output << "P6\n1 1\n255\n";
-        const char pixel[3] = {
-            static_cast<char>(red),
-            static_cast<char>(green),
-            static_cast<char>(blue)
-        };
+        const char pixel[3] = {static_cast<char>(red), static_cast<char>(green), static_cast<char>(blue)};
         output.write(pixel, sizeof(pixel));
     };
 
@@ -3094,26 +3558,28 @@ bool TestAssetAsyncLoadingAndHotReload() {
     manager.Clear();
     std::shared_ptr<Asset> loaded = manager.LoadAsync(texturePath.string()).Get();
     auto texture = std::dynamic_pointer_cast<TextureAsset>(loaded);
-    if (!Check(texture && texture->IsReady(), "async texture load failed")) return false;
-    if (!Check(texture->GetVersion() == 1 && texture->GetPixelData()[0] == 255,
-               "async texture contents mismatch")) return false;
+    if (!Check(texture && texture->IsReady(), "async texture load failed"))
+        return false;
+    if (!Check(texture->GetVersion() == 1 && texture->GetPixelData()[0] == 255, "async texture contents mismatch"))
+        return false;
 
     TextureAsset* originalAddress = texture.get();
     const auto previousWriteTime = fs::last_write_time(texturePath);
     writeTexture(0, 255, 0);
     fs::last_write_time(texturePath, previousWriteTime + std::chrono::seconds(2));
 
-    if (!Check(manager.PollHotReload() == 1, "hot reload did not detect source change")) return false;
+    if (!Check(manager.PollHotReload() == 1, "hot reload did not detect source change"))
+        return false;
     auto reloaded = manager.GetByPath<TextureAsset>(texturePath.string());
-    if (!Check(reloaded.Get() == originalAddress,
-               "hot reload invalidated an existing asset handle")) return false;
-    if (!Check(reloaded->GetVersion() == 2 && reloaded->GetPixelData()[0] == 0 &&
-               reloaded->GetPixelData()[1] == 255,
-               "hot reload did not update texture contents or version")) return false;
+    if (!Check(reloaded.Get() == originalAddress, "hot reload invalidated an existing asset handle"))
+        return false;
+    if (!Check(reloaded->GetVersion() == 2 && reloaded->GetPixelData()[0] == 0 && reloaded->GetPixelData()[1] == 255,
+               "hot reload did not update texture contents or version"))
+        return false;
 
     manager.Unload(texturePath.string());
-    if (!Check(!manager.IsLoaded(texturePath.string()),
-               "path-based unload failed for UUID-backed asset")) return false;
+    if (!Check(!manager.IsLoaded(texturePath.string()), "path-based unload failed for UUID-backed asset"))
+        return false;
     manager.Clear();
     fs::remove_all(root);
     return true;
@@ -3144,7 +3610,7 @@ bool TestAssetManagerFailureRollback() {
         TextureDesc desc;
         desc.width = 1;
         desc.height = 1;
-        texture->SetPixelData({ 17, 0, 0, 255 }, desc);
+        texture->SetPixelData({17, 0, 0, 255}, desc);
         return std::static_pointer_cast<Asset>(texture);
     });
     manager.RegisterLoader("throwasset", [](const std::string& path) -> std::shared_ptr<Asset> {
@@ -3153,10 +3619,12 @@ bool TestAssetManagerFailureRollback() {
     });
 
     TextureHandle texture = manager.Load<TextureAsset>(assetPath.string());
-    if (!Check(texture.IsValid(), "initial robust asset load failed")) return false;
+    if (!Check(texture.IsValid(), "initial robust asset load failed"))
+        return false;
     TextureAsset* original = texture.Get();
     const uint64_t version = texture->GetVersion();
-    if (!Check(texture->GetPixelData()[0] == 17, "initial robust asset contents mismatch")) return false;
+    if (!Check(texture->GetPixelData()[0] == 17, "initial robust asset contents mismatch"))
+        return false;
 
     const auto previousWriteTime = fs::last_write_time(assetPath);
     {
@@ -3165,10 +3633,11 @@ bool TestAssetManagerFailureRollback() {
     }
     fs::last_write_time(assetPath, previousWriteTime + std::chrono::seconds(2));
     loaderMode = 1;
-    if (!Check(manager.PollHotReload() == 0, "wrong-type reload should fail")) return false;
-    if (!Check(texture.Get() == original && texture->GetVersion() == version &&
-               texture->GetPixelData()[0] == 17,
-               "wrong-type reload mutated existing asset")) return false;
+    if (!Check(manager.PollHotReload() == 0, "wrong-type reload should fail"))
+        return false;
+    if (!Check(texture.Get() == original && texture->GetVersion() == version && texture->GetPixelData()[0] == 17,
+               "wrong-type reload mutated existing asset"))
+        return false;
 
     {
         std::ofstream output(assetPath, std::ios::binary | std::ios::trunc);
@@ -3176,10 +3645,11 @@ bool TestAssetManagerFailureRollback() {
     }
     fs::last_write_time(assetPath, previousWriteTime + std::chrono::seconds(4));
     loaderMode = 2;
-    if (!Check(manager.PollHotReload() == 0, "throwing reload should fail")) return false;
-    if (!Check(texture.Get() == original && texture->GetVersion() == version &&
-               texture->GetPixelData()[0] == 17,
-               "throwing reload mutated existing asset")) return false;
+    if (!Check(manager.PollHotReload() == 0, "throwing reload should fail"))
+        return false;
+    if (!Check(texture.Get() == original && texture->GetVersion() == version && texture->GetPixelData()[0] == 17,
+               "throwing reload mutated existing asset"))
+        return false;
 
     const fs::path throwPath = root / "async.throwasset";
     {
@@ -3188,7 +3658,8 @@ bool TestAssetManagerFailureRollback() {
     }
     std::shared_ptr<Asset> asyncResult = manager.LoadAsync(throwPath.string()).Get();
     if (!Check(!asyncResult && !manager.IsLoaded(throwPath.string()),
-               "async loader exception should not cache an asset")) return false;
+               "async loader exception should not cache an asset"))
+        return false;
 
     manager.Clear();
     fs::remove_all(root);
@@ -3196,9 +3667,8 @@ bool TestAssetManagerFailureRollback() {
 }
 
 bool TestSceneSerializerMalformedDataIsolation() {
-    ComponentRegistry::Get().Register("ThrowingDeserialize", [] {
-        return std::make_unique<ThrowingDeserializeComponent>();
-    });
+    ComponentRegistry::Get().Register("ThrowingDeserialize",
+                                      [] { return std::make_unique<ThrowingDeserializeComponent>(); });
 
     const std::string json = R"json(
 {
@@ -3222,12 +3692,13 @@ bool TestSceneSerializerMalformedDataIsolation() {
 )json";
 
     Scene scene("Before");
-    if (!Check(SceneSerializer::LoadFromString(scene, json),
-               "malformed scene should load with isolated failures")) return false;
+    if (!Check(SceneSerializer::LoadFromString(scene, json), "malformed scene should load with isolated failures"))
+        return false;
     Actor* survivor = scene.FindByName("Survivor");
-    if (!Check(survivor != nullptr, "survivor actor missing after malformed load")) return false;
-    if (!Check(NearlyEqual(survivor->GetTransform().position.x, 0.0f),
-               "malformed Vec3 should fall back to default")) return false;
+    if (!Check(survivor != nullptr, "survivor actor missing after malformed load"))
+        return false;
+    if (!Check(NearlyEqual(survivor->GetTransform().position.x, 0.0f), "malformed Vec3 should fall back to default"))
+        return false;
     return Check(!survivor->HasComponentType("ThrowingDeserialize"),
                  "failed component deserialize should remove component");
 }
@@ -3246,7 +3717,8 @@ bool TestScriptHotReloadFailureRollback() {
     script->SetScriptPath(path.string());
     scene.OnUpdate(1.0f);
     if (!Check(NearlyEqual(actor->GetTransform().position.x, 1.0f),
-               "initial script file update failed: " + script->GetLastError())) return false;
+               "initial script file update failed: " + script->GetLastError()))
+        return false;
 
     const auto previousWriteTime = fs::last_write_time(path);
     {
@@ -3257,24 +3729,27 @@ bool TestScriptHotReloadFailureRollback() {
     scene.OnUpdate(1.0f);
     fs::remove(path);
 
-    if (!Check(script->IsCompiled(), "bad hot reload should keep previous runtime compiled")) return false;
-    if (!Check(!script->GetLastError().empty(), "bad hot reload should report an error")) return false;
+    if (!Check(script->IsCompiled(), "bad hot reload should keep previous runtime compiled"))
+        return false;
+    if (!Check(!script->GetLastError().empty(), "bad hot reload should report an error"))
+        return false;
     return Check(NearlyEqual(actor->GetTransform().position.x, 2.0f),
                  "bad hot reload did not keep previous script running");
 }
 
 bool TestMeshDerivedData() {
     auto mesh = MeshAsset::CreateCube("DerivedDataCube");
-    if (!Check(mesh->GetLods().size() >= 2,
-               "mesh LOD chain was not generated")) return false;
+    if (!Check(mesh->GetLods().size() >= 2, "mesh LOD chain was not generated"))
+        return false;
     if (!Check(mesh->GetLod(0).indices.size() == mesh->GetIndices().size() &&
-               mesh->GetLod(1).indices.size() < mesh->GetLod(0).indices.size(),
-               "mesh LOD index counts are invalid")) return false;
+                   mesh->GetLod(1).indices.size() < mesh->GetLod(0).indices.size(),
+               "mesh LOD index counts are invalid"))
+        return false;
     const MeshColliderData& collider = mesh->GetColliderData();
     if (!Check(collider.vertices.size() == 8 && collider.indices.size() == 36,
-               "automatic box collider data was not generated")) return false;
-    return Check(NearlyEqual(collider.bounds.min.x, -0.5f) &&
-                 NearlyEqual(collider.bounds.max.x, 0.5f),
+               "automatic box collider data was not generated"))
+        return false;
+    return Check(NearlyEqual(collider.bounds.min.x, -0.5f) && NearlyEqual(collider.bounds.max.x, 0.5f),
                  "automatic collider bounds mismatch");
 }
 
@@ -3285,32 +3760,36 @@ bool TestTextureDerivedData() {
     std::vector<uint8_t> pixels(4 * 4 * 4, 255);
     auto texture = std::make_shared<TextureAsset>("__builtin__/DerivedTexture");
     texture->SetPixelData(std::move(pixels), desc);
-    if (!Check(texture->GetMipLevels() == 3 && texture->GetMips().size() == 3,
-               "texture mip chain was not generated")) return false;
+    if (!Check(texture->GetMipLevels() == 3 && texture->GetMips().size() == 3, "texture mip chain was not generated"))
+        return false;
     if (!Check(texture->GetMips()[1].width == 2 && texture->GetMips()[2].width == 1,
-               "texture mip dimensions are invalid")) return false;
-    if (!Check(texture->GetCompressedMip(0).empty() &&
-               texture->GetCompressedMip(2).empty() &&
-               texture->GetCompressedBc3Mip(0).empty(),
-               "texture compression should be explicit for runtime imports")) return false;
+               "texture mip dimensions are invalid"))
+        return false;
+    if (!Check(texture->GetCompressedMip(0).empty() && texture->GetCompressedMip(2).empty() &&
+                   texture->GetCompressedBc3Mip(0).empty(),
+               "texture compression should be explicit for runtime imports"))
+        return false;
     texture->GenerateCompressedMips();
-    return Check(texture->GetCompressedMip(0).size() == 8 &&
-                 texture->GetCompressedBc3Mip(0).size() == 16 &&
-                 texture->GetCompressedMip(2).size() == 8,
+    return Check(texture->GetCompressedMip(0).size() == 8 && texture->GetCompressedBc3Mip(0).size() == 16 &&
+                     texture->GetCompressedMip(2).size() == 8,
                  "explicit block texture compression output size mismatch");
 }
 
 bool TestMemoryLinearAllocator() {
     LinearAllocator arena;
-    if (!Check(arena.Init(4096), "LinearAllocator::Init failed")) return false;
+    if (!Check(arena.Init(4096), "LinearAllocator::Init failed"))
+        return false;
     void* p1 = arena.Allocate(64, 8);
     void* p2 = arena.Allocate(128, 16);
-    if (!Check(p1 != nullptr && p2 != nullptr, "LinearAllocator bump failed")) return false;
+    if (!Check(p1 != nullptr && p2 != nullptr, "LinearAllocator bump failed"))
+        return false;
     if (!Check(reinterpret_cast<std::uintptr_t>(p2) > reinterpret_cast<std::uintptr_t>(p1),
-               "LinearAllocator ordering unexpected")) return false;
+               "LinearAllocator ordering unexpected"))
+        return false;
     arena.Reset();
     void* p3 = arena.Allocate(4000, 8);
-    if (!Check(p3 != nullptr, "LinearAllocator reuse after Reset failed")) return false;
+    if (!Check(p3 != nullptr, "LinearAllocator reuse after Reset failed"))
+        return false;
     arena.Shutdown();
     return true;
 }
@@ -3319,16 +3798,22 @@ bool TestMemoryPoolAllocator() {
     PoolAllocator<int> pool(4);
     int* a = pool.Allocate(1);
     int* b = pool.Allocate(2);
-    if (!Check(a && b, "PoolAllocator Allocate failed")) return false;
-    if (!Check(pool.LiveCount() == 2, "PoolAllocator live count")) return false;
+    if (!Check(a && b, "PoolAllocator Allocate failed"))
+        return false;
+    if (!Check(pool.LiveCount() == 2, "PoolAllocator live count"))
+        return false;
     pool.Free(a);
-    if (!Check(pool.LiveCount() == 1, "PoolAllocator after one Free")) return false;
+    if (!Check(pool.LiveCount() == 1, "PoolAllocator after one Free"))
+        return false;
     int* c = pool.Allocate(3);
-    if (!Check(c && *c == 3, "PoolAllocator recycle slot")) return false;
+    if (!Check(c && *c == 3, "PoolAllocator recycle slot"))
+        return false;
     pool.Free(b);
     pool.Free(c);
-    if (!Check(pool.LiveCount() == 0, "PoolAllocator empty")) return false;
-    if (!Check(pool.Allocate(42) != nullptr, "PoolAllocator fill after empty")) return false;
+    if (!Check(pool.LiveCount() == 0, "PoolAllocator empty"))
+        return false;
+    if (!Check(pool.Allocate(42) != nullptr, "PoolAllocator fill after empty"))
+        return false;
     return true;
 }
 
@@ -3349,19 +3834,25 @@ bool TestSceneAndAssetMemoryCounters() {
     Actor* b = sc.CreateActor("B");
     (void)a;
     (void)b;
-    if (!Check(MemoryService::Get().GetSceneLiveActorCount() == 2, "scene live actor count")) return false;
+    if (!Check(MemoryService::Get().GetSceneLiveActorCount() == 2, "scene live actor count"))
+        return false;
     sc.DestroyActor(a);
-    if (!Check(MemoryService::Get().GetSceneLiveActorCount() == 1, "scene count after DestroyActor")) return false;
+    if (!Check(MemoryService::Get().GetSceneLiveActorCount() == 1, "scene count after DestroyActor"))
+        return false;
     sc.Clear();
-    if (!Check(MemoryService::Get().GetSceneLiveActorCount() == 0, "scene count after Clear")) return false;
+    if (!Check(MemoryService::Get().GetSceneLiveActorCount() == 0, "scene count after Clear"))
+        return false;
 
     AssetManager& am = AssetManager::Get();
     am.Clear();
     (void)am.GetCubeMesh();
-    if (!Check(am.GetEstimatedAssetCpuBytes() > 0, "asset CPU estimate after builtin mesh")) return false;
-    if (!Check(am.GetEstimatedAssetCpuBytesByType(AssetType::Mesh) > 0, "per-type mesh bucket")) return false;
+    if (!Check(am.GetEstimatedAssetCpuBytes() > 0, "asset CPU estimate after builtin mesh"))
+        return false;
+    if (!Check(am.GetEstimatedAssetCpuBytesByType(AssetType::Mesh) > 0, "per-type mesh bucket"))
+        return false;
     am.Clear();
-    if (!Check(am.GetEstimatedAssetCpuBytes() == 0, "asset CPU zero after Clear")) return false;
+    if (!Check(am.GetEstimatedAssetCpuBytes() == 0, "asset CPU zero after Clear"))
+        return false;
     return true;
 }
 
@@ -3375,34 +3866,46 @@ bool TestEditorCommandStackAndSelection() {
     auto makeAdd = [&value](const char* name, int amount) {
         return std::make_unique<LambdaEditorCommand>(
             name,
-            [&value, amount](EditorContext&) { value += amount; return true; },
-            [&value, amount](EditorContext&) { value -= amount; return true; });
+            [&value, amount](EditorContext&) {
+                value += amount;
+                return true;
+            },
+            [&value, amount](EditorContext&) {
+                value -= amount;
+                return true;
+            });
     };
 
-    if (!Check(stack.ExecuteCommand(makeAdd("Add One", 1), context),
-               "editor command execute failed")) return false;
+    if (!Check(stack.ExecuteCommand(makeAdd("Add One", 1), context), "editor command execute failed"))
+        return false;
     if (!Check(stack.ExecuteCommand(makeAdd("Add Two", 2), context) && value == 3,
-               "editor command execute order mismatch")) return false;
-    if (!Check(stack.Undo(context) && value == 1, "editor command undo failed")) return false;
-    if (!Check(stack.Redo(context) && value == 3, "editor command redo failed")) return false;
-    if (!Check(stack.Undo(context), "editor command second undo failed")) return false;
-    if (!Check(stack.ExecuteCommand(makeAdd("Add Four", 4), context) && value == 5,
-               "editor command after undo failed")) return false;
-    if (!Check(!stack.CanRedo(), "new command did not invalidate redo")) return false;
+               "editor command execute order mismatch"))
+        return false;
+    if (!Check(stack.Undo(context) && value == 1, "editor command undo failed"))
+        return false;
+    if (!Check(stack.Redo(context) && value == 3, "editor command redo failed"))
+        return false;
+    if (!Check(stack.Undo(context), "editor command second undo failed"))
+        return false;
+    if (!Check(stack.ExecuteCommand(makeAdd("Add Four", 4), context) && value == 5, "editor command after undo failed"))
+        return false;
+    if (!Check(!stack.CanRedo(), "new command did not invalidate redo"))
+        return false;
 
-    if (!Check(stack.BeginTransaction("Batch Edit"), "begin transaction failed")) return false;
-    if (!Check(stack.ExecuteCommand(makeAdd("Add Ten", 10), context),
-               "first transaction command failed")) return false;
-    if (!Check(stack.ExecuteCommand(makeAdd("Add Twenty", 20), context),
-               "second transaction command failed")) return false;
-    if (!Check(stack.CommitTransaction() && value == 35,
-               "commit transaction failed")) return false;
-    if (!Check(std::string(stack.GetUndoName()) == "Batch Edit",
-               "transaction name was not preserved")) return false;
-    if (!Check(stack.Undo(context) && value == 5,
-               "transaction undo order mismatch")) return false;
-    if (!Check(stack.Redo(context) && value == 35,
-               "transaction redo order mismatch")) return false;
+    if (!Check(stack.BeginTransaction("Batch Edit"), "begin transaction failed"))
+        return false;
+    if (!Check(stack.ExecuteCommand(makeAdd("Add Ten", 10), context), "first transaction command failed"))
+        return false;
+    if (!Check(stack.ExecuteCommand(makeAdd("Add Twenty", 20), context), "second transaction command failed"))
+        return false;
+    if (!Check(stack.CommitTransaction() && value == 35, "commit transaction failed"))
+        return false;
+    if (!Check(std::string(stack.GetUndoName()) == "Batch Edit", "transaction name was not preserved"))
+        return false;
+    if (!Check(stack.Undo(context) && value == 5, "transaction undo order mismatch"))
+        return false;
+    if (!Check(stack.Redo(context) && value == 35, "transaction redo order mismatch"))
+        return false;
 
     Actor* actor = scene.CreateActor("Selected");
     const uint64_t actorID = actor->GetID();
@@ -3410,18 +3913,17 @@ bool TestEditorCommandStackAndSelection() {
     Transform before = actor->GetTransform();
     Transform after = before;
     after.position = {4.0f, 5.0f, 6.0f};
-    if (!Check(stack.ExecuteCommand(
-            std::make_unique<SetActorTransformCommand>(actorID, before, after), context),
-            "transform command failed")) return false;
-    if (!Check(NearlyEqual(actor->GetTransform().position.x, 4.0f),
-               "transform command did not apply")) return false;
-    if (!Check(stack.Undo(context) && NearlyEqual(actor->GetTransform().position.x, 0.0f),
-               "transform undo failed")) return false;
+    if (!Check(stack.ExecuteCommand(std::make_unique<SetActorTransformCommand>(actorID, before, after), context),
+               "transform command failed"))
+        return false;
+    if (!Check(NearlyEqual(actor->GetTransform().position.x, 4.0f), "transform command did not apply"))
+        return false;
+    if (!Check(stack.Undo(context) && NearlyEqual(actor->GetTransform().position.x, 0.0f), "transform undo failed"))
+        return false;
 
     scene.DestroyActor(actor);
     context.GetSelection().Validate(scene);
-    return Check(!context.GetSelection().HasActor() &&
-                 context.GetSelection().ResolveActor(scene) == nullptr,
+    return Check(!context.GetSelection().HasActor() && context.GetSelection().ResolveActor(scene) == nullptr,
                  "selection did not invalidate after actor deletion");
 }
 
@@ -3437,26 +3939,30 @@ bool TestEditorSceneSnapshotCommands() {
     Actor* child = scene.CreateActor("SnapshotChild", parent);
     child->AddComponent<BoxColliderComponent>();
     const std::string populatedScene = SceneSerializer::SaveToString(scene);
-    if (!Check(SceneSerializer::LoadFromString(scene, emptyScene),
-               "failed to restore snapshot baseline")) return false;
+    if (!Check(SceneSerializer::LoadFromString(scene, emptyScene), "failed to restore snapshot baseline"))
+        return false;
 
-    if (!Check(stack.ExecuteCommand(std::make_unique<SceneSnapshotCommand>(
-            "Create Hierarchy", emptyScene, populatedScene, 0, parentID), context),
-            "scene snapshot execute failed")) return false;
+    if (!Check(stack.ExecuteCommand(
+                   std::make_unique<SceneSnapshotCommand>("Create Hierarchy", emptyScene, populatedScene, 0, parentID),
+                   context),
+               "scene snapshot execute failed"))
+        return false;
     Actor* restoredParent = scene.FindByID(parentID);
-    if (!Check(restoredParent && restoredParent->GetChildren().size() == 1,
-               "scene snapshot did not restore hierarchy")) return false;
+    if (!Check(restoredParent && restoredParent->GetChildren().size() == 1, "scene snapshot did not restore hierarchy"))
+        return false;
     if (!Check(restoredParent->GetChildren()[0]->GetComponent<BoxColliderComponent>() != nullptr,
-               "scene snapshot did not restore component")) return false;
-    if (!Check(context.GetSelection().GetActorID() == parentID,
-               "scene snapshot did not restore selection")) return false;
+               "scene snapshot did not restore component"))
+        return false;
+    if (!Check(context.GetSelection().GetActorID() == parentID, "scene snapshot did not restore selection"))
+        return false;
 
-    if (!Check(stack.Undo(context) && scene.ActorCount() == 0,
-               "scene snapshot undo failed")) return false;
-    if (!Check(stack.Redo(context), "scene snapshot redo failed")) return false;
+    if (!Check(stack.Undo(context) && scene.ActorCount() == 0, "scene snapshot undo failed"))
+        return false;
+    if (!Check(stack.Redo(context), "scene snapshot redo failed"))
+        return false;
     restoredParent = scene.FindByID(parentID);
     return Check(restoredParent && restoredParent->GetChildren().size() == 1 &&
-                 restoredParent->GetChildren()[0]->GetComponent<BoxColliderComponent>() != nullptr,
+                     restoredParent->GetChildren()[0]->GetComponent<BoxColliderComponent>() != nullptr,
                  "scene snapshot redo lost hierarchy or component");
 }
 
@@ -3473,15 +3979,15 @@ bool TestEditorGizmoRowVectorLocalConversion() {
     const Mat4 expectedLocal = localTransform.GetLocalMatrix();
     const Mat4 world = expectedLocal * parentWorld;
     Mat4 actualLocal;
-    if (!Check(EditorGizmoController::ComputeLocalMatrix(
-            world, &parentWorld, actualLocal),
-            "gizmo local matrix conversion failed")) return false;
+    if (!Check(EditorGizmoController::ComputeLocalMatrix(world, &parentWorld, actualLocal),
+               "gizmo local matrix conversion failed"))
+        return false;
 
     for (int row = 0; row < 4; ++row) {
         for (int column = 0; column < 4; ++column) {
-            if (!Check(NearlyEqual(actualLocal.m[row][column],
-                                   expectedLocal.m[row][column], 1e-3f),
-                       "gizmo local matrix violated row-vector order")) return false;
+            if (!Check(NearlyEqual(actualLocal.m[row][column], expectedLocal.m[row][column], 1e-3f),
+                       "gizmo local matrix violated row-vector order"))
+                return false;
         }
     }
     return true;
@@ -3505,6 +4011,7 @@ bool TestEditorServiceActionAndInspectorRegistries() {
             m_Events.push_back("detach:" + m_Name);
             EditorService::OnDetach();
         }
+
     private:
         std::string m_Name;
         std::vector<std::string>& m_Events;
@@ -3517,39 +4024,37 @@ bool TestEditorServiceActionAndInspectorRegistries() {
     services.Add(second);
     services.AttachAll(context);
     if (!Check(context.GetService<RecordingService>() == &second,
-               "typed service lookup did not return registered service")) return false;
+               "typed service lookup did not return registered service"))
+        return false;
     services.UpdateAll(0.016f);
     services.DetachAll(context);
-    const std::vector<std::string> expected {
-        "attach:first", "attach:second", "update:first", "update:second",
-        "detach:second", "detach:first"
-    };
-    if (!Check(events == expected, "service lifecycle order mismatch")) return false;
+    const std::vector<std::string> expected{"attach:first",  "attach:second", "update:first",
+                                            "update:second", "detach:second", "detach:first"};
+    if (!Check(events == expected, "service lifecycle order mismatch"))
+        return false;
 
     EditorActionRegistry actions;
     bool actionEnabled = false;
     int actionExecutions = 0;
     if (!Check(actions.Register(std::make_unique<LambdaEditorAction>(
-            "test.action", "Test Action",
-            [&actionExecutions](EditorContext&) { ++actionExecutions; },
-            [&actionEnabled](EditorContext&) { return actionEnabled; })),
-            "action registration failed")) return false;
-    if (!Check(!actions.Execute("test.action", context) && actionExecutions == 0,
-               "disabled action executed")) return false;
+                   "test.action", "Test Action", [&actionExecutions](EditorContext&) { ++actionExecutions; },
+                   [&actionEnabled](EditorContext&) { return actionEnabled; })),
+               "action registration failed"))
+        return false;
+    if (!Check(!actions.Execute("test.action", context) && actionExecutions == 0, "disabled action executed"))
+        return false;
     actionEnabled = true;
-    if (!Check(actions.Execute("test.action", context) && actionExecutions == 1,
-               "enabled action did not execute")) return false;
+    if (!Check(actions.Execute("test.action", context) && actionExecutions == 1, "enabled action did not execute"))
+        return false;
 
     class TestSection final : public EditorInspectorSection {
     public:
         TestSection(const char* id, int order) : m_ID(id), m_Order(order) {}
         const char* GetID() const override { return m_ID.c_str(); }
         int GetOrder() const override { return m_Order; }
-        bool CanDraw(const EditorSelectObject& object,
-                     const EditorContext&) const override {
-            return object.IsActor();
-        }
+        bool CanDraw(const EditorSelectObject& object, const EditorContext&) const override { return object.IsActor(); }
         void Draw(EditorContext&) override {}
+
     private:
         std::string m_ID;
         int m_Order;
@@ -3558,23 +4063,22 @@ bool TestEditorServiceActionAndInspectorRegistries() {
     EditorInspectorRegistry sections;
     sections.Register(std::make_unique<TestSection>("late", 20));
     sections.Register(std::make_unique<TestSection>("early", 10));
-    if (!Check(std::string(sections.GetSections()[0]->GetID()) == "early",
-               "inspector section order mismatch")) return false;
+    if (!Check(std::string(sections.GetSections()[0]->GetID()) == "early", "inspector section order mismatch"))
+        return false;
     EditorSelection selection;
-    if (!Check(!sections.GetSections()[0]->CanDraw(
-                   selection.GetPrimaryObject(), context),
-               "inspector section filtering mismatch")) return false;
+    if (!Check(!sections.GetSections()[0]->CanDraw(selection.GetPrimaryObject(), context),
+               "inspector section filtering mismatch"))
+        return false;
     Actor* selected = scene.CreateActor("SectionSelection");
     selection.SelectActorID(selected->GetID());
-    return Check(sections.GetSections()[0]->CanDraw(
-                     selection.GetPrimaryObject(), context),
+    return Check(sections.GetSections()[0]->CanDraw(selection.GetPrimaryObject(), context),
                  "inspector section did not accept actor selection");
 }
 
 bool TestEditorProjectAndAssetRegistry() {
-    const auto root = std::filesystem::temp_directory_path() /
-        ("myengine_editor_test_" + std::to_string(
-            std::chrono::steady_clock::now().time_since_epoch().count()));
+    const auto root =
+        std::filesystem::temp_directory_path() /
+        ("myengine_editor_test_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     const auto content = root / "Content";
     std::filesystem::create_directories(content / "Models");
     std::filesystem::create_directories(content / "Textures");
@@ -3586,51 +4090,55 @@ bool TestEditorProjectAndAssetRegistry() {
     EditorAssetRegistry registry;
     registry.SetRoot(content);
     registry.Refresh();
-    if (!Check(registry.GetAssets(EditorAssetType::Model).size() == 1,
-               "asset registry model classification failed")) return false;
+    if (!Check(registry.GetAssets(EditorAssetType::Model).size() == 1, "asset registry model classification failed"))
+        return false;
     if (!Check(registry.GetAssets(EditorAssetType::Texture).size() == 1,
-               "asset registry texture classification failed")) return false;
+               "asset registry texture classification failed"))
+        return false;
     if (!Check(registry.GetAssets(EditorAssetType::Material).size() == 1,
-               "asset registry material classification failed")) return false;
+               "asset registry material classification failed"))
+        return false;
 
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
     std::ofstream(content / "Models" / "test.gltf", std::ios::app) << " ";
-    if (!Check(registry.WatchForChanges(), "asset registry missed mtime change")) return false;
+    if (!Check(registry.WatchForChanges(), "asset registry missed mtime change"))
+        return false;
 
     const auto importSource = root / "source.obj";
-    std::ofstream(importSource)
-        << "v 0 0 0\n"
-        << "v 1 0 0\n"
-        << "v 0 1 0\n"
-        << "f 1 2 3\n";
+    std::ofstream(importSource) << "v 0 0 0\n"
+                                << "v 1 0 0\n"
+                                << "v 0 1 0\n"
+                                << "f 1 2 3\n";
     Scene importScene("ImportContext");
     EditorContext importContext(&importScene);
     importContext.SetProjectRoot(root);
     importContext.SetAssetRegistry(&registry);
     EditorImportService importService;
     importService.OnAttach(importContext);
-    if (!Check(importService.Import(importSource.string()),
-               "editor import service failed first copy")) return false;
-    if (!Check(importService.Import(importSource.string()),
-               "editor import service failed unique copy")) return false;
+    if (!Check(importService.Import(importSource.string()), "editor import service failed first copy"))
+        return false;
+    if (!Check(importService.Import(importSource.string()), "editor import service failed unique copy"))
+        return false;
     importService.OnDetach();
     if (!Check(std::filesystem::exists(content / "Models" / "source.obj") &&
-               std::filesystem::exists(content / "Models" / "source_1.obj"),
-               "editor import service overwrote existing asset")) return false;
+                   std::filesystem::exists(content / "Models" / "source_1.obj"),
+               "editor import service overwrote existing asset"))
+        return false;
 
     EditorProject project;
-    if (!Check(project.Open(root), "editor project open failed")) return false;
+    if (!Check(project.Open(root), "editor project open failed"))
+        return false;
     project.SetLastScenePath("Content/Scenes/test.json");
     project.GetState().selectedAssetPath = "Models/test.gltf";
     project.GetState().showLog = false;
-    if (!Check(project.SaveState(), "editor project state save failed")) return false;
+    if (!Check(project.SaveState(), "editor project state save failed"))
+        return false;
 
     EditorProject loaded;
-    if (!Check(loaded.Open(root), "editor project state load failed")) return false;
-    const bool stateMatches =
-        loaded.GetLastScenePath() == "Content/Scenes/test.json" &&
-        loaded.GetState().selectedAssetPath == "Models/test.gltf" &&
-        !loaded.GetState().showLog;
+    if (!Check(loaded.Open(root), "editor project state load failed"))
+        return false;
+    const bool stateMatches = loaded.GetLastScenePath() == "Content/Scenes/test.json" &&
+                              loaded.GetState().selectedAssetPath == "Models/test.gltf" && !loaded.GetState().showLog;
     std::error_code error;
     std::filesystem::remove_all(root, error);
     return Check(stateMatches, "editor project state persistence mismatch");
@@ -3638,9 +4146,9 @@ bool TestEditorProjectAndAssetRegistry() {
 
 bool TestProjectConfigAndPortableAssetPaths() {
     namespace fs = std::filesystem;
-    const auto root = fs::temp_directory_path() /
-        ("myengine_project_test_" + std::to_string(
-            std::chrono::steady_clock::now().time_since_epoch().count()));
+    const auto root =
+        fs::temp_directory_path() /
+        ("myengine_project_test_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     const auto scenes = root / "Content" / "Scenes";
     const auto meshes = root / "Content" / "Mesh";
     fs::create_directories(scenes);
@@ -3651,65 +4159,78 @@ bool TestProjectConfigAndPortableAssetPaths() {
     const auto startupPath = scenes / "Main.scene.json";
     const auto alternatePath = scenes / "Alternate.scene.json";
     if (!Check(SceneSerializer::SaveToFile(startup, startupPath.string()) &&
-               SceneSerializer::SaveToFile(alternate, alternatePath.string()),
-               "project test scene creation failed")) return false;
+                   SceneSerializer::SaveToFile(alternate, alternatePath.string()),
+               "project test scene creation failed"))
+        return false;
 
     ProjectConfig project;
     std::string error;
-    if (!Check(project.Open(root, true, &error), "missing project should open in editor mode")) return false;
+    if (!Check(project.Open(root, true, &error), "missing project should open in editor mode"))
+        return false;
     project.SetName("ProjectTest");
     project.GetGraphicsSettings().backend = "d3d12";
     project.GetGraphicsSettings().renderPath = "deferred";
     if (!Check(project.SetInputConfigPath("Content/Config/Input.input.json", &error),
-               "project input config path save failed: " + error)) return false;
+               "project input config path save failed: " + error))
+        return false;
     if (!Check(project.SetStartupScene(startupPath, &error) && project.Save(&error),
-               "project startup scene save failed: " + error)) return false;
+               "project startup scene save failed: " + error))
+        return false;
 
     ProjectConfig loaded;
-    if (!Check(loaded.Open(root, false, &error), "project manifest load failed: " + error)) return false;
-    if (!Check(loaded.GetVersion() == ProjectConfig::kCurrentVersion &&
-               loaded.GetName() == "ProjectTest" &&
-               loaded.GetStartupScene() == "Content/Scenes/Main.scene.json" &&
-               loaded.GetInputSettings().config == "Content/Config/Input.input.json" &&
-               loaded.GetGraphicsSettings().backend == "d3d12" &&
-               loaded.GetGraphicsSettings().renderPath == "deferred",
-               "project manifest fields mismatch")) return false;
+    if (!Check(loaded.Open(root, false, &error), "project manifest load failed: " + error))
+        return false;
+    if (!Check(loaded.GetVersion() == ProjectConfig::kCurrentVersion && loaded.GetName() == "ProjectTest" &&
+                   loaded.GetStartupScene() == "Content/Scenes/Main.scene.json" &&
+                   loaded.GetInputSettings().config == "Content/Config/Input.input.json" &&
+                   loaded.GetGraphicsSettings().backend == "d3d12" &&
+                   loaded.GetGraphicsSettings().renderPath == "deferred",
+               "project manifest fields mismatch"))
+        return false;
 
     fs::path resolved;
-    if (!Check(loaded.ResolveStartupScene(resolved, &error) &&
-               resolved == startupPath.lexically_normal(),
-               "startup scene resolution failed")) return false;
+    if (!Check(loaded.ResolveStartupScene(resolved, &error) && resolved == startupPath.lexically_normal(),
+               "startup scene resolution failed"))
+        return false;
     if (!Check(loaded.ResolveScenePath("Content/Scenes/Alternate.scene.json", resolved, true, &error) &&
-               resolved == alternatePath.lexically_normal(),
-               "scene override did not take precedence")) return false;
+                   resolved == alternatePath.lexically_normal(),
+               "scene override did not take precedence"))
+        return false;
     if (!Check(!loaded.ResolveScenePath(startupPath.string(), resolved, true, &error),
-               "absolute startup scene path was accepted")) return false;
+               "absolute startup scene path was accepted"))
+        return false;
     if (!Check(!loaded.ResolveScenePath("Content/../outside.scene.json", resolved, false, &error),
-               "traversal startup scene path was accepted")) return false;
+               "traversal startup scene path was accepted"))
+        return false;
     if (!Check(!loaded.ResolveScenePath("Content/Scenes/Missing.scene.json", resolved, true, &error),
-               "missing startup scene was accepted")) return false;
+               "missing startup scene was accepted"))
+        return false;
     if (!Check(loaded.ResolveInputConfigPath(resolved, false, &error) &&
-               resolved == (root / "Content" / "Config" / "Input.input.json").lexically_normal(),
-               "input config resolution failed")) return false;
-    if (!Check(!loaded.SetInputConfigPath("../Outside.input.json", &error),
-               "traversal input config path was accepted")) return false;
+                   resolved == (root / "Content" / "Config" / "Input.input.json").lexically_normal(),
+               "input config resolution failed"))
+        return false;
+    if (!Check(!loaded.SetInputConfigPath("../Outside.input.json", &error), "traversal input config path was accepted"))
+        return false;
     loaded.GetGraphicsSettings().backend = "vulkan";
-    if (!Check(loaded.Save(&error), "supported Vulkan graphics backend was rejected")) return false;
+    if (!Check(loaded.Save(&error), "supported Vulkan graphics backend was rejected"))
+        return false;
     loaded.GetGraphicsSettings().backend = "opengl";
-    if (!Check(!loaded.Save(&error),
-               "unsupported graphics backend was accepted")) return false;
+    if (!Check(!loaded.Save(&error), "unsupported graphics backend was accepted"))
+        return false;
     loaded.GetGraphicsSettings().backend = "d3d11";
     loaded.GetGraphicsSettings().renderPath = "raytraced";
-    if (!Check(!loaded.Save(&error),
-               "unsupported render path was accepted")) return false;
+    if (!Check(!loaded.Save(&error), "unsupported render path was accepted"))
+        return false;
     loaded.GetGraphicsSettings().renderPath = "forward";
-    if (!Check(loaded.Save(&error), "failed to restore graphics backend")) return false;
+    if (!Check(loaded.Save(&error), "failed to restore graphics backend"))
+        return false;
     std::ofstream(root / ProjectConfig::kFileName)
         << R"({"version":999,"name":"Future","startupScene":"Content/Scenes/Main.scene.json"})";
     ProjectConfig unsupported;
-    if (!Check(!unsupported.Open(root, false, &error),
-               "unsupported project version was accepted")) return false;
-    if (!Check(project.Save(&error), "failed to restore project manifest")) return false;
+    if (!Check(!unsupported.Open(root, false, &error), "unsupported project version was accepted"))
+        return false;
+    if (!Check(project.Save(&error), "failed to restore project manifest"))
+        return false;
 
     AssetManager::Get().Clear();
     AssetManager::Get().SetProjectRoot(root);
@@ -3724,26 +4245,30 @@ bool TestProjectConfigAndPortableAssetPaths() {
     const std::string portableJson = SceneSerializer::SaveToString(portableScene);
     const auto parsed = nlohmann::json::parse(portableJson);
     const std::string storedMesh = parsed["actors"][0]["components"][0]["data"]["mesh"];
-    if (!Check(storedMesh == "Content/Mesh/Portable.mesh",
-               "new scene did not store a project-relative asset path")) return false;
+    if (!Check(storedMesh == "Content/Mesh/Portable.mesh", "new scene did not store a project-relative asset path"))
+        return false;
 
     Scene portableLoaded;
     if (!Check(SceneSerializer::LoadFromString(portableLoaded, portableJson),
-               "project-relative asset scene failed to load")) return false;
+               "project-relative asset scene failed to load"))
+        return false;
     auto* loadedRenderer = portableLoaded.FindByName("PortableActor")
-        ? portableLoaded.FindByName("PortableActor")->GetComponent<MeshRendererComponent>() : nullptr;
-    if (!Check(loadedRenderer && loadedRenderer->GetMesh().IsValid(),
-               "project-relative mesh did not resolve")) return false;
+                               ? portableLoaded.FindByName("PortableActor")->GetComponent<MeshRendererComponent>()
+                               : nullptr;
+    if (!Check(loadedRenderer && loadedRenderer->GetMesh().IsValid(), "project-relative mesh did not resolve"))
+        return false;
 
     nlohmann::json legacy = parsed;
     legacy["actors"][0]["components"][0]["data"]["mesh"] = meshPath.string();
     Scene legacyLoaded;
     if (!Check(SceneSerializer::LoadFromString(legacyLoaded, legacy.dump()),
-               "legacy absolute asset scene failed to load")) return false;
+               "legacy absolute asset scene failed to load"))
+        return false;
     auto* legacyRenderer = legacyLoaded.FindByName("PortableActor")
-        ? legacyLoaded.FindByName("PortableActor")->GetComponent<MeshRendererComponent>() : nullptr;
-    if (!Check(legacyRenderer && legacyRenderer->GetMesh().IsValid(),
-               "legacy absolute mesh path compatibility failed")) return false;
+                               ? legacyLoaded.FindByName("PortableActor")->GetComponent<MeshRendererComponent>()
+                               : nullptr;
+    if (!Check(legacyRenderer && legacyRenderer->GetMesh().IsValid(), "legacy absolute mesh path compatibility failed"))
+        return false;
 
     const auto scripts = root / "Content" / "Scripts";
     fs::create_directories(scripts);
@@ -3753,13 +4278,14 @@ bool TestProjectConfigAndPortableAssetPaths() {
     script.SetScriptPath(scriptPath.string());
     nlohmann::json scriptData;
     script.Serialize(scriptData);
-    if (!Check(scriptData.value("scriptPath", std::string{}) ==
-                   "Content/Scripts/Portable.as",
-               "script path was not stored project-relative")) return false;
+    if (!Check(scriptData.value("scriptPath", std::string{}) == "Content/Scripts/Portable.as",
+               "script path was not stored project-relative"))
+        return false;
     ScriptComponent loadedScript;
     loadedScript.Deserialize(scriptData);
     if (!Check(fs::path(loadedScript.GetScriptPath()) == scriptPath.lexically_normal(),
-               "project-relative script path did not resolve")) return false;
+               "project-relative script path did not resolve"))
+        return false;
 
     AssetManager::Get().Clear();
     AssetManager::Get().SetProjectRoot({});
@@ -3770,43 +4296,41 @@ bool TestProjectConfigAndPortableAssetPaths() {
 
 bool TestSceneColdLoadsModelSubAssetReferences() {
     namespace fs = std::filesystem;
-    const auto root = fs::temp_directory_path() /
-        ("myengine_scene_subasset_test_" + std::to_string(
-            std::chrono::steady_clock::now().time_since_epoch().count()));
+    const auto root =
+        fs::temp_directory_path() /
+        ("myengine_scene_subasset_test_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     const auto models = root / "Content" / "Models";
     fs::create_directories(models);
     const auto objPath = models / "triangle.obj";
     const auto mtlPath = models / "triangle.mtl";
-    std::ofstream(mtlPath)
-        << "newmtl TestMatA\n"
-        << "Kd 0.2 0.6 0.9\n"
-        << "newmtl TestMatB\n"
-        << "Kd 0.9 0.4 0.2\n";
-    std::ofstream(objPath)
-        << "mtllib triangle.mtl\n"
-        << "v 0 0 0\n"
-        << "v 1 0 0\n"
-        << "v 0 1 0\n"
-        << "v 1 1 0\n"
-        << "g First\n"
-        << "usemtl TestMatA\n"
-        << "f 1 2 3\n"
-        << "g Second\n"
-        << "usemtl TestMatB\n"
-        << "f 2 4 3\n";
+    std::ofstream(mtlPath) << "newmtl TestMatA\n"
+                           << "Kd 0.2 0.6 0.9\n"
+                           << "newmtl TestMatB\n"
+                           << "Kd 0.9 0.4 0.2\n";
+    std::ofstream(objPath) << "mtllib triangle.mtl\n"
+                           << "v 0 0 0\n"
+                           << "v 1 0 0\n"
+                           << "v 0 1 0\n"
+                           << "v 1 1 0\n"
+                           << "g First\n"
+                           << "usemtl TestMatA\n"
+                           << "f 1 2 3\n"
+                           << "g Second\n"
+                           << "usemtl TestMatB\n"
+                           << "f 2 4 3\n";
 
     AssetManager& assets = AssetManager::Get();
     assets.Clear();
     assets.SetProjectRoot(root);
     const ModelHandle model = assets.Load<ModelAsset>(objPath.string());
-    if (!Check(model && model->GetMesh() && model->GetMaterial(0) &&
-               model->GetMaterial(1),
-               "model fixture failed to import")) return false;
-    if (!Check(model->GetMesh()->GetSubMeshes().size() == 2 &&
-               model->MaterialCount() == 2 &&
-               model->GetMesh()->GetSubMeshes()[0].materialSlot == 0 &&
-               model->GetMesh()->GetSubMeshes()[1].materialSlot == 1,
-               "OBJ import did not preserve submesh material slots")) return false;
+    if (!Check(model && model->GetMesh() && model->GetMaterial(0) && model->GetMaterial(1),
+               "model fixture failed to import"))
+        return false;
+    if (!Check(model->GetMesh()->GetSubMeshes().size() == 2 && model->MaterialCount() == 2 &&
+                   model->GetMesh()->GetSubMeshes()[0].materialSlot == 0 &&
+                   model->GetMesh()->GetSubMeshes()[1].materialSlot == 1,
+               "OBJ import did not preserve submesh material slots"))
+        return false;
 
     Scene source("ColdSubAssets");
     Actor* actor = source.CreateActor("ImportedModel");
@@ -3816,32 +4340,26 @@ bool TestSceneColdLoadsModelSubAssetReferences() {
     const std::string serialized = SceneSerializer::SaveToString(source);
     const nlohmann::json saved = nlohmann::json::parse(serialized);
     const auto& savedData = saved["actors"][0]["components"][0]["data"];
-    if (!Check(savedData.value("mesh", std::string{}) ==
-                   "Content/Models/triangle.obj#mesh" &&
-               savedData.contains("materials") &&
-               savedData["materials"].is_array() &&
-               savedData["materials"].size() == 2 &&
-               savedData["materials"][0].get<std::string>() ==
-                   "Content/Models/triangle.obj#material-0" &&
-               savedData["materials"][1].get<std::string>() ==
-                   "Content/Models/triangle.obj#material-1" &&
-               savedData.value("material", std::string{}) ==
-                   "Content/Models/triangle.obj#material-0",
+    if (!Check(savedData.value("mesh", std::string{}) == "Content/Models/triangle.obj#mesh" &&
+                   savedData.contains("materials") && savedData["materials"].is_array() &&
+                   savedData["materials"].size() == 2 &&
+                   savedData["materials"][0].get<std::string>() == "Content/Models/triangle.obj#material-0" &&
+                   savedData["materials"][1].get<std::string>() == "Content/Models/triangle.obj#material-1" &&
+                   savedData.value("material", std::string{}) == "Content/Models/triangle.obj#material-0",
                "model sub-assets were not serialized as stable project-relative paths")) {
         return false;
     }
 
     assets.Clear();
     Scene loaded;
-    if (!Check(SceneSerializer::LoadFromString(loaded, serialized),
-               "cold scene sub-asset deserialize failed")) return false;
+    if (!Check(SceneSerializer::LoadFromString(loaded, serialized), "cold scene sub-asset deserialize failed"))
+        return false;
     Actor* loadedActor = loaded.FindByName("ImportedModel");
-    auto* loadedRenderer = loadedActor
-        ? loadedActor->GetComponent<MeshRendererComponent>() : nullptr;
+    auto* loadedRenderer = loadedActor ? loadedActor->GetComponent<MeshRendererComponent>() : nullptr;
     if (!Check(loadedRenderer && loadedRenderer->GetMesh().IsValid() &&
-               loadedRenderer->GetMaterialForSlot(0).IsValid() &&
-               loadedRenderer->GetMaterialForSlot(1).IsValid(),
-               "cold scene load lost imported mesh or material slot references")) return false;
+                   loadedRenderer->GetMaterialForSlot(0).IsValid() && loadedRenderer->GetMaterialForSlot(1).IsValid(),
+               "cold scene load lost imported mesh or material slot references"))
+        return false;
 
     SkinnedMeshRendererComponent skinned;
     skinned.SetSourceMesh(loadedRenderer->GetMesh());
@@ -3851,9 +4369,9 @@ bool TestSceneColdLoadsModelSubAssetReferences() {
     assets.Clear();
     SkinnedMeshRendererComponent coldSkinned;
     coldSkinned.Deserialize(skinnedData);
-    if (!Check(coldSkinned.GetSourceMesh().IsValid() &&
-               coldSkinned.GetMaterial().IsValid(),
-               "cold skinned-mesh load lost imported sub-asset references")) return false;
+    if (!Check(coldSkinned.GetSourceMesh().IsValid() && coldSkinned.GetMaterial().IsValid(),
+               "cold skinned-mesh load lost imported sub-asset references"))
+        return false;
 
     nlohmann::json legacy = nlohmann::json::parse(serialized);
     for (auto& component : legacy["actors"][0]["components"]) {
@@ -3865,41 +4383,42 @@ bool TestSceneColdLoadsModelSubAssetReferences() {
     assets.Clear();
     Scene legacyLoaded;
     if (!Check(SceneSerializer::LoadFromString(legacyLoaded, legacy.dump()),
-               "legacy imported material scene failed to deserialize")) return false;
+               "legacy imported material scene failed to deserialize"))
+        return false;
     Actor* legacyActor = legacyLoaded.FindByName("ImportedModel");
-    auto* legacyRenderer = legacyActor
-        ? legacyActor->GetComponent<MeshRendererComponent>() : nullptr;
+    auto* legacyRenderer = legacyActor ? legacyActor->GetComponent<MeshRendererComponent>() : nullptr;
     const bool legacyResolved = legacyRenderer && legacyRenderer->GetMesh().IsValid() &&
-        legacyRenderer->GetMaterial().IsValid() &&
-        legacyRenderer->GetMaterial()->GetName() == "TestMatA";
+                                legacyRenderer->GetMaterial().IsValid() &&
+                                legacyRenderer->GetMaterial()->GetName() == "TestMatA";
 
     assets.Clear();
     assets.SetProjectRoot({});
     std::error_code cleanupError;
     fs::remove_all(root, cleanupError);
-    return Check(legacyResolved,
-                 "legacy imported material reference was not recovered from its model");
+    return Check(legacyResolved, "legacy imported material reference was not recovered from its model");
 }
 
 bool TestWorkspaceCookAndPublish() {
     namespace fs = std::filesystem;
-    const auto base = fs::temp_directory_path() /
-        ("myengine_publish_test_" + std::to_string(
-            std::chrono::steady_clock::now().time_since_epoch().count()));
+    const auto base =
+        fs::temp_directory_path() /
+        ("myengine_publish_test_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     const auto projectRoot = base / "GameProject";
     const auto workspacePath = base / "settings" / "workspace.json";
     EditorWorkspace workspace(workspacePath);
     std::string error;
-    if (!Check(workspace.CreateProject(projectRoot, "CookTest", &error),
-               "workspace project creation failed: " + error)) return false;
+    if (!Check(workspace.CreateProject(projectRoot, "CookTest", &error), "workspace project creation failed: " + error))
+        return false;
     if (!Check(fs::is_regular_file(projectRoot / ProjectConfig::kFileName) &&
-               fs::is_regular_file(projectRoot / "Content/Scenes/Main.scene.json"),
-               "workspace did not create project files")) return false;
+                   fs::is_regular_file(projectRoot / "Content/Scenes/Main.scene.json"),
+               "workspace did not create project files"))
+        return false;
 
     EditorWorkspace reloaded(workspacePath);
     if (!Check(reloaded.Load(&error) && reloaded.GetRecentProjects().size() == 1 &&
-               reloaded.GetRecentProjects()[0] == projectRoot.lexically_normal(),
-               "workspace recent project persistence failed")) return false;
+                   reloaded.GetRecentProjects()[0] == projectRoot.lexically_normal(),
+               "workspace recent project persistence failed"))
+        return false;
 
     const auto assetPath = projectRoot / "Content" / "Data" / "payload.bin";
     fs::create_directories(assetPath.parent_path());
@@ -3912,15 +4431,18 @@ bool TestWorkspaceCookAndPublish() {
     std::ofstream(editorScriptPath) << "Editor.log('tool')\n";
 
     ProjectConfig project;
-    if (!Check(project.Open(projectRoot, false, &error),
-               "created project failed to reopen: " + error)) return false;
+    if (!Check(project.Open(projectRoot, false, &error), "created project failed to reopen: " + error))
+        return false;
     project.GetPublishSettings().outputDirectory = (base / "Published").string();
     project.GetPublishSettings().target = PublishTargets::kDefaultTargetId;
-    if (!Check(project.Save(&error), "publish settings save failed: " + error)) return false;
+    if (!Check(project.Save(&error), "publish settings save failed: " + error))
+        return false;
     project.GetPublishSettings().target = "unsupported-target";
-    if (!Check(!project.Save(&error), "unsupported publish target was accepted")) return false;
+    if (!Check(!project.Save(&error), "unsupported publish target was accepted"))
+        return false;
     project.GetPublishSettings().target = PublishTargets::kDefaultTargetId;
-    if (!Check(project.Save(&error), "failed to restore Windows publish target")) return false;
+    if (!Check(project.Save(&error), "failed to restore Windows publish target"))
+        return false;
 
     const auto binaries = base / "Binaries";
     fs::create_directories(binaries);
@@ -3934,156 +4456,159 @@ bool TestWorkspaceCookAndPublish() {
     const auto builtBinaries = gExecutableDirectory;
     const auto engineContent = std::filesystem::current_path() / "EngineContent";
     for (const char* file : runtimeFiles) {
-        fs::copy_file(builtBinaries / file, binaries / file,
-                      fs::copy_options::overwrite_existing);
+        fs::copy_file(builtBinaries / file, binaries / file, fs::copy_options::overwrite_existing);
     }
 
     PublishReport report;
-    const bool publishSucceeded = ProjectPublisher::Publish(
-        project, binaries, engineContent, report, &error);
-    if (!Check(publishSucceeded, "project publish failed: " + error)) return false;
+    const bool publishSucceeded = ProjectPublisher::Publish(project, binaries, engineContent, report, &error);
+    if (!Check(publishSucceeded, "project publish failed: " + error))
+        return false;
     if (!Check(fs::is_regular_file(report.contentArchive) &&
-               fs::is_regular_file(report.outputDirectory / "CookManifest.json") &&
-               !fs::exists(report.outputDirectory / "Content") &&
-               report.cookedFiles.size() >= 3 && report.contentBytes > 0,
-               "publish output layout or cook report mismatch")) return false;
+                   fs::is_regular_file(report.outputDirectory / "CookManifest.json") &&
+                   !fs::exists(report.outputDirectory / "Content") && report.cookedFiles.size() >= 3 &&
+                   report.contentBytes > 0,
+               "publish output layout or cook report mismatch"))
+        return false;
     for (const char* file : runtimeFiles) {
         if (!Check(fs::is_regular_file(report.outputDirectory / file),
-                   std::string("published runtime file missing: ") + file)) return false;
+                   std::string("published runtime file missing: ") + file))
+            return false;
     }
 
     CookManifest manifest;
-    if (!Check(CookManifest::Load(report.outputDirectory / CookManifest::kFileName,
-                                  manifest, &error),
-               "published Cook manifest failed to load: " + error)) return false;
-    if (!Check(manifest.project == project.GetName() &&
-               manifest.startupScene == project.GetStartupScene() &&
-               manifest.target == PublishTargets::kDefaultTargetId &&
-               manifest.files.size() == report.cookedFiles.size(),
-               "published Cook manifest fields mismatch")) return false;
+    if (!Check(CookManifest::Load(report.outputDirectory / CookManifest::kFileName, manifest, &error),
+               "published Cook manifest failed to load: " + error))
+        return false;
+    if (!Check(manifest.project == project.GetName() && manifest.startupScene == project.GetStartupScene() &&
+                   manifest.target == PublishTargets::kDefaultTargetId &&
+                   manifest.files.size() == report.cookedFiles.size(),
+               "published Cook manifest fields mismatch"))
+        return false;
 
     CookManifest invalidManifest = manifest;
     invalidManifest.version = 999;
-    if (!Check(!invalidManifest.Validate(&error),
-               "unknown Cook manifest version was accepted")) return false;
+    if (!Check(!invalidManifest.Validate(&error), "unknown Cook manifest version was accepted"))
+        return false;
     invalidManifest = manifest;
     invalidManifest.startupScene = "Content/../Outside.scene.json";
-    if (!Check(!invalidManifest.Validate(&error),
-               "Cook manifest traversal path was accepted")) return false;
+    if (!Check(!invalidManifest.Validate(&error), "Cook manifest traversal path was accepted"))
+        return false;
 
     const auto cacheBase = base / "CookedCache";
     CookedProjectMount firstMount;
-    if (!Check(CookedProjectCache::Prepare(report.outputDirectory, cacheBase,
-                                           firstMount, &error) && firstMount.rebuilt,
-               "first cooked cache prepare failed: " + error)) return false;
+    if (!Check(CookedProjectCache::Prepare(report.outputDirectory, cacheBase, firstMount, &error) && firstMount.rebuilt,
+               "first cooked cache prepare failed: " + error))
+        return false;
     CookedProjectMount reusedMount;
-    if (!Check(CookedProjectCache::Prepare(report.outputDirectory, cacheBase,
-                                           reusedMount, &error) && !reusedMount.rebuilt &&
-               reusedMount.projectRoot == firstMount.projectRoot,
-               "valid cooked cache was not reused: " + error)) return false;
+    if (!Check(CookedProjectCache::Prepare(report.outputDirectory, cacheBase, reusedMount, &error) &&
+                   !reusedMount.rebuilt && reusedMount.projectRoot == firstMount.projectRoot,
+               "valid cooked cache was not reused: " + error))
+        return false;
 
     const auto cachedPayload = firstMount.projectRoot / "Content/Data/payload.bin";
     std::ofstream(cachedPayload, std::ios::binary | std::ios::trunc) << "damaged payload";
     CookedProjectMount repairedMount;
-    if (!Check(CookedProjectCache::Prepare(report.outputDirectory, cacheBase,
-                                           repairedMount, &error) && repairedMount.rebuilt,
-               "corrupt cooked cache was not rebuilt: " + error)) return false;
+    if (!Check(CookedProjectCache::Prepare(report.outputDirectory, cacheBase, repairedMount, &error) &&
+                   repairedMount.rebuilt,
+               "corrupt cooked cache was not rebuilt: " + error))
+        return false;
     std::ifstream repairedPayload(cachedPayload, std::ios::binary);
-    const std::string repairedText((std::istreambuf_iterator<char>(repairedPayload)),
-                                   std::istreambuf_iterator<char>());
-    if (!Check(repairedText == "cooked payload",
-               "rebuilt cooked cache did not restore payload")) return false;
+    const std::string repairedText((std::istreambuf_iterator<char>(repairedPayload)), std::istreambuf_iterator<char>());
+    if (!Check(repairedText == "cooked payload", "rebuilt cooked cache did not restore payload"))
+        return false;
     repairedPayload.close();
 
     std::error_code concurrentCleanup;
     fs::remove_all(cacheBase, concurrentCleanup);
-    if (!Check(!concurrentCleanup && !fs::exists(cacheBase),
-               "failed to reset cooked cache before concurrency test")) return false;
+    if (!Check(!concurrentCleanup && !fs::exists(cacheBase), "failed to reset cooked cache before concurrency test"))
+        return false;
     CookedProjectMount concurrentMounts[2];
     std::string concurrentErrors[2];
     bool concurrentResults[2] = {false, false};
     std::thread first([&] {
-        concurrentResults[0] = CookedProjectCache::Prepare(
-            report.outputDirectory, cacheBase, concurrentMounts[0], &concurrentErrors[0]);
+        concurrentResults[0] =
+            CookedProjectCache::Prepare(report.outputDirectory, cacheBase, concurrentMounts[0], &concurrentErrors[0]);
     });
     std::thread second([&] {
-        concurrentResults[1] = CookedProjectCache::Prepare(
-            report.outputDirectory, cacheBase, concurrentMounts[1], &concurrentErrors[1]);
+        concurrentResults[1] =
+            CookedProjectCache::Prepare(report.outputDirectory, cacheBase, concurrentMounts[1], &concurrentErrors[1]);
     });
     first.join();
     second.join();
     if (!Check(concurrentResults[0] && concurrentResults[1] &&
-               concurrentMounts[0].projectRoot == concurrentMounts[1].projectRoot,
-               "concurrent cooked cache prepare failed: " + concurrentErrors[0] +
-               " / " + concurrentErrors[1])) return false;
+                   concurrentMounts[0].projectRoot == concurrentMounts[1].projectRoot,
+               "concurrent cooked cache prepare failed: " + concurrentErrors[0] + " / " + concurrentErrors[1]))
+        return false;
 
     const auto oldPackageMarker = report.outputDirectory / "previous-package.marker";
     std::ofstream(oldPackageMarker) << "keep";
     fs::remove(binaries / runtimeFiles[0]);
     PublishReport failedReport;
     if (!Check(!ProjectPublisher::Publish(project, binaries, engineContent, failedReport, &error) &&
-               fs::is_regular_file(oldPackageMarker) &&
-               !fs::exists(report.outputDirectory.string() + ".staging") &&
-               !fs::exists(report.outputDirectory.string() + ".backup"),
-               "failed publish damaged the previous package or left temporary output")) return false;
-    fs::copy_file(builtBinaries / runtimeFiles[0], binaries / runtimeFiles[0],
-                  fs::copy_options::overwrite_existing);
+                   fs::is_regular_file(oldPackageMarker) && !fs::exists(report.outputDirectory.string() + ".staging") &&
+                   !fs::exists(report.outputDirectory.string() + ".backup"),
+               "failed publish damaged the previous package or left temporary output"))
+        return false;
+    fs::copy_file(builtBinaries / runtimeFiles[0], binaries / runtimeFiles[0], fs::copy_options::overwrite_existing);
     PublishReport replacementReport;
     if (!Check(ProjectPublisher::Publish(project, binaries, engineContent, replacementReport, &error) &&
-               !fs::exists(oldPackageMarker) &&
-               !fs::exists(replacementReport.outputDirectory.string() + ".backup"),
-               "transactional publish replacement failed: " + error)) return false;
+                   !fs::exists(oldPackageMarker) && !fs::exists(replacementReport.outputDirectory.string() + ".backup"),
+               "transactional publish replacement failed: " + error))
+        return false;
 
     const fs::path interruptedBackup = replacementReport.outputDirectory.string() + ".backup";
     fs::rename(replacementReport.outputDirectory, interruptedBackup);
     fs::remove(binaries / runtimeFiles[0]);
     if (!Check(!ProjectPublisher::Publish(project, binaries, engineContent, failedReport, &error) &&
-               fs::is_directory(replacementReport.outputDirectory) &&
-               !fs::exists(interruptedBackup),
-               "interrupted publish backup was not restored before preflight")) return false;
-    fs::copy_file(builtBinaries / runtimeFiles[0], binaries / runtimeFiles[0],
-                  fs::copy_options::overwrite_existing);
+                   fs::is_directory(replacementReport.outputDirectory) && !fs::exists(interruptedBackup),
+               "interrupted publish backup was not restored before preflight"))
+        return false;
+    fs::copy_file(builtBinaries / runtimeFiles[0], binaries / runtimeFiles[0], fs::copy_options::overwrite_existing);
 
     const auto extracted = base / "Extracted";
     if (!Check(ContentArchive::Extract(report.contentArchive, extracted, &error),
-               "Content archive extraction failed: " + error)) return false;
+               "Content archive extraction failed: " + error))
+        return false;
     if (!Check(fs::is_regular_file(extracted / "Content/Scenes/Main.scene.json") &&
-               fs::is_regular_file(extracted / "Content/Data/payload.bin") &&
-               fs::is_regular_file(extracted / "Content/Scripts/main.as") &&
-               !fs::exists(extracted / "Content/Editor/Scripts/tool.lua") &&
-               fs::is_regular_file(extracted / "Content/Engine/Shaders/Mesh.shader") &&
-               !fs::exists(extracted / "Content/Engine/Shaders/Mesh.hlsl"),
-               "cooked Content files were not restored")) return false;
-    auto cookedShader = LoadShaderAssetFromFile(
-        (extracted / "Content/Engine/Shaders/Mesh.shader").string());
+                   fs::is_regular_file(extracted / "Content/Data/payload.bin") &&
+                   fs::is_regular_file(extracted / "Content/Scripts/main.as") &&
+                   !fs::exists(extracted / "Content/Editor/Scripts/tool.lua") &&
+                   fs::is_regular_file(extracted / "Content/Engine/Shaders/Mesh.shader") &&
+                   !fs::exists(extracted / "Content/Engine/Shaders/Mesh.hlsl"),
+               "cooked Content files were not restored"))
+        return false;
+    auto cookedShader = LoadShaderAssetFromFile((extracted / "Content/Engine/Shaders/Mesh.shader").string());
 #if defined(__APPLE__)
     if (!Check(cookedShader && cookedShader->IsCooked() &&
-               cookedShader->GetBytecode(ShaderBackend::D3D11, ShaderStage::Vertex).empty() &&
-               cookedShader->GetBytecode(ShaderBackend::D3D12, ShaderStage::Pixel).empty() &&
-               !cookedShader->GetBytecode(ShaderBackend::Metal, ShaderStage::Vertex).empty() &&
-               cookedShader->GetBytecode(ShaderBackend::Vulkan, ShaderStage::Vertex).empty(),
-               "published macOS shader does not contain the expected Metal backend")) return false;
+                   cookedShader->GetBytecode(ShaderBackend::D3D11, ShaderStage::Vertex).empty() &&
+                   cookedShader->GetBytecode(ShaderBackend::D3D12, ShaderStage::Pixel).empty() &&
+                   !cookedShader->GetBytecode(ShaderBackend::Metal, ShaderStage::Vertex).empty() &&
+                   cookedShader->GetBytecode(ShaderBackend::Vulkan, ShaderStage::Vertex).empty(),
+               "published macOS shader does not contain the expected Metal backend"))
+        return false;
 #else
 #if defined(MYENGINE_ENABLE_VULKAN)
     if (!Check(cookedShader && cookedShader->IsCooked() &&
-               !cookedShader->GetBytecode(ShaderBackend::D3D11, ShaderStage::Vertex).empty() &&
-               !cookedShader->GetBytecode(ShaderBackend::D3D12, ShaderStage::Pixel).empty() &&
-               !cookedShader->GetBytecode(ShaderBackend::Vulkan, ShaderStage::Vertex).empty() &&
-               cookedShader->GetBytecode(ShaderBackend::Metal, ShaderStage::Vertex).empty(),
-               "published Windows shader does not contain the expected D3D/Vulkan backends")) return false;
+                   !cookedShader->GetBytecode(ShaderBackend::D3D11, ShaderStage::Vertex).empty() &&
+                   !cookedShader->GetBytecode(ShaderBackend::D3D12, ShaderStage::Pixel).empty() &&
+                   !cookedShader->GetBytecode(ShaderBackend::Vulkan, ShaderStage::Vertex).empty() &&
+                   cookedShader->GetBytecode(ShaderBackend::Metal, ShaderStage::Vertex).empty(),
+               "published Windows shader does not contain the expected D3D/Vulkan backends"))
+        return false;
 #else
     if (!Check(cookedShader && cookedShader->IsCooked() &&
-               !cookedShader->GetBytecode(ShaderBackend::D3D11, ShaderStage::Vertex).empty() &&
-               !cookedShader->GetBytecode(ShaderBackend::D3D12, ShaderStage::Pixel).empty() &&
-               cookedShader->GetBytecode(ShaderBackend::Vulkan, ShaderStage::Vertex).empty() &&
-               cookedShader->GetBytecode(ShaderBackend::Metal, ShaderStage::Vertex).empty(),
-               "published Windows shader does not contain the expected D3D-only backends")) return false;
+                   !cookedShader->GetBytecode(ShaderBackend::D3D11, ShaderStage::Vertex).empty() &&
+                   !cookedShader->GetBytecode(ShaderBackend::D3D12, ShaderStage::Pixel).empty() &&
+                   cookedShader->GetBytecode(ShaderBackend::Vulkan, ShaderStage::Vertex).empty() &&
+                   cookedShader->GetBytecode(ShaderBackend::Metal, ShaderStage::Vertex).empty(),
+               "published Windows shader does not contain the expected D3D-only backends"))
+        return false;
 #endif
 #endif
     std::ifstream payload(extracted / "Content/Data/payload.bin", std::ios::binary);
-    std::string payloadText((std::istreambuf_iterator<char>(payload)),
-                            std::istreambuf_iterator<char>());
-    if (!Check(payloadText == "cooked payload", "cooked payload content changed")) return false;
+    std::string payloadText((std::istreambuf_iterator<char>(payload)), std::istreambuf_iterator<char>());
+    if (!Check(payloadText == "cooked payload", "cooked payload content changed"))
+        return false;
 
     const auto corrupt = base / "Corrupt.pak";
     fs::copy_file(report.contentArchive, corrupt);
@@ -4097,24 +4622,24 @@ bool TestWorkspaceCookAndPublish() {
         file.write(&value, 1);
     }
     if (!Check(!ContentArchive::Extract(corrupt, base / "CorruptExtract", &error),
-               "corrupt Content archive was accepted")) return false;
+               "corrupt Content archive was accepted"))
+        return false;
 
     const auto trailing = base / "Trailing.pak";
     fs::copy_file(report.contentArchive, trailing);
     std::ofstream(trailing, std::ios::binary | std::ios::app) << "trailing";
     if (!Check(!ContentArchive::Extract(trailing, base / "TrailingExtract", &error) &&
-               error.find("trailing") != std::string::npos,
-               "Content archive trailing data was accepted")) return false;
+                   error.find("trailing") != std::string::npos,
+               "Content archive trailing data was accepted"))
+        return false;
 
     const auto corruptPackage = base / "CorruptPackage";
-    fs::copy(replacementReport.outputDirectory, corruptPackage,
-             fs::copy_options::recursive);
-    fs::copy_file(corrupt, corruptPackage / ContentArchive::kFileName,
-                  fs::copy_options::overwrite_existing);
+    fs::copy(replacementReport.outputDirectory, corruptPackage, fs::copy_options::recursive);
+    fs::copy_file(corrupt, corruptPackage / ContentArchive::kFileName, fs::copy_options::overwrite_existing);
     CookedProjectMount rejectedMount;
-    if (!Check(!CookedProjectCache::Prepare(corruptPackage, base / "RejectedCache",
-                                            rejectedMount, &error),
-               "package with archive hash mismatch was accepted")) return false;
+    if (!Check(!CookedProjectCache::Prepare(corruptPackage, base / "RejectedCache", rejectedMount, &error),
+               "package with archive hash mismatch was accepted"))
+        return false;
 
     std::error_code cleanupError;
     fs::remove_all(base, cleanupError);
@@ -4126,7 +4651,10 @@ struct LifecycleProbeComponent : Component {
     std::string label;
     const char* GetTypeName() const override { return "LifecycleProbe"; }
     void Deserialize(const nlohmann::json& data) override { label = data.value("label", std::string{}); }
-    void Push(const char* event) { if (events) events->push_back(label + ":" + event); }
+    void Push(const char* event) {
+        if (events)
+            events->push_back(label + ":" + event);
+    }
     void OnAttach() override { Push("attach"); }
     void OnInitialize() override { Push("initialize"); }
     void OnBeginPlay() override { Push("begin"); }
@@ -4147,7 +4675,8 @@ struct DeferredMutationProbe final : Component {
     bool ran = false;
     const char* GetTypeName() const override { return "DeferredMutationProbe"; }
     void OnUpdate(float) override {
-        if (ran) return;
+        if (ran)
+            return;
         ran = true;
         Scene* scene = GetOwner()->GetScene();
         scene->QueueCreateActor(ActorCreateDesc{"SpawnedDuringUpdate"});
@@ -4155,14 +4684,10 @@ struct DeferredMutationProbe final : Component {
     }
 };
 
-bool TestActorHandleLifecycleAndDeferredMutation()
-{
-    ComponentRegistry::Get().Register("LifecycleProbe", [] {
-        return std::make_unique<LifecycleProbeComponent>();
-    });
-    ComponentRegistry::Get().Register("PriorityLifecycleProbe", [] {
-        return std::make_unique<PriorityLifecycleProbeComponent>();
-    });
+bool TestActorHandleLifecycleAndDeferredMutation() {
+    ComponentRegistry::Get().Register("LifecycleProbe", [] { return std::make_unique<LifecycleProbeComponent>(); });
+    ComponentRegistry::Get().Register("PriorityLifecycleProbe",
+                                      [] { return std::make_unique<PriorityLifecycleProbeComponent>(); });
     std::vector<std::string> events;
     LifecycleProbeComponent::events = &events;
 
@@ -4173,10 +4698,10 @@ bool TestActorHandleLifecycleAndDeferredMutation()
         desc.components.push_back({"PriorityLifecycleProbe", true, {{"label", "priority"}}});
         ordering.QueueCreateActor(desc);
         ordering.FlushCommands();
-        const std::vector<std::string> expected = {
-            "priority:attach", "normal:attach", "priority:initialize", "normal:initialize"
-        };
-        if (!Check(events == expected, "component priority and stable ordering mismatch")) return false;
+        const std::vector<std::string> expected = {"priority:attach", "normal:attach", "priority:initialize",
+                                                   "normal:initialize"};
+        if (!Check(events == expected, "component priority and stable ordering mismatch"))
+            return false;
     }
     events.clear();
     Scene scene("Lifecycle");
@@ -4190,52 +4715,55 @@ bool TestActorHandleLifecycleAndDeferredMutation()
     childDesc.parent = parent;
     childDesc.components.push_back({"LifecycleProbe", true, {{"label", "child"}}});
     const ActorHandle child = scene.QueueCreateActor(childDesc);
-    if (!Check(!scene.TryGetActor(parent) && scene.FlushCommands(),
-               "queued actor became visible before command flush")) return false;
-    const std::vector<std::string> constructExpected = {
-        "parent:attach", "parent:initialize", "child:attach", "child:initialize"
-    };
-    if (!Check(events == constructExpected, "batch construction lifecycle order mismatch")) return false;
+    if (!Check(!scene.TryGetActor(parent) && scene.FlushCommands(), "queued actor became visible before command flush"))
+        return false;
+    const std::vector<std::string> constructExpected = {"parent:attach", "parent:initialize", "child:attach",
+                                                        "child:initialize"};
+    if (!Check(events == constructExpected, "batch construction lifecycle order mismatch"))
+        return false;
 
     scene.BeginPlay();
-    const std::vector<std::string> playTail = {
-        "parent:begin", "child:begin", "parent:enable", "child:enable",
-        "parent:start", "child:start"
-    };
+    const std::vector<std::string> playTail = {"parent:begin", "child:begin",  "parent:enable",
+                                               "child:enable", "parent:start", "child:start"};
     if (!Check(std::equal(playTail.begin(), playTail.end(), events.end() - playTail.size()),
-               "global begin/enable/start lifecycle order mismatch")) return false;
+               "global begin/enable/start lifecycle order mismatch"))
+        return false;
 
     scene.QueueSetActive(parent, false);
     scene.FlushCommands();
-    if (!Check(events[events.size() - 2] == "child:disable" &&
-               events.back() == "parent:disable", "hierarchy disable was not child-to-parent")) return false;
+    if (!Check(events[events.size() - 2] == "child:disable" && events.back() == "parent:disable",
+               "hierarchy disable was not child-to-parent"))
+        return false;
     scene.QueueSetActive(parent, true);
     scene.FlushCommands();
-    if (!Check(events[events.size() - 2] == "parent:enable" &&
-               events.back() == "child:enable", "hierarchy enable was not parent-to-child")) return false;
+    if (!Check(events[events.size() - 2] == "parent:enable" && events.back() == "child:enable",
+               "hierarchy enable was not parent-to-child"))
+        return false;
 
     const ActorHandle oldChild = child;
     scene.QueueDestroyActor(child);
     if (!Check(scene.TryGetActor(child) && scene.TryGetActor(child)->IsPendingDestroy(),
-               "destroy did not mark actor pending immediately")) return false;
+               "destroy did not mark actor pending immediately"))
+        return false;
     scene.FlushCommands();
     const ActorHandle replacement = scene.QueueCreateActor(ActorCreateDesc{"Replacement"});
     scene.FlushCommands();
-    if (!Check(!scene.TryGetActor(oldChild) && scene.TryGetActor(replacement) &&
-               replacement != oldChild, "generation did not invalidate stale actor handle")) return false;
+    if (!Check(!scene.TryGetActor(oldChild) && scene.TryGetActor(replacement) && replacement != oldChild,
+               "generation did not invalidate stale actor handle"))
+        return false;
 
     Actor* mutator = scene.CreateActor("Mutator");
     const ActorHandle mutatorHandle = mutator->GetHandle();
     mutator->AddComponent<DeferredMutationProbe>();
     scene.OnUpdate(1.0f / 60.0f);
     if (!Check(!scene.TryGetActor(mutatorHandle) && scene.FindByName("SpawnedDuringUpdate"),
-               "update-time structural commands were not safely deferred")) return false;
+               "update-time structural commands were not safely deferred"))
+        return false;
     LifecycleProbeComponent::events = nullptr;
     return true;
 }
 
-bool TestSceneActorSiblingReorder()
-{
+bool TestSceneActorSiblingReorder() {
     Scene scene("ActorReorder");
     Actor* rootA = scene.CreateActor("RootA");
     Actor* rootB = scene.CreateActor("RootB");
@@ -4244,13 +4772,14 @@ bool TestSceneActorSiblingReorder()
     scene.FlushCommands();
     std::vector<Actor*> roots = scene.GetRootActors();
     if (!Check(roots.size() == 3 && roots[0] == rootB && roots[1] == rootA && roots[2] == rootC,
-               "root actor reorder mismatch")) return false;
+               "root actor reorder mismatch"))
+        return false;
 
     const nlohmann::json serialized = nlohmann::json::parse(SceneSerializer::SaveToString(scene));
-    if (!Check(serialized["actors"][0]["name"] == "RootB" &&
-               serialized["actors"][1]["name"] == "RootA" &&
-               serialized["actors"][2]["name"] == "RootC",
-               "serialized root actor order mismatch")) return false;
+    if (!Check(serialized["actors"][0]["name"] == "RootB" && serialized["actors"][1]["name"] == "RootA" &&
+                   serialized["actors"][2]["name"] == "RootC",
+               "serialized root actor order mismatch"))
+        return false;
 
     Actor* parent = scene.CreateActor("Parent");
     Actor* childA = scene.CreateActor("ChildA", parent);
@@ -4260,7 +4789,8 @@ bool TestSceneActorSiblingReorder()
     scene.FlushCommands();
     const std::vector<Actor*>& children = parent->GetChildren();
     if (!Check(children.size() == 3 && children[0] == childA && children[1] == childC && children[2] == childB,
-               "child actor reorder mismatch")) return false;
+               "child actor reorder mismatch"))
+        return false;
 
     Actor* otherParent = scene.CreateActor("OtherParent");
     Actor* otherA = scene.CreateActor("OtherA", otherParent);
@@ -4268,153 +4798,339 @@ bool TestSceneActorSiblingReorder()
     scene.QueueMoveActor(childB->GetHandle(), otherParent->GetHandle(), otherB->GetHandle());
     scene.FlushCommands();
     const std::vector<Actor*>& otherChildren = otherParent->GetChildren();
-    if (!Check(childB->GetParent() == otherParent &&
-               otherChildren.size() == 3 &&
-               otherChildren[0] == otherA &&
-               otherChildren[1] == childB &&
-               otherChildren[2] == otherB,
-               "cross-parent ordered actor move mismatch")) return false;
+    if (!Check(childB->GetParent() == otherParent && otherChildren.size() == 3 && otherChildren[0] == otherA &&
+                   otherChildren[1] == childB && otherChildren[2] == otherB,
+               "cross-parent ordered actor move mismatch"))
+        return false;
 
     scene.QueueMoveActor(parent->GetHandle(), childA->GetHandle(), ActorHandle{});
     scene.FlushCommands();
-    if (!Check(parent->GetParent() == nullptr && childA->GetParent() == parent,
-               "cyclic actor move should be rejected")) return false;
+    if (!Check(parent->GetParent() == nullptr && childA->GetParent() == parent, "cyclic actor move should be rejected"))
+        return false;
 
     scene.QueueMoveActor(childA->GetHandle(), parent->GetHandle(), otherA->GetHandle());
     scene.FlushCommands();
-    if (!Check(childA->GetParent() == parent &&
-               parent->GetChildren().size() == 2 &&
-               parent->GetChildren()[0] == childA,
-               "move with sibling outside target parent should be rejected")) return false;
+    if (!Check(childA->GetParent() == parent && parent->GetChildren().size() == 2 && parent->GetChildren()[0] == childA,
+               "move with sibling outside target parent should be rejected"))
+        return false;
     return true;
 }
 
-bool TestPrefabRoundTripOverridesAndValidation()
-{
-    namespace fs=std::filesystem;const fs::path project=fs::temp_directory_path()/"myengine_prefab_test";std::error_code ec;fs::remove_all(project,ec);fs::create_directories(project/"Content/Prefabs");AssetManager::Get().SetProjectRoot(project);
-    Scene source("Source");Actor* sourceRoot=source.CreateActor("Vehicle");sourceRoot->AddComponent<MeshRendererComponent>();Actor* sourceChild=source.CreateActor("Wheel");sourceChild->SetParent(sourceRoot);sourceChild->GetTransform().position.x=2.0f;
-    const fs::path path=project/"Content/Prefabs/Vehicle.prefab.json";std::string error;
-    if(!Check(PrefabSystem::SaveSubtree(*sourceRoot,path,&error),"prefab save failed: "+error))return false;
-    PrefabAsset asset;if(!Check(PrefabAsset::Load(path,asset,&error)&&asset.nodes.size()==2,"prefab round-trip failed: "+error))return false;
+bool TestPrefabRoundTripOverridesAndValidation() {
+    namespace fs = std::filesystem;
+    const fs::path project = fs::temp_directory_path() / "myengine_prefab_test";
+    std::error_code ec;
+    fs::remove_all(project, ec);
+    fs::create_directories(project / "Content/Prefabs");
+    AssetManager::Get().SetProjectRoot(project);
+    Scene source("Source");
+    Actor* sourceRoot = source.CreateActor("Vehicle");
+    sourceRoot->AddComponent<MeshRendererComponent>();
+    Actor* sourceChild = source.CreateActor("Wheel");
+    sourceChild->SetParent(sourceRoot);
+    sourceChild->GetTransform().position.x = 2.0f;
+    const fs::path path = project / "Content/Prefabs/Vehicle.prefab.json";
+    std::string error;
+    if (!Check(PrefabSystem::SaveSubtree(*sourceRoot, path, &error), "prefab save failed: " + error))
+        return false;
+    PrefabAsset asset;
+    if (!Check(PrefabAsset::Load(path, asset, &error) && asset.nodes.size() == 2, "prefab round-trip failed: " + error))
+        return false;
 
-    Scene scene("Instances");Actor* first=PrefabSystem::Instantiate(scene,path,{},&error);Actor* second=PrefabSystem::Instantiate(scene,path,{},&error);
-    if(!Check(first&&second&&first->GetID()!=second->GetID()&&scene.ActorCount()==4,"prefab instances did not receive independent actor identities"))return false;
-    Actor* firstChild=first->GetChildren().front();firstChild->SetName("CustomWheel");first->RemoveComponentByTypeName("MeshRenderer");firstChild->AddComponent<LightComponent>();
-    if(!Check(PrefabSystem::CaptureOverrides(*first,&error)&&!first->GetPrefabOverrides().empty(),"prefab override capture failed: "+error))return false;
-    const uint64_t firstId=first->GetID(),secondId=second->GetID();
-    for(auto& node:asset.nodes)if(node.localId!=asset.rootLocalId)node.name="SourceWheel";
-    if(!Check(asset.Save(path,&error)&&PrefabSystem::RefreshInstances(scene,asset.uuid,&error),"prefab source refresh failed: "+error))return false;
-    first=scene.FindByID(firstId);second=scene.FindByID(secondId);
-    if(!Check(first&&second&&first->GetChildren().front()->GetName()=="CustomWheel"&&second->GetChildren().front()->GetName()=="SourceWheel","source propagation overwrote an override or missed an unoverridden instance"))return false;
-    if(!Check(!first->GetComponent<MeshRendererComponent>()&&first->GetChildren().front()->GetComponent<LightComponent>()&&second->GetComponent<MeshRendererComponent>()&&!second->GetChildren().front()->GetComponent<LightComponent>(),"component add/remove overrides were not isolated per instance"))return false;
+    Scene scene("Instances");
+    Actor* first = PrefabSystem::Instantiate(scene, path, {}, &error);
+    Actor* second = PrefabSystem::Instantiate(scene, path, {}, &error);
+    if (!Check(first && second && first->GetID() != second->GetID() && scene.ActorCount() == 4,
+               "prefab instances did not receive independent actor identities"))
+        return false;
+    Actor* firstChild = first->GetChildren().front();
+    firstChild->SetName("CustomWheel");
+    first->RemoveComponentByTypeName("MeshRenderer");
+    firstChild->AddComponent<LightComponent>();
+    if (!Check(PrefabSystem::CaptureOverrides(*first, &error) && !first->GetPrefabOverrides().empty(),
+               "prefab override capture failed: " + error))
+        return false;
+    const uint64_t firstId = first->GetID(), secondId = second->GetID();
+    for (auto& node : asset.nodes)
+        if (node.localId != asset.rootLocalId)
+            node.name = "SourceWheel";
+    if (!Check(asset.Save(path, &error) && PrefabSystem::RefreshInstances(scene, asset.uuid, &error),
+               "prefab source refresh failed: " + error))
+        return false;
+    first = scene.FindByID(firstId);
+    second = scene.FindByID(secondId);
+    if (!Check(first && second && first->GetChildren().front()->GetName() == "CustomWheel" &&
+                   second->GetChildren().front()->GetName() == "SourceWheel",
+               "source propagation overwrote an override or missed an unoverridden instance"))
+        return false;
+    if (!Check(!first->GetComponent<MeshRendererComponent>() &&
+                   first->GetChildren().front()->GetComponent<LightComponent>() &&
+                   second->GetComponent<MeshRendererComponent>() &&
+                   !second->GetChildren().front()->GetComponent<LightComponent>(),
+               "component add/remove overrides were not isolated per instance"))
+        return false;
 
-    if(!Check(PrefabSystem::RevertAll(*first,&error),"prefab revert failed: "+error))return false;first=scene.FindByID(firstId);second=scene.FindByID(secondId);
-    if(!Check(first&&first->GetChildren().front()->GetName()=="SourceWheel"&&first->GetComponent<MeshRendererComponent>()&&!first->GetChildren().front()->GetComponent<LightComponent>(),"prefab revert did not restore source state"))return false;
-    first->GetChildren().front()->SetName("AppliedWheel");if(!Check(PrefabSystem::ApplyAll(*first,&error),"prefab apply failed: "+error))return false;first=scene.FindByID(firstId);second=scene.FindByID(secondId);
-    if(!Check(first&&second&&first->GetChildren().front()->GetName()=="AppliedWheel"&&second->GetChildren().front()->GetName()=="AppliedWheel"&&first->GetPrefabOverrides().empty(),"prefab apply did not update all instances"))return false;
+    if (!Check(PrefabSystem::RevertAll(*first, &error), "prefab revert failed: " + error))
+        return false;
+    first = scene.FindByID(firstId);
+    second = scene.FindByID(secondId);
+    if (!Check(first && first->GetChildren().front()->GetName() == "SourceWheel" &&
+                   first->GetComponent<MeshRendererComponent>() &&
+                   !first->GetChildren().front()->GetComponent<LightComponent>(),
+               "prefab revert did not restore source state"))
+        return false;
+    first->GetChildren().front()->SetName("AppliedWheel");
+    if (!Check(PrefabSystem::ApplyAll(*first, &error), "prefab apply failed: " + error))
+        return false;
+    first = scene.FindByID(firstId);
+    second = scene.FindByID(secondId);
+    if (!Check(first && second && first->GetChildren().front()->GetName() == "AppliedWheel" &&
+                   second->GetChildren().front()->GetName() == "AppliedWheel" && first->GetPrefabOverrides().empty(),
+               "prefab apply did not update all instances"))
+        return false;
 
-    Actor* added=scene.CreateActor("AddedChild");added->SetParent(first);
-    const std::string serialized=SceneSerializer::SaveToString(scene);const auto json=nlohmann::json::parse(serialized);
-    if(!Check(json["actors"].size()==2&&json["actors"][0].contains("prefabInstance"),"scene duplicated prefab instance nodes"))return false;
-    Scene loaded("Loaded");if(!Check(SceneSerializer::LoadFromString(loaded,serialized)&&loaded.ActorCount()==5,"prefab scene reload failed"))return false;
-    Actor* loadedFirst=loaded.FindByID(first->GetID());if(!Check(loadedFirst&&loadedFirst->GetChildren().size()==2,"added prefab child override was not restored"))return false;
-    if(!Check(PrefabSystem::Unpack(*loadedFirst,&error)&&!loadedFirst->IsPrefabInstance(),"prefab unpack failed: "+error))return false;
+    Actor* added = scene.CreateActor("AddedChild");
+    added->SetParent(first);
+    const std::string serialized = SceneSerializer::SaveToString(scene);
+    const auto json = nlohmann::json::parse(serialized);
+    if (!Check(json["actors"].size() == 2 && json["actors"][0].contains("prefabInstance"),
+               "scene duplicated prefab instance nodes"))
+        return false;
+    Scene loaded("Loaded");
+    if (!Check(SceneSerializer::LoadFromString(loaded, serialized) && loaded.ActorCount() == 5,
+               "prefab scene reload failed"))
+        return false;
+    Actor* loadedFirst = loaded.FindByID(first->GetID());
+    if (!Check(loadedFirst && loadedFirst->GetChildren().size() == 2, "added prefab child override was not restored"))
+        return false;
+    if (!Check(PrefabSystem::Unpack(*loadedFirst, &error) && !loadedFirst->IsPrefabInstance(),
+               "prefab unpack failed: " + error))
+        return false;
 
-    auto mismatch=json;mismatch["actors"][0]["prefabInstance"]["uuid"]="wrong";Scene rejected;
-    if(!Check(!SceneSerializer::LoadFromString(rejected,mismatch.dump())&&rejected.ActorCount()==0,"prefab UUID mismatch was accepted"))return false;
-    Actor* container=source.CreateActor("Container");Actor* nested=PrefabSystem::Instantiate(source,path,{},&error);nested->SetParent(container);
-    const fs::path nestedPath=project/"Content/Prefabs/Nested.prefab.json";
-    if(!Check(PrefabSystem::SaveSubtree(*container,nestedPath,&error),"nested prefab save failed: "+error))return false;
+    auto mismatch = json;
+    mismatch["actors"][0]["prefabInstance"]["uuid"] = "wrong";
+    Scene rejected;
+    if (!Check(!SceneSerializer::LoadFromString(rejected, mismatch.dump()) && rejected.ActorCount() == 0,
+               "prefab UUID mismatch was accepted"))
+        return false;
+    Actor* container = source.CreateActor("Container");
+    Actor* nested = PrefabSystem::Instantiate(source, path, {}, &error);
+    nested->SetParent(container);
+    const fs::path nestedPath = project / "Content/Prefabs/Nested.prefab.json";
+    if (!Check(PrefabSystem::SaveSubtree(*container, nestedPath, &error), "nested prefab save failed: " + error))
+        return false;
     PrefabAsset nestedAsset;
-    if(!Check(PrefabAsset::Load(nestedPath,nestedAsset,&error)&&nestedAsset.nodes.size()==1&&nestedAsset.nestedInstances.size()==1,
-              "nested prefab was flattened or lost its source reference: "+error))return false;
-    Scene nestedScene("NestedInstances");Actor* nestedOuter=PrefabSystem::Instantiate(nestedScene,nestedPath,{},&error);
-    if(!Check(nestedOuter&&nestedScene.ActorCount()==3&&nestedOuter->GetChildren().size()==1&&nestedOuter->GetChildren().front()->IsPrefabRoot(),
-              "nested prefab instance did not recursively instantiate: "+error))return false;
-    Actor* nestedVehicle=nestedOuter->GetChildren().front();
+    if (!Check(PrefabAsset::Load(nestedPath, nestedAsset, &error) && nestedAsset.nodes.size() == 1 &&
+                   nestedAsset.nestedInstances.size() == 1,
+               "nested prefab was flattened or lost its source reference: " + error))
+        return false;
+    Scene nestedScene("NestedInstances");
+    Actor* nestedOuter = PrefabSystem::Instantiate(nestedScene, nestedPath, {}, &error);
+    if (!Check(nestedOuter && nestedScene.ActorCount() == 3 && nestedOuter->GetChildren().size() == 1 &&
+                   nestedOuter->GetChildren().front()->IsPrefabRoot(),
+               "nested prefab instance did not recursively instantiate: " + error))
+        return false;
+    Actor* nestedVehicle = nestedOuter->GetChildren().front();
     nestedVehicle->GetChildren().front()->SetName("NestedOverrideWheel");
-    if(!Check(PrefabSystem::CaptureOverrides(*nestedVehicle,&error)&&
-              PrefabSystem::SaveSubtree(*nestedOuter,nestedPath,&error),
-              "nested prefab override capture failed: "+error))return false;
-    Scene refreshedNested("RefreshedNested");Actor* refreshedOuter=PrefabSystem::Instantiate(refreshedNested,nestedPath,{},&error);
-    if(!Check(refreshedOuter&&refreshedOuter->GetChildren().front()->GetChildren().front()->GetName()=="NestedOverrideWheel",
-              "nested prefab local overrides were not preserved: "+error))return false;
+    if (!Check(PrefabSystem::CaptureOverrides(*nestedVehicle, &error) &&
+                   PrefabSystem::SaveSubtree(*nestedOuter, nestedPath, &error),
+               "nested prefab override capture failed: " + error))
+        return false;
+    Scene refreshedNested("RefreshedNested");
+    Actor* refreshedOuter = PrefabSystem::Instantiate(refreshedNested, nestedPath, {}, &error);
+    if (!Check(refreshedOuter &&
+                   refreshedOuter->GetChildren().front()->GetChildren().front()->GetName() == "NestedOverrideWheel",
+               "nested prefab local overrides were not preserved: " + error))
+        return false;
 
-    Scene deepSource("DeepSource");Actor* deepRoot=deepSource.CreateActor("DeepRoot");
-    Actor* levelTwo=PrefabSystem::Instantiate(deepSource,nestedPath,{},&error);levelTwo->SetParent(deepRoot);
-    const fs::path deepPath=project/"Content/Prefabs/Deep.prefab.json";
-    if(!Check(PrefabSystem::SaveSubtree(*deepRoot,deepPath,&error),"three-level prefab save failed: "+error))return false;
-    Scene deepScene("DeepInstance");Actor* deep=PrefabSystem::Instantiate(deepScene,deepPath,{},&error);
-    if(!Check(deep&&deepScene.ActorCount()==4,"three-level prefab did not instantiate its full reference chain: "+error))return false;
-    const std::string deepSerialized=SceneSerializer::SaveToString(deepScene);Scene deepReloaded("DeepReloaded");
-    if(!Check(SceneSerializer::LoadFromString(deepReloaded,deepSerialized)&&deepReloaded.ActorCount()==4,
-              "three-level nested prefab scene round-trip failed"))return false;
+    Scene deepSource("DeepSource");
+    Actor* deepRoot = deepSource.CreateActor("DeepRoot");
+    Actor* levelTwo = PrefabSystem::Instantiate(deepSource, nestedPath, {}, &error);
+    levelTwo->SetParent(deepRoot);
+    const fs::path deepPath = project / "Content/Prefabs/Deep.prefab.json";
+    if (!Check(PrefabSystem::SaveSubtree(*deepRoot, deepPath, &error), "three-level prefab save failed: " + error))
+        return false;
+    Scene deepScene("DeepInstance");
+    Actor* deep = PrefabSystem::Instantiate(deepScene, deepPath, {}, &error);
+    if (!Check(deep && deepScene.ActorCount() == 4,
+               "three-level prefab did not instantiate its full reference chain: " + error))
+        return false;
+    const std::string deepSerialized = SceneSerializer::SaveToString(deepScene);
+    Scene deepReloaded("DeepReloaded");
+    if (!Check(SceneSerializer::LoadFromString(deepReloaded, deepSerialized) && deepReloaded.ActorCount() == 4,
+               "three-level nested prefab scene round-trip failed"))
+        return false;
 
-    PrefabAsset refreshedVehicle;if(!Check(PrefabAsset::Load(path,refreshedVehicle,&error),"nested refresh source load failed"))return false;
-    if(auto vehicleRoot=std::find_if(refreshedVehicle.nodes.begin(),refreshedVehicle.nodes.end(),[&](const PrefabNode& node){return node.localId==refreshedVehicle.rootLocalId;});vehicleRoot!=refreshedVehicle.nodes.end())vehicleRoot->name="VehicleSourceV2";
+    PrefabAsset refreshedVehicle;
+    if (!Check(PrefabAsset::Load(path, refreshedVehicle, &error), "nested refresh source load failed"))
+        return false;
+    if (auto vehicleRoot =
+            std::find_if(refreshedVehicle.nodes.begin(), refreshedVehicle.nodes.end(),
+                         [&](const PrefabNode& node) { return node.localId == refreshedVehicle.rootLocalId; });
+        vehicleRoot != refreshedVehicle.nodes.end())
+        vehicleRoot->name = "VehicleSourceV2";
     ++refreshedVehicle.revision;
-    if(!Check(refreshedVehicle.Save(path,&error)&&PrefabSystem::RefreshInstances(refreshedNested,refreshedVehicle.uuid,&error),
-              "nested source refresh failed: "+error))return false;
-    refreshedOuter=refreshedNested.GetRootActors().front();nestedVehicle=refreshedOuter->GetChildren().front();
-    if(!Check(nestedVehicle->GetName()=="VehicleSourceV2"&&nestedVehicle->GetChildren().front()->GetName()=="NestedOverrideWheel",
-              "nested source refresh lost local overrides or missed source changes"))return false;
+    if (!Check(refreshedVehicle.Save(path, &error) &&
+                   PrefabSystem::RefreshInstances(refreshedNested, refreshedVehicle.uuid, &error),
+               "nested source refresh failed: " + error))
+        return false;
+    refreshedOuter = refreshedNested.GetRootActors().front();
+    nestedVehicle = refreshedOuter->GetChildren().front();
+    if (!Check(nestedVehicle->GetName() == "VehicleSourceV2" &&
+                   nestedVehicle->GetChildren().front()->GetName() == "NestedOverrideWheel",
+               "nested source refresh lost local overrides or missed source changes"))
+        return false;
 
-    PrefabAsset cyclicVehicle;if(!Check(PrefabAsset::Load(path,cyclicVehicle,&error),"cycle setup load failed"))return false;
-    PrefabNestedInstance cycleReference;cycleReference.instanceLocalId="cycle";cycleReference.parentLocalId=cyclicVehicle.rootLocalId;
-    cycleReference.assetPath=AssetManager::Get().MakeProjectRelativePath(nestedPath.string());cycleReference.assetUuid=nestedAsset.uuid;cycleReference.sourceRevision=nestedAsset.revision;
+    PrefabAsset cyclicVehicle;
+    if (!Check(PrefabAsset::Load(path, cyclicVehicle, &error), "cycle setup load failed"))
+        return false;
+    PrefabNestedInstance cycleReference;
+    cycleReference.instanceLocalId = "cycle";
+    cycleReference.parentLocalId = cyclicVehicle.rootLocalId;
+    cycleReference.assetPath = AssetManager::Get().MakeProjectRelativePath(nestedPath.string());
+    cycleReference.assetUuid = nestedAsset.uuid;
+    cycleReference.sourceRevision = nestedAsset.revision;
     cyclicVehicle.nestedInstances.push_back(std::move(cycleReference));
-    if(!Check(cyclicVehicle.Save(path,&error),"cycle setup save failed: "+error))return false;
+    if (!Check(cyclicVehicle.Save(path, &error), "cycle setup save failed: " + error))
+        return false;
     Scene cycleScene("CycleRejected");
-    if(!Check(!PrefabSystem::Instantiate(cycleScene,deepPath,{},&error)&&cycleScene.ActorCount()==0,
-              "nested prefab dependency cycle was accepted"))return false;
-    AssetManager::Get().SetProjectRoot({});fs::remove_all(project,ec);return true;
+    if (!Check(!PrefabSystem::Instantiate(cycleScene, deepPath, {}, &error) && cycleScene.ActorCount() == 0,
+               "nested prefab dependency cycle was accepted"))
+        return false;
+    AssetManager::Get().SetProjectRoot({});
+    fs::remove_all(project, ec);
+    return true;
 }
 
-bool TestPrefabCookDependencyValidation()
-{
-    namespace fs=std::filesystem;const fs::path root=fs::temp_directory_path()/"myengine_prefab_cook_test";std::error_code ec;fs::remove_all(root,ec);fs::create_directories(root/"Content/Scenes");fs::create_directories(root/"Content/Prefabs");
-    const std::string uuid="11111111-2222-4333-8444-555555555555";
-    std::ofstream(root/"Content/Prefabs/Unit.prefab.json")<<nlohmann::json{{"version",1},{"uuid",uuid},{"rootLocalId","root"},{"nodes",nlohmann::json::array({{{"localId","root"},{"parentLocalId",""},{"name","Unit"},{"active",true},{"components",nlohmann::json::array()}}})}}.dump();
-    std::ofstream(root/"Content/Prefabs/Unit.prefab.json.meta")<<nlohmann::json{{"uuid",uuid}}.dump();
-    const nlohmann::json scene={{"actors",nlohmann::json::array({{{"id",1},{"prefabInstance",{{"asset","Content/Prefabs/Unit.prefab.json"},{"uuid",uuid},{"overrides",nlohmann::json::array()}}}}})}};
-    std::ofstream(root/"Content/Scenes/Main.scene.json")<<scene.dump();PublishPreflightReport report;
-    if(!Check(CookDependencyGraph::Validate(root,report)&&std::find(report.visitedAssets.begin(),report.visitedAssets.end(),"Content/Prefabs/Unit.prefab.json")!=report.visitedAssets.end(),"cook did not traverse prefab dependency: "+report.Summary()))return false;
-    const std::string outerUuid="aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
-    const nlohmann::json outer={{"version",1},{"uuid",outerUuid},{"revision",1},{"rootLocalId","outer"},{"nodes",nlohmann::json::array({{{"localId","outer"},{"parentLocalId",""},{"name","Outer"},{"active",true},{"components",nlohmann::json::array()}}})},{"nestedInstances",nlohmann::json::array({{{"instanceLocalId","unit-instance"},{"parentLocalId","outer"},{"asset","Content/Prefabs/Unit.prefab.json"},{"uuid",uuid},{"sourceRevision",1},{"overrides",nlohmann::json::array()}}})}};
-    std::ofstream(root/"Content/Prefabs/Outer.prefab.json")<<outer.dump();std::ofstream(root/"Content/Prefabs/Outer.prefab.json.meta")<<nlohmann::json{{"uuid",outerUuid}}.dump();
-    const nlohmann::json nestedScene={{"actors",nlohmann::json::array({{{"id",1},{"prefabInstance",{{"asset","Content/Prefabs/Outer.prefab.json"},{"uuid",outerUuid},{"overrides",nlohmann::json::array()}}}}})}};
-    std::ofstream(root/"Content/Scenes/Main.scene.json",std::ios::trunc)<<nestedScene.dump();
-    if(!Check(CookDependencyGraph::Validate(root,report)&&std::find(report.visitedAssets.begin(),report.visitedAssets.end(),"Content/Prefabs/Unit.prefab.json")!=report.visitedAssets.end(),"cook did not traverse nested prefab closure: "+report.Summary()))return false;
-    std::ifstream cyclicUnitInput(root/"Content/Prefabs/Unit.prefab.json");auto cyclicUnit=nlohmann::json::parse(cyclicUnitInput);cyclicUnitInput.close();
-    cyclicUnit["nestedInstances"]=nlohmann::json::array({{{"instanceLocalId","outer-cycle"},{"parentLocalId","root"},{"asset","Content/Prefabs/Outer.prefab.json"},{"uuid",outerUuid},{"sourceRevision",1},{"overrides",nlohmann::json::array()}}});
-    std::ofstream(root/"Content/Prefabs/Unit.prefab.json",std::ios::trunc)<<cyclicUnit.dump();
-    if(!Check(!CookDependencyGraph::Validate(root,report),"cook accepted a nested prefab dependency cycle"))return false;
-    auto mismatch=scene;mismatch["actors"][0]["prefabInstance"]["uuid"]="wrong";std::ofstream(root/"Content/Scenes/Main.scene.json",std::ios::trunc)<<mismatch.dump();
-    if(!Check(!CookDependencyGraph::Validate(root,report),"cook accepted a prefab UUID mismatch"))return false;
-    fs::remove_all(root,ec);return true;
+bool TestPrefabCookDependencyValidation() {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "myengine_prefab_cook_test";
+    std::error_code ec;
+    fs::remove_all(root, ec);
+    fs::create_directories(root / "Content/Scenes");
+    fs::create_directories(root / "Content/Prefabs");
+    const std::string uuid = "11111111-2222-4333-8444-555555555555";
+    std::ofstream(root / "Content/Prefabs/Unit.prefab.json") << nlohmann::json{
+        {"version", 1},
+        {"uuid", uuid},
+        {"rootLocalId", "root"},
+        {"nodes", nlohmann::json::array(
+                      {{{"localId", "root"},
+                        {"parentLocalId", ""},
+                        {"name", "Unit"},
+                        {"active", true},
+                        {"components", nlohmann::json::array()}}})}}.dump();
+    std::ofstream(root / "Content/Prefabs/Unit.prefab.json.meta") << nlohmann::json{{"uuid", uuid}}.dump();
+    const nlohmann::json scene = {{"actors", nlohmann::json::array({{{"id", 1},
+                                                                     {"prefabInstance",
+                                                                      {{"asset", "Content/Prefabs/Unit.prefab.json"},
+                                                                       {"uuid", uuid},
+                                                                       {"overrides", nlohmann::json::array()}}}}})}};
+    std::ofstream(root / "Content/Scenes/Main.scene.json") << scene.dump();
+    PublishPreflightReport report;
+    if (!Check(CookDependencyGraph::Validate(root, report) &&
+                   std::find(report.visitedAssets.begin(), report.visitedAssets.end(),
+                             "Content/Prefabs/Unit.prefab.json") != report.visitedAssets.end(),
+               "cook did not traverse prefab dependency: " + report.Summary()))
+        return false;
+    const std::string outerUuid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    const nlohmann::json outer = {
+        {"version", 1},
+        {"uuid", outerUuid},
+        {"revision", 1},
+        {"rootLocalId", "outer"},
+        {"nodes", nlohmann::json::array({{{"localId", "outer"},
+                                          {"parentLocalId", ""},
+                                          {"name", "Outer"},
+                                          {"active", true},
+                                          {"components", nlohmann::json::array()}}})},
+        {"nestedInstances", nlohmann::json::array({{{"instanceLocalId", "unit-instance"},
+                                                    {"parentLocalId", "outer"},
+                                                    {"asset", "Content/Prefabs/Unit.prefab.json"},
+                                                    {"uuid", uuid},
+                                                    {"sourceRevision", 1},
+                                                    {"overrides", nlohmann::json::array()}}})}};
+    std::ofstream(root / "Content/Prefabs/Outer.prefab.json") << outer.dump();
+    std::ofstream(root / "Content/Prefabs/Outer.prefab.json.meta") << nlohmann::json{{"uuid", outerUuid}}.dump();
+    const nlohmann::json nestedScene = {
+        {"actors", nlohmann::json::array({{{"id", 1},
+                                           {"prefabInstance",
+                                            {{"asset", "Content/Prefabs/Outer.prefab.json"},
+                                             {"uuid", outerUuid},
+                                             {"overrides", nlohmann::json::array()}}}}})}};
+    std::ofstream(root / "Content/Scenes/Main.scene.json", std::ios::trunc) << nestedScene.dump();
+    if (!Check(CookDependencyGraph::Validate(root, report) &&
+                   std::find(report.visitedAssets.begin(), report.visitedAssets.end(),
+                             "Content/Prefabs/Unit.prefab.json") != report.visitedAssets.end(),
+               "cook did not traverse nested prefab closure: " + report.Summary()))
+        return false;
+    std::ifstream cyclicUnitInput(root / "Content/Prefabs/Unit.prefab.json");
+    auto cyclicUnit = nlohmann::json::parse(cyclicUnitInput);
+    cyclicUnitInput.close();
+    cyclicUnit["nestedInstances"] = nlohmann::json::array({{{"instanceLocalId", "outer-cycle"},
+                                                            {"parentLocalId", "root"},
+                                                            {"asset", "Content/Prefabs/Outer.prefab.json"},
+                                                            {"uuid", outerUuid},
+                                                            {"sourceRevision", 1},
+                                                            {"overrides", nlohmann::json::array()}}});
+    std::ofstream(root / "Content/Prefabs/Unit.prefab.json", std::ios::trunc) << cyclicUnit.dump();
+    if (!Check(!CookDependencyGraph::Validate(root, report), "cook accepted a nested prefab dependency cycle"))
+        return false;
+    auto mismatch = scene;
+    mismatch["actors"][0]["prefabInstance"]["uuid"] = "wrong";
+    std::ofstream(root / "Content/Scenes/Main.scene.json", std::ios::trunc) << mismatch.dump();
+    if (!Check(!CookDependencyGraph::Validate(root, report), "cook accepted a prefab UUID mismatch"))
+        return false;
+    fs::remove_all(root, ec);
+    return true;
 }
 
-bool TestGameplayContentCookDependencies()
-{
-    namespace fs=std::filesystem;const fs::path root=fs::temp_directory_path()/"myengine_gameplay_cook_test";std::error_code ec;fs::remove_all(root,ec);
-    fs::create_directories(root/"Content/Scenes");fs::create_directories(root/"Content/Navigation");fs::create_directories(root/"Content/Particles");fs::create_directories(root/"Content/UI/Fonts");
-    std::ofstream(root/"Content/Navigation/Level.navmesh")<<"nav";std::ofstream(root/"Content/Particles/Trail.particle")<<"{}";std::ofstream(root/"Content/UI/HUD.rml")<<"<rml/>";std::ofstream(root/"Content/UI/HUD.rcss")<<"body{}";std::ofstream(root/"Content/UI/Fonts/HUD.ttf")<<"font";
-    const nlohmann::json scene={{"navMeshAsset","Content/Navigation/Level.navmesh"},{"actors",nlohmann::json::array({{{"components",nlohmann::json::array({{{"data",{{"asset","Content/Particles/Trail.particle"}}}},{{"data",{{"documentPath","Content/UI/HUD.rml"},{"stylePaths",nlohmann::json::array({"Content/UI/HUD.rcss"})},{"defaultFontPaths",nlohmann::json::array({"Content/UI/Fonts/HUD.ttf"})}}}}})}}})}};
-    std::ofstream(root/"Content/Scenes/Main.scene.json")<<scene.dump();PublishPreflightReport report;const bool valid=CookDependencyGraph::Validate(root,report);
-    const auto visited=[&](const char* path){return std::find(report.visitedAssets.begin(),report.visitedAssets.end(),path)!=report.visitedAssets.end();};
-    const bool complete=valid&&visited("Content/Navigation/Level.navmesh")&&visited("Content/Particles/Trail.particle")&&visited("Content/UI/HUD.rml")&&visited("Content/UI/HUD.rcss")&&visited("Content/UI/Fonts/HUD.ttf");
-    fs::remove_all(root,ec);return Check(complete,"cook omitted gameplay content dependency: "+report.Summary());
+bool TestGameplayContentCookDependencies() {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "myengine_gameplay_cook_test";
+    std::error_code ec;
+    fs::remove_all(root, ec);
+    fs::create_directories(root / "Content/Scenes");
+    fs::create_directories(root / "Content/Navigation");
+    fs::create_directories(root / "Content/Particles");
+    fs::create_directories(root / "Content/UI/Fonts");
+    std::ofstream(root / "Content/Navigation/Level.navmesh") << "nav";
+    std::ofstream(root / "Content/Particles/Trail.particle") << "{}";
+    std::ofstream(root / "Content/UI/HUD.rml") << "<rml/>";
+    std::ofstream(root / "Content/UI/HUD.rcss") << "body{}";
+    std::ofstream(root / "Content/UI/Fonts/HUD.ttf") << "font";
+    const nlohmann::json scene = {
+        {"navMeshAsset", "Content/Navigation/Level.navmesh"},
+        {"actors", nlohmann::json::array(
+                       {{{"components",
+                          nlohmann::json::array(
+                              {{{"data", {{"asset", "Content/Particles/Trail.particle"}}}},
+                               {{"data",
+                                 {{"documentPath", "Content/UI/HUD.rml"},
+                                  {"stylePaths", nlohmann::json::array({"Content/UI/HUD.rcss"})},
+                                  {"defaultFontPaths", nlohmann::json::array({"Content/UI/Fonts/HUD.ttf"})}}}}})}}})}};
+    std::ofstream(root / "Content/Scenes/Main.scene.json") << scene.dump();
+    PublishPreflightReport report;
+    const bool valid = CookDependencyGraph::Validate(root, report);
+    const auto visited = [&](const char* path) {
+        return std::find(report.visitedAssets.begin(), report.visitedAssets.end(), path) != report.visitedAssets.end();
+    };
+    const bool complete = valid && visited("Content/Navigation/Level.navmesh") &&
+                          visited("Content/Particles/Trail.particle") && visited("Content/UI/HUD.rml") &&
+                          visited("Content/UI/HUD.rcss") && visited("Content/UI/Fonts/HUD.ttf");
+    fs::remove_all(root, ec);
+    return Check(complete, "cook omitted gameplay content dependency: " + report.Summary());
 }
 
-bool TestUICanvasComponentSerialization()
-{
-    if (!Check(ComponentRegistry::Get().IsRegistered("UICanvas"),
-               "UICanvas component was not registered")) return false;
+bool TestUICanvasComponentSerialization() {
+    if (!Check(ComponentRegistry::Get().IsRegistered("UICanvas"), "UICanvas component was not registered"))
+        return false;
 
     Scene scene("UICanvasScene");
     Actor* actor = scene.CreateActor("HUD");
     auto* canvas = actor->AddComponent<UICanvasComponent>();
-    if (!Check(canvas != nullptr, "failed to add UICanvasComponent")) return false;
+    if (!Check(canvas != nullptr, "failed to add UICanvasComponent"))
+        return false;
     canvas->SetDocumentPath("Content/UI/HUD.rml");
     canvas->SetStylePaths({"Content/UI/HUD.rcss"});
     canvas->SetDefaultFontPaths({"Content/UI/Inter.ttf"});
@@ -4427,36 +5143,35 @@ bool TestUICanvasComponentSerialization()
 
     Scene loaded("LoadedUI");
     if (!Check(SceneSerializer::LoadFromString(loaded, SceneSerializer::SaveToString(scene)),
-               "UICanvas scene round-trip failed")) return false;
+               "UICanvas scene round-trip failed"))
+        return false;
     Actor* loadedActor = loaded.FindByName("HUD");
     auto* loadedCanvas = loadedActor ? loadedActor->GetComponent<UICanvasComponent>() : nullptr;
-    if (!Check(loadedCanvas != nullptr, "loaded UICanvasComponent missing")) return false;
-    if (!Check(loadedCanvas->GetDocumentPath() == "Content/UI/HUD.rml",
-               "UICanvas document path mismatch")) return false;
-    if (!Check(!loadedCanvas->IsVisible() && !loadedCanvas->IsInteractive(),
-               "UICanvas booleans mismatch")) return false;
-    if (!Check(loadedCanvas->GetSortOrder() == 4 &&
-               loadedCanvas->GetInputMode() == UIInputMode::UIOnly,
-               "UICanvas sort/input mismatch")) return false;
-    if (!Check(loadedCanvas->GetStylePaths().size() == 1 &&
-               loadedCanvas->GetDefaultFontPaths().size() == 1,
-               "UICanvas path arrays mismatch")) return false;
+    if (!Check(loadedCanvas != nullptr, "loaded UICanvasComponent missing"))
+        return false;
+    if (!Check(loadedCanvas->GetDocumentPath() == "Content/UI/HUD.rml", "UICanvas document path mismatch"))
+        return false;
+    if (!Check(!loadedCanvas->IsVisible() && !loadedCanvas->IsInteractive(), "UICanvas booleans mismatch"))
+        return false;
+    if (!Check(loadedCanvas->GetSortOrder() == 4 && loadedCanvas->GetInputMode() == UIInputMode::UIOnly,
+               "UICanvas sort/input mismatch"))
+        return false;
+    if (!Check(loadedCanvas->GetStylePaths().size() == 1 && loadedCanvas->GetDefaultFontPaths().size() == 1,
+               "UICanvas path arrays mismatch"))
+        return false;
     if (!Check(loadedCanvas->GetSourceMode() == UICanvasSourceMode::ActorTree &&
-               loadedCanvas->GetGeneratedStylePaths().size() == 1,
-               "UICanvas source mode mismatch")) return false;
+                   loadedCanvas->GetGeneratedStylePaths().size() == 1,
+               "UICanvas source mode mismatch"))
+        return false;
     return true;
 }
 
-bool TestUIActorComponentsSerialization()
-{
-    const char* types[] = {
-        "UIRectTransform", "UIText", "UIImage", "UIButton", "UISlider",
-        "UIProgressBar", "UIScrollView", "UIVerticalLayout",
-        "UIHorizontalLayout", "UIGridLayout"
-    };
+bool TestUIActorComponentsSerialization() {
+    const char* types[] = {"UIRectTransform", "UIText",       "UIImage",          "UIButton",           "UISlider",
+                           "UIProgressBar",   "UIScrollView", "UIVerticalLayout", "UIHorizontalLayout", "UIGridLayout"};
     for (const char* type : types) {
-        if (!Check(ComponentRegistry::Get().IsRegistered(type),
-                   std::string("UI component not registered: ") + type)) return false;
+        if (!Check(ComponentRegistry::Get().IsRegistered(type), std::string("UI component not registered: ") + type))
+            return false;
     }
 
     Scene scene("UIComponents");
@@ -4478,20 +5193,20 @@ bool TestUIActorComponentsSerialization()
 
     Scene loaded("LoadedUIComponents");
     if (!Check(SceneSerializer::LoadFromString(loaded, SceneSerializer::SaveToString(scene)),
-               "UI components round-trip failed")) return false;
+               "UI components round-trip failed"))
+        return false;
     Actor* loadedButton = loaded.FindByName("Button");
     auto* loadedButtonComponent = loadedButton ? loadedButton->GetComponent<UIButtonComponent>() : nullptr;
     if (!Check(loadedButtonComponent && loadedButtonComponent->GetElementID() == "play_button" &&
-               loadedButtonComponent->text == "Play" && loadedButtonComponent->disabled,
-               "UIButton round-trip mismatch")) return false;
+                   loadedButtonComponent->text == "Play" && loadedButtonComponent->disabled,
+               "UIButton round-trip mismatch"))
+        return false;
     Actor* loadedText = loaded.FindByName("Label");
     auto* loadedTextComponent = loadedText ? loadedText->GetComponent<UITextComponent>() : nullptr;
-    return Check(loadedTextComponent && loadedTextComponent->fontSize == 32.0f,
-                 "UIText round-trip mismatch");
+    return Check(loadedTextComponent && loadedTextComponent->fontSize == 32.0f, "UIText round-trip mismatch");
 }
 
-bool TestUIActorTreeBuilder()
-{
+bool TestUIActorTreeBuilder() {
     Scene scene("UIBuilder");
     Actor* canvasActor = scene.CreateActor("HUD");
     auto* canvas = canvasActor->AddComponent<UICanvasComponent>();
@@ -4523,29 +5238,34 @@ bool TestUIActorTreeBuilder()
     std::string rml;
     std::string error;
     if (!Check(UIActorTreeBuilder::BuildDocument(*canvasActor, *canvas, rml, &error),
-               "actor tree builder failed: " + error)) return false;
+               "actor tree builder failed: " + error))
+        return false;
     if (!Check(rml.find("<link type=\"text/rcss\" href=\"Content/UI/RmlExample.rcss\"") != std::string::npos,
-               "generated style path missing")) return false;
-    if (!Check(rml.find("id=\"headline\"") != std::string::npos &&
-               rml.find("Hello &lt;HUD&gt;") != std::string::npos,
-               "text element was not generated")) return false;
+               "generated style path missing"))
+        return false;
+    if (!Check(rml.find("id=\"headline\"") != std::string::npos && rml.find("Hello &lt;HUD&gt;") != std::string::npos,
+               "text element was not generated"))
+        return false;
     if (!Check(rml.find("id=\"ui_actor_" + std::to_string(buttonActor->GetID()) + "\"") != std::string::npos,
-               "duplicate element id did not fall back to actor id")) return false;
-    if (!Check(rml.find("ui-slider-fill") != std::string::npos &&
-               rml.find("ui-slider-handle") != std::string::npos &&
-               rml.find("data-ui-widget=\"slider\"") != std::string::npos,
-               "slider value/handle elements were not generated")) return false;
+               "duplicate element id did not fall back to actor id"))
+        return false;
+    if (!Check(rml.find("ui-slider-fill") != std::string::npos && rml.find("ui-slider-handle") != std::string::npos &&
+                   rml.find("data-ui-widget=\"slider\"") != std::string::npos,
+               "slider value/handle elements were not generated"))
+        return false;
     if (!Check(rml.find("ui-progress-fill") != std::string::npos &&
-               rml.find("data-ui-widget=\"progress\"") != std::string::npos,
-               "progress value element was not generated")) return false;
+                   rml.find("data-ui-widget=\"progress\"") != std::string::npos,
+               "progress value element was not generated"))
+        return false;
     scene.QueueMoveActor(sliderActor->GetHandle(), canvasActor->GetHandle(), textActor->GetHandle());
     scene.FlushCommands();
     if (!Check(UIActorTreeBuilder::BuildDocument(*canvasActor, *canvas, rml, &error),
-               "actor tree builder failed after reorder: " + error)) return false;
+               "actor tree builder failed after reorder: " + error))
+        return false;
     const std::string sliderID = "id=\"ui_actor_" + std::to_string(sliderActor->GetID()) + "\"";
-    if (!Check(rml.find(sliderID) != std::string::npos &&
-               rml.find(sliderID) < rml.find("id=\"headline\""),
-               "actor tree builder did not preserve reordered child order")) return false;
+    if (!Check(rml.find(sliderID) != std::string::npos && rml.find(sliderID) < rml.find("id=\"headline\""),
+               "actor tree builder did not preserve reordered child order"))
+        return false;
 
     const std::size_t signature = UIActorTreeBuilder::ComputeSignature(*canvasActor);
     button->text = "Changed";
@@ -4553,14 +5273,14 @@ bool TestUIActorTreeBuilder()
                  "actor tree signature did not change after UI edit");
 }
 
-bool TestUIActorTreeCollectsDrawCommands()
-{
+bool TestUIActorTreeCollectsDrawCommands() {
     MockRenderContext context;
     UISystem ui;
-    if (!Check(ui.Initialize(&context, &context), "UISystem failed to initialize")) return false;
+    if (!Check(ui.Initialize(&context, &context), "UISystem failed to initialize"))
+        return false;
     ui.Resize(800, 600);
-    if (!Check(ui.IsSystemOverlayDocumentLoaded(),
-               "UISystem did not create the engine-level status overlay")) return false;
+    if (!Check(ui.IsSystemOverlayDocumentLoaded(), "UISystem did not create the engine-level status overlay"))
+        return false;
 
     UIDrawList drawList;
     {
@@ -4598,25 +5318,30 @@ bool TestUIActorTreeCollectsDrawCommands()
         ui.CollectDrawData(scene, drawList);
     }
     UISystemOverlayState overlay;
-    overlay.visible=true;overlay.error=true;overlay.progress=1.0f;
-    overlay.title="Unable to load scene";overlay.detail="diagnostic";
-    overlay.primaryHint="R / Enter: retry";overlay.secondaryHint="Esc: return";
+    overlay.visible = true;
+    overlay.error = true;
+    overlay.progress = 1.0f;
+    overlay.title = "Unable to load scene";
+    overlay.detail = "diagnostic";
+    overlay.primaryHint = "R / Enter: retry";
+    overlay.secondaryHint = "Esc: return";
     ui.SetSystemOverlay(overlay);
     UIDrawList overlayDrawList;
     Scene safeScene("SafeWorld");
-    ui.Update(safeScene,0.016f);
-    ui.CollectDrawData(safeScene,overlayDrawList);
-    if(!Check(!overlayDrawList.Empty()&&ui.GetSystemOverlay().error,
-              "visible engine status overlay produced no recovery UI"))return false;
+    ui.Update(safeScene, 0.016f);
+    ui.CollectDrawData(safeScene, overlayDrawList);
+    if (!Check(!overlayDrawList.Empty() && ui.GetSystemOverlay().error,
+               "visible engine status overlay produced no recovery UI"))
+        return false;
     ui.Shutdown();
     return Check(!drawList.Empty(), "ActorTree UI produced no draw commands");
 }
 
-bool TestUIInputSystemButtonAndSlider()
-{
+bool TestUIInputSystemButtonAndSlider() {
     MockRenderContext context;
     UISystem ui;
-    if (!Check(ui.Initialize(&context, &context), "UISystem failed to initialize")) return false;
+    if (!Check(ui.Initialize(&context, &context), "UISystem failed to initialize"))
+        return false;
     ui.Resize(320, 220);
 
     Scene scene("UIInput");
@@ -4652,13 +5377,12 @@ bool TestUIInputSystemButtonAndSlider()
     int clickCount = 0;
     int sliderChangeCount = 0;
     float lastSliderValue = 0.0f;
-    ui.GetEventBridge().Subscribe(&canvas->GetCanvas(), buttonID, "click",
-        [&](const UIEvent&) { ++clickCount; });
-    ui.GetEventBridge().Subscribe(&canvas->GetCanvas(), sliderID, "change",
-        [&](const UIEvent& event) {
-            ++sliderChangeCount;
-            if (event.hasValue) lastSliderValue = event.value;
-        });
+    ui.GetEventBridge().Subscribe(&canvas->GetCanvas(), buttonID, "click", [&](const UIEvent&) { ++clickCount; });
+    ui.GetEventBridge().Subscribe(&canvas->GetCanvas(), sliderID, "change", [&](const UIEvent& event) {
+        ++sliderChangeCount;
+        if (event.hasValue)
+            lastSliderValue = event.value;
+    });
 
     UIInputViewport viewport;
     viewport.x = 100;
@@ -4671,13 +5395,14 @@ bool TestUIInputSystemButtonAndSlider()
     down.mouseButton.button = 1;
     down.mouseButton.x = 130;
     down.mouseButton.y = 85;
-    if (!Check(ui.ProcessEvent(scene, down, viewport) && down.handled,
-               "button mouse down was not consumed")) return false;
+    if (!Check(ui.ProcessEvent(scene, down, viewport) && down.handled, "button mouse down was not consumed"))
+        return false;
     Event up = down;
     up.type = EventType::MouseButtonUp;
     up.handled = false;
     if (!Check(ui.ProcessEvent(scene, up, viewport) && up.handled && clickCount == 1,
-               "button mouse up did not emit click")) return false;
+               "button mouse up did not emit click"))
+        return false;
 
     Event outside;
     outside.type = EventType::MouseButtonDown;
@@ -4685,7 +5410,8 @@ bool TestUIInputSystemButtonAndSlider()
     outside.mouseButton.x = 10;
     outside.mouseButton.y = 10;
     if (!Check(!ui.ProcessEvent(scene, outside, viewport) && !outside.handled,
-               "outside viewport event should pass through")) return false;
+               "outside viewport event should pass through"))
+        return false;
 
     Event sliderDown;
     sliderDown.type = EventType::MouseButtonDown;
@@ -4693,46 +5419,50 @@ bool TestUIInputSystemButtonAndSlider()
     sliderDown.mouseButton.x = 120;
     sliderDown.mouseButton.y = 140;
     if (!Check(ui.ProcessEvent(scene, sliderDown, viewport) && sliderDown.handled,
-               "slider mouse down was not consumed")) return false;
+               "slider mouse down was not consumed"))
+        return false;
     Event sliderMove;
     sliderMove.type = EventType::MouseMove;
     sliderMove.mouseMove.x = 270;
     sliderMove.mouseMove.y = 142;
     if (!Check(ui.ProcessEvent(scene, sliderMove, viewport) && sliderMove.handled,
-               "captured slider mouse move was not consumed")) return false;
+               "captured slider mouse move was not consumed"))
+        return false;
     Event sliderUp;
     sliderUp.type = EventType::MouseButtonUp;
     sliderUp.mouseButton.button = 1;
     sliderUp.mouseButton.x = 270;
     sliderUp.mouseButton.y = 142;
-    if (!Check(ui.ProcessEvent(scene, sliderUp, viewport) && sliderUp.handled,
-               "slider mouse up was not consumed")) return false;
+    if (!Check(ui.ProcessEvent(scene, sliderUp, viewport) && sliderUp.handled, "slider mouse up was not consumed"))
+        return false;
     if (!Check(slider->value >= 0.75f && sliderChangeCount > 0 && lastSliderValue == slider->value,
-               "slider drag did not update value or emit change")) return false;
+               "slider drag did not update value or emit change"))
+        return false;
 
     canvas->SetInteractive(false);
     Event disabled = down;
     disabled.handled = false;
     if (!Check(!ui.ProcessEvent(scene, disabled, viewport) && !disabled.handled,
-               "non-interactive canvas should not consume input")) return false;
+               "non-interactive canvas should not consume input"))
+        return false;
     canvas->SetInteractive(true);
     canvas->SetInputMode(UIInputMode::None);
     Event noneMode = down;
     noneMode.handled = false;
     const int beforeClicks = clickCount;
-    if (!Check(!ui.ProcessEvent(scene, noneMode, viewport) &&
-               !noneMode.handled && clickCount == beforeClicks,
-               "inputMode None should not consume input")) return false;
+    if (!Check(!ui.ProcessEvent(scene, noneMode, viewport) && !noneMode.handled && clickCount == beforeClicks,
+               "inputMode None should not consume input"))
+        return false;
 
     ui.Shutdown();
     return true;
 }
 
-bool TestAngelScriptUIEventBindings()
-{
+bool TestAngelScriptUIEventBindings() {
     MockRenderContext context;
     UISystem ui;
-    if (!Check(ui.Initialize(&context, &context), "UISystem failed to initialize")) return false;
+    if (!Check(ui.Initialize(&context, &context), "UISystem failed to initialize"))
+        return false;
     ui.Resize(320, 220);
 
     Scene scene("ScriptUIEvents");
@@ -4770,14 +5500,17 @@ bool TestAngelScriptUIEventBindings()
         "  int changes = 0;\n"
         "  float lastValue = 0.0f;\n"
         "  void Start() {\n"
-        "    UI::Subscribe(\"" + buttonID + "\", \"click\", \"OnButton\");\n"
-        "    UI::Subscribe(\"" + sliderID + "\", \"change\", \"OnSlider\");\n"
+        "    UI::Subscribe(\"" +
+        buttonID +
+        "\", \"click\", \"OnButton\");\n"
+        "    UI::Subscribe(\"" +
+        sliderID +
+        "\", \"change\", \"OnSlider\");\n"
         "  }\n"
         "  void OnButton(const UIEvent &in event) { if (event.eventName == \"click\") clicks += 1; }\n"
         "  void OnSlider(const UIEvent &in event) { if (event.hasValue) { changes += 1; lastValue = event.value; } }\n"
         "}\n");
-    if (!Check(script->IsCompiled(),
-               "AngelScript UI event script should compile: " + script->GetLastError())) {
+    if (!Check(script->IsCompiled(), "AngelScript UI event script should compile: " + script->GetLastError())) {
         ui.Shutdown();
         return false;
     }
@@ -4804,8 +5537,7 @@ bool TestAngelScriptUIEventBindings()
     Event up = down;
     up.type = EventType::MouseButtonUp;
     up.handled = false;
-    if (!Check(ui.ProcessEvent(scene, up, viewport) && up.handled,
-               "script UI button mouse up was not consumed")) {
+    if (!Check(ui.ProcessEvent(scene, up, viewport) && up.handled, "script UI button mouse up was not consumed")) {
         ui.Shutdown();
         return false;
     }
@@ -4841,9 +5573,8 @@ bool TestAngelScriptUIEventBindings()
     }
 
     const nlohmann::json properties = script->GetProperties();
-    const bool ok = properties.value("clicks", 0) == 1 &&
-        properties.value("changes", 0) > 0 &&
-        NearlyEqual(properties.value("lastValue", 0.0f), slider->value);
+    const bool ok = properties.value("clicks", 0) == 1 && properties.value("changes", 0) > 0 &&
+                    NearlyEqual(properties.value("lastValue", 0.0f), slider->value);
     script->ClearUIEventSubscriptions();
     ui.GetEventBridge().Emit(&canvas->GetCanvas(), {buttonID, "click", 0.0f, false});
     const nlohmann::json afterClear = script->GetProperties();
@@ -4852,12 +5583,11 @@ bool TestAngelScriptUIEventBindings()
                  "AngelScript UI event binding failed: " + script->GetLastError());
 }
 
-bool TestAngelScriptUIDataModelBindings()
-{
+bool TestAngelScriptUIDataModelBindings() {
     MockRenderContext context;
     UISystem ui;
-    if (!Check(ui.Initialize(&context, &context),
-               "UISystem init failed for AngelScript UI data model test")) return false;
+    if (!Check(ui.Initialize(&context, &context), "UISystem init failed for AngelScript UI data model test"))
+        return false;
     ui.Resize(320, 200);
 
     Scene scene("AngelUIDataModelV2");
@@ -4882,8 +5612,7 @@ bool TestAngelScriptUIDataModelBindings()
         "    }\n"
         "  }\n"
         "}\n");
-    if (!Check(script->IsCompiled(),
-               "AngelScript UI data model script should compile: " + script->GetLastError())) {
+    if (!Check(script->IsCompiled(), "AngelScript UI data model script should compile: " + script->GetLastError())) {
         ui.Shutdown();
         return false;
     }
@@ -4898,20 +5627,18 @@ bool TestAngelScriptUIDataModelBindings()
     const auto anchor = values.find("anchor");
     const auto world = values.find("world");
     const auto items = values.find("items");
-    const bool ok = NearlyEqual(actor->GetTransform().position.x, 1.0f) &&
-        visible != values.end() && std::get<bool>(visible->second) &&
-        score != values.end() && std::get<int>(score->second) == 7 &&
-        health != values.end() && NearlyEqual(std::get<float>(health->second), 0.75f) &&
-        label != values.end() && std::get<std::string>(label->second) == "Ready" &&
-        anchor != values.end() && NearlyEqual(std::get<Vec2>(anchor->second).x, 4.0f) &&
-        world != values.end() && NearlyEqual(std::get<Vec3>(world->second).z, 8.0f) &&
-        items != values.end() && std::get<nlohmann::json>(items->second).is_array();
+    const bool ok = NearlyEqual(actor->GetTransform().position.x, 1.0f) && visible != values.end() &&
+                    std::get<bool>(visible->second) && score != values.end() && std::get<int>(score->second) == 7 &&
+                    health != values.end() && NearlyEqual(std::get<float>(health->second), 0.75f) &&
+                    label != values.end() && std::get<std::string>(label->second) == "Ready" &&
+                    anchor != values.end() && NearlyEqual(std::get<Vec2>(anchor->second).x, 4.0f) &&
+                    world != values.end() && NearlyEqual(std::get<Vec3>(world->second).z, 8.0f) &&
+                    items != values.end() && std::get<nlohmann::json>(items->second).is_array();
     ui.Shutdown();
     return Check(ok, "AngelScript UI data model bindings failed: " + script->GetLastError());
 }
 
-bool TestAngelScriptUIBindingContextIsolation()
-{
+bool TestAngelScriptUIBindingContextIsolation() {
     UISystem first;
     UISystem second;
     AngelScriptRuntime::SetUISystem(&first);
@@ -4921,13 +5648,10 @@ bool TestAngelScriptUIBindingContextIsolation()
     Scene scene("AngelUIBindingContextIsolation");
     Actor* actor = scene.CreateActor("Writer");
     auto* script = actor->AddComponent<ScriptComponent>();
-    script->SetSource(
-        "class Script {\n"
-        "  void Start() { UI::SetInt(\"isolated\", \"value\", 42); }\n"
-        "}\n");
-    if (!Check(script->IsCompiled(),
-               "binding context isolation script should compile: " +
-                   script->GetLastError())) {
+    script->SetSource("class Script {\n"
+                      "  void Start() { UI::SetInt(\"isolated\", \"value\", 42); }\n"
+                      "}\n");
+    if (!Check(script->IsCompiled(), "binding context isolation script should compile: " + script->GetLastError())) {
         AngelScriptRuntime::ClearUISystem(&second);
         return false;
     }
@@ -4935,78 +5659,88 @@ bool TestAngelScriptUIBindingContextIsolation()
     scene.OnUpdate(1.0f / 60.0f);
     const auto& values = second.CreateDataModel("isolated").GetValues();
     const auto value = values.find("value");
-    const bool wroteToCurrentSystem =
-        value != values.end() && std::get<int>(value->second) == 42;
+    const bool wroteToCurrentSystem = value != values.end() && std::get<int>(value->second) == 42;
 
     AngelScriptRuntime::ClearUISystem(&second);
-    return Check(wroteToCurrentSystem,
-                 "clearing an old UISystem removed the active script binding context");
+    return Check(wroteToCurrentSystem, "clearing an old UISystem removed the active script binding context");
 }
 
-bool TestUIDrawListBatchContainer()
-{
+bool TestUIDrawListBatchContainer() {
     UIDrawList list;
-    if (!Check(list.Empty(), "new UIDrawList should be empty")) return false;
+    if (!Check(list.Empty(), "new UIDrawList should be empty"))
+        return false;
     UIDrawCommand command;
     command.indexCount = 6;
     command.scissor = {1, 2, 3, 4, true};
     list.Add(command);
-    if (!Check(!list.Empty() && list.Size() == 1, "UIDrawList add failed")) return false;
+    if (!Check(!list.Empty() && list.Size() == 1, "UIDrawList add failed"))
+        return false;
     list.Clear();
     return Check(list.Empty(), "UIDrawList clear failed");
 }
 
-bool TestIncrementalSceneLoadPlanAndCancellation()
-{
+bool TestIncrementalSceneLoadPlanAndCancellation() {
     nlohmann::json root = {{"name", "Large"}, {"preloadAssets", {"Content/Scripts/Owned.as"}}};
     root["actors"] = nlohmann::json::array();
     for (uint64_t id = 1; id <= 128; ++id)
-        root["actors"].push_back({{"id", id}, {"name", "Actor" + std::to_string(id)},
-                                  {"parentID", id > 1 ? id - 1 : 0}});
-    SceneLoadPlan plan; std::string error;
-    if (!Check(SceneSerializer::BuildLoadPlan(root.dump(), plan, &error),
-               "failed to build scene load plan: " + error)) return false;
+        root["actors"].push_back(
+            {{"id", id}, {"name", "Actor" + std::to_string(id)}, {"parentID", id > 1 ? id - 1 : 0}});
+    SceneLoadPlan plan;
+    std::string error;
+    if (!Check(SceneSerializer::BuildLoadPlan(root.dump(), plan, &error), "failed to build scene load plan: " + error))
+        return false;
     if (!Check(plan.actors.size() == 128 && plan.assetDependencies.size() == 1,
-               "scene plan did not collect actors and dependencies")) return false;
-    Scene candidate; SceneInstantiationState state; bool complete = false;
-    if (!Check(SceneSerializer::InstantiateLoadPlan(candidate, plan, state, 7, complete, &error) &&
-               !complete && candidate.ActorCount() == 7,
-               "scene plan was not instantiated incrementally")) return false;
+               "scene plan did not collect actors and dependencies"))
+        return false;
+    Scene candidate;
+    SceneInstantiationState state;
+    bool complete = false;
+    if (!Check(SceneSerializer::InstantiateLoadPlan(candidate, plan, state, 7, complete, &error) && !complete &&
+                   candidate.ActorCount() == 7,
+               "scene plan was not instantiated incrementally"))
+        return false;
     while (!complete)
-        if (!SceneSerializer::InstantiateLoadPlan(candidate, plan, state, 7, complete, &error)) return false;
+        if (!SceneSerializer::InstantiateLoadPlan(candidate, plan, state, 7, complete, &error))
+            return false;
     if (!Check(candidate.ActorCount() == 128 && candidate.FindByID(128)->GetParent() == candidate.FindByID(127),
-               "incremental scene hierarchy was not restored")) return false;
+               "incremental scene hierarchy was not restored"))
+        return false;
     SceneManager manager;
     if (!Check(!manager.RequestLoad("../escape.scene.json") && manager.GetState() == SceneLoadState::Failed,
-               "scene manager accepted unsafe asynchronous path")) return false;
+               "scene manager accepted unsafe asynchronous path"))
+        return false;
     manager.CancelLoad();
-    if (!Check(manager.GetState() == SceneLoadState::Failed,
-               "cancelling a terminal load changed its state")) return false;
-    if(!Check(!manager.RetryLastLoad(),"invalid path unexpectedly became retryable"))return false;
+    if (!Check(manager.GetState() == SceneLoadState::Failed, "cancelling a terminal load changed its state"))
+        return false;
+    if (!Check(!manager.RetryLastLoad(), "invalid path unexpectedly became retryable"))
+        return false;
     manager.DismissFailure();
-    if(!Check(manager.GetState()==SceneLoadState::Idle&&manager.GetLastError().empty(),
-              "dismissing a load failure did not restore the safe world state"))return false;
+    if (!Check(manager.GetState() == SceneLoadState::Idle && manager.GetLastError().empty(),
+               "dismissing a load failure did not restore the safe world state"))
+        return false;
 
     namespace fs = std::filesystem;
     const fs::path oldRoot = AssetManager::Get().GetProjectRoot();
     const fs::path projectRoot = fs::temp_directory_path() / "myengine_scene_stage_test";
-    std::error_code ec; fs::remove_all(projectRoot, ec); fs::create_directories(projectRoot / "Content/Scenes", ec);
+    std::error_code ec;
+    fs::remove_all(projectRoot, ec);
+    fs::create_directories(projectRoot / "Content/Scenes", ec);
     fs::create_directories(projectRoot / "Content/Scripts", ec);
     std::ofstream(projectRoot / "Content/Scripts/Owned.as") << "class OwnedAsset {}\n";
     {
         nlohmann::json stagedRoot = root;
         std::ofstream output(projectRoot / "Content/Scenes/Staged.scene.json");
         output << stagedRoot.dump();
-        stagedRoot["name"]="Small";
-        stagedRoot["actors"].erase(stagedRoot["actors"].begin()+32,stagedRoot["actors"].end());
+        stagedRoot["name"] = "Small";
+        stagedRoot["actors"].erase(stagedRoot["actors"].begin() + 32, stagedRoot["actors"].end());
         std::ofstream second(projectRoot / "Content/Scenes/Second.scene.json");
         second << stagedRoot.dump();
     }
     AssetManager::Get().SetProjectRoot(projectRoot);
-    const size_t baselinePins=AssetManager::Get().GetCacheStats().pinnedAssets;
+    const size_t baselinePins = AssetManager::Get().GetCacheStats().pinnedAssets;
     SceneManager staged;
-    if (!Check(staged.RequestLoad("Content/Scenes/Staged.scene.json") != 0,
-               "staged scene load request failed")) return false;
+    if (!Check(staged.RequestLoad("Content/Scenes/Staged.scene.json") != 0, "staged scene load request failed"))
+        return false;
     std::array<bool, 11> observed{};
     std::unique_ptr<Scene> loaded;
     for (int attempt = 0; attempt < 1000 && !loaded && staged.GetState() != SceneLoadState::Failed; ++attempt) {
@@ -5016,122 +5750,143 @@ bool TestIncrementalSceneLoadPlanAndCancellation()
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     const bool stagesObserved = observed[static_cast<size_t>(SceneLoadState::Reading)] &&
-        observed[static_cast<size_t>(SceneLoadState::Parsing)] &&
-        observed[static_cast<size_t>(SceneLoadState::Preloading)] &&
-        observed[static_cast<size_t>(SceneLoadState::Instantiating)] &&
-        observed[static_cast<size_t>(SceneLoadState::Uploading)] &&
-        observed[static_cast<size_t>(SceneLoadState::Activating)] &&
-        observed[static_cast<size_t>(SceneLoadState::Ready)];
-    if(!Check(loaded && loaded->ActorCount() == 128 && stagesObserved,
-              "scene load did not traverse every production stage"))return false;
-    if(!Check(loaded->GetOwnedAssetPins().size()==1&&
-              loaded->GetOwnedAssetPins().front()=="Content/Scripts/Owned.as",
-              "activated scene did not adopt dependency ownership"))return false;
-    SceneLifetimeToken replacedToken=loaded->GetLifetimeToken();
-    const uint64_t replacedGeneration=replacedToken.GetGeneration();
+                                observed[static_cast<size_t>(SceneLoadState::Parsing)] &&
+                                observed[static_cast<size_t>(SceneLoadState::Preloading)] &&
+                                observed[static_cast<size_t>(SceneLoadState::Instantiating)] &&
+                                observed[static_cast<size_t>(SceneLoadState::Uploading)] &&
+                                observed[static_cast<size_t>(SceneLoadState::Activating)] &&
+                                observed[static_cast<size_t>(SceneLoadState::Ready)];
+    if (!Check(loaded && loaded->ActorCount() == 128 && stagesObserved,
+               "scene load did not traverse every production stage"))
+        return false;
+    if (!Check(loaded->GetOwnedAssetPins().size() == 1 &&
+                   loaded->GetOwnedAssetPins().front() == "Content/Scripts/Owned.as",
+               "activated scene did not adopt dependency ownership"))
+        return false;
+    SceneLifetimeToken replacedToken = loaded->GetLifetimeToken();
+    const uint64_t replacedGeneration = replacedToken.GetGeneration();
     {
-        SceneLifetimeGuard guard=replacedToken.TryAcquire();
-        if(!Check(static_cast<bool>(guard)&&guard.GetGeneration()==replacedGeneration,
-                  "live world lifetime guard could not be acquired"))return false;
+        SceneLifetimeGuard guard = replacedToken.TryAcquire();
+        if (!Check(static_cast<bool>(guard) && guard.GetGeneration() == replacedGeneration,
+                   "live world lifetime guard could not be acquired"))
+            return false;
     }
-    const size_t baselineUploads=GpuUploadQueue::Get().PendingCount();
-    for(int transition=0;transition<20;++transition){
-        loaded.reset();staged.RequestLoad("Content/Scenes/Staged.scene.json");
-        if(transition==0&&!Check(!replacedToken.IsAlive(),
-              "destroyed world lifetime token remained valid"))return false;
-        if(transition==0&&!Check(!static_cast<bool>(replacedToken.TryAcquire()),
-              "destroyed world still granted a lifetime guard"))return false;
-        const bool replace=(transition%2)==1;
-        if(replace)staged.RequestLoad("Content/Scenes/Second.scene.json");
-        for(int attempt=0;attempt<1000&&!loaded&&staged.GetState()!=SceneLoadState::Failed;++attempt){
-            staged.Process(loaded);std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    const size_t baselineUploads = GpuUploadQueue::Get().PendingCount();
+    for (int transition = 0; transition < 20; ++transition) {
+        loaded.reset();
+        staged.RequestLoad("Content/Scenes/Staged.scene.json");
+        if (transition == 0 && !Check(!replacedToken.IsAlive(), "destroyed world lifetime token remained valid"))
+            return false;
+        if (transition == 0 &&
+            !Check(!static_cast<bool>(replacedToken.TryAcquire()), "destroyed world still granted a lifetime guard"))
+            return false;
+        const bool replace = (transition % 2) == 1;
+        if (replace)
+            staged.RequestLoad("Content/Scenes/Second.scene.json");
+        for (int attempt = 0; attempt < 1000 && !loaded && staged.GetState() != SceneLoadState::Failed; ++attempt) {
+            staged.Process(loaded);
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
-        if(!Check(loaded&&loaded->GetName()==(replace?"Small":"Large"),"repeated/replaced scene transition failed"))return false;
+        if (!Check(loaded && loaded->GetName() == (replace ? "Small" : "Large"),
+                   "repeated/replaced scene transition failed"))
+            return false;
     }
-    const AssetCacheStats cache=AssetManager::Get().GetCacheStats();
-    const bool ownedWhileAlive=cache.pinnedAssets==baselinePins+1&&
-        loaded->GetLifetimeGeneration()!=replacedGeneration;
-    SceneLifetimeToken finalToken=loaded->GetLifetimeToken();loaded.reset();
-    const AssetCacheStats releasedCache=AssetManager::Get().GetCacheStats();
-    bool abandonedReleased=false;
+    const AssetCacheStats cache = AssetManager::Get().GetCacheStats();
+    const bool ownedWhileAlive =
+        cache.pinnedAssets == baselinePins + 1 && loaded->GetLifetimeGeneration() != replacedGeneration;
+    SceneLifetimeToken finalToken = loaded->GetLifetimeToken();
+    loaded.reset();
+    const AssetCacheStats releasedCache = AssetManager::Get().GetCacheStats();
+    bool abandonedReleased = false;
     {
         SceneManager abandoned;
         abandoned.RequestLoad("Content/Scenes/Staged.scene.json");
         std::unique_ptr<Scene> ignored;
-        for(int attempt=0;attempt<1000&&
-            AssetManager::Get().GetCacheStats().pinnedAssets==baselinePins;++attempt){
+        for (int attempt = 0; attempt < 1000 && AssetManager::Get().GetCacheStats().pinnedAssets == baselinePins;
+             ++attempt) {
             abandoned.Process(ignored);
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
-        if(!Check(AssetManager::Get().GetCacheStats().pinnedAssets==baselinePins+1,
-                  "in-flight scene request never acquired dependency ownership"))return false;
+        if (!Check(AssetManager::Get().GetCacheStats().pinnedAssets == baselinePins + 1,
+                   "in-flight scene request never acquired dependency ownership"))
+            return false;
     }
-    abandonedReleased=AssetManager::Get().GetCacheStats().pinnedAssets==baselinePins;
+    abandonedReleased = AssetManager::Get().GetCacheStats().pinnedAssets == baselinePins;
     staged.RequestLoad("Content/Scenes/Missing.scene.json");
-    for(int attempt=0;attempt<1000&&staged.GetState()!=SceneLoadState::Failed;++attempt){
-        staged.Process(loaded);std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    for (int attempt = 0; attempt < 1000 && staged.GetState() != SceneLoadState::Failed; ++attempt) {
+        staged.Process(loaded);
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
-    const SceneLoadRequestID failedRequest=staged.GetRequestID();
-    const bool retryContract=staged.GetState()==SceneLoadState::Failed&&
-        !staged.GetLastError().empty()&&staged.RetryLastLoad()&&
-        staged.GetRequestID()==failedRequest+1&&staged.IsLoading()&&
-        std::string(SceneManager::StageName(staged.GetState()))=="Preparing";
+    const SceneLoadRequestID failedRequest = staged.GetRequestID();
+    const bool retryContract = staged.GetState() == SceneLoadState::Failed && !staged.GetLastError().empty() &&
+                               staged.RetryLastLoad() && staged.GetRequestID() == failedRequest + 1 &&
+                               staged.IsLoading() &&
+                               std::string(SceneManager::StageName(staged.GetState())) == "Preparing";
     staged.CancelLoad();
-    const bool bounded=cache.loadingAssets==0&&ownedWhileAlive&&!finalToken.IsAlive()&&
-        releasedCache.pinnedAssets==baselinePins&&
-        abandonedReleased&&retryContract&&staged.GetState()==SceneLoadState::Cancelled&&
-        GpuUploadQueue::Get().PendingCount()==baselineUploads;
-    AssetManager::Get().SetProjectRoot(oldRoot);fs::remove_all(projectRoot,ec);
-    return Check(bounded,"repeated scene transitions left async asset or GPU upload work queued");
+    const bool bounded = cache.loadingAssets == 0 && ownedWhileAlive && !finalToken.IsAlive() &&
+                         releasedCache.pinnedAssets == baselinePins && abandonedReleased && retryContract &&
+                         staged.GetState() == SceneLoadState::Cancelled &&
+                         GpuUploadQueue::Get().PendingCount() == baselineUploads;
+    AssetManager::Get().SetProjectRoot(oldRoot);
+    fs::remove_all(projectRoot, ec);
+    return Check(bounded, "repeated scene transitions left async asset or GPU upload work queued");
 }
 
-bool TestWorldZoneOwnershipCancellationAndLifetime()
-{
-    const size_t baselinePins=AssetManager::Get().GetCacheStats().pinnedAssets;
+bool TestWorldZoneOwnershipCancellationAndLifetime() {
+    const size_t baselinePins = AssetManager::Get().GetCacheStats().pinnedAssets;
     Scene scene("ZoneOwnership");
-    Actor* actor=scene.CreateActor("ChunkActor");
-    Actor* transientActor=scene.CreateActor("TransientChunkActor");
-    const WorldZoneID zone=scene.CreateZone("forest.chunk.0");
-    if(!Check(zone!=0&&scene.CreateZone("forest.chunk.0")==0,
-              "zone stable names were not unique"))return false;
-    if(!Check(scene.AssignActorToZone(zone,actor->GetHandle())&&
-              scene.AssignActorToZone(zone,transientActor->GetHandle())&&
-              scene.PinAssetToZone(zone,"Content/Scripts/ZoneOwned.as")&&
-              scene.PinAssetToZone(zone,"Content/Scripts/ZoneOwned.as"),
-              "zone failed to adopt actor or idempotent asset pin"))return false;
-    const auto stats=scene.GetZoneStats();
-    if(!Check(stats.size()==1&&stats[0].actorCount==2&&stats[0].pinnedAssetCount==1&&
-              AssetManager::Get().GetCacheStats().pinnedAssets==baselinePins+1,
-              "zone ownership stats or pin accounting mismatch"))return false;
+    Actor* actor = scene.CreateActor("ChunkActor");
+    Actor* transientActor = scene.CreateActor("TransientChunkActor");
+    const WorldZoneID zone = scene.CreateZone("forest.chunk.0");
+    if (!Check(zone != 0 && scene.CreateZone("forest.chunk.0") == 0, "zone stable names were not unique"))
+        return false;
+    if (!Check(scene.AssignActorToZone(zone, actor->GetHandle()) &&
+                   scene.AssignActorToZone(zone, transientActor->GetHandle()) &&
+                   scene.PinAssetToZone(zone, "Content/Scripts/ZoneOwned.as") &&
+                   scene.PinAssetToZone(zone, "Content/Scripts/ZoneOwned.as"),
+               "zone failed to adopt actor or idempotent asset pin"))
+        return false;
+    const auto stats = scene.GetZoneStats();
+    if (!Check(stats.size() == 1 && stats[0].actorCount == 2 && stats[0].pinnedAssetCount == 1 &&
+                   AssetManager::Get().GetCacheStats().pinnedAssets == baselinePins + 1,
+               "zone ownership stats or pin accounting mismatch"))
+        return false;
     scene.DestroyActor(transientActor);
-    if(!Check(scene.GetZoneStats()[0].actorCount==1,
-              "independently destroyed actor remained in zone ownership"))return false;
-    WorldZoneLifetimeToken lifetime=scene.GetZoneLifetimeToken(zone);
-    const uint64_t generation=lifetime.GetGeneration();
-    if(!Check(generation!=0&&static_cast<bool>(lifetime.TryAcquire()),
-              "live zone did not grant a lifetime guard"))return false;
+    if (!Check(scene.GetZoneStats()[0].actorCount == 1, "independently destroyed actor remained in zone ownership"))
+        return false;
+    WorldZoneLifetimeToken lifetime = scene.GetZoneLifetimeToken(zone);
+    const uint64_t generation = lifetime.GetGeneration();
+    if (!Check(generation != 0 && static_cast<bool>(lifetime.TryAcquire()), "live zone did not grant a lifetime guard"))
+        return false;
     std::promise<void> started;
-    auto task=scene.SubmitZoneTask(zone,{"zone.streaming",TaskPriority::Normal},
-        [&](CancellationToken cancellation,WorldZoneLifetimeToken token){
-            started.set_value();
-            while(true){
-                cancellation.ThrowIfCancellationRequested();
-                if(!token.IsAlive())throw TaskCancelled{};
-                std::this_thread::yield();
-            }
-        });
+    auto task = scene.SubmitZoneTask(zone, {"zone.streaming", TaskPriority::Normal},
+                                     [&](CancellationToken cancellation, WorldZoneLifetimeToken token) {
+                                         started.set_value();
+                                         while (true) {
+                                             cancellation.ThrowIfCancellationRequested();
+                                             if (!token.IsAlive())
+                                                 throw TaskCancelled{};
+                                             std::this_thread::yield();
+                                         }
+                                     });
     started.get_future().wait();
-    if(!Check(scene.GetZoneStats()[0].taskCount==1,"zone task was not scope-owned"))return false;
-    if(!Check(scene.DestroyZone(zone),"zone destruction failed"))return false;
-    bool cancelled=false;try{task.Get();}catch(const TaskCancelled&){cancelled=true;}
-    return Check(cancelled&&!lifetime.IsAlive()&&!lifetime.TryAcquire()&&
-                 scene.GetZoneCount()==0&&scene.FindByName("ChunkActor")==nullptr&&
-                 AssetManager::Get().GetCacheStats().pinnedAssets==baselinePins,
+    if (!Check(scene.GetZoneStats()[0].taskCount == 1, "zone task was not scope-owned"))
+        return false;
+    if (!Check(scene.DestroyZone(zone), "zone destruction failed"))
+        return false;
+    bool cancelled = false;
+    try {
+        task.Get();
+    } catch (const TaskCancelled&) {
+        cancelled = true;
+    }
+    return Check(cancelled && !lifetime.IsAlive() && !lifetime.TryAcquire() && scene.GetZoneCount() == 0 &&
+                     scene.FindByName("ChunkActor") == nullptr &&
+                     AssetManager::Get().GetCacheStats().pinnedAssets == baselinePins,
                  "zone teardown left task, actor, pin, or lifetime state alive");
 }
 
-bool TestWorldZoneStreamerDistancePortalBudgetAndTeardown()
-{
+bool TestWorldZoneStreamerDistancePortalBudgetAndTeardown() {
     namespace fs = std::filesystem;
     const fs::path root = fs::temp_directory_path() / "myengine_zone_streamer";
     std::error_code ec;
@@ -5141,16 +5896,15 @@ bool TestWorldZoneStreamerDistancePortalBudgetAndTeardown()
     std::ofstream(root / "Content/Data/pin.bin", std::ios::binary) << "owned";
     auto writeZone = [&](const std::string& name, int actorCount) {
         nlohmann::json value = {{"version", 1},
-            {"preloadAssets", nlohmann::json::array({"Content/Data/pin.bin"})},
-            {"actors", nlohmann::json::array()}};
+                                {"preloadAssets", nlohmann::json::array({"Content/Data/pin.bin"})},
+                                {"actors", nlohmann::json::array()}};
         for (int index = 0; index < actorCount; ++index) {
-            nlohmann::json actor = {{"id", index + 1},
-                {"name", name + std::to_string(index)}};
-            if (index > 0) actor["parentID"] = index;
+            nlohmann::json actor = {{"id", index + 1}, {"name", name + std::to_string(index)}};
+            if (index > 0)
+                actor["parentID"] = index;
             value["actors"].push_back(std::move(actor));
         }
-        std::ofstream(root / "Content/Zones" / (name + ".scene.json"))
-            << value.dump(2);
+        std::ofstream(root / "Content/Zones" / (name + ".scene.json")) << value.dump(2);
     };
     writeZone("near", 5);
     writeZone("far", 3);
@@ -5161,35 +5915,36 @@ bool TestWorldZoneStreamerDistancePortalBudgetAndTeardown()
 
     const fs::path previousRoot = AssetManager::Get().GetProjectRoot();
     const size_t baselinePins = AssetManager::Get().GetCacheStats().pinnedAssets;
-    const uint64_t previousActorBudget=MemoryService::Get().GetSceneActorBudget();
+    const uint64_t previousActorBudget = MemoryService::Get().GetSceneActorBudget();
     AssetManager::Get().SetProjectRoot(root);
     struct Cleanup {
         fs::path root;
         fs::path previous;
-        uint64_t actorBudget=0;
+        uint64_t actorBudget = 0;
         ~Cleanup() {
             MemoryService::Get().SetSceneActorBudget(actorBudget);
             AssetManager::Get().SetProjectRoot(previous);
             std::error_code ec;
             fs::remove_all(root, ec);
         }
-    } cleanup{root, previousRoot,previousActorBudget};
+    } cleanup{root, previousRoot, previousActorBudget};
 
     Scene scene("StreamedWorld");
     WorldZoneStreamer& streamer = scene.GetZoneStreamer();
     streamer.SetBudgets(2, 1);
     std::string error;
-    if (!Check(streamer.Register({"near", "Content/Zones/near.scene.json",
-                    Vec3::Zero(), Vec3(1, 1, 1), 10.0f, 20.0f,
-                    WorldZoneTriggerMode::Distance, false, 10}, &error) &&
-               streamer.Register({"far", "Content/Zones/far.scene.json",
-                    Vec3(100, 0, 0), Vec3(1, 1, 1), 10.0f, 20.0f,
-                    WorldZoneTriggerMode::Distance, false, 5}, &error) &&
-               streamer.Register({"portal", "Content/Zones/portal.scene.json",
-                    Vec3(1000, 0, 0), Vec3::Zero(), 0.0f, 0.0f,
-                    WorldZoneTriggerMode::Portal, false, 20}, &error) &&
-               !streamer.Register({"unsafe", "C:/outside.scene.json"}, &error),
-               "zone descriptor validation failed")) return false;
+    if (!Check(streamer.Register({"near", "Content/Zones/near.scene.json", Vec3::Zero(), Vec3(1, 1, 1), 10.0f, 20.0f,
+                                  WorldZoneTriggerMode::Distance, false, 10},
+                                 &error) &&
+                   streamer.Register({"far", "Content/Zones/far.scene.json", Vec3(100, 0, 0), Vec3(1, 1, 1), 10.0f,
+                                      20.0f, WorldZoneTriggerMode::Distance, false, 5},
+                                     &error) &&
+                   streamer.Register({"portal", "Content/Zones/portal.scene.json", Vec3(1000, 0, 0), Vec3::Zero(), 0.0f,
+                                      0.0f, WorldZoneTriggerMode::Portal, false, 20},
+                                     &error) &&
+                   !streamer.Register({"unsafe", "C:/outside.scene.json"}, &error),
+               "zone descriptor validation failed"))
+        return false;
 
     scene.BeginPlay();
     streamer.SetObserverPosition(Vec3::Zero());
@@ -5197,173 +5952,181 @@ bool TestWorldZoneStreamerDistancePortalBudgetAndTeardown()
     bool nearLoaded = false;
     for (int attempt = 0; attempt < 300 && !nearLoaded; ++attempt) {
         scene.OnUpdate(1.0f / 60.0f);
-        peakActorsPerFrame = (std::max)(peakActorsPerFrame,
-            streamer.GetStats().instantiatedActorsThisFrame);
+        peakActorsPerFrame = (std::max)(peakActorsPerFrame, streamer.GetStats().instantiatedActorsThisFrame);
         const auto entries = streamer.GetEntryStats();
         nearLoaded = std::any_of(entries.begin(), entries.end(), [](const auto& entry) {
             return entry.stableName == "near" && entry.state == WorldZoneStreamState::Loaded &&
-                entry.instantiatedActors == 5 && entry.lifetimeGeneration != 0;
+                   entry.instantiatedActors == 5 && entry.lifetimeGeneration != 0;
         });
-        if (!nearLoaded) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        if (!nearLoaded)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
-    if (!Check(nearLoaded && scene.ActorCount() == 5 && scene.GetZoneCount() == 1 &&
-                   peakActorsPerFrame <= 2 &&
+    if (!Check(nearLoaded && scene.ActorCount() == 5 && scene.GetZoneCount() == 1 && peakActorsPerFrame <= 2 &&
                    AssetManager::Get().GetCacheStats().pinnedAssets == baselinePins + 1,
-               "distance zone did not load within actor/pin budgets")) return false;
+               "distance zone did not load within actor/pin budgets"))
+        return false;
 
     streamer.SetObserverPosition(Vec3(15, 0, 0));
     scene.OnUpdate(1.0f / 60.0f);
-    if (!Check(scene.FindByName("near0") != nullptr,
-               "zone unloaded inside hysteresis band")) return false;
+    if (!Check(scene.FindByName("near0") != nullptr, "zone unloaded inside hysteresis band"))
+        return false;
     streamer.SetObserverPosition(Vec3(100, 0, 0));
     scene.OnUpdate(1.0f / 60.0f);
-    if (!Check(scene.FindByName("near0") == nullptr,
-               "teleport did not prioritize stale-zone unload")) return false;
+    if (!Check(scene.FindByName("near0") == nullptr, "teleport did not prioritize stale-zone unload"))
+        return false;
     bool farLoaded = false;
     for (int attempt = 0; attempt < 300 && !farLoaded; ++attempt) {
         scene.OnUpdate(1.0f / 60.0f);
-        farLoaded = scene.FindByName("far0") != nullptr &&
-            streamer.GetStats().loadedZones == 1;
-        if (!farLoaded) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        farLoaded = scene.FindByName("far0") != nullptr && streamer.GetStats().loadedZones == 1;
+        if (!farLoaded)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     if (!Check(farLoaded && scene.FindByName("near0") == nullptr,
-               "high-speed observer teleport left the wrong zone active")) return false;
+               "high-speed observer teleport left the wrong zone active"))
+        return false;
 
     scene.Pause();
     MemoryService::Get().SetSceneActorBudget(scene.ActorCount());
     streamer.SetPortalOpen("portal", true);
-    bool actorBudgetBlocked=false;
-    for(int attempt=0;attempt<300&&!actorBudgetBlocked;++attempt){
-        scene.OnUpdate(1.0f/60.0f);
-        actorBudgetBlocked=streamer.GetStats().actorBudgetBlockedFrames>0;
-        if(!actorBudgetBlocked)std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    bool actorBudgetBlocked = false;
+    for (int attempt = 0; attempt < 300 && !actorBudgetBlocked; ++attempt) {
+        scene.OnUpdate(1.0f / 60.0f);
+        actorBudgetBlocked = streamer.GetStats().actorBudgetBlockedFrames > 0;
+        if (!actorBudgetBlocked)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
-    if(!Check(actorBudgetBlocked&&scene.FindByName("portal0")==nullptr,
-              "world-zone streamer ignored the global actor budget"))return false;
+    if (!Check(actorBudgetBlocked && scene.FindByName("portal0") == nullptr,
+               "world-zone streamer ignored the global actor budget"))
+        return false;
     MemoryService::Get().SetSceneActorBudget(previousActorBudget);
     bool portalLoaded = false;
     for (int attempt = 0; attempt < 300 && !portalLoaded; ++attempt) {
         scene.OnUpdate(1.0f / 60.0f);
         portalLoaded = scene.FindByName("portal0") != nullptr;
-        if (!portalLoaded) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        if (!portalLoaded)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
-    if (!Check(portalLoaded,
-               "portal zone did not continue loading while simulation was paused")) return false;
+    if (!Check(portalLoaded, "portal zone did not continue loading while simulation was paused"))
+        return false;
     streamer.SetPortalOpen("portal", false);
     scene.OnUpdate(1.0f / 60.0f);
-    if (!Check(scene.FindByName("portal0") == nullptr,
-               "closing a portal did not unload its zone")) return false;
+    if (!Check(scene.FindByName("portal0") == nullptr, "closing a portal did not unload its zone"))
+        return false;
 
-    if (!Check(streamer.Register({"bad", "Content/Zones/bad.scene.json",
-                    Vec3::Zero(), Vec3::Zero(), 0.0f, 0.0f,
-                    WorldZoneTriggerMode::Portal, true, 100}, &error),
-               "bad-zone rollback fixture registration failed")) return false;
+    if (!Check(streamer.Register({"bad", "Content/Zones/bad.scene.json", Vec3::Zero(), Vec3::Zero(), 0.0f, 0.0f,
+                                  WorldZoneTriggerMode::Portal, true, 100},
+                                 &error),
+               "bad-zone rollback fixture registration failed"))
+        return false;
     bool badFailed = false;
     for (int attempt = 0; attempt < 300 && !badFailed; ++attempt) {
         scene.OnUpdate(1.0f / 60.0f);
         const auto entries = streamer.GetEntryStats();
         badFailed = std::any_of(entries.begin(), entries.end(), [](const auto& entry) {
-            return entry.stableName == "bad" && entry.state == WorldZoneStreamState::Failed &&
-                !entry.lastError.empty();
+            return entry.stableName == "bad" && entry.state == WorldZoneStreamState::Failed && !entry.lastError.empty();
         });
-        if (!badFailed) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        if (!badFailed)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     if (!Check(badFailed && scene.FindByName("BadCrossZone") == nullptr,
-               "invalid cross-zone parent did not roll back atomically")) return false;
+               "invalid cross-zone parent did not roll back atomically"))
+        return false;
 
     scene.Resume();
     streamer.SetObserverPosition(Vec3::Zero());
-    if (!Check(streamer.Register({"cancel", "Content/Zones/cancel.scene.json",
-                    Vec3::Zero(), Vec3::Zero(), 5.0f, 6.0f,
-                    WorldZoneTriggerMode::Distance, false, 50}, &error),
-               "cancel zone registration failed")) return false;
+    if (!Check(streamer.Register({"cancel", "Content/Zones/cancel.scene.json", Vec3::Zero(), Vec3::Zero(), 5.0f, 6.0f,
+                                  WorldZoneTriggerMode::Distance, false, 50},
+                                 &error),
+               "cancel zone registration failed"))
+        return false;
     bool cancelStarted = false;
     for (int attempt = 0; attempt < 300 && !cancelStarted; ++attempt) {
         scene.OnUpdate(1.0f / 60.0f);
         const auto entries = streamer.GetEntryStats();
         cancelStarted = std::any_of(entries.begin(), entries.end(), [](const auto& entry) {
             return entry.stableName == "cancel" &&
-                (entry.state == WorldZoneStreamState::Instantiating ||
-                 entry.instantiatedActors > 0);
+                   (entry.state == WorldZoneStreamState::Instantiating || entry.instantiatedActors > 0);
         });
-        if (!cancelStarted) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        if (!cancelStarted)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     streamer.SetObserverPosition(Vec3(100, 0, 0));
     scene.OnUpdate(1.0f / 60.0f);
     const bool cancelledCleanly = scene.FindByName("cancel0") == nullptr;
     scene.Clear();
-    return Check(cancelStarted && cancelledCleanly && scene.GetZoneCount() == 0 &&
-                     scene.ActorCount() == 0 &&
+    return Check(cancelStarted && cancelledCleanly && scene.GetZoneCount() == 0 && scene.ActorCount() == 0 &&
                      AssetManager::Get().GetCacheStats().pinnedAssets == baselinePins,
                  "cancelled/reset streaming left actors, zones, or pins alive");
 }
 
-bool TestGameFlowPauseOwnershipContract()
-{
+bool TestGameFlowPauseOwnershipContract() {
     Scene scene("FlowContract");
     scene.BeginPlay();
     GameFlowController flow;
     scene.SetGameFlowController(&flow);
 
     flow.EnterGameplay(&scene);
-    if (!Check(flow.GetState() == GameFlowState::Gameplay &&
-                   flow.GetInputOwner() == GameInputOwner::World &&
+    if (!Check(flow.GetState() == GameFlowState::Gameplay && flow.GetInputOwner() == GameInputOwner::World &&
                    !flow.IsPaused() && scene.GetState() == SceneState::Playing,
-               "gameplay flow contract was not applied")) return false;
+               "gameplay flow contract was not applied"))
+        return false;
 
     flow.RequestPause(GamePauseReason::User, &scene);
     flow.RequestPause(GamePauseReason::SystemModal, &scene);
-    if (!Check(flow.GetState() == GameFlowState::Paused,
-               "pause reasons did not enter Paused flow state")) return false;
-    if (!Check(flow.GetInputOwner() == GameInputOwner::UI,
-               "paused flow did not transfer input ownership to UI")) return false;
-    if (!Check(flow.HasPauseReason(GamePauseReason::User) &&
-                   flow.HasPauseReason(GamePauseReason::SystemModal),
-               "nested pause reasons were not retained")) return false;
-    if (!Check(scene.GetState() == SceneState::Paused,
-               "paused flow did not pause the scene")) return false;
-    if (!Check(AudioEngine::Get().IsPaused(),
-               "paused flow did not pause audio")) return false;
-    if (!Check(!Input::IsGameplayInputEnabled(),
-               "paused flow did not gate gameplay actions")) return false;
+    if (!Check(flow.GetState() == GameFlowState::Paused, "pause reasons did not enter Paused flow state"))
+        return false;
+    if (!Check(flow.GetInputOwner() == GameInputOwner::UI, "paused flow did not transfer input ownership to UI"))
+        return false;
+    if (!Check(flow.HasPauseReason(GamePauseReason::User) && flow.HasPauseReason(GamePauseReason::SystemModal),
+               "nested pause reasons were not retained"))
+        return false;
+    if (!Check(scene.GetState() == SceneState::Paused, "paused flow did not pause the scene"))
+        return false;
+    if (!Check(AudioEngine::Get().IsPaused(), "paused flow did not pause audio"))
+        return false;
+    if (!Check(!Input::IsGameplayInputEnabled(), "paused flow did not gate gameplay actions"))
+        return false;
 
     flow.ReleasePause(GamePauseReason::User, &scene);
     if (!Check(flow.IsPaused() && scene.GetState() == SceneState::Paused,
-               "releasing one pause owner resumed simulation early")) return false;
+               "releasing one pause owner resumed simulation early"))
+        return false;
 
     flow.BeginLoading(&scene);
-    if (!Check(flow.GetState() == GameFlowState::Loading &&
-                   flow.GetInputOwner() == GameInputOwner::System && flow.GetSnapshot().modal,
-               "loading did not take system-modal ownership")) return false;
+    if (!Check(flow.GetState() == GameFlowState::Loading && flow.GetInputOwner() == GameInputOwner::System &&
+                   flow.GetSnapshot().modal,
+               "loading did not take system-modal ownership"))
+        return false;
     flow.FinishLoading(&scene, true);
-    if (!Check(flow.GetState() == GameFlowState::Paused,
-               "successful loading discarded an outstanding pause owner")) return false;
+    if (!Check(flow.GetState() == GameFlowState::Paused, "successful loading discarded an outstanding pause owner"))
+        return false;
 
     flow.ReleasePause(GamePauseReason::SystemModal, &scene);
-    if (!Check(flow.GetState() == GameFlowState::Gameplay &&
-                   scene.GetState() == SceneState::Playing && !AudioEngine::Get().IsPaused(),
-               "last pause owner did not restore gameplay atomically")) return false;
+    if (!Check(flow.GetState() == GameFlowState::Gameplay && scene.GetState() == SceneState::Playing &&
+                   !AudioEngine::Get().IsPaused(),
+               "last pause owner did not restore gameplay atomically"))
+        return false;
 
     flow.BeginLoading(&scene);
     flow.FinishLoading(&scene, false);
-    if (!Check(flow.GetState() == GameFlowState::Gameplay,
-               "failed loading did not restore the previous stable state")) return false;
+    if (!Check(flow.GetState() == GameFlowState::Gameplay, "failed loading did not restore the previous stable state"))
+        return false;
 
     flow.EnterGameOver(&scene);
     const bool gameOverContract = flow.GetState() == GameFlowState::GameOver &&
-        flow.GetInputOwner() == GameInputOwner::UI && flow.IsPaused() &&
-        !flow.GetSnapshot().audioPaused;
+                                  flow.GetInputOwner() == GameInputOwner::UI && flow.IsPaused() &&
+                                  !flow.GetSnapshot().audioPaused;
     flow.EnterGameplay(nullptr);
     scene.EndPlay();
     return Check(gameOverContract && !AudioEngine::Get().IsPaused(),
                  "game-over or boot flow contract was inconsistent");
 }
 
-bool TestWindowFocusPausePolicyAndOwnership()
-{
+bool TestWindowFocusPausePolicyAndOwnership() {
     SceneLayer layer("FocusPolicy");
     layer.SetPauseWhenUnfocused(true);
-    if (!Check(layer.BeginPlay(), "focus-policy scene failed to enter play")) return false;
+    if (!Check(layer.BeginPlay(), "focus-policy scene failed to enter play"))
+        return false;
     auto& flow = layer.GetGameFlowController();
     Scene& scene = layer.GetSimulationScene();
 
@@ -5371,147 +6134,164 @@ bool TestWindowFocusPausePolicyAndOwnership()
     Event lost;
     lost.type = EventType::WindowFocusLost;
     layer.OnEvent(lost);
-    if (!Check(!layer.IsWindowFocused() &&
-                   flow.HasPauseReason(GamePauseReason::WindowInactive) &&
+    if (!Check(!layer.IsWindowFocused() && flow.HasPauseReason(GamePauseReason::WindowInactive) &&
                    flow.HasPauseReason(GamePauseReason::User) && flow.IsPaused(),
-               "focus loss did not retain nested pause ownership")) return false;
+               "focus loss did not retain nested pause ownership"))
+        return false;
 
     Event gained;
     gained.type = EventType::WindowFocusGained;
     layer.OnEvent(gained);
-    if (!Check(layer.IsWindowFocused() &&
-                   !flow.HasPauseReason(GamePauseReason::WindowInactive) &&
+    if (!Check(layer.IsWindowFocused() && !flow.HasPauseReason(GamePauseReason::WindowInactive) &&
                    flow.HasPauseReason(GamePauseReason::User) && flow.IsPaused(),
-               "focus gain released another pause owner")) return false;
+               "focus gain released another pause owner"))
+        return false;
     flow.ReleasePause(GamePauseReason::User, &scene);
     if (!Check(!flow.IsPaused() && scene.GetState() == SceneState::Playing,
-               "last pause owner did not resume after focus gain")) return false;
+               "last pause owner did not resume after focus gain"))
+        return false;
 
     layer.OnEvent(lost);
     layer.SetPauseWhenUnfocused(false);
     if (!Check(!flow.HasPauseReason(GamePauseReason::WindowInactive) && !flow.IsPaused(),
-               "disabling focus policy left a stale pause reason")) return false;
+               "disabling focus policy left a stale pause reason"))
+        return false;
     layer.StopPlay();
 
     SceneLayer initiallyUnfocused("InitiallyUnfocused");
     initiallyUnfocused.OnEvent(lost);
     initiallyUnfocused.SetPauseWhenUnfocused(true);
     if (!Check(initiallyUnfocused.BeginPlay() &&
-                   initiallyUnfocused.GetGameFlowController().HasPauseReason(
-                       GamePauseReason::WindowInactive),
-               "play started while unfocused without applying policy")) return false;
+                   initiallyUnfocused.GetGameFlowController().HasPauseReason(GamePauseReason::WindowInactive),
+               "play started while unfocused without applying policy"))
+        return false;
     initiallyUnfocused.StopPlay();
     return true;
 }
 
-bool TestSubtitleQueuePriorityBoundsAndAccessibility()
-{
+bool TestSubtitleQueuePriorityBoundsAndAccessibility() {
     SubtitleSystem subtitles;
     std::string error;
-    if(!Check(!subtitles.Enqueue({"","","invalid",1.0f,0},&error),
-              "subtitle queue accepted an empty stable id"))return false;
-    if(!Check(subtitles.Enqueue({"ambient","Guide","Keep moving",2.0f,0},&error)&&
-              subtitles.GetState().stableId=="ambient",
-              "subtitle queue did not activate its first cue: "+error))return false;
+    if (!Check(!subtitles.Enqueue({"", "", "invalid", 1.0f, 0}, &error), "subtitle queue accepted an empty stable id"))
+        return false;
+    if (!Check(subtitles.Enqueue({"ambient", "Guide", "Keep moving", 2.0f, 0}, &error) &&
+                   subtitles.GetState().stableId == "ambient",
+               "subtitle queue did not activate its first cue: " + error))
+        return false;
     subtitles.Update(0.5f);
-    if(!Check(subtitles.Enqueue({"warning","System","Danger",1.0f,10},&error)&&
-              subtitles.GetState().stableId=="warning"&&subtitles.GetState().queued==1,
-              "higher-priority subtitle did not preempt and preserve the active cue"))return false;
+    if (!Check(subtitles.Enqueue({"warning", "System", "Danger", 1.0f, 10}, &error) &&
+                   subtitles.GetState().stableId == "warning" && subtitles.GetState().queued == 1,
+               "higher-priority subtitle did not preempt and preserve the active cue"))
+        return false;
     subtitles.Update(1.0f);
-    if(!Check(subtitles.GetState().stableId=="ambient"&&
-              NearlyEqual(subtitles.GetState().remainingSeconds,1.5f),
-              "preempted subtitle did not resume with its remaining duration"))return false;
-    if(!Check(subtitles.Enqueue({"ambient","Guide","Updated",3.0f,0},&error)&&
-              subtitles.GetState().text=="Updated"&&
-              NearlyEqual(subtitles.GetState().remainingSeconds,3.0f),
-              "same-id subtitle did not update in place"))return false;
+    if (!Check(subtitles.GetState().stableId == "ambient" && NearlyEqual(subtitles.GetState().remainingSeconds, 1.5f),
+               "preempted subtitle did not resume with its remaining duration"))
+        return false;
+    if (!Check(subtitles.Enqueue({"ambient", "Guide", "Updated", 3.0f, 0}, &error) &&
+                   subtitles.GetState().text == "Updated" && NearlyEqual(subtitles.GetState().remainingSeconds, 3.0f),
+               "same-id subtitle did not update in place"))
+        return false;
     subtitles.Clear();
-    if(!Check(subtitles.Enqueue({"active","","Active",10.0f,100},&error),
-              "subtitle queue setup failed"))return false;
-    for(size_t index=0;index<SubtitleSystem::MaxQueuedCues+5;++index)
-        if(!subtitles.Enqueue({"queued-"+std::to_string(index),"","Queued",1.0f,0},&error))return false;
-    if(!Check(subtitles.GetState().queued==SubtitleSystem::MaxQueuedCues&&
-              subtitles.GetState().dropped==5,
-              "subtitle queue did not enforce and report its bounded capacity"))return false;
+    if (!Check(subtitles.Enqueue({"active", "", "Active", 10.0f, 100}, &error), "subtitle queue setup failed"))
+        return false;
+    for (size_t index = 0; index < SubtitleSystem::MaxQueuedCues + 5; ++index)
+        if (!subtitles.Enqueue({"queued-" + std::to_string(index), "", "Queued", 1.0f, 0}, &error))
+            return false;
+    if (!Check(subtitles.GetState().queued == SubtitleSystem::MaxQueuedCues && subtitles.GetState().dropped == 5,
+               "subtitle queue did not enforce and report its bounded capacity"))
+        return false;
 
     UISystem ui;
-    if(!Check(ui.ShowSubtitle({"line","Hero","Hello",2.0f,0},&error)&&
-              ui.IsSubtitlePresented(),"UISystem did not expose an active subtitle"))return false;
+    if (!Check(ui.ShowSubtitle({"line", "Hero", "Hello", 2.0f, 0}, &error) && ui.IsSubtitlePresented(),
+               "UISystem did not expose an active subtitle"))
+        return false;
     UIAccessibilitySettings accessibility;
-    accessibility.subtitles=false;accessibility.subtitleScale=1.5f;accessibility.reduceCameraShake=true;
-    if(!Check(ui.SetAccessibilitySettings(accessibility,&error)&&
-              !ui.IsSubtitlePresented()&&ui.GetSubtitleState().visible&&
-              RuntimeAccessibility::GetReduceCameraShake()&&
-              NearlyEqual(RuntimeAccessibility::GetCameraShakeScale(),0.25f),
-              "live accessibility setting did not suppress presentation without losing the cue"))return false;
+    accessibility.subtitles = false;
+    accessibility.subtitleScale = 1.5f;
+    accessibility.reduceCameraShake = true;
+    if (!Check(ui.SetAccessibilitySettings(accessibility, &error) && !ui.IsSubtitlePresented() &&
+                   ui.GetSubtitleState().visible && RuntimeAccessibility::GetReduceCameraShake() &&
+                   NearlyEqual(RuntimeAccessibility::GetCameraShakeScale(), 0.25f),
+               "live accessibility setting did not suppress presentation without losing the cue"))
+        return false;
     Scene feedbackScene("ReducedCameraFeedback");
-    Actor* camera=feedbackScene.CreateActor("Camera");
-    auto* feedback=camera->AddComponent<GameplayFeedbackComponent>();
-    feedback->Shake(1.0f,1.0f);feedback->OnLateUpdate(1.0f/60.0f);
-    const Vec3 reducedOffset=feedback->GetAppliedShakeOffset();
-    if(!Check(reducedOffset.Length()>0.0f&&reducedOffset.Length()<=0.25f*std::sqrt(3.0f)+0.0001f,
-              "reduced-camera-shake preference did not attenuate live gameplay feedback"))return false;
-    accessibility.subtitles=true;
-    const bool restored=ui.SetAccessibilitySettings(accessibility,&error)&&ui.IsSubtitlePresented();
-    accessibility.reduceCameraShake=false;ui.SetAccessibilitySettings(accessibility);
-    return Check(restored,"re-enabling subtitles did not restore the active cue");
+    Actor* camera = feedbackScene.CreateActor("Camera");
+    auto* feedback = camera->AddComponent<GameplayFeedbackComponent>();
+    feedback->Shake(1.0f, 1.0f);
+    feedback->OnLateUpdate(1.0f / 60.0f);
+    const Vec3 reducedOffset = feedback->GetAppliedShakeOffset();
+    if (!Check(reducedOffset.Length() > 0.0f && reducedOffset.Length() <= 0.25f * std::sqrt(3.0f) + 0.0001f,
+               "reduced-camera-shake preference did not attenuate live gameplay feedback"))
+        return false;
+    accessibility.subtitles = true;
+    const bool restored = ui.SetAccessibilitySettings(accessibility, &error) && ui.IsSubtitlePresented();
+    accessibility.reduceCameraShake = false;
+    ui.SetAccessibilitySettings(accessibility);
+    return Check(restored, "re-enabling subtitles did not restore the active cue");
 }
 
-bool TestRuntimeUIScreenStackFocusRestoreAndGameFlowIntegration()
-{
+bool TestRuntimeUIScreenStackFocusRestoreAndGameFlowIntegration() {
     RuntimeUIScreenStack stack = RuntimeUIScreenStack::CreateStandard();
     std::string error;
     RuntimeUIScreenConfig projectScreens;
-    if(!Check(RuntimeUIScreenConfig::FromText(
-        R"({"version":1,"screens":[{"name":"mainMenu","title":"Project Menu","document":"Content/UI/Runtime/MainMenu.rml","actions":{"play":"Begin"}}]})",
-        projectScreens,&error)&&projectScreens.Apply(stack,&error)&&stack.ReplaceRoot("mainMenu")&&
-        stack.GetView().title=="Project Menu"&&
-        stack.GetView().documentPath=="Content/UI/Runtime/MainMenu.rml"&&
-        stack.GetView().actions[0].label=="Begin",
-        "project runtime screen config did not override visuals while preserving actions: "+error))return false;
+    if (!Check(
+            RuntimeUIScreenConfig::FromText(
+                R"({"version":1,"screens":[{"name":"mainMenu","title":"Project Menu","document":"Content/UI/Runtime/MainMenu.rml","actions":{"play":"Begin"}}]})",
+                projectScreens, &error) &&
+                projectScreens.Apply(stack, &error) && stack.ReplaceRoot("mainMenu") &&
+                stack.GetView().title == "Project Menu" &&
+                stack.GetView().documentPath == "Content/UI/Runtime/MainMenu.rml" &&
+                stack.GetView().actions[0].label == "Begin",
+            "project runtime screen config did not override visuals while preserving actions: " + error))
+        return false;
     RuntimeUIScreenConfig invalidScreens;
-    if(!Check(!RuntimeUIScreenConfig::FromText(
-        R"({"version":1,"screens":[{"name":"pause","title":"Bad","document":"../Pause.rml","actions":{}}]})",
-        invalidScreens,&error),"runtime screen config accepted path traversal"))return false;
-    stack=RuntimeUIScreenStack::CreateStandard();
+    if (!Check(!RuntimeUIScreenConfig::FromText(
+                   R"({"version":1,"screens":[{"name":"pause","title":"Bad","document":"../Pause.rml","actions":{}}]})",
+                   invalidScreens, &error),
+               "runtime screen config accepted path traversal"))
+        return false;
+    stack = RuntimeUIScreenStack::CreateStandard();
     if (!Check(!stack.Register({"pause", "Duplicate", true, true, {}}, &error),
-               "runtime screen registry accepted a duplicate stable name")) return false;
-    if (!Check(stack.Push("pause") && stack.Depth() == 1 &&
-                   stack.GetView().focusedIndex == 0,
-               "standard pause screen failed to open")) return false;
+               "runtime screen registry accepted a duplicate stable name"))
+        return false;
+    if (!Check(stack.Push("pause") && stack.Depth() == 1 && stack.GetView().focusedIndex == 0,
+               "standard pause screen failed to open"))
+        return false;
 
     Event down;
     down.type = EventType::KeyDown;
     down.key.scancode = SDL_SCANCODE_DOWN;
     RuntimeUIStackEvent event = stack.ProcessEvent(down);
-    if (!Check(event.type == RuntimeUIStackEventType::FocusChanged &&
-                   event.action == "settings" && stack.GetView().focusedIndex == 1,
-               "keyboard focus navigation was not deterministic")) return false;
+    if (!Check(event.type == RuntimeUIStackEventType::FocusChanged && event.action == "settings" &&
+                   stack.GetView().focusedIndex == 1,
+               "keyboard focus navigation was not deterministic"))
+        return false;
     Event confirm;
     confirm.type = EventType::KeyDown;
     confirm.key.scancode = SDL_SCANCODE_RETURN;
     event = stack.ProcessEvent(confirm);
-    if (!Check(event.type == RuntimeUIStackEventType::Activated &&
-                   event.action == "settings" && stack.Push("settings"),
-               "focused runtime action did not activate")) return false;
+    if (!Check(event.type == RuntimeUIStackEventType::Activated && event.action == "settings" && stack.Push("settings"),
+               "focused runtime action did not activate"))
+        return false;
     Event cancel;
     cancel.type = EventType::GamepadButtonDown;
     cancel.gamepadButton.button = SDL_GAMEPAD_BUTTON_EAST;
     event = stack.ProcessEvent(cancel);
-    if (!Check(event.type == RuntimeUIStackEventType::Dismissed &&
-                   stack.TopName() == "pause" && stack.GetView().focusedIndex == 1,
-               "closing a modal screen did not restore the previous focus")) return false;
+    if (!Check(event.type == RuntimeUIStackEventType::Dismissed && stack.TopName() == "pause" &&
+                   stack.GetView().focusedIndex == 1,
+               "closing a modal screen did not restore the previous focus"))
+        return false;
     stack.ReplaceRoot("mainMenu");
     Event escape;
     escape.type = EventType::KeyDown;
     escape.key.scancode = SDL_SCANCODE_ESCAPE;
-    if (!Check(stack.ProcessEvent(escape).type == RuntimeUIStackEventType::None &&
-                   stack.TopName() == "mainMenu",
-               "non-dismissible root screen was dismissed")) return false;
+    if (!Check(stack.ProcessEvent(escape).type == RuntimeUIStackEventType::None && stack.TopName() == "mainMenu",
+               "non-dismissible root screen was dismissed"))
+        return false;
 
     MockRenderContext context;
-    const std::filesystem::path settingsRoot = std::filesystem::temp_directory_path() /
-        "myengine_runtime_screen_settings";
+    const std::filesystem::path settingsRoot =
+        std::filesystem::temp_directory_path() / "myengine_runtime_screen_settings";
     std::error_code settingsEc;
     std::filesystem::remove_all(settingsRoot, settingsEc);
     RuntimeUserSettingsStore::SetStorageRoot(settingsRoot);
@@ -5529,28 +6309,27 @@ bool TestRuntimeUIScreenStackFocusRestoreAndGameFlowIntegration()
     SceneRenderLayer layer(&context, 800, 600);
     layer.SetPresentEnabled(false);
     layer.SetRuntimeScreensEnabled(true);
-    if(!Check(layer.LoadRuntimeScreenConfig(RuntimeUIScreenConfig::DefaultPath,&error),
-              "checked-in project runtime screens failed to load: "+error))return false;
+    if (!Check(layer.LoadRuntimeScreenConfig(RuntimeUIScreenConfig::DefaultPath, &error),
+               "checked-in project runtime screens failed to load: " + error))
+        return false;
     layer.OnAttach();
     if (!Check(layer.BeginPlay(), "runtime-screen layer failed to enter play")) {
         layer.OnDetach();
         return false;
     }
     layer.OnEvent(escape);
-    if (!Check(escape.handled && layer.GetGameFlowController().GetState() ==
-                   GameFlowState::Paused &&
-                   layer.GetRuntimeScreenStack().TopName() == "pause" &&
-                   !Input::IsGameplayInputEnabled(),
+    if (!Check(escape.handled && layer.GetGameFlowController().GetState() == GameFlowState::Paused &&
+                   layer.GetRuntimeScreenStack().TopName() == "pause" && !Input::IsGameplayInputEnabled(),
                "Escape did not atomically open the Pause screen")) {
         layer.OnDetach();
         return false;
     }
     layer.OnUpdate(0.0f);
-    if(!Check(layer.GetUISystemDiagnostics().projectRuntimeScreenActive&&
-              layer.GetUISystemDiagnostics().runtimeScreenDocument==
-                  "Content/UI/Runtime/Pause.rml",
-              "project-authored Pause document did not replace the generated screen")){
-        layer.OnDetach();return false;
+    if (!Check(layer.GetUISystemDiagnostics().projectRuntimeScreenActive &&
+                   layer.GetUISystemDiagnostics().runtimeScreenDocument == "Content/UI/Runtime/Pause.rml",
+               "project-authored Pause document did not replace the generated screen")) {
+        layer.OnDetach();
+        return false;
     }
     bool pointerFocusedAction = false;
     for (int y = 100; y < 500 && !pointerFocusedAction; y += 10) {
@@ -5563,8 +6342,7 @@ bool TestRuntimeUIScreenStackFocusRestoreAndGameFlowIntegration()
             pointerFocusedAction = layer.GetRuntimeScreenStack().GetView().focusedIndex != 0;
         }
     }
-    if (!Check(pointerFocusedAction,
-               "pointer hover did not move runtime-screen focus")) {
+    if (!Check(pointerFocusedAction, "pointer hover did not move runtime-screen focus")) {
         layer.OnDetach();
         return false;
     }
@@ -5596,31 +6374,33 @@ bool TestRuntimeUIScreenStackFocusRestoreAndGameFlowIntegration()
     }
     layer.GetRuntimeScreenStack().SetFocusedIndex(9);
     Event increaseUIScale;
-    increaseUIScale.type=EventType::KeyDown;
-    increaseUIScale.key.scancode=SDL_SCANCODE_RETURN;
+    increaseUIScale.type = EventType::KeyDown;
+    increaseUIScale.key.scancode = SDL_SCANCODE_RETURN;
     layer.OnEvent(increaseUIScale);
-    if(!Check(RuntimeUserSettingsStore::Load(persistedSettings)&&
-                  NearlyEqual(persistedSettings.accessibility.uiScale,1.1f)&&
-                  NearlyEqual(layer.GetUISystemDiagnostics().effectiveScale,1.1f),
-              "runtime Settings did not apply and persist UI scale")){
-        layer.OnDetach();return false;
+    if (!Check(RuntimeUserSettingsStore::Load(persistedSettings) &&
+                   NearlyEqual(persistedSettings.accessibility.uiScale, 1.1f) &&
+                   NearlyEqual(layer.GetUISystemDiagnostics().effectiveScale, 1.1f),
+               "runtime Settings did not apply and persist UI scale")) {
+        layer.OnDetach();
+        return false;
     }
     layer.GetRuntimeScreenStack().SetFocusedIndex(10);
-    Event toggleSubtitles=increaseUIScale;
-    toggleSubtitles.handled=false;
+    Event toggleSubtitles = increaseUIScale;
+    toggleSubtitles.handled = false;
     layer.OnEvent(toggleSubtitles);
-    if(!Check(RuntimeUserSettingsStore::Load(persistedSettings)&&
-                  !persistedSettings.accessibility.subtitles,
-              "runtime Settings did not apply and persist subtitle preference")){
-        layer.OnDetach();return false;
+    if (!Check(RuntimeUserSettingsStore::Load(persistedSettings) && !persistedSettings.accessibility.subtitles,
+               "runtime Settings did not apply and persist subtitle preference")) {
+        layer.OnDetach();
+        return false;
     }
     std::string safeAreaError;
-    if(!Check(layer.SetUISafeAreaInsets({0.05f,0.05f,0.05f,0.05f},&safeAreaError)&&
-                  layer.GetUISystemDiagnostics().safeWidth==720&&
-                  layer.GetUISystemDiagnostics().safeHeight==540&&
-                  !layer.SetUISafeAreaInsets({0.5f,0.0f,0.5f,0.0f},&safeAreaError),
-              "runtime UI safe-area validation or diagnostics failed")){
-        layer.OnDetach();return false;
+    if (!Check(layer.SetUISafeAreaInsets({0.05f, 0.05f, 0.05f, 0.05f}, &safeAreaError) &&
+                   layer.GetUISystemDiagnostics().safeWidth == 720 &&
+                   layer.GetUISystemDiagnostics().safeHeight == 540 &&
+                   !layer.SetUISafeAreaInsets({0.5f, 0.0f, 0.5f, 0.0f}, &safeAreaError),
+               "runtime UI safe-area validation or diagnostics failed")) {
+        layer.OnDetach();
+        return false;
     }
     Event closeSettings;
     closeSettings.type = EventType::KeyDown;
@@ -5640,95 +6420,99 @@ bool TestRuntimeUIScreenStackFocusRestoreAndGameFlowIntegration()
     resume.type = EventType::KeyDown;
     resume.key.scancode = SDL_SCANCODE_RETURN;
     layer.OnEvent(resume);
-    if (!Check(resume.handled && layer.GetGameFlowController().GetState() ==
-                   GameFlowState::Gameplay && layer.GetRuntimeScreenStack().Empty() &&
-                   Input::IsGameplayInputEnabled(),
+    if (!Check(resume.handled && layer.GetGameFlowController().GetState() == GameFlowState::Gameplay &&
+                   layer.GetRuntimeScreenStack().Empty() && Input::IsGameplayInputEnabled(),
                "Resume did not close the modal and restore gameplay ownership")) {
         layer.OnDetach();
         return false;
     }
     layer.GetGameFlowController().EnterGameOver(&layer.GetSimulationScene());
     layer.OnUpdate(0.0f);
-    const bool gameOverVisible = layer.GetRuntimeScreenStack().TopName() == "gameOver" &&
-        layer.GetGameFlowController().IsPaused();
+    const bool gameOverVisible =
+        layer.GetRuntimeScreenStack().TopName() == "gameOver" && layer.GetGameFlowController().IsPaused();
     layer.StopPlay();
     layer.OnDetach();
     return Check(gameOverVisible, "GameOver flow did not select its standard runtime screen");
 }
 
-bool TestRuntimeScreenConfigCookValidation()
-{
-    namespace fs=std::filesystem;
-    const fs::path root=fs::temp_directory_path()/"myengine_runtime_screen_cook";
-    std::error_code ec;fs::remove_all(root,ec);
-    fs::create_directories(root/"Content/Scenes");
-    fs::create_directories(root/"Content/Config");
-    fs::create_directories(root/"Content/UI/Runtime");
-    std::ofstream(root/"Content/Scenes/Main.scene.json")<<R"({"version":1,"actors":[]})";
-    const fs::path configPath=root/"Content/Config/RuntimeScreens.ui.json";
-    std::ofstream(configPath)<<R"({"version":1,"screens":[{"name":"pause","title":"Pause","document":"Content/UI/Runtime/Pause.rml","actions":{"unknown":"Bad"}}]})";
-    std::ofstream(root/"Content/UI/Runtime/Pause.rml")<<"<rml/>";
+bool TestRuntimeScreenConfigCookValidation() {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "myengine_runtime_screen_cook";
+    std::error_code ec;
+    fs::remove_all(root, ec);
+    fs::create_directories(root / "Content/Scenes");
+    fs::create_directories(root / "Content/Config");
+    fs::create_directories(root / "Content/UI/Runtime");
+    std::ofstream(root / "Content/Scenes/Main.scene.json") << R"({"version":1,"actors":[]})";
+    const fs::path configPath = root / "Content/Config/RuntimeScreens.ui.json";
+    std::ofstream(configPath)
+        << R"({"version":1,"screens":[{"name":"pause","title":"Pause","document":"Content/UI/Runtime/Pause.rml","actions":{"unknown":"Bad"}}]})";
+    std::ofstream(root / "Content/UI/Runtime/Pause.rml") << "<rml/>";
     PublishPreflightReport report;
-    if(!Check(!CookDependencyGraph::Validate(root,report)&&!report.errors.empty(),
-              "cook validation accepted an unknown project runtime-screen action")){
-        fs::remove_all(root,ec);return false;
+    if (!Check(!CookDependencyGraph::Validate(root, report) && !report.errors.empty(),
+               "cook validation accepted an unknown project runtime-screen action")) {
+        fs::remove_all(root, ec);
+        return false;
     }
-    std::ofstream(configPath,std::ios::trunc)<<R"({"version":1,"screens":[{"name":"pause","title":"Pause","document":"Content/UI/Runtime/Pause.rml","actions":{"resume":"Continue"}}]})";
-    const bool valid=CookDependencyGraph::Validate(root,report);
-    const bool cookedDocument=std::find(report.visitedAssets.begin(),report.visitedAssets.end(),
-        "Content/UI/Runtime/Pause.rml")!=report.visitedAssets.end();
-    fs::remove_all(root,ec);
-    return Check(valid&&cookedDocument,
-                 "valid project runtime-screen config did not retain its Rml cook dependency: "+report.Summary());
+    std::ofstream(configPath, std::ios::trunc)
+        << R"({"version":1,"screens":[{"name":"pause","title":"Pause","document":"Content/UI/Runtime/Pause.rml","actions":{"resume":"Continue"}}]})";
+    const bool valid = CookDependencyGraph::Validate(root, report);
+    const bool cookedDocument = std::find(report.visitedAssets.begin(), report.visitedAssets.end(),
+                                          "Content/UI/Runtime/Pause.rml") != report.visitedAssets.end();
+    fs::remove_all(root, ec);
+    return Check(valid && cookedDocument,
+                 "valid project runtime-screen config did not retain its Rml cook dependency: " + report.Summary());
 }
 
-bool TestInputGlyphAtlasCookValidation()
-{
-    namespace fs=std::filesystem;
-    const fs::path root=fs::temp_directory_path()/"myengine_input_glyph_cook";
-    std::error_code ec;fs::remove_all(root,ec);
-    fs::create_directories(root/"Content/Scenes");fs::create_directories(root/"Content/Config");
-    fs::create_directories(root/"Content/UI/Glyphs");
-    std::ofstream(root/"Content/Scenes/Main.scene.json")<<R"({"version":1,"actors":[]})";
-    const fs::path config=root/"Content/Config/InputGlyphs.glyph.json";
-    std::ofstream(config)<<R"({"version":99,"atlas":"Content/UI/Glyphs/Atlas.svg","defaultLocale":"en","families":{}})";
-    std::ofstream(root/"Content/UI/Glyphs/Atlas.svg")<<"<svg/>";
+bool TestInputGlyphAtlasCookValidation() {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "myengine_input_glyph_cook";
+    std::error_code ec;
+    fs::remove_all(root, ec);
+    fs::create_directories(root / "Content/Scenes");
+    fs::create_directories(root / "Content/Config");
+    fs::create_directories(root / "Content/UI/Glyphs");
+    std::ofstream(root / "Content/Scenes/Main.scene.json") << R"({"version":1,"actors":[]})";
+    const fs::path config = root / "Content/Config/InputGlyphs.glyph.json";
+    std::ofstream(config)
+        << R"({"version":99,"atlas":"Content/UI/Glyphs/Atlas.svg","defaultLocale":"en","families":{}})";
+    std::ofstream(root / "Content/UI/Glyphs/Atlas.svg") << "<svg/>";
     PublishPreflightReport report;
-    if(!Check(!CookDependencyGraph::Validate(root,report),
-              "cook validation accepted a future glyph-atlas version")){
-        fs::remove_all(root,ec);return false;
+    if (!Check(!CookDependencyGraph::Validate(root, report), "cook validation accepted a future glyph-atlas version")) {
+        fs::remove_all(root, ec);
+        return false;
     }
-    std::ofstream(config,std::ios::trunc)<<R"({"version":1,"atlas":"Content/UI/Glyphs/Atlas.svg","defaultLocale":"en","families":{"xbox":{"Gamepad/South":{"sprite":"a","labels":{"en":"A"}}}}})";
-    const bool valid=CookDependencyGraph::Validate(root,report);
-    const bool included=std::find(report.visitedAssets.begin(),report.visitedAssets.end(),
-        "Content/UI/Glyphs/Atlas.svg")!=report.visitedAssets.end();
-    fs::remove_all(root,ec);
-    return Check(valid&&included,"valid glyph atlas did not retain its SVG cook dependency: "+report.Summary());
+    std::ofstream(config, std::ios::trunc)
+        << R"({"version":1,"atlas":"Content/UI/Glyphs/Atlas.svg","defaultLocale":"en","families":{"xbox":{"Gamepad/South":{"sprite":"a","labels":{"en":"A"}}}}})";
+    const bool valid = CookDependencyGraph::Validate(root, report);
+    const bool included = std::find(report.visitedAssets.begin(), report.visitedAssets.end(),
+                                    "Content/UI/Glyphs/Atlas.svg") != report.visitedAssets.end();
+    fs::remove_all(root, ec);
+    return Check(valid && included, "valid glyph atlas did not retain its SVG cook dependency: " + report.Summary());
 }
 
-bool TestProjectRuntimeScreenInvalidDocumentFallsBack()
-{
+bool TestProjectRuntimeScreenInvalidDocumentFallsBack() {
     MockRenderContext context;
     UISystem ui;
-    if(!Check(ui.Initialize(&context,&context),"fallback UISystem failed to initialize"))return false;
-    RuntimeUIScreenStack stack=RuntimeUIScreenStack::CreateStandard();
+    if (!Check(ui.Initialize(&context, &context), "fallback UISystem failed to initialize"))
+        return false;
+    RuntimeUIScreenStack stack = RuntimeUIScreenStack::CreateStandard();
     std::string error;
-    if(!Check(stack.ApplyProjectOverride("pause","Broken Project Pause",
-            "Content/UI/RmlExample.rml",{},&error)&&stack.Push("pause"),
-            "fallback test could not configure project screen: "+error)){
-        ui.Shutdown();return false;
+    if (!Check(stack.ApplyProjectOverride("pause", "Broken Project Pause", "Content/UI/RmlExample.rml", {}, &error) &&
+                   stack.Push("pause"),
+               "fallback test could not configure project screen: " + error)) {
+        ui.Shutdown();
+        return false;
     }
     ui.SetRuntimeScreen(stack.GetView());
-    const UISystemDiagnostics diagnostics=ui.GetDiagnostics();
+    const UISystemDiagnostics diagnostics = ui.GetDiagnostics();
     ui.Shutdown();
-    return Check(!diagnostics.projectRuntimeScreenActive&&
-                 diagnostics.runtimeScreenFallbacks==1&&
-                 diagnostics.runtimeScreenDocument=="generated://runtime-screen.rml",
+    return Check(!diagnostics.projectRuntimeScreenActive && diagnostics.runtimeScreenFallbacks == 1 &&
+                     diagnostics.runtimeScreenDocument == "generated://runtime-screen.rml",
                  "invalid project Rml contract did not select and report the standard fallback");
 }
 
-bool TestRuntimePerformanceBudgetEvaluation()
-{
+bool TestRuntimePerformanceBudgetEvaluation() {
     RuntimePerformanceBudget budget;
     budget.warmupSamples = 2;
     budget.minimumSamples = 8;
@@ -5740,25 +6524,22 @@ bool TestRuntimePerformanceBudgetEvaluation()
     budget.maxDroppedFixedTicks = 0;
     RuntimePerformanceGate gate(budget);
     for (uint64_t i = 0; i < 10; ++i) {
-        gate.AddSample({10.0 + static_cast<double>(i), 2.0, 5.0, 8.0,
-                        100 + i * 4, 0, true});
+        gate.AddSample({10.0 + static_cast<double>(i), 2.0, 5.0, 8.0, 100 + i * 4, 0, true});
     }
     const RuntimePerformanceReport passing = gate.Evaluate();
-    if (!Check(passing.passed && passing.summary.sampleCount == 8 &&
-               passing.summary.p50FrameMs > 14.0 &&
-               passing.summary.p95FrameMs < 20.0 &&
-               passing.summary.gpuSampleCount == 8 &&
-               passing.summary.workingSetGrowthBytes == 28,
-               "valid runtime performance sample window failed its budget")) return false;
+    if (!Check(passing.passed && passing.summary.sampleCount == 8 && passing.summary.p50FrameMs > 14.0 &&
+                   passing.summary.p95FrameMs < 20.0 && passing.summary.gpuSampleCount == 8 &&
+                   passing.summary.workingSetGrowthBytes == 28,
+               "valid runtime performance sample window failed its budget"))
+        return false;
     const nlohmann::json json = nlohmann::json::parse(passing.ToJson());
-    if (!Check(json.value("passed", false) &&
-               json["summary"].value("sampleCount", 0) == 8 &&
-               json["samples"].size() == 8 &&
-               json["samples"][0].value("workingSetBytes", 0ull) == 108,
-               "runtime performance report JSON lost summary data")) return false;
+    if (!Check(json.value("passed", false) && json["summary"].value("sampleCount", 0) == 8 &&
+                   json["samples"].size() == 8 && json["samples"][0].value("workingSetBytes", 0ull) == 108,
+               "runtime performance report JSON lost summary data"))
+        return false;
 #if defined(MYENGINE_PLATFORM_WINDOWS)
-    if (!Check(GetCurrentProcessWorkingSetBytes() > 0,
-               "Windows process working-set sampler returned zero")) return false;
+    if (!Check(GetCurrentProcessWorkingSetBytes() > 0, "Windows process working-set sampler returned zero"))
+        return false;
 #endif
 
     budget.maxP95FrameMs = 12.0;
@@ -5766,253 +6547,320 @@ bool TestRuntimePerformanceBudgetEvaluation()
     budget.maxDroppedFixedTicks = 0;
     RuntimePerformanceGate failing(budget);
     for (uint64_t i = 0; i < 10; ++i) {
-        failing.AddSample({14.0, 2.0, 5.0, 9.0, 100 + i * 4,
-                           static_cast<uint32_t>(i == 9), true});
+        failing.AddSample({14.0, 2.0, 5.0, 9.0, 100 + i * 4, static_cast<uint32_t>(i == 9), true});
     }
     const RuntimePerformanceReport failed = failing.Evaluate();
-    if (!Check(!failed.passed && failed.violations.size() == 3 &&
-               failed.summary.droppedFixedTicks == 1,
-               "frame, memory, and fixed-tick budget violations were not deterministic")) return false;
+    if (!Check(!failed.passed && failed.violations.size() == 3 && failed.summary.droppedFixedTicks == 1,
+               "frame, memory, and fixed-tick budget violations were not deterministic"))
+        return false;
 
     RuntimePerformanceBudget insufficientBudget;
     insufficientBudget.minimumSamples = 2;
     RuntimePerformanceGate insufficient(insufficientBudget);
     insufficient.AddSample({});
-    return Check(!insufficient.Evaluate().passed,
-                 "runtime performance gate accepted too few samples");
+    return Check(!insufficient.Evaluate().passed, "runtime performance gate accepted too few samples");
 }
 
-bool TestRuntimeResourceBudgetEvictionUploadAndActorPressure()
-{
-    AssetManager& assets=AssetManager::Get();assets.Clear();
-    const size_t oldCpuBudget=assets.GetAssetCpuBudgetBytes();
-    const uint64_t oldActorBudget=MemoryService::Get().GetSceneActorBudget();
-    GpuUploadQueue& uploads=GpuUploadQueue::Get();uploads.Clear();uploads.ResetStatistics();
-    struct Cleanup { AssetManager& assets;GpuUploadQueue& uploads;size_t cpu;uint64_t actors;
-        ~Cleanup(){uploads.Clear();uploads.ResetStatistics();assets.Clear();
-            assets.SetAssetCpuBudgetBytes(cpu);MemoryService::Get().SetSceneActorBudget(actors);}
-    } cleanup{assets,uploads,oldCpuBudget,oldActorBudget};
+bool TestRuntimeResourceBudgetEvictionUploadAndActorPressure() {
+    AssetManager& assets = AssetManager::Get();
+    assets.Clear();
+    const size_t oldCpuBudget = assets.GetAssetCpuBudgetBytes();
+    const uint64_t oldActorBudget = MemoryService::Get().GetSceneActorBudget();
+    GpuUploadQueue& uploads = GpuUploadQueue::Get();
+    uploads.Clear();
+    uploads.ResetStatistics();
+    struct Cleanup {
+        AssetManager& assets;
+        GpuUploadQueue& uploads;
+        size_t cpu;
+        uint64_t actors;
+        ~Cleanup() {
+            uploads.Clear();
+            uploads.ResetStatistics();
+            assets.Clear();
+            assets.SetAssetCpuBudgetBytes(cpu);
+            MemoryService::Get().SetSceneActorBudget(actors);
+        }
+    } cleanup{assets, uploads, oldCpuBudget, oldActorBudget};
 
-    auto createTexture=[&](const std::string& path){
-        auto texture=std::make_shared<TextureAsset>(path);TextureDesc desc;desc.width=16;desc.height=16;
-        texture->SetPixelData(std::vector<uint8_t>(16*16*4,255),desc);
+    auto createTexture = [&](const std::string& path) {
+        auto texture = std::make_shared<TextureAsset>(path);
+        TextureDesc desc;
+        desc.width = 16;
+        desc.height = 16;
+        texture->SetPixelData(std::vector<uint8_t>(16 * 16 * 4, 255), desc);
         return assets.Register(std::move(texture));
     };
-    auto oldest=createTexture("Content/Budget/Oldest.png");
-    auto pinned=createTexture("Content/Budget/Pinned.png");
-    auto referenced=createTexture("Content/Budget/Referenced.png");
-    oldest.Reset();pinned.Reset();assets.Pin("Content/Budget/Pinned.png");
-    const size_t bytesBefore=assets.GetEstimatedAssetCpuBytes();
-    AssetGarbageCollectionReport gc=assets.CollectGarbageDetailed({bytesBefore-1,0.25f,1});
-    if(!Check(gc.budgetExceeded&&gc.evictions.size()==1&&
-              gc.evictions.front().path=="Content/Budget/Oldest.png"&&
-              gc.blockedPinnedAssets==1&&gc.blockedReferencedAssets==1&&
-              gc.bytesAfter<gc.bytesBefore&&!gc.targetReached,
-              "asset budget report did not deterministically evict LRU or expose blockers"))return false;
-    const AssetCacheStats cache=assets.GetCacheStats();
-    if(!Check(cache.budgetCollections==1&&cache.evictedAssets==1&&
-              cache.evictedBytes==gc.evictions.front().estimatedCpuBytes,
-              "asset budget cumulative statistics are inconsistent"))return false;
-    assets.Unpin("Content/Budget/Pinned.png");referenced.Reset();assets.Clear();
+    auto oldest = createTexture("Content/Budget/Oldest.png");
+    auto pinned = createTexture("Content/Budget/Pinned.png");
+    auto referenced = createTexture("Content/Budget/Referenced.png");
+    oldest.Reset();
+    pinned.Reset();
+    assets.Pin("Content/Budget/Pinned.png");
+    const size_t bytesBefore = assets.GetEstimatedAssetCpuBytes();
+    AssetGarbageCollectionReport gc = assets.CollectGarbageDetailed({bytesBefore - 1, 0.25f, 1});
+    if (!Check(gc.budgetExceeded && gc.evictions.size() == 1 &&
+                   gc.evictions.front().path == "Content/Budget/Oldest.png" && gc.blockedPinnedAssets == 1 &&
+                   gc.blockedReferencedAssets == 1 && gc.bytesAfter < gc.bytesBefore && !gc.targetReached,
+               "asset budget report did not deterministically evict LRU or expose blockers"))
+        return false;
+    const AssetCacheStats cache = assets.GetCacheStats();
+    if (!Check(cache.budgetCollections == 1 && cache.evictedAssets == 1 &&
+                   cache.evictedBytes == gc.evictions.front().estimatedCpuBytes,
+               "asset budget cumulative statistics are inconsistent"))
+        return false;
+    assets.Unpin("Content/Budget/Pinned.png");
+    referenced.Reset();
+    assets.Clear();
 
-    int executed=0;
-    uploads.Enqueue([&](IRHIDevice&){++executed;},100);
-    uploads.Enqueue([&](IRHIDevice&){++executed;},100);
-    uploads.Enqueue([&](IRHIDevice&){++executed;},100);
+    int executed = 0;
+    uploads.Enqueue([&](IRHIDevice&) { ++executed; }, 100);
+    uploads.Enqueue([&](IRHIDevice&) { ++executed; }, 100);
+    uploads.Enqueue([&](IRHIDevice&) { ++executed; }, 100);
     MockRenderContext device;
-    GpuUploadBudget oneTask;oneTask.maxTasks=1;oneTask.maxBytes=1000;oneTask.maxMilliseconds=0;
-    uploads.Process(device,oneTask);
-    GpuUploadBudget byteLimited;byteLimited.maxTasks=8;byteLimited.maxBytes=150;byteLimited.maxMilliseconds=0;
-    uploads.Process(device,byteLimited);
-    GpuUploadQueueStats uploadStats=uploads.GetStats();
-    if(!Check(executed==2&&uploadStats.pendingTasks==1&&uploadStats.pendingBytes==100&&
-              uploadStats.peakPendingBytes==300&&uploadStats.processedBytes==200&&
-              uploadStats.taskBudgetDeferrals==1&&uploadStats.byteBudgetDeferrals==1,
-              "GPU upload backlog accounting or budget deferral statistics failed"))return false;
+    GpuUploadBudget oneTask;
+    oneTask.maxTasks = 1;
+    oneTask.maxBytes = 1000;
+    oneTask.maxMilliseconds = 0;
+    uploads.Process(device, oneTask);
+    GpuUploadBudget byteLimited;
+    byteLimited.maxTasks = 8;
+    byteLimited.maxBytes = 150;
+    byteLimited.maxMilliseconds = 0;
+    uploads.Process(device, byteLimited);
+    GpuUploadQueueStats uploadStats = uploads.GetStats();
+    if (!Check(executed == 2 && uploadStats.pendingTasks == 1 && uploadStats.pendingBytes == 100 &&
+                   uploadStats.peakPendingBytes == 300 && uploadStats.processedBytes == 200 &&
+                   uploadStats.taskBudgetDeferrals == 1 && uploadStats.byteBudgetDeferrals == 1,
+               "GPU upload backlog accounting or budget deferral statistics failed"))
+        return false;
 
-    RuntimeResourceBudgetController controller;RuntimeResourceBudgetConfig config;
-    const RHIResourceStats rhiBaseline=RHIResourceStatsProvider::GetStats();
-    auto pressuredBuffer=std::make_shared<GpuBuffer>();pressuredBuffer->desc.size=128;
+    RuntimeResourceBudgetController controller;
+    RuntimeResourceBudgetConfig config;
+    const RHIResourceStats rhiBaseline = RHIResourceStatsProvider::GetStats();
+    auto pressuredBuffer = std::make_shared<GpuBuffer>();
+    pressuredBuffer->desc.size = 128;
     CommitRHIResourceAccounting(pressuredBuffer);
-    auto pressuredViewA=std::make_shared<GpuTextureView>();
-    auto pressuredViewB=std::make_shared<GpuTextureView>();
-    config.assetCpuHighWatermarkBytes=1024;config.maxLiveActors=1;
-    config.maxPendingUploadBytes=50;config.maxPendingUploadTasks=1;
-    config.maxGpuResourceBytes=rhiBaseline.liveResourceBytes+64;
-    config.gpuResourceLowWatermarkRatio=1.0f;
-    config.maxLogicalDescriptors=rhiBaseline.liveDescriptors+1;
-    config.descriptorLowWatermarkRatio=1.0f;
-    config.pressureFramesBeforeQualityDegrade=1;
-    config.healthyFramesBeforeQualityRestore=1;
-    config.perFrameUpload=oneTask;
+    auto pressuredViewA = std::make_shared<GpuTextureView>();
+    auto pressuredViewB = std::make_shared<GpuTextureView>();
+    config.assetCpuHighWatermarkBytes = 1024;
+    config.maxLiveActors = 1;
+    config.maxPendingUploadBytes = 50;
+    config.maxPendingUploadTasks = 1;
+    config.maxGpuResourceBytes = rhiBaseline.liveResourceBytes + 64;
+    config.gpuResourceLowWatermarkRatio = 1.0f;
+    config.maxLogicalDescriptors = rhiBaseline.liveDescriptors + 1;
+    config.descriptorLowWatermarkRatio = 1.0f;
+    config.pressureFramesBeforeQualityDegrade = 1;
+    config.healthyFramesBeforeQualityRestore = 1;
+    config.perFrameUpload = oneTask;
     std::string error;
-    if(!Check(controller.Configure(config,&error),"resource budget configure failed: "+error))return false;
-    Scene scene("BudgetActors");scene.CreateActor("A");scene.CreateActor("B");
-    const auto& report=controller.Tick();
-    if(!Check(report.actorPressure&&report.uploadPressure&&report.gpuResourcePressure&&
-               report.descriptorPressure&&report.violations.size()==4&&
-               report.qualityDegradationLevel==1&&report.qualityDegradationTransitions==1&&
-              report.liveActors>=2&&report.uploads.pendingBytes==100&&
-              report.pressureFrames==1&&report.violationTransitions==1,
-              "resource controller did not aggregate actor/upload pressure"))return false;
-    const RuntimeResourceFrameStats frameResources=FrameStatsProvider::GetResourceStats();
-    if(!Check(frameResources.actorPressure&&frameResources.uploadPressure&&
-              frameResources.gpuResourcePressure&&frameResources.descriptorPressure&&
-              frameResources.pendingUploadBytes==100&&frameResources.liveActors>=2,
-              "resource pressure was not published to frame statistics"))return false;
-    pressuredViewA.reset();pressuredViewB.reset();pressuredBuffer.reset();
-    scene.Clear();uploads.Process(device,byteLimited);controller.Tick();
-    return Check(!controller.GetLastReport().actorPressure&&
-                 !controller.GetLastReport().uploadPressure&&
-                 !controller.GetLastReport().gpuResourcePressure&&
-                 !controller.GetLastReport().descriptorPressure&&
-                  controller.GetLastReport().qualityDegradationLevel==0&&
-                  controller.GetLastReport().qualityDegradationTransitions==2&&
-                 controller.GetLastReport().violationTransitions==2,
+    if (!Check(controller.Configure(config, &error), "resource budget configure failed: " + error))
+        return false;
+    Scene scene("BudgetActors");
+    scene.CreateActor("A");
+    scene.CreateActor("B");
+    const auto& report = controller.Tick();
+    if (!Check(report.actorPressure && report.uploadPressure && report.gpuResourcePressure &&
+                   report.descriptorPressure && report.violations.size() == 4 && report.qualityDegradationLevel == 1 &&
+                   report.qualityDegradationTransitions == 1 && report.liveActors >= 2 &&
+                   report.uploads.pendingBytes == 100 && report.pressureFrames == 1 && report.violationTransitions == 1,
+               "resource controller did not aggregate actor/upload pressure"))
+        return false;
+    const RuntimeResourceFrameStats frameResources = FrameStatsProvider::GetResourceStats();
+    if (!Check(frameResources.actorPressure && frameResources.uploadPressure && frameResources.gpuResourcePressure &&
+                   frameResources.descriptorPressure && frameResources.pendingUploadBytes == 100 &&
+                   frameResources.liveActors >= 2,
+               "resource pressure was not published to frame statistics"))
+        return false;
+    pressuredViewA.reset();
+    pressuredViewB.reset();
+    pressuredBuffer.reset();
+    scene.Clear();
+    uploads.Process(device, byteLimited);
+    controller.Tick();
+    return Check(!controller.GetLastReport().actorPressure && !controller.GetLastReport().uploadPressure &&
+                     !controller.GetLastReport().gpuResourcePressure &&
+                     !controller.GetLastReport().descriptorPressure &&
+                     controller.GetLastReport().qualityDegradationLevel == 0 &&
+                     controller.GetLastReport().qualityDegradationTransitions == 2 &&
+                     controller.GetLastReport().violationTransitions == 2,
                  "resource pressure hysteresis did not return to a healthy state");
 }
 
-bool TestRHIResidencyDescriptorAndRenderGraphTransientBudgets()
-{
-    const RHIResourceStats baseline=RHIResourceStatsProvider::GetStats();
-    RHIResourceStatsProvider::AddNativeDescriptorSlots(RHINativeDescriptorKind::Resource,2);
+bool TestRHIResidencyDescriptorAndRenderGraphTransientBudgets() {
+    const RHIResourceStats baseline = RHIResourceStatsProvider::GetStats();
+    RHIResourceStatsProvider::AddNativeDescriptorSlots(RHINativeDescriptorKind::Resource, 2);
     RHIResourceStatsProvider::AddNativeDescriptorSlots(RHINativeDescriptorKind::Sampler);
-    RHIResourceStatsProvider::RecordNativeDescriptorAllocationFailure(
-        RHINativeDescriptorKind::Resource);
-    const RHIResourceStats nativeLive=RHIResourceStatsProvider::GetStats();
-    const bool nativeAccountingOk=
-        nativeLive.liveNativeDescriptorSlots==baseline.liveNativeDescriptorSlots+3&&
-        nativeLive.liveNativeResourceSlots==baseline.liveNativeResourceSlots+2&&
-        nativeLive.liveNativeSamplerSlots==baseline.liveNativeSamplerSlots+1&&
-        nativeLive.failedNativeDescriptorAllocations==
-            baseline.failedNativeDescriptorAllocations+1;
-    RHIResourceStatsProvider::ReleaseNativeDescriptorSlots(RHINativeDescriptorKind::Resource,2);
+    RHIResourceStatsProvider::RecordNativeDescriptorAllocationFailure(RHINativeDescriptorKind::Resource);
+    const RHIResourceStats nativeLive = RHIResourceStatsProvider::GetStats();
+    const bool nativeAccountingOk =
+        nativeLive.liveNativeDescriptorSlots == baseline.liveNativeDescriptorSlots + 3 &&
+        nativeLive.liveNativeResourceSlots == baseline.liveNativeResourceSlots + 2 &&
+        nativeLive.liveNativeSamplerSlots == baseline.liveNativeSamplerSlots + 1 &&
+        nativeLive.failedNativeDescriptorAllocations == baseline.failedNativeDescriptorAllocations + 1;
+    RHIResourceStatsProvider::ReleaseNativeDescriptorSlots(RHINativeDescriptorKind::Resource, 2);
     RHIResourceStatsProvider::ReleaseNativeDescriptorSlots(RHINativeDescriptorKind::Sampler);
-    if(!Check(nativeAccountingOk,
-              "native descriptor slot accounting or exhaustion diagnostics failed"))return false;
+    if (!Check(nativeAccountingOk, "native descriptor slot accounting or exhaustion diagnostics failed"))
+        return false;
     {
-        auto buffer=std::make_shared<GpuBuffer>();buffer->desc.size=128;
+        auto buffer = std::make_shared<GpuBuffer>();
+        buffer->desc.size = 128;
         CommitRHIResourceAccounting(buffer);
-        auto texture=std::make_shared<GpuTexture>();texture->desc.width=8;texture->desc.height=8;
+        auto texture = std::make_shared<GpuTexture>();
+        texture->desc.width = 8;
+        texture->desc.height = 8;
         CommitRHIResourceAccounting(texture);
-        auto view=std::make_shared<GpuTextureView>();view->texture=texture;
-        const RHIResourceStats live=RHIResourceStatsProvider::GetStats();
-        if(!Check(live.liveBuffers==baseline.liveBuffers+1&&live.liveTextures==baseline.liveTextures+1&&
-                  live.liveBufferBytes==baseline.liveBufferBytes+128&&
-                  live.liveTextureBytes==baseline.liveTextureBytes+256&&
-                  live.liveDescriptors==baseline.liveDescriptors+1,
-                  "RHI lifetime accounting did not track bytes or logical descriptors"))return false;
+        auto view = std::make_shared<GpuTextureView>();
+        view->texture = texture;
+        const RHIResourceStats live = RHIResourceStatsProvider::GetStats();
+        if (!Check(live.liveBuffers == baseline.liveBuffers + 1 && live.liveTextures == baseline.liveTextures + 1 &&
+                       live.liveBufferBytes == baseline.liveBufferBytes + 128 &&
+                       live.liveTextureBytes == baseline.liveTextureBytes + 256 &&
+                       live.liveDescriptors == baseline.liveDescriptors + 1,
+                   "RHI lifetime accounting did not track bytes or logical descriptors"))
+            return false;
     }
-    const RHIResourceStats released=RHIResourceStatsProvider::GetStats();
-    if(!Check(released.liveBuffers==baseline.liveBuffers&&released.liveTextures==baseline.liveTextures&&
-              released.liveResourceBytes==baseline.liveResourceBytes&&
-              released.liveDescriptors==baseline.liveDescriptors,
-              "RHI lifetime accounting did not release resource totals"))return false;
+    const RHIResourceStats released = RHIResourceStatsProvider::GetStats();
+    if (!Check(released.liveBuffers == baseline.liveBuffers && released.liveTextures == baseline.liveTextures &&
+                   released.liveResourceBytes == baseline.liveResourceBytes &&
+                   released.liveDescriptors == baseline.liveDescriptors,
+               "RHI lifetime accounting did not release resource totals"))
+        return false;
 
     MockRenderContext device;
-    RenderGraph constrained(device);RenderGraphResourceBudget tiny;
-    tiny.maxTransientBytes=100;tiny.maxTransientResources=8;tiny.maxTransientDescriptors=8;
-    tiny.maxPooledBytes=1024;
+    RenderGraph constrained(device);
+    RenderGraphResourceBudget tiny;
+    tiny.maxTransientBytes = 100;
+    tiny.maxTransientResources = 8;
+    tiny.maxTransientDescriptors = 8;
+    tiny.maxPooledBytes = 1024;
     std::string error;
-    if(!Check(constrained.SetResourceBudget(tiny,&error),"valid graph budget rejected: "+error))return false;
-    RHITextureDesc desc;desc.width=8;desc.height=8;
-    desc.usage=RHIResourceUsage::RenderTarget|RHIResourceUsage::ShaderResource;
-    const auto tooLarge=constrained.CreateTexture("TooLarge",desc);
-    constrained.SetFinalState(tooLarge,RHIResourceState::ShaderResource);
-    constrained.AddPass("Write",[&](RenderGraphBuilder& b){b.WriteColor(tooLarge);},
-        [](GpuCommandList&,const RenderGraphResources&){});
-    if(!Check(!constrained.Execute(device.commands)&&
-              constrained.GetLastErrorCode()==RenderGraph::ErrorCode::TransientBudgetExceeded&&
-              constrained.GetResourceStats().transientBudgetExceeded&&device.graphTextureCreates==0,
-              "RenderGraph allocated resources beyond its transient hard budget"))return false;
+    if (!Check(constrained.SetResourceBudget(tiny, &error), "valid graph budget rejected: " + error))
+        return false;
+    RHITextureDesc desc;
+    desc.width = 8;
+    desc.height = 8;
+    desc.usage = RHIResourceUsage::RenderTarget | RHIResourceUsage::ShaderResource;
+    const auto tooLarge = constrained.CreateTexture("TooLarge", desc);
+    constrained.SetFinalState(tooLarge, RHIResourceState::ShaderResource);
+    constrained.AddPass(
+        "Write", [&](RenderGraphBuilder& b) { b.WriteColor(tooLarge); },
+        [](GpuCommandList&, const RenderGraphResources&) {});
+    if (!Check(!constrained.Execute(device.commands) &&
+                   constrained.GetLastErrorCode() == RenderGraph::ErrorCode::TransientBudgetExceeded &&
+                   constrained.GetResourceStats().transientBudgetExceeded && device.graphTextureCreates == 0,
+               "RenderGraph allocated resources beyond its transient hard budget"))
+        return false;
 
-    RenderGraph pooled(device);RenderGraphResourceBudget poolBudget;
-    poolBudget.maxTransientBytes=1024;poolBudget.maxTransientResources=8;
-    poolBudget.maxTransientDescriptors=8;poolBudget.maxPooledBytes=1024;
+    RenderGraph pooled(device);
+    RenderGraphResourceBudget poolBudget;
+    poolBudget.maxTransientBytes = 1024;
+    poolBudget.maxTransientResources = 8;
+    poolBudget.maxTransientDescriptors = 8;
+    poolBudget.maxPooledBytes = 1024;
     pooled.SetResourceBudget(poolBudget);
-    auto build=[&](){const auto handle=pooled.CreateTexture("Reusable",desc);
-        pooled.SetFinalState(handle,RHIResourceState::ShaderResource);
-        pooled.AddPass("Write",[handle](RenderGraphBuilder& b){b.WriteColor(handle);},
-            [](GpuCommandList&,const RenderGraphResources&){});};
-    build();if(!Check(pooled.Execute(device.commands),"initial budgeted graph failed"))return false;
-    const int creates=device.graphTextureCreates;
-    if(!Check(pooled.GetResourceStats().transientRequestedBytes==256&&
-              pooled.GetResourceStats().transientAllocatedBytes==256,
-              "RenderGraph initial transient statistics are incorrect"))return false;
-    pooled.Reset();build();
-    if(!Check(pooled.Execute(device.commands)&&device.graphTextureCreates==creates&&
-              pooled.GetResourceStats().transientReusedBytes==256,
-              "RenderGraph pool reuse was not accounted deterministically"))return false;
-    pooled.Reset();poolBudget.maxPooledBytes=100;poolBudget.poolLowWatermarkRatio=0.5f;
-    pooled.SetResourceBudget(poolBudget);build();
-    if(!Check(pooled.Execute(device.commands),"graph before pool pressure failed"))return false;
+    auto build = [&]() {
+        const auto handle = pooled.CreateTexture("Reusable", desc);
+        pooled.SetFinalState(handle, RHIResourceState::ShaderResource);
+        pooled.AddPass(
+            "Write", [handle](RenderGraphBuilder& b) { b.WriteColor(handle); },
+            [](GpuCommandList&, const RenderGraphResources&) {});
+    };
+    build();
+    if (!Check(pooled.Execute(device.commands), "initial budgeted graph failed"))
+        return false;
+    const int creates = device.graphTextureCreates;
+    if (!Check(pooled.GetResourceStats().transientRequestedBytes == 256 &&
+                   pooled.GetResourceStats().transientAllocatedBytes == 256,
+               "RenderGraph initial transient statistics are incorrect"))
+        return false;
     pooled.Reset();
-    return Check(pooled.GetResourceStats().pooledBytes<=50&&
-                 pooled.GetResourceStats().poolEvictions==1&&
-                 pooled.GetResourceStats().poolEvictedBytes==256,
+    build();
+    if (!Check(pooled.Execute(device.commands) && device.graphTextureCreates == creates &&
+                   pooled.GetResourceStats().transientReusedBytes == 256,
+               "RenderGraph pool reuse was not accounted deterministically"))
+        return false;
+    pooled.Reset();
+    poolBudget.maxPooledBytes = 100;
+    poolBudget.poolLowWatermarkRatio = 0.5f;
+    pooled.SetResourceBudget(poolBudget);
+    build();
+    if (!Check(pooled.Execute(device.commands), "graph before pool pressure failed"))
+        return false;
+    pooled.Reset();
+    return Check(pooled.GetResourceStats().pooledBytes <= 50 && pooled.GetResourceStats().poolEvictions == 1 &&
+                     pooled.GetResourceStats().poolEvictedBytes == 256,
                  "RenderGraph pool did not evict to its deterministic low watermark");
 }
 
-bool TestRuntimePerformanceProfileMigrationAndValidation()
-{
+bool TestRuntimePerformanceProfileMigrationAndValidation() {
     RuntimePerformanceProfile profile;
     std::string error;
-    const nlohmann::json legacy = {
-        {"name", "legacy-desktop"},
-        {"hardwareClass", "desktop-discrete"},
-        {"warmupSamples", 10},
-        {"minimumSamples", 20},
-        {"maxP95FrameMs", 18.0},
-        {"maxP99FrameMs", 28.0},
-        {"maxFrameMs", 80.0},
-        {"maxP95GpuMs", 16.0},
-        {"maxWorkingSetGrowthBytes", 1024},
-        {"maxDroppedFixedTicks", 1}
-    };
+    const nlohmann::json legacy = {{"name", "legacy-desktop"},
+                                   {"hardwareClass", "desktop-discrete"},
+                                   {"warmupSamples", 10},
+                                   {"minimumSamples", 20},
+                                   {"maxP95FrameMs", 18.0},
+                                   {"maxP99FrameMs", 28.0},
+                                   {"maxFrameMs", 80.0},
+                                   {"maxP95GpuMs", 16.0},
+                                   {"maxWorkingSetGrowthBytes", 1024},
+                                   {"maxDroppedFixedTicks", 1}};
     if (!Check(RuntimePerformanceProfile::FromJson(legacy, profile, &error) &&
-               profile.version == RuntimePerformanceProfile::CurrentVersion &&
-               profile.scenario=="warm-gameplay"&&profile.resourceBudgetScale==1.0&&
-               profile.maxInitialSceneReadyMs==10000.0&&profile.maxSceneReloadMs==5000.0&&
-               profile.budget.minimumSamples == 20 &&
-               profile.budget.maxP95FrameMs == 18.0,
-               "legacy performance profile migration failed: " + error)) return false;
+                   profile.version == RuntimePerformanceProfile::CurrentVersion &&
+                   profile.scenario == "warm-gameplay" && profile.resourceBudgetScale == 1.0 &&
+                   profile.maxInitialSceneReadyMs == 10000.0 && profile.maxSceneReloadMs == 5000.0 &&
+                   profile.budget.minimumSamples == 20 && profile.budget.maxP95FrameMs == 18.0,
+               "legacy performance profile migration failed: " + error))
+        return false;
     RuntimePerformanceProfile roundTrip;
     if (!Check(RuntimePerformanceProfile::FromJson(profile.ToJson(), roundTrip, &error) &&
-                roundTrip.name == profile.name &&
-                roundTrip.scenario==profile.scenario&&
-                roundTrip.maxInitialSceneReadyMs==profile.maxInitialSceneReadyMs&&
-               roundTrip.budget.maxWorkingSetGrowthBytes == 1024,
-               "performance profile round trip failed: " + error)) return false;
+                   roundTrip.name == profile.name && roundTrip.scenario == profile.scenario &&
+                   roundTrip.maxInitialSceneReadyMs == profile.maxInitialSceneReadyMs &&
+                   roundTrip.budget.maxWorkingSetGrowthBytes == 1024,
+               "performance profile round trip failed: " + error))
+        return false;
     nlohmann::json invalid = profile.ToJson();
     invalid["budget"]["maxP95FrameMs"] = 40.0;
     invalid["budget"]["maxP99FrameMs"] = 20.0;
     if (!Check(!RuntimePerformanceProfile::FromJson(invalid, roundTrip, &error),
-                "invalid percentile ordering was accepted")) return false;
-    invalid=profile.ToJson();invalid["scenario"]="unknown";
-    if(!Check(!RuntimePerformanceProfile::FromJson(invalid,roundTrip,&error),
-              "unknown performance scenario was accepted"))return false;
-    invalid=profile.ToJson();invalid["resourceBudgetScale"]=0.0;
-    if(!Check(!RuntimePerformanceProfile::FromJson(invalid,roundTrip,&error),
-              "zero resource budget scale was accepted"))return false;
-    invalid=profile.ToJson();invalid["maxInitialSceneReadyMs"]=0.0;
-    if(!Check(!RuntimePerformanceProfile::FromJson(invalid,roundTrip,&error),
-              "zero initial scene ready budget was accepted"))return false;
-    const std::array<const char*,4> scenarioFiles={
-        "cold-start","warm-gameplay","scene-transition","resource-stress"};
-    for(const char* scenario:scenarioFiles){
-        const std::filesystem::path path=std::filesystem::path("Content/Config/PerformanceProfiles")/
-            (std::string(scenario)+".profile.json");
+               "invalid percentile ordering was accepted"))
+        return false;
+    invalid = profile.ToJson();
+    invalid["scenario"] = "unknown";
+    if (!Check(!RuntimePerformanceProfile::FromJson(invalid, roundTrip, &error),
+               "unknown performance scenario was accepted"))
+        return false;
+    invalid = profile.ToJson();
+    invalid["resourceBudgetScale"] = 0.0;
+    if (!Check(!RuntimePerformanceProfile::FromJson(invalid, roundTrip, &error),
+               "zero resource budget scale was accepted"))
+        return false;
+    invalid = profile.ToJson();
+    invalid["maxInitialSceneReadyMs"] = 0.0;
+    if (!Check(!RuntimePerformanceProfile::FromJson(invalid, roundTrip, &error),
+               "zero initial scene ready budget was accepted"))
+        return false;
+    const std::array<const char*, 4> scenarioFiles = {"cold-start", "warm-gameplay", "scene-transition",
+                                                      "resource-stress"};
+    for (const char* scenario : scenarioFiles) {
+        const std::filesystem::path path =
+            std::filesystem::path("Content/Config/PerformanceProfiles") / (std::string(scenario) + ".profile.json");
         std::ifstream input(path);
         nlohmann::json checkedIn;
-        if(!Check(input.good(),"checked-in performance profile is missing: "+path.string()))return false;
-        try{input>>checkedIn;}catch(const std::exception& exception){
-            return Check(false,"checked-in performance profile JSON failed: "+std::string(exception.what()));
+        if (!Check(input.good(), "checked-in performance profile is missing: " + path.string()))
+            return false;
+        try {
+            input >> checkedIn;
+        } catch (const std::exception& exception) {
+            return Check(false, "checked-in performance profile JSON failed: " + std::string(exception.what()));
         }
         RuntimePerformanceProfile parsed;
-        if(!Check(RuntimePerformanceProfile::FromJson(checkedIn,parsed,&error)&&
-                  parsed.version==RuntimePerformanceProfile::CurrentVersion&&
-                  parsed.scenario==scenario,
-                  "checked-in performance profile failed validation: "+path.string()+" "+error))return false;
+        if (!Check(RuntimePerformanceProfile::FromJson(checkedIn, parsed, &error) &&
+                       parsed.version == RuntimePerformanceProfile::CurrentVersion && parsed.scenario == scenario,
+                   "checked-in performance profile failed validation: " + path.string() + " " + error))
+            return false;
     }
     nlohmann::json future = profile.ToJson();
     future["version"] = 99;
@@ -6020,47 +6868,80 @@ bool TestRuntimePerformanceProfileMigrationAndValidation()
                  "future performance profile version was accepted");
 }
 
-bool TestRuntimeUserSettingsPersistenceValidationAndRecovery()
-{
-    namespace fs=std::filesystem;
-    const fs::path root=fs::temp_directory_path()/"myengine_user_settings_test";
-    std::error_code ec;fs::remove_all(root,ec);RuntimeUserSettingsStore::SetStorageRoot(root);
-    RuntimeUserSettings value=RuntimeUserSettingsStore::Defaults();
-    value.display.width=1600;value.display.height=900;value.display.windowMode="borderless";
-    value.display.vsync=false;value.display.frameRateLimit=120;value.display.pauseWhenUnfocused=false;value.graphics.backend="d3d12";
-    value.audio.music=0.4f;value.input.invertY=true;value.input.actionMap=InputActionMap::CreateDefault().ToJson();value.accessibility.reduceCameraShake=true;
+bool TestRuntimeUserSettingsPersistenceValidationAndRecovery() {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "myengine_user_settings_test";
+    std::error_code ec;
+    fs::remove_all(root, ec);
+    RuntimeUserSettingsStore::SetStorageRoot(root);
+    RuntimeUserSettings value = RuntimeUserSettingsStore::Defaults();
+    value.display.width = 1600;
+    value.display.height = 900;
+    value.display.windowMode = "borderless";
+    value.display.vsync = false;
+    value.display.frameRateLimit = 120;
+    value.display.pauseWhenUnfocused = false;
+    value.graphics.backend = "d3d12";
+    value.audio.music = 0.4f;
+    value.input.invertY = true;
+    value.input.actionMap = InputActionMap::CreateDefault().ToJson();
+    value.accessibility.reduceCameraShake = true;
     std::string error;
-    if(!Check(RuntimeUserSettingsStore::Save(value,&error),"user settings first save failed: "+error))return false;
-    value.display.width=1920;
-    if(!Check(RuntimeUserSettingsStore::Save(value,&error),"user settings second save failed: "+error))return false;
-    {std::ofstream corrupt(RuntimeUserSettingsStore::GetSettingsPath(),std::ios::trunc);corrupt<<"{broken";}
-    RuntimeUserSettings recovered;bool usedBackup=false;
-    if(!Check(RuntimeUserSettingsStore::Load(recovered,&usedBackup,&error)&&usedBackup&&recovered.display.width==1600&&recovered.display.windowMode=="borderless"&&!recovered.display.vsync&&!recovered.display.pauseWhenUnfocused&&recovered.graphics.backend=="d3d12"&&NearlyEqual(recovered.audio.music,0.4f)&&recovered.input.invertY&&recovered.input.actionMap.is_object()&&recovered.accessibility.reduceCameraShake,"user settings backup recovery lost values: "+error))return false;
-    nlohmann::json legacy={{"display",{{"width",1366},{"height",768}}}};
-    if(!Check(RuntimeUserSettingsStore::FromJson(legacy,recovered,&error)&&recovered.version==RuntimeUserSettings::CurrentVersion&&recovered.display.width==1366&&recovered.audio.master==1.0f,"v0 user settings migration/defaults failed: "+error))return false;
-    nlohmann::json v2=RuntimeUserSettingsStore::ToJson(RuntimeUserSettingsStore::Defaults());v2["version"]=2;v2["display"].erase("pauseWhenUnfocused");
-    if(!Check(RuntimeUserSettingsStore::FromJson(v2,recovered,&error)&&recovered.display.pauseWhenUnfocused,"v2 focus-policy migration failed: "+error))return false;
-    nlohmann::json invalid=RuntimeUserSettingsStore::ToJson(recovered);invalid["audio"]["master"]=2.0f;
-    if(!Check(!RuntimeUserSettingsStore::FromJson(invalid,recovered,&error),"invalid user settings volume was accepted"))return false;
-    invalid=RuntimeUserSettingsStore::ToJson(RuntimeUserSettingsStore::Defaults());invalid["version"]=99;
-    const bool futureRejected=!RuntimeUserSettingsStore::FromJson(invalid,recovered,&error);
-    RuntimeUserSettingsStore::ClearStorageRootOverride();fs::remove_all(root,ec);
-    return Check(futureRejected,"future user settings version was accepted");
+    if (!Check(RuntimeUserSettingsStore::Save(value, &error), "user settings first save failed: " + error))
+        return false;
+    value.display.width = 1920;
+    if (!Check(RuntimeUserSettingsStore::Save(value, &error), "user settings second save failed: " + error))
+        return false;
+    {
+        std::ofstream corrupt(RuntimeUserSettingsStore::GetSettingsPath(), std::ios::trunc);
+        corrupt << "{broken";
+    }
+    RuntimeUserSettings recovered;
+    bool usedBackup = false;
+    if (!Check(RuntimeUserSettingsStore::Load(recovered, &usedBackup, &error) && usedBackup &&
+                   recovered.display.width == 1600 && recovered.display.windowMode == "borderless" &&
+                   !recovered.display.vsync && !recovered.display.pauseWhenUnfocused &&
+                   recovered.graphics.backend == "d3d12" && NearlyEqual(recovered.audio.music, 0.4f) &&
+                   recovered.input.invertY && recovered.input.actionMap.is_object() &&
+                   recovered.accessibility.reduceCameraShake,
+               "user settings backup recovery lost values: " + error))
+        return false;
+    nlohmann::json legacy = {{"display", {{"width", 1366}, {"height", 768}}}};
+    if (!Check(RuntimeUserSettingsStore::FromJson(legacy, recovered, &error) &&
+                   recovered.version == RuntimeUserSettings::CurrentVersion && recovered.display.width == 1366 &&
+                   recovered.audio.master == 1.0f,
+               "v0 user settings migration/defaults failed: " + error))
+        return false;
+    nlohmann::json v2 = RuntimeUserSettingsStore::ToJson(RuntimeUserSettingsStore::Defaults());
+    v2["version"] = 2;
+    v2["display"].erase("pauseWhenUnfocused");
+    if (!Check(RuntimeUserSettingsStore::FromJson(v2, recovered, &error) && recovered.display.pauseWhenUnfocused,
+               "v2 focus-policy migration failed: " + error))
+        return false;
+    nlohmann::json invalid = RuntimeUserSettingsStore::ToJson(recovered);
+    invalid["audio"]["master"] = 2.0f;
+    if (!Check(!RuntimeUserSettingsStore::FromJson(invalid, recovered, &error),
+               "invalid user settings volume was accepted"))
+        return false;
+    invalid = RuntimeUserSettingsStore::ToJson(RuntimeUserSettingsStore::Defaults());
+    invalid["version"] = 99;
+    const bool futureRejected = !RuntimeUserSettingsStore::FromJson(invalid, recovered, &error);
+    RuntimeUserSettingsStore::ClearStorageRootOverride();
+    fs::remove_all(root, ec);
+    return Check(futureRejected, "future user settings version was accepted");
 }
 
-bool TestTaskServicePriorityCancellationFailureAndShutdown()
-{
+bool TestTaskServicePriorityCancellationFailureAndShutdown() {
     TaskService service(1);
     TaskScope scope;
     std::promise<void> blockerStarted;
     std::promise<void> releasePromise;
     const std::shared_future<void> blockerRelease = releasePromise.get_future().share();
-    auto blocker = service.Submit(scope, {"test.blocker", TaskPriority::High},
-        [&](CancellationToken token) {
-            blockerStarted.set_value();
-            while (blockerRelease.wait_for(std::chrono::milliseconds(1)) !=
-                   std::future_status::ready) token.ThrowIfCancellationRequested();
-        });
+    auto blocker = service.Submit(scope, {"test.blocker", TaskPriority::High}, [&](CancellationToken token) {
+        blockerStarted.set_value();
+        while (blockerRelease.wait_for(std::chrono::milliseconds(1)) != std::future_status::ready)
+            token.ThrowIfCancellationRequested();
+    });
     blockerStarted.get_future().wait();
     std::mutex orderMutex;
     std::vector<int> order;
@@ -6077,92 +6958,108 @@ bool TestTaskServicePriorityCancellationFailureAndShutdown()
     auto high = service.Submit(scope, {"test.high", TaskPriority::High}, ordered(1));
     releasePromise.set_value();
     blocker.Get();
-    if (!Check(high.GetStableName() == "test.high" &&
-               high.Get() == 1 && normal.Get() == 2 && low.Get() == 3 &&
-               order == std::vector<int>({1, 2, 3}),
-               "single-worker task priority/FIFO order was not deterministic")) return false;
+    if (!Check(high.GetStableName() == "test.high" && high.Get() == 1 && normal.Get() == 2 && low.Get() == 3 &&
+                   order == std::vector<int>({1, 2, 3}),
+               "single-worker task priority/FIFO order was not deterministic"))
+        return false;
 
-    auto failed = service.Submit(scope, {"test.failure", TaskPriority::Normal},
-        [](CancellationToken) -> int { throw std::runtime_error("intentional task failure"); });
+    auto failed = service.Submit(scope, {"test.failure", TaskPriority::Normal}, [](CancellationToken) -> int {
+        throw std::runtime_error("intentional task failure");
+    });
     bool propagated = false;
-    try { (void)failed.Get(); }
-    catch (const std::runtime_error& exception) {
+    try {
+        (void)failed.Get();
+    } catch (const std::runtime_error& exception) {
         propagated = std::string(exception.what()) == "intentional task failure";
     }
-    if (!Check(propagated, "task exception was not propagated through TaskHandle")) return false;
+    if (!Check(propagated, "task exception was not propagated through TaskHandle"))
+        return false;
 
     std::promise<void> secondBlockerStarted;
     std::promise<void> secondRelease;
     const auto secondReleaseFuture = secondRelease.get_future().share();
-    auto secondBlocker = service.Submit(scope, {"test.blocker2", TaskPriority::High},
-        [&](CancellationToken token) {
-            secondBlockerStarted.set_value();
-            while (secondReleaseFuture.wait_for(std::chrono::milliseconds(1)) !=
-                   std::future_status::ready) token.ThrowIfCancellationRequested();
-        });
+    auto secondBlocker = service.Submit(scope, {"test.blocker2", TaskPriority::High}, [&](CancellationToken token) {
+        secondBlockerStarted.set_value();
+        while (secondReleaseFuture.wait_for(std::chrono::milliseconds(1)) != std::future_status::ready)
+            token.ThrowIfCancellationRequested();
+    });
     secondBlockerStarted.get_future().wait();
-    auto cancelled = service.Submit(scope, {"test.cancelled", TaskPriority::Low},
-        [](CancellationToken) { return 7; });
+    auto cancelled = service.Submit(scope, {"test.cancelled", TaskPriority::Low}, [](CancellationToken) { return 7; });
     cancelled.Cancel();
     secondRelease.set_value();
     secondBlocker.Get();
     bool cancellationPropagated = false;
-    try { (void)cancelled.Get(); }
-    catch (const TaskCancelled&) { cancellationPropagated = true; }
-    if (!Check(cancellationPropagated, "queued task cancellation was not propagated")) return false;
+    try {
+        (void)cancelled.Get();
+    } catch (const TaskCancelled&) {
+        cancellationPropagated = true;
+    }
+    if (!Check(cancellationPropagated, "queued task cancellation was not propagated"))
+        return false;
 
     TaskScope shutdownScope;
     std::promise<void> runningStarted;
-    auto running = service.Submit(shutdownScope, {"test.shutdown", TaskPriority::Normal},
-        [&](CancellationToken token) {
-            runningStarted.set_value();
-            for (;;) {
-                token.ThrowIfCancellationRequested();
-                std::this_thread::yield();
-            }
-        });
+    auto running = service.Submit(shutdownScope, {"test.shutdown", TaskPriority::Normal}, [&](CancellationToken token) {
+        runningStarted.set_value();
+        for (;;) {
+            token.ThrowIfCancellationRequested();
+            std::this_thread::yield();
+        }
+    });
     runningStarted.get_future().wait();
     service.Shutdown();
     bool shutdownCancelled = false;
-    try { running.Get(); }
-    catch (const TaskCancelled&) { shutdownCancelled = true; }
+    try {
+        running.Get();
+    } catch (const TaskCancelled&) {
+        shutdownCancelled = true;
+    }
     const TaskServiceStats stats = service.GetStats();
-    return Check(shutdownCancelled && stats.submitted == 8 &&
-                 stats.completed == 5 && stats.failed == 1 && stats.cancelled == 2 &&
-                 stats.queued == 0,
+    return Check(shutdownCancelled && stats.submitted == 8 && stats.completed == 5 && stats.failed == 1 &&
+                     stats.cancelled == 2 && stats.queued == 0,
                  "TaskService shutdown or accounting contract mismatch");
 }
 
 MYENGINE_REGISTER_TEST("Scene", "TestSceneSerializationRegression", TestSceneSerializationRegression);
 MYENGINE_REGISTER_TEST("Scene", "TestBuiltinSceneMaterialRoundTrip", TestBuiltinSceneMaterialRoundTrip);
 MYENGINE_REGISTER_TEST("Scripting", "TestScriptRuntimeLifecycle", TestScriptRuntimeLifecycle);
-MYENGINE_REGISTER_TEST("Scripting", "TestAngelScriptFilesErrorsAndPhysicsBindings", TestAngelScriptFilesErrorsAndPhysicsBindings);
+MYENGINE_REGISTER_TEST("Scripting", "TestAngelScriptFilesErrorsAndPhysicsBindings",
+                       TestAngelScriptFilesErrorsAndPhysicsBindings);
 MYENGINE_REGISTER_TEST("Scripting", "TestAngelScriptInputAndOverlapBindings", TestAngelScriptInputAndOverlapBindings);
-MYENGINE_REGISTER_TEST("Scripting", "TestAngelScriptSceneComponentsEventsAndTimers", TestAngelScriptSceneComponentsEventsAndTimers);
+MYENGINE_REGISTER_TEST("Scripting", "TestAngelScriptSceneComponentsEventsAndTimers",
+                       TestAngelScriptSceneComponentsEventsAndTimers);
 MYENGINE_REGISTER_TEST("Scripting", "TestAngelScriptPrefabAndTypedFacades", TestAngelScriptPrefabAndTypedFacades);
 MYENGINE_REGISTER_TEST("Scripting", "TestAngelScriptAssetsClassesAndFields", TestAngelScriptAssetsClassesAndFields);
 MYENGINE_REGISTER_TEST("Project", "TestProjectFPSContentSmoke", TestProjectFPSContentSmoke);
 MYENGINE_REGISTER_TEST("Scripting", "TestEditorLuaScriptService", TestEditorLuaScriptService);
 MYENGINE_REGISTER_TEST("Scripting", "TestLegacyLuaScriptCompatibility", TestLegacyLuaScriptCompatibility);
 MYENGINE_REGISTER_TEST("Animation", "TestGpuSkinningAnimationBlend", TestGpuSkinningAnimationBlend);
-MYENGINE_REGISTER_TEST("Animation", "TestAnimatorControllerAndThirdPersonCamera", TestAnimatorControllerAndThirdPersonCamera);
-MYENGINE_REGISTER_TEST("Gameplay", "TestGameplayCombatAndInteractionComponents", TestGameplayCombatAndInteractionComponents);
-MYENGINE_REGISTER_TEST("Gameplay", "TestParticleAndAudioListenerFeedbackComponents", TestParticleAndAudioListenerFeedbackComponents);
-MYENGINE_REGISTER_TEST("Gameplay", "TestNavigationPerceptionAndEnemyStateMachine", TestNavigationPerceptionAndEnemyStateMachine);
+MYENGINE_REGISTER_TEST("Animation", "TestAnimatorControllerAndThirdPersonCamera",
+                       TestAnimatorControllerAndThirdPersonCamera);
+MYENGINE_REGISTER_TEST("Gameplay", "TestGameplayCombatAndInteractionComponents",
+                       TestGameplayCombatAndInteractionComponents);
+MYENGINE_REGISTER_TEST("Gameplay", "TestParticleAndAudioListenerFeedbackComponents",
+                       TestParticleAndAudioListenerFeedbackComponents);
+MYENGINE_REGISTER_TEST("Gameplay", "TestNavigationPerceptionAndEnemyStateMachine",
+                       TestNavigationPerceptionAndEnemyStateMachine);
 MYENGINE_REGISTER_TEST("Gameplay", "TestSceneManagerAndVersionedSaveGame", TestSceneManagerAndVersionedSaveGame);
-MYENGINE_REGISTER_TEST("Gameplay", "TestThirdPersonAdventureTemplateCompilesAndRuns", TestThirdPersonAdventureTemplateCompilesAndRuns);
+MYENGINE_REGISTER_TEST("Gameplay", "TestThirdPersonAdventureTemplateCompilesAndRuns",
+                       TestThirdPersonAdventureTemplateCompilesAndRuns);
 MYENGINE_REGISTER_TEST("Scene", "TestComponentRegistry", TestComponentRegistry);
 MYENGINE_REGISTER_TEST("Scene", "TestTypeRegistryMetadataAndWorldScheduler", TestTypeRegistryMetadataAndWorldScheduler);
 MYENGINE_REGISTER_TEST("Scene", "TestCameraComponentAndGameViewport", TestCameraComponentAndGameViewport);
 MYENGINE_REGISTER_TEST("Scene", "TestAudioSourceComponentSerialization", TestAudioSourceComponentSerialization);
-MYENGINE_REGISTER_TEST("Audio", "TestAudioMixerBusSettingsPauseAndScriptContract", TestAudioMixerBusSettingsPauseAndScriptContract);
+MYENGINE_REGISTER_TEST("Audio", "TestAudioMixerBusSettingsPauseAndScriptContract",
+                       TestAudioMixerBusSettingsPauseAndScriptContract);
 MYENGINE_REGISTER_TEST("Scene", "TestSceneRunStates", TestSceneRunStates);
-MYENGINE_REGISTER_TEST("Miscs", "TestIconsManagerSvgRasterizeIcoAndUploadCache", TestIconsManagerSvgRasterizeIcoAndUploadCache);
+MYENGINE_REGISTER_TEST("Miscs", "TestIconsManagerSvgRasterizeIcoAndUploadCache",
+                       TestIconsManagerSvgRasterizeIcoAndUploadCache);
 MYENGINE_REGISTER_TEST("Core", "TestCrashReportWriting", TestCrashReportWriting);
 MYENGINE_REGISTER_TEST("Scene", "TestTransformHierarchyWorldPosition", TestTransformHierarchyWorldPosition);
 MYENGINE_REGISTER_TEST("Camera", "TestCameraViewportProjectionStability", TestCameraViewportProjectionStability);
 MYENGINE_REGISTER_TEST("Camera", "TestSceneViewportControllerRayStability", TestSceneViewportControllerRayStability);
-MYENGINE_REGISTER_TEST("Scene", "TestDefaultSceneFactoryLeavesScenesUnmodified", TestDefaultSceneFactoryLeavesScenesUnmodified);
+MYENGINE_REGISTER_TEST("Scene", "TestDefaultSceneFactoryLeavesScenesUnmodified",
+                       TestDefaultSceneFactoryLeavesScenesUnmodified);
 MYENGINE_REGISTER_TEST("Input", "TestInputBoundaries", TestInputBoundaries);
 MYENGINE_REGISTER_TEST("Input", "TestGamepadStateTransitions", TestGamepadStateTransitions);
 MYENGINE_REGISTER_TEST("Input", "TestInputActionMapJsonAndEvaluation", TestInputActionMapJsonAndEvaluation);
@@ -6173,7 +7070,8 @@ MYENGINE_REGISTER_TEST("Core", "TestMemoryPoolAllocator", TestMemoryPoolAllocato
 MYENGINE_REGISTER_TEST("Core", "TestMemoryServiceHeapRoundTrip", TestMemoryServiceHeapRoundTrip);
 MYENGINE_REGISTER_TEST("Core", "TestSceneAndAssetMemoryCounters", TestSceneAndAssetMemoryCounters);
 MYENGINE_REGISTER_TEST("Scene", "TestSceneColdLoadsModelSubAssetReferences", TestSceneColdLoadsModelSubAssetReferences);
-MYENGINE_REGISTER_TEST("Scene", "TestActorHandleLifecycleAndDeferredMutation", TestActorHandleLifecycleAndDeferredMutation);
+MYENGINE_REGISTER_TEST("Scene", "TestActorHandleLifecycleAndDeferredMutation",
+                       TestActorHandleLifecycleAndDeferredMutation);
 MYENGINE_REGISTER_TEST("Scene", "TestSceneActorSiblingReorder", TestSceneActorSiblingReorder);
 MYENGINE_REGISTER_TEST("Scene", "TestPrefabRoundTripOverridesAndValidation", TestPrefabRoundTripOverridesAndValidation);
 MYENGINE_REGISTER_TEST("Project", "TestPrefabCookDependencyValidation", TestPrefabCookDependencyValidation);
@@ -6187,21 +7085,32 @@ MYENGINE_REGISTER_TEST("UI", "TestAngelScriptUIEventBindings", TestAngelScriptUI
 MYENGINE_REGISTER_TEST("UI", "TestAngelScriptUIDataModelBindings", TestAngelScriptUIDataModelBindings);
 MYENGINE_REGISTER_TEST("UI", "TestAngelScriptUIBindingContextIsolation", TestAngelScriptUIBindingContextIsolation);
 MYENGINE_REGISTER_TEST("UI", "TestUIDrawListBatchContainer", TestUIDrawListBatchContainer);
-MYENGINE_REGISTER_TEST("Scene", "TestIncrementalSceneLoadPlanAndCancellation", TestIncrementalSceneLoadPlanAndCancellation);
-MYENGINE_REGISTER_TEST("Scene", "TestWorldZoneOwnershipCancellationAndLifetime", TestWorldZoneOwnershipCancellationAndLifetime);
-MYENGINE_REGISTER_TEST("Scene", "TestWorldZoneStreamerDistancePortalBudgetAndTeardown", TestWorldZoneStreamerDistancePortalBudgetAndTeardown);
+MYENGINE_REGISTER_TEST("Scene", "TestIncrementalSceneLoadPlanAndCancellation",
+                       TestIncrementalSceneLoadPlanAndCancellation);
+MYENGINE_REGISTER_TEST("Scene", "TestWorldZoneOwnershipCancellationAndLifetime",
+                       TestWorldZoneOwnershipCancellationAndLifetime);
+MYENGINE_REGISTER_TEST("Scene", "TestWorldZoneStreamerDistancePortalBudgetAndTeardown",
+                       TestWorldZoneStreamerDistancePortalBudgetAndTeardown);
 MYENGINE_REGISTER_TEST("Gameplay", "TestGameFlowPauseOwnershipContract", TestGameFlowPauseOwnershipContract);
 MYENGINE_REGISTER_TEST("Gameplay", "TestWindowFocusPausePolicyAndOwnership", TestWindowFocusPausePolicyAndOwnership);
-MYENGINE_REGISTER_TEST("UI", "TestRuntimeUIScreenStackFocusRestoreAndGameFlowIntegration", TestRuntimeUIScreenStackFocusRestoreAndGameFlowIntegration);
-MYENGINE_REGISTER_TEST("UI", "TestProjectRuntimeScreenInvalidDocumentFallsBack", TestProjectRuntimeScreenInvalidDocumentFallsBack);
+MYENGINE_REGISTER_TEST("UI", "TestRuntimeUIScreenStackFocusRestoreAndGameFlowIntegration",
+                       TestRuntimeUIScreenStackFocusRestoreAndGameFlowIntegration);
+MYENGINE_REGISTER_TEST("UI", "TestProjectRuntimeScreenInvalidDocumentFallsBack",
+                       TestProjectRuntimeScreenInvalidDocumentFallsBack);
 MYENGINE_REGISTER_TEST("Project", "TestRuntimeScreenConfigCookValidation", TestRuntimeScreenConfigCookValidation);
 MYENGINE_REGISTER_TEST("Project", "TestInputGlyphAtlasCookValidation", TestInputGlyphAtlasCookValidation);
-MYENGINE_REGISTER_TEST("UI", "TestSubtitleQueuePriorityBoundsAndAccessibility", TestSubtitleQueuePriorityBoundsAndAccessibility);
+MYENGINE_REGISTER_TEST("UI", "TestSubtitleQueuePriorityBoundsAndAccessibility",
+                       TestSubtitleQueuePriorityBoundsAndAccessibility);
 MYENGINE_REGISTER_TEST("Core", "TestRuntimePerformanceBudgetEvaluation", TestRuntimePerformanceBudgetEvaluation);
-MYENGINE_REGISTER_TEST("Core", "TestRuntimeResourceBudgetEvictionUploadAndActorPressure", TestRuntimeResourceBudgetEvictionUploadAndActorPressure);
-MYENGINE_REGISTER_TEST("Renderer", "TestRHIResidencyDescriptorAndRenderGraphTransientBudgets", TestRHIResidencyDescriptorAndRenderGraphTransientBudgets);
-MYENGINE_REGISTER_TEST("Project", "TestRuntimePerformanceProfileMigrationAndValidation", TestRuntimePerformanceProfileMigrationAndValidation);
-MYENGINE_REGISTER_TEST("Project", "TestRuntimeUserSettingsPersistenceValidationAndRecovery", TestRuntimeUserSettingsPersistenceValidationAndRecovery);
-MYENGINE_REGISTER_TEST("Core", "TestTaskServicePriorityCancellationFailureAndShutdown", TestTaskServicePriorityCancellationFailureAndShutdown);
+MYENGINE_REGISTER_TEST("Core", "TestRuntimeResourceBudgetEvictionUploadAndActorPressure",
+                       TestRuntimeResourceBudgetEvictionUploadAndActorPressure);
+MYENGINE_REGISTER_TEST("Renderer", "TestRHIResidencyDescriptorAndRenderGraphTransientBudgets",
+                       TestRHIResidencyDescriptorAndRenderGraphTransientBudgets);
+MYENGINE_REGISTER_TEST("Project", "TestRuntimePerformanceProfileMigrationAndValidation",
+                       TestRuntimePerformanceProfileMigrationAndValidation);
+MYENGINE_REGISTER_TEST("Project", "TestRuntimeUserSettingsPersistenceValidationAndRecovery",
+                       TestRuntimeUserSettingsPersistenceValidationAndRecovery);
+MYENGINE_REGISTER_TEST("Core", "TestTaskServicePriorityCancellationFailureAndShutdown",
+                       TestTaskServicePriorityCancellationFailureAndShutdown);
 
 } // namespace

@@ -5,11 +5,7 @@
 
 class EditorClipboardService {
 public:
-    enum class Kind {
-        None,
-        Actors,
-        Asset
-    };
+    enum class Kind { None, Actors, Asset };
 
     void StoreActors(std::string json);
     void StoreAssets(std::vector<std::string> paths);

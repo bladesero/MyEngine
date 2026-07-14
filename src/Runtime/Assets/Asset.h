@@ -39,7 +39,7 @@ inline AssetID MakeAssetID(const std::string& path) {
 // AssetType  –  枚举
 // --------------------------------------------------------------------------
 enum class AssetType : uint8_t {
-    Unknown  = 0,
+    Unknown = 0,
     Texture,
     Mesh,
     Material,
@@ -56,19 +56,32 @@ enum class AssetType : uint8_t {
 
 inline const char* AssetTypeToString(AssetType t) {
     switch (t) {
-        case AssetType::Texture:  return "Texture";
-        case AssetType::Mesh:     return "Mesh";
-        case AssetType::Material: return "Material";
-        case AssetType::Model:    return "Model";
-        case AssetType::Shader:   return "Shader";
-        case AssetType::AudioClip:return "AudioClip";
-        case AssetType::Script:   return "Script";
-        case AssetType::UIPrefab: return "UIPrefab";
-        case AssetType::UIStyle:  return "UIStyle";
-        case AssetType::UIFont:   return "UIFont";
-        case AssetType::NavMesh:  return "NavMesh";
-        case AssetType::Particle: return "Particle";
-        default:                  return "Unknown";
+    case AssetType::Texture:
+        return "Texture";
+    case AssetType::Mesh:
+        return "Mesh";
+    case AssetType::Material:
+        return "Material";
+    case AssetType::Model:
+        return "Model";
+    case AssetType::Shader:
+        return "Shader";
+    case AssetType::AudioClip:
+        return "AudioClip";
+    case AssetType::Script:
+        return "Script";
+    case AssetType::UIPrefab:
+        return "UIPrefab";
+    case AssetType::UIStyle:
+        return "UIStyle";
+    case AssetType::UIFont:
+        return "UIFont";
+    case AssetType::NavMesh:
+        return "NavMesh";
+    case AssetType::Particle:
+        return "Particle";
+    default:
+        return "Unknown";
     }
 }
 
@@ -76,10 +89,10 @@ inline const char* AssetTypeToString(AssetType t) {
 // AssetState  –  加载状态
 // --------------------------------------------------------------------------
 enum class AssetState : uint8_t {
-    Unloaded = 0,   // 尚未加载
-    Loading,        // 正在加载（预留异步扩展）
-    Ready,          // 已就绪
-    Failed,         // 加载失败
+    Unloaded = 0, // 尚未加载
+    Loading,      // 正在加载（预留异步扩展）
+    Ready,        // 已就绪
+    Failed,       // 加载失败
 };
 
 // --------------------------------------------------------------------------
@@ -89,21 +102,21 @@ class Asset {
 public:
     virtual ~Asset() = default;
 
-    AssetID            GetID()       const { return m_ID; }
-    const std::string& GetPath()     const { return m_Path; }
-    const std::string& GetName()     const { return m_Name; }
-    AssetType          GetType()     const { return m_Type; }
-    AssetState         GetState()    const { return m_State; }
-    const std::string& GetUuid()     const { return m_Uuid; }
-    uint64_t           GetVersion()  const { return m_Version; }
+    AssetID GetID() const { return m_ID; }
+    const std::string& GetPath() const { return m_Path; }
+    const std::string& GetName() const { return m_Name; }
+    AssetType GetType() const { return m_Type; }
+    AssetState GetState() const { return m_State; }
+    const std::string& GetUuid() const { return m_Uuid; }
+    uint64_t GetVersion() const { return m_Version; }
     const std::vector<AssetID>& GetDependencies() const { return m_Dependencies; }
     std::weak_ptr<void> GetLifetimeToken() const { return m_LifetimeToken; }
 
-    bool IsReady()  const { return m_State == AssetState::Ready;  }
+    bool IsReady() const { return m_State == AssetState::Ready; }
     bool IsFailed() const { return m_State == AssetState::Failed; }
 
     // 资产引用计数（由 AssetManager 维护，外部只读）
-    int  RefCount() const { return m_RefCount.load(); }
+    int RefCount() const { return m_RefCount.load(); }
 
     void SetName(const std::string& name) { m_Name = name; }
     virtual bool ReloadFrom(const Asset& source) {
@@ -113,12 +126,8 @@ public:
 
 protected:
     explicit Asset(AssetType type, const std::string& path)
-        : m_Type(type)
-        , m_Path(path)
-        , m_ID(MakeAssetID(path))
-        , m_Name(ExtractName(path))
-        , m_State(AssetState::Unloaded)
-    {}
+        : m_Type(type), m_Path(path), m_ID(MakeAssetID(path)), m_Name(ExtractName(path)),
+          m_State(AssetState::Unloaded) {}
 
     void SetState(AssetState s) { m_State = s; }
 
@@ -130,10 +139,8 @@ private:
     }
     void IncrementVersion() { ++m_Version; }
 
-    std::shared_ptr<uint8_t> m_LifetimeToken=std::make_shared<uint8_t>(0);
-    void SetDependencies(std::vector<AssetID> dependencies) {
-        m_Dependencies = std::move(dependencies);
-    }
+    std::shared_ptr<uint8_t> m_LifetimeToken = std::make_shared<uint8_t>(0);
+    void SetDependencies(std::vector<AssetID> dependencies) { m_Dependencies = std::move(dependencies); }
 
     static std::string ExtractName(const std::string& path) {
         auto pos = path.find_last_of("/\\");
@@ -142,34 +149,33 @@ private:
         return (dot == std::string::npos) ? filename : filename.substr(0, dot);
     }
 
-    void AddRef()    { ++m_RefCount; }
-    void Release()   { --m_RefCount; }
+    void AddRef() { ++m_RefCount; }
+    void Release() { --m_RefCount; }
 
-    AssetType          m_Type;
-    std::string        m_Path;
-    AssetID            m_ID;
-    std::string        m_Name;
-    std::string        m_Uuid;
-    AssetState         m_State;
-    uint64_t           m_Version = 1;
+    AssetType m_Type;
+    std::string m_Path;
+    AssetID m_ID;
+    std::string m_Name;
+    std::string m_Uuid;
+    AssetState m_State;
+    uint64_t m_Version = 1;
     std::vector<AssetID> m_Dependencies;
-    std::atomic<int>   m_RefCount{ 0 };
+    std::atomic<int> m_RefCount{0};
 };
 
 // --------------------------------------------------------------------------
 // AssetHandle<T>  –  类型安全的引用计数句柄
 // --------------------------------------------------------------------------
-template<typename T>
-class AssetHandle {
+template <typename T> class AssetHandle {
     static_assert(std::is_base_of<Asset, T>::value, "T must derive from Asset");
 
 public:
     AssetHandle() = default;
     explicit AssetHandle(std::shared_ptr<T> ptr) : m_Ptr(std::move(ptr)) {}
 
-    T*       Get()       const { return m_Ptr.get(); }
-    T*       operator->()const { return m_Ptr.get(); }
-    T&       operator*() const { return *m_Ptr; }
+    T* Get() const { return m_Ptr.get(); }
+    T* operator->() const { return m_Ptr.get(); }
+    T& operator*() const { return *m_Ptr; }
     explicit operator bool() const { return m_Ptr != nullptr; }
 
     bool IsValid() const { return m_Ptr && m_Ptr->IsReady(); }

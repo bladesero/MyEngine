@@ -27,23 +27,22 @@ enum class RHIFormat : uint8_t {
 };
 
 enum class RHIResourceUsage : uint32_t {
-    None           = 0,
-    VertexBuffer   = 1u << 0,
-    IndexBuffer    = 1u << 1,
+    None = 0,
+    VertexBuffer = 1u << 0,
+    IndexBuffer = 1u << 1,
     ConstantBuffer = 1u << 2,
     ShaderResource = 1u << 3,
-    RenderTarget   = 1u << 4,
-    DepthStencil   = 1u << 5,
-    UnorderedAccess= 1u << 6,
-    CopySource     = 1u << 7,
-    CopyDestination= 1u << 8,
-    Readback       = 1u << 9,
+    RenderTarget = 1u << 4,
+    DepthStencil = 1u << 5,
+    UnorderedAccess = 1u << 6,
+    CopySource = 1u << 7,
+    CopyDestination = 1u << 8,
+    Readback = 1u << 9,
     IndirectArguments = 1u << 10,
 };
 
 inline RHIResourceUsage operator|(RHIResourceUsage a, RHIResourceUsage b) {
-    return static_cast<RHIResourceUsage>(static_cast<uint32_t>(a) |
-                                         static_cast<uint32_t>(b));
+    return static_cast<RHIResourceUsage>(static_cast<uint32_t>(a) | static_cast<uint32_t>(b));
 }
 inline bool HasUsage(RHIResourceUsage value, RHIResourceUsage flag) {
     return (static_cast<uint32_t>(value) & static_cast<uint32_t>(flag)) != 0;
@@ -120,13 +119,12 @@ enum class RHIFrontFace : uint8_t { Clockwise, CounterClockwise };
 enum class RHIFillMode : uint8_t { Solid, Wireframe };
 
 enum RHIColorWriteMask : uint8_t {
-    RHIColorWriteNone  = 0,
-    RHIColorWriteRed   = 1u << 0,
+    RHIColorWriteNone = 0,
+    RHIColorWriteRed = 1u << 0,
     RHIColorWriteGreen = 1u << 1,
-    RHIColorWriteBlue  = 1u << 2,
+    RHIColorWriteBlue = 1u << 2,
     RHIColorWriteAlpha = 1u << 3,
-    RHIColorWriteAll   = RHIColorWriteRed | RHIColorWriteGreen |
-                         RHIColorWriteBlue | RHIColorWriteAlpha,
+    RHIColorWriteAll = RHIColorWriteRed | RHIColorWriteGreen | RHIColorWriteBlue | RHIColorWriteAlpha,
 };
 
 struct RHIBufferDesc {
@@ -210,4 +208,6 @@ struct RHISamplerDesc {
     RHIAddressMode addressW = RHIAddressMode::Repeat;
 };
 
-struct ClearColor { float r = 0, g = 0, b = 0, a = 1; };
+struct ClearColor {
+    float r = 0, g = 0, b = 0, a = 1;
+};

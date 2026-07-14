@@ -2,20 +2,17 @@
 
 namespace {
 
-std::mutex& SinkMutex()
-{
+std::mutex& SinkMutex() {
     static std::mutex mutex;
     return mutex;
 }
 
-Logger::LogSink& Sink()
-{
+Logger::LogSink& Sink() {
     static Logger::LogSink sink;
     return sink;
 }
 
-std::string Timestamp()
-{
+std::string Timestamp() {
     using clock = std::chrono::system_clock;
     const auto now = clock::now();
     const auto tt = clock::to_time_t(now);
@@ -32,16 +29,13 @@ std::string Timestamp()
 
 } // namespace
 
-void Logger::SetSink(LogSink sink)
-{
+void Logger::SetSink(LogSink sink) {
     std::lock_guard<std::mutex> lock(SinkMutex());
     Sink() = std::move(sink);
 }
 
-void Logger::Emit(const char* level, const std::string& message)
-{
-    const std::string line =
-        "[" + Timestamp() + "][" + std::string(level) + "] " + message;
+void Logger::Emit(const char* level, const std::string& message) {
+    const std::string line = "[" + Timestamp() + "][" + std::string(level) + "] " + message;
     std::cout << line << '\n';
 
     LogSink sinkCopy;
@@ -49,5 +43,6 @@ void Logger::Emit(const char* level, const std::string& message)
         std::lock_guard<std::mutex> lock(SinkMutex());
         sinkCopy = Sink();
     }
-    if (sinkCopy) sinkCopy(line);
+    if (sinkCopy)
+        sinkCopy(line);
 }

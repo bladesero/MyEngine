@@ -6,13 +6,14 @@ public:
     const char* GetID() const override { return "transform"; }
     int GetOrder() const override { return 0; }
 
-    void Draw(EditorContext& context) override
-    {
+    void Draw(EditorContext& context) override {
         Actor* actor = SelectedActor(context);
-        if (!actor) return;
+        if (!actor)
+            return;
 
         ImGui::Separator();
-        if (!SectionHeaderWithIcon(context, EditorIcons::Actor, "Transform")) return;
+        if (!SectionHeaderWithIcon(context, EditorIcons::Actor, "Transform"))
+            return;
         Transform& transform = actor->GetTransform();
         EditorWidgets::BeginPropertyGrid("TransformProperties");
         if (EditorWidgets::BeginPropertyRow("Position")) {
@@ -45,11 +46,11 @@ public:
     const char* GetID() const override { return "meshRenderer"; }
     int GetOrder() const override { return 100; }
 
-    void Draw(EditorContext& context) override
-    {
+    void Draw(EditorContext& context) override {
         Actor* actor = SelectedActor(context);
         auto* renderer = actor ? actor->GetComponent<MeshRendererComponent>() : nullptr;
-        if (!renderer) return;
+        if (!renderer)
+            return;
 
         ImGui::Separator();
         ImGui::PushID("MeshRenderer");
@@ -59,9 +60,7 @@ public:
         }
         DrawEnabled(*renderer);
 
-        std::vector<std::string> meshes {
-            "__builtin__/Triangle", "__builtin__/Quad", "__builtin__/Cube"
-        };
+        std::vector<std::string> meshes{"__builtin__/Triangle", "__builtin__/Quad", "__builtin__/Cube"};
         auto extra = AssetManager::Get().GetCachedPathsByType(AssetType::Mesh);
         meshes.insert(meshes.end(), extra.begin(), extra.end());
         const std::string meshPath = renderer->GetMesh() ? renderer->GetMesh()->GetPath() : "";
@@ -69,23 +68,24 @@ public:
             for (const std::string& path : meshes) {
                 if (ImGui::Selectable(path.c_str(), path == meshPath)) {
                     const MeshHandle mesh = ResolveMesh(path);
-                    if (mesh.IsValid()) renderer->SetMesh(mesh);
+                    if (mesh.IsValid())
+                        renderer->SetMesh(mesh);
                 }
             }
             ImGui::EndCombo();
         }
 
-        std::vector<std::string> materials {"__builtin__/Default"};
+        std::vector<std::string> materials{"__builtin__/Default"};
         extra = AssetManager::Get().GetCachedPathsByType(AssetType::Material);
         materials.insert(materials.end(), extra.begin(), extra.end());
-        const std::string materialPath = renderer->GetMaterialForSlot(0)
-            ? renderer->GetMaterialForSlot(0)->GetPath() : "";
-        if (ImGui::BeginCombo("Default Slot / Slot 0",
-                              materialPath.empty() ? "(none)" : materialPath.c_str())) {
+        const std::string materialPath =
+            renderer->GetMaterialForSlot(0) ? renderer->GetMaterialForSlot(0)->GetPath() : "";
+        if (ImGui::BeginCombo("Default Slot / Slot 0", materialPath.empty() ? "(none)" : materialPath.c_str())) {
             for (const std::string& path : materials) {
                 if (ImGui::Selectable(path.c_str(), path == materialPath)) {
                     const MaterialHandle material = ResolveMaterial(path);
-                    if (material.IsValid()) renderer->SetMaterialSlot(0, material);
+                    if (material.IsValid())
+                        renderer->SetMaterialSlot(0, material);
                 }
             }
             ImGui::EndCombo();
@@ -95,8 +95,7 @@ public:
         if (MeshAsset* mesh = renderer->GetMesh().Get()) {
             for (const SubMesh& subMesh : mesh->GetSubMeshes()) {
                 if (subMesh.materialSlot >= 0) {
-                    slotCount = (std::max)(slotCount,
-                        static_cast<size_t>(subMesh.materialSlot) + 1);
+                    slotCount = (std::max)(slotCount, static_cast<size_t>(subMesh.materialSlot) + 1);
                 }
             }
         }
@@ -104,12 +103,10 @@ public:
             ImGui::TextDisabled("Material Slots");
             for (size_t slot = 0; slot < slotCount; ++slot) {
                 ImGui::PushID(static_cast<int>(slot));
-                const MaterialHandle current = renderer->GetMaterialForSlot(
-                    static_cast<int>(slot));
+                const MaterialHandle current = renderer->GetMaterialForSlot(static_cast<int>(slot));
                 const std::string currentPath = current ? current->GetPath() : "";
                 const std::string label = "Slot " + std::to_string(slot);
-                if (ImGui::BeginCombo(label.c_str(),
-                                      currentPath.empty() ? "(none)" : currentPath.c_str())) {
+                if (ImGui::BeginCombo(label.c_str(), currentPath.empty() ? "(none)" : currentPath.c_str())) {
                     for (const std::string& path : materials) {
                         if (ImGui::Selectable(path.c_str(), path == currentPath)) {
                             const MaterialHandle material = ResolveMaterial(path);
@@ -136,11 +133,11 @@ public:
     const char* GetID() const override { return "skinnedMesh"; }
     int GetOrder() const override { return 110; }
 
-    void Draw(EditorContext& context) override
-    {
+    void Draw(EditorContext& context) override {
         Actor* actor = SelectedActor(context);
         auto* skinned = actor ? actor->GetComponent<SkinnedMeshRendererComponent>() : nullptr;
-        if (!skinned) return;
+        if (!skinned)
+            return;
 
         ImGui::Separator();
         ImGui::PushID("SkinnedMesh");
@@ -161,22 +158,22 @@ class AnimatorInspectorSection final : public ActorInspectorSection {
 public:
     const char* GetID() const override { return "animator"; }
     int GetOrder() const override { return 120; }
-    void Draw(EditorContext& context) override
-    {
+    void Draw(EditorContext& context) override {
         Actor* actor = SelectedActor(context);
         auto* animator = actor ? actor->GetComponent<AnimatorComponent>() : nullptr;
-        if (!animator) return;
+        if (!animator)
+            return;
         ImGui::Separator();
         ImGui::PushID("Animator");
         if (SectionHeaderWithIcon(context, EditorIcons::Mesh, "Animator")) {
             DrawEnabled(*animator);
-            ImGui::Text("State: %s", animator->GetCurrentState().empty() ? "(none)" : animator->GetCurrentState().c_str());
+            ImGui::Text("State: %s",
+                        animator->GetCurrentState().empty() ? "(none)" : animator->GetCurrentState().c_str());
             ImGui::Text("Normalized Time: %.3f", animator->GetNormalizedTime());
             bool rootMotion = animator->AppliesRootMotion();
             if (ImGui::Checkbox("Apply Root Motion", &rootMotion)) {
-                CommitComponentEdit(context, *actor, *animator, "applyRootMotion", [&] {
-                    animator->SetApplyRootMotion(rootMotion);
-                });
+                CommitComponentEdit(context, *actor, *animator, "applyRootMotion",
+                                    [&] { animator->SetApplyRootMotion(rootMotion); });
             }
             ImGui::TextDisabled("Controller states are serialized with this component in P0.");
             if (EditorWidgets::IconButton("RemoveAnimator", "X", "Remove Animator"))
@@ -190,11 +187,11 @@ class ThirdPersonCameraInspectorSection final : public ActorInspectorSection {
 public:
     const char* GetID() const override { return "thirdPersonCamera"; }
     int GetOrder() const override { return 121; }
-    void Draw(EditorContext& context) override
-    {
+    void Draw(EditorContext& context) override {
         Actor* actor = SelectedActor(context);
         auto* camera = actor ? actor->GetComponent<ThirdPersonCameraComponent>() : nullptr;
-        if (!camera) return;
+        if (!camera)
+            return;
         ImGui::Separator();
         ImGui::PushID("ThirdPersonCamera");
         if (SectionHeaderWithIcon(context, EditorIcons::Camera, "Third Person Camera")) {
@@ -209,11 +206,14 @@ public:
             if (DrawVec3("Target Offset", offset, 0.02f))
                 CommitComponentEdit(context, *actor, *camera, "targetOffset", [&] { camera->SetTargetOffset(offset); });
             if (ImGui::DragFloat("Sensitivity", &sensitivity, 0.01f, 0.0f, 10.0f))
-                CommitComponentEdit(context, *actor, *camera, "sensitivity", [&] { camera->SetSensitivity(sensitivity); });
+                CommitComponentEdit(context, *actor, *camera, "sensitivity",
+                                    [&] { camera->SetSensitivity(sensitivity); });
             if (ImGui::DragFloat("Collision Radius", &radius, 0.01f, 0.0f, 5.0f))
-                CommitComponentEdit(context, *actor, *camera, "collisionRadius", [&] { camera->SetCollisionRadius(radius); });
+                CommitComponentEdit(context, *actor, *camera, "collisionRadius",
+                                    [&] { camera->SetCollisionRadius(radius); });
             if (ImGui::DragFloat("Follow Sharpness", &sharpness, 0.1f, 0.0f, 100.0f))
-                CommitComponentEdit(context, *actor, *camera, "followSharpness", [&] { camera->SetFollowSharpness(sharpness); });
+                CommitComponentEdit(context, *actor, *camera, "followSharpness",
+                                    [&] { camera->SetFollowSharpness(sharpness); });
             if (EditorWidgets::IconButton("RemoveThirdPersonCamera", "X", "Remove Third Person Camera"))
                 RemoveComponentByType(context, *actor, "ThirdPersonCamera");
         }
@@ -221,17 +221,16 @@ public:
     }
 };
 
-
 class MaterialInspectorSection final : public ActorInspectorSection {
 public:
     const char* GetID() const override { return "material"; }
     int GetOrder() const override { return 200; }
 
-    void Draw(EditorContext& context) override
-    {
+    void Draw(EditorContext& context) override {
         Actor* actor = SelectedActor(context);
         auto* renderer = actor ? actor->GetComponent<MeshRendererComponent>() : nullptr;
-        if (!renderer || !renderer->GetMaterial().IsValid()) return;
+        if (!renderer || !renderer->GetMaterial().IsValid())
+            return;
 
         ImGui::Separator();
         ImGui::PushID("Material");
@@ -240,7 +239,10 @@ public:
             return;
         }
         auto* mat = renderer->GetMaterial().Get();
-        if (!mat) { ImGui::PopID(); return; }
+        if (!mat) {
+            ImGui::PopID();
+            return;
+        }
 
         ImGui::Text("Source: %s", mat->GetPath().c_str());
         ImGui::PopID();
@@ -252,11 +254,11 @@ public:
     const char* GetID() const override { return "audioSource"; }
     int GetOrder() const override { return 250; }
 
-    void Draw(EditorContext& context) override
-    {
+    void Draw(EditorContext& context) override {
         Actor* actor = SelectedActor(context);
         auto* source = actor ? actor->GetComponent<AudioSourceComponent>() : nullptr;
-        if (!source) return;
+        if (!source)
+            return;
 
         ImGui::Separator();
         ImGui::PushID("AudioSource");
@@ -277,8 +279,7 @@ public:
         std::sort(clips.begin(), clips.end());
         clips.erase(std::unique(clips.begin(), clips.end()), clips.end());
 
-        const std::string current = source->GetClipPath().empty()
-            ? std::string("(none)") : source->GetClipPath();
+        const std::string current = source->GetClipPath().empty() ? std::string("(none)") : source->GetClipPath();
         if (ImGui::BeginCombo("Clip", current.c_str())) {
             if (ImGui::Selectable("(none)", source->GetClipPath().empty()))
                 source->SetClipPath({});
@@ -289,11 +290,14 @@ public:
         }
 
         bool playOnStart = source->GetPlayOnStart();
-        if (ImGui::Checkbox("Play On Start", &playOnStart)) source->SetPlayOnStart(playOnStart);
+        if (ImGui::Checkbox("Play On Start", &playOnStart))
+            source->SetPlayOnStart(playOnStart);
         bool loop = source->GetLoop();
-        if (ImGui::Checkbox("Loop", &loop)) source->SetLoop(loop);
+        if (ImGui::Checkbox("Loop", &loop))
+            source->SetLoop(loop);
         bool streaming = source->GetStreaming();
-        if (ImGui::Checkbox("Streaming", &streaming)) source->SetStreaming(streaming);
+        if (ImGui::Checkbox("Streaming", &streaming))
+            source->SetStreaming(streaming);
         AudioBus bus = source->GetBus();
         if (ImGui::BeginCombo("Bus", AudioBusName(bus))) {
             for (uint8_t index = 0; index < static_cast<uint8_t>(AudioBus::Count); ++index) {
@@ -304,16 +308,20 @@ public:
             ImGui::EndCombo();
         }
         int priority = source->GetPriority();
-        if (ImGui::SliderInt("Priority", &priority, -100, 100)) source->SetPriority(priority);
+        if (ImGui::SliderInt("Priority", &priority, -100, 100))
+            source->SetPriority(priority);
         int maxInstances = static_cast<int>(source->GetMaxInstances());
         if (ImGui::DragInt("Max Instances", &maxInstances, 1.0f, 0, 128))
             source->SetMaxInstances(static_cast<uint32_t>((std::max)(0, maxInstances)));
         bool spatial = source->GetSpatial();
-        if (ImGui::Checkbox("Spatial", &spatial)) source->SetSpatial(spatial);
+        if (ImGui::Checkbox("Spatial", &spatial))
+            source->SetSpatial(spatial);
         float volume = source->GetVolume();
-        if (ImGui::SliderFloat("Volume", &volume, 0.0f, 2.0f)) source->SetVolume(volume);
+        if (ImGui::SliderFloat("Volume", &volume, 0.0f, 2.0f))
+            source->SetVolume(volume);
         float pitch = source->GetPitch();
-        if (ImGui::SliderFloat("Pitch", &pitch, 0.25f, 4.0f)) source->SetPitch(pitch);
+        if (ImGui::SliderFloat("Pitch", &pitch, 0.25f, 4.0f))
+            source->SetPitch(pitch);
         float minDistance = source->GetMinDistance();
         if (ImGui::DragFloat("Min Distance", &minDistance, 0.05f, 0.01f, 1000.0f))
             source->SetMinDistance(minDistance);
@@ -327,17 +335,16 @@ public:
     }
 };
 
-
 class LightInspectorSection final : public ActorInspectorSection {
 public:
     const char* GetID() const override { return "light"; }
     int GetOrder() const override { return 350; }
 
-    void Draw(EditorContext& context) override
-    {
+    void Draw(EditorContext& context) override {
         Actor* actor = SelectedActor(context);
         auto* light = actor ? actor->GetComponent<LightComponent>() : nullptr;
-        if (!light) return;
+        if (!light)
+            return;
 
         ImGui::Separator();
         ImGui::PushID("Light");
@@ -349,40 +356,31 @@ public:
 
         int type = static_cast<int>(light->GetLightType());
         if (ImGui::Combo("Type", &type, "Directional\0Point\0Spot\0")) {
-            CommitComponentEdit(context, *actor, *light, "type", [&] {
-                light->SetLightType(static_cast<LightType>(type));
-            });
+            CommitComponentEdit(context, *actor, *light, "type",
+                                [&] { light->SetLightType(static_cast<LightType>(type)); });
         }
         Vec3 color = light->GetColor();
         float values[3] = {color.x, color.y, color.z};
         if (ImGui::ColorEdit3("Color", values)) {
-            CommitComponentEdit(context, *actor, *light, "color", [&] {
-                light->SetColor({values[0], values[1], values[2]});
-            });
+            CommitComponentEdit(context, *actor, *light, "color",
+                                [&] { light->SetColor({values[0], values[1], values[2]}); });
         }
         float intensity = light->GetIntensity();
         if (ImGui::DragFloat("Intensity", &intensity, 0.05f, 0.0f, 1000.0f)) {
-            CommitComponentEdit(context, *actor, *light, "intensity", [&] {
-                light->SetIntensity(intensity);
-            });
+            CommitComponentEdit(context, *actor, *light, "intensity", [&] { light->SetIntensity(intensity); });
         }
         bool castShadows = light->CastsShadows();
         if (ImGui::Checkbox("Cast Shadows", &castShadows)) {
-            CommitComponentEdit(context, *actor, *light, "castShadows", [&] {
-                light->SetCastShadows(castShadows);
-            });
+            CommitComponentEdit(context, *actor, *light, "castShadows", [&] { light->SetCastShadows(castShadows); });
         }
         float shadowIntensity = light->GetShadowIntensity();
         if (ImGui::SliderFloat("Shadow Intensity", &shadowIntensity, 0.0f, 1.0f)) {
-            CommitComponentEdit(context, *actor, *light, "shadowIntensity", [&] {
-                light->SetShadowIntensity(shadowIntensity);
-            });
+            CommitComponentEdit(context, *actor, *light, "shadowIntensity",
+                                [&] { light->SetShadowIntensity(shadowIntensity); });
         }
         Vec3 direction = light->GetDirection();
         if (DrawVec3("Direction", direction, 0.02f)) {
-            CommitComponentEdit(context, *actor, *light, "direction", [&] {
-                light->SetDirection(direction);
-            });
+            CommitComponentEdit(context, *actor, *light, "direction", [&] { light->SetDirection(direction); });
         }
         if (EditorWidgets::IconButton("RemoveLight", "X", "Remove Light"))
             RemoveComponentByType(context, *actor, "Light");
@@ -395,11 +393,11 @@ public:
     const char* GetID() const override { return "camera"; }
     int GetOrder() const override { return 340; }
 
-    void Draw(EditorContext& context) override
-    {
+    void Draw(EditorContext& context) override {
         Actor* actor = SelectedActor(context);
         auto* camera = actor ? actor->GetComponent<CameraComponent>() : nullptr;
-        if (!camera) return;
+        if (!camera)
+            return;
 
         ImGui::Separator();
         ImGui::PushID("Camera");
@@ -411,34 +409,25 @@ public:
 
         bool isMain = camera->IsMainCamera();
         if (ImGui::Checkbox("Main Camera", &isMain)) {
-            CommitComponentEdit(context, *actor, *camera, "isMainCamera", [&] {
-                camera->SetMainCamera(isMain);
-            });
+            CommitComponentEdit(context, *actor, *camera, "isMainCamera", [&] { camera->SetMainCamera(isMain); });
         }
         float fov = camera->GetFovYDegrees();
         if (ImGui::DragFloat("FOV Y", &fov, 0.25f, 1.0f, 179.0f)) {
-            CommitComponentEdit(context, *actor, *camera, "fovYDegrees", [&] {
-                camera->SetFovYDegrees(fov);
-            });
+            CommitComponentEdit(context, *actor, *camera, "fovYDegrees", [&] { camera->SetFovYDegrees(fov); });
         }
         float nearClip = camera->GetNearClip();
         if (ImGui::DragFloat("Near", &nearClip, 0.01f, 0.001f, 1000.0f)) {
-            CommitComponentEdit(context, *actor, *camera, "nearClip", [&] {
-                camera->SetNearClip(nearClip);
-            });
+            CommitComponentEdit(context, *actor, *camera, "nearClip", [&] { camera->SetNearClip(nearClip); });
         }
         float farClip = camera->GetFarClip();
         if (ImGui::DragFloat("Far", &farClip, 1.0f, 0.002f, 100000.0f)) {
-            CommitComponentEdit(context, *actor, *camera, "farClip", [&] {
-                camera->SetFarClip(farClip);
-            });
+            CommitComponentEdit(context, *actor, *camera, "farClip", [&] { camera->SetFarClip(farClip); });
         }
         Vec3 clear = camera->GetClearColor();
         float color[3] = {clear.x, clear.y, clear.z};
         if (ImGui::ColorEdit3("Clear Color", color)) {
-            CommitComponentEdit(context, *actor, *camera, "clearColor", [&] {
-                camera->SetClearColor({color[0], color[1], color[2]});
-            });
+            CommitComponentEdit(context, *actor, *camera, "clearColor",
+                                [&] { camera->SetClearColor({color[0], color[1], color[2]}); });
         }
         if (EditorWidgets::IconButton("RemoveCamera", "X", "Remove Camera"))
             RemoveComponentByType(context, *actor, "Camera");
@@ -451,11 +440,11 @@ public:
     const char* GetID() const override { return "postProcess"; }
     int GetOrder() const override { return 400; }
 
-    void Draw(EditorContext& context) override
-    {
+    void Draw(EditorContext& context) override {
         Actor* actor = SelectedActor(context);
         auto* post = actor ? actor->GetComponent<PostProcessComponent>() : nullptr;
-        if (!post) return;
+        if (!post)
+            return;
 
         ImGui::Separator();
         ImGui::PushID("PostProcess");
@@ -468,24 +457,16 @@ public:
         float ssao = post->GetSSAOIntensity();
         float bloom = post->GetBloomIntensity();
         if (ImGui::DragFloat("Exposure", &exposure, 0.02f, 0.0f, 16.0f)) {
-            CommitComponentEdit(context, *actor, *post, "exposure", [&] {
-                post->SetExposure(exposure);
-            });
+            CommitComponentEdit(context, *actor, *post, "exposure", [&] { post->SetExposure(exposure); });
         }
         if (ImGui::DragFloat("Gamma", &gamma, 0.01f, 0.1f, 8.0f)) {
-            CommitComponentEdit(context, *actor, *post, "gamma", [&] {
-                post->SetGamma(gamma);
-            });
+            CommitComponentEdit(context, *actor, *post, "gamma", [&] { post->SetGamma(gamma); });
         }
         if (ImGui::DragFloat("SSAO", &ssao, 0.02f, 0.0f, 4.0f)) {
-            CommitComponentEdit(context, *actor, *post, "ssaoIntensity", [&] {
-                post->SetSSAOIntensity(ssao);
-            });
+            CommitComponentEdit(context, *actor, *post, "ssaoIntensity", [&] { post->SetSSAOIntensity(ssao); });
         }
         if (ImGui::DragFloat("Bloom", &bloom, 0.02f, 0.0f, 8.0f)) {
-            CommitComponentEdit(context, *actor, *post, "bloomIntensity", [&] {
-                post->SetBloomIntensity(bloom);
-            });
+            CommitComponentEdit(context, *actor, *post, "bloomIntensity", [&] { post->SetBloomIntensity(bloom); });
         }
         if (EditorWidgets::IconButton("RemovePostProcess", "X", "Remove Post Process")) {
             RemoveComponentByType(context, *actor, "PostProcess");
@@ -494,11 +475,9 @@ public:
     }
 };
 
-
 } // namespace
 
-void RegisterTransformRenderInspectorSections(std::vector<std::unique_ptr<EditorInspectorSection>>& sections)
-{
+void RegisterTransformRenderInspectorSections(std::vector<std::unique_ptr<EditorInspectorSection>>& sections) {
     sections.push_back(std::make_unique<TransformInspectorSection>());
     sections.push_back(std::make_unique<MeshRendererInspectorSection>());
     sections.push_back(std::make_unique<SkinnedMeshInspectorSection>());
@@ -510,7 +489,6 @@ void RegisterTransformRenderInspectorSections(std::vector<std::unique_ptr<Editor
     sections.push_back(std::make_unique<PostProcessInspectorSection>());
 }
 
-void RegisterAudioInspectorSections(std::vector<std::unique_ptr<EditorInspectorSection>>& sections)
-{
+void RegisterAudioInspectorSections(std::vector<std::unique_ptr<EditorInspectorSection>>& sections) {
     sections.push_back(std::make_unique<AudioSourceInspectorSection>());
 }

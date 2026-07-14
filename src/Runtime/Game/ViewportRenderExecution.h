@@ -14,13 +14,11 @@ class UIDrawList;
 
 class ViewportRenderExecution {
 public:
-    ViewportRenderExecution(IRHIDevice* device,
-                            IRHIFrameContext* frameContext,
-                            IRHIReadbackService* readbackService);
+    ViewportRenderExecution(IRHIDevice* device, IRHIFrameContext* frameContext, IRHIReadbackService* readbackService);
 
     void ResizeIfNeeded(int width, int height);
-    void Render(Scene& scene, Camera& camera, const RenderViewport& viewport,
-                bool presentToSwapchain, const UIDrawList* uiDrawList = nullptr);
+    void Render(Scene& scene, Camera& camera, const RenderViewport& viewport, bool presentToSwapchain,
+                const UIDrawList* uiDrawList = nullptr);
     void ReleaseFrameResources();
 
     GpuTextureView* GetOutputView() const;

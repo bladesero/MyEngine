@@ -40,6 +40,7 @@ public:
     const ProjectConfig& GetConfig() const { return m_Config; }
     const std::string& GetLastError() const { return m_LastError; }
     const std::string& GetLastWarning() const { return m_LastWarning; }
+
 private:
     std::filesystem::path m_Root, m_ContentRoot, m_StatePath;
     EditorProjectState m_State;

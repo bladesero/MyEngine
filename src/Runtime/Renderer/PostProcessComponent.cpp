@@ -2,73 +2,59 @@
 
 #include <algorithm>
 
-void PostProcessComponent::SetExposure(float exposure)
-{
+void PostProcessComponent::SetExposure(float exposure) {
     m_Exposure = (std::max)(0.0f, exposure);
 }
 
-void PostProcessComponent::SetGamma(float gamma)
-{
+void PostProcessComponent::SetGamma(float gamma) {
     m_Gamma = (std::max)(0.1f, gamma);
 }
 
-void PostProcessComponent::SetVignette(float vignette)
-{
+void PostProcessComponent::SetVignette(float vignette) {
     m_Vignette = std::clamp(vignette, 0.0f, 1.0f);
 }
 
-void PostProcessComponent::SetSaturation(float saturation)
-{
+void PostProcessComponent::SetSaturation(float saturation) {
     m_Saturation = (std::max)(0.0f, saturation);
 }
 
-void PostProcessComponent::SetContrast(float contrast)
-{
+void PostProcessComponent::SetContrast(float contrast) {
     m_Contrast = (std::max)(0.0f, contrast);
 }
 
-void PostProcessComponent::SetAntiAliasingStrength(float strength)
-{
+void PostProcessComponent::SetAntiAliasingStrength(float strength) {
     m_AntiAliasingStrength = std::clamp(strength, 0.0f, 1.0f);
 }
 
-void PostProcessComponent::SetBloomThreshold(float threshold)
-{
+void PostProcessComponent::SetBloomThreshold(float threshold) {
     m_BloomThreshold = (std::max)(0.0f, threshold);
 }
 
-void PostProcessComponent::SetBloomIntensity(float intensity)
-{
+void PostProcessComponent::SetBloomIntensity(float intensity) {
     m_BloomIntensity = std::clamp(intensity, 0.0f, 8.0f);
 }
 
-void PostProcessComponent::SetSSAORadius(float radius)
-{
+void PostProcessComponent::SetSSAORadius(float radius) {
     m_SSAORadius = std::clamp(radius, 0.01f, 10.0f);
 }
 
-void PostProcessComponent::SetSSAOBias(float bias)
-{
+void PostProcessComponent::SetSSAOBias(float bias) {
     m_SSAOBias = std::clamp(bias, 0.0f, 0.5f);
 }
 
-void PostProcessComponent::SetSSAOPower(float power)
-{
+void PostProcessComponent::SetSSAOPower(float power) {
     m_SSAOPower = std::clamp(power, 0.1f, 8.0f);
 }
 
-void PostProcessComponent::SetSSAOIntensity(float intensity)
-{
+void PostProcessComponent::SetSSAOIntensity(float intensity) {
     m_SSAOIntensity = std::clamp(intensity, 0.0f, 4.0f);
 }
 
-void PostProcessComponent::SetSSAOScale(float scale)
-{
+void PostProcessComponent::SetSSAOScale(float scale) {
     m_SSAOScale = scale <= 0.75f ? 0.5f : 1.0f;
 }
 
-void PostProcessComponent::Serialize(nlohmann::json& data) const
-{
+void PostProcessComponent::Serialize(nlohmann::json& data) const {
     data["toneMapping"] = m_ToneMapping;
     data["exposure"] = m_Exposure;
     data["gamma"] = m_Gamma;
@@ -86,8 +72,7 @@ void PostProcessComponent::Serialize(nlohmann::json& data) const
     data["ssaoScale"] = m_SSAOScale;
 }
 
-void PostProcessComponent::Deserialize(const nlohmann::json& data)
-{
+void PostProcessComponent::Deserialize(const nlohmann::json& data) {
     SetToneMappingEnabled(data.value("toneMapping", true));
     SetExposure(data.value("exposure", 1.0f));
     SetGamma(data.value("gamma", 2.2f));

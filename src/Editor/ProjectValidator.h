@@ -44,7 +44,6 @@ struct ProjectValidationReport {
 
 class ProjectValidator {
 public:
-    static bool Validate(const ProjectConfig& project,
-                         ProjectValidationReport& report,
+    static bool Validate(const ProjectConfig& project, ProjectValidationReport& report,
                          const ProjectValidationOptions& options = {});
 };

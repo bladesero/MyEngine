@@ -9,9 +9,9 @@
 // ApplicationConfig  –  combines window + engine settings
 // --------------------------------------------------------------------------
 enum class RenderBackend : uint8_t {
-    D3D11  = 0,
-    D3D12  = 1,
-    Metal  = 2,
+    D3D11 = 0,
+    D3D12 = 1,
+    Metal = 2,
     Vulkan = 3,
 };
 
@@ -23,8 +23,8 @@ inline constexpr RenderBackend kDefaultRenderBackend = RenderBackend::D3D11;
 #endif
 
 struct ApplicationConfig {
-    WindowConfig  window;
-    EngineConfig  engine;
+    WindowConfig window;
+    EngineConfig engine;
     RenderBackend backend = kDefaultRenderBackend;
 };
 
@@ -51,15 +51,15 @@ public:
     // Entry point – returns process exit code.
     int Run();
 
-    IWindow&       GetWindow()       { return *m_Window; }
+    IWindow& GetWindow() { return *m_Window; }
     const IWindow& GetWindow() const { return *m_Window; }
 
-    Engine&       GetEngine()       { return m_Engine; }
+    Engine& GetEngine() { return m_Engine; }
     const Engine& GetEngine() const { return m_Engine; }
 
 protected:
     // Override in derived classes to set up layers, resources, etc.
-    virtual bool OnInit()     { return true; }
+    virtual bool OnInit() { return true; }
     virtual void OnBeforeLayersCleared() {}
     virtual void OnShutdown() {}
 
@@ -67,7 +67,7 @@ protected:
     void PushLayer(Layer* layer);
 
 private:
-    ApplicationConfig         m_Config;
-    std::unique_ptr<IWindow>  m_Window;
-    Engine                    m_Engine;
+    ApplicationConfig m_Config;
+    std::unique_ptr<IWindow> m_Window;
+    Engine m_Engine;
 };

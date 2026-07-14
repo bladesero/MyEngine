@@ -6,20 +6,11 @@ class IRHIDevice;
 class IRHIFrameContext;
 class IRHIReadbackService;
 
-enum class SceneViewDirection {
-    Front,
-    Back,
-    Left,
-    Right,
-    Top,
-    Bottom
-};
+enum class SceneViewDirection { Front, Back, Left, Right, Top, Bottom };
 
 class SceneViewport : public RenderViewport {
 public:
-    SceneViewport(IRHIDevice* device,
-                  IRHIFrameContext* frameContext,
-                  IRHIReadbackService* readbackService);
+    SceneViewport(IRHIDevice* device, IRHIFrameContext* frameContext, IRHIReadbackService* readbackService);
 
     void Initialize(int width, int height) override;
     void OnUpdate(float dt) override;
@@ -30,9 +21,7 @@ public:
     Camera& GetCamera() override { return m_Camera; }
     const Camera& GetCamera() const override { return m_Camera; }
 
-    void FrameDirection(SceneViewDirection direction,
-                        const Vec3& target,
-                        float distance = 10.0f);
+    void FrameDirection(SceneViewDirection direction, const Vec3& target, float distance = 10.0f);
     void FrameTarget(const Vec3& target, float radius = 1.0f);
     void OrbitAroundFocus(const Vec3& target, float yawDegrees, float pitchDegrees);
     void ToggleProjectionMode();

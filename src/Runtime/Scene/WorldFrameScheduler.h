@@ -9,10 +9,26 @@
 
 class Scene;
 
-enum class WorldPhase { WorldFrameBegin, PreUpdate, FixedPrePhysics, FixedPhysics, FixedPostPhysics, Update, LateUpdate, RenderExtract, WorldFrameEnd, Count };
+enum class WorldPhase {
+    WorldFrameBegin,
+    PreUpdate,
+    FixedPrePhysics,
+    FixedPhysics,
+    FixedPostPhysics,
+    Update,
+    LateUpdate,
+    RenderExtract,
+    WorldFrameEnd,
+    Count
+};
 inline constexpr size_t kWorldPhaseCount = static_cast<size_t>(WorldPhase::Count);
 const char* WorldPhaseName(WorldPhase phase);
-struct WorldTickContext { Scene& scene; float deltaSeconds; uint64_t frameIndex; uint64_t fixedTickIndex; };
+struct WorldTickContext {
+    Scene& scene;
+    float deltaSeconds;
+    uint64_t frameIndex;
+    uint64_t fixedTickIndex;
+};
 struct WorldSystemDescriptor {
     std::string stableName;
     WorldPhase phase = WorldPhase::Update;
@@ -30,13 +46,15 @@ struct WorldSchedulerStats {
 
 class WorldFrameScheduler {
 public:
-    explicit WorldFrameScheduler(bool registerBuiltins = true,
-                                 bool freezeAfterRegistration = true);
+    explicit WorldFrameScheduler(bool registerBuiltins = true, bool freezeAfterRegistration = true);
     bool RegisterSystem(WorldSystemDescriptor descriptor, std::string* error = nullptr);
     bool Freeze(std::string* error = nullptr);
     void Tick(Scene& scene, float unscaledDeltaSeconds, bool forceStep = false);
     void Reset();
-    void SetFixedDelta(float value) { if (value > 0.0f) m_FixedDelta = value; }
+    void SetFixedDelta(float value) {
+        if (value > 0.0f)
+            m_FixedDelta = value;
+    }
     float GetFixedDelta() const { return m_FixedDelta; }
     const WorldSchedulerStats& GetStats() const { return m_Stats; }
 

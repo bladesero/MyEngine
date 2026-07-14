@@ -10,7 +10,7 @@
 namespace Rml {
 class Context;
 class ElementDocument;
-}
+} // namespace Rml
 
 enum class UICanvasSpace {
     Screen,

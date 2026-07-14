@@ -21,34 +21,22 @@ public:
 
     explicit DeferredLightingPass(IRHIDevice* device);
 
-    void Execute(GpuCommandList& commands, const Scene& scene,
-                 const Camera& camera) override;
+    void Execute(GpuCommandList& commands, const Scene& scene, const Camera& camera) override;
     void Resize(uint32_t width, uint32_t height) override;
     bool PrepareGraphResources();
     GraphResources GetGraphResources() const;
     void MarkGraphResourcesShaderResource();
 
-    void SetGBufferInput(std::shared_ptr<GpuTextureView> albedo,
-                         std::shared_ptr<GpuTextureView> normal,
-                         std::shared_ptr<GpuTextureView> material,
-                         std::shared_ptr<GpuTextureView> emissive);
+    void SetGBufferInput(std::shared_ptr<GpuTextureView> albedo, std::shared_ptr<GpuTextureView> normal,
+                         std::shared_ptr<GpuTextureView> material, std::shared_ptr<GpuTextureView> emissive);
     void SetDepthInput(std::shared_ptr<GpuTextureView> depth);
     void SetLightingInput(const SceneLightData& lights);
-    void SetShadowInput(const Mat4& lightViewProj,
-                        bool directionalShadowEnabled,
-                        GpuTexture* shadowMap,
-                        const Mat4& spotLightViewProj,
-                        int spotShadowIndex,
-                        GpuTexture* spotShadowMap,
-                        const Vec3& pointShadowPosition,
-                        float pointShadowRange,
-                        int pointShadowIndex,
-                        GpuTexture* pointShadowMap,
-                        const Mat4* cascadeViewProj,
-                        uint32_t cascadeCount,
+    void SetShadowInput(const Mat4& lightViewProj, bool directionalShadowEnabled, GpuTexture* shadowMap,
+                        const Mat4& spotLightViewProj, int spotShadowIndex, GpuTexture* spotShadowMap,
+                        const Vec3& pointShadowPosition, float pointShadowRange, int pointShadowIndex,
+                        GpuTexture* pointShadowMap, const Mat4* cascadeViewProj, uint32_t cascadeCount,
                         const float* cascadeSplits);
-    void SetEnvironmentInput(GpuTexture* environmentCubemap,
-                             std::shared_ptr<GpuBufferView> sh2Buffer);
+    void SetEnvironmentInput(GpuTexture* environmentCubemap, std::shared_ptr<GpuBufferView> sh2Buffer);
 
 private:
     bool EnsureResources();

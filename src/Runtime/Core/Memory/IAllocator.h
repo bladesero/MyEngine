@@ -8,11 +8,7 @@ class IAllocator {
 public:
     virtual ~IAllocator() = default;
 
-    virtual void* Allocate(size_t size,
-                         size_t alignment,
-                         AllocTag tag,
-                         const char* file,
-                         int line) = 0;
+    virtual void* Allocate(size_t size, size_t alignment, AllocTag tag, const char* file, int line) = 0;
 
     virtual void Free(void* ptr, const char* file, int line) = 0;
 

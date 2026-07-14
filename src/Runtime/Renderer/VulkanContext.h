@@ -24,10 +24,8 @@ public:
     bool IsDeviceLost() const override { return m_DeviceLost; }
     const std::string& GetLastDeviceError() const override { return m_LastDeviceError; }
     RHIDeviceLossInfo GetDeviceLossInfo() const override {
-        return m_DeviceLost
-            ? RHIDeviceLossInfo{RHIDeviceLossReason::Unknown, -4,
-                                m_DeviceGeneration, m_LastDeviceError}
-            : RHIDeviceLossInfo{};
+        return m_DeviceLost ? RHIDeviceLossInfo{RHIDeviceLossReason::Unknown, -4, m_DeviceGeneration, m_LastDeviceError}
+                            : RHIDeviceLossInfo{};
     }
     uint32_t GetFrameIndex() const override { return m_FrameIndex; }
     GpuCommandList* GetGraphicsCommandList() override;
@@ -38,53 +36,40 @@ public:
     IEditorImGuiRHIInterop* QueryEditorImGuiInterop() override { return this; }
     ImGuiBackendHandles GetImGuiBackendHandles() override;
     void SetImGuiTextureInteropReady(bool ready) override;
-    void SetSwapChainResizeCallback(SwapChainResizeCallback cb) override {
-        m_ResizeCallback = cb;
-    }
+    void SetSwapChainResizeCallback(SwapChainResizeCallback cb) override { m_ResizeCallback = cb; }
     bool RecreateSwapchain(uint32_t requestedWidth = 0, uint32_t requestedHeight = 0);
 
-    std::shared_ptr<GpuBuffer> CreateVertexBuffer(
-        const void* data, uint32_t byteSize, uint32_t strideBytes) override;
-    std::shared_ptr<GpuBuffer> CreateIndexBuffer(
-        const void* data, uint32_t byteSize) override;
-    std::shared_ptr<GpuBuffer> CreateBuffer(
-        const RHIBufferDesc& desc, const void* initialData = nullptr) override;
-    std::shared_ptr<GpuBufferView> CreateBufferView(
-        const std::shared_ptr<GpuBuffer>& buffer, const RHIBufferViewDesc& desc) override;
-    bool UpdateBuffer(const std::shared_ptr<GpuBuffer>& buffer, uint64_t offset,
-                      const void* data, uint64_t size) override;
+    std::shared_ptr<GpuBuffer> CreateVertexBuffer(const void* data, uint32_t byteSize, uint32_t strideBytes) override;
+    std::shared_ptr<GpuBuffer> CreateIndexBuffer(const void* data, uint32_t byteSize) override;
+    std::shared_ptr<GpuBuffer> CreateBuffer(const RHIBufferDesc& desc, const void* initialData = nullptr) override;
+    std::shared_ptr<GpuBufferView> CreateBufferView(const std::shared_ptr<GpuBuffer>& buffer,
+                                                    const RHIBufferViewDesc& desc) override;
+    bool UpdateBuffer(const std::shared_ptr<GpuBuffer>& buffer, uint64_t offset, const void* data,
+                      uint64_t size) override;
 
-    std::shared_ptr<GpuShader> CreateShader(
-        const std::string& source, const std::string& vsEntry,
-        const std::string& psEntry, const VertexElement* layout,
-        uint32_t layoutCount) override;
-    std::shared_ptr<GpuShader> CreateShaderFromBytecode(
-        const void* vsBytecode, size_t vsSize, const void* psBytecode,
-        size_t psSize, const VertexElement* layout, uint32_t layoutCount) override;
-    std::shared_ptr<GpuShader> CreateComputeShaderFromBytecode(
-        const void* bytecode, size_t byteSize) override;
+    std::shared_ptr<GpuShader> CreateShader(const std::string& source, const std::string& vsEntry,
+                                            const std::string& psEntry, const VertexElement* layout,
+                                            uint32_t layoutCount) override;
+    std::shared_ptr<GpuShader> CreateShaderFromBytecode(const void* vsBytecode, size_t vsSize, const void* psBytecode,
+                                                        size_t psSize, const VertexElement* layout,
+                                                        uint32_t layoutCount) override;
+    std::shared_ptr<GpuShader> CreateComputeShaderFromBytecode(const void* bytecode, size_t byteSize) override;
 
-    std::shared_ptr<GpuTexture> UploadTexture2D(
-        const void* rgba8Data, int width, int height) override;
-    std::shared_ptr<GpuTexture> UploadTexture(
-        const RHITextureDesc& desc, const RHITextureSubresourceData* data,
-        uint32_t subresourceCount) override;
+    std::shared_ptr<GpuTexture> UploadTexture2D(const void* rgba8Data, int width, int height) override;
+    std::shared_ptr<GpuTexture> UploadTexture(const RHITextureDesc& desc, const RHITextureSubresourceData* data,
+                                              uint32_t subresourceCount) override;
     std::shared_ptr<GpuTexture> CreateTexture(const RHITextureDesc& desc) override;
-    std::shared_ptr<GpuTextureView> CreateTextureView(
-        const std::shared_ptr<GpuTexture>& texture, const RHITextureViewDesc& desc) override;
+    std::shared_ptr<GpuTextureView> CreateTextureView(const std::shared_ptr<GpuTexture>& texture,
+                                                      const RHITextureViewDesc& desc) override;
     std::shared_ptr<GpuSampler> CreateSampler(const RHISamplerDesc& desc) override;
-    std::shared_ptr<GpuGraphicsPipeline> CreateGraphicsPipeline(
-        const GraphicsPipelineDesc& desc) override;
-    std::shared_ptr<GpuComputePipeline> CreateComputePipeline(
-        const ComputePipelineDesc& desc) override;
-    std::shared_ptr<GpuBindGroup> CreateBindGroup(
-        const std::shared_ptr<GpuShader>& shader) override;
+    std::shared_ptr<GpuGraphicsPipeline> CreateGraphicsPipeline(const GraphicsPipelineDesc& desc) override;
+    std::shared_ptr<GpuComputePipeline> CreateComputePipeline(const ComputePipelineDesc& desc) override;
+    std::shared_ptr<GpuBindGroup> CreateBindGroup(const std::shared_ptr<GpuShader>& shader) override;
     RHIDeviceCapabilities GetCapabilities() const override;
     bool IsFormatSupported(RHIFormat format, RHIResourceUsage usage) const override;
-    std::shared_ptr<GpuReadbackTicket> ReadbackBufferAsync(
-        const std::shared_ptr<GpuBuffer>& buffer) override;
-    std::shared_ptr<GpuTextureReadbackTicket> ReadbackTextureAsync(
-        const std::shared_ptr<GpuTexture>& texture, const RHITextureRegion& region) override;
+    std::shared_ptr<GpuReadbackTicket> ReadbackBufferAsync(const std::shared_ptr<GpuBuffer>& buffer) override;
+    std::shared_ptr<GpuTextureReadbackTicket> ReadbackTextureAsync(const std::shared_ptr<GpuTexture>& texture,
+                                                                   const RHITextureRegion& region) override;
 
 private:
     friend class VulkanImmediateCommandList;

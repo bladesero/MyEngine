@@ -15,48 +15,50 @@ constexpr float kSceneViewNear = 0.1f;
 constexpr float kSceneViewFar = 1000.0f;
 constexpr float kSceneViewOrthoNear = -1000.0f;
 constexpr float kSceneViewOrthoFar = 1000.0f;
+} // namespace
+
+SceneViewport::SceneViewport(IRHIDevice* device, IRHIFrameContext* frameContext, IRHIReadbackService* readbackService)
+    : RenderViewport(device, frameContext, readbackService) {
 }
 
-SceneViewport::SceneViewport(IRHIDevice* device,
-                             IRHIFrameContext* frameContext,
-                             IRHIReadbackService* readbackService)
-    : RenderViewport(device, frameContext, readbackService)
-{}
-
-void SceneViewport::Initialize(int width, int height)
-{
+void SceneViewport::Initialize(int width, int height) {
     RenderViewport::Initialize(width, height);
     m_Camera.SetCameraMode(CameraMode::Fly);
     m_Camera.LookAt({0.0f, 0.0f, -4.0f}, {0.0f, 0.0f, 0.0f});
     m_Camera.SetPerspective(kSceneViewFovY, GetAspect(), kSceneViewNear, kSceneViewFar);
 }
 
-void SceneViewport::OnUpdate(float dt)
-{
+void SceneViewport::OnUpdate(float dt) {
     if (!IsInputEnabled()) {
         m_RmbDown = false;
-        AudioEngine::Get().SetListenerTransform(
-            m_Camera.GetPosition(), m_Camera.GetForward(), m_Camera.GetCamUp());
+        AudioEngine::Get().SetListenerTransform(m_Camera.GetPosition(), m_Camera.GetForward(), m_Camera.GetCamUp());
         return;
     }
 
     const float moveSpeed = 6.0f;
-    if (Input::IsKeyDown(SDL_SCANCODE_W)) m_Camera.MoveForward( moveSpeed * dt);
-    if (Input::IsKeyDown(SDL_SCANCODE_S)) m_Camera.MoveForward(-moveSpeed * dt);
-    if (Input::IsKeyDown(SDL_SCANCODE_D)) m_Camera.MoveRight( moveSpeed * dt);
-    if (Input::IsKeyDown(SDL_SCANCODE_A)) m_Camera.MoveRight(-moveSpeed * dt);
-    if (Input::IsKeyDown(SDL_SCANCODE_Q)) m_Camera.MoveUp( moveSpeed * dt);
-    if (Input::IsKeyDown(SDL_SCANCODE_E)) m_Camera.MoveUp(-moveSpeed * dt);
+    if (Input::IsKeyDown(SDL_SCANCODE_W))
+        m_Camera.MoveForward(moveSpeed * dt);
+    if (Input::IsKeyDown(SDL_SCANCODE_S))
+        m_Camera.MoveForward(-moveSpeed * dt);
+    if (Input::IsKeyDown(SDL_SCANCODE_D))
+        m_Camera.MoveRight(moveSpeed * dt);
+    if (Input::IsKeyDown(SDL_SCANCODE_A))
+        m_Camera.MoveRight(-moveSpeed * dt);
+    if (Input::IsKeyDown(SDL_SCANCODE_Q))
+        m_Camera.MoveUp(moveSpeed * dt);
+    if (Input::IsKeyDown(SDL_SCANCODE_E))
+        m_Camera.MoveUp(-moveSpeed * dt);
 
-    if (Input::IsMousePressed(3))  m_RmbDown = true;
-    if (Input::IsMouseReleased(3)) m_RmbDown = false;
+    if (Input::IsMousePressed(3))
+        m_RmbDown = true;
+    if (Input::IsMouseReleased(3))
+        m_RmbDown = false;
     if (m_RmbDown) {
         const int rx = Input::GetMouseRelX();
         const int ry = Input::GetMouseRelY();
         if (rx != 0 || ry != 0) {
             constexpr float lookSens = 0.25f;
-            m_Camera.Rotate(-static_cast<float>(rx) * lookSens,
-                            -static_cast<float>(ry) * lookSens);
+            m_Camera.Rotate(-static_cast<float>(rx) * lookSens, -static_cast<float>(ry) * lookSens);
         }
     }
 
@@ -79,38 +81,35 @@ void SceneViewport::OnUpdate(float dt)
         }
 
         const float dolly = rt - lt;
-        if (std::fabs(dolly) > 0.05f) m_Camera.MoveForward(dolly * 4.0f * dt);
+        if (std::fabs(dolly) > 0.05f)
+            m_Camera.MoveForward(dolly * 4.0f * dt);
     }
 
-    AudioEngine::Get().SetListenerTransform(
-        m_Camera.GetPosition(), m_Camera.GetForward(), m_Camera.GetCamUp());
+    AudioEngine::Get().SetListenerTransform(m_Camera.GetPosition(), m_Camera.GetForward(), m_Camera.GetCamUp());
 }
 
-void SceneViewport::OnWindowResize(int width, int height)
-{
+void SceneViewport::OnWindowResize(int width, int height) {
     RenderViewport::OnWindowResize(width, height);
-    if (IsOrthographic()) ApplyOrthographicForCurrentAspect();
+    if (IsOrthographic())
+        ApplyOrthographicForCurrentAspect();
 }
 
-void SceneViewport::SetViewportRect(int x, int y, int width, int height)
-{
+void SceneViewport::SetViewportRect(int x, int y, int width, int height) {
     RenderViewport::SetViewportRect(x, y, width, height);
-    if (IsOrthographic()) ApplyOrthographicForCurrentAspect();
+    if (IsOrthographic())
+        ApplyOrthographicForCurrentAspect();
 }
 
-void SceneViewport::SetInputEnabled(bool enabled)
-{
+void SceneViewport::SetInputEnabled(bool enabled) {
     RenderViewport::SetInputEnabled(enabled);
-    if (!enabled) m_RmbDown = false;
+    if (!enabled)
+        m_RmbDown = false;
 }
 
-void SceneViewport::FrameDirection(SceneViewDirection direction,
-                                   const Vec3& target,
-                                   float distance)
-{
+void SceneViewport::FrameDirection(SceneViewDirection direction, const Vec3& target, float distance) {
     distance = (std::max)(0.1f, distance);
 
-    Vec3 offset {0.0f, 0.0f, -distance};
+    Vec3 offset{0.0f, 0.0f, -distance};
     Vec3 up = Vec3::Up();
     switch (direction) {
     case SceneViewDirection::Front:
@@ -147,15 +146,13 @@ void SceneViewport::FrameDirection(SceneViewDirection direction,
     }
 }
 
-void SceneViewport::FrameTarget(const Vec3& target, float radius)
-{
+void SceneViewport::FrameTarget(const Vec3& target, float radius) {
     radius = (std::max)(0.1f, radius);
     const float distance = (std::max)(4.0f, radius * 4.0f);
     Vec3 forward = m_Camera.GetForward();
-    if (forward.Length() < 1e-5f) forward = Vec3::Forward();
-    Vec3 up = std::fabs(forward.Dot(Vec3::Up())) > 0.98f
-        ? Vec3::Forward()
-        : Vec3::Up();
+    if (forward.Length() < 1e-5f)
+        forward = Vec3::Forward();
+    Vec3 up = std::fabs(forward.Dot(Vec3::Up())) > 0.98f ? Vec3::Forward() : Vec3::Up();
 
     m_Camera.SetCameraMode(CameraMode::Fly);
     m_Camera.LookAt(target - forward.Normalized() * distance, target, up);
@@ -165,15 +162,10 @@ void SceneViewport::FrameTarget(const Vec3& target, float radius)
     }
 }
 
-void SceneViewport::OrbitAroundFocus(const Vec3& target,
-                                     float yawDegrees,
-                                     float pitchDegrees)
-{
+void SceneViewport::OrbitAroundFocus(const Vec3& target, float yawDegrees, float pitchDegrees) {
     Vec3 eye = m_Camera.GetPosition();
     Vec3 forward = (target - eye).Normalized();
-    Vec3 up = std::fabs(forward.Dot(Vec3::Up())) > 0.98f
-        ? Vec3::Forward()
-        : Vec3::Up();
+    Vec3 up = std::fabs(forward.Dot(Vec3::Up())) > 0.98f ? Vec3::Forward() : Vec3::Up();
 
     m_Camera.SetCameraMode(CameraMode::Fly);
     m_Camera.SetTarget(target);
@@ -181,22 +173,17 @@ void SceneViewport::OrbitAroundFocus(const Vec3& target,
 
     eye = m_Camera.GetPosition();
     forward = (target - eye).Normalized();
-    up = std::fabs(forward.Dot(Vec3::Up())) > 0.98f
-        ? Vec3::Forward()
-        : Vec3::Up();
+    up = std::fabs(forward.Dot(Vec3::Up())) > 0.98f ? Vec3::Forward() : Vec3::Up();
     m_Camera.LookAt(eye, target, up);
-    if (IsOrthographic()) ApplyOrthographicForCurrentAspect();
+    if (IsOrthographic())
+        ApplyOrthographicForCurrentAspect();
 }
 
-void SceneViewport::ToggleProjectionMode()
-{
-    SetProjectionMode(IsOrthographic()
-        ? ProjectionMode::Perspective
-        : ProjectionMode::Orthographic);
+void SceneViewport::ToggleProjectionMode() {
+    SetProjectionMode(IsOrthographic() ? ProjectionMode::Perspective : ProjectionMode::Orthographic);
 }
 
-void SceneViewport::SetProjectionMode(ProjectionMode mode)
-{
+void SceneViewport::SetProjectionMode(ProjectionMode mode) {
     if (mode == ProjectionMode::Orthographic) {
         ApplyOrthographicForCurrentAspect();
     } else {
@@ -204,18 +191,12 @@ void SceneViewport::SetProjectionMode(ProjectionMode mode)
     }
 }
 
-bool SceneViewport::IsOrthographic() const
-{
+bool SceneViewport::IsOrthographic() const {
     return m_Camera.GetProjectionMode() == ProjectionMode::Orthographic;
 }
 
-void SceneViewport::ApplyOrthographicForCurrentAspect()
-{
+void SceneViewport::ApplyOrthographicForCurrentAspect() {
     const float aspect = (std::max)(0.001f, GetAspect());
     m_OrthographicWidth = (std::max)(0.1f, m_OrthographicWidth);
-    m_Camera.SetOrtho(
-        m_OrthographicWidth,
-        m_OrthographicWidth / aspect,
-        kSceneViewOrthoNear,
-        kSceneViewOrthoFar);
+    m_Camera.SetOrtho(m_OrthographicWidth, m_OrthographicWidth / aspect, kSceneViewOrthoNear, kSceneViewOrthoFar);
 }

@@ -11,11 +11,9 @@
 #include <vector>
 
 // Fixed-capacity object pool: slab storage + freelist. Destruction runs ~T on in-use slots only.
-template<typename T>
-class PoolAllocator {
+template <typename T> class PoolAllocator {
 public:
-    explicit PoolAllocator(uint32_t maxObjects)
-        : m_Capacity(maxObjects) {
+    explicit PoolAllocator(uint32_t maxObjects) : m_Capacity(maxObjects) {
         if (m_Capacity == 0) {
             return;
         }
@@ -33,10 +31,10 @@ public:
         }
     }
 
-    PoolAllocator(const PoolAllocator&)            = delete;
+    PoolAllocator(const PoolAllocator&) = delete;
     PoolAllocator& operator=(const PoolAllocator&) = delete;
 
-    PoolAllocator(PoolAllocator&&)            = default;
+    PoolAllocator(PoolAllocator&&) = default;
     PoolAllocator& operator=(PoolAllocator&&) = default;
 
     ~PoolAllocator() {
@@ -59,8 +57,7 @@ public:
 
     bool IsFull() const { return m_Free.empty(); }
 
-    template<typename... Args>
-    T* Allocate(Args&&... args) {
+    template <typename... Args> T* Allocate(Args&&... args) {
         if (m_Free.empty() || !m_Slab) {
             return nullptr;
         }
@@ -97,13 +94,9 @@ private:
         return (value + mask) & ~mask;
     }
 
-    void* SlotPtr(uint32_t index) {
-        return m_Slab.get() + static_cast<size_t>(index) * m_SlotStride;
-    }
+    void* SlotPtr(uint32_t index) { return m_Slab.get() + static_cast<size_t>(index) * m_SlotStride; }
 
-    const void* SlotPtr(uint32_t index) const {
-        return m_Slab.get() + static_cast<size_t>(index) * m_SlotStride;
-    }
+    const void* SlotPtr(uint32_t index) const { return m_Slab.get() + static_cast<size_t>(index) * m_SlotStride; }
 
     bool TryIndexFromPointer(const T* p, uint32_t& outIndex) const {
         if (!m_Slab || !p) {
@@ -130,9 +123,9 @@ private:
     }
 
     std::unique_ptr<std::byte[]> m_Slab;
-    std::vector<uint32_t>       m_Free;
-    std::vector<uint8_t>        m_InUse;
-    uint32_t                    m_Capacity = 0;
-    uint32_t                    m_LiveCount = 0;
-    size_t                      m_SlotStride = 0;
+    std::vector<uint32_t> m_Free;
+    std::vector<uint8_t> m_InUse;
+    uint32_t m_Capacity = 0;
+    uint32_t m_LiveCount = 0;
+    size_t m_SlotStride = 0;
 };

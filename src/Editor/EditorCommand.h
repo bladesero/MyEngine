@@ -69,6 +69,7 @@ public:
     bool Execute(EditorContext& context) override;
     bool Undo(EditorContext& context) override;
     const char* GetName() const override { return m_Name.c_str(); }
+
 private:
     std::string m_Name;
     Function m_Execute;
@@ -78,11 +79,12 @@ private:
 // Full-scene snapshot (legacy; prefer fine-grained commands where possible)
 class SceneSnapshotCommand final : public IEditorCommand {
 public:
-    SceneSnapshotCommand(std::string name, std::string beforeJson, std::string afterJson,
-                         uint64_t beforeSelection = 0, uint64_t afterSelection = 0);
+    SceneSnapshotCommand(std::string name, std::string beforeJson, std::string afterJson, uint64_t beforeSelection = 0,
+                         uint64_t afterSelection = 0);
     bool Execute(EditorContext& context) override;
     bool Undo(EditorContext& context) override;
     const char* GetName() const override { return m_Name.c_str(); }
+
 private:
     bool Apply(EditorContext& context, const std::string& json, uint64_t selection);
     std::string m_Name, m_BeforeJson, m_AfterJson;
@@ -96,6 +98,7 @@ public:
     bool Execute(EditorContext& context) override;
     bool Undo(EditorContext& context) override;
     const char* GetName() const override { return "Set Transform"; }
+
 private:
     bool Apply(EditorContext& context, const Transform& transform);
     uint64_t m_ActorID = 0;
@@ -112,6 +115,7 @@ public:
     bool Execute(EditorContext& context) override;
     bool Undo(EditorContext& context) override;
     const char* GetName() const override { return "Create Actor"; }
+
 private:
     ActorCreateDesc m_Desc;
     uint64_t m_ActorID;
@@ -120,11 +124,11 @@ private:
 
 class DestroyActorCommand final : public IEditorCommand {
 public:
-    DestroyActorCommand(uint64_t actorID, const std::string& subtreeJson,
-                        uint64_t parentID);
+    DestroyActorCommand(uint64_t actorID, const std::string& subtreeJson, uint64_t parentID);
     bool Execute(EditorContext& context) override;
     bool Undo(EditorContext& context) override;
     const char* GetName() const override { return "Destroy Actor"; }
+
 private:
     bool ReconstructSubtree(Scene& scene);
     uint64_t m_ActorID;
@@ -139,6 +143,7 @@ public:
     bool Execute(EditorContext& context) override;
     bool Undo(EditorContext& context) override;
     const char* GetName() const override { return "Set Parent"; }
+
 private:
     uint64_t m_ChildID;
     uint64_t m_BeforeParentID, m_AfterParentID;
@@ -146,12 +151,12 @@ private:
 
 class MoveActorCommand final : public IEditorCommand {
 public:
-    MoveActorCommand(uint64_t childID,
-                     uint64_t beforeParentID, uint64_t beforeNextSiblingID,
-                     uint64_t afterParentID, uint64_t afterNextSiblingID);
+    MoveActorCommand(uint64_t childID, uint64_t beforeParentID, uint64_t beforeNextSiblingID, uint64_t afterParentID,
+                     uint64_t afterNextSiblingID);
     bool Execute(EditorContext& context) override;
     bool Undo(EditorContext& context) override;
     const char* GetName() const override { return "Move Actor"; }
+
 private:
     bool Apply(EditorContext& context, uint64_t parentID, uint64_t nextSiblingID);
     uint64_t m_ChildID;
@@ -167,6 +172,7 @@ public:
     bool Execute(EditorContext& context) override;
     bool Undo(EditorContext& context) override;
     const char* GetName() const override { return "Set Active"; }
+
 private:
     uint64_t m_ActorID;
     bool m_BeforeActive, m_AfterActive;
@@ -178,6 +184,7 @@ public:
     bool Execute(EditorContext& context) override;
     bool Undo(EditorContext& context) override;
     const char* GetName() const override { return "Rename Actor"; }
+
 private:
     uint64_t m_ActorID;
     std::string m_BeforeName, m_AfterName;
@@ -185,11 +192,11 @@ private:
 
 class AddComponentCommand final : public IEditorCommand {
 public:
-    AddComponentCommand(uint64_t actorID, std::string typeName,
-                        const nlohmann::json& initialData);
+    AddComponentCommand(uint64_t actorID, std::string typeName, const nlohmann::json& initialData);
     bool Execute(EditorContext& context) override;
     bool Undo(EditorContext& context) override;
     const char* GetName() const override { return "Add Component"; }
+
 private:
     uint64_t m_ActorID;
     std::string m_TypeName;
@@ -199,11 +206,11 @@ private:
 
 class RemoveComponentCommand final : public IEditorCommand {
 public:
-    RemoveComponentCommand(uint64_t actorID, std::string typeName,
-                           const nlohmann::json& serializedData);
+    RemoveComponentCommand(uint64_t actorID, std::string typeName, const nlohmann::json& serializedData);
     bool Execute(EditorContext& context) override;
     bool Undo(EditorContext& context) override;
     const char* GetName() const override { return "Remove Component"; }
+
 private:
     uint64_t m_ActorID;
     std::string m_TypeName;
@@ -213,12 +220,12 @@ private:
 
 class SetComponentPropertyCommand final : public IEditorCommand {
 public:
-    SetComponentPropertyCommand(uint64_t actorID, std::string componentType,
-                                std::string propertyName,
+    SetComponentPropertyCommand(uint64_t actorID, std::string componentType, std::string propertyName,
                                 nlohmann::json beforeJson, nlohmann::json afterJson);
     bool Execute(EditorContext& context) override;
     bool Undo(EditorContext& context) override;
     const char* GetName() const override;
+
 private:
     bool ApplyJson(EditorContext& context, const nlohmann::json& json);
     uint64_t m_ActorID;
@@ -229,13 +236,13 @@ private:
 
 class ModifyAssetCommand final : public IResourceCommand {
 public:
-    ModifyAssetCommand(std::string assetPath, std::string beforeContent,
-                       std::string afterContent);
+    ModifyAssetCommand(std::string assetPath, std::string beforeContent, std::string afterContent);
     bool Execute(EditorContext& context) override;
     bool Undo(EditorContext& context) override;
     const char* GetName() const override { return "Modify Asset"; }
     const std::string& GetResourcePath() const override { return m_AssetPath; }
     bool IsResourceCommand() const override { return true; }
+
 private:
     std::string m_AssetPath;
     std::string m_BeforeContent;
@@ -271,6 +278,7 @@ public:
     const char* GetName() const override { return "Create Asset"; }
     const std::string& GetResourcePath() const override { return m_AssetPath; }
     bool IsResourceCommand() const override { return true; }
+
 private:
     std::string m_AssetPath;
     std::string m_Content;
@@ -285,6 +293,7 @@ public:
     const char* GetName() const override { return "Delete Asset"; }
     const std::string& GetResourcePath() const override { return m_AssetPath; }
     bool IsResourceCommand() const override { return true; }
+
 private:
     std::string m_AssetPath;
     std::string m_Content;
@@ -302,6 +311,7 @@ public:
     const char* GetName() const override { return "Rename Asset"; }
     const std::string& GetResourcePath() const override { return m_NewPath; }
     bool IsResourceCommand() const override { return true; }
+
 private:
     std::string m_OldPath;
     std::string m_NewPath;

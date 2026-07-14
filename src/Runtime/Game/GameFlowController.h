@@ -28,10 +28,8 @@ enum class GamePauseReason : uint32_t {
     WindowInactive = 1u << 3,
 };
 
-constexpr GamePauseReason operator|(GamePauseReason lhs, GamePauseReason rhs)
-{
-    return static_cast<GamePauseReason>(static_cast<uint32_t>(lhs) |
-                                        static_cast<uint32_t>(rhs));
+constexpr GamePauseReason operator|(GamePauseReason lhs, GamePauseReason rhs) {
+    return static_cast<GamePauseReason>(static_cast<uint32_t>(lhs) | static_cast<uint32_t>(rhs));
 }
 
 struct GameFlowSnapshot {

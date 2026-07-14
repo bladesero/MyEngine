@@ -29,8 +29,7 @@ class UIDrawList;
 
 class Renderer {
 public:
-    Renderer(IRHIDevice* device, IRHIFrameContext* frameContext,
-             IRHIReadbackService* readbackService);
+    Renderer(IRHIDevice* device, IRHIFrameContext* frameContext, IRHIReadbackService* readbackService);
     ~Renderer();
 
     void Resize(uint32_t width, uint32_t height);
@@ -48,12 +47,12 @@ public:
     RenderPath GetRenderPath() const { return m_RenderPath; }
 
 private:
-    IRHIDevice*                m_Device = nullptr;
-    IRHIFrameContext*          m_FrameContext = nullptr;
-    IRHIReadbackService*       m_ReadbackService = nullptr;
+    IRHIDevice* m_Device = nullptr;
+    IRHIFrameContext* m_FrameContext = nullptr;
+    IRHIReadbackService* m_ReadbackService = nullptr;
     std::unique_ptr<ShadowPass> m_ShadowPass;
     std::unique_ptr<EnvironmentPass> m_EnvironmentPass;
-    std::unique_ptr<MainPass>   m_MainPass;
+    std::unique_ptr<MainPass> m_MainPass;
     std::unique_ptr<GBufferPass> m_GBufferPass;
     std::unique_ptr<DeferredLightingPass> m_DeferredLightingPass;
     std::unique_ptr<PostProcessPass> m_PostProcessPass;
@@ -63,4 +62,3 @@ private:
     bool m_OutputOffscreen = false;
     const UIDrawList* m_UIDrawList = nullptr;
 };
-

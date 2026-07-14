@@ -9,7 +9,7 @@ public:
     LinearAllocator() = default;
     ~LinearAllocator();
 
-    LinearAllocator(const LinearAllocator&)            = delete;
+    LinearAllocator(const LinearAllocator&) = delete;
     LinearAllocator& operator=(const LinearAllocator&) = delete;
 
     // Allocates backing storage (single contiguous block). Safe to call again after Shutdown().
@@ -29,7 +29,7 @@ public:
 
 private:
     unsigned char* m_Buffer = nullptr;
-    size_t         m_Capacity = 0;
-    size_t         m_Offset = 0;
-    size_t         m_HighWatermark = 0;
+    size_t m_Capacity = 0;
+    size_t m_Offset = 0;
+    size_t m_HighWatermark = 0;
 };

@@ -6,15 +6,12 @@
 #include "Scene/Scene.h"
 #include "UI/Render/UIDrawList.h"
 
-ViewportRenderExecution::ViewportRenderExecution(IRHIDevice* device,
-                                                 IRHIFrameContext* frameContext,
+ViewportRenderExecution::ViewportRenderExecution(IRHIDevice* device, IRHIFrameContext* frameContext,
                                                  IRHIReadbackService* readbackService)
-    : m_FrameContext(frameContext)
-    , m_Renderer(device, frameContext, readbackService)
-{}
+    : m_FrameContext(frameContext), m_Renderer(device, frameContext, readbackService) {
+}
 
-void ViewportRenderExecution::ResizeIfNeeded(int width, int height)
-{
+void ViewportRenderExecution::ResizeIfNeeded(int width, int height) {
     if (width <= 0 || height <= 0) {
         return;
     }
@@ -26,11 +23,8 @@ void ViewportRenderExecution::ResizeIfNeeded(int width, int height)
     m_RendererH = height;
 }
 
-void ViewportRenderExecution::Render(Scene& scene, Camera& camera,
-                                     const RenderViewport& viewport,
-                                     bool presentToSwapchain,
-                                     const UIDrawList* uiDrawList)
-{
+void ViewportRenderExecution::Render(Scene& scene, Camera& camera, const RenderViewport& viewport,
+                                     bool presentToSwapchain, const UIDrawList* uiDrawList) {
     int x = 0, y = 0, w = 0, h = 0;
     viewport.GetViewportRect(x, y, w, h);
     if (w <= 0 || h <= 0) {
@@ -45,29 +39,23 @@ void ViewportRenderExecution::Render(Scene& scene, Camera& camera,
     m_Renderer.SetUIDrawList(nullptr);
 }
 
-void ViewportRenderExecution::ReleaseFrameResources()
-{
+void ViewportRenderExecution::ReleaseFrameResources() {
     m_Renderer.ReleaseFrameResources();
 }
 
-GpuTextureView* ViewportRenderExecution::GetOutputView() const
-{
+GpuTextureView* ViewportRenderExecution::GetOutputView() const {
     return m_Renderer.GetSceneColorView();
 }
 
-void ViewportRenderExecution::SetRenderPath(RenderPath path)
-{
+void ViewportRenderExecution::SetRenderPath(RenderPath path) {
     m_Renderer.SetRenderPath(path);
 }
 
-RenderPath ViewportRenderExecution::GetRenderPath() const
-{
+RenderPath ViewportRenderExecution::GetRenderPath() const {
     return m_Renderer.GetRenderPath();
 }
 
-void ViewportRenderExecution::SetCommandViewport(const RenderViewport& viewport,
-                                                 bool presentToSwapchain)
-{
+void ViewportRenderExecution::SetCommandViewport(const RenderViewport& viewport, bool presentToSwapchain) {
     if (!m_FrameContext) {
         return;
     }
@@ -80,7 +68,6 @@ void ViewportRenderExecution::SetCommandViewport(const RenderViewport& viewport,
     if (auto* commands = m_FrameContext->GetGraphicsCommandList()) {
         const float viewportX = presentToSwapchain ? static_cast<float>(x) : 0.0f;
         const float viewportY = presentToSwapchain ? static_cast<float>(y) : 0.0f;
-        commands->SetViewport(viewportX, viewportY,
-                              static_cast<float>(w), static_cast<float>(h));
+        commands->SetViewport(viewportX, viewportY, static_cast<float>(w), static_cast<float>(h));
     }
 }

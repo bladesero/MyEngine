@@ -3,8 +3,7 @@
 #include <cmath>
 #include <cstring>
 
-bool Mat4Invert(const Mat4& src, Mat4& dst)
-{
+bool Mat4Invert(const Mat4& src, Mat4& dst) {
     // Augmented matrix [A | I], row-major storage.
     double a[4][8];
     for (int r = 0; r < 4; ++r) {

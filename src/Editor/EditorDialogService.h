@@ -8,7 +8,10 @@
 class IWindow;
 
 enum class EditorFileOperation { None, OpenScene, SaveScene, ImportAsset, OpenProjectFolder };
-struct EditorDialogResult { EditorFileOperation operation=EditorFileOperation::None; std::string path; };
+struct EditorDialogResult {
+    EditorFileOperation operation = EditorFileOperation::None;
+    std::string path;
+};
 
 class EditorDialogService final : public EditorService {
 public:
@@ -18,6 +21,7 @@ public:
     void RequestOpenProjectFolder(IWindow* window);
     bool ConsumeResult(EditorDialogResult& result);
     void Complete(EditorFileOperation operation, const char* const* files);
+
 private:
     std::mutex m_Mutex;
     EditorDialogResult m_Result;
