@@ -55,6 +55,14 @@ RenderPath ViewportRenderExecution::GetRenderPath() const {
     return m_Renderer.GetRenderPath();
 }
 
+void ViewportRenderExecution::SetFeatureMask(RendererFeatureMask mask) {
+    m_Renderer.SetFeatureMask(mask);
+}
+
+RendererFeatureMask ViewportRenderExecution::GetFeatureMask() const {
+    return m_Renderer.GetFeatureMask();
+}
+
 void ViewportRenderExecution::SetCommandViewport(const RenderViewport& viewport, bool presentToSwapchain) {
     if (!m_FrameContext) {
         return;

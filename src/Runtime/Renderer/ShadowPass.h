@@ -1,9 +1,13 @@
 #pragma once
 
 #include "Renderer/RenderPass.h"
+#include "Renderer/MaterialResourceCache.h"
+#include "Renderer/MaterialSystem.h"
 #include "Core/EngineMath.h"
 
 #include <memory>
+#include <string>
+#include <unordered_map>
 
 struct ShaderHandle;
 
@@ -31,6 +35,7 @@ public:
     void Execute(GpuCommandList& commands, const Scene& scene, const Camera& camera) override;
     void Resize(uint32_t width, uint32_t height) override;
     bool PrepareGraphResources(const Scene& scene, const Camera& camera);
+    void ReleaseGraphResources();
     GraphResources GetGraphResources() const;
     void ExecuteGraphManaged(GpuCommandList& commands, const Scene& scene);
     void MarkGraphResourcesShaderResource() { m_ShadowResourcesInShaderState = true; }
@@ -65,6 +70,9 @@ private:
 
     std::shared_ptr<ShaderHandle> m_ShadowShaderHandle;
     std::shared_ptr<GpuGraphicsPipeline> m_ShadowPipeline;
+    std::unordered_map<std::string, std::shared_ptr<GpuGraphicsPipeline>> m_GraphPipelines;
+    MaterialResourceCache m_ResourceCache;
+    MaterialSystem m_MaterialSystem;
     uint64_t m_ShadowShaderVersion = 0;
     Mat4 m_LightViewProj = Mat4::Identity();
     Mat4 m_LightViewProjCascade[4] = {};

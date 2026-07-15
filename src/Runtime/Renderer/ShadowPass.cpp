@@ -7,6 +7,7 @@
 #include "Renderer/EngineShaderCatalog.h"
 #include "Renderer/LightComponent.h"
 #include "Renderer/MaterialResourceCache.h"
+#include "Renderer/MeshShader.h"
 #include "Renderer/ShaderManager.h"
 #include "Math/Mat4Inverse.h"
 #include "Scene/Actor.h"
@@ -14,6 +15,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <limits>
@@ -32,6 +34,21 @@ struct ShadowPerDrawConstants {
     float boneMatrices[128][16];
     float skinInfo[4];
 };
+
+struct GraphShadowConstants {
+    float lightMvp[16];
+    float world[16];
+    float boneMatrices[128][16];
+    float skinInfo[4];
+    float normalMatrix[16];
+    Vec4 values[MaterialSystem::kConstantSlotCount];
+    float graphTime[4];
+};
+
+float GraphElapsedSeconds() {
+    static const auto start = std::chrono::steady_clock::now();
+    return std::chrono::duration<float>(std::chrono::steady_clock::now() - start).count();
+}
 
 static Vec3 StableUpForDirection(const Vec3& direction) {
     return std::fabs(direction.Dot(Vec3::Up())) > 0.95f ? Vec3{0.0f, 0.0f, 1.0f} : Vec3::Up();
@@ -112,7 +129,7 @@ static MeshAsset* GetRenderMesh(Actor& actor, SkinnedMeshRendererComponent** out
 
 } // namespace
 
-ShadowPass::ShadowPass(IRHIDevice* device) : RenderPass(device) {
+ShadowPass::ShadowPass(IRHIDevice* device) : RenderPass(device), m_ResourceCache(device) {
 }
 
 const Mat4& ShadowPass::GetCascadeViewProj(uint32_t index) const {
@@ -126,6 +143,10 @@ void ShadowPass::Resize(uint32_t width, uint32_t height) {
         return;
 
     m_ShadowMapSize = target;
+    ReleaseGraphResources();
+}
+
+void ShadowPass::ReleaseGraphResources() {
     m_ShadowMapTexture.reset();
     m_SpotShadowMapTexture.reset();
     m_PointShadowMapTexture.reset();
@@ -418,17 +439,6 @@ void ShadowPass::EnsureShadowShader() {
 }
 
 bool ShadowPass::EnsureShadowResources() {
-    auto resetResources = [&]() {
-        m_ShadowMapTexture.reset();
-        m_SpotShadowMapTexture.reset();
-        m_PointShadowMapTexture.reset();
-        for (auto& view : m_ShadowCascadeViews)
-            view.reset();
-        m_SpotShadowView.reset();
-        for (auto& view : m_PointShadowViews)
-            view.reset();
-        m_ShadowResourcesInShaderState = false;
-    };
     auto resourcesComplete = [&]() {
         bool valid = m_ShadowMapTexture && m_SpotShadowMapTexture && m_PointShadowMapTexture && m_SpotShadowView;
         for (const auto& view : m_ShadowCascadeViews)
@@ -439,7 +449,7 @@ bool ShadowPass::EnsureShadowResources() {
     };
     if (resourcesComplete())
         return true;
-    resetResources();
+    ReleaseGraphResources();
 
     RHITextureDesc directional;
     directional.width = directional.height = m_ShadowMapSize;
@@ -461,7 +471,7 @@ bool ShadowPass::EnsureShadowResources() {
     m_PointShadowMapTexture = Device()->CreateTexture(point);
     if (!m_ShadowMapTexture || !m_SpotShadowMapTexture || !m_PointShadowMapTexture) {
         Logger::Error("[ShadowPass] RHI shadow texture creation failed");
-        resetResources();
+        ReleaseGraphResources();
         return false;
     }
     for (uint32_t cascade = 0; cascade < kMaxCascades; ++cascade) {
@@ -488,7 +498,7 @@ bool ShadowPass::EnsureShadowResources() {
         valid = valid && view != nullptr;
     if (!valid) {
         Logger::Error("[ShadowPass] RHI shadow view creation failed");
-        resetResources();
+        ReleaseGraphResources();
     }
     return valid;
 }
@@ -520,6 +530,8 @@ ShadowPass::GraphResources ShadowPass::GetGraphResources() const {
 }
 
 void ShadowPass::DrawShadowScene(GpuCommandList& commands, const Scene& scene, const Mat4& lightViewProj) {
+    m_ResourceCache.SetDevice(Device());
+    m_ResourceCache.EnsureNamedBindingDefaults();
     scene.ForEach([&](Actor& actor) {
         if (!actor.IsActive())
             return;
@@ -556,10 +568,6 @@ void ShadowPass::DrawShadowScene(GpuCommandList& commands, const Scene& scene, c
         }
         commands.SetVertexBuffer(mesh->GetVertexBuffer());
         commands.SetIndexBuffer(mesh->GetIndexBuffer());
-        ++m_LastStats.bindGroupCreates;
-        auto bindings = Device()->CreateBindGroup(m_ShadowShaderHandle->shader);
-        if (bindings && bindings->SetConstants("ShadowPerDraw", &constants, sizeof(constants)))
-            commands.SetBindGroup(0, bindings.get());
         for (const auto& sm : mesh->GetSubMeshes()) {
             if (!AABBIntersectsClip(TransformAABB(sm.bounds, actor.GetWorldMatrix()), lightViewProj)) {
                 ++m_LastStats.culledSubMeshes;
@@ -569,8 +577,75 @@ void ShadowPass::DrawShadowScene(GpuCommandList& commands, const Scene& scene, c
             if (renderer) {
                 material = renderer->GetMaterialForSlot(sm.materialSlot).Get();
             }
-            if (material && material->GetBlendMode() == BlendMode::Transparent) {
+            ResolvedMaterial resolved;
+            std::shared_ptr<ShaderHandle> graphShader;
+            if (material && (material->HasParent() || material->GetShaderAsset().IsValid())) {
+                resolved = m_MaterialSystem.Resolve(*material);
+                if (resolved.valid && resolved.blendMode == BlendMode::Transparent)
+                    continue;
+                if (resolved.valid && resolved.shader->IsGraph()) {
+                    if (!resolved.shader->HasPass(ShaderPass::Shadow))
+                        continue;
+                    graphShader = ShaderManager::Get().GetOrCreatePass(resolved.shader->GetPath(), ShaderPass::Shadow,
+                                                                       k_MeshVertexLayout, k_MeshVertexLayoutCount);
+                }
+            } else if (material && material->GetBlendMode() == BlendMode::Transparent) {
                 continue;
+            }
+
+            if (graphShader && graphShader->shader) {
+                const std::string key = resolved.shader->GetPath() + ":" + std::to_string(graphShader->version) + ":" +
+                                        std::to_string(resolved.twoSided ? 1 : 0) + ":" +
+                                        std::to_string(resolved.wireframe ? 1 : 0);
+                auto& pipeline = m_GraphPipelines[key];
+                if (!pipeline) {
+                    GraphicsPipelineDesc desc;
+                    desc.shader = graphShader->shader;
+                    desc.colorFormats.clear();
+                    desc.depthFormat = RHIFormat::D24S8;
+                    desc.rasterizer.cullMode = resolved.twoSided ? RHICullMode::None : RHICullMode::Back;
+                    desc.rasterizer.fillMode = resolved.wireframe ? RHIFillMode::Wireframe : RHIFillMode::Solid;
+                    desc.rasterizer.depthBias = 1536;
+                    desc.rasterizer.slopeScaledDepthBias = 2.0f;
+                    desc.depthStencil.depthTestEnable = true;
+                    desc.depthStencil.depthWriteEnable = true;
+                    desc.depthStencil.depthCompareOp = RHICompareOp::Less;
+                    pipeline = Device()->CreateGraphicsPipeline(desc);
+                }
+                if (!pipeline)
+                    continue;
+                commands.SetGraphicsPipeline(pipeline.get());
+                GraphShadowConstants graphConstants{};
+                std::memcpy(graphConstants.lightMvp, lightMvp.Data(), sizeof(graphConstants.lightMvp));
+                const Mat4 world = actor.GetWorldMatrix();
+                std::memcpy(graphConstants.world, world.Data(), sizeof(graphConstants.world));
+                Mat4 normalMatrix = Mat4::Identity();
+                if (Mat4Invert(world, normalMatrix))
+                    normalMatrix = normalMatrix.Transposed();
+                std::memcpy(graphConstants.normalMatrix, normalMatrix.Data(), sizeof(graphConstants.normalMatrix));
+                std::copy(resolved.constants.begin(), resolved.constants.end(), graphConstants.values);
+                graphConstants.graphTime[0] = GraphElapsedSeconds();
+                if (skin && skin->UsesGpuSkinning()) {
+                    const auto& matrices = skin->GetSkinMatrices();
+                    const size_t count = (std::min)(matrices.size(), size_t{128});
+                    graphConstants.skinInfo[0] = static_cast<float>(count);
+                    for (size_t bone = 0; bone < count; ++bone)
+                        std::memcpy(graphConstants.boneMatrices[bone], matrices[bone].Data(),
+                                    sizeof(graphConstants.boneMatrices[bone]));
+                }
+                ++m_LastStats.bindGroupCreates;
+                auto bindings = Device()->CreateBindGroup(graphShader->shader);
+                if (bindings) {
+                    MaterialSystem::BindTextures(*bindings, m_ResourceCache, resolved);
+                    bindings->SetConstants("GraphPerDraw", &graphConstants, sizeof(graphConstants));
+                    commands.SetBindGroup(0, bindings.get());
+                }
+            } else {
+                commands.SetGraphicsPipeline(m_ShadowPipeline.get());
+                ++m_LastStats.bindGroupCreates;
+                auto bindings = Device()->CreateBindGroup(m_ShadowShaderHandle->shader);
+                if (bindings && bindings->SetConstants("ShadowPerDraw", &constants, sizeof(constants)))
+                    commands.SetBindGroup(0, bindings.get());
             }
             ++m_LastStats.submittedSubMeshes;
             if (mesh->GetIndexBuffer()) {

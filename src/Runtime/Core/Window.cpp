@@ -24,12 +24,18 @@ bool SDLWindow::Init(const WindowConfig& config) {
 
     m_Width = config.width;
     m_Height = config.height;
+    m_PixelWidth = config.width;
+    m_PixelHeight = config.height;
 
     SDL_WindowFlags flags = SDL_WINDOW_RESIZABLE;
+#ifdef MYENGINE_PLATFORM_WINDOWS
+    // Keep the native window and every ImGui platform viewport in SDL's per-monitor pixel-density coordinate space.
+    flags = static_cast<SDL_WindowFlags>(flags | SDL_WINDOW_HIGH_PIXEL_DENSITY);
+#endif
     if (config.mode == WindowMode::Borderless)
         flags = static_cast<SDL_WindowFlags>(flags | SDL_WINDOW_BORDERLESS);
     else if (config.mode == WindowMode::Fullscreen)
-        flags = SDL_WINDOW_FULLSCREEN;
+        flags = static_cast<SDL_WindowFlags>(flags | SDL_WINDOW_FULLSCREEN);
 
     m_Window = SDL_CreateWindow(config.title.c_str(), m_Width, m_Height, flags);
     if (!m_Window) {
@@ -37,6 +43,7 @@ bool SDLWindow::Init(const WindowConfig& config) {
         SDL_Quit();
         return false;
     }
+    RefreshSize();
 
     // Only create SDL renderer when requested (not needed for D3D11/Vulkan).
     if (config.sdlRenderer) {
@@ -76,6 +83,30 @@ void SDLWindow::Shutdown() {
 
 void SDLWindow::SwapBuffers() {
     SDL_RenderPresent(m_Renderer);
+}
+
+bool SDLWindow::RefreshSize() {
+    if (!m_Window)
+        return false;
+
+    int width = m_Width;
+    int height = m_Height;
+    int pixelWidth = m_PixelWidth > 0 ? m_PixelWidth : width;
+    int pixelHeight = m_PixelHeight > 0 ? m_PixelHeight : height;
+    if (!SDL_GetWindowSize(m_Window, &width, &height))
+        return false;
+    if (!SDL_GetWindowSizeInPixels(m_Window, &pixelWidth, &pixelHeight)) {
+        pixelWidth = width;
+        pixelHeight = height;
+    }
+
+    const bool changed =
+        width != m_Width || height != m_Height || pixelWidth != m_PixelWidth || pixelHeight != m_PixelHeight;
+    m_Width = width;
+    m_Height = height;
+    m_PixelWidth = pixelWidth;
+    m_PixelHeight = pixelHeight;
+    return changed;
 }
 
 bool SDLWindow::SetIconFromPixels(const void* rgba8, int width, int height) {

@@ -15,6 +15,8 @@ enum class ProjectValidationCode {
     InvalidStartupScene,
     CookDependency,
     ScriptCompile,
+    ShaderCompile,
+    InvalidMaterial,
     OversizedAsset,
 };
 

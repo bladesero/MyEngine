@@ -4,11 +4,15 @@
 #include "Core/Logger.h"
 #include "Core/RuntimeFileSystem.h"
 #include "Audio/AudioEngine.h"
+#include "Assets/AssetManager.h"
+#include "Assets/MaterialAsset.h"
 #include "Game/DefaultSceneFactory.h"
 #include "Project/RuntimeUserSettings.h"
 #include "UI/Core/RuntimeUIScreenConfig.h"
 #include "Renderer/IRenderContext.h"
 #include "Renderer/RHI/GpuSwapChain.h"
+#include "Scene/Actor.h"
+#include "Scene/MeshRendererComponent.h"
 #include <SDL3/SDL_scancode.h>
 #include <algorithm>
 #include <cmath>
@@ -16,9 +20,93 @@
 
 SceneRenderLayer::SceneRenderLayer(IRenderContext* context, int viewportWidth, int viewportHeight)
     : SceneLayer("SceneRenderLayer"), m_RenderContext(context), m_Viewport(context, context, context),
-      m_GameViewport(context, context, context) {
+      m_MaterialPreviewViewport(context, context, context), m_GameViewport(context, context, context) {
     m_Viewport.Initialize(viewportWidth, viewportHeight);
     m_GameViewport.Initialize(viewportWidth, viewportHeight);
+    BeginViewportActivityFrame();
+    CommitViewportActivityFrame();
+    m_MaterialPreviewViewport.SetFeatureMask(RendererFeatureMask::None);
+}
+
+void SceneRenderLayer::ConfigureMaterialPreview(const std::string& shaderPath, bool quad) {
+    if (shaderPath.empty()) {
+        m_MaterialPreviewActive = false;
+        return;
+    }
+    if (!m_MaterialPreviewInitialized) {
+        m_MaterialPreviewViewport.Initialize(256, 256);
+        m_MaterialPreviewViewport.SetInputEnabled(false);
+        m_MaterialPreviewViewport.FrameTarget(Vec3::Zero(), 1.0f);
+        m_MaterialPreviewInitialized = true;
+    }
+    SetMaterialPreviewActive(true);
+    if (m_MaterialPreviewScene && m_MaterialPreviewShaderPath == shaderPath && m_MaterialPreviewQuad == quad)
+        return;
+
+    auto& assets = AssetManager::Get();
+    ShaderAssetHandle shader = assets.Load<ShaderAsset>(shaderPath);
+    if (!shader.IsValid())
+        return;
+    if (!m_MaterialPreviewScene) {
+        m_MaterialPreviewScene = std::make_unique<Scene>("MaterialPreview");
+        Actor* actor = m_MaterialPreviewScene->CreateActor("PreviewMesh");
+        actor->AddComponent<MeshRendererComponent>();
+        auto material = std::make_shared<MaterialAsset>("__editor__/MaterialPreview.mat");
+        material->SetName("MaterialPreview");
+        material->SetSurfaceOverrideMask(0);
+        material->MarkReady();
+        m_MaterialPreviewMaterial = assets.Register(material);
+    }
+    Actor* actor = m_MaterialPreviewScene->FindByName("PreviewMesh");
+    auto* renderer = actor ? actor->GetComponent<MeshRendererComponent>() : nullptr;
+    if (!renderer)
+        return;
+    m_MaterialPreviewMaterial->SetShaderAsset(shader);
+    renderer->SetMesh(quad ? assets.GetQuadMesh() : assets.GetCubeMesh());
+    renderer->SetMaterial(m_MaterialPreviewMaterial);
+    m_MaterialPreviewShaderPath = shaderPath;
+    m_MaterialPreviewQuad = quad;
+    InvalidateMaterialPreview();
+}
+
+void SceneRenderLayer::BeginViewportActivityFrame() {
+    m_SceneViewportActive = false;
+    m_GameViewportActive = false;
+    m_MaterialPreviewActive = false;
+}
+
+void SceneRenderLayer::CommitViewportActivityFrame() {
+    if (!m_SceneViewportActive)
+        m_Viewport.SetInputEnabled(false);
+    if (!m_GameViewportActive) {
+        m_GameViewport.SetInputEnabled(false);
+        m_UIInputViewport.enabled = false;
+        m_UIInputViewport.hovered = false;
+    }
+}
+
+void SceneRenderLayer::SetSceneViewportActive(bool active) {
+    m_SceneViewportActive = active;
+}
+
+void SceneRenderLayer::SetGameViewportActive(bool active) {
+    m_GameViewportActive = active;
+}
+
+void SceneRenderLayer::SetMaterialPreviewActive(bool active) {
+    m_MaterialPreviewActive = active;
+}
+
+void SceneRenderLayer::SetMaterialPreviewRealtime(bool realtime) {
+    if (m_MaterialPreviewRealtime == realtime)
+        return;
+    m_MaterialPreviewRealtime = realtime;
+    if (realtime)
+        InvalidateMaterialPreview();
+}
+
+void SceneRenderLayer::InvalidateMaterialPreview() {
+    m_MaterialPreviewDirty = true;
 }
 
 void SceneRenderLayer::SetPresentEnabled(bool enabled) {
@@ -143,18 +231,26 @@ void SceneRenderLayer::OnEvent(Event& event) {
     if (event.type == EventType::WindowResize) {
         const int windowW = event.resize.width;
         const int windowH = event.resize.height;
-        if (windowW <= 0 || windowH <= 0)
+        const int pixelW = event.resize.pixelWidth > 0 ? event.resize.pixelWidth : windowW;
+        const int pixelH = event.resize.pixelHeight > 0 ? event.resize.pixelHeight : windowH;
+        if (windowW <= 0 || windowH <= 0 || pixelW <= 0 || pixelH <= 0)
             return;
-        m_Viewport.OnWindowResize(windowW, windowH);
-        m_GameViewport.OnWindowResize(windowW, windowH);
+        m_Viewport.OnWindowResize(pixelW, pixelH);
+        m_GameViewport.OnWindowResize(pixelW, pixelH);
         if (m_PresentEnabled) {
-            m_UIInputViewport = {0, 0, windowW, windowH, 1.0f, 1.0f, true, true};
-            m_UISystem.Resize(windowW, windowH);
+            const float scaleX = static_cast<float>(pixelW) / static_cast<float>(windowW);
+            const float scaleY = static_cast<float>(pixelH) / static_cast<float>(windowH);
+            m_UIInputViewport = {0, 0, windowW, windowH, scaleX, scaleY, true, true};
+            m_UISystem.Resize(pixelW, pixelH);
         }
         if (m_RenderContext) {
             if (GpuSwapChain* swapChain = m_RenderContext->GetSwapChain()) {
-                m_GameViewport.ReleaseFrameResources();
-                swapChain->Resize(static_cast<uint32_t>(windowW), static_cast<uint32_t>(windowH));
+                const uint32_t targetWidth = static_cast<uint32_t>(pixelW);
+                const uint32_t targetHeight = static_cast<uint32_t>(pixelH);
+                if (swapChain->GetWidth() != targetWidth || swapChain->GetHeight() != targetHeight) {
+                    m_GameViewport.ReleaseFrameResources();
+                    swapChain->Resize(targetWidth, targetHeight);
+                }
             }
         }
     }
@@ -352,6 +448,10 @@ void SceneRenderLayer::OnRender() {
     }
     if (m_GameViewportActive) {
         m_GameViewport.Render(GetSimulationScene(), false, &m_UIDrawList);
+    }
+    if (m_MaterialPreviewActive && m_MaterialPreviewScene && (m_MaterialPreviewDirty || m_MaterialPreviewRealtime)) {
+        m_MaterialPreviewViewport.Render(*m_MaterialPreviewScene, false);
+        m_MaterialPreviewDirty = false;
     }
 }
 

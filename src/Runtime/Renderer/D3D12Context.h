@@ -117,7 +117,7 @@ public:
     static constexpr uint32_t kFrameCount = 2;
     static constexpr uint32_t kTextureSlotCount = 10;
     static constexpr uint32_t kOffscreenRtvCount = 256;
-    static constexpr uint32_t kDsvDescriptorCount = 32;
+    static constexpr uint32_t kDsvDescriptorCount = 128;
     static constexpr uint32_t kDefaultConstantBufferCapacity = 1024 * 1024;
     static constexpr uint32_t kDefaultSrvDescriptorCount = 1024;
     static constexpr uint32_t kDefaultSamplerDescriptorCount = 2048;

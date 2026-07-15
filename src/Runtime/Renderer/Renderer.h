@@ -4,6 +4,7 @@
 #include "Renderer/RHI/IRHIFrameContext.h"
 #include "Renderer/RHI/IRHIReadbackService.h"
 #include "Renderer/RenderPath.h"
+#include "Renderer/RendererFeatures.h"
 #include "Scene/Scene.h"
 #include "Camera/Camera.h"
 
@@ -20,7 +21,7 @@ class RenderGraph;
 class UIDrawList;
 
 // ============================================================================
-// Renderer  鈥? minimal scene renderer for MeshRendererComponent
+// Renderer  minimal scene renderer for MeshRendererComponent
 //
 //  - Owns no window; works on top of split RHI device/frame/readback services
 //  - Traverses Scene, finds actors with MeshRendererComponent and draws them
@@ -45,6 +46,8 @@ public:
     void ReleaseFrameResources();
     void SetRenderPath(RenderPath path) { m_RenderPath = path; }
     RenderPath GetRenderPath() const { return m_RenderPath; }
+    void SetFeatureMask(RendererFeatureMask mask);
+    RendererFeatureMask GetFeatureMask() const { return m_FeatureMask; }
 
 private:
     IRHIDevice* m_Device = nullptr;
@@ -59,6 +62,7 @@ private:
     std::unique_ptr<ScreenUIPass> m_ScreenUIPass;
     std::unique_ptr<RenderGraph> m_RenderGraph;
     RenderPath m_RenderPath = RenderPath::Forward;
+    RendererFeatureMask m_FeatureMask = RendererFeatureMask::All;
     bool m_OutputOffscreen = false;
     const UIDrawList* m_UIDrawList = nullptr;
 };

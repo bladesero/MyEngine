@@ -8,6 +8,7 @@
 #include <d3d11_1.h>
 #include <dxgi.h>
 #include <dxgi1_2.h>
+#include <algorithm>
 #include <sstream>
 #include <vector>
 
@@ -676,8 +677,8 @@ bool D3D11Context::Init(IWindow* window) {
         return false;
     }
 
-    const int w = window->GetWidth();
-    const int h = window->GetHeight();
+    const int w = (std::max)(1, window->GetPixelWidth());
+    const int h = (std::max)(1, window->GetPixelHeight());
     m_SwapChainWidth = static_cast<uint32_t>(w);
     m_SwapChainHeight = static_cast<uint32_t>(h);
 

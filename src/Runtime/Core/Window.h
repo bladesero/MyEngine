@@ -35,6 +35,12 @@ public:
 
     virtual int GetWidth() const = 0;
     virtual int GetHeight() const = 0;
+    virtual int GetPixelWidth() const { return GetWidth(); }
+    virtual int GetPixelHeight() const { return GetHeight(); }
+    // Refreshes both the window-coordinate and drawable-pixel sizes from the
+    // platform. Call this at the window-event boundary before dispatching a
+    // resize to UI and rendering consumers.
+    virtual bool RefreshSize() { return false; }
     virtual bool IsOpen() const = 0;
     virtual bool SetIconFromPixels(const void* rgba8, int width, int height) {
         (void)rgba8;
@@ -64,6 +70,9 @@ public:
 
     int GetWidth() const override { return m_Width; }
     int GetHeight() const override { return m_Height; }
+    int GetPixelWidth() const override { return m_PixelWidth; }
+    int GetPixelHeight() const override { return m_PixelHeight; }
+    bool RefreshSize() override;
     bool IsOpen() const override { return m_Open; }
     bool SetIconFromPixels(const void* rgba8, int width, int height) override;
 
@@ -76,5 +85,7 @@ private:
     SDL_Renderer* m_Renderer = nullptr;
     int m_Width = 0;
     int m_Height = 0;
+    int m_PixelWidth = 0;
+    int m_PixelHeight = 0;
     bool m_Open = false;
 };

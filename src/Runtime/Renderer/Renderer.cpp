@@ -125,48 +125,52 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
     const Vec3 environmentSunDirection = CollectEnvironmentSunDirection(scene);
     m_EnvironmentPass->SetSunDirection(environmentSunDirection);
     m_MainPass->SetSunDirection(environmentSunDirection);
-    if (!m_ShadowPass->PrepareGraphResources(scene, camera)) {
-        Logger::Error("[Renderer] ShadowPass failed to prepare graph resources");
-        endFrameOnFailure();
-        return;
-    }
-    const auto shadowResources = m_ShadowPass->GetGraphResources();
-    const auto directionalShadow = m_RenderGraph->ImportTexture(
-        "DirectionalShadow", shadowResources.directional, shadowResources.directionalCascadeViews[0],
-        shadowResources.initialState, RHIResourceState::ShaderResource);
-    const auto spotShadow =
-        m_RenderGraph->ImportTexture("SpotShadow", shadowResources.spot, shadowResources.spotView,
-                                     shadowResources.initialState, RHIResourceState::ShaderResource);
-    const auto pointShadow =
-        m_RenderGraph->ImportTexture("PointShadow", shadowResources.point, shadowResources.pointViews[0],
-                                     shadowResources.initialState, RHIResourceState::ShaderResource);
+    const bool shadowsEnabled = HasRendererFeature(m_FeatureMask, RendererFeatureMask::Shadows);
+    RGTextureHandle directionalShadow;
+    RGTextureHandle spotShadow;
+    RGTextureHandle pointShadow;
+    if (shadowsEnabled) {
+        if (!m_ShadowPass->PrepareGraphResources(scene, camera)) {
+            Logger::Error("[Renderer] ShadowPass failed to prepare graph resources");
+            endFrameOnFailure();
+            return;
+        }
+        const auto shadowResources = m_ShadowPass->GetGraphResources();
+        directionalShadow = m_RenderGraph->ImportTexture(
+            "DirectionalShadow", shadowResources.directional, shadowResources.directionalCascadeViews[0],
+            shadowResources.initialState, RHIResourceState::ShaderResource);
+        spotShadow = m_RenderGraph->ImportTexture("SpotShadow", shadowResources.spot, shadowResources.spotView,
+                                                  shadowResources.initialState, RHIResourceState::ShaderResource);
+        pointShadow = m_RenderGraph->ImportTexture("PointShadow", shadowResources.point, shadowResources.pointViews[0],
+                                                   shadowResources.initialState, RHIResourceState::ShaderResource);
 
-    m_RenderGraph->AddPass(
-        "Shadow",
-        [directionalShadow, spotShadow, pointShadow](RenderGraphBuilder& builder) {
-            for (uint32_t cascade = 0; cascade < 3; ++cascade) {
-                builder.WriteDepth(directionalShadow, RGTextureSubresource{0, 1, cascade, 1}, RHILoadOp::Clear,
-                                   RHIStoreOp::Store, 1.0f);
-            }
-            builder.WriteDepth(spotShadow, RHILoadOp::Clear, RHIStoreOp::Store, 1.0f);
-            for (uint32_t face = 0; face < 6; ++face) {
-                builder.WriteDepth(pointShadow, RGTextureSubresource{0, 1, face, 1}, RHILoadOp::Clear,
-                                   RHIStoreOp::Store, 1.0f);
-            }
-        },
-        [this, &scene, &camera](GpuCommandList& commands, const RenderGraphResources&) {
-            (void)camera;
-            const auto start = std::chrono::steady_clock::now();
-            m_ShadowPass->ExecuteGraphManaged(commands, scene);
-            const auto end = std::chrono::steady_clock::now();
-            RendererFrameStats stats = FrameStatsProvider::GetRendererStats();
-            stats.shadowCpuMs += ElapsedMs(start, end);
-            const auto& shadowStats = m_ShadowPass->GetLastStats();
-            stats.shadowDrawCalls = shadowStats.drawCalls;
-            stats.bindGroupCreates += shadowStats.bindGroupCreates;
-            FrameStatsProvider::SetRendererStats(stats);
-        },
-        RenderGraph::PassFlags::ManualRenderingScope | RenderGraph::PassFlags::ManualResourceTransitions);
+        m_RenderGraph->AddPass(
+            "Shadow",
+            [directionalShadow, spotShadow, pointShadow](RenderGraphBuilder& builder) {
+                for (uint32_t cascade = 0; cascade < 3; ++cascade) {
+                    builder.WriteDepth(directionalShadow, RGTextureSubresource{0, 1, cascade, 1}, RHILoadOp::Clear,
+                                       RHIStoreOp::Store, 1.0f);
+                }
+                builder.WriteDepth(spotShadow, RHILoadOp::Clear, RHIStoreOp::Store, 1.0f);
+                for (uint32_t face = 0; face < 6; ++face) {
+                    builder.WriteDepth(pointShadow, RGTextureSubresource{0, 1, face, 1}, RHILoadOp::Clear,
+                                       RHIStoreOp::Store, 1.0f);
+                }
+            },
+            [this, &scene, &camera](GpuCommandList& commands, const RenderGraphResources&) {
+                (void)camera;
+                const auto start = std::chrono::steady_clock::now();
+                m_ShadowPass->ExecuteGraphManaged(commands, scene);
+                const auto end = std::chrono::steady_clock::now();
+                RendererFrameStats stats = FrameStatsProvider::GetRendererStats();
+                stats.shadowCpuMs += ElapsedMs(start, end);
+                const auto& shadowStats = m_ShadowPass->GetLastStats();
+                stats.shadowDrawCalls = shadowStats.drawCalls;
+                stats.bindGroupCreates += shadowStats.bindGroupCreates;
+                FrameStatsProvider::SetRendererStats(stats);
+            },
+            RenderGraph::PassFlags::ManualRenderingScope | RenderGraph::PassFlags::ManualResourceTransitions);
+    }
     const bool environmentGraphReady = m_EnvironmentPass->PrepareGraphResources();
     RGTextureHandle environmentCube;
     RGBufferHandle environmentSH;
@@ -202,19 +206,28 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
     m_MainPass->SetHdrPassthrough(useOffscreen);
     const SceneLightData sceneLights = CollectSceneLights(scene);
     const PostProcessRuntimeOptions postOptions = CollectPostProcessOptions(scene);
-    m_PostProcessPass->SetSSAOEnabled(postOptions.ssaoEnabled);
+    const bool ssaoEnabled = HasRendererFeature(m_FeatureMask, RendererFeatureMask::SSAO) && postOptions.ssaoEnabled;
+    m_PostProcessPass->SetSSAOEnabled(ssaoEnabled);
     m_PostProcessPass->SetSSAOScale(postOptions.ssaoScale);
-    const uint32_t cascadeCount = m_ShadowPass->GetCascadeCount();
-    Mat4 cascades[3] = {m_ShadowPass->GetCascadeViewProj(0),
-                        cascadeCount > 1 ? m_ShadowPass->GetCascadeViewProj(1) : m_ShadowPass->GetCascadeViewProj(0),
-                        cascadeCount > 2 ? m_ShadowPass->GetCascadeViewProj(2) : m_ShadowPass->GetCascadeViewProj(0)};
-    m_MainPass->SetShadowInput(m_ShadowPass->GetLightViewProj(), m_ShadowPass->GetLightDirection(),
-                               m_ShadowPass->IsDirectionalShadowEnabled(), m_ShadowPass->GetShadowMapTexture(),
-                               m_ShadowPass->GetSpotLightViewProj(), m_ShadowPass->GetSpotShadowIndex(),
-                               m_ShadowPass->GetSpotShadowMapTexture(), m_ShadowPass->GetPointShadowPosition(),
-                               m_ShadowPass->GetPointShadowRange(), m_ShadowPass->GetPointShadowIndex(),
-                               m_ShadowPass->GetPointShadowMapTexture(), cascadeCount > 0 ? cascades : nullptr,
-                               cascadeCount, m_ShadowPass->GetCascadeSplits());
+    uint32_t cascadeCount = 0;
+    Mat4 cascades[3] = {Mat4::Identity(), Mat4::Identity(), Mat4::Identity()};
+    if (shadowsEnabled) {
+        cascadeCount = m_ShadowPass->GetCascadeCount();
+        cascades[0] = m_ShadowPass->GetCascadeViewProj(0);
+        cascades[1] = cascadeCount > 1 ? m_ShadowPass->GetCascadeViewProj(1) : cascades[0];
+        cascades[2] = cascadeCount > 2 ? m_ShadowPass->GetCascadeViewProj(2) : cascades[0];
+        m_MainPass->SetShadowInput(m_ShadowPass->GetLightViewProj(), m_ShadowPass->GetLightDirection(),
+                                   m_ShadowPass->IsDirectionalShadowEnabled(), m_ShadowPass->GetShadowMapTexture(),
+                                   m_ShadowPass->GetSpotLightViewProj(), m_ShadowPass->GetSpotShadowIndex(),
+                                   m_ShadowPass->GetSpotShadowMapTexture(), m_ShadowPass->GetPointShadowPosition(),
+                                   m_ShadowPass->GetPointShadowRange(), m_ShadowPass->GetPointShadowIndex(),
+                                   m_ShadowPass->GetPointShadowMapTexture(), cascadeCount > 0 ? cascades : nullptr,
+                                   cascadeCount, m_ShadowPass->GetCascadeSplits());
+    } else {
+        const Mat4 identity = Mat4::Identity();
+        m_MainPass->SetShadowInput(identity, Vec3::Zero(), false, nullptr, identity, -1, nullptr, Vec3::Zero(), 1.0f,
+                                   -1, nullptr, nullptr, 0, nullptr);
+    }
     m_MainPass->SetEnvironmentInput(m_EnvironmentPass->GetEnvironmentCubemap(), m_EnvironmentPass->GetSH2BufferView(),
                                     m_EnvironmentPass->GetSH2Coefficients());
     if (useOffscreen) {
@@ -231,7 +244,7 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
                                          postResources.sceneDepthState, RHIResourceState::ShaderResource);
         RGTextureHandle ssao;
         RGTextureHandle ssaoBlur;
-        if (postOptions.ssaoEnabled) {
+        if (ssaoEnabled) {
             ssao = m_RenderGraph->ImportTexture("SSAO", postResources.ssao, postResources.ssaoRtv,
                                                 postResources.ssaoState, RHIResourceState::ShaderResource);
             ssaoBlur = m_RenderGraph->ImportTexture("SSAOBlur", postResources.ssaoBlur, postResources.ssaoBlurRtv,
@@ -285,13 +298,19 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
                                                     gbufferResources.materialSrv, gbufferResources.emissiveSrv);
             m_DeferredLightingPass->SetDepthInput(postResources.sceneDepthSrv);
             m_DeferredLightingPass->SetLightingInput(sceneLights);
-            m_DeferredLightingPass->SetShadowInput(
-                m_ShadowPass->GetLightViewProj(), m_ShadowPass->IsDirectionalShadowEnabled(),
-                m_ShadowPass->GetShadowMapTexture(), m_ShadowPass->GetSpotLightViewProj(),
-                m_ShadowPass->GetSpotShadowIndex(), m_ShadowPass->GetSpotShadowMapTexture(),
-                m_ShadowPass->GetPointShadowPosition(), m_ShadowPass->GetPointShadowRange(),
-                m_ShadowPass->GetPointShadowIndex(), m_ShadowPass->GetPointShadowMapTexture(),
-                cascadeCount > 0 ? cascades : nullptr, cascadeCount, m_ShadowPass->GetCascadeSplits());
+            if (shadowsEnabled) {
+                m_DeferredLightingPass->SetShadowInput(
+                    m_ShadowPass->GetLightViewProj(), m_ShadowPass->IsDirectionalShadowEnabled(),
+                    m_ShadowPass->GetShadowMapTexture(), m_ShadowPass->GetSpotLightViewProj(),
+                    m_ShadowPass->GetSpotShadowIndex(), m_ShadowPass->GetSpotShadowMapTexture(),
+                    m_ShadowPass->GetPointShadowPosition(), m_ShadowPass->GetPointShadowRange(),
+                    m_ShadowPass->GetPointShadowIndex(), m_ShadowPass->GetPointShadowMapTexture(),
+                    cascadeCount > 0 ? cascades : nullptr, cascadeCount, m_ShadowPass->GetCascadeSplits());
+            } else {
+                const Mat4 identity = Mat4::Identity();
+                m_DeferredLightingPass->SetShadowInput(identity, false, nullptr, identity, -1, nullptr, Vec3::Zero(),
+                                                       1.0f, -1, nullptr, nullptr, 0, nullptr);
+            }
             m_DeferredLightingPass->SetEnvironmentInput(m_EnvironmentPass->GetEnvironmentCubemap(),
                                                         m_EnvironmentPass->GetSH2BufferView());
 
@@ -317,16 +336,18 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
             m_RenderGraph->AddPass(
                 "DeferredLighting",
                 [deferredSceneColor, gbufferAlbedo, gbufferNormal, gbufferMaterial, gbufferEmissive, sceneDepth,
-                 directionalShadow, spotShadow, pointShadow, environmentGraphReady, environmentCube,
+                 shadowsEnabled, directionalShadow, spotShadow, pointShadow, environmentGraphReady, environmentCube,
                  environmentSH](RenderGraphBuilder& builder) {
                     builder.ReadTexture(gbufferAlbedo);
                     builder.ReadTexture(gbufferNormal);
                     builder.ReadTexture(gbufferMaterial);
                     builder.ReadTexture(gbufferEmissive);
                     builder.ReadTexture(sceneDepth);
-                    builder.ReadTexture(directionalShadow);
-                    builder.ReadTexture(spotShadow);
-                    builder.ReadTexture(pointShadow);
+                    if (shadowsEnabled) {
+                        builder.ReadTexture(directionalShadow);
+                        builder.ReadTexture(spotShadow);
+                        builder.ReadTexture(pointShadow);
+                    }
                     if (environmentGraphReady) {
                         builder.ReadTexture(environmentCube);
                         builder.ReadBuffer(environmentSH);
@@ -367,11 +388,13 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
         } else {
             m_RenderGraph->AddPass(
                 "Main",
-                [sceneColor, sceneDepth, directionalShadow, spotShadow, pointShadow, environmentGraphReady,
-                 environmentCube, environmentSH](RenderGraphBuilder& builder) {
-                    builder.ReadTexture(directionalShadow);
-                    builder.ReadTexture(spotShadow);
-                    builder.ReadTexture(pointShadow);
+                [sceneColor, sceneDepth, shadowsEnabled, directionalShadow, spotShadow, pointShadow,
+                 environmentGraphReady, environmentCube, environmentSH](RenderGraphBuilder& builder) {
+                    if (shadowsEnabled) {
+                        builder.ReadTexture(directionalShadow);
+                        builder.ReadTexture(spotShadow);
+                        builder.ReadTexture(pointShadow);
+                    }
                     if (environmentGraphReady) {
                         builder.ReadTexture(environmentCube);
                         builder.ReadBuffer(environmentSH);
@@ -395,7 +418,7 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
                     FrameStatsProvider::SetRendererStats(stats);
                 });
         }
-        if (postOptions.ssaoEnabled) {
+        if (ssaoEnabled) {
             m_RenderGraph->AddPass(
                 "SSAO",
                 [sceneDepth, ssao](RenderGraphBuilder& builder) {
@@ -444,7 +467,7 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
         }
         m_RenderGraph->AddPass(
             "Composite",
-            [compositeInput, ssao, ssaoEnabled = postOptions.ssaoEnabled, compositeToBackbuffer, composite,
+            [compositeInput, ssao, ssaoEnabled, compositeToBackbuffer, composite,
              backBuffer](RenderGraphBuilder& builder) {
                 builder.ReadTexture(compositeInput);
                 if (ssaoEnabled)
@@ -480,7 +503,8 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
                 ++stats.fullscreenDrawCalls;
                 FrameStatsProvider::SetRendererStats(stats);
             });
-        if (m_UIDrawList && !m_UIDrawList->Empty()) {
+        if (HasRendererFeature(m_FeatureMask, RendererFeatureMask::ScreenUI) && m_UIDrawList &&
+            !m_UIDrawList->Empty()) {
             m_RenderGraph->AddPass(
                 "ScreenUI",
                 [compositeToBackbuffer, composite, backBuffer](RenderGraphBuilder& builder) {
@@ -507,11 +531,13 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
                                          RHIResourceState::RenderTarget, RHIResourceState::RenderTarget);
         m_RenderGraph->AddPass(
             "Main",
-            [backBuffer, directionalShadow, spotShadow, pointShadow, environmentGraphReady, environmentCube,
-             environmentSH](RenderGraphBuilder& builder) {
-                builder.ReadTexture(directionalShadow);
-                builder.ReadTexture(spotShadow);
-                builder.ReadTexture(pointShadow);
+            [backBuffer, shadowsEnabled, directionalShadow, spotShadow, pointShadow, environmentGraphReady,
+             environmentCube, environmentSH](RenderGraphBuilder& builder) {
+                if (shadowsEnabled) {
+                    builder.ReadTexture(directionalShadow);
+                    builder.ReadTexture(spotShadow);
+                    builder.ReadTexture(pointShadow);
+                }
                 if (environmentGraphReady) {
                     builder.ReadTexture(environmentCube);
                     builder.ReadBuffer(environmentSH);
@@ -533,7 +559,8 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
                 stats.textureUploadMs += mainStats.textureUploadMs;
                 FrameStatsProvider::SetRendererStats(stats);
             });
-        if (m_UIDrawList && !m_UIDrawList->Empty()) {
+        if (HasRendererFeature(m_FeatureMask, RendererFeatureMask::ScreenUI) && m_UIDrawList &&
+            !m_UIDrawList->Empty()) {
             m_RenderGraph->AddPass(
                 "ScreenUI",
                 [backBuffer](RenderGraphBuilder& builder) {
@@ -566,7 +593,8 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
     }
     publishGraphStats();
     if (useOffscreen) {
-        m_ShadowPass->MarkGraphResourcesShaderResource();
+        if (shadowsEnabled)
+            m_ShadowPass->MarkGraphResourcesShaderResource();
         m_EnvironmentPass->MarkGraphResourcesShaderResource();
         if (useDeferred) {
             m_GBufferPass->MarkGraphResourcesShaderResource();
@@ -574,7 +602,8 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
         }
         m_PostProcessPass->MarkGraphResourcesShaderResource(!m_PostProcessPass->IsCompositeToBackbuffer());
     } else {
-        m_ShadowPass->MarkGraphResourcesShaderResource();
+        if (shadowsEnabled)
+            m_ShadowPass->MarkGraphResourcesShaderResource();
         m_EnvironmentPass->MarkGraphResourcesShaderResource();
     }
     RendererFrameStats rendererStats = FrameStatsProvider::GetRendererStats();
@@ -592,6 +621,18 @@ void Renderer::SetOutputOffscreen(bool enabled) {
     if (m_PostProcessPass) {
         m_PostProcessPass->SetCompositeToBackbuffer(!enabled);
     }
+}
+
+void Renderer::SetFeatureMask(RendererFeatureMask mask) {
+    if (m_FeatureMask == mask)
+        return;
+    const bool shadowsWereEnabled = HasRendererFeature(m_FeatureMask, RendererFeatureMask::Shadows);
+    const bool shadowsAreEnabled = HasRendererFeature(mask, RendererFeatureMask::Shadows);
+    m_FeatureMask = mask;
+    if (shadowsWereEnabled && !shadowsAreEnabled && m_ShadowPass)
+        m_ShadowPass->ReleaseGraphResources();
+    if (!HasRendererFeature(mask, RendererFeatureMask::SSAO) && m_PostProcessPass)
+        m_PostProcessPass->SetSSAOEnabled(false);
 }
 
 GpuTextureView* Renderer::GetSceneColorView() const {

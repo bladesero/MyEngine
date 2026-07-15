@@ -110,6 +110,89 @@ bool TestEditorLayerKeepsCppPanelsWithScriptSidecar() {
     return true;
 }
 
+bool TestEditorPlatformViewportDpiContract() {
+    auto findRepositoryRoot = [] {
+        std::filesystem::path current = std::filesystem::current_path();
+        for (;;) {
+            if (std::filesystem::exists(current / "xmake.lua") &&
+                std::filesystem::exists(current / "xmake/packages.lua")) {
+                return current;
+            }
+            if (!current.has_parent_path() || current == current.parent_path())
+                break;
+            current = current.parent_path();
+        }
+        return std::filesystem::path{};
+    };
+    const auto readSource = [](const std::filesystem::path& path) {
+        std::ifstream file(path, std::ios::binary);
+        std::ostringstream contents;
+        contents << file.rdbuf();
+        return contents.str();
+    };
+
+    const std::filesystem::path root = findRepositoryRoot();
+    if (!Check(!root.empty(), "failed to locate repository root for viewport DPI contract"))
+        return false;
+
+    const std::string packages = readSource(root / "xmake/packages.lua");
+    const std::string imnodesPackage = readSource(root / "packages/i/imnodes/xmake.lua");
+    const std::string imnodesPatch = readSource(root / "packages/i/imnodes/patches/v0.5-imgui-1.92.patch");
+    const std::string window = readSource(root / "src/Runtime/Core/Window.cpp");
+    const std::string windowHeader = readSource(root / "src/Runtime/Core/Window.h");
+    const std::string eventHeader = readSource(root / "src/Runtime/Core/Event.h");
+    const std::string engine = readSource(root / "src/Runtime/Core/Engine.cpp");
+    const std::string sceneRenderLayer = readSource(root / "src/Runtime/Game/SceneRenderLayer.cpp");
+    const std::string d3d11 = readSource(root / "src/Runtime/Renderer/D3D11Context.cpp");
+    const std::string d3d12 = readSource(root / "src/Runtime/Renderer/D3D12Context.cpp");
+    const std::string vulkan = readSource(root / "src/Runtime/Renderer/VulkanContext.cpp");
+    const std::string metal = readSource(root / "src/Runtime/Renderer/MetalContext.mm");
+    const std::string manifest = readSource(root / "src/Runtime/Miscs/Resources/MyEngineEditor.manifest");
+    const std::string resource = readSource(root / "src/Runtime/Miscs/Resources/MyEngineEditor.rc");
+    const std::string backend = readSource(root / "src/Editor/EditorImGuiBackend.cpp");
+    const std::string graphPanel = readSource(root / "src/Editor/Panels/ShaderGraphPanel.cpp");
+
+    if (!Check(packages.find("v1.92.7-docking") != std::string::npos &&
+                   packages.find("v1.91.3-docking") == std::string::npos,
+               "Editor and imnodes are not pinned to the ImGui 1.92.7 docking ABI"))
+        return false;
+    if (!Check(packages.find("myengine_imgui_192 = true") != std::string::npos &&
+                   imnodesPackage.find("add_configs(\"myengine_imgui_192\"") != std::string::npos &&
+                   imnodesPackage.find("add_deps(\"imgui v1.92.7-docking\")") != std::string::npos &&
+                   imnodesPatch.find("IMGUI_VERSION_NUM != 19270") != std::string::npos,
+               "imnodes package can reuse a stale binary built against an incompatible ImGui ABI"))
+        return false;
+    if (!Check(window.find("SDL_WINDOW_HIGH_PIXEL_DENSITY") != std::string::npos &&
+                   manifest.find("PerMonitorV2") != std::string::npos &&
+                   resource.find("MyEngineEditor.manifest") != std::string::npos,
+               "Windows Editor high-DPI manifest/window contract is incomplete"))
+        return false;
+    if (!Check(window.find("SDL_GetWindowSize(m_Window") != std::string::npos &&
+                   window.find("SDL_GetWindowSizeInPixels(m_Window") != std::string::npos &&
+                   windowHeader.find("GetPixelWidth() const") != std::string::npos &&
+                   windowHeader.find("GetPixelHeight() const") != std::string::npos &&
+                   eventHeader.find("int pixelWidth = 0") != std::string::npos &&
+                   eventHeader.find("int pixelHeight = 0") != std::string::npos &&
+                   engine.find("SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED") != std::string::npos &&
+                   engine.find("e.resize.pixelWidth = m_Window->GetPixelWidth()") != std::string::npos &&
+                   engine.find("e.resize.pixelHeight = m_Window->GetPixelHeight()") != std::string::npos &&
+                   sceneRenderLayer.find("swapChain->Resize(targetWidth, targetHeight)") != std::string::npos &&
+                   d3d11.find("window->GetPixelWidth()") != std::string::npos &&
+                   d3d12.find("window->GetPixelWidth()") != std::string::npos &&
+                   vulkan.find("window->GetPixelWidth()") != std::string::npos &&
+                   metal.find("window->GetPixelWidth()") != std::string::npos,
+               "window resize mixes logical dock coordinates with drawable swapchain pixels"))
+        return false;
+    if (!Check(backend.find("ImGui_ImplDX12_InitInfo") != std::string::npos &&
+                   backend.find("initInfo.CommandQueue = commandQueue") != std::string::npos,
+               "D3D12 ImGui backend does not use the 1.92 initialization contract"))
+        return false;
+    if (!Check(graphPanel.find("SetNextWindowSize") == std::string::npos,
+               "Shader Graph overrides the floating window size instead of preserving its dock rectangle"))
+        return false;
+    return true;
+}
+
 bool TestEditorOperatorSourceContracts() {
     auto findRepositoryRoot = [] {
         std::filesystem::path current = std::filesystem::current_path();
@@ -188,6 +271,8 @@ bool TestEditorOperatorSourceContracts() {
     const std::string projectSettings = readSource(root / "src/Editor/EditorProjectSettingsController.cpp");
     const std::string viewportPolicy = readSource(root / "src/Editor/UI/EditorViewportPolicy.h");
     const std::string imguiBackend = readSource(root / "src/Editor/EditorImGuiBackend.cpp");
+    const std::string engineSource = readSource(root / "src/Runtime/Core/Engine.cpp");
+    const std::string compactEngineSource = compactSource(engineSource);
     const std::string d3d11Context = readSource(root / "src/Runtime/Renderer/D3D11Context.cpp");
     const std::string editorWorkspace = readSource(root / "src/Editor/EditorWorkspace.cpp");
     const std::string shortcutMap = readSource(root / "src/Editor/EditorShortcutMap.cpp");
@@ -207,10 +292,10 @@ bool TestEditorOperatorSourceContracts() {
                    !viewportPanel.empty() && !inspectorPanel.empty() && !sceneViewportHeader.empty() &&
                    !sceneViewportSource.empty() && !gameViewportSource.empty() && !inspectorSections.empty() &&
                    !editorLayer.empty() && !projectSettings.empty() && !viewportPolicy.empty() &&
-                   !imguiBackend.empty() && !d3d11Context.empty() && !editorWorkspace.empty() &&
-                   !editorCommand.empty() && !shortcutMap.empty() && !uiFacade.empty() && !sceneHeader.empty() &&
-                   !actorHeader.empty() && !sceneSerializer.empty() && !sceneLighting.empty() && !prefabAsset.empty() &&
-                   !prefabSystem.empty() && !actorSubtreeSerializer.empty(),
+                   !imguiBackend.empty() && !engineSource.empty() && !d3d11Context.empty() &&
+                   !editorWorkspace.empty() && !editorCommand.empty() && !shortcutMap.empty() && !uiFacade.empty() &&
+                   !sceneHeader.empty() && !actorHeader.empty() && !sceneSerializer.empty() && !sceneLighting.empty() &&
+                   !prefabAsset.empty() && !prefabSystem.empty() && !actorSubtreeSerializer.empty(),
                "operator source contract files were not found"))
         return false;
     auto countSubstring = [](const std::string& source, const std::string& needle) {
@@ -351,6 +436,9 @@ bool TestEditorOperatorSourceContracts() {
                    operatorsSource.find("EditorSelectionOperator::SelectActor") != std::string::npos,
                "EditorOperators does not centralize command/watch/selection behavior"))
         return false;
+    const size_t platformBridgePosition = compactEngineSource.find("m_PlatformEventBridge->OnSDLEvent(sdlEvent);");
+    const size_t engineWindowFilterPosition =
+        compactEngineSource.find("if(engineWindowID!=0&&!IsEngineWindowEvent(sdlEvent,engineWindowID)){continue;}");
     if (!Check(
             assetBrowser.find("registry->WatchForChanges()") == std::string::npos &&
                 assetBrowser.find("registry->Refresh()") == std::string::npos &&
@@ -846,19 +934,47 @@ bool TestEditorOperatorSourceContracts() {
                    inspectorSections.find("actor->AddComponent<ScriptComponent>()") == std::string::npos,
                "InspectorSections do not route component edits through operators"))
         return false;
-    if (!Check(viewportPolicy.find("ImGui::GetMainViewport()") != std::string::npos &&
-                   viewportPolicy.find("ImGui::GetWindowViewport()") != std::string::npos &&
-                   editorLayer.find("EditorViewportPolicy::BindNextModalToMainViewport();\n"
-                                    "    if (!ImGui::BeginPopupModal(\"Project Result\"") != std::string::npos &&
-                   projectSettings.find("EditorViewportPolicy::BindNextModalToMainViewport();\n"
-                                        "    if (!ImGui::BeginPopupModal(\"Settings\"") != std::string::npos &&
-                   assetBrowser.find("EditorViewportPolicy::BindNextModalToMainViewport();\n"
-                                     "    if (!ImGui::BeginPopupModal(\"Unsaved Scene Changes") != std::string::npos &&
-                   imguiBackend.find("ctx->RSSetViewports(1, &viewport)") != std::string::npos &&
-                   imguiBackend.find("ctx->RSSetScissorRects(1, &scissor)") != std::string::npos &&
-                   d3d11Context.find("m_Context->RSSetViewports(1, &viewport)") != std::string::npos &&
-                   d3d11Context.find("m_Context->RSSetScissorRects(1, &scissor)") != std::string::npos,
-               "Editor multi-viewport ownership or D3D11 main-rect restoration regressed"))
+    if (!Check(
+            viewportPolicy.find("ImGui::GetMainViewport()") != std::string::npos &&
+                viewportPolicy.find("ImGui::GetWindowViewport()") != std::string::npos &&
+                viewportPolicy.find("BindNextPopupToViewport(uint32_t viewportID)") != std::string::npos &&
+                compactAssetBrowser.find(
+                    "constuint32_tassetBrowserViewportID=Editor::UI::EditorViewportPolicy::GetCurrentViewportID();") !=
+                    std::string::npos &&
+                countSubstring(compactAssetBrowser, "Editor::UI::EditorViewportPolicy::BindNextPopupToViewport("
+                                                    "assetBrowserViewportID);") == 6 &&
+                editorLayer.find("EditorViewportPolicy::BindNextModalToMainViewport();\n"
+                                 "    if (!ImGui::BeginPopupModal(\"Project Result\"") != std::string::npos &&
+                projectSettings.find("EditorViewportPolicy::BindNextModalToMainViewport();\n"
+                                     "    if (!ImGui::BeginPopupModal(\"Settings\"") != std::string::npos &&
+                assetBrowser.find("EditorViewportPolicy::BindNextModalToMainViewport();\n"
+                                  "    if (!ImGui::BeginPopupModal(\"Unsaved Scene Changes") != std::string::npos &&
+                imguiBackend.find("class D3D11ImmediateContextStateScope") != std::string::npos &&
+                imguiBackend.find("D3D11ImmediateContextStateScope stateScope(") != std::string::npos &&
+                imguiBackend.find("m_Context->OMGetRenderTargets(1, &m_RenderTarget, &m_DepthStencil)") !=
+                    std::string::npos &&
+                imguiBackend.find("m_Context->RSGetViewports(&m_ViewportCount, m_Viewports)") != std::string::npos &&
+                imguiBackend.find("m_Context->RSGetScissorRects(&m_ScissorCount, m_Scissors)") != std::string::npos &&
+                imguiBackend.find("m_Context->OMSetRenderTargets(1, &m_RenderTarget, m_DepthStencil)") !=
+                    std::string::npos &&
+                imguiBackend.find("m_Context->RSSetViewports(m_ViewportCount, m_Viewports)") != std::string::npos &&
+                imguiBackend.find("m_Context->RSSetScissorRects(m_ScissorCount, m_Scissors)") != std::string::npos &&
+                imguiBackend.find("m_RenderTarget->Release()") != std::string::npos &&
+                imguiBackend.find("m_DepthStencil->Release()") != std::string::npos &&
+                engineSource.find("SDL_GetWindowID(m_Window->GetSDLWindow())") != std::string::npos &&
+                engineSource.find("return event.key.windowID == engineWindowID") != std::string::npos &&
+                engineSource.find("return event.window.windowID == engineWindowID") != std::string::npos &&
+                engineSource.find("return event.button.windowID == engineWindowID") != std::string::npos &&
+                engineSource.find("return event.motion.windowID == engineWindowID") != std::string::npos &&
+                engineSource.find("return event.wheel.windowID == engineWindowID") != std::string::npos &&
+                engineSource.find("return event.text.windowID == engineWindowID") != std::string::npos &&
+                platformBridgePosition != std::string::npos && engineWindowFilterPosition != std::string::npos &&
+                platformBridgePosition < engineWindowFilterPosition &&
+                imguiBackend.find("ctx->RSSetViewports(1, &viewport)") != std::string::npos &&
+                imguiBackend.find("ctx->RSSetScissorRects(1, &scissor)") != std::string::npos &&
+                d3d11Context.find("m_Context->RSSetViewports(1, &viewport)") != std::string::npos &&
+                d3d11Context.find("m_Context->RSSetScissorRects(1, &scissor)") != std::string::npos,
+            "Editor multi-viewport ownership or D3D11 main-rect restoration regressed"))
         return false;
     if (!Check(inspectorSections.find("CommitSceneNameEdit") != std::string::npos &&
                    inspectorSections.find("CommitSceneGravityEdit") != std::string::npos &&
@@ -1090,6 +1206,7 @@ MYENGINE_REGISTER_TEST("Editor", "TestEditorUIFacadeDoesNotExposeRawImGuiContrac
                        TestEditorUIFacadeDoesNotExposeRawImGuiContract);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorLayerKeepsCppPanelsWithScriptSidecar",
                        TestEditorLayerKeepsCppPanelsWithScriptSidecar);
+MYENGINE_REGISTER_TEST("Editor", "TestEditorPlatformViewportDpiContract", TestEditorPlatformViewportDpiContract);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorOperatorSourceContracts", TestEditorOperatorSourceContracts);
 
 } // namespace

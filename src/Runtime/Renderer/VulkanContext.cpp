@@ -1072,11 +1072,12 @@ VkExtent2D ChooseSwapchainExtent(const VkSurfaceCapabilitiesKHR& caps, IWindow* 
                                  uint32_t requestedHeight) {
     if (caps.currentExtent.width != UINT32_MAX)
         return caps.currentExtent;
-    uint32_t width = requestedWidth ? requestedWidth
-                                    : static_cast<uint32_t>(window && window->GetWidth() > 0 ? window->GetWidth() : 1);
-    uint32_t height = requestedHeight
-                          ? requestedHeight
-                          : static_cast<uint32_t>(window && window->GetHeight() > 0 ? window->GetHeight() : 1);
+    uint32_t width = requestedWidth
+                         ? requestedWidth
+                         : static_cast<uint32_t>(window && window->GetPixelWidth() > 0 ? window->GetPixelWidth() : 1);
+    uint32_t height =
+        requestedHeight ? requestedHeight
+                        : static_cast<uint32_t>(window && window->GetPixelHeight() > 0 ? window->GetPixelHeight() : 1);
     width = (std::max)(caps.minImageExtent.width, (std::min)(width, caps.maxImageExtent.width));
     height = (std::max)(caps.minImageExtent.height, (std::min)(height, caps.maxImageExtent.height));
     return {width, height};
@@ -1671,8 +1672,8 @@ bool VulkanContext::Init(IWindow* window) {
     sampler.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
     vkCreateSampler(m_Impl->device, &sampler, nullptr, &m_Impl->defaultSampler);
 
-    if (!RecreateSwapchain(static_cast<uint32_t>(window->GetWidth() > 0 ? window->GetWidth() : 1),
-                           static_cast<uint32_t>(window->GetHeight() > 0 ? window->GetHeight() : 1))) {
+    if (!RecreateSwapchain(static_cast<uint32_t>(window->GetPixelWidth() > 0 ? window->GetPixelWidth() : 1),
+                           static_cast<uint32_t>(window->GetPixelHeight() > 0 ? window->GetPixelHeight() : 1))) {
         return false;
     }
 
@@ -2027,6 +2028,7 @@ ImGuiBackendHandles VulkanContext::GetImGuiBackendHandles() {
         handles.imageView = m_Impl->backBufferViews[m_Impl->imageIndex]->imageView;
     }
     handles.vulkan.instance = handles.instance;
+    handles.vulkan.apiVersion = VK_API_VERSION_1_3;
     handles.vulkan.physicalDevice = handles.physicalDevice;
     handles.vulkan.device = handles.device;
     handles.vulkan.queue = handles.queue;

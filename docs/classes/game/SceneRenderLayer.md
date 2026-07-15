@@ -15,6 +15,13 @@ rendering, and default-scene setup to narrower runtime helpers.
   `CameraComponent` data.
 - Schedule Scene/Game viewport renders through each viewport's
   `ViewportRenderExecution`.
+- Schedule Scene/Game only when their latest ImGui dock tab was actually
+  visible. Activity is collected and committed once per ImGui frame so a
+  temporarily cleared candidate does not reset Scene View mouse capture; only
+  the final inactive state disables viewport and Game UI input.
+- Own the Material Preview dirty/realtime policy. Static graphs submit one frame
+  after invalidation; graphs with a reachable `Time` node submit continuously
+  only while the Shader Graph panel is active.
 - Route Scene View to EditorWorld by default, or to `GetSimulationScene()` when
   the editor enables PlayWorld inspection.
 - Route Game View to `GetSimulationScene()` (EditorWorld in edit mode,

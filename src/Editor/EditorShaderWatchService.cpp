@@ -2,7 +2,12 @@
 
 #include "Core/Logger.h"
 #include "Editor/EditorContext.h"
+#include "Game/SceneRenderLayer.h"
 #include "Renderer/ShaderManager.h"
+#include "Renderer/ShaderCooker.h"
+
+#include <algorithm>
+#include <unordered_set>
 
 void EditorShaderWatchService::OnAttach(EditorContext& context) {
     EditorService::OnAttach(context);
@@ -11,6 +16,7 @@ void EditorShaderWatchService::OnAttach(EditorContext& context) {
 void EditorShaderWatchService::Refresh() {
     m_Paths.clear();
     m_Times.clear();
+    m_Dependents.clear();
     std::error_code error;
     std::vector<std::filesystem::path> roots = {"EngineContent/Shaders"};
     if (GetContext())
@@ -26,6 +32,19 @@ void EditorShaderWatchService::Refresh() {
                 const std::string path = entry.path().generic_string();
                 m_Paths.push_back(path);
                 m_Times[path] = entry.last_write_time(error);
+                if (ext == ".shader") {
+                    m_Dependents[path].push_back(path);
+                    std::vector<std::string> dependencies;
+                    const std::filesystem::path allowedRoot =
+                        GetContext() && path.rfind(GetContext()->GetContentRoot().generic_string(), 0) == 0
+                            ? GetContext()->GetContentRoot()
+                            : root.parent_path();
+                    std::string dependencyError;
+                    if (ShaderCooker::CollectDependencies(entry.path(), allowedRoot, dependencies, &dependencyError))
+                        for (const std::string& dependency : dependencies)
+                            m_Dependents[std::filesystem::path(dependency).lexically_normal().generic_string()]
+                                .push_back(path);
+                }
             }
         }
     }
@@ -37,16 +56,21 @@ void EditorShaderWatchService::OnUpdate(float deltaSeconds) {
     if (m_Accumulator < 0.5f)
         return;
     m_Accumulator = 0;
-    std::error_code error;
-    for (const std::string& path : m_Paths) {
-        const auto time = std::filesystem::last_write_time(path, error);
-        if (error)
+    const auto previousTimes = m_Times;
+    Refresh();
+    std::unordered_set<std::string> shaders;
+    for (const auto& [path, time] : m_Times) {
+        const auto previous = previousTimes.find(path);
+        if (previous == previousTimes.end() || previous->second == time)
             continue;
-        auto it = m_Times.find(path);
-        if (it != m_Times.end() && it->second != time) {
-            it->second = time;
-            ShaderManager::Get().RecompileAll();
-            Logger::Info("[Editor] Shader changed: ", path);
-        }
+        const auto dependents = m_Dependents.find(path);
+        if (dependents != m_Dependents.end())
+            shaders.insert(dependents->second.begin(), dependents->second.end());
+        Logger::Info("[Editor] Shader dependency changed: ", path);
+    }
+    for (const std::string& shader : shaders) {
+        ShaderManager::Get().Recompile(shader);
+        if (GetContext()->GetSceneLayer())
+            GetContext()->GetSceneLayer()->InvalidateMaterialPreview();
     }
 }

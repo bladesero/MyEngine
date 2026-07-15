@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Renderer/MaterialResourceCache.h"
+#include "Renderer/MaterialSystem.h"
 #include "Renderer/RenderPass.h"
 #include "Renderer/SceneRenderCollector.h"
 #include "Core/EngineMath.h"
@@ -67,6 +68,9 @@ private:
     GpuShader* GetOrCreateSkyShader();
     GpuGraphicsPipeline* GetOrCreateMainPipeline(bool transparent, bool twoSided, bool wireframe);
     GpuGraphicsPipeline* GetOrCreateMaterialPipeline(const MaterialAsset& material);
+    GpuGraphicsPipeline* GetOrCreateMaterialPipeline(const MaterialAsset& material,
+                                                     const std::shared_ptr<GpuShader>& shader, BlendMode blendMode,
+                                                     bool twoSided, bool wireframe);
     GpuGraphicsPipeline* GetOrCreateSkyPipeline();
     void RenderSky(const Camera& camera, GpuCommandList& cmd);
     bool CanReuseMaterialBindGroups() const;
@@ -98,6 +102,7 @@ private:
     uint64_t m_SkyShaderVersion = 0;
     SceneRenderCollector m_SceneCollector;
     MaterialResourceCache m_ResourceCache;
+    MaterialSystem m_MaterialSystem;
     std::unique_ptr<SkyPass> m_SkyPass;
     std::unique_ptr<ForwardOpaquePass> m_ForwardOpaquePass;
     std::unique_ptr<ForwardTransparentPass> m_ForwardTransparentPass;

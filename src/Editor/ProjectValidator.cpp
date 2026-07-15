@@ -1,9 +1,14 @@
 #include "Editor/ProjectValidator.h"
 
 #include "Assets/ScriptAsset.h"
+#include "Assets/MaterialAsset.h"
+#include "Assets/ShaderAsset.h"
 #include "Assets/AssetManager.h"
 #include "Project/ContentPathPolicy.h"
 #include "Project/ProjectConfig.h"
+#include "Renderer/MaterialSystem.h"
+#include "Renderer/ShaderCooker.h"
+#include "Renderer/ShaderGraphCompiler.h"
 
 #include <algorithm>
 #include <cctype>
@@ -102,12 +107,54 @@ bool ProjectValidator::Validate(const ProjectConfig& project, ProjectValidationR
             std::string extension = file.absolute.extension().string();
             std::transform(extension.begin(), extension.end(), extension.begin(),
                            [](unsigned char value) { return static_cast<char>(std::tolower(value)); });
-            if (extension != ".as" || file.relative.generic_string().rfind("Editor/", 0) == 0)
-                continue;
-            const std::shared_ptr<ScriptAsset> script = LoadScriptAssetFromFile(file.absolute.string());
-            if (!script || !script->GetLastError().empty()) {
-                Add(report, ProjectValidationSeverity::Error, ProjectValidationCode::ScriptCompile, logical, {},
-                    script ? script->GetLastError() : "script loader returned no asset");
+            if (extension == ".as" && file.relative.generic_string().rfind("Editor/", 0) != 0) {
+                const std::shared_ptr<ScriptAsset> script = LoadScriptAssetFromFile(file.absolute.string());
+                if (!script || !script->GetLastError().empty())
+                    Add(report, ProjectValidationSeverity::Error, ProjectValidationCode::ScriptCompile, logical, {},
+                        script ? script->GetLastError() : "script loader returned no asset");
+            } else if (extension == ".mat") {
+                const auto material = LoadMaterialAssetFromFile(file.absolute.string());
+                if (!material) {
+                    Add(report, ProjectValidationSeverity::Error, ProjectValidationCode::InvalidMaterial, logical, {},
+                        "material loader returned no asset");
+                } else {
+                    const ResolvedMaterial resolved = MaterialSystem{}.Resolve(*material);
+                    if (!resolved.valid && (!material->WasLoadedFromLegacyFormat() || material->HasParent() ||
+                                            material->GetShaderAsset().IsValid()))
+                        for (const std::string& diagnostic : resolved.diagnostics)
+                            Add(report, ProjectValidationSeverity::Error, ProjectValidationCode::InvalidMaterial,
+                                logical, {}, diagnostic);
+                }
+            } else if (extension == ".shader") {
+                const auto shader = LoadShaderAssetFromFile(file.absolute.string());
+                if (!shader) {
+                    Add(report, ProjectValidationSeverity::Error, ProjectValidationCode::ShaderCompile, logical, {},
+                        "shader loader returned no asset");
+                } else if (shader->IsGraph()) {
+                    std::vector<ShaderGraphDiagnostic> diagnostics;
+                    ShaderGraphCompiler::Validate(shader->GetGraph(), shader->GetProperties(), diagnostics);
+                    for (const auto& diagnostic : diagnostics)
+                        Add(report,
+                            diagnostic.severity == ShaderGraphDiagnostic::Severity::Error
+                                ? ProjectValidationSeverity::Error
+                                : ProjectValidationSeverity::Warning,
+                            ProjectValidationCode::ShaderCompile, logical, {}, diagnostic.message);
+                    if (std::none_of(diagnostics.begin(), diagnostics.end(), [](const auto& diagnostic) {
+                            return diagnostic.severity == ShaderGraphDiagnostic::Severity::Error;
+                        })) {
+                        ShaderCookRequest request;
+                        request.sourcePath = file.absolute;
+                        request.allowedRoot = root / "Content";
+                        request.artifactPath =
+                            root / "Library" / "ValidationShaders" / (file.relative.generic_string() + ".cooked");
+                        request.backends = ShaderCooker::BackendsForTargetPlatform("windows-x64");
+                        std::string cookError;
+                        const ShaderCookResult cooked = ShaderCooker::Cook(request, &cookError);
+                        if (!cooked.succeeded)
+                            Add(report, ProjectValidationSeverity::Error, ProjectValidationCode::ShaderCompile, logical,
+                                {}, cookError.empty() ? "target backend shader compile failed" : cookError);
+                    }
+                }
             }
         }
     }

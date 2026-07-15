@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstring>
 
 namespace {
@@ -58,6 +59,24 @@ struct ShadowedPerDrawConstants {
     float cameraForward[4];
 };
 
+struct GraphForwardConstants {
+    float viewProj[16];
+    float world[16];
+    float lightDirection[4];
+    float lightColor[4];
+    float cameraPosition[4];
+    float boneMatrices[128][16];
+    float skinInfo[4];
+    float normalMatrix[16];
+    Vec4 values[MaterialSystem::kConstantSlotCount];
+    float graphTime[4];
+};
+
+float GraphElapsedSeconds() {
+    static const auto start = std::chrono::steady_clock::now();
+    return std::chrono::duration<float>(std::chrono::steady_clock::now() - start).count();
+}
+
 constexpr uint32_t kMainTextureSlotCount = 9;
 
 void FillColorConstants(float out[4], const MaterialAsset& material, const char* name, const Vec3& fallback,
@@ -91,12 +110,11 @@ public:
             const SceneRenderItem& item = items[itemIndex];
             size_t instanceCount = 1;
             if (backendAllowsInstancing && mainPass.m_ShaderMode == MainPass::ShaderMode::ShadowedPbr &&
-                item.skin == nullptr && item.material->GetBlendMode() != BlendMode::Transparent) {
+                item.skin == nullptr) {
                 while (instanceCount < 64 && itemIndex + instanceCount < items.size()) {
                     const SceneRenderItem& candidate = items[itemIndex + instanceCount];
                     if (candidate.mesh != item.mesh || candidate.subMeshIndex != item.subMeshIndex ||
-                        candidate.material != item.material || candidate.skin != nullptr ||
-                        candidate.material->GetBlendMode() == BlendMode::Transparent) {
+                        candidate.material != item.material || candidate.skin != nullptr) {
                         break;
                     }
                     ++instanceCount;
@@ -112,8 +130,25 @@ public:
                 continue;
             }
 
-            if (mat->GetShaderAsset().IsValid()) {
-                auto custom = ShaderManager::Get().GetOrCreate(mat->GetShaderAsset()->GetPath(), k_MeshVertexLayout,
+            ResolvedMaterial resolved;
+            std::shared_ptr<ShaderHandle> graphShader;
+            const bool hasMaterialContract = mat->HasParent() || mat->GetShaderAsset().IsValid();
+            if (hasMaterialContract) {
+                resolved = mainPass.m_MaterialSystem.Resolve(*mat);
+                if (resolved.valid && resolved.shader->HasPass(ShaderPass::Forward)) {
+                    graphShader = ShaderManager::Get().GetOrCreatePass(resolved.shader->GetPath(), ShaderPass::Forward,
+                                                                       k_MeshVertexLayout, k_MeshVertexLayoutCount);
+                    instanceCount = 1;
+                }
+            }
+            const bool errorMaterial =
+                hasMaterialContract &&
+                (!resolved.valid || !resolved.shader.IsValid() ||
+                 (resolved.shader->GetDomain() == ShaderDomain::Surface &&
+                  (!resolved.shader->HasPass(ShaderPass::Forward) || !graphShader || !graphShader->shader)));
+
+            if (resolved.valid && resolved.shader.IsValid() && !resolved.shader->IsGraph()) {
+                auto custom = ShaderManager::Get().GetOrCreate(resolved.shader->GetPath(), k_MeshVertexLayout,
                                                                k_MeshVertexLayoutCount);
                 if (custom && custom->shader)
                     mat->SetShader(custom->shader);
@@ -125,11 +160,77 @@ public:
                 continue;
             }
 
+            if (graphShader && graphShader->shader) {
+                auto* pipeline = mainPass.GetOrCreateMaterialPipeline(*mat, graphShader->shader, resolved.blendMode,
+                                                                      resolved.twoSided, resolved.wireframe);
+                if (!pipeline) {
+                    ++itemIndex;
+                    continue;
+                }
+                commands.SetGraphicsPipeline(pipeline);
+                commands.BindVertexBuffer(mesh->GetVertexBuffer());
+                const Mat4 world = actor.GetWorldMatrix();
+                Mat4 normalMatrix = Mat4::Identity();
+                if (Mat4Invert(world, normalMatrix))
+                    normalMatrix = normalMatrix.Transposed();
+                GraphForwardConstants constants{};
+                std::memcpy(constants.viewProj, viewProj.Data(), sizeof(constants.viewProj));
+                std::memcpy(constants.world, world.Data(), sizeof(constants.world));
+                std::memcpy(constants.normalMatrix, normalMatrix.Data(), sizeof(constants.normalMatrix));
+                constants.lightDirection[0] = sceneLights.direction.x;
+                constants.lightDirection[1] = sceneLights.direction.y;
+                constants.lightDirection[2] = sceneLights.direction.z;
+                constants.lightDirection[3] = sceneLights.directionalIntensity;
+                constants.lightColor[0] = sceneLights.color.x;
+                constants.lightColor[1] = sceneLights.color.y;
+                constants.lightColor[2] = sceneLights.color.z;
+                constants.lightColor[3] = 1.0f;
+                const Vec3 cameraPosition = camera.GetPosition();
+                constants.cameraPosition[0] = cameraPosition.x;
+                constants.cameraPosition[1] = cameraPosition.y;
+                constants.cameraPosition[2] = cameraPosition.z;
+                constants.cameraPosition[3] = 1.0f;
+                std::copy(resolved.constants.begin(), resolved.constants.end(), constants.values);
+                constants.graphTime[0] = GraphElapsedSeconds();
+                constants.graphTime[1] = cameraPosition.x;
+                constants.graphTime[2] = cameraPosition.y;
+                constants.graphTime[3] = cameraPosition.z;
+                if (item.skin && item.skin->UsesGpuSkinning()) {
+                    const auto& matrices = item.skin->GetSkinMatrices();
+                    const size_t boneCount = (std::min)(matrices.size(), size_t{128});
+                    constants.skinInfo[0] = static_cast<float>(boneCount);
+                    for (size_t bone = 0; bone < boneCount; ++bone)
+                        std::memcpy(constants.boneMatrices[bone], matrices[bone].Data(),
+                                    sizeof(constants.boneMatrices[bone]));
+                }
+                mainPass.EnsureNamedBindingDefaults();
+                auto bindings = mainPass.Device()->CreateBindGroup(graphShader->shader);
+                if (bindings) {
+                    MaterialSystem::BindTextures(*bindings, mainPass.m_ResourceCache, resolved);
+                    bindings->SetConstants("GraphPerDraw", &constants, sizeof(constants));
+                    commands.SetBindGroup(0, bindings.get());
+                }
+                if (mesh->GetIndexBuffer()) {
+                    commands.BindIndexBuffer(mesh->GetIndexBuffer());
+                    commands.DrawIndexed(subMesh->indexCount, subMesh->indexOffset,
+                                         static_cast<uint32_t>(subMesh->vertexOffset));
+                } else {
+                    commands.BindIndexBuffer(nullptr);
+                    commands.Draw(subMesh->indexCount, subMesh->vertexOffset);
+                }
+                ++mainPass.m_LastStats.drawCalls;
+                ++itemIndex;
+                continue;
+            }
+
             GpuShader* drawShader = mat->HasShader() ? mat->GetShader() : shader;
             if (drawShader) {
                 if (drawShader == shader) {
-                    auto* pipeline = mainPass.GetOrCreateMainPipeline(mat->GetBlendMode() == BlendMode::Transparent,
-                                                                      mat->IsTwoSided(), mat->IsWireframe());
+                    const BlendMode blendMode = resolved.valid ? resolved.blendMode : mat->GetBlendMode();
+                    const bool twoSided = resolved.valid ? resolved.twoSided : mat->IsTwoSided();
+                    const bool wireframe = resolved.valid ? resolved.wireframe : mat->IsWireframe();
+                    auto* pipeline =
+                        mainPass.GetOrCreateMainPipeline(blendMode == BlendMode::Transparent, twoSided, wireframe);
                     if (!pipeline) {
                         itemIndex += instanceCount;
                         continue;
@@ -221,6 +322,12 @@ public:
                             sizeof(constants.spotLightViewProj));
 
                 FillColorConstants(constants.baseColor, *mat, "BaseColor", Vec3::One());
+                if (errorMaterial) {
+                    constants.baseColor[0] = 1.0f;
+                    constants.baseColor[1] = 0.0f;
+                    constants.baseColor[2] = 1.0f;
+                    constants.baseColor[3] = 1.0f;
+                }
 
                 constants.lightDirection[0] = sceneLights.direction.x;
                 constants.lightDirection[1] = sceneLights.direction.y;
@@ -252,6 +359,14 @@ public:
                 constants.emissive[1] = emissive.y;
                 constants.emissive[2] = emissive.z;
                 constants.emissive[3] = mat->GetBlendMode() == BlendMode::AlphaTest ? 1.0f : 0.0f;
+                if (errorMaterial) {
+                    constants.material[0] = 0.0f;
+                    constants.material[1] = 0.25f;
+                    constants.material[2] = 1.0f;
+                    constants.emissive[0] = 1.0f;
+                    constants.emissive[1] = 0.0f;
+                    constants.emissive[2] = 1.0f;
+                }
                 std::memcpy(constants.mapFlags, mapFlags, sizeof(mapFlags));
 
                 const size_t pointCount = (std::min)(sceneLights.pointLights.size(), size_t{4});
@@ -376,6 +491,12 @@ public:
                 LegacyPerDrawConstants constants{};
                 std::memcpy(constants.mvp, mvp.Data(), sizeof(constants.mvp));
                 FillColorConstants(constants.baseColor, *mat, "BaseColor", Vec3::One());
+                if (errorMaterial) {
+                    constants.baseColor[0] = 1.0f;
+                    constants.baseColor[1] = 0.0f;
+                    constants.baseColor[2] = 1.0f;
+                    constants.baseColor[3] = 1.0f;
+                }
                 mainPass.EnsureNamedBindingDefaults();
                 auto bindings =
                     mainPass.GetOrCreateMaterialBindGroup(drawShader, *mat, false, namedTextures, namedTextureAssets);

@@ -2,7 +2,9 @@
 
 #include "Assets/AssetManager.h"
 #include "Camera/Camera.h"
+#include "Core/FrameStats.h"
 #include "Core/RuntimeQualityDegradation.h"
+#include "Game/SceneRenderLayer.h"
 #include "Renderer/EnvironmentPass.h"
 #include "Renderer/DeferredLightingPass.h"
 #include "Renderer/GBufferPass.h"
@@ -10,12 +12,14 @@
 #include "Renderer/LightComponent.h"
 #include "Renderer/MaterialResourceCache.h"
 #include "Renderer/ParticleSystemComponent.h"
+#include "Renderer/PostProcessComponent.h"
 #include "Renderer/RHI/RHIResourceStats.h"
 #include "Renderer/RenderGraph.h"
 #include "Renderer/Renderer.h"
 #include "Renderer/ShaderManager.h"
 #include "Scene/MeshRendererComponent.h"
 #include "Scene/Scene.h"
+#include "UI/Render/UIDrawList.h"
 
 #include <algorithm>
 #include <array>
@@ -1571,6 +1575,149 @@ bool TestRendererRenderPathDefaultsToForward() {
                  "Renderer render path setter did not persist deferred mode");
 }
 
+bool TestRendererFeatureMaskSkipsOptionalPasses() {
+    AssetManager::Get().Clear();
+    Scene scene("RendererFeatureMask");
+    Actor* meshActor = scene.CreateActor("Cube");
+    auto* mesh = meshActor->AddComponent<MeshRendererComponent>();
+    mesh->SetMesh(AssetManager::Get().GetCubeMesh());
+    mesh->SetMaterial(AssetManager::Get().GetDefaultMaterial());
+    Actor* lightActor = scene.CreateActor("Sun");
+    auto* light = lightActor->AddComponent<LightComponent>();
+    light->SetLightType(LightType::Directional);
+    light->SetCastShadows(true);
+    Actor* postActor = scene.CreateActor("PostProcess");
+    postActor->AddComponent<PostProcessComponent>()->SetSSAOIntensity(1.0f);
+
+    Camera camera;
+    camera.LookAt({0.0f, 0.0f, -4.0f}, Vec3::Zero());
+    camera.SetPerspective(60.0f, 16.0f / 9.0f);
+    UIDrawList ui;
+    ui.Add({});
+
+    struct Result {
+        int textureCreates = 0;
+        int renderingBegins = 0;
+        RendererFrameStats stats;
+        bool hasOutput = false;
+    };
+    const auto renderWith = [&](RendererFeatureMask mask) {
+        ShaderManager::Get().Clear();
+        MockRenderContext context;
+        context.backend = RHIBackend::D3D11;
+        Renderer renderer(&context, &context, &context);
+        renderer.Resize(128, 72);
+        renderer.SetOutputOffscreen(true);
+        renderer.SetFeatureMask(mask);
+        renderer.SetUIDrawList(&ui);
+        renderer.RenderScene(scene, camera, true);
+        return Result{context.graphTextureCreates, context.commands.renderingBeginCalls,
+                      FrameStatsProvider::GetRendererStats(), renderer.GetSceneColorView() != nullptr};
+    };
+
+    const Result all = renderWith(RendererFeatureMask::All);
+    const Result noShadows = renderWith(RendererFeatureMask::All & ~RendererFeatureMask::Shadows);
+    const Result noSsao = renderWith(RendererFeatureMask::All & ~RendererFeatureMask::SSAO);
+    const Result noUi = renderWith(RendererFeatureMask::All & ~RendererFeatureMask::ScreenUI);
+    const Result none = renderWith(RendererFeatureMask::None);
+
+    if (!Check(all.hasOutput && noShadows.hasOutput && noSsao.hasOutput && noUi.hasOutput && none.hasOutput,
+               "feature mask prevented the main offscreen output"))
+        return false;
+    if (!Check(all.stats.shadowDrawCalls > 0 && noShadows.stats.shadowDrawCalls == 0 &&
+                   all.textureCreates >= noShadows.textureCreates + 3,
+               "Shadows feature did not remove shadow resources and draws"))
+        return false;
+    if (!Check(all.textureCreates >= noSsao.textureCreates + 2 &&
+                   all.stats.fullscreenDrawCalls >= noSsao.stats.fullscreenDrawCalls + 3,
+               "SSAO feature did not remove occlusion resources and passes"))
+        return false;
+    if (!Check(all.renderingBegins >= noUi.renderingBegins + 1, "ScreenUI feature did not remove the UI graph pass"))
+        return false;
+    if (!Check(none.stats.shadowDrawCalls == 0 && none.textureCreates < all.textureCreates,
+               "RendererFeatureMask::None did not disable optional resources"))
+        return false;
+
+    ShaderManager::Get().Clear();
+    MockRenderContext dynamicContext;
+    dynamicContext.backend = RHIBackend::D3D11;
+    Renderer dynamicRenderer(&dynamicContext, &dynamicContext, &dynamicContext);
+    if (!Check(dynamicRenderer.GetFeatureMask() == RendererFeatureMask::All,
+               "Renderer feature mask did not default to All"))
+        return false;
+    dynamicRenderer.Resize(128, 72);
+    dynamicRenderer.SetOutputOffscreen(true);
+    dynamicRenderer.RenderScene(scene, camera, true);
+    dynamicRenderer.SetFeatureMask(RendererFeatureMask::None);
+    dynamicRenderer.RenderScene(scene, camera, true);
+    return Check(FrameStatsProvider::GetRendererStats().shadowDrawCalls == 0 &&
+                     dynamicRenderer.GetSceneColorView() != nullptr,
+                 "dynamic feature disable retained shadow submission or lost the main output");
+}
+
+bool TestMaterialPreviewDirtyDrivenScheduling() {
+    AssetManager::Get().Clear();
+    ShaderManager::Get().Clear();
+    MockRenderContext context;
+    context.backend = RHIBackend::D3D11;
+    SceneRenderLayer layer(&context, 320, 180);
+    layer.SetPresentEnabled(false);
+    if (!Check(!layer.IsSceneViewportActive() && !layer.IsGameViewportActive() &&
+                   !layer.GetSceneViewport()->IsInputEnabled(),
+               "editor viewports did not start inactive"))
+        return false;
+
+    layer.ConfigureMaterialPreview("EngineContent/Shaders/Mesh.shader", false);
+    layer.OnRender();
+    const int firstRenderCount = context.beginFrames;
+    layer.OnRender();
+    if (!Check(firstRenderCount == 1 && context.beginFrames == firstRenderCount,
+               "static material preview rendered without a dirty request"))
+        return false;
+
+    layer.InvalidateMaterialPreview();
+    layer.OnRender();
+    if (!Check(context.beginFrames == firstRenderCount + 1, "material preview invalidation did not submit one frame"))
+        return false;
+
+    layer.SetMaterialPreviewRealtime(true);
+    layer.OnRender();
+    layer.OnRender();
+    if (!Check(context.beginFrames == firstRenderCount + 3, "realtime material preview did not render while active"))
+        return false;
+
+    layer.SetMaterialPreviewActive(false);
+    layer.OnRender();
+    return Check(context.beginFrames == firstRenderCount + 3, "hidden realtime material preview continued rendering");
+}
+
+bool TestViewportActivityCommitPreservesContinuousInput() {
+    MockRenderContext context;
+    SceneRenderLayer layer(&context, 320, 180);
+    layer.SetPresentEnabled(false);
+
+    SceneViewport* viewport = layer.GetSceneViewport();
+    if (!Check(viewport && !viewport->IsInputEnabled(), "editor scene input did not start disabled"))
+        return false;
+
+    layer.SetSceneViewportActive(true);
+    viewport->SetInputEnabled(true);
+    layer.BeginViewportActivityFrame();
+    if (!Check(viewport->IsInputEnabled(), "visibility candidate reset transiently disabled scene input"))
+        return false;
+
+    layer.SetSceneViewportActive(true);
+    layer.CommitViewportActivityFrame();
+    if (!Check(layer.IsSceneViewportActive() && viewport->IsInputEnabled(),
+               "visible viewport commit did not preserve continuous input"))
+        return false;
+
+    layer.BeginViewportActivityFrame();
+    layer.CommitViewportActivityFrame();
+    return Check(!layer.IsSceneViewportActive() && !viewport->IsInputEnabled(),
+                 "hidden viewport commit retained input capture");
+}
+
 bool TestRendererOffscreenGraphPostProcessPath() {
     AssetManager::Get().Clear();
     Scene scene;
@@ -1704,6 +1851,12 @@ MYENGINE_REGISTER_TEST("Renderer", "TestDeferredLightingShaderSourceContract",
 MYENGINE_REGISTER_TEST("Renderer", "TestRendererDeferredPathSubmitsGBufferLightingTransparentAndComposite",
                        TestRendererDeferredPathSubmitsGBufferLightingTransparentAndComposite);
 MYENGINE_REGISTER_TEST("Renderer", "TestRendererRenderPathDefaultsToForward", TestRendererRenderPathDefaultsToForward);
+MYENGINE_REGISTER_TEST("Renderer", "TestRendererFeatureMaskSkipsOptionalPasses",
+                       TestRendererFeatureMaskSkipsOptionalPasses);
+MYENGINE_REGISTER_TEST("Renderer", "TestMaterialPreviewDirtyDrivenScheduling",
+                       TestMaterialPreviewDirtyDrivenScheduling);
+MYENGINE_REGISTER_TEST("Renderer", "TestViewportActivityCommitPreservesContinuousInput",
+                       TestViewportActivityCommitPreservesContinuousInput);
 MYENGINE_REGISTER_TEST("Renderer", "TestRendererOffscreenGraphPostProcessPath",
                        TestRendererOffscreenGraphPostProcessPath);
 MYENGINE_REGISTER_TEST("Renderer", "TestRendererBackbufferCompositeGraphTarget",

@@ -454,6 +454,40 @@ editor chrome, not dock panels; `EditorLayoutManager` reserves their height
 before building the DockSpace. The top `Toolbar` remains a dock panel and is
 limited to play controls.
 
+The Editor dock root uses an ImGui ID that is independent of the host window's
+ID stack. When loading state written by an older ImGui build,
+`EditorLayoutManager` adopts that file's usable root ID so the persisted split
+tree is attached to the current host and resizes with it. An empty root using a
+legacy scoped ID is treated as orphaned state even if a previous save already
+stripped the detached windows' `DockId` fields; it is replaced with the project
+default layout instead of leaving fixed `Pos/Size` panels at the top-left. An
+empty root using the stable ID remains valid so an intentionally all-floating
+layout still round-trips.
+
+Editor UI pins Dear ImGui `v1.92.7-docking` with imnodes `v0.5`; the repository
+package override carries only the small ImGui 1.92 draw-command/offset
+compatibility patch needed by imnodes. The imnodes requirement includes a
+MyEngine compatibility stamp in its package identity and the patch rejects any
+ImGui version other than 1.92.7, preventing xmake from reusing a global-cache
+binary compiled against the old ImGui draw-list ABI. On Windows the Editor executable is
+`PerMonitorV2` DPI-aware and its SDL main window requests
+`SDL_WINDOW_HIGH_PIXEL_DENSITY`. SDL global mouse coordinates, native window
+coordinates, and ImGui monitor rectangles therefore share one desktop coordinate
+contract, while each platform viewport reports its own framebuffer scale for
+rendering. Main-window resize events preserve both coordinate-space dimensions:
+`width/height` drive ImGui layout and input bounds, while
+`pixelWidth/pixelHeight` drive the swapchain, GPU viewport, and runtime UI render
+target. RHI backends initialize and resize swapchains only from drawable pixels;
+this prevents a high-DPI resize from clipping the resized DockSpace to the old
+top-left backbuffer rectangle. ImGui's SDL3 backend owns secondary-window flags and must never copy
+the main window's fullscreen/maximized state. Undocking preserves the current
+dock-node rectangle; panels do not force a floating size. Platform-window submission
+filters SDL hidden, minimized, and occluded secondary windows before invoking renderer
+callbacks. A dormant floating panel therefore retains its last contents and window state
+without entering the D3D12 frame-latency wait path. `EditorUIScaleManager`
+remains the only font/style scale owner, so experimental automatic ImGui font DPI
+scaling stays disabled and cannot double-apply platform DPI.
+
 # RHI and frame graph boundary
 
 Runtime rendering follows `Render Pass -> RenderGraph -> IRHIDevice/GpuCommandList -> backend`.
@@ -537,3 +571,112 @@ source path/UUID/revision, local placement, and overrides. Instantiation expands
 the reference graph recursively after cycle validation; source refresh re-expands
 the child source while retaining overrides. Cook dependency traversal uses an
 active recursion set so indirect prefab cycles fail preflight.
+
+## 13. Project Material and Surface Shader Graph
+
+Project materials and shaders use one versioned Runtime contract. `ShaderAsset`
+v2 supports `Code` and `Graph` authoring modes while the v1 `.shader + HLSL`
+format remains readable. A Surface Graph is deliberately narrower than the RHI:
+v1 supports Lit/Unlit mesh surfaces only, owns no vertex displacement, compute,
+post-process, subgraph, keyword, or arbitrary-HLSL node path, and emits only the
+engine-defined GBuffer, Forward, and Shadow passes. Opaque/Masked Lit graphs emit
+GBuffer, Transparent or Unlit graphs emit Forward, and non-transparent surfaces
+emit Shadow.
+
+`ShaderGraphCompiler` validates stable node/pin/link IDs, property references,
+pin direction and types, single Surface Output, cycles, and unreachable nodes.
+It generates canonical HLSL against engine-owned pass templates. Node positions
+are excluded from the canonical cache key; graph logic, property layout, template
+contract, compiler contract, target backend, and dependency content participate
+in shader cache invalidation. Cooked shader format v4 stores bytecode by
+`backend x pass x stage` plus property and surface metadata. Older cooked formats
+remain readable.
+
+`MaterialAsset` v2 is authoring data: shader reference, optional parent,
+stable-property-ID overrides, and optional surface-state overrides. Runtime
+resolution is always `shader defaults -> root parent -> descendants -> local`.
+Missing/cyclic parents, property type mismatches, missing required passes, and
+binding/compile errors produce structured diagnostics and the visible error
+material. Legacy material parameter display names are mapped to stable IDs when
+their shader is known; unknown JSON fields remain lossless until an explicit
+user save writes v2.
+
+```mermaid
+flowchart LR
+    SA["ShaderAsset v2: Code or Graph"] --> GC["ShaderGraphCompiler"]
+    GC --> CP["Cooked pass bytecode"]
+    MA["MaterialAsset v2 overrides"] --> MS["Runtime MaterialSystem"]
+    SA --> MS
+    CP --> MS
+    MS --> GB["GBufferPass"]
+    MS --> FW["ForwardPass"]
+    MS --> SH["ShadowPass"]
+    ED["Editor Shader Graph and Inspectors"] --> SA
+    ED --> MA
+    ED --> PV["Runtime offscreen preview"]
+    PV --> MS
+```
+
+GPU ownership belongs to `Renderer/MaterialSystem` and the render passes, not to
+the authoring asset. `MaterialSystem` resolves inheritance, packs numeric values
+into 16-byte constant slots, resolves texture defaults/overrides, supplies named
+texture and sampler bindings, and contributes shader version, pass, render state,
+and attachment formats to pipeline reuse. The legacy `MaterialAsset::GetFloat`,
+`GetColor`, `GetTexture`, and direct `GpuShader` accessors remain compatibility
+bridges only.
+
+The dockable `Shader Graph###shaderGraph` panel is Editor-only and uses imnodes
+v0.5. Graph commands use asset undo/redo and never mark the Scene dirty; node
+movement persists authoring layout without recompiling, while logic changes
+debounce for 300 ms and atomically replace a shader only after successful backend
+compilation. Cube/Quad preview uses `SceneRenderLayer`'s Runtime offscreen
+viewport. Material and Shader inspectors consume Runtime property/pass metadata
+instead of maintaining an Editor-only shader interpretation.
+
+`Assets/ShaderGraph` is the single node-schema registry shared by authoring,
+validation, migration, and compilation. Every definition owns its searchable
+category/keywords, fixed pin schema, value types, and input defaults; the Editor
+does not maintain a second node list. Graph v1 loads through this registry and is
+normalized in memory to graph v2, including generated stable pin IDs and missing
+schema pins. Scalar-to-vector broadcast and Color/Vec4 conversion are explicit;
+Bool remains isolated. The v1 Surface library contains constants and properties,
+mesh/time inputs, texture sampling and normal unpack, arithmetic/range/vector
+operators, Fresnel, and the Lit/Unlit outputs. Compute, post-process, vertex
+displacement, arbitrary HLSL, and subgraphs remain outside this contract.
+
+The graph canvas applies a cursor-anchored 25%-200% logical zoom consistently to
+node positions, fonts, pins, links, and grid spacing. Its right-click creation
+popup and persistent Library tab share tokenized search over node name, category,
+type, and keywords. Blackboard edits all supported property kinds with stable IDs;
+diagnostics can focus their owning node. Generated expressions are emitted as a
+stable topological SSA-style sequence, so shared upstream nodes are evaluated
+once and diagnostics/cache output are deterministic. The 300 ms job validates
+and cooks only the active graphics backend on a worker thread; the main thread
+creates every resident GPU pass and commits all handle versions atomically. A
+failed or superseded job retains the previous shader and cached preview image.
+
+Each `Renderer` owns a backend-neutral `RendererFeatureMask`. Normal Scene/Game
+renderers enable Shadows, SSAO, and ScreenUI by default; Material Preview disables
+all three before its first frame while retaining the shared main/composite path.
+`EditorLayer` unconditionally begins and ends the main swapchain frame around
+ImGui, including the project selector and an empty dockspace. Offscreen viewport
+renderers may populate cached textures earlier in the layer order, but their
+active state never controls whether Editor UI is submitted or presented.
+Editor viewport activity is latched from the most recent ImGui dock pass using a
+two-phase collect/commit step: clearing visibility candidates never mutates input,
+and only the final inactive state releases mouse capture and Game UI input. This
+keeps right-button camera look continuous while a selected Scene View remains
+hovered. Only a selected, non-collapsed tab schedules its following Runtime render frame. Shader
+Graph preview additionally uses dirty-driven scheduling. Static graphs render
+only after asset, mesh, size, shader, or camera changes, while a `Time` node that
+is reachable from the unique Surface Output requests realtime frames only while
+the panel is active. Hidden viewports keep their output texture and renderer
+caches but submit no work and capture no input.
+
+Cook dependency extraction is typed: materials contribute parent, shader, and
+texture overrides; Code shaders contribute HLSL/HLSLI closure; Graph shaders
+contribute default textures and the engine template contract. Publishing keeps
+authoring graph JSON out of `Content.pak` and writes the cooked `.shader` at the
+same project-relative path. The dependency direction remains
+`Editor -> Game/Scene/Assets/Renderer`; Runtime and Renderer never include Editor
+headers.

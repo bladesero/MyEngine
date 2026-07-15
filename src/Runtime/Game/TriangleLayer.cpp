@@ -66,12 +66,15 @@ void TriangleLayer::OnDetach() {
 
 void TriangleLayer::OnEvent(Event& event) {
     if (event.type == EventType::WindowResize) {
-        m_VpW = event.resize.width;
-        m_VpH = event.resize.height;
+        m_VpW = event.resize.pixelWidth > 0 ? event.resize.pixelWidth : event.resize.width;
+        m_VpH = event.resize.pixelHeight > 0 ? event.resize.pixelHeight : event.resize.height;
         if (m_VpW > 0 && m_VpH > 0) {
             m_Camera.SetAspect(static_cast<float>(m_VpW) / static_cast<float>(m_VpH));
             if (GpuSwapChain* swapChain = m_Renderer->GetSwapChain()) {
-                swapChain->Resize(static_cast<uint32_t>(m_VpW), static_cast<uint32_t>(m_VpH));
+                const uint32_t targetWidth = static_cast<uint32_t>(m_VpW);
+                const uint32_t targetHeight = static_cast<uint32_t>(m_VpH);
+                if (swapChain->GetWidth() != targetWidth || swapChain->GetHeight() != targetHeight)
+                    swapChain->Resize(targetWidth, targetHeight);
             }
             if (auto* commands = m_Renderer->GetGraphicsCommandList())
                 commands->SetViewport(0, 0, static_cast<float>(m_VpW), static_cast<float>(m_VpH));

@@ -6,6 +6,7 @@
 #include "Renderer/ShaderCompilerD3D11.h"
 #include "Renderer/ShaderCompilerD3D12.h"
 #include "Renderer/ShaderCompilerSlang.h"
+#include "Renderer/ShaderGraphCompiler.h"
 
 #include <algorithm>
 #include <array>
@@ -155,14 +156,49 @@ bool CollectDependencies(const fs::path& source, const fs::path& allowedRoot, st
     }
 
     std::unordered_set<std::string> dependencySet;
-    for (size_t stageIndex = 0; stageIndex < kShaderStageCount; ++stageIndex) {
-        if ((description->GetStageMask() & (1u << stageIndex)) == 0)
-            continue;
-        const fs::path hlsl = description->ResolveSource(static_cast<ShaderStage>(stageIndex));
-        std::unordered_set<std::string> visited;
-        if (!ValidateShaderIncludes(hlsl, allowedRoot, visited, error))
+    if (description->IsGraph()) {
+        std::vector<ShaderGraphDiagnostic> diagnostics;
+        if (!ShaderGraphCompiler::Validate(description->GetGraph(), description->GetProperties(), diagnostics)) {
+            const auto found = std::find_if(diagnostics.begin(), diagnostics.end(), [](const auto& diagnostic) {
+                return diagnostic.severity == ShaderGraphDiagnostic::Severity::Error;
+            });
+            SetError(error, found == diagnostics.end() ? "invalid shader graph" : found->message);
             return false;
-        dependencySet.insert(visited.begin(), visited.end());
+        }
+        for (const auto& property : description->GetProperties()) {
+            if (property.type != ShaderPropertyType::Texture2D || property.defaultTexture.empty() ||
+                property.defaultTexture.rfind("__builtin__/", 0) == 0)
+                continue;
+            fs::path texturePath(property.defaultTexture);
+            if (!texturePath.is_absolute()) {
+                const std::string generic = texturePath.generic_string();
+                texturePath = generic.rfind("Content/", 0) == 0 ? allowedRoot.parent_path() / texturePath
+                                                                : source.parent_path() / texturePath;
+            }
+            std::error_code ec;
+            const fs::path canonical = fs::weakly_canonical(texturePath, ec);
+            if (!ec && IsWithin(canonical, allowedRoot))
+                dependencySet.insert(canonical.generic_string());
+        }
+        outDependencies.assign(dependencySet.begin(), dependencySet.end());
+        std::sort(outDependencies.begin(), outDependencies.end());
+        return true;
+    }
+    for (size_t passIndex = 0; passIndex < static_cast<size_t>(ShaderPass::Count); ++passIndex) {
+        const auto pass = static_cast<ShaderPass>(passIndex);
+        if (!description->HasPass(pass))
+            continue;
+        for (size_t stageIndex = 0; stageIndex < kShaderStageCount; ++stageIndex) {
+            const auto stage = static_cast<ShaderStage>(stageIndex);
+            const auto& sourceStage = description->GetPassStage(pass, stage);
+            if (sourceStage.source.empty())
+                continue;
+            const fs::path hlsl = description->ResolveSource(pass, stage);
+            std::unordered_set<std::string> visited;
+            if (!ValidateShaderIncludes(hlsl, allowedRoot, visited, error))
+                return false;
+            dependencySet.insert(visited.begin(), visited.end());
+        }
     }
 
     outDependencies.assign(dependencySet.begin(), dependencySet.end());
@@ -190,10 +226,15 @@ std::string BuildCacheKey(const fs::path& source, const fs::path& allowedRoot,
                            std::find(backends.begin(), backends.end(), ShaderBackend::Vulkan) != backends.end();
 
     Sha256 cacheKey;
-    const std::string cookerContract = std::string(RuntimeCompatibility::kBuildId) + "|shader-cooker-v3|" +
+    const std::string graphContract =
+        description->IsGraph()
+            ? ShaderGraphCompiler::BuildCanonicalKey(description->GetGraph(), description->GetProperties(),
+                                                     description->GetShadingModel(), description->GetSurfaceType())
+            : std::string{};
+    const std::string cookerContract = std::string(RuntimeCompatibility::kBuildId) + "|shader-cooker-v4|" +
                                        (usesSlang ? ShaderCompilerSlang::GetVersionString() : "fxc") + "|" +
                                        std::to_string(description->GetSourceHash()) + "|" + targetPlatform + "|" +
-                                       settingsJson;
+                                       settingsJson + "|" + graphContract;
     cacheKey.Update(cookerContract.data(), cookerContract.size());
     for (ShaderBackend backend : backends) {
         const std::string backendText = std::to_string(static_cast<int>(backend));
@@ -235,6 +276,7 @@ ShaderCookResult Cook(const ShaderCookRequest& request, std::string* error) {
     if (request.artifactPath.stem().string() == result.cacheKey) {
         if (auto cached = LoadShaderAssetFromFile(request.artifactPath.string());
             cached && cached->IsCooked() && cached->GetStageMask() == description->GetStageMask() &&
+            cached->GetPassMask() == description->GetPassMask() &&
             cached->GetSourceHash() == description->GetSourceHash()) {
             result.succeeded = true;
             result.cacheHit = true;
@@ -242,27 +284,6 @@ ShaderCookResult Cook(const ShaderCookRequest& request, std::string* error) {
         }
     }
 
-    std::array<std::array<std::vector<uint8_t>, kShaderStageCount>, kShaderBackendCount> blobs{};
-    for (size_t stageIndex = 0; stageIndex < kShaderStageCount; ++stageIndex) {
-        if ((description->GetStageMask() & (1u << stageIndex)) == 0)
-            continue;
-        const auto stage = static_cast<ShaderStage>(stageIndex);
-        const auto& sourceStage = description->GetStage(stage);
-        const fs::path hlsl = description->ResolveSource(stage);
-        for (ShaderBackend backend : backends) {
-            if (!CompileShaderStageForBackend(hlsl, sourceStage, stage, backend, description->GetDefines(),
-                                              blobs[static_cast<size_t>(backend)][stageIndex], error)) {
-                if (error && error->empty()) {
-                    *error = "shader cook failed: " + request.sourcePath.string();
-                }
-                result.diagnostics.push_back({"error", error ? *error : "shader cook failed"});
-                return result;
-            }
-        }
-    }
-
-    ShaderAsset cooked(request.artifactPath.string());
-    cooked.SetCooked(description->GetStageMask(), description->GetSourceHash(), std::move(blobs));
     std::error_code ec;
     fs::create_directories(request.artifactPath.parent_path(), ec);
     if (ec) {
@@ -270,6 +291,78 @@ ShaderCookResult Cook(const ShaderCookRequest& request, std::string* error) {
         result.diagnostics.push_back({"error", error ? *error : "directory create failed"});
         return result;
     }
+    constexpr size_t passCount = static_cast<size_t>(ShaderPass::Count);
+    std::array<std::array<std::array<std::vector<uint8_t>, kShaderStageCount>, passCount>, kShaderBackendCount> blobs{};
+    for (size_t passIndex = 0; passIndex < passCount; ++passIndex) {
+        const auto pass = static_cast<ShaderPass>(passIndex);
+        if (!description->HasPass(pass))
+            continue;
+
+        fs::path generatedPath;
+        std::array<ShaderStageSource, kShaderStageCount> generatedStages{};
+        if (description->IsGraph()) {
+            ShaderGraphCompileRequest graphRequest;
+            graphRequest.graph = &description->GetGraph();
+            graphRequest.properties = &description->GetProperties();
+            graphRequest.shadingModel = description->GetShadingModel();
+            graphRequest.surfaceType = description->GetSurfaceType();
+            graphRequest.pass = pass;
+            const ShaderGraphCompileResult generated = ShaderGraphCompiler::Compile(graphRequest);
+            if (!generated.succeeded) {
+                const auto found = std::find_if(
+                    generated.diagnostics.begin(), generated.diagnostics.end(), [](const auto& diagnostic) {
+                        return diagnostic.severity == ShaderGraphDiagnostic::Severity::Error;
+                    });
+                SetError(error,
+                         found == generated.diagnostics.end() ? "shader graph generation failed" : found->message);
+                result.diagnostics.push_back({"error", error ? *error : "shader graph generation failed"});
+                return result;
+            }
+            generatedPath = request.artifactPath.parent_path() /
+                            (request.artifactPath.stem().string() + "." + ShaderPassName(pass) + ".generated.hlsl");
+            {
+                std::ofstream generatedFile(generatedPath, std::ios::binary | std::ios::trunc);
+                generatedFile.write(generated.hlsl.data(), static_cast<std::streamsize>(generated.hlsl.size()));
+                if (!generatedFile) {
+                    SetError(error, "failed writing generated shader source: " + generatedPath.string());
+                    result.diagnostics.push_back({"error", error ? *error : "generated source write failed"});
+                    return result;
+                }
+            }
+            generatedStages[static_cast<size_t>(ShaderStage::Vertex)] = {generatedPath.filename().string(), "VSMain"};
+            generatedStages[static_cast<size_t>(ShaderStage::Pixel)] = {generatedPath.filename().string(), "PSMain"};
+        }
+
+        for (size_t stageIndex = 0; stageIndex < kShaderStageCount; ++stageIndex) {
+            const auto stage = static_cast<ShaderStage>(stageIndex);
+            const uint32_t stageBit = 1u << stageIndex;
+            if ((description->GetStageMask() & stageBit) == 0)
+                continue;
+            const ShaderStageSource& sourceStage =
+                description->IsGraph() ? generatedStages[stageIndex] : description->GetPassStage(pass, stage);
+            if (sourceStage.source.empty())
+                continue;
+            const fs::path hlsl = description->IsGraph() ? generatedPath : description->ResolveSource(pass, stage);
+            for (ShaderBackend backend : backends) {
+                if (!CompileShaderStageForBackend(hlsl, sourceStage, stage, backend, description->GetDefines(),
+                                                  blobs[static_cast<size_t>(backend)][passIndex][stageIndex], error)) {
+                    if (!generatedPath.empty())
+                        fs::remove(generatedPath, ec);
+                    if (error && error->empty())
+                        *error = "shader cook failed: " + request.sourcePath.string();
+                    result.diagnostics.push_back({"error", error ? *error : "shader cook failed"});
+                    return result;
+                }
+            }
+        }
+        if (!generatedPath.empty())
+            fs::remove(generatedPath, ec);
+    }
+
+    ShaderAsset cooked(request.artifactPath.string());
+    cooked.SetCookedPasses(description->GetPassMask(), description->GetSourceHash(), description->GetSourceMode(),
+                           description->GetDomain(), description->GetShadingModel(), description->GetSurfaceType(),
+                           description->GetProperties(), std::move(blobs));
     result.succeeded = SaveCookedShaderAsset(cooked, request.artifactPath, error);
     if (!result.succeeded) {
         result.diagnostics.push_back({"error", error ? *error : "failed writing shader artifact"});

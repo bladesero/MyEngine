@@ -15,6 +15,34 @@
 #include <exception>
 #include <thread>
 
+namespace {
+
+bool IsEngineWindowEvent(const SDL_Event& event, SDL_WindowID engineWindowID) {
+    switch (event.type) {
+    case SDL_EVENT_KEY_DOWN:
+    case SDL_EVENT_KEY_UP:
+        return event.key.windowID == engineWindowID;
+    case SDL_EVENT_WINDOW_RESIZED:
+    case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
+    case SDL_EVENT_WINDOW_FOCUS_GAINED:
+    case SDL_EVENT_WINDOW_FOCUS_LOST:
+        return event.window.windowID == engineWindowID;
+    case SDL_EVENT_MOUSE_BUTTON_DOWN:
+    case SDL_EVENT_MOUSE_BUTTON_UP:
+        return event.button.windowID == engineWindowID;
+    case SDL_EVENT_MOUSE_MOTION:
+        return event.motion.windowID == engineWindowID;
+    case SDL_EVENT_MOUSE_WHEEL:
+        return event.wheel.windowID == engineWindowID;
+    case SDL_EVENT_TEXT_INPUT:
+        return event.text.windowID == engineWindowID;
+    default:
+        return true;
+    }
+}
+
+} // namespace
+
 Engine::Engine(EngineConfig config) : m_Config(std::move(config)) {
 }
 
@@ -134,10 +162,17 @@ void Engine::RunLoop() {
 void Engine::PollPlatformEvents() {
     Input::Flush(); // advance prev-frame snapshot
 
+    const SDL_WindowID engineWindowID =
+        m_Window && m_Window->GetSDLWindow() ? SDL_GetWindowID(m_Window->GetSDLWindow()) : 0;
     SDL_Event sdlEvent;
     while (SDL_PollEvent(&sdlEvent)) {
+        // ImGui owns secondary platform windows used by floating panels and menus, so its bridge must see every event.
         if (m_PlatformEventBridge) {
             m_PlatformEventBridge->OnSDLEvent(sdlEvent);
+        }
+        // Only the main engine window may mutate engine input, focus, or swap-chain dimensions.
+        if (engineWindowID != 0 && !IsEngineWindowEvent(sdlEvent, engineWindowID)) {
+            continue;
         }
         switch (sdlEvent.type) {
         case SDL_EVENT_QUIT: {
@@ -164,12 +199,16 @@ void Engine::PollPlatformEvents() {
             PushEvent(e);
             break;
         }
-        case SDL_EVENT_WINDOW_RESIZED: {
+        case SDL_EVENT_WINDOW_RESIZED:
+        case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED: {
             if (m_Window) {
+                m_Window->RefreshSize();
                 Event e;
                 e.type = EventType::WindowResize;
-                e.resize.width = sdlEvent.window.data1;
-                e.resize.height = sdlEvent.window.data2;
+                e.resize.width = m_Window->GetWidth();
+                e.resize.height = m_Window->GetHeight();
+                e.resize.pixelWidth = m_Window->GetPixelWidth();
+                e.resize.pixelHeight = m_Window->GetPixelHeight();
                 PushEvent(e);
             }
             break;

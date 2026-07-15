@@ -88,6 +88,14 @@ RenderPath RenderViewport::GetRenderPath() const {
     return m_RenderExecution.GetRenderPath();
 }
 
+void RenderViewport::SetFeatureMask(RendererFeatureMask mask) {
+    m_RenderExecution.SetFeatureMask(mask);
+}
+
+RendererFeatureMask RenderViewport::GetFeatureMask() const {
+    return m_RenderExecution.GetFeatureMask();
+}
+
 void RenderViewport::UpdateCameraAspect(Camera& camera) {
     if (m_VpW > 0 && m_VpH > 0)
         camera.SetAspect(GetAspect());

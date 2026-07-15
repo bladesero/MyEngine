@@ -1,5 +1,12 @@
 # Renderer
 
+## Optional features
+
+`RendererFeatureMask` controls optional Shadows, SSAO, and ScreenUI graph
+branches. The default is `All`. Disabled branches are not prepared, imported,
+or registered in RenderGraph; disabling Shadows also releases the renderer's
+cached shadow graph resources through normal deferred RHI lifetime handling.
+
 ## 角色
 
 渲染系统调度器。

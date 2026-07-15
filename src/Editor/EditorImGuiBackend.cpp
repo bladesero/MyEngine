@@ -25,6 +25,100 @@
 #endif
 #endif
 
+#if defined(MYENGINE_ENABLE_IMGUI)
+namespace {
+bool IsPlatformViewportRenderable(const ImGuiViewport* viewport) {
+    if (!viewport || (viewport->Flags & ImGuiViewportFlags_IsMinimized) || viewport->Size.x <= 0.0f ||
+        viewport->Size.y <= 0.0f) {
+        return false;
+    }
+
+    const SDL_WindowID windowID = static_cast<SDL_WindowID>(reinterpret_cast<intptr_t>(viewport->PlatformHandle));
+    SDL_Window* window = windowID != 0 ? SDL_GetWindowFromID(windowID) : nullptr;
+    if (!window)
+        return true;
+
+    const SDL_WindowFlags flags = SDL_GetWindowFlags(window);
+    constexpr SDL_WindowFlags kNonRenderableFlags = SDL_WINDOW_HIDDEN | SDL_WINDOW_MINIMIZED | SDL_WINDOW_OCCLUDED;
+    return (flags & kNonRenderableFlags) == 0;
+}
+
+void RenderRenderablePlatformWindows() {
+    // ImGui's default helper only filters minimized viewports. On D3D12 each
+    // secondary viewport waits indefinitely on its swapchain frame-latency
+    // handle, so submitting an SDL-hidden or occluded window can throttle the
+    // entire Editor even though the main viewport has no GPU work to wait for.
+    ImGuiPlatformIO& platformIO = ImGui::GetPlatformIO();
+    ImVector<ImGuiViewport*> renderableViewports;
+    for (int index = 1; index < platformIO.Viewports.Size; ++index) {
+        ImGuiViewport* viewport = platformIO.Viewports[index];
+        if (IsPlatformViewportRenderable(viewport))
+            renderableViewports.push_back(viewport);
+    }
+    for (ImGuiViewport* viewport : renderableViewports) {
+        if (platformIO.Platform_RenderWindow)
+            platformIO.Platform_RenderWindow(viewport, nullptr);
+        if (platformIO.Renderer_RenderWindow)
+            platformIO.Renderer_RenderWindow(viewport, nullptr);
+    }
+    for (ImGuiViewport* viewport : renderableViewports) {
+        if (platformIO.Platform_SwapBuffers)
+            platformIO.Platform_SwapBuffers(viewport, nullptr);
+        if (platformIO.Renderer_SwapBuffers)
+            platformIO.Renderer_SwapBuffers(viewport, nullptr);
+    }
+}
+} // namespace
+#endif
+
+#if defined(MYENGINE_ENABLE_IMGUI) && defined(MYENGINE_PLATFORM_WINDOWS)
+namespace {
+class D3D11ImmediateContextStateScope {
+public:
+    explicit D3D11ImmediateContextStateScope(ID3D11DeviceContext* context) : m_Context(context) {
+        if (!m_Context)
+            return;
+
+        m_Context->OMGetRenderTargets(1, &m_RenderTarget, &m_DepthStencil);
+        m_ViewportCount = D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE;
+        m_Context->RSGetViewports(&m_ViewportCount, m_Viewports);
+        m_ScissorCount = D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE;
+        m_Context->RSGetScissorRects(&m_ScissorCount, m_Scissors);
+    }
+
+    ~D3D11ImmediateContextStateScope() {
+        if (!m_Context)
+            return;
+
+        if (m_RenderTarget) {
+            m_Context->OMSetRenderTargets(1, &m_RenderTarget, m_DepthStencil);
+        } else {
+            m_Context->OMSetRenderTargets(0, nullptr, m_DepthStencil);
+        }
+        m_Context->RSSetViewports(m_ViewportCount, m_Viewports);
+        m_Context->RSSetScissorRects(m_ScissorCount, m_Scissors);
+
+        if (m_RenderTarget)
+            m_RenderTarget->Release();
+        if (m_DepthStencil)
+            m_DepthStencil->Release();
+    }
+
+    D3D11ImmediateContextStateScope(const D3D11ImmediateContextStateScope&) = delete;
+    D3D11ImmediateContextStateScope& operator=(const D3D11ImmediateContextStateScope&) = delete;
+
+private:
+    ID3D11DeviceContext* m_Context = nullptr;
+    ID3D11RenderTargetView* m_RenderTarget = nullptr;
+    ID3D11DepthStencilView* m_DepthStencil = nullptr;
+    UINT m_ViewportCount = 0;
+    D3D11_VIEWPORT m_Viewports[D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE] = {};
+    UINT m_ScissorCount = 0;
+    D3D11_RECT m_Scissors[D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE] = {};
+};
+} // namespace
+#endif
+
 EditorImGuiBackend::EditorImGuiBackend(IEditorImGuiRHIInterop* interop, IWindow* window)
     : m_Interop(interop), m_Window(window) {
 }
@@ -70,10 +164,21 @@ bool EditorImGuiBackend::Init() {
             return false;
         }
         auto* device = static_cast<ID3D12Device*>(handles.device);
+        auto* commandQueue = static_cast<ID3D12CommandQueue*>(handles.commandQueue);
         auto* heap = static_cast<ID3D12DescriptorHeap*>(handles.srvHeap);
         const D3D12_CPU_DESCRIPTOR_HANDLE fontCpu{handles.fontSrvCpuHandle};
         const D3D12_GPU_DESCRIPTOR_HANDLE fontGpu{handles.fontSrvGpuHandle};
-        if (!ImGui_ImplDX12_Init(device, handles.framesInFlight, DXGI_FORMAT_R8G8B8A8_UNORM, heap, fontCpu, fontGpu)) {
+        ImGui_ImplDX12_InitInfo initInfo{};
+        initInfo.Device = device;
+        initInfo.CommandQueue = commandQueue;
+        initInfo.NumFramesInFlight = static_cast<int>(handles.framesInFlight);
+        initInfo.RTVFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
+        initInfo.DSVFormat = DXGI_FORMAT_UNKNOWN;
+        initInfo.SrvDescriptorHeap = heap;
+        // MyEngine owns one persistent font SRV slot. Runtime font-atlas rebuild stays disabled for D3D12.
+        initInfo.LegacySingleSrvCpuDescriptor = fontCpu;
+        initInfo.LegacySingleSrvGpuDescriptor = fontGpu;
+        if (!device || !commandQueue || !heap || !ImGui_ImplDX12_Init(&initInfo)) {
             ImGui_ImplSDL3_Shutdown();
             return false;
         }
@@ -259,8 +364,17 @@ void EditorImGuiBackend::RenderPlatformWindows() {
 #endif
 #endif
 
+#if defined(MYENGINE_PLATFORM_WINDOWS)
+    if (handles.backend == RHIBackend::D3D11) {
+        D3D11ImmediateContextStateScope stateScope(static_cast<ID3D11DeviceContext*>(handles.deviceContext));
+        ImGui::UpdatePlatformWindows();
+        RenderRenderablePlatformWindows();
+        return;
+    }
+#endif
+
     ImGui::UpdatePlatformWindows();
-    ImGui::RenderPlatformWindowsDefault();
+    RenderRenderablePlatformWindows();
 #endif
 }
 
@@ -291,8 +405,8 @@ bool EditorImGuiBackend::RebuildFontTextureNow() {
     const ImGuiBackendHandles handles = m_Interop->GetImGuiBackendHandles();
 #if defined(MYENGINE_ENABLE_VULKAN)
     if (handles.backend == RHIBackend::Vulkan) {
-        EditorImGuiVulkan_DestroyFontsTexture();
-        return EditorImGuiVulkan_CreateFontsTexture();
+        // ImGui 1.92 renderer backends consume atlas texture updates from ImDrawData.
+        return true;
     }
 #endif
     if (handles.backend == RHIBackend::D3D12) {

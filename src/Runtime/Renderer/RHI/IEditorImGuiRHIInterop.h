@@ -5,6 +5,7 @@
 #include <cstdint>
 
 struct ImGuiVulkanFrameInfo {
+    uint32_t apiVersion = 0;
     void* instance = nullptr;
     void* physicalDevice = nullptr;
     void* device = nullptr;
@@ -25,6 +26,7 @@ struct ImGuiBackendHandles {
     ImGuiVulkanFrameInfo vulkan;
     void* device = nullptr;               // ID3D11Device* / ID3D12Device* / MTLDevice*
     void* deviceContext = nullptr;        // ID3D11DeviceContext* (D3D11 only)
+    void* commandQueue = nullptr;         // D3D12 ID3D12CommandQueue*
     void* instance = nullptr;             // VkInstance (Vulkan only)
     void* physicalDevice = nullptr;       // VkPhysicalDevice (Vulkan only)
     void* queue = nullptr;                // VkQueue (Vulkan only)

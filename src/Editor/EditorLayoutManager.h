@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -58,6 +59,7 @@ private:
     bool m_ProjectOpen = false;
     bool m_UserIniLoaded = false;
     bool m_ApplyDefaultNextFrame = false;
+    uint32_t m_DockSpaceID = 0;
     float m_ReservedTop = 0.0f;
     float m_ReservedBottom = 0.0f;
 };

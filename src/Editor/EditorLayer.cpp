@@ -9,6 +9,7 @@
 #include "Core/Window.h"
 #include "Editor/EditorPanel.h"
 #include "Editor/EditorPanels.h"
+#include "Editor/Panels/ShaderGraphPanel.h"
 #include "Editor/EditorProjectSettingsController.h"
 #include "Editor/EditorOperators.h"
 #include "Editor/EditorShortcutMap.h"
@@ -726,6 +727,7 @@ void EditorLayer::RegisterPanels() {
     m_Panels.push_back(std::make_unique<LogPanel>());
     m_Panels.push_back(std::make_unique<ProfilerPanel>());
     m_Panels.push_back(std::make_unique<AssetBrowserPanel>());
+    m_Panels.push_back(std::make_unique<ShaderGraphPanel>());
     m_Context.SetPanelFocusRequestHandler([this](std::string_view panelID) {
         for (auto& panel : m_Panels) {
             if (panel && panel->GetID() == panelID) {
@@ -1460,6 +1462,12 @@ void EditorLayer::OnRender() {
 #if defined(MYENGINE_ENABLE_IMGUI)
     if (!m_ImGuiReady || !m_RenderContext)
         return;
+    // The Editor owns the main swapchain frame independently of its offscreen
+    // viewports. BeginFrame is intentionally unconditional so the project
+    // selector and an empty/fully hidden dockspace can still draw and present.
+    // Backends treat this as an idempotent ensure when a viewport renderer has
+    // already opened the frame earlier in the layer render order.
+    m_RenderContext->BeginFrame(0.12f, 0.12f, 0.18f, 1.0f);
     const bool scaleOrFontChanged = m_UIScaleManager.BeginFrame(m_ImGuiBackend.get());
     if (scaleOrFontChanged)
         m_ThemeManager.Apply(m_UIScaleManager.GetEffectiveScale());
@@ -1469,16 +1477,14 @@ void EditorLayer::OnRender() {
     ImGuizmo::BeginFrame();
     ImGuizmo::AllowAxisFlip(false);
     DispatchEditorShortcuts();
+    if (m_SceneLayer)
+        m_SceneLayer->BeginViewportActivityFrame();
     if (m_ProjectOpen) {
         const float menuHeight =
             Editor::UI::ScaleToken(Editor::UI::EditorStyleTokens{}.menuBarHeight, m_UIScaleManager.GetEffectiveScale());
         DrawMainMenuBar();
         const float statusHeight = DrawStatusBar();
         m_LayoutManager.BeginDockSpace(m_Panels, menuHeight, statusHeight);
-        if (m_SceneLayer) {
-            m_SceneLayer->SetSceneViewportActive(false);
-            m_SceneLayer->SetGameViewportActive(false);
-        }
         for (auto& panel : m_Panels)
             panel->OnImGui();
         DrawProjectSettings();
@@ -1487,6 +1493,8 @@ void EditorLayer::OnRender() {
     } else {
         DrawProjectSelector();
     }
+    if (m_SceneLayer)
+        m_SceneLayer->CommitViewportActivityFrame();
     ImGui::Render();
     if (m_ImGuiBackend)
         m_ImGuiBackend->RenderDrawData(ImGui::GetDrawData());

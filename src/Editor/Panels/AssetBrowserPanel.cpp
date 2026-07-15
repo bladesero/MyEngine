@@ -1496,6 +1496,7 @@ void AssetBrowserPanel::DrawContent() {
     auto* registry = context ? context->GetAssetRegistry() : nullptr;
     if (!registry)
         return;
+    const uint32_t assetBrowserViewportID = Editor::UI::EditorViewportPolicy::GetCurrentViewportID();
     EnsureSelectedFolder();
 
     // Toolbar: Refresh | Import | Create Material / Texture / Script
@@ -1534,6 +1535,7 @@ void AssetBrowserPanel::DrawContent() {
     }
     ImGui::SameLine();
 
+    Editor::UI::EditorViewportPolicy::BindNextPopupToViewport(assetBrowserViewportID);
     if (ImGui::BeginCombo("##CreateAsset", "Create...")) {
         auto createFolderFromToolbar = [&]() { RequestCreateFolderInFolder(*context, m_SelectedFolder, false); };
         auto createTemplateFromToolbar = [&](const char* templateID) {
@@ -1755,6 +1757,7 @@ void AssetBrowserPanel::DrawContent() {
                 m_SelectedFolder = folder.relativePath;
                 ImGui::OpenPopup("##FolderCtx");
             }
+            Editor::UI::EditorViewportPolicy::BindNextPopupToViewport(assetBrowserViewportID);
             if (ImGui::BeginPopup("##FolderCtx")) {
                 if (ImGui::Selectable("Refresh")) {
                     refreshAssets();
@@ -1783,6 +1786,7 @@ void AssetBrowserPanel::DrawContent() {
                 if (ImGui::Selectable("New Folder") && operators) {
                     RequestCreateFolderInFolder(*context, folder.relativePath, true);
                 }
+                Editor::UI::EditorViewportPolicy::BindNextPopupToViewport(assetBrowserViewportID);
                 if (ImGui::BeginMenu("Create")) {
                     if (ImGui::MenuItem("Material")) {
                         RequestCreateAssetFromTemplateInFolder(*context, folder.relativePath, "material");
@@ -1957,6 +1961,7 @@ void AssetBrowserPanel::DrawContent() {
             }
             ImGui::OpenPopup("##AssetItemCtx");
         }
+        Editor::UI::EditorViewportPolicy::BindNextPopupToViewport(assetBrowserViewportID);
         if (ImGui::BeginPopup("##AssetItemCtx")) {
             if (ImGui::Selectable("Open")) {
                 RequestOpenAsset(asset.absolutePath.string());
@@ -2021,6 +2026,7 @@ void AssetBrowserPanel::DrawContent() {
     if (emptyRightClick) {
         ImGui::OpenPopup("##AssetCtxMenu");
     }
+    Editor::UI::EditorViewportPolicy::BindNextPopupToViewport(assetBrowserViewportID);
     if (ImGui::BeginPopup("##AssetCtxMenu")) {
         if (ImGui::Selectable("Refresh")) {
             refreshAssets();
@@ -2080,6 +2086,7 @@ void AssetBrowserPanel::DrawContent() {
             RequestDeleteSelectedFolder();
         }
         ImGui::EndDisabled();
+        Editor::UI::EditorViewportPolicy::BindNextPopupToViewport(assetBrowserViewportID);
         if (ImGui::BeginMenu("Create")) {
             if (ImGui::MenuItem("Material")) {
                 RequestCreateAssetFromTemplateInFolder(*context, m_SelectedFolder, "material");

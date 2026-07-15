@@ -168,16 +168,57 @@ std::shared_ptr<MaterialAsset> LoadMaterialAssetFromFile(const std::string& path
         nlohmann::json data = nlohmann::json::parse(text);
 
         auto material = std::make_shared<MaterialAsset>(path);
+        const uint32_t version = data.value("version", 1u);
+        if (version > MaterialAsset::kVersion) {
+            Logger::Error("[Material] Unsupported material version ", version, " in: ", path);
+            return {};
+        }
+        material->m_FormatVersion = version;
+        material->m_LoadedFromLegacyFormat = version < MaterialAsset::kVersion;
+        material->m_SurfaceOverrideMask = version < MaterialAsset::kVersion ? MaterialAsset::OverrideAllSurface : 0;
         material->SetName(data.value("name", fs::path(path).stem().string()));
-        material->SetBlendMode(BlendModeFromString(data.value("blendMode", std::string("Opaque"))));
-        material->SetTwoSided(data.value("twoSided", false));
-        material->SetWireframe(data.value("wireframe", false));
-        material->SetAlphaThreshold(data.value("alphaThreshold", 0.5f));
+        material->SetParentPath(data.value("parent", std::string()));
+
+        const nlohmann::json* surface = &data;
+        if (version >= MaterialAsset::kVersion) {
+            const auto surfaceIt = data.find("surface");
+            if (surfaceIt != data.end() && surfaceIt->is_object())
+                surface = &*surfaceIt;
+        }
+        if (surface->contains("blendMode"))
+            material->SetBlendMode(BlendModeFromString(surface->value("blendMode", std::string("Opaque"))));
+        if (surface->contains("twoSided"))
+            material->SetTwoSided(surface->value("twoSided", false));
+        if (surface->contains("wireframe"))
+            material->SetWireframe(surface->value("wireframe", false));
+        if (surface->contains("alphaThreshold"))
+            material->SetAlphaThreshold(surface->value("alphaThreshold", 0.5f));
         material->SetShaderAsset(ResolveShaderReference(data.value("shader", std::string())));
 
-        const auto params = data.find("params");
-        if (params != data.end() && params->is_object()) {
-            for (auto it = params->begin(); it != params->end(); ++it) {
+        const nlohmann::json* paramsObject = nullptr;
+        const nlohmann::json* texturesObject = nullptr;
+        if (version >= MaterialAsset::kVersion) {
+            const auto overrides = data.find("overrides");
+            if (overrides != data.end() && overrides->is_object()) {
+                if (overrides->contains("properties") && (*overrides)["properties"].is_object())
+                    paramsObject = &(*overrides)["properties"];
+                if (overrides->contains("textures") && (*overrides)["textures"].is_object())
+                    texturesObject = &(*overrides)["textures"];
+            }
+        }
+        if (!paramsObject) {
+            const auto params = data.find("params");
+            if (params != data.end() && params->is_object())
+                paramsObject = &*params;
+        }
+        if (!texturesObject) {
+            const auto textures = data.find("textures");
+            if (textures != data.end() && textures->is_object())
+                texturesObject = &*textures;
+        }
+
+        if (paramsObject) {
+            for (auto it = paramsObject->begin(); it != paramsObject->end(); ++it) {
                 const nlohmann::json& src = it.value();
                 MaterialParam param;
                 param.type = ParamTypeFromString(src.value("type", std::string("Float")));
@@ -192,9 +233,8 @@ std::shared_ptr<MaterialAsset> LoadMaterialAssetFromFile(const std::string& path
             }
         }
 
-        const auto textures = data.find("textures");
-        if (textures != data.end() && textures->is_object()) {
-            for (auto it = textures->begin(); it != textures->end(); ++it) {
+        if (texturesObject) {
+            for (auto it = texturesObject->begin(); it != texturesObject->end(); ++it) {
                 if (!it.value().is_string())
                     continue;
                 const std::string texturePath = it.value().get<std::string>();
@@ -214,6 +254,35 @@ std::shared_ptr<MaterialAsset> LoadMaterialAssetFromFile(const std::string& path
             }
         }
 
+        // Legacy materials keyed overrides by display name. Convert every known
+        // key to the shader's stable property ID in memory; unknown entries stay
+        // untouched and are written back losslessly when the user saves.
+        if (version < MaterialAsset::kVersion && material->GetShaderAsset().IsValid()) {
+            const ShaderAsset& shader = *material->GetShaderAsset();
+            std::unordered_map<std::string, MaterialParam> remappedParams;
+            for (const auto& [key, value] : material->m_Params) {
+                const ShaderPropertyDesc* property = shader.FindPropertyById(key);
+                if (!property)
+                    property = shader.FindPropertyByName(key);
+                remappedParams[property ? property->id : key] = value;
+            }
+            material->m_Params = std::move(remappedParams);
+            std::unordered_map<std::string, TextureHandle> remappedTextures;
+            for (const auto& [key, value] : material->m_Textures) {
+                const ShaderPropertyDesc* property = shader.FindPropertyById(key);
+                if (!property)
+                    property = shader.FindPropertyByName(key);
+                remappedTextures[property ? property->id : key] = value;
+            }
+            material->m_Textures = std::move(remappedTextures);
+        }
+
+        material->m_PreservedFields = data;
+        for (const char* key : {"type", "version", "name", "shader", "parent", "surface", "overrides", "blendMode",
+                                "twoSided", "wireframe", "alphaThreshold", "params", "textures"}) {
+            material->m_PreservedFields.erase(key);
+        }
+
         material->MarkReady();
         return material;
     } catch (const std::exception& e) {
@@ -230,15 +299,30 @@ bool SaveMaterialAssetToFile(const MaterialAsset& material, const std::string& p
             fs::create_directories(materialPath.parent_path());
         }
 
-        nlohmann::json data;
+        nlohmann::json data =
+            material.m_PreservedFields.is_object() ? material.m_PreservedFields : nlohmann::json::object();
         data["type"] = "Material";
+        data["version"] = MaterialAsset::kVersion;
         data["name"] = material.GetName();
-        data["blendMode"] = BlendModeToString(material.GetBlendMode());
-        data["twoSided"] = material.IsTwoSided();
-        data["wireframe"] = material.IsWireframe();
-        data["alphaThreshold"] = material.GetAlphaThreshold();
+        if (material.HasParent())
+            data["parent"] = material.GetParentPath();
+        else
+            data.erase("parent");
         if (material.GetShaderAsset().IsValid())
             data["shader"] = AssetManager::Get().MakeProjectRelativePath(material.GetShaderAsset()->GetPath());
+        else
+            data.erase("shader");
+
+        nlohmann::json surface = nlohmann::json::object();
+        if (material.OverridesSurface(MaterialAsset::OverrideBlendMode))
+            surface["blendMode"] = BlendModeToString(material.GetBlendMode());
+        if (material.OverridesSurface(MaterialAsset::OverrideTwoSided))
+            surface["twoSided"] = material.IsTwoSided();
+        if (material.OverridesSurface(MaterialAsset::OverrideWireframe))
+            surface["wireframe"] = material.IsWireframe();
+        if (material.OverridesSurface(MaterialAsset::OverrideAlphaThreshold))
+            surface["alphaThreshold"] = material.GetAlphaThreshold();
+        data["surface"] = std::move(surface);
 
         nlohmann::json params = nlohmann::json::object();
         for (const auto& [name, param] : material.GetParams()) {
@@ -251,7 +335,8 @@ bool SaveMaterialAssetToFile(const MaterialAsset& material, const std::string& p
             }
             params[name] = std::move(item);
         }
-        data["params"] = std::move(params);
+        nlohmann::json overrides = nlohmann::json::object();
+        overrides["properties"] = std::move(params);
 
         nlohmann::json textures = nlohmann::json::object();
         for (const auto& [slot, texture] : material.GetTextures()) {
@@ -259,7 +344,8 @@ bool SaveMaterialAssetToFile(const MaterialAsset& material, const std::string& p
                 continue;
             textures[slot] = MakeSavedTexturePath(materialPath, texture->GetPath());
         }
-        data["textures"] = std::move(textures);
+        overrides["textures"] = std::move(textures);
+        data["overrides"] = std::move(overrides);
 
         std::ofstream output(path);
         if (!output.is_open()) {

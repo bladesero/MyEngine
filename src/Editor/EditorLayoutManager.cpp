@@ -10,8 +10,11 @@
 #endif
 
 #include <algorithm>
+#include <charconv>
 #include <fstream>
 #include <nlohmann/json.hpp>
+#include <sstream>
+#include <string_view>
 #include <system_error>
 #include <unordered_set>
 
@@ -19,6 +22,88 @@ namespace {
 constexpr const char* kDockSpaceName = "EditorDockSpace";
 constexpr const char* kRequiredPanels[] = {"toolbar",   "sceneHierarchy", "viewport", "gameViewport",
                                            "inspector", "assetBrowser",   "log",      "profiler"};
+
+struct PersistedDockSpaceInfo {
+    uint32_t id = 0;
+    bool found = false;
+    bool hasChildNodes = false;
+    bool rootHasWindows = false;
+    bool hasDockedWindowReferences = false;
+
+    bool IsUsable(uint32_t stableID) const {
+        // An empty legacy root is ambiguous: after a scoped-ID change ImGui
+        // saves the detached panels as fixed Pos/Size windows and removes their
+        // DockId fields. Only the globally stable root may intentionally remain
+        // empty (for example when the user floats every panel).
+        return found && id != 0 && (hasChildNodes || rootHasWindows || id == stableID);
+    }
+};
+
+bool ParseHexID(std::string_view line, uint32_t& outID) {
+    constexpr std::string_view marker = "ID=0x";
+    const size_t markerPosition = line.find(marker);
+    if (markerPosition == std::string_view::npos)
+        return false;
+    const char* first = line.data() + markerPosition + marker.size();
+    const char* last = line.data() + line.size();
+    uint32_t value = 0;
+    const auto result = std::from_chars(first, last, value, 16);
+    if (result.ec != std::errc{} || result.ptr == first || value == 0)
+        return false;
+    outID = value;
+    return true;
+}
+
+PersistedDockSpaceInfo InspectPersistedDockSpace(std::string_view settings) {
+    PersistedDockSpaceInfo info;
+    info.hasDockedWindowReferences = settings.find("DockId=0x") != std::string_view::npos;
+
+    std::istringstream lines{std::string(settings)};
+    std::string line;
+    bool inDockingSection = false;
+    bool inspectingDockSpace = false;
+    while (std::getline(lines, line)) {
+        if (line == "[Docking][Data]") {
+            inDockingSection = true;
+            continue;
+        }
+        if (!inDockingSection)
+            continue;
+        if (!line.empty() && line.front() == '[')
+            break;
+
+        const size_t firstText = line.find_first_not_of(" \t");
+        if (firstText == std::string::npos)
+            continue;
+        const std::string_view entry(line.data() + firstText, line.size() - firstText);
+        if (entry.rfind("DockSpace ", 0) == 0) {
+            if (info.found)
+                break;
+            info.found = ParseHexID(entry, info.id);
+            info.rootHasWindows = entry.find("Selected=0x") != std::string_view::npos;
+            inspectingDockSpace = info.found;
+        } else if (inspectingDockSpace && entry.rfind("DockNode ", 0) == 0) {
+            info.hasChildNodes = true;
+        }
+    }
+    return info;
+}
+
+uint32_t StableDockSpaceID() {
+#if defined(MYENGINE_ENABLE_IMGUI)
+    // Do not derive the editor root ID from the host window. ImGui may change
+    // a window seed across versions, which would orphan the persisted dock tree.
+    return ImHashStr(kDockSpaceName, 0, 0);
+#else
+    return 0;
+#endif
+}
+
+void AppendWarning(std::string& warning, std::string_view message) {
+    if (!warning.empty())
+        warning += "; ";
+    warning.append(message.data(), message.size());
+}
 
 void SetError(std::string* error, std::string message) {
     if (error)
@@ -163,22 +248,38 @@ void EditorLayoutManager::OpenProject(const std::filesystem::path& projectRoot, 
     m_LastWarning.clear();
     m_ProjectOpen = true;
     m_UserIniLoaded = false;
+    m_DockSpaceID = StableDockSpaceID();
     m_ApplyDefaultNextFrame = state.imguiLayoutIni.empty();
+    bool loadUserIni = !state.imguiLayoutIni.empty();
+
+    if (loadUserIni) {
+        const PersistedDockSpaceInfo persisted = InspectPersistedDockSpace(state.imguiLayoutIni);
+        if (persisted.IsUsable(m_DockSpaceID)) {
+            // Keep the persisted root ID so layouts authored before an ImGui
+            // upgrade are attached to this frame's host instead of becoming an
+            // orphaned, fixed-size tree in the top-left corner.
+            m_DockSpaceID = persisted.id;
+        } else if (persisted.hasDockedWindowReferences || persisted.found) {
+            loadUserIni = false;
+            m_ApplyDefaultNextFrame = true;
+            AppendWarning(m_LastWarning, "discarded orphaned editor dock layout; using the default layout");
+        }
+    }
 
     if (std::filesystem::is_regular_file(m_ConfigPath)) {
         std::string error;
         if (!EditorLayoutConfig::LoadFromFile(m_ConfigPath, m_Config, &error)) {
-            m_LastWarning = error + "; using built-in editor layout";
-            Logger::Warn("[Editor] ", m_LastWarning);
+            AppendWarning(m_LastWarning, error + "; using built-in editor layout");
             m_Config = EditorLayoutConfig::CreateDefault();
         }
     } else {
         std::string error;
         if (!EditorLayoutConfig::SaveToFile(m_ConfigPath, m_Config, &error)) {
-            m_LastWarning = error;
-            Logger::Warn("[Editor] ", error);
+            AppendWarning(m_LastWarning, error);
         }
     }
+    if (!m_LastWarning.empty())
+        Logger::Warn("[Editor] ", m_LastWarning);
 
     for (const auto& panel : panels) {
         if (!panel)
@@ -187,7 +288,8 @@ void EditorLayoutManager::OpenProject(const std::filesystem::path& projectRoot, 
         if (found != state.panelVisibility.end())
             panel->SetVisible(found->second);
     }
-    LoadUserIni(state);
+    if (loadUserIni)
+        LoadUserIni(state);
 }
 
 void EditorLayoutManager::CloseProject() {
@@ -196,6 +298,7 @@ void EditorLayoutManager::CloseProject() {
     m_ProjectOpen = false;
     m_UserIniLoaded = false;
     m_ApplyDefaultNextFrame = false;
+    m_DockSpaceID = 0;
 }
 
 void EditorLayoutManager::LoadUserIni(const EditorProjectState& state) {
@@ -233,7 +336,7 @@ void EditorLayoutManager::BeginDockSpace(const std::vector<std::unique_ptr<Edito
     ImGui::Begin("Editor DockSpace Host", nullptr, hostFlags);
     ImGui::PopStyleVar(3);
 
-    const ImGuiID dockspaceID = ImGui::GetID(kDockSpaceName);
+    const ImGuiID dockspaceID = static_cast<ImGuiID>(m_DockSpaceID ? m_DockSpaceID : StableDockSpaceID());
     ImGui::DockSpace(dockspaceID, {0.0f, 0.0f}, ImGuiDockNodeFlags_PassthruCentralNode);
     if (m_ApplyDefaultNextFrame) {
         ApplyDefaultLayout(panels);
@@ -257,7 +360,7 @@ std::string EditorLayoutManager::FindWindowName(const std::vector<std::unique_pt
 void EditorLayoutManager::ApplyDefaultLayout(const std::vector<std::unique_ptr<EditorPanel>>& panels) {
 #if defined(MYENGINE_ENABLE_IMGUI)
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
-    const ImGuiID dockspaceID = ImGui::GetID(kDockSpaceName);
+    const ImGuiID dockspaceID = static_cast<ImGuiID>(m_DockSpaceID ? m_DockSpaceID : StableDockSpaceID());
     ImGui::DockBuilderRemoveNode(dockspaceID);
     ImGui::DockBuilderAddNode(dockspaceID, ImGuiDockNodeFlags_DockSpace);
     const ImVec2 dockPos{viewport->WorkPos.x, viewport->WorkPos.y + m_ReservedTop};

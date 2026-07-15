@@ -76,7 +76,7 @@ bool EditorImGuiVulkan_Init(const ImGuiBackendHandles& handles) {
         Logger::Error("[EditorImGuiVulkanBridge] Vulkan dynamic rendering functions are unavailable");
         return false;
     }
-    if (!ImGui_ImplVulkan_LoadFunctions(LoadVulkanFunction, &loaderData)) {
+    if (!ImGui_ImplVulkan_LoadFunctions(vk.apiVersion, LoadVulkanFunction, &loaderData)) {
         Logger::Error("[EditorImGuiVulkanBridge] Failed to load Vulkan functions for ImGui");
         return false;
     }
@@ -86,6 +86,7 @@ bool EditorImGuiVulkan_Init(const ImGuiBackendHandles& handles) {
     g_LoggedMissingPlatformRenderer = false;
 
     ImGui_ImplVulkan_InitInfo initInfo{};
+    initInfo.ApiVersion = vk.apiVersion;
     initInfo.Instance = static_cast<VkInstance>(vk.instance);
     initInfo.PhysicalDevice = static_cast<VkPhysicalDevice>(vk.physicalDevice);
     initInfo.Device = static_cast<VkDevice>(vk.device);
@@ -94,12 +95,17 @@ bool EditorImGuiVulkan_Init(const ImGuiBackendHandles& handles) {
     initInfo.DescriptorPool = static_cast<VkDescriptorPool>(vk.descriptorPool);
     initInfo.MinImageCount = vk.minImageCount;
     initInfo.ImageCount = vk.imageCount;
-    initInfo.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
     initInfo.UseDynamicRendering = true;
     initInfo.CheckVkResultFn = CheckVkResult;
-    initInfo.PipelineRenderingCreateInfo = {VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR};
-    initInfo.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
-    initInfo.PipelineRenderingCreateInfo.pColorAttachmentFormats = &g_ColorAttachmentFormat;
+    initInfo.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+    initInfo.PipelineInfoMain.PipelineRenderingCreateInfo = {VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR};
+    initInfo.PipelineInfoMain.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
+    initInfo.PipelineInfoMain.PipelineRenderingCreateInfo.pColorAttachmentFormats = &g_ColorAttachmentFormat;
+    initInfo.PipelineInfoForViewports.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+    initInfo.PipelineInfoForViewports.PipelineRenderingCreateInfo = {
+        VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR};
+    initInfo.PipelineInfoForViewports.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
+    initInfo.PipelineInfoForViewports.PipelineRenderingCreateInfo.pColorAttachmentFormats = &g_ColorAttachmentFormat;
     Logger::Info("[EditorImGuiVulkanBridge] Init colorFormat=", static_cast<uint32_t>(g_ColorAttachmentFormat),
                  " imageCount=", vk.imageCount, " minImageCount=", vk.minImageCount);
     return ImGui_ImplVulkan_Init(&initInfo);
@@ -161,14 +167,6 @@ void EditorImGuiVulkan_RenderPlatformWindows() {
     ImGui::RenderPlatformWindowsDefault();
     if (g_Queue)
         vkQueueWaitIdle(g_Queue);
-}
-
-bool EditorImGuiVulkan_CreateFontsTexture() {
-    return ImGui_ImplVulkan_CreateFontsTexture();
-}
-
-void EditorImGuiVulkan_DestroyFontsTexture() {
-    ImGui_ImplVulkan_DestroyFontsTexture();
 }
 
 void* EditorImGuiVulkan_CreateTexture(const ImGuiNativeTextureInfo& info) {

@@ -496,8 +496,8 @@ bool MetalContext::Init(IWindow* window) {
         return false;
     }
 
-    const int w = window->GetWidth();
-    const int h = window->GetHeight();
+    const int w = (std::max)(1, window->GetPixelWidth());
+    const int h = (std::max)(1, window->GetPixelHeight());
     m_Impl->layer.drawableSize = CGSizeMake(static_cast<CGFloat>(w), static_cast<CGFloat>(h));
     m_Impl->vpW = static_cast<float>(w);
     m_Impl->vpH = static_cast<float>(h);

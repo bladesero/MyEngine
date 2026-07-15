@@ -31,7 +31,7 @@ void EditorPanel::OnImGui() {
     }
     const bool canDraw = ImGui::Begin(windowName.c_str(), &open, GetWindowFlags());
     m_Focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
-    if (canDraw)
+    if (canDraw && open)
         DrawContent();
     ImGui::End();
     AfterEnd();

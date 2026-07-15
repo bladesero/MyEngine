@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Renderer/MaterialResourceCache.h"
+#include "Renderer/MaterialSystem.h"
 #include "Renderer/RenderPass.h"
 #include "Renderer/SceneRenderCollector.h"
 
@@ -41,14 +42,18 @@ private:
     bool EnsureResources();
     GpuShader* GetOrCreateShader();
     GpuGraphicsPipeline* GetOrCreatePipeline(const MaterialAsset& material);
+    GpuGraphicsPipeline* GetOrCreateGraphPipeline(const ResolvedMaterial& material,
+                                                  const std::shared_ptr<ShaderHandle>& shader);
 
     uint32_t m_Width = 1;
     uint32_t m_Height = 1;
     SceneRenderCollector m_Collector;
     MaterialResourceCache m_ResourceCache;
+    MaterialSystem m_MaterialSystem;
     std::shared_ptr<ShaderHandle> m_ShaderHandle;
     uint64_t m_ShaderVersion = 0;
     std::array<std::shared_ptr<GpuGraphicsPipeline>, 4> m_Pipelines;
+    std::unordered_map<std::string, std::shared_ptr<GpuGraphicsPipeline>> m_GraphPipelines;
     std::shared_ptr<GpuTexture> m_Albedo;
     std::shared_ptr<GpuTextureView> m_AlbedoRtv;
     std::shared_ptr<GpuTextureView> m_AlbedoSrv;

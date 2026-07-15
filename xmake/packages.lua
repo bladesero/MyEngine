@@ -22,12 +22,19 @@ add_requires("joltphysics v5.5.0", { configs = {
     cross_platform_deterministic = false
 } })
 add_requires("angelscript 2.38.0")
+-- Keep a MyEngine compatibility stamp in the package identity. xmake package
+-- install hashes do not include local recipe/patch contents, so without this a
+-- pre-existing upstream imnodes v0.5 binary built against ImGui 1.91 can be
+-- silently reused after the project moves to ImGui 1.92.
+add_requires("imnodes v0.5", { configs = { myengine_imgui_192 = true } })
 
 if is_plat("windows") then
     add_requires("vulkan-headers 1.4.335+0")
-    add_requires("imgui", { version = "v1.91.3-docking", configs = { sdl3 = true, dx11 = true, dx12 = true, vulkan = true, vulkan_no_proto = true } })
+    add_requires("imgui", { version = "v1.92.7-docking", configs = { sdl3 = true, dx11 = true, dx12 = true, vulkan = true, vulkan_no_proto = true } })
+    add_requireconfs("imnodes.imgui", { version = "v1.92.7-docking", configs = { sdl3 = true, dx11 = true, dx12 = true, vulkan = true, vulkan_no_proto = true }, override = true })
 else
-    add_requires("imgui", { version = "v1.91.3-docking", configs = { sdl3 = true } })
+    add_requires("imgui", { version = "v1.92.7-docking", configs = { sdl3 = true } })
+    add_requireconfs("imnodes.imgui", { version = "v1.92.7-docking", configs = { sdl3 = true }, override = true })
 end
 
 if is_plat("macosx") then

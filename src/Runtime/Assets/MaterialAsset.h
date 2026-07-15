@@ -73,7 +73,25 @@ struct MaterialParam {
 // --------------------------------------------------------------------------
 class MaterialAsset : public Asset {
 public:
+    static constexpr uint32_t kVersion = 2;
+    enum SurfaceOverride : uint8_t {
+        OverrideBlendMode = 1u << 0u,
+        OverrideTwoSided = 1u << 1u,
+        OverrideWireframe = 1u << 2u,
+        OverrideAlphaThreshold = 1u << 3u,
+        OverrideAllSurface = OverrideBlendMode | OverrideTwoSided | OverrideWireframe | OverrideAlphaThreshold,
+    };
+
     explicit MaterialAsset(const std::string& path) : Asset(AssetType::Material, path) {}
+
+    uint32_t GetFormatVersion() const { return m_FormatVersion; }
+    bool WasLoadedFromLegacyFormat() const { return m_LoadedFromLegacyFormat; }
+    const std::string& GetParentPath() const { return m_ParentPath; }
+    void SetParentPath(std::string path) { m_ParentPath = std::move(path); }
+    bool HasParent() const { return !m_ParentPath.empty(); }
+    uint8_t GetSurfaceOverrideMask() const { return m_SurfaceOverrideMask; }
+    void SetSurfaceOverrideMask(uint8_t value) { m_SurfaceOverrideMask = value; }
+    bool OverridesSurface(SurfaceOverride field) const { return (m_SurfaceOverrideMask & field) != 0; }
 
     // ---- 基础参数 ----------------------------------------------------------
     BlendMode GetBlendMode() const { return m_BlendMode; }
@@ -81,10 +99,22 @@ public:
     bool IsWireframe() const { return m_Wireframe; }
     float GetAlphaThreshold() const { return m_AlphaThreshold; }
 
-    void SetBlendMode(BlendMode bm) { m_BlendMode = bm; }
-    void SetTwoSided(bool v) { m_TwoSided = v; }
-    void SetWireframe(bool v) { m_Wireframe = v; }
-    void SetAlphaThreshold(float v) { m_AlphaThreshold = v; }
+    void SetBlendMode(BlendMode bm) {
+        m_BlendMode = bm;
+        m_SurfaceOverrideMask |= OverrideBlendMode;
+    }
+    void SetTwoSided(bool v) {
+        m_TwoSided = v;
+        m_SurfaceOverrideMask |= OverrideTwoSided;
+    }
+    void SetWireframe(bool v) {
+        m_Wireframe = v;
+        m_SurfaceOverrideMask |= OverrideWireframe;
+    }
+    void SetAlphaThreshold(float v) {
+        m_AlphaThreshold = v;
+        m_SurfaceOverrideMask |= OverrideAlphaThreshold;
+    }
 
     // ---- 纹理槽 ------------------------------------------------------------
     void SetTexture(const std::string& slot, TextureHandle tex) { m_Textures[slot] = std::move(tex); }
@@ -93,6 +123,7 @@ public:
         return (it != m_Textures.end()) ? it->second : TextureHandle{};
     }
     bool HasTexture(const std::string& slot) const { return m_Textures.count(slot) > 0; }
+    void RemoveTexture(const std::string& slot) { m_Textures.erase(slot); }
 
     const std::unordered_map<std::string, TextureHandle>& GetTextures() const { return m_Textures; }
 
@@ -102,6 +133,8 @@ public:
         auto it = m_Params.find(name);
         return (it != m_Params.end()) ? it->second : def;
     }
+    bool HasParam(const std::string& name) const { return m_Params.count(name) > 0; }
+    void RemoveParam(const std::string& name) { m_Params.erase(name); }
 
     float GetFloat(const std::string& n, float def = 0.f) const {
         auto it = m_Params.find(n);
@@ -136,6 +169,11 @@ public:
         m_TwoSided = material->m_TwoSided;
         m_Wireframe = material->m_Wireframe;
         m_AlphaThreshold = material->m_AlphaThreshold;
+        m_FormatVersion = material->m_FormatVersion;
+        m_LoadedFromLegacyFormat = material->m_LoadedFromLegacyFormat;
+        m_ParentPath = material->m_ParentPath;
+        m_SurfaceOverrideMask = material->m_SurfaceOverrideMask;
+        m_PreservedFields = material->m_PreservedFields;
         m_Textures = material->m_Textures;
         m_Params = material->m_Params;
         m_ShaderAsset = material->m_ShaderAsset;
@@ -159,6 +197,14 @@ public:
     }
 
 private:
+    friend std::shared_ptr<MaterialAsset> LoadMaterialAssetFromFile(const std::string& path);
+    friend bool SaveMaterialAssetToFile(const MaterialAsset& material, const std::string& path);
+
+    uint32_t m_FormatVersion = kVersion;
+    bool m_LoadedFromLegacyFormat = false;
+    std::string m_ParentPath;
+    uint8_t m_SurfaceOverrideMask = OverrideAllSurface;
+    nlohmann::json m_PreservedFields = nlohmann::json::object();
     BlendMode m_BlendMode = BlendMode::Opaque;
     bool m_TwoSided = false;
     bool m_Wireframe = false;

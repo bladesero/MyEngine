@@ -266,6 +266,46 @@ struct Scanner {
             for (const auto& item : node)
                 VisitJson(item, from, chain, key);
     }
+    void ScanTypedAsset(const nlohmann::json& json, const fs::path& path, const std::vector<std::string>& chain) {
+        const std::string type = json.value("type", std::string{});
+        if (type == "Material") {
+            for (const char* key : {"parent", "shader"})
+                if (json.contains(key) && json[key].is_string())
+                    ScanReference(json[key].get<std::string>(), path, chain);
+            const nlohmann::json* textures = nullptr;
+            if (json.contains("overrides") && json["overrides"].is_object() && json["overrides"].contains("textures") &&
+                json["overrides"]["textures"].is_object())
+                textures = &json["overrides"]["textures"];
+            else if (json.contains("textures") && json["textures"].is_object())
+                textures = &json["textures"];
+            if (textures)
+                for (auto it = textures->begin(); it != textures->end(); ++it)
+                    if (it.value().is_string())
+                        ScanReference(it.value().get<std::string>(), path, chain);
+        } else if (type == "Shader") {
+            const std::string mode = json.value("mode", json.value("version", 1u) == 1u ? "Code" : "Code");
+            if (mode == "Graph") {
+                if (json.contains("properties") && json["properties"].is_array())
+                    for (const auto& property : json["properties"])
+                        if (property.value("type", std::string{}) == "Texture2D" && property.contains("default") &&
+                            property["default"].is_string())
+                            ScanReference(property["default"].get<std::string>(), path, chain);
+            } else if (json.contains("stages") && json["stages"].is_object()) {
+                for (auto it = json["stages"].begin(); it != json["stages"].end(); ++it)
+                    if (it.value().is_object() && it.value().contains("source") && it.value()["source"].is_string())
+                        ScanReference(it.value()["source"].get<std::string>(), path, chain);
+            }
+            if (json.contains("passes") && json["passes"].is_object())
+                for (auto pass = json["passes"].begin(); pass != json["passes"].end(); ++pass)
+                    if (pass.value().is_object() && pass.value().contains("stages")) {
+                        for (auto stage = pass.value()["stages"].begin(); stage != pass.value()["stages"].end();
+                             ++stage)
+                            if (stage.value().is_object() && stage.value().contains("source") &&
+                                stage.value()["source"].is_string())
+                                ScanReference(stage.value()["source"].get<std::string>(), path, chain);
+                    }
+        }
+    }
     void ScanTextDependencies(const fs::path& path, std::vector<std::string> chain) {
         std::ifstream input(path);
         std::string line;
@@ -335,6 +375,7 @@ struct Scanner {
                     if (json.value("uuid", std::string{}) != metaJson.value("uuid", std::string{}))
                         throw std::runtime_error("prefab UUID does not match metadata");
                 }
+                ScanTypedAsset(json, path, chain);
                 VisitJson(json, path, chain);
             } else if (ext == ".obj" || ext == ".mtl")
                 ScanTextDependencies(path, std::move(chain));

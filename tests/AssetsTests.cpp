@@ -10,6 +10,9 @@
 #include "Editor/EditorContext.h"
 #include "Editor/EditorImportService.h"
 #include "Project/ProjectConfig.h"
+#include "Renderer/MaterialSystem.h"
+#include "Renderer/ShaderCooker.h"
+#include "Renderer/ShaderGraphCompiler.h"
 #include "Scene/MeshRendererComponent.h"
 #include "Scene/Scene.h"
 #include "Scene/SceneSerializer.h"
@@ -19,6 +22,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <unordered_set>
 #include <vector>
 
 #include <nlohmann/json.hpp>
@@ -77,11 +81,11 @@ bool TestShaderAssetFormats() {
     if (!Check(LoadShaderAssetFromFile(compute.string())->IsCompute(), "valid compute shader description was rejected"))
         return false;
     const char* invalid[] = {
-        R"({"type":"Shader","version":2,"stages":{"compute":{"source":"A.hlsl","entry":"CSMain"}}})",
+        R"({"type":"Shader","version":3,"stages":{"compute":{"source":"A.hlsl","entry":"CSMain"}}})",
         R"({"type":"Shader","version":1,"stages":{"vertex":{"source":"A.hlsl","entry":"VSMain"}}})",
         R"({"type":"Shader","version":1,"stages":{"compute":{"source":"../A.hlsl","entry":"CSMain"}}})",
         R"({"type":"Shader","version":1,"stages":{"compute":{"source":"C:/A.hlsl","entry":"CSMain"},"pixel":{"source":"A.hlsl","entry":"PSMain"}}})",
-        R"({"type":"Shader","version":1,"stages":{"compute":{"source":"A.hlsl","entry":"CSMain"},"compute":{"source":"B.hlsl","entry":"CSMain"}}})",
+        R"({"type":"Shader","version":1,"stages":{"compute":{"source":"A.hlsl","entry":"CSMain"},"pixel":{"source":"B.hlsl","entry":"PSMain"}}})",
         R"({"type":"Shader","version":1,"stages":{"geometry":{"source":"A.hlsl","entry":"GSMain"}}})"};
     for (size_t i = 0; i < std::size(invalid); ++i)
         if (!Check(!LoadShaderAssetFromFile(
@@ -111,6 +115,368 @@ bool TestShaderAssetFormats() {
     if (!Check(!LoadShaderAssetFromFile(cookedPath.string()), "corrupt shader container was accepted"))
         return false;
     fs::remove_all(root, ec);
+    return true;
+}
+
+bool TestSurfaceShaderGraphV2Contract() {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "myengine_surface_graph_v2_test";
+    std::error_code ec;
+    fs::remove_all(root, ec);
+    fs::create_directories(root);
+    const fs::path path = root / "Surface.shader";
+    const nlohmann::json source = {
+        {"type", "Shader"},
+        {"version", 2},
+        {"mode", "Graph"},
+        {"domain", "Surface"},
+        {"shadingModel", "Unlit"},
+        {"surfaceType", "Transparent"},
+        {"properties",
+         nlohmann::json::array(
+             {{{"id", "stable.color"}, {"name", "Tint"}, {"type", "Color"}, {"default", {0.25f, 0.5f, 0.75f, 1.0f}}}})},
+        {"graph",
+         {{"version", 1},
+          {"nodes",
+           nlohmann::json::array(
+               {{{"id", 1},
+                 {"type", "Property"},
+                 {"property", "stable.color"},
+                 {"position", {-40.0f, 10.0f}},
+                 {"pins",
+                  nlohmann::json::array({{{"id", 11}, {"name", "Out"}, {"type", "Color"}, {"direction", "Output"}}})}},
+                {{"id", 2},
+                 {"type", "SurfaceOutputUnlit"},
+                 {"position", {120.0f, 10.0f}},
+                 {"pins", nlohmann::json::array(
+                              {{{"id", 21}, {"name", "Color"}, {"type", "Color"}, {"direction", "Input"}}})}}})},
+          {"links", nlohmann::json::array({{{"id", 30},
+                                            {"fromNode", 1},
+                                            {"fromPin", "Out"},
+                                            {"fromPinId", 11},
+                                            {"toNode", 2},
+                                            {"toPin", "Color"},
+                                            {"toPinId", 21}}})}}}};
+    std::ofstream(path) << source.dump(2);
+    auto shader = LoadShaderAssetFromFile(path.string());
+    if (!Check(shader && shader->IsGraph() && shader->GetDomain() == ShaderDomain::Surface,
+               "v2 surface graph shader was rejected"))
+        return false;
+    if (!Check(shader->HasPass(ShaderPass::Forward) && !shader->HasPass(ShaderPass::GBuffer) &&
+                   !shader->HasPass(ShaderPass::Shadow),
+               "transparent/unlit graph generated the wrong pass contract"))
+        return false;
+
+    std::vector<ShaderGraphDiagnostic> diagnostics;
+    if (!Check(ShaderGraphCompiler::Validate(shader->GetGraph(), shader->GetProperties(), diagnostics),
+               "valid shader graph failed validation"))
+        return false;
+    ShaderGraphCompileRequest request{&shader->GetGraph(), &shader->GetProperties(), ShaderShadingModel::Unlit,
+                                      ShaderSurfaceType::Transparent, ShaderPass::Forward};
+    const auto generated = ShaderGraphCompiler::Compile(request);
+    if (!Check(generated.succeeded && generated.hlsl.find("EvaluateSurface") != std::string::npos &&
+                   generated.hlsl.find("g_MaterialValues[0]") != std::string::npos,
+               "stable graph HLSL generation failed"))
+        return false;
+
+    ShaderGraph roundTripped;
+    if (!Check(ParseShaderGraph(SerializeShaderGraph(shader->GetGraph()), roundTripped, &diagnostics),
+               "graph JSON round-trip failed"))
+        return false;
+    const std::string canonical = ShaderGraphCompiler::BuildCanonicalKey(
+        shader->GetGraph(), shader->GetProperties(), shader->GetShadingModel(), shader->GetSurfaceType());
+    roundTripped.nodes.front().x += 999.0f;
+    std::reverse(roundTripped.nodes.begin(), roundTripped.nodes.end());
+    if (!Check(canonical == ShaderGraphCompiler::BuildCanonicalKey(roundTripped, shader->GetProperties(),
+                                                                   shader->GetShadingModel(), shader->GetSurfaceType()),
+               "node layout or JSON order changed the canonical shader cache key"))
+        return false;
+
+    ShaderGraph invalid = shader->GetGraph();
+    invalid.nodes.push_back(invalid.nodes.front());
+    if (!Check(!ShaderGraphCompiler::Validate(invalid, shader->GetProperties(), diagnostics),
+               "duplicate graph node ID was accepted"))
+        return false;
+    invalid = shader->GetGraph();
+    invalid.nodes.front().pins.front().type = "Bool";
+    if (!Check(!ShaderGraphCompiler::Validate(invalid, shader->GetProperties(), diagnostics),
+               "incompatible graph pin types were accepted"))
+        return false;
+
+    std::array<std::array<std::array<std::vector<uint8_t>, kShaderStageCount>, static_cast<size_t>(ShaderPass::Count)>,
+               kShaderBackendCount>
+        blobs{};
+    blobs[static_cast<size_t>(ShaderBackend::D3D12)][static_cast<size_t>(ShaderPass::Forward)]
+         [static_cast<size_t>(ShaderStage::Vertex)] = {1, 2, 3, 4};
+    blobs[static_cast<size_t>(ShaderBackend::D3D12)][static_cast<size_t>(ShaderPass::Forward)]
+         [static_cast<size_t>(ShaderStage::Pixel)] = {5, 6};
+    ShaderAsset cooked(path.string());
+    cooked.SetCookedPasses(1u << static_cast<uint32_t>(ShaderPass::Forward), 99, ShaderSourceMode::Graph,
+                           ShaderDomain::Surface, ShaderShadingModel::Unlit, ShaderSurfaceType::Transparent,
+                           shader->GetProperties(), std::move(blobs));
+    const fs::path cookedPath = root / "Cooked.shader";
+    std::string error;
+    if (!Check(SaveCookedShaderAsset(cooked, cookedPath, &error), error))
+        return false;
+    auto loadedCooked = LoadShaderAssetFromFile(cookedPath.string());
+    const bool cookedOk =
+        loadedCooked && loadedCooked->IsCooked() && loadedCooked->IsGraph() &&
+        loadedCooked->HasPass(ShaderPass::Forward) && loadedCooked->GetProperties().size() == 1 &&
+        loadedCooked->GetBytecode(ShaderBackend::D3D12, ShaderPass::Forward, ShaderStage::Pixel).size() == 2;
+    fs::remove_all(root, ec);
+    return Check(cookedOk, "cooked backend/pass/stage shader container round-trip failed");
+}
+
+bool TestShaderGraphReachableTimeDetection() {
+    ShaderGraph graph;
+    graph.nodes = {{1, "Time"}, {2, "Float"}, {3, "SurfaceOutputUnlit"}};
+    graph.links = {{10, 1, "Out", 0, 3, "Color", 0}};
+    if (!Check(ShaderGraphUsesTime(graph), "reachable Time node did not enable realtime preview"))
+        return false;
+
+    graph.links = {{11, 2, "Out", 0, 3, "Color", 0}};
+    if (!Check(!ShaderGraphUsesTime(graph), "unreachable Time node enabled realtime preview"))
+        return false;
+
+    graph.nodes.erase(graph.nodes.begin());
+    if (!Check(!ShaderGraphUsesTime(graph), "graph without Time enabled realtime preview"))
+        return false;
+
+    graph.nodes.push_back({4, "SurfaceOutputUnlit"});
+    return Check(!ShaderGraphUsesTime(graph), "graph with multiple surface outputs enabled realtime preview");
+}
+
+bool TestShaderGraphNodeLibraryAndStableCodeGeneration() {
+    const auto& library = GetShaderGraphNodeLibrary();
+    std::unordered_set<std::string> nodeTypes;
+    std::unordered_set<uint64_t> pinIds;
+    uint64_t nextPinId = 1000;
+    uint64_t nextNodeId = 1;
+    for (const auto& definition : library) {
+        if (!Check(definition.type && definition.type[0] && definition.displayName && definition.displayName[0] &&
+                       definition.category && definition.category[0] && nodeTypes.insert(definition.type).second,
+                   "shader graph node library contains an incomplete or duplicate definition"))
+            return false;
+        const ShaderGraphNode node = CreateShaderGraphNode(definition.type, nextNodeId++, nextPinId);
+        if (!Check(node.pins.size() == definition.pins.size() && node.value == definition.defaultValue,
+                   "node factory did not instantiate the registered schema"))
+            return false;
+        for (size_t pinIndex = 0; pinIndex < node.pins.size(); ++pinIndex) {
+            const auto& pin = node.pins[pinIndex];
+            const auto& schema = definition.pins[pinIndex];
+            if (!Check(pin.id != 0 && pinIds.insert(pin.id).second && pin.name == schema.name &&
+                           pin.input == schema.input && pin.defaultValue == schema.defaultValue,
+                       "node factory produced an invalid or duplicate pin"))
+                return false;
+        }
+    }
+
+    ShaderGraph graph;
+    nextPinId = 100;
+    graph.nodes.push_back(CreateShaderGraphNode("UV0", 1, nextPinId));
+    graph.nodes.push_back(CreateShaderGraphNode("TextureSample", 2, nextPinId));
+    graph.nodes.back().propertyId = "surface.normal";
+    graph.nodes.push_back(CreateShaderGraphNode("NormalUnpack", 3, nextPinId));
+    graph.nodes.push_back(CreateShaderGraphNode("Float", 4, nextPinId));
+    graph.nodes.back().value = {0.35f};
+    graph.nodes.push_back(CreateShaderGraphNode("Smoothstep", 5, nextPinId));
+    graph.nodes.push_back(CreateShaderGraphNode("SurfaceOutputLit", 6, nextPinId));
+
+    auto pin = [&](uint64_t nodeId, const char* name, bool input) -> const ShaderGraphNode::Pin* {
+        for (const auto& node : graph.nodes)
+            if (node.id == nodeId)
+                for (const auto& candidate : node.pins)
+                    if (candidate.name == name && candidate.input == input)
+                        return &candidate;
+        return nullptr;
+    };
+    uint64_t nextLinkId = 200;
+    auto link = [&](uint64_t fromNode, const char* fromName, uint64_t toNode, const char* toName) {
+        const auto* from = pin(fromNode, fromName, false);
+        const auto* to = pin(toNode, toName, true);
+        if (!from || !to)
+            return false;
+        graph.links.push_back({nextLinkId++, fromNode, fromName, from->id, toNode, toName, to->id});
+        return true;
+    };
+    if (!Check(link(1, "Out", 2, "UV") && link(2, "RGBA", 3, "Value") && link(2, "RGBA", 6, "BaseColor") &&
+                   link(3, "Out", 6, "Normal") && link(4, "Out", 5, "Value") && link(5, "Out", 6, "Roughness"),
+               "failed to construct shader graph node-library test graph"))
+        return false;
+
+    ShaderPropertyDesc texture;
+    texture.id = "surface.normal";
+    texture.name = "Normal";
+    texture.type = ShaderPropertyType::Texture2D;
+    texture.textureSlot = 0;
+    const std::vector<ShaderPropertyDesc> properties = {texture};
+    std::vector<ShaderGraphDiagnostic> diagnostics;
+    if (!Check(ShaderGraphCompiler::Validate(graph, properties, diagnostics),
+               "registered production nodes failed graph validation"))
+        return false;
+    const ShaderGraphCompileRequest request{&graph, &properties, ShaderShadingModel::Lit, ShaderSurfaceType::Opaque,
+                                            ShaderPass::GBuffer};
+    const auto compiled = ShaderGraphCompiler::Compile(request);
+    if (!Check(compiled.succeeded && compiled.hlsl.find("g_Texture_surface_normal") != std::string::npos &&
+                   compiled.hlsl.find("smoothstep(") != std::string::npos &&
+                   compiled.hlsl.find("float4 graph_n") != std::string::npos,
+               "production node graph did not generate deterministic SSA-style HLSL"))
+        return false;
+
+    const nlohmann::json serialized = SerializeShaderGraph(graph);
+    if (!Check(serialized.value("version", 0u) == ShaderGraph::kVersion &&
+                   serialized["nodes"][4]["pins"][1].contains("default"),
+               "graph v2 did not preserve input pin defaults"))
+        return false;
+    ShaderGraph migrated;
+    const nlohmann::json legacy = {
+        {"version", ShaderGraph::kLegacyVersion},
+        {"nodes", nlohmann::json::array({{{"id", 1}, {"type", "SurfaceOutputUnlit"}, {"position", {0, 0}}}})},
+        {"links", nlohmann::json::array()}};
+    if (!Check(ParseShaderGraph(legacy, migrated, &diagnostics) && migrated.version == ShaderGraph::kVersion &&
+                   !migrated.nodes.front().pins.empty(),
+               "legacy graph did not migrate through the registered node schema"))
+        return false;
+
+    uint64_t temporaryPin = 9000;
+    const auto boolean = CreateShaderGraphNode("Bool", 20, temporaryPin);
+    const auto scalar = CreateShaderGraphNode("Float", 21, temporaryPin);
+    const auto output = CreateShaderGraphNode("SurfaceOutputUnlit", 22, temporaryPin);
+    return Check(!ShaderGraphCanConnect(boolean.pins.front(), output.pins.front()) &&
+                     ShaderGraphCanConnect(scalar.pins.front(), output.pins.front()),
+                 "shader graph connection policy did not enforce bool isolation and scalar broadcast");
+}
+
+bool TestShaderGraphCookerCompilesWindowsBackends() {
+#ifndef MYENGINE_PLATFORM_WINDOWS
+    return true;
+#else
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "myengine_shader_graph_backend_cook";
+    std::error_code ec;
+    fs::remove_all(root, ec);
+    fs::create_directories(root / "Content" / "Shaders", ec);
+    fs::create_directories(root / "Library", ec);
+
+    uint64_t nextPinId = 10;
+    ShaderGraph graph;
+    graph.nodes.push_back(CreateShaderGraphNode("Color", 1, nextPinId));
+    graph.nodes.front().value = {0.2f, 0.4f, 0.8f, 1.0f};
+    graph.nodes.push_back(CreateShaderGraphNode("SurfaceOutputUnlit", 2, nextPinId));
+    const auto& colorOut = graph.nodes[0].pins.front();
+    const auto& surfaceColor = graph.nodes[1].pins.front();
+    graph.links.push_back({100, 1, "Out", colorOut.id, 2, "Color", surfaceColor.id});
+
+    const fs::path sourcePath = root / "Content" / "Shaders" / "CookGraph.shader";
+    const nlohmann::json source = {{"type", "Shader"},
+                                   {"version", 2},
+                                   {"mode", "Graph"},
+                                   {"domain", "Surface"},
+                                   {"shadingModel", "Unlit"},
+                                   {"surfaceType", "Transparent"},
+                                   {"properties", nlohmann::json::array()},
+                                   {"graph", SerializeShaderGraph(graph)}};
+    std::ofstream(sourcePath) << source.dump(2) << '\n';
+
+    ShaderCookRequest request;
+    request.sourcePath = sourcePath;
+    request.artifactPath = root / "Library" / "CookGraph.shader";
+    request.allowedRoot = root / "Content";
+    request.backends = {ShaderBackend::D3D11, ShaderBackend::D3D12};
+    std::string error;
+    const ShaderCookResult cooked = ShaderCooker::Cook(request, &error);
+    auto artifact = cooked.succeeded ? LoadShaderAssetFromFile(request.artifactPath.string()) : nullptr;
+    const bool valid = artifact && artifact->IsCooked() && artifact->HasPass(ShaderPass::Forward) &&
+                       !artifact->GetBytecode(ShaderBackend::D3D11, ShaderPass::Forward, ShaderStage::Vertex).empty() &&
+                       !artifact->GetBytecode(ShaderBackend::D3D11, ShaderPass::Forward, ShaderStage::Pixel).empty() &&
+                       !artifact->GetBytecode(ShaderBackend::D3D12, ShaderPass::Forward, ShaderStage::Vertex).empty() &&
+                       !artifact->GetBytecode(ShaderBackend::D3D12, ShaderPass::Forward, ShaderStage::Pixel).empty();
+    fs::remove_all(root, ec);
+    return Check(valid, error.empty() ? "graph cooker did not emit D3D11/D3D12 Forward bytecode" : error);
+#endif
+}
+
+bool TestMaterialV2InheritanceAndLegacyMigration() {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "myengine_material_v2_test";
+    std::error_code ec;
+    fs::remove_all(root, ec);
+    fs::create_directories(root / "Content" / "Shaders");
+    fs::create_directories(root / "Content" / "Materials");
+    const fs::path shaderPath = root / "Content" / "Shaders" / "Surface.shader";
+    std::ofstream(shaderPath) << R"({
+      "type":"Shader","version":2,"mode":"Graph","domain":"Surface","shadingModel":"Lit","surfaceType":"Opaque",
+      "properties":[
+        {"id":"stable.tint","name":"Tint Display","type":"Color","default":[1,1,1,1]},
+        {"id":"stable.roughness","name":"Roughness Display","type":"Float","default":0.5,"range":[0.04,1]}
+      ],
+      "graph":{"version":1,"nodes":[{"id":1,"type":"SurfaceOutputLit","position":[0,0]}],"links":[]}
+    })";
+    auto writeMaterial = [&](const char* name, const nlohmann::json& value) {
+        const fs::path path = root / "Content" / "Materials" / name;
+        std::ofstream(path) << value.dump(2);
+        return path;
+    };
+    const auto parentPath = writeMaterial("Parent.mat", nlohmann::json::parse(R"({"type":"Material","version":2,
+          "shader":"Content/Shaders/Surface.shader","surface":{"twoSided":true},
+          "overrides":{"properties":{"stable.roughness":{"type":"Float","data":[0.2]}},"textures":{}}})"));
+    const auto childPath = writeMaterial("Child.mat", nlohmann::json::parse(R"({"type":"Material","version":2,
+          "parent":"Content/Materials/Parent.mat","surface":{},
+          "overrides":{"properties":{"stable.tint":{"type":"Vec4","data":[0.1,0.3,0.6,1.0]}},"textures":{}}})"));
+    const auto leafPath = writeMaterial("Leaf.mat", nlohmann::json::parse(R"({"type":"Material","version":2,
+          "parent":"Content/Materials/Child.mat","surface":{},
+          "overrides":{"properties":{"stable.roughness":{"type":"Float","data":[0.8]}},"textures":{}}})"));
+
+    AssetManager& assets = AssetManager::Get();
+    assets.Clear();
+    assets.SetProjectRoot(root);
+    MaterialHandle leaf = assets.Load<MaterialAsset>(leafPath.string());
+    MaterialSystem system;
+    ResolvedMaterial resolved = system.Resolve(leaf);
+    const MaterialParam* tint = resolved.FindProperty("stable.tint");
+    const MaterialParam* roughness = resolved.FindProperty("stable.roughness");
+    if (!Check(resolved.valid && resolved.parentChain.size() == 3 && resolved.twoSided && tint && roughness &&
+                   NearlyEqual(tint->data[2], 0.6f) && NearlyEqual(roughness->data[0], 0.8f) &&
+                   NearlyEqual(resolved.constants[1].x, 0.8f),
+               "material defaults/parent/local override resolution or 16-byte packing failed"))
+        return false;
+
+    const auto legacyPath = writeMaterial("Legacy.mat", nlohmann::json::parse(R"({"type":"Material","version":1,
+          "shader":"Content/Shaders/Surface.shader",
+          "params":{"Roughness Display":{"type":"Float","data":[0.35]},
+                    "UnknownLegacy":{"type":"Float","data":[7.0]}},
+          "customFuture":{"keep":true}})"));
+    MaterialHandle legacy = assets.Load<MaterialAsset>(legacyPath.string());
+    if (!Check(legacy.IsValid() && legacy->WasLoadedFromLegacyFormat() && legacy->HasParam("stable.roughness") &&
+                   legacy->HasParam("UnknownLegacy"),
+               "legacy display-name overrides were not migrated to stable property IDs"))
+        return false;
+    if (!Check(SaveMaterialAssetToFile(*legacy, legacyPath.string()), "legacy material v2 save failed"))
+        return false;
+    nlohmann::json migrated;
+    std::ifstream(legacyPath) >> migrated;
+    if (!Check(migrated.value("version", 0) == 2 && migrated["customFuture"].value("keep", false) &&
+                   migrated["overrides"]["properties"].contains("stable.roughness") &&
+                   migrated["overrides"]["properties"].contains("UnknownLegacy"),
+               "legacy material migration lost stable or unknown fields"))
+        return false;
+
+    writeMaterial("CycleA.mat", {{"type", "Material"}, {"version", 2}, {"parent", "Content/Materials/CycleB.mat"}});
+    writeMaterial("CycleB.mat", {{"type", "Material"}, {"version", 2}, {"parent", "Content/Materials/CycleA.mat"}});
+    writeMaterial("Missing.mat",
+                  {{"type", "Material"}, {"version", 2}, {"parent", "Content/Materials/DoesNotExist.mat"}});
+    if (!Check(!system.Resolve(assets.Load<MaterialAsset>((root / "Content/Materials/CycleA.mat").string())).valid,
+               "material parent cycle was accepted"))
+        return false;
+    if (!Check(!system.Resolve(assets.Load<MaterialAsset>((root / "Content/Materials/Missing.mat").string())).valid,
+               "missing material parent was accepted"))
+        return false;
+
+    assets.Clear();
+    assets.SetProjectRoot({});
+    fs::remove_all(root, ec);
+    (void)parentPath;
+    (void)childPath;
     return true;
 }
 
@@ -1056,8 +1422,16 @@ bool TestShaderLibraryArtifactCacheHit() {
 }
 
 MYENGINE_REGISTER_TEST("Assets", "TestShaderAssetFormats", TestShaderAssetFormats);
+MYENGINE_REGISTER_TEST("Assets", "TestSurfaceShaderGraphV2Contract", TestSurfaceShaderGraphV2Contract);
+MYENGINE_REGISTER_TEST("Assets", "TestShaderGraphReachableTimeDetection", TestShaderGraphReachableTimeDetection);
+MYENGINE_REGISTER_TEST("Assets", "TestShaderGraphNodeLibraryAndStableCodeGeneration",
+                       TestShaderGraphNodeLibraryAndStableCodeGeneration);
+MYENGINE_REGISTER_TEST("Assets", "TestShaderGraphCookerCompilesWindowsBackends",
+                       TestShaderGraphCookerCompilesWindowsBackends);
 MYENGINE_REGISTER_TEST("Assets", "TestPbrMaterialParameters", TestPbrMaterialParameters);
 MYENGINE_REGISTER_TEST("Assets", "TestMaterialAssetFileRoundTrip", TestMaterialAssetFileRoundTrip);
+MYENGINE_REGISTER_TEST("Assets", "TestMaterialV2InheritanceAndLegacyMigration",
+                       TestMaterialV2InheritanceAndLegacyMigration);
 MYENGINE_REGISTER_TEST("Assets", "TestAssetManagerSharedAcrossRuntimeBoundary",
                        TestAssetManagerSharedAcrossRuntimeBoundary);
 MYENGINE_REGISTER_TEST("Assets", "TestAssetFileImporters", TestAssetFileImporters);

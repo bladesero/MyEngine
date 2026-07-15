@@ -89,6 +89,7 @@ local editor_sources = {
     "src/Editor/Panels/AssetBrowserPanel.cpp",
     "src/Editor/Panels/LogPanel.cpp",
     "src/Editor/Panels/ProfilerPanel.cpp",
+    "src/Editor/Panels/ShaderGraphPanel.cpp",
     "src/Editor/Panels/ScriptedToolPanel.cpp",
     "src/Editor/EditorImGuiBackend.cpp",
     "src/Editor/EditorResourceOperator.cpp"
@@ -174,6 +175,7 @@ target("MyEngineRuntime")
         "src/Runtime/Assets/NavMeshAsset.cpp",
         "src/Runtime/Assets/ParticleAsset.cpp",
         "src/Runtime/Assets/ShaderAsset.cpp",
+        "src/Runtime/Assets/ShaderGraph.cpp",
         "src/Runtime/Assets/MeshAsset.cpp",
         "src/Runtime/Assets/TextureAsset.cpp",
         "thirdparty/angelscript_addons/scriptstdstring/scriptstdstring.cpp",
@@ -220,6 +222,7 @@ target("MyEngineRuntime")
         "src/Runtime/Renderer/SceneLighting.cpp",
         "src/Runtime/Renderer/SceneRenderCollector.cpp",
         "src/Runtime/Renderer/MaterialResourceCache.cpp",
+        "src/Runtime/Renderer/MaterialSystem.cpp",
         "src/Runtime/Renderer/ForwardRenderPasses.cpp",
         "src/Runtime/Renderer/GpuUploadQueue.cpp",
         "src/Runtime/Renderer/LightComponent.cpp",
@@ -233,6 +236,7 @@ target("MyEngineRuntime")
         "src/Runtime/Renderer/RenderBackendRegistry.cpp",
         "src/Runtime/Renderer/ShaderCacheService.cpp",
         "src/Runtime/Renderer/ShaderCooker.cpp",
+        "src/Runtime/Renderer/ShaderGraphCompiler.cpp",
         "src/Runtime/Renderer/ShaderManager.cpp",
         "src/Runtime/Renderer/ShaderCompilerSlang.cpp",
         "src/Runtime/Renderer/ShaderCompilerD3D11.cpp",
@@ -384,6 +388,7 @@ target("MyEngineEditor")
     add_packages("joltphysics")
     add_packages("angelscript")
     add_packages("imgui")
+    add_packages("imnodes")
     add_defines("MYENGINE_ENABLE_IMGUI")
     add_defines("MYENGINE_BUILD_ID=dev_0_1_0")
     if is_mode("release") then
@@ -497,6 +502,7 @@ target("MyEngineTests")
     add_packages("joltphysics")
     add_packages("angelscript")
     add_packages("imgui")
+    add_packages("imnodes")
     add_defines("MYENGINE_ENABLE_IMGUI")
     add_defines("MYENGINE_BUILD_ID=dev_0_1_0")
     if is_mode("release") then

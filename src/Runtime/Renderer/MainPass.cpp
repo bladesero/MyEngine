@@ -313,18 +313,25 @@ GpuGraphicsPipeline* MainPass::GetOrCreateMainPipeline(bool transparent, bool tw
 }
 
 GpuGraphicsPipeline* MainPass::GetOrCreateMaterialPipeline(const MaterialAsset& material) {
-    if (!Device() || !material.GetShader())
+    return GetOrCreateMaterialPipeline(material, material.GetShaderHandle(), material.GetBlendMode(),
+                                       material.IsTwoSided(), material.IsWireframe());
+}
+
+GpuGraphicsPipeline* MainPass::GetOrCreateMaterialPipeline(const MaterialAsset& material,
+                                                           const std::shared_ptr<GpuShader>& shader,
+                                                           BlendMode blendMode, bool twoSided, bool wireframe) {
+    if (!Device() || !shader)
         return nullptr;
     auto& pipeline = m_MaterialPipelines[&material];
-    const bool transparent = material.GetBlendMode() == BlendMode::Transparent;
-    const RHICullMode cull = material.IsTwoSided() ? RHICullMode::None : RHICullMode::Back;
-    const RHIFillMode fill = material.IsWireframe() ? RHIFillMode::Wireframe : RHIFillMode::Solid;
+    const bool transparent = blendMode == BlendMode::Transparent;
+    const RHICullMode cull = twoSided ? RHICullMode::None : RHICullMode::Back;
+    const RHIFillMode fill = wireframe ? RHIFillMode::Wireframe : RHIFillMode::Solid;
     const RHIFormat colorFormat = m_HdrPassthrough ? RHIFormat::RGBA16Float : RHIFormat::RGBA8UNorm;
-    if (!pipeline || pipeline->desc.shader.get() != material.GetShader() || pipeline->desc.colorFormats.empty() ||
+    if (!pipeline || pipeline->desc.shader.get() != shader.get() || pipeline->desc.colorFormats.empty() ||
         pipeline->desc.colorFormats[0] != colorFormat || pipeline->desc.rasterizer.cullMode != cull ||
         pipeline->desc.rasterizer.fillMode != fill || pipeline->desc.blend.attachments[0].blendEnable != transparent) {
         GraphicsPipelineDesc desc;
-        desc.shader = material.GetShaderHandle();
+        desc.shader = shader;
         desc.colorFormats = {colorFormat};
         desc.depthFormat = RHIFormat::D24S8;
         desc.rasterizer.cullMode = cull;

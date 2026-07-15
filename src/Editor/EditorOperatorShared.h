@@ -5,6 +5,7 @@
 #include "Assets/AssetManager.h"
 #include "Assets/AssetMeta.h"
 #include "Assets/ModelAsset.h"
+#include "Assets/ShaderAsset.h"
 #include "Camera/Camera.h"
 #include "Camera/CameraComponent.h"
 #include "Editor/EditorAction.h"
@@ -982,17 +983,47 @@ std::string TemplateContentFor(const std::string& templateID) {
     if (templateID == "lua")
         return "function update(dt)\nend\n";
     if (templateID == "shader")
-        return "{\n  \"name\": \"NewShader\",\n  \"stages\": []\n}\n";
+        return R"JSON({
+  "type": "Shader",
+  "version": 2,
+  "name": "NewShader",
+  "mode": "Graph",
+  "domain": "Surface",
+  "shadingModel": "Lit",
+  "surfaceType": "Opaque",
+  "properties": [
+    { "id": "surface.baseColor", "name": "Base Color", "type": "Color", "default": [1, 1, 1, 1], "sRGB": true },
+    { "id": "surface.metallic", "name": "Metallic", "type": "Float", "default": 0, "range": [0, 1] },
+    { "id": "surface.roughness", "name": "Roughness", "type": "Float", "default": 0.5, "range": [0.04, 1] }
+  ],
+  "graph": {
+    "version": 1,
+    "nodes": [
+      { "id": 10, "type": "Property", "property": "surface.baseColor", "position": [-360, -120], "pins": [{"id":11,"name":"Out","type":"Any","direction":"Output"}] },
+      { "id": 20, "type": "Property", "property": "surface.metallic", "position": [-360, 20], "pins": [{"id":21,"name":"Out","type":"Any","direction":"Output"}] },
+      { "id": 30, "type": "Property", "property": "surface.roughness", "position": [-360, 150], "pins": [{"id":31,"name":"Out","type":"Any","direction":"Output"}] },
+      { "id": 100, "type": "SurfaceOutputLit", "position": [80, 0], "pins": [
+        {"id":101,"name":"BaseColor","type":"Any","direction":"Input"}, {"id":102,"name":"Normal","type":"Any","direction":"Input"},
+        {"id":103,"name":"Metallic","type":"Any","direction":"Input"}, {"id":104,"name":"Roughness","type":"Any","direction":"Input"},
+        {"id":105,"name":"AmbientOcclusion","type":"Any","direction":"Input"}, {"id":106,"name":"Emissive","type":"Any","direction":"Input"},
+        {"id":107,"name":"Opacity","type":"Any","direction":"Input"}, {"id":108,"name":"AlphaClip","type":"Any","direction":"Input"}
+      ]}
+    ],
+    "links": [
+      {"id":200,"fromNode":10,"fromPin":"Out","fromPinId":11,"toNode":100,"toPin":"BaseColor","toPinId":101},
+      {"id":201,"fromNode":20,"fromPin":"Out","fromPinId":21,"toNode":100,"toPin":"Metallic","toPinId":103},
+      {"id":202,"fromNode":30,"fromPin":"Out","fromPinId":31,"toNode":100,"toPin":"Roughness","toPinId":104}
+    ]
+  }
+})JSON";
     if (templateID == "material" || templateID == "mat") {
         return "{\n"
                "  \"type\": \"Material\",\n"
+               "  \"version\": 2,\n"
                "  \"name\": \"NewMaterial\",\n"
-               "  \"blendMode\": \"Opaque\",\n"
-               "  \"twoSided\": false,\n"
-               "  \"wireframe\": false,\n"
-               "  \"alphaThreshold\": 0.5,\n"
-               "  \"params\": {},\n"
-               "  \"textures\": {}\n"
+               "  \"shader\": \"Content/Engine/Shaders/StandardSurface.shader\",\n"
+               "  \"surface\": {},\n"
+               "  \"overrides\": { \"properties\": {}, \"textures\": {} }\n"
                "}\n";
     }
     if (templateID == "texture" || templateID == "tex")

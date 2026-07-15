@@ -32,8 +32,13 @@ struct KeyEvent {
 
 // ---- Window resize payload ----
 struct ResizeEvent {
+    // Window-coordinate size used by input and UI layout.
     int width = 0;
     int height = 0;
+    // Drawable size used by swapchains and GPU viewports. This can differ
+    // from width/height for SDL_WINDOW_HIGH_PIXEL_DENSITY windows.
+    int pixelWidth = 0;
+    int pixelHeight = 0;
 };
 
 // ---- Mouse button payload ----

@@ -4,6 +4,7 @@
 #include "Game/GameViewport.h"
 #include "Game/SceneViewportController.h"
 #include "Game/RuntimeResourceBudget.h"
+#include "Assets/MaterialAsset.h"
 #include "Renderer/IRenderContext.h"
 #include "Renderer/RenderPath.h"
 #include "UI/Core/UISystem.h"
@@ -25,8 +26,10 @@ public:
     void SetViewportInputEnabled(bool enabled);
     void SetUIInputViewport(const UIInputViewport& viewport);
     void SetSceneViewportUsesSimulationScene(bool enabled);
-    void SetSceneViewportActive(bool active) { m_SceneViewportActive = active; }
-    void SetGameViewportActive(bool active) { m_GameViewportActive = active; }
+    void BeginViewportActivityFrame();
+    void CommitViewportActivityFrame();
+    void SetSceneViewportActive(bool active);
+    void SetGameViewportActive(bool active);
     void SetRenderPath(RenderPath path);
     RenderPath GetRenderPath() const;
     bool IsSceneViewportActive() const { return m_SceneViewportActive; }
@@ -39,6 +42,12 @@ public:
     GpuTextureView* GetSceneColorView() const { return m_Viewport.GetOutputView(); }
     SceneViewport* GetSceneViewport() { return &m_Viewport; }
     const SceneViewport* GetSceneViewport() const { return &m_Viewport; }
+    SceneViewport* GetMaterialPreviewViewport() { return &m_MaterialPreviewViewport; }
+    const SceneViewport* GetMaterialPreviewViewport() const { return &m_MaterialPreviewViewport; }
+    void ConfigureMaterialPreview(const std::string& shaderPath, bool quad);
+    void SetMaterialPreviewActive(bool active);
+    void SetMaterialPreviewRealtime(bool realtime);
+    void InvalidateMaterialPreview();
     GameViewport* GetGameViewport() { return &m_GameViewport; }
     const GameViewport* GetGameViewport() const { return &m_GameViewport; }
 
@@ -85,14 +94,23 @@ private:
     void AdjustRuntimeSetting(const std::string& action);
     IRenderContext* m_RenderContext = nullptr;
     SceneViewport m_Viewport;
+    SceneViewport m_MaterialPreviewViewport;
+    std::unique_ptr<Scene> m_MaterialPreviewScene;
+    MaterialHandle m_MaterialPreviewMaterial;
+    std::string m_MaterialPreviewShaderPath;
+    bool m_MaterialPreviewInitialized = false;
+    bool m_MaterialPreviewQuad = false;
+    bool m_MaterialPreviewActive = false;
+    bool m_MaterialPreviewDirty = false;
+    bool m_MaterialPreviewRealtime = false;
     GameViewport m_GameViewport;
     UISystem m_UISystem;
     UIInputViewport m_UIInputViewport;
     UIDrawList m_UIDrawList;
     bool m_PresentEnabled = true;
     bool m_SceneViewportUsesSimulationScene = false;
-    bool m_SceneViewportActive = true;
-    bool m_GameViewportActive = true;
+    bool m_SceneViewportActive = false;
+    bool m_GameViewportActive = false;
     bool m_RuntimeScreensEnabled = false;
     bool m_ResourceBudgetEnabled = false;
     RuntimeResourceBudgetController m_ResourceBudget;

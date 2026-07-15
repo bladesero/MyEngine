@@ -101,6 +101,8 @@ void SceneViewport::SetViewportRect(int x, int y, int width, int height) {
 }
 
 void SceneViewport::SetInputEnabled(bool enabled) {
+    if (IsInputEnabled() == enabled)
+        return;
     RenderViewport::SetInputEnabled(enabled);
     if (!enabled)
         m_RmbDown = false;

@@ -12,6 +12,7 @@
 #include "Scene/Actor.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstring>
 
 namespace {
@@ -27,6 +28,21 @@ struct GBufferPerDrawConstants {
     float skinInfo[4];
     float normalMatrix[16];
 };
+
+struct GraphGBufferConstants {
+    float viewProj[16];
+    float world[16];
+    float boneMatrices[128][16];
+    float skinInfo[4];
+    float normalMatrix[16];
+    Vec4 values[MaterialSystem::kConstantSlotCount];
+    float graphTime[4];
+};
+
+float GraphElapsedSeconds() {
+    static const auto start = std::chrono::steady_clock::now();
+    return std::chrono::duration<float>(std::chrono::steady_clock::now() - start).count();
+}
 
 void FillColorConstants(float out[4], const MaterialAsset& material, const char* name, const Vec3& fallback,
                         float fallbackAlpha = 1.0f) {
@@ -178,6 +194,28 @@ GpuGraphicsPipeline* GBufferPass::GetOrCreatePipeline(const MaterialAsset& mater
     return pipeline.get();
 }
 
+GpuGraphicsPipeline* GBufferPass::GetOrCreateGraphPipeline(const ResolvedMaterial& material,
+                                                           const std::shared_ptr<ShaderHandle>& shader) {
+    if (!Device() || !shader || !shader->shader)
+        return nullptr;
+    const std::string key = material.shader->GetPath() + ":" + std::to_string(shader->version) + ":" +
+                            std::to_string(material.twoSided ? 1 : 0) + ":" +
+                            std::to_string(material.wireframe ? 1 : 0);
+    auto& pipeline = m_GraphPipelines[key];
+    if (!pipeline) {
+        GraphicsPipelineDesc desc;
+        desc.shader = shader->shader;
+        desc.colorFormats = {RHIFormat::RGBA8UNorm, RHIFormat::RGBA16Float, RHIFormat::RGBA8UNorm,
+                             RHIFormat::RGBA16Float};
+        desc.depthFormat = RHIFormat::D24S8;
+        desc.rasterizer.cullMode = material.twoSided ? RHICullMode::None : RHICullMode::Back;
+        desc.rasterizer.fillMode = material.wireframe ? RHIFillMode::Wireframe : RHIFillMode::Solid;
+        desc.blend.attachments.resize(desc.colorFormats.size());
+        pipeline = Device()->CreateGraphicsPipeline(desc);
+    }
+    return pipeline.get();
+}
+
 void GBufferPass::Execute(GpuCommandList& commands, const Scene& scene, const Camera& camera) {
     if (!Device())
         return;
@@ -197,7 +235,7 @@ void GBufferPass::Execute(GpuCommandList& commands, const Scene& scene, const Ca
         MeshAsset* mesh = item.mesh;
         const SubMesh* subMesh = item.subMesh;
         MaterialAsset* material = item.material;
-        if (!actor || !mesh || !subMesh || !material || material->GetBlendMode() == BlendMode::Transparent) {
+        if (!actor || !mesh || !subMesh || !material) {
             continue;
         }
 
@@ -205,7 +243,21 @@ void GBufferPass::Execute(GpuCommandList& commands, const Scene& scene, const Ca
         if (!mesh->GetVertexBuffer())
             continue;
 
-        GpuGraphicsPipeline* pipeline = GetOrCreatePipeline(*material);
+        const bool hasMaterialContract = material->HasParent() || material->GetShaderAsset().IsValid();
+        ResolvedMaterial resolved;
+        std::shared_ptr<ShaderHandle> graphShader;
+        if (hasMaterialContract) {
+            resolved = m_MaterialSystem.Resolve(*material);
+            if (resolved.valid && resolved.shader->HasPass(ShaderPass::GBuffer)) {
+                graphShader = ShaderManager::Get().GetOrCreatePass(resolved.shader->GetPath(), ShaderPass::GBuffer,
+                                                                   k_MeshVertexLayout, k_MeshVertexLayoutCount);
+            }
+        }
+        const bool useGraph = graphShader && graphShader->shader;
+        const bool errorMaterial = hasMaterialContract && (!resolved.valid || !resolved.shader.IsValid() ||
+                                                           !resolved.shader->HasPass(ShaderPass::GBuffer) || !useGraph);
+        GpuGraphicsPipeline* pipeline =
+            useGraph ? GetOrCreateGraphPipeline(resolved, graphShader) : GetOrCreatePipeline(*material);
         if (!pipeline)
             continue;
         commands.SetGraphicsPipeline(pipeline);
@@ -215,6 +267,42 @@ void GBufferPass::Execute(GpuCommandList& commands, const Scene& scene, const Ca
         Mat4 normalMatrix = Mat4::Identity();
         if (Mat4Invert(world, normalMatrix)) {
             normalMatrix = normalMatrix.Transposed();
+        }
+
+        if (useGraph) {
+            GraphGBufferConstants constants{};
+            std::memcpy(constants.viewProj, viewProj.Data(), sizeof(constants.viewProj));
+            std::memcpy(constants.world, world.Data(), sizeof(constants.world));
+            std::memcpy(constants.normalMatrix, normalMatrix.Data(), sizeof(constants.normalMatrix));
+            std::copy(resolved.constants.begin(), resolved.constants.end(), constants.values);
+            constants.graphTime[0] = GraphElapsedSeconds();
+            const Vec3 cameraPosition = camera.GetPosition();
+            constants.graphTime[1] = cameraPosition.x;
+            constants.graphTime[2] = cameraPosition.y;
+            constants.graphTime[3] = cameraPosition.z;
+            if (item.skin && item.skin->UsesGpuSkinning()) {
+                const auto& matrices = item.skin->GetSkinMatrices();
+                const size_t boneCount = (std::min)(matrices.size(), size_t{128});
+                constants.skinInfo[0] = static_cast<float>(boneCount);
+                for (size_t bone = 0; bone < boneCount; ++bone)
+                    std::memcpy(constants.boneMatrices[bone], matrices[bone].Data(),
+                                sizeof(constants.boneMatrices[bone]));
+            }
+            auto bindings = Device()->CreateBindGroup(graphShader->shader);
+            if (bindings) {
+                MaterialSystem::BindTextures(*bindings, m_ResourceCache, resolved);
+                bindings->SetConstants("GraphPerDraw", &constants, sizeof(constants));
+                commands.SetBindGroup(0, bindings.get());
+            }
+            if (mesh->GetIndexBuffer()) {
+                commands.BindIndexBuffer(mesh->GetIndexBuffer());
+                commands.DrawIndexed(subMesh->indexCount, subMesh->indexOffset,
+                                     static_cast<uint32_t>(subMesh->vertexOffset));
+            } else {
+                commands.BindIndexBuffer(nullptr);
+                commands.Draw(subMesh->indexCount, subMesh->vertexOffset);
+            }
+            continue;
         }
 
         GBufferPerDrawConstants constants{};
@@ -231,6 +319,18 @@ void GBufferPass::Execute(GpuCommandList& commands, const Scene& scene, const Ca
         constants.emissive[1] = emissive.y;
         constants.emissive[2] = emissive.z;
         constants.emissive[3] = material->GetBlendMode() == BlendMode::AlphaTest ? 1.0f : 0.0f;
+        if (errorMaterial) {
+            constants.baseColor[0] = 1.0f;
+            constants.baseColor[1] = 0.0f;
+            constants.baseColor[2] = 1.0f;
+            constants.baseColor[3] = 1.0f;
+            constants.material[0] = 0.0f;
+            constants.material[1] = 0.25f;
+            constants.material[2] = 1.0f;
+            constants.emissive[0] = 1.0f;
+            constants.emissive[1] = 0.0f;
+            constants.emissive[2] = 1.0f;
+        }
 
         auto bindings = Device()->CreateBindGroup(m_ShaderHandle->shader);
         if (bindings) {

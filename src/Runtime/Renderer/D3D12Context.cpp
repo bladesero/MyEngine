@@ -12,6 +12,7 @@
 
 #include <windows.h>
 
+#include <algorithm>
 #include <cstring>
 #include <deque>
 #include <functional>
@@ -1128,8 +1129,8 @@ bool D3D12Context::Init(IWindow* window) {
         return false;
     }
 
-    const uint32_t w = static_cast<uint32_t>(window->GetWidth());
-    const uint32_t h = static_cast<uint32_t>(window->GetHeight());
+    const uint32_t w = static_cast<uint32_t>((std::max)(1, window->GetPixelWidth()));
+    const uint32_t h = static_cast<uint32_t>((std::max)(1, window->GetPixelHeight()));
     m_SwapChainWidth = w;
     m_SwapChainHeight = h;
 
@@ -1747,6 +1748,7 @@ ImGuiBackendHandles D3D12Context::GetImGuiBackendHandles() {
     ImGuiBackendHandles h;
     h.backend = RHIBackend::D3D12;
     h.device = m_Device.Get();
+    h.commandQueue = m_CommandQueue.Get();
     h.framesInFlight = kFrameCount;
     h.srvHeap = m_SrvHeap.Get();
     h.fontSrvCpuHandle = m_FontSrvCpuHandle.ptr;

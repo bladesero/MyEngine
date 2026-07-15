@@ -8,6 +8,7 @@
 #include "Editor/EditorImportService.h"
 #include "Editor/EditorInspectorSection.h"
 #include "Editor/EditorLayoutManager.h"
+#include "Editor/EditorPanel.h"
 #include "Editor/EditorOperators.h"
 #include "Editor/EditorPanels.h"
 #include "Editor/EditorProfiler.h"
@@ -51,6 +52,9 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <imgui.h>
+#include <imgui_internal.h>
+#include <imnodes.h>
 #include <nlohmann/json.hpp>
 #include <sstream>
 #include <thread>
@@ -58,6 +62,20 @@
 #include <vector>
 
 namespace {
+
+class DockResizeTestPanel final : public EditorPanel {
+public:
+    DockResizeTestPanel(std::string id, std::string title, std::string area = {})
+        : EditorPanel(std::move(id), std::move(title)), m_Area(std::move(area)) {}
+
+    std::string GetDefaultDockArea() const override { return m_Area; }
+
+protected:
+    void DrawContent() override { ImGui::TextUnformatted("Dock resize test"); }
+
+private:
+    std::string m_Area;
+};
 
 bool TestEditorCommandStackAndSelection() {
     Scene scene("EditorCommands");
@@ -2484,6 +2502,140 @@ bool TestEditorLayoutConfigAndStatePersistence() {
     return Check(stateMatches, "layout state persistence mismatch");
 }
 
+bool TestEditorDockSpaceAdoptsPersistedRootAndResizesTree() {
+    namespace fs = std::filesystem;
+    constexpr ImGuiID persistedRootID = 0xA0B0C0D0;
+    constexpr ImGuiID leftNodeID = 0xA0B0C0D1;
+    constexpr ImGuiID rightNodeID = 0xA0B0C0D2;
+
+    const auto root =
+        fs::temp_directory_path() /
+        ("myengine_editor_dock_resize_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    fs::create_directories(root);
+
+    EditorProjectState state;
+    state.imguiLayoutIni = "[Window][###dockResizeLeft]\n"
+                           "Pos=0,20\n"
+                           "Size=300,560\n"
+                           "Collapsed=0\n"
+                           "DockId=0xA0B0C0D1,0\n\n"
+                           "[Window][###dockResizeRight]\n"
+                           "Pos=302,20\n"
+                           "Size=498,560\n"
+                           "Collapsed=0\n"
+                           "DockId=0xA0B0C0D2,0\n\n"
+                           "[Docking][Data]\n"
+                           "DockSpace ID=0xA0B0C0D0 Window=0x01020304 Pos=0,20 Size=800,560 Split=X\n"
+                           "  DockNode ID=0xA0B0C0D1 Parent=0xA0B0C0D0 SizeRef=300,560\n"
+                           "  DockNode ID=0xA0B0C0D2 Parent=0xA0B0C0D0 SizeRef=498,560 CentralNode=1\n\n";
+
+    std::vector<std::unique_ptr<EditorPanel>> panels;
+    panels.push_back(std::make_unique<DockResizeTestPanel>("dockResizeLeft", "Left"));
+    panels.push_back(std::make_unique<DockResizeTestPanel>("dockResizeRight", "Right"));
+
+    ImGuiContext* previousContext = ImGui::GetCurrentContext();
+    ImGuiContext* context = ImGui::CreateContext();
+    ImGui::SetCurrentContext(context);
+    ImGuiIO& io = ImGui::GetIO();
+    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+    io.DeltaTime = 1.0f / 60.0f;
+    io.Fonts->AddFontDefault();
+    io.Fonts->Build();
+
+    EditorLayoutManager manager;
+    manager.OpenProject(root, state, panels);
+    const auto drawFrame = [&](float width, float height) {
+        io.DisplaySize = {width, height};
+        ImGui::NewFrame();
+        manager.BeginDockSpace(panels, 20.0f, 20.0f);
+        for (const auto& panel : panels)
+            panel->OnImGui();
+        ImGui::Render();
+    };
+
+    bool passed = true;
+    drawFrame(800.0f, 600.0f);
+    ImGuiDockNode* persistedRoot = ImGui::DockBuilderGetNode(persistedRootID);
+    passed &= Check(persistedRoot && persistedRoot->ChildNodes[0] && persistedRoot->ChildNodes[1],
+                    "persisted dock root was not adopted by the current host");
+
+    drawFrame(1280.0f, 900.0f);
+    persistedRoot = ImGui::DockBuilderGetNode(persistedRootID);
+    passed &= Check(persistedRoot && NearlyEqual(persistedRoot->Size.x, 1280.0f) &&
+                        NearlyEqual(persistedRoot->Size.y, 860.0f),
+                    "persisted dock root did not follow the resized main viewport");
+    if (persistedRoot && persistedRoot->ChildNodes[0] && persistedRoot->ChildNodes[1]) {
+        ImGuiDockNode* left = ImGui::DockBuilderGetNode(leftNodeID);
+        ImGuiDockNode* right = ImGui::DockBuilderGetNode(rightNodeID);
+        passed &= Check(left && right && NearlyEqual(left->Size.y, persistedRoot->Size.y) &&
+                            NearlyEqual(right->Size.y, persistedRoot->Size.y) &&
+                            NearlyEqual(right->Pos.x + right->Size.x, persistedRoot->Pos.x + persistedRoot->Size.x),
+                        "persisted dock child tree remained at its pre-resize bounds");
+    }
+
+    manager.CloseProject();
+    ImGui::DestroyContext(context);
+    ImGui::SetCurrentContext(previousContext);
+    std::error_code ec;
+    fs::remove_all(root, ec);
+    return passed;
+}
+
+bool TestEditorDockSpaceRejectsOrphanedEmptyRoot() {
+    namespace fs = std::filesystem;
+    const auto root =
+        fs::temp_directory_path() /
+        ("myengine_editor_dock_orphan_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    fs::create_directories(root);
+
+    EditorProjectState state;
+    state.imguiLayoutIni = "[Window][###toolbar]\n"
+                           "Pos=0,0\n"
+                           "Size=800,40\n"
+                           "Collapsed=0\n"
+                           "\n"
+                           "[Docking][Data]\n"
+                           "DockSpace ID=0xBAD0F00D Window=0x01020304 Pos=0,0 Size=800,600 CentralNode=1\n\n";
+
+    std::vector<std::unique_ptr<EditorPanel>> panels;
+    panels.push_back(std::make_unique<DockResizeTestPanel>("toolbar", "Toolbar", "top"));
+
+    ImGuiContext* previousContext = ImGui::GetCurrentContext();
+    ImGuiContext* context = ImGui::CreateContext();
+    ImGui::SetCurrentContext(context);
+    ImGuiIO& io = ImGui::GetIO();
+    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+    io.DisplaySize = {1024.0f, 768.0f};
+    io.DeltaTime = 1.0f / 60.0f;
+    io.Fonts->AddFontDefault();
+    io.Fonts->Build();
+
+    EditorLayoutManager manager;
+    manager.OpenProject(root, state, panels);
+    bool passed = Check(manager.GetLastWarning().find("orphaned editor dock layout") != std::string::npos,
+                        "orphaned empty dock root was not rejected");
+
+    ImGui::NewFrame();
+    manager.BeginDockSpace(panels);
+    for (const auto& panel : panels)
+        panel->OnImGui();
+    ImGui::Render();
+
+    const ImGuiID stableRootID = ImHashStr("EditorDockSpace", 0, 0);
+    ImGuiDockNode* stableRoot = ImGui::DockBuilderGetNode(stableRootID);
+    passed &= Check(stableRoot && (stableRoot->ChildNodes[0] || stableRoot->ChildNodes[1]),
+                    "default dock tree was not rebuilt after rejecting orphaned state");
+    passed &= Check(ImGui::DockBuilderGetNode(0xBAD0F00D) == nullptr,
+                    "orphaned empty dock root remained active after fallback");
+
+    manager.CloseProject();
+    ImGui::DestroyContext(context);
+    ImGui::SetCurrentContext(previousContext);
+    std::error_code ec;
+    fs::remove_all(root, ec);
+    return passed;
+}
+
 bool TestEditorProjectAndAssetRegistry() {
     const auto root =
         std::filesystem::temp_directory_path() /
@@ -4628,18 +4780,30 @@ bool TestEditorPerformanceSourceContracts() {
     const std::string sceneLayerHeader = readSource("src/Runtime/Game/SceneRenderLayer.h");
     const std::string sceneLayer = readSource("src/Runtime/Game/SceneRenderLayer.cpp");
     const std::string viewportPanel = readSource("src/Editor/Panels/ViewportPanel.cpp");
+    const std::string shaderGraphPanel = readSource("src/Editor/Panels/ShaderGraphPanel.cpp");
+    const std::string imguiBackend = readSource("src/Editor/EditorImGuiBackend.cpp");
     const std::string hierarchyPanel = readSource("src/Editor/Panels/SceneHierarchyPanel.cpp");
     const std::string shaderWatcher = readSource("src/Editor/EditorShaderWatchService.cpp");
+    const std::string d3d12Header = readSource("src/Runtime/Renderer/D3D12Context.h");
 
     if (!Check(!panelHeader.empty() && !editorLayer.empty() && !assetRegistry.empty() && !assetBrowser.empty() &&
                    !sceneLayerHeader.empty() && !sceneLayer.empty() && !viewportPanel.empty() &&
-                   !hierarchyPanel.empty() && !shaderWatcher.empty(),
+                   !shaderGraphPanel.empty() && !imguiBackend.empty() && !hierarchyPanel.empty() &&
+                   !shaderWatcher.empty() && !d3d12Header.empty(),
                "performance source contract files were not found"))
         return false;
 
     if (!Check(panelHeader.find("ShouldUpdateWhenHidden") != std::string::npos &&
                    editorLayer.find("panel->IsVisible() || panel->ShouldUpdateWhenHidden()") != std::string::npos,
                "hidden panels are not gated during update"))
+        return false;
+    const size_t editorFrameBegin = editorLayer.find("m_RenderContext->BeginFrame");
+    const size_t imguiFrameBegin = editorLayer.find("m_ImGuiBackend->BeginFrame");
+    const size_t editorFrameEnd = editorLayer.find("m_RenderContext->EndFrame");
+    if (!Check(editorFrameBegin != std::string::npos && imguiFrameBegin != std::string::npos &&
+                   editorFrameEnd != std::string::npos && editorFrameBegin < imguiFrameBegin &&
+                   imguiFrameBegin < editorFrameEnd,
+               "ImGui swapchain frame still depends on a viewport renderer"))
         return false;
     if (!Check(assetRegistry.find("BuildDirectorySnapshot") != std::string::npos &&
                    assetRegistry.find("std::vector<EditorAssetInfo> before") == std::string::npos &&
@@ -4651,12 +4815,29 @@ bool TestEditorPerformanceSourceContracts() {
         return false;
     if (!Check(sceneLayerHeader.find("SetSceneViewportActive") != std::string::npos &&
                    sceneLayerHeader.find("SetGameViewportActive") != std::string::npos &&
+                   sceneLayerHeader.find("BeginViewportActivityFrame") != std::string::npos &&
+                   sceneLayerHeader.find("CommitViewportActivityFrame") != std::string::npos &&
                    sceneLayer.find("if (m_SceneViewportActive)") != std::string::npos &&
                    sceneLayer.find("if (m_GameViewportActive)") != std::string::npos &&
-                   editorLayer.find("SetSceneViewportActive(false)") != std::string::npos &&
+                   editorLayer.find("BeginViewportActivityFrame()") != std::string::npos &&
+                   editorLayer.find("CommitViewportActivityFrame()") != std::string::npos &&
                    viewportPanel.find("SetSceneViewportActive(true)") != std::string::npos &&
                    viewportPanel.find("SetGameViewportActive(true)") != std::string::npos,
                "editor viewport rendering is not controlled by active panel state"))
+        return false;
+    if (!Check(sceneLayerHeader.find("m_SceneViewportActive = false") != std::string::npos &&
+                   sceneLayerHeader.find("m_GameViewportActive = false") != std::string::npos &&
+                   sceneLayer.find("m_MaterialPreviewDirty || m_MaterialPreviewRealtime") != std::string::npos &&
+                   shaderGraphPanel.find("SetMaterialPreviewRealtime(m_PreviewRealtime)") != std::string::npos &&
+                   shaderGraphPanel.find("IsVisible() && !m_Path.empty()") == std::string::npos,
+               "preview visibility or dirty-driven scheduling contract regressed"))
+        return false;
+    if (!Check(d3d12Header.find("kDsvDescriptorCount = 128") != std::string::npos,
+               "D3D12 DSV safety capacity regressed"))
+        return false;
+    if (!Check(imguiBackend.find("SDL_WINDOW_OCCLUDED") != std::string::npos &&
+                   imguiBackend.find("RenderRenderablePlatformWindows") != std::string::npos,
+               "occluded ImGui platform viewports can still throttle the editor render loop"))
         return false;
     if (!Check(hierarchyPanel.find("m_SearchMatches") != std::string::npos &&
                    hierarchyPanel.find("RebuildSearchCache") != std::string::npos &&
@@ -5329,7 +5510,52 @@ bool TestEditorRecoveryServiceLifecycle() {
     return Check(clean, "clean shutdown was not persisted: " + error);
 }
 
+bool TestImNodesMatchesImGuiAbiAndDestroysCleanly() {
+    IMGUI_CHECKVERSION();
+    ImGuiContext* imguiContext = ImGui::CreateContext();
+    if (!Check(imguiContext != nullptr, "failed to create ImGui context for imnodes ABI test"))
+        return false;
+
+    ImNodes::SetImGuiContext(imguiContext);
+    ImNodes::CreateContext();
+
+    ImGuiIO& io = ImGui::GetIO();
+    io.DisplaySize = ImVec2(1280.0f, 720.0f);
+    io.DeltaTime = 1.0f / 60.0f;
+    io.Fonts->AddFontDefault();
+    io.Fonts->Build();
+
+    bool emittedDrawData = false;
+    for (int frame = 0; frame < 8; ++frame) {
+        ImGui::NewFrame();
+        ImGui::SetNextWindowSize(ImVec2(640.0f, 480.0f), ImGuiCond_Always);
+        ImGui::Begin("ImNodes ABI Test");
+        ImNodes::BeginNodeEditor();
+        ImNodes::BeginNode(1);
+        ImNodes::BeginNodeTitleBar();
+        ImGui::TextUnformatted("Surface Output");
+        ImNodes::EndNodeTitleBar();
+        ImNodes::BeginInputAttribute(2);
+        ImGui::TextUnformatted("Base Color");
+        ImNodes::EndInputAttribute();
+        ImNodes::EndNode();
+        ImNodes::MiniMap(0.2f, ImNodesMiniMapLocation_BottomRight);
+        ImNodes::EndNodeEditor();
+        ImGui::End();
+        ImGui::Render();
+        emittedDrawData |= ImGui::GetDrawData() && ImGui::GetDrawData()->TotalVtxCount > 0;
+    }
+
+    // The original regression was detected by the CRT here: imnodes compiled
+    // against ImGui 1.91 wrote beyond ImGui 1.92 draw-channel allocations.
+    ImNodes::DestroyContext();
+    ImGui::DestroyContext(imguiContext);
+    return Check(emittedDrawData, "imnodes ABI test did not exercise draw-channel generation");
+}
+
 MYENGINE_REGISTER_TEST("Editor", "TestEditorRecoveryServiceLifecycle", TestEditorRecoveryServiceLifecycle);
+MYENGINE_REGISTER_TEST("Editor", "TestImNodesMatchesImGuiAbiAndDestroysCleanly",
+                       TestImNodesMatchesImGuiAbiAndDestroysCleanly);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorCommandStackAndSelection", TestEditorCommandStackAndSelection);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorOperatorsSelectionAndCommands", TestEditorOperatorsSelectionAndCommands);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorCommandOperatorCreateUIActor", TestEditorCommandOperatorCreateUIActor);
@@ -5359,6 +5585,10 @@ MYENGINE_REGISTER_TEST("Editor", "TestEditorProfilerBufferAndSourceContracts",
                        TestEditorProfilerBufferAndSourceContracts);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorLayoutConfigAndStatePersistence",
                        TestEditorLayoutConfigAndStatePersistence);
+MYENGINE_REGISTER_TEST("Editor", "TestEditorDockSpaceAdoptsPersistedRootAndResizesTree",
+                       TestEditorDockSpaceAdoptsPersistedRootAndResizesTree);
+MYENGINE_REGISTER_TEST("Editor", "TestEditorDockSpaceRejectsOrphanedEmptyRoot",
+                       TestEditorDockSpaceRejectsOrphanedEmptyRoot);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorProjectAndAssetRegistry", TestEditorProjectAndAssetRegistry);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorAssetOperatorCommandsAndWatch", TestEditorAssetOperatorCommandsAndWatch);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorAssetOperatorOpenSceneAsset", TestEditorAssetOperatorOpenSceneAsset);

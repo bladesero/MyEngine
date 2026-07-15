@@ -16,5 +16,6 @@ public:
 private:
     std::vector<std::string> m_Paths;
     std::unordered_map<std::string, std::filesystem::file_time_type> m_Times;
+    std::unordered_map<std::string, std::vector<std::string>> m_Dependents;
     float m_Accumulator = 0;
 };

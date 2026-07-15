@@ -16,11 +16,23 @@ ShaderManager& ShaderManager::Get() {
     return instance;
 }
 
-std::string ShaderManager::MakeKey(const ShaderAsset& asset, const VertexElement* layout, uint32_t count,
-                                   bool compute) const {
+ShaderBackend ShaderManager::GetActiveShaderBackend() const {
+    const RHIBackend backend = m_Device ? m_Device->GetBackend() : RHIBackend::Unknown;
+    if (backend == RHIBackend::D3D12)
+        return ShaderBackend::D3D12;
+    if (backend == RHIBackend::Vulkan)
+        return ShaderBackend::Vulkan;
+    if (backend == RHIBackend::Metal)
+        return ShaderBackend::Metal;
+    return ShaderBackend::D3D11;
+}
+
+std::string ShaderManager::MakeKey(const ShaderAsset& asset, ShaderPass pass, const VertexElement* layout,
+                                   uint32_t count, bool compute) const {
     std::ostringstream out;
     out << asset.GetID() << ':' << asset.GetVersion() << ':'
-        << static_cast<int>(m_Device ? m_Device->GetBackend() : RHIBackend::Unknown) << ':' << compute;
+        << static_cast<int>(m_Device ? m_Device->GetBackend() : RHIBackend::Unknown) << ':' << compute << ':'
+        << static_cast<int>(pass);
     for (uint32_t i = 0; i < count; ++i) {
         out << '|' << layout[i].semantic << ':' << layout[i].index << ':' << static_cast<int>(layout[i].format) << ':'
             << layout[i].offset;
@@ -41,16 +53,20 @@ std::shared_ptr<GpuShader> ShaderManager::CompileRecord(const ShaderRecord& rec)
                    : (activeBackend == RHIBackend::D3D12 ? ShaderBackend::D3D12 : ShaderBackend::D3D11));
     auto createFromCooked = [&](const ShaderAsset& cooked) -> std::shared_ptr<GpuShader> {
         if (rec.compute) {
-            const auto& cs = cooked.GetBytecode(backend, ShaderStage::Compute);
+            const auto& cs = cooked.GetBytecode(backend, rec.pass, ShaderStage::Compute);
             return cs.empty() ? nullptr : m_Device->CreateComputeShaderFromBytecode(cs.data(), cs.size());
         }
-        const auto& vs = cooked.GetBytecode(backend, ShaderStage::Vertex);
-        const auto& ps = cooked.GetBytecode(backend, ShaderStage::Pixel);
+        const auto& vs = cooked.GetBytecode(backend, rec.pass, ShaderStage::Vertex);
+        const auto& ps = cooked.GetBytecode(backend, rec.pass, ShaderStage::Pixel);
         if (vs.empty() || ps.empty())
             return {};
         return m_Device->CreateShaderFromBytecode(vs.data(), vs.size(), ps.data(), ps.size(), rec.layout.data(),
                                                   static_cast<uint32_t>(rec.layout.size()));
     };
+    if (const auto overrideIt = m_CompiledOverrides.find(rec.path);
+        overrideIt != m_CompiledOverrides.end() && overrideIt->second) {
+        return createFromCooked(*overrideIt->second);
+    }
     if (asset.IsCooked()) {
         return createFromCooked(asset);
     }
@@ -81,10 +97,10 @@ std::shared_ptr<GpuShader> ShaderManager::CompileRecord(const ShaderRecord& rec)
         if (rec.compute) {
             std::vector<uint8_t> cs;
             std::string error;
-            const auto& stage = asset.GetStage(ShaderStage::Compute);
-            if (!ShaderCompilerSlang::CompileStageFromFile(asset.ResolveSource(ShaderStage::Compute), stage.entry,
-                                                           ShaderStage::Compute, backend, cs, asset.GetDefines(),
-                                                           &error)) {
+            const auto& stage = asset.GetPassStage(rec.pass, ShaderStage::Compute);
+            if (!ShaderCompilerSlang::CompileStageFromFile(asset.ResolveSource(rec.pass, ShaderStage::Compute),
+                                                           stage.entry, ShaderStage::Compute, backend, cs,
+                                                           asset.GetDefines(), &error)) {
                 Logger::Error("[ShaderManager] ", error);
                 return {};
             }
@@ -92,11 +108,12 @@ std::shared_ptr<GpuShader> ShaderManager::CompileRecord(const ShaderRecord& rec)
         }
         std::vector<uint8_t> vs, ps;
         std::string error;
-        const auto& vsStage = asset.GetStage(ShaderStage::Vertex);
-        const auto& psStage = asset.GetStage(ShaderStage::Pixel);
-        if (!ShaderCompilerSlang::CompileStageFromFile(asset.ResolveSource(ShaderStage::Vertex), vsStage.entry,
-                                                       ShaderStage::Vertex, backend, vs, asset.GetDefines(), &error) ||
-            !ShaderCompilerSlang::CompileStageFromFile(asset.ResolveSource(ShaderStage::Pixel), psStage.entry,
+        const auto& vsStage = asset.GetPassStage(rec.pass, ShaderStage::Vertex);
+        const auto& psStage = asset.GetPassStage(rec.pass, ShaderStage::Pixel);
+        if (!ShaderCompilerSlang::CompileStageFromFile(asset.ResolveSource(rec.pass, ShaderStage::Vertex),
+                                                       vsStage.entry, ShaderStage::Vertex, backend, vs,
+                                                       asset.GetDefines(), &error) ||
+            !ShaderCompilerSlang::CompileStageFromFile(asset.ResolveSource(rec.pass, ShaderStage::Pixel), psStage.entry,
                                                        ShaderStage::Pixel, backend, ps, asset.GetDefines(), &error)) {
             Logger::Error("[ShaderManager] ", error);
             return {};
@@ -111,10 +128,10 @@ std::shared_ptr<GpuShader> ShaderManager::CompileRecord(const ShaderRecord& rec)
             return m_Device->CreateComputeShaderFromBytecode(&dummyBytecode, sizeof(dummyBytecode));
         }
         std::ostringstream source;
-        const auto& vsStage = asset.GetStage(ShaderStage::Vertex);
-        const auto& psStage = asset.GetStage(ShaderStage::Pixel);
+        const auto& vsStage = asset.GetPassStage(rec.pass, ShaderStage::Vertex);
+        const auto& psStage = asset.GetPassStage(rec.pass, ShaderStage::Pixel);
         for (ShaderStage stage : {ShaderStage::Vertex, ShaderStage::Pixel}) {
-            std::ifstream input(asset.ResolveSource(stage), std::ios::binary);
+            std::ifstream input(asset.ResolveSource(rec.pass, stage), std::ios::binary);
             if (input)
                 source << input.rdbuf() << '\n';
         }
@@ -125,28 +142,29 @@ std::shared_ptr<GpuShader> ShaderManager::CompileRecord(const ShaderRecord& rec)
 #ifdef MYENGINE_PLATFORM_WINDOWS
     if (rec.compute) {
         std::vector<unsigned char> cs;
-        const auto& stage = asset.GetStage(ShaderStage::Compute);
+        const auto& stage = asset.GetPassStage(rec.pass, ShaderStage::Compute);
         const char* profile = backend == ShaderBackend::D3D12 ? "cs_5_1" : "cs_5_0";
-        const bool ok =
-            backend == ShaderBackend::D3D12
-                ? ShaderCompilerD3D12::CompileStageFromFile(asset.ResolveSource(ShaderStage::Compute).string(),
-                                                            stage.entry, profile, cs, asset.GetDefines())
-                : ShaderCompilerD3D11::CompileStageFromFile(asset.ResolveSource(ShaderStage::Compute).string(),
-                                                            stage.entry, profile, cs, asset.GetDefines());
+        const bool ok = backend == ShaderBackend::D3D12
+                            ? ShaderCompilerD3D12::CompileStageFromFile(
+                                  asset.ResolveSource(rec.pass, ShaderStage::Compute).string(), stage.entry, profile,
+                                  cs, asset.GetDefines())
+                            : ShaderCompilerD3D11::CompileStageFromFile(
+                                  asset.ResolveSource(rec.pass, ShaderStage::Compute).string(), stage.entry, profile,
+                                  cs, asset.GetDefines());
         return ok ? m_Device->CreateComputeShaderFromBytecode(cs.data(), cs.size()) : nullptr;
     }
-    const auto& vsStage = asset.GetStage(ShaderStage::Vertex);
-    const auto& psStage = asset.GetStage(ShaderStage::Pixel);
+    const auto& vsStage = asset.GetPassStage(rec.pass, ShaderStage::Vertex);
+    const auto& psStage = asset.GetPassStage(rec.pass, ShaderStage::Pixel);
     std::vector<unsigned char> vs, ps;
     const bool ok =
         backend == ShaderBackend::D3D12
-            ? ShaderCompilerD3D12::CompileStageFromFile(asset.ResolveSource(ShaderStage::Vertex).string(),
+            ? ShaderCompilerD3D12::CompileStageFromFile(asset.ResolveSource(rec.pass, ShaderStage::Vertex).string(),
                                                         vsStage.entry, "vs_5_1", vs, asset.GetDefines()) &&
-                  ShaderCompilerD3D12::CompileStageFromFile(asset.ResolveSource(ShaderStage::Pixel).string(),
+                  ShaderCompilerD3D12::CompileStageFromFile(asset.ResolveSource(rec.pass, ShaderStage::Pixel).string(),
                                                             psStage.entry, "ps_5_1", ps, asset.GetDefines())
-            : ShaderCompilerD3D11::CompileStageFromFile(asset.ResolveSource(ShaderStage::Vertex).string(),
+            : ShaderCompilerD3D11::CompileStageFromFile(asset.ResolveSource(rec.pass, ShaderStage::Vertex).string(),
                                                         vsStage.entry, "vs_5_0", vs, asset.GetDefines()) &&
-                  ShaderCompilerD3D11::CompileStageFromFile(asset.ResolveSource(ShaderStage::Pixel).string(),
+                  ShaderCompilerD3D11::CompileStageFromFile(asset.ResolveSource(rec.pass, ShaderStage::Pixel).string(),
                                                             psStage.entry, "ps_5_0", ps, asset.GetDefines());
     return ok ? m_Device->CreateShaderFromBytecode(vs.data(), vs.size(), ps.data(), ps.size(), rec.layout.data(),
                                                    static_cast<uint32_t>(rec.layout.size()))
@@ -156,14 +174,15 @@ std::shared_ptr<GpuShader> ShaderManager::CompileRecord(const ShaderRecord& rec)
 #endif
 }
 
-std::shared_ptr<ShaderHandle> ShaderManager::GetOrCreateInternal(const std::string& path, const VertexElement* layout,
-                                                                 uint32_t count, bool compute) {
+std::shared_ptr<ShaderHandle> ShaderManager::GetOrCreateInternal(const std::string& path, ShaderPass pass,
+                                                                 const VertexElement* layout, uint32_t count,
+                                                                 bool compute) {
     auto asset = AssetManager::Get().Load<ShaderAsset>(path);
-    if (!asset.IsValid() || asset->IsCompute() != compute) {
+    if (!asset.IsValid() || asset->IsCompute() != compute || !asset->HasPass(pass)) {
         Logger::Error("[ShaderManager] Invalid shader asset/type: ", path);
         return {};
     }
-    const std::string key = MakeKey(*asset, layout, count, compute);
+    const std::string key = MakeKey(*asset, pass, layout, count, compute);
     if (auto it = m_KeyToIndex.find(key); it != m_KeyToIndex.end())
         return m_Records[it->second].handle;
     ShaderRecord rec;
@@ -171,6 +190,7 @@ std::shared_ptr<ShaderHandle> ShaderManager::GetOrCreateInternal(const std::stri
     rec.path = path;
     rec.asset = asset;
     rec.compute = compute;
+    rec.pass = pass;
     if (layout && count)
         rec.layout.assign(layout, layout + count);
     rec.handle = std::make_shared<ShaderHandle>();
@@ -187,13 +207,21 @@ std::shared_ptr<ShaderHandle> ShaderManager::GetOrCreateInternal(const std::stri
 
 std::shared_ptr<ShaderHandle> ShaderManager::GetOrCreate(const std::string& path, const VertexElement* layout,
                                                          uint32_t count) {
-    return GetOrCreateInternal(path, layout, count, false);
+    return GetOrCreateInternal(path, ShaderPass::Default, layout, count, false);
+}
+std::shared_ptr<ShaderHandle> ShaderManager::GetOrCreatePass(const std::string& path, ShaderPass pass,
+                                                             const VertexElement* layout, uint32_t count) {
+    return GetOrCreateInternal(path, pass, layout, count, false);
 }
 std::shared_ptr<ShaderHandle> ShaderManager::GetOrCreateCompute(const std::string& path) {
-    return GetOrCreateInternal(path, nullptr, 0, true);
+    return GetOrCreateInternal(path, ShaderPass::Default, nullptr, 0, true);
 }
 
 void ShaderManager::Recompile(const std::string& path) {
+    if (path.empty())
+        m_CompiledOverrides.clear();
+    else
+        m_CompiledOverrides.erase(path);
     if (!path.empty())
         AssetManager::Get().Reload(path);
     for (auto& rec : m_Records) {
@@ -213,8 +241,44 @@ void ShaderManager::Recompile(const std::string& path) {
         ++rec.handle->version;
     }
 }
+
+bool ShaderManager::ApplyCompiledArtifact(const std::string& path, const std::string& cookedArtifactPath,
+                                          std::string* error) {
+    auto cooked = LoadShaderAssetFromFile(cookedArtifactPath);
+    if (!cooked || !cooked->IsCooked()) {
+        if (error)
+            *error = "compiled shader artifact is invalid";
+        return false;
+    }
+
+    const auto previous = m_CompiledOverrides.find(path);
+    std::shared_ptr<ShaderAsset> previousAsset = previous == m_CompiledOverrides.end() ? nullptr : previous->second;
+    m_CompiledOverrides[path] = cooked;
+    std::vector<std::pair<ShaderRecord*, std::shared_ptr<GpuShader>>> replacements;
+    for (auto& record : m_Records) {
+        if (record.path != path)
+            continue;
+        auto shader = CompileRecord(record);
+        if (!shader) {
+            if (previousAsset)
+                m_CompiledOverrides[path] = std::move(previousAsset);
+            else
+                m_CompiledOverrides.erase(path);
+            if (error)
+                *error = "GPU shader creation failed for pass " + std::string(ShaderPassName(record.pass));
+            return false;
+        }
+        replacements.emplace_back(&record, std::move(shader));
+    }
+    for (auto& [record, shader] : replacements) {
+        record->handle->shader = std::move(shader);
+        ++record->handle->version;
+    }
+    return true;
+}
 void ShaderManager::Clear() {
     m_Records.clear();
     m_KeyToIndex.clear();
+    m_CompiledOverrides.clear();
     m_Device = nullptr;
 }

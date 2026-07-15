@@ -31,6 +31,8 @@ public:
     void ReleaseFrameResources();
     void SetRenderPath(RenderPath path);
     RenderPath GetRenderPath() const;
+    void SetFeatureMask(RendererFeatureMask mask);
+    RendererFeatureMask GetFeatureMask() const;
 
     virtual Camera& GetCamera() = 0;
     virtual const Camera& GetCamera() const = 0;

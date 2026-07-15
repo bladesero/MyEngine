@@ -289,6 +289,42 @@ public:
         auto* mat = handle.Get();
         ImGui::Separator();
         ImGui::Text("Material: %s", mat->GetName().c_str());
+        ImGui::Text("Format: v%u%s", mat->GetFormatVersion(),
+                    mat->WasLoadedFromLegacyFormat() ? " (legacy; save migrates to v2)" : "");
+
+        const char* shaderLabel =
+            mat->GetShaderAsset().IsValid() ? mat->GetShaderAsset()->GetPath().c_str() : "(inherited / none)";
+        ImGui::TextWrapped("Shader: %s", shaderLabel);
+        if (ImGui::BeginDragDropTarget()) {
+            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("MYENGINE_ASSET_PATH")) {
+                const std::string dropped(static_cast<const char*>(payload->Data));
+                if (std::filesystem::path(dropped).extension() == ".shader") {
+                    ModifyMaterialAssetField(context, path, "Set Material Shader", [dropped](MaterialAsset& target) {
+                        target.SetShaderAsset(AssetManager::Get().Load<ShaderAsset>(dropped));
+                    });
+                }
+            }
+            ImGui::EndDragDropTarget();
+        }
+        ImGui::TextWrapped("Parent: %s", mat->HasParent() ? mat->GetParentPath().c_str() : "(none)");
+        if (ImGui::BeginDragDropTarget()) {
+            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("MYENGINE_ASSET_PATH")) {
+                const std::string dropped(static_cast<const char*>(payload->Data));
+                if (std::filesystem::path(dropped).extension() == ".mat") {
+                    ModifyMaterialAssetField(context, path, "Set Material Parent", [dropped](MaterialAsset& target) {
+                        target.SetParentPath(AssetManager::Get().MakeProjectRelativePath(dropped));
+                        target.SetSurfaceOverrideMask(0);
+                    });
+                }
+            }
+            ImGui::EndDragDropTarget();
+        }
+        if (mat->HasParent()) {
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Clear Parent"))
+                ModifyMaterialAssetField(context, path, "Clear Material Parent",
+                                         [](MaterialAsset& target) { target.SetParentPath({}); });
+        }
 
         // Blend mode
         int blendMode = static_cast<int>(mat->GetBlendMode());
@@ -322,55 +358,160 @@ public:
                                      [wireframe](MaterialAsset& target) { target.SetWireframe(wireframe); });
         }
 
-        ImGui::Separator();
-        ImGui::TextUnformatted("Parameters");
-
-        // Material parameters
-        std::vector<std::pair<std::string, MaterialParam>> params;
-        params.reserve(mat->GetParams().size());
-        for (const auto& [name, param] : mat->GetParams()) {
-            params.emplace_back(name, param);
+        MaterialSystem materialSystem;
+        const ResolvedMaterial resolved = materialSystem.Resolve(*mat);
+        if (!resolved.valid && (mat->HasParent() || mat->GetShaderAsset().IsValid())) {
+            for (const std::string& diagnostic : resolved.diagnostics)
+                ImGui::TextColored({1.0f, 0.35f, 0.25f, 1.0f}, "%s", diagnostic.c_str());
         }
-        for (const auto& [name, param] : params) {
-            ImGui::PushID(name.c_str());
-            switch (param.type) {
-            case MaterialParam::Type::Float: {
-                float v = param.data[0];
-                if (ImGui::DragFloat(name.c_str(), &v, 0.01f)) {
-                    ModifyMaterialAssetField(context, path, "Set Material Parameter", [name, v](MaterialAsset& target) {
-                        target.SetParam(name, MaterialParam::FromFloat(v));
-                    });
+
+        ImGui::Separator();
+        ImGui::TextUnformatted("Shader Properties");
+
+        if (resolved.shader.IsValid()) {
+            for (const ShaderPropertyDesc& property : resolved.shader->GetProperties()) {
+                ImGui::PushID(property.id.c_str());
+                const bool legacyLocal = mat->WasLoadedFromLegacyFormat() && mat->HasParam(property.name);
+                bool overridden = property.type == ShaderPropertyType::Texture2D
+                                      ? mat->HasTexture(property.id) ||
+                                            (mat->WasLoadedFromLegacyFormat() && mat->HasTexture(property.name))
+                                      : mat->HasParam(property.id) || legacyLocal;
+                bool toggled = overridden;
+                if (ImGui::Checkbox("##override", &toggled)) {
+                    const TextureHandle inheritedTexture = resolved.FindTexture(property.id);
+                    const MaterialParam inheritedValue = resolved.FindProperty(property.id)
+                                                             ? *resolved.FindProperty(property.id)
+                                                             : MaterialSystem::DefaultValue(property);
+                    if (property.type == ShaderPropertyType::Texture2D) {
+                        ModifyMaterialAssetField(
+                            context, path, toggled ? "Enable Material Override" : "Restore Inherited Material Value",
+                            [id = property.id, legacyName = property.name, toggled,
+                             inheritedTexture](MaterialAsset& target) {
+                                if (toggled)
+                                    target.SetTexture(id, inheritedTexture);
+                                else {
+                                    target.RemoveTexture(id);
+                                    target.RemoveTexture(legacyName);
+                                }
+                            });
+                    } else {
+                        ModifyMaterialAssetField(
+                            context, path, toggled ? "Enable Material Override" : "Restore Inherited Material Value",
+                            [id = property.id, legacyName = property.name, toggled,
+                             inheritedValue](MaterialAsset& target) {
+                                if (toggled)
+                                    target.SetParam(id, inheritedValue);
+                                else {
+                                    target.RemoveParam(id);
+                                    target.RemoveParam(legacyName);
+                                }
+                            });
+                    }
                 }
-                break;
-            }
-            case MaterialParam::Type::Vec3: {
-                Vec3 v(param.data[0], param.data[1], param.data[2]);
-                if (DrawVec3(name.c_str(), v, 0.01f)) {
-                    ModifyMaterialAssetField(context, path, "Set Material Parameter", [name, v](MaterialAsset& target) {
-                        target.SetParam(name, MaterialParam::FromVec3(v.x, v.y, v.z));
-                    });
+                ImGui::SameLine();
+                if (property.type == ShaderPropertyType::Texture2D) {
+                    TextureHandle value =
+                        overridden ? mat->GetTexture(mat->HasTexture(property.id) ? property.id : property.name)
+                                   : resolved.FindTexture(property.id);
+                    ImGui::Text("%s: %s", property.name.c_str(), value.IsValid() ? value->GetPath().c_str() : "(none)");
+                    if (ImGui::BeginDragDropTarget()) {
+                        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kTexturePayload)) {
+                            const std::string dropped(static_cast<const char*>(payload->Data));
+                            ModifyMaterialAssetField(context, path, "Set Material Texture",
+                                                     [id = property.id, dropped](MaterialAsset& target) {
+                                                         target.SetTexture(
+                                                             id, AssetManager::Get().Load<TextureAsset>(dropped));
+                                                     });
+                        }
+                        ImGui::EndDragDropTarget();
+                    }
+                } else {
+                    const MaterialParam* inherited = resolved.FindProperty(property.id);
+                    MaterialParam value =
+                        overridden ? mat->GetParam(mat->HasParam(property.id) ? property.id : property.name,
+                                                   inherited ? *inherited : MaterialSystem::DefaultValue(property))
+                                   : (inherited ? *inherited : MaterialSystem::DefaultValue(property));
+                    if (!overridden)
+                        ImGui::BeginDisabled();
+                    bool changed = false;
+                    if (property.type == ShaderPropertyType::Float) {
+                        changed = property.hasRange ? ImGui::SliderFloat(property.name.c_str(), &value.data[0],
+                                                                         property.minValue, property.maxValue)
+                                                    : ImGui::DragFloat(property.name.c_str(), &value.data[0], 0.01f);
+                    } else if (property.type == ShaderPropertyType::Bool) {
+                        bool checked = value.data[0] > 0.5f;
+                        changed = ImGui::Checkbox(property.name.c_str(), &checked);
+                        value.data[0] = checked ? 1.0f : 0.0f;
+                    } else if (property.type == ShaderPropertyType::Vec2) {
+                        changed = ImGui::DragFloat2(property.name.c_str(), value.data, 0.01f);
+                    } else if (property.type == ShaderPropertyType::Vec3) {
+                        changed = ImGui::DragFloat3(property.name.c_str(), value.data, 0.01f);
+                    } else if (property.type == ShaderPropertyType::Color) {
+                        changed = ImGui::ColorEdit4(property.name.c_str(), value.data);
+                    }
+                    if (!overridden)
+                        ImGui::EndDisabled();
+                    if (changed && overridden)
+                        ModifyMaterialAssetField(
+                            context, path, "Set Material Property",
+                            [id = property.id, value](MaterialAsset& target) { target.SetParam(id, value); });
                 }
-                break;
+                ImGui::PopID();
             }
-            case MaterialParam::Type::Vec4: {
-                float data[4] = {param.data[0], param.data[1], param.data[2], param.data[3]};
-                if (ImGui::ColorEdit4(name.c_str(), data)) {
-                    const float x = data[0];
-                    const float y = data[1];
-                    const float z = data[2];
-                    const float w = data[3];
-                    ModifyMaterialAssetField(context, path, "Set Material Parameter",
-                                             [name, x, y, z, w](MaterialAsset& target) {
-                                                 target.SetParam(name, MaterialParam::FromVec4(x, y, z, w));
-                                             });
+        }
+
+        if (!resolved.shader.IsValid()) {
+            ImGui::Separator();
+            ImGui::TextUnformatted("Legacy Parameters");
+
+            // Material parameters
+            std::vector<std::pair<std::string, MaterialParam>> params;
+            params.reserve(mat->GetParams().size());
+            for (const auto& [name, param] : mat->GetParams()) {
+                params.emplace_back(name, param);
+            }
+            for (const auto& [name, param] : params) {
+                ImGui::PushID(name.c_str());
+                switch (param.type) {
+                case MaterialParam::Type::Float: {
+                    float v = param.data[0];
+                    if (ImGui::DragFloat(name.c_str(), &v, 0.01f)) {
+                        ModifyMaterialAssetField(
+                            context, path, "Set Material Parameter",
+                            [name, v](MaterialAsset& target) { target.SetParam(name, MaterialParam::FromFloat(v)); });
+                    }
+                    break;
                 }
-                break;
+                case MaterialParam::Type::Vec3: {
+                    Vec3 v(param.data[0], param.data[1], param.data[2]);
+                    if (DrawVec3(name.c_str(), v, 0.01f)) {
+                        ModifyMaterialAssetField(context, path, "Set Material Parameter",
+                                                 [name, v](MaterialAsset& target) {
+                                                     target.SetParam(name, MaterialParam::FromVec3(v.x, v.y, v.z));
+                                                 });
+                    }
+                    break;
+                }
+                case MaterialParam::Type::Vec4: {
+                    float data[4] = {param.data[0], param.data[1], param.data[2], param.data[3]};
+                    if (ImGui::ColorEdit4(name.c_str(), data)) {
+                        const float x = data[0];
+                        const float y = data[1];
+                        const float z = data[2];
+                        const float w = data[3];
+                        ModifyMaterialAssetField(context, path, "Set Material Parameter",
+                                                 [name, x, y, z, w](MaterialAsset& target) {
+                                                     target.SetParam(name, MaterialParam::FromVec4(x, y, z, w));
+                                                 });
+                    }
+                    break;
+                }
+                default:
+                    ImGui::Text("%s: (unsupported type)", name.c_str());
+                    break;
+                }
+                ImGui::PopID();
             }
-            default:
-                ImGui::Text("%s: (unsupported type)", name.c_str());
-                break;
-            }
-            ImGui::PopID();
         }
 
         ImGui::Separator();
@@ -397,6 +538,47 @@ public:
         }
 
         ImGui::PopID();
+    }
+};
+
+class ShaderAssetInspectorSection final : public AssetInspectorSection {
+public:
+    ShaderAssetInspectorSection() : AssetInspectorSection(EditorAssetType::Shader) {}
+    const char* GetID() const override { return "shaderAsset"; }
+    int GetOrder() const override { return -5; }
+    void Draw(EditorContext& context) override {
+        const std::string& path = context.GetSelection().GetAssetPath();
+        auto shader = LoadShaderAssetFromFile(path);
+        DrawAssetMetadataHeader(context, path, "Shader");
+        if (!shader) {
+            ImGui::TextDisabled("Shader failed to load");
+            return;
+        }
+        ImGui::Text("Mode: %s", shader->IsGraph() ? "Graph" : "Code");
+        ImGui::Text("Domain: %s", shader->GetDomain() == ShaderDomain::Surface   ? "Surface"
+                                  : shader->GetDomain() == ShaderDomain::Compute ? "Compute"
+                                                                                 : "Graphics");
+        if (shader->IsGraph())
+            ImGui::Text("Surface: %s / %s", shader->GetShadingModel() == ShaderShadingModel::Lit ? "Lit" : "Unlit",
+                        shader->GetSurfaceType() == ShaderSurfaceType::Transparent ? "Transparent"
+                        : shader->GetSurfaceType() == ShaderSurfaceType::Masked    ? "Masked"
+                                                                                   : "Opaque");
+        ImGui::SeparatorText("Generated Passes");
+        for (uint32_t value = 0; value < static_cast<uint32_t>(ShaderPass::Count); ++value)
+            if (shader->HasPass(static_cast<ShaderPass>(value)))
+                ImGui::BulletText("%s", ShaderPassName(static_cast<ShaderPass>(value)));
+        ImGui::SeparatorText("Properties");
+        for (const auto& property : shader->GetProperties())
+            ImGui::BulletText("%s  [%s]  id=%s", property.name.c_str(), ShaderPropertyTypeName(property.type),
+                              property.id.c_str());
+        ImGui::SeparatorText("Diagnostics");
+        for (const auto& diagnostic : shader->GetDiagnostics())
+            ImGui::TextColored(diagnostic.severity == ShaderGraphDiagnostic::Severity::Error ? ImVec4(1, .3f, .2f, 1)
+                                                                                             : ImVec4(1, .8f, .2f, 1),
+                               "[%llu] %s", static_cast<unsigned long long>(diagnostic.nodeId),
+                               diagnostic.message.c_str());
+        if (shader->IsGraph() && ImGui::Button("Open Shader Graph"))
+            context.RequestPanelFocus("shaderGraph");
     }
 };
 
@@ -588,15 +770,7 @@ public:
 std::shared_ptr<MaterialAsset> CloneMaterial(const MaterialAsset& source) {
     auto result = std::make_shared<MaterialAsset>(source.GetPath());
     result->SetName(source.GetName());
-    result->SetBlendMode(source.GetBlendMode());
-    result->SetTwoSided(source.IsTwoSided());
-    result->SetWireframe(source.IsWireframe());
-    result->SetAlphaThreshold(source.GetAlphaThreshold());
-    for (const auto& [name, value] : source.GetParams())
-        result->SetParam(name, value);
-    for (const auto& [slot, texture] : source.GetTextures())
-        result->SetTexture(slot, texture);
-    result->MarkReady();
+    result->ReloadFrom(source);
     return result;
 }
 
@@ -607,6 +781,7 @@ void RegisterAssetSceneInspectorSections(std::vector<std::unique_ptr<EditorInspe
     sections.push_back(std::make_unique<ModelAssetInspectorSection>());
     sections.push_back(std::make_unique<PrefabAssetInspectorSection>());
     sections.push_back(std::make_unique<MaterialAssetInspectorSection>());
+    sections.push_back(std::make_unique<ShaderAssetInspectorSection>());
     sections.push_back(std::make_unique<TextureAssetInspectorSection>());
     sections.push_back(std::make_unique<AudioAssetInspectorSection>());
     sections.push_back(std::make_unique<GenericAssetInspectorSection>());

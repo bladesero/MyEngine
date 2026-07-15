@@ -7,12 +7,16 @@
 #include "Scene/Actor.h"
 #include "Scene/MeshRendererComponent.h"
 #include "Renderer/ParticleSystemComponent.h"
+#include "Renderer/MaterialSystem.h"
 #include "Scene/Scene.h"
 
 #include <algorithm>
+#include <unordered_map>
 
 SceneRenderCollection SceneRenderCollector::Collect(const Scene& scene, const Camera& camera) const {
     SceneRenderCollection collection;
+    MaterialSystem materialSystem;
+    std::unordered_map<MaterialAsset*, BlendMode> resolvedBlendModes;
 
     auto addRenderItem = [&](Actor& actor, MeshAsset* mesh, const SubMesh& subMesh, uint32_t subMeshIndex,
                              MaterialAsset* material, SkinnedMeshRendererComponent* skin) {
@@ -27,7 +31,19 @@ SceneRenderCollection SceneRenderCollector::Collect(const Scene& scene, const Ca
         item.skin = skin;
         item.distanceSq = (actor.GetWorldPosition() - camera.GetPosition()).LengthSq();
         ++collection.submittedSubMeshes;
-        if (material->GetBlendMode() == BlendMode::Transparent) {
+        BlendMode blendMode = material->GetBlendMode();
+        const auto cachedBlendMode = resolvedBlendModes.find(material);
+        if (cachedBlendMode != resolvedBlendModes.end()) {
+            blendMode = cachedBlendMode->second;
+        } else {
+            if (material->HasParent() || material->GetShaderAsset().IsValid()) {
+                const ResolvedMaterial resolved = materialSystem.Resolve(*material);
+                if (resolved.valid)
+                    blendMode = resolved.blendMode;
+            }
+            resolvedBlendModes.emplace(material, blendMode);
+        }
+        if (blendMode == BlendMode::Transparent) {
             collection.transparentItems.push_back(item);
         } else {
             collection.opaqueItems.push_back(item);

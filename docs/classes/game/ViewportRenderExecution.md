@@ -14,6 +14,8 @@ RHI services for a single render submission.
 - Render either to the swapchain for Player or to offscreen scene color for
   Editor viewport panels.
 - Expose the viewport output view through `GetOutputView()`.
+- Forward each viewport's `RendererFeatureMask`, allowing specialized runtime
+  previews to omit optional passes without introducing an Editor renderer.
 
 `SceneViewport` and `GameViewport` each own their own `ViewportRenderExecution`.
 `SceneRenderLayer` schedules those viewport renders but no longer owns separate

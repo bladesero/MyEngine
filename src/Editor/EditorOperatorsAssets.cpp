@@ -381,6 +381,16 @@ bool EditorAssetOperator::OpenAsset(EditorContext& context, const std::string& p
                                  "type=Scene");
         return false;
     }
+    if (type == EditorAssetType::Shader) {
+        auto shader = LoadShaderAssetFromFile(assetPath.string());
+        if (shader && shader->IsGraph()) {
+            EditorSelectionOperator{}.SelectAsset(context, assetPath.string());
+            context.RequestPanelFocus("shaderGraph");
+            RecordAssetOperatorEvent(context, "Open Asset", assetPath.string(), ElapsedOperatorMs(start), true,
+                                     "type=ShaderGraph");
+            return true;
+        }
+    }
     if (IsTextLikeAsset(assetPath, type) && OpenExternalFile(assetPath)) {
         RecordAssetOperatorEvent(context, "Open Asset", assetPath.string(), ElapsedOperatorMs(start), true,
                                  "type=ExternalText");

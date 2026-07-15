@@ -24,6 +24,8 @@ public:
     GpuTextureView* GetOutputView() const;
     void SetRenderPath(RenderPath path);
     RenderPath GetRenderPath() const;
+    void SetFeatureMask(RendererFeatureMask mask);
+    RendererFeatureMask GetFeatureMask() const;
 
 private:
     void SetCommandViewport(const RenderViewport& viewport, bool presentToSwapchain);
