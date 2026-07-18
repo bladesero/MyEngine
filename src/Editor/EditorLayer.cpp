@@ -259,6 +259,7 @@ bool EditorLayer::OpenProject(const std::filesystem::path& root) {
     LoadProjectInputConfig();
     if (m_SceneLayer) {
         m_SceneLayer->SetRenderPath(RenderPathFromProjectValue(projectConfig.GetGraphicsSettings().renderPath));
+        m_SceneLayer->SetDeviceProfile(projectConfig.GetGraphicsSettings().deviceProfile);
     }
     m_Context.SetProjectRoot(m_Project.GetRoot());
     m_Context.SetProfiler(&m_Profiler);
@@ -269,6 +270,11 @@ bool EditorLayer::OpenProject(const std::filesystem::path& root) {
     RegisterPanels();
     m_LayoutManager.OpenProject(m_Project.GetRoot(), m_Project.GetState(), m_Panels);
     m_ProjectOpen = true;
+    // Give the persisted/default dock tree one complete presented frame to
+    // attach and settle before an active scene viewport can enter
+    // synchronous first-use shader compilation. Otherwise that compilation
+    // can leave the dock host's transient empty frame on screen for seconds.
+    m_ViewportActivationDelayFrames = 1;
     std::string recoveryError;
     if (!m_RecoveryService.OpenProject(m_Project.GetRoot(), &recoveryError)) {
         Logger::Warn("[EditorRecovery] ", recoveryError);
@@ -1490,6 +1496,13 @@ void EditorLayer::OnRender() {
         DrawProjectSettings();
         DrawProjectResult();
         DrawRecoveryDialog();
+
+        if (m_SceneLayer && m_ViewportActivationDelayFrames > 0) {
+            m_SceneLayer->SetSceneViewportActive(false);
+            m_SceneLayer->SetGameViewportActive(false);
+            m_SceneLayer->SetMaterialPreviewActive(false);
+            --m_ViewportActivationDelayFrames;
+        }
     } else {
         DrawProjectSelector();
     }

@@ -1,8 +1,15 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 
 struct RendererFrameStats {
+    float renderSubmissionCpuMs = 0.0f;
+    float renderGraphBuildCpuMs = 0.0f;
+    float renderGraphExecuteCpuMs = 0.0f;
+    float renderGraphPrepareCpuMs = 0.0f;
+    float frameWaitCpuMs = 0.0f;
+    float presentCpuMs = 0.0f;
     float shadowCpuMs = 0.0f;
     float mainCpuMs = 0.0f;
     float ssaoCpuMs = 0.0f;
@@ -25,6 +32,21 @@ struct RendererFrameStats {
     uint64_t renderGraphPooledBytes = 0, renderGraphPoolEvictedBytes = 0;
     uint32_t transientResources = 0, transientDescriptors = 0, renderGraphPoolEvictions = 0;
     bool transientBudgetExceeded = false;
+    uint64_t gpuSceneUploadBytes = 0;
+    float gpuScenePrepareCpuMs = 0.0f;
+    uint32_t gpuSceneMaterialResolves = 0;
+    uint32_t gpuSceneMaterialCacheHits = 0;
+    uint32_t gpuSceneTexturedMaterials = 0;
+    uint32_t gpuSceneCandidates = 0;
+    uint32_t gpuFrustumVisible = 0;
+    uint32_t gpuHiZOccluded = 0;
+    uint32_t indirectDrawCount = 0;
+    uint32_t clusterCount = 0;
+    uint32_t clusterOverflow = 0;
+    uint32_t localLightCount = 0;
+    uint32_t bindlessResourcesUsed = 0;
+    uint32_t bindlessResourcesCapacity = 0;
+    std::string historyResetReason;
 };
 
 struct RuntimeResourceFrameStats {

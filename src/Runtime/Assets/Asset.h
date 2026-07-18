@@ -130,6 +130,7 @@ protected:
           m_State(AssetState::Unloaded) {}
 
     void SetState(AssetState s) { m_State = s; }
+    void IncrementVersion() { ++m_Version; }
 
 private:
     friend class AssetManager;
@@ -137,8 +138,6 @@ private:
         m_ID = id;
         m_Uuid = std::move(uuid);
     }
-    void IncrementVersion() { ++m_Version; }
-
     std::shared_ptr<uint8_t> m_LifetimeToken = std::make_shared<uint8_t>(0);
     void SetDependencies(std::vector<AssetID> dependencies) { m_Dependencies = std::move(dependencies); }
 

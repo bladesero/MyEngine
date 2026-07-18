@@ -247,7 +247,9 @@ AssetImportReport AssetImportService::ImportSourceInternal(const std::filesystem
         previous = *existing;
     if (existing && existing->sourceHash == cacheKey && std::filesystem::is_regular_file(existing->artifactPath)) {
         report = {true, true, *existing};
-        RefreshValidation();
+        // A content-addressed cache hit does not mutate the database. Full project validation walks every record and
+        // was being repeated once per shader during startup; validation still runs when the project opens, after a
+        // successful mutation, and when explicitly requested from the Editor.
         return report;
     }
     const auto stagingArtifact = std::filesystem::path(artifact.string() + ".import-staging");

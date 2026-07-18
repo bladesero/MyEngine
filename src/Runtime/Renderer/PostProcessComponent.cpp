@@ -54,6 +54,22 @@ void PostProcessComponent::SetSSAOScale(float scale) {
     m_SSAOScale = scale <= 0.75f ? 0.5f : 1.0f;
 }
 
+void PostProcessComponent::SetSSGIIntensity(float intensity) {
+    m_SSGIIntensity = std::clamp(intensity, 0.0f, 4.0f);
+}
+
+void PostProcessComponent::SetSSGIMaxDistance(float distance) {
+    m_SSGIMaxDistance = std::clamp(distance, 0.1f, 100.0f);
+}
+
+void PostProcessComponent::SetSSRMaxRoughness(float roughness) {
+    m_SSRMaxRoughness = std::clamp(roughness, 0.0f, 1.0f);
+}
+
+void PostProcessComponent::SetTAAHistoryWeight(float weight) {
+    m_TAAHistoryWeight = std::clamp(weight, 0.0f, 0.99f);
+}
+
 void PostProcessComponent::Serialize(nlohmann::json& data) const {
     data["toneMapping"] = m_ToneMapping;
     data["exposure"] = m_Exposure;
@@ -70,6 +86,13 @@ void PostProcessComponent::Serialize(nlohmann::json& data) const {
     data["ssaoPower"] = m_SSAOPower;
     data["ssaoIntensity"] = m_SSAOIntensity;
     data["ssaoScale"] = m_SSAOScale;
+    data["ssgiEnabled"] = m_SSGIEnabled;
+    data["ssgiIntensity"] = m_SSGIIntensity;
+    data["ssgiMaxDistance"] = m_SSGIMaxDistance;
+    data["ssrEnabled"] = m_SSREnabled;
+    data["ssrMaxRoughness"] = m_SSRMaxRoughness;
+    data["taaEnabled"] = m_TAAEnabled;
+    data["taaHistoryWeight"] = m_TAAHistoryWeight;
 }
 
 void PostProcessComponent::Deserialize(const nlohmann::json& data) {
@@ -88,4 +111,11 @@ void PostProcessComponent::Deserialize(const nlohmann::json& data) {
     SetSSAOPower(data.value("ssaoPower", 1.5f));
     SetSSAOIntensity(data.value("ssaoIntensity", 0.0f));
     SetSSAOScale(data.value("ssaoScale", 1.0f));
+    SetSSGIEnabled(data.value("ssgiEnabled", true));
+    SetSSGIIntensity(data.value("ssgiIntensity", 1.0f));
+    SetSSGIMaxDistance(data.value("ssgiMaxDistance", 10.0f));
+    SetSSREnabled(data.value("ssrEnabled", true));
+    SetSSRMaxRoughness(data.value("ssrMaxRoughness", 0.8f));
+    SetTAAEnabled(data.value("taaEnabled", true));
+    SetTAAHistoryWeight(data.value("taaHistoryWeight", 0.9f));
 }

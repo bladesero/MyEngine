@@ -317,6 +317,13 @@ bool TestSceneSerializationRegression() {
     post->SetSSAOBias(0.04f);
     post->SetSSAOPower(2.2f);
     post->SetSSAOIntensity(0.75f);
+    post->SetSSGIEnabled(false);
+    post->SetSSGIIntensity(1.7f);
+    post->SetSSGIMaxDistance(24.0f);
+    post->SetSSREnabled(false);
+    post->SetSSRMaxRoughness(0.62f);
+    post->SetTAAEnabled(false);
+    post->SetTAAHistoryWeight(0.84f);
 
     const std::string json = SceneSerializer::SaveToString(scene);
 
@@ -368,12 +375,16 @@ bool TestSceneSerializationRegression() {
     auto* loadedPost = loadedParent->GetComponent<PostProcessComponent>();
     if (!Check(loadedPost, "PostProcess missing after deserialize"))
         return false;
-    if (!Check(!loadedPost->IsToneMappingEnabled() && NearlyEqual(loadedPost->GetExposure(), 1.4f) &&
-                   NearlyEqual(loadedPost->GetGamma(), 2.0f) &&
-                   NearlyEqual(loadedPost->GetAntiAliasingStrength(), 0.6f) &&
-                   NearlyEqual(loadedPost->GetSSAORadius(), 2.4f) && NearlyEqual(loadedPost->GetSSAOBias(), 0.04f) &&
-                   NearlyEqual(loadedPost->GetSSAOPower(), 2.2f) && NearlyEqual(loadedPost->GetSSAOIntensity(), 0.75f),
-               "PostProcess fields mismatch after deserialize"))
+    if (!Check(
+            !loadedPost->IsToneMappingEnabled() && NearlyEqual(loadedPost->GetExposure(), 1.4f) &&
+                NearlyEqual(loadedPost->GetGamma(), 2.0f) && NearlyEqual(loadedPost->GetAntiAliasingStrength(), 0.6f) &&
+                NearlyEqual(loadedPost->GetSSAORadius(), 2.4f) && NearlyEqual(loadedPost->GetSSAOBias(), 0.04f) &&
+                NearlyEqual(loadedPost->GetSSAOPower(), 2.2f) && NearlyEqual(loadedPost->GetSSAOIntensity(), 0.75f) &&
+                !loadedPost->IsSSGIEnabled() && NearlyEqual(loadedPost->GetSSGIIntensity(), 1.7f) &&
+                NearlyEqual(loadedPost->GetSSGIMaxDistance(), 24.0f) && !loadedPost->IsSSREnabled() &&
+                NearlyEqual(loadedPost->GetSSRMaxRoughness(), 0.62f) && !loadedPost->IsTAAEnabled() &&
+                NearlyEqual(loadedPost->GetTAAHistoryWeight(), 0.84f),
+            "PostProcess fields mismatch after deserialize"))
         return false;
 
     return true;

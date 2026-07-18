@@ -51,6 +51,23 @@ public:
     float GetSSAOScale() const { return m_SSAOScale; }
     void SetSSAOScale(float scale);
 
+    bool IsSSGIEnabled() const { return m_SSGIEnabled; }
+    void SetSSGIEnabled(bool enabled) { m_SSGIEnabled = enabled; }
+    float GetSSGIIntensity() const { return m_SSGIIntensity; }
+    void SetSSGIIntensity(float intensity);
+    float GetSSGIMaxDistance() const { return m_SSGIMaxDistance; }
+    void SetSSGIMaxDistance(float distance);
+
+    bool IsSSREnabled() const { return m_SSREnabled; }
+    void SetSSREnabled(bool enabled) { m_SSREnabled = enabled; }
+    float GetSSRMaxRoughness() const { return m_SSRMaxRoughness; }
+    void SetSSRMaxRoughness(float roughness);
+
+    bool IsTAAEnabled() const { return m_TAAEnabled; }
+    void SetTAAEnabled(bool enabled) { m_TAAEnabled = enabled; }
+    float GetTAAHistoryWeight() const { return m_TAAHistoryWeight; }
+    void SetTAAHistoryWeight(float weight);
+
     void Serialize(nlohmann::json& data) const override;
     void Deserialize(const nlohmann::json& data) override;
 
@@ -70,4 +87,11 @@ private:
     float m_SSAOPower = 1.5f;
     float m_SSAOIntensity = 0.0f;
     float m_SSAOScale = 1.0f;
+    bool m_SSGIEnabled = true;
+    float m_SSGIIntensity = 1.0f;
+    float m_SSGIMaxDistance = 10.0f;
+    bool m_SSREnabled = true;
+    float m_SSRMaxRoughness = 0.8f;
+    bool m_TAAEnabled = true;
+    float m_TAAHistoryWeight = 0.9f;
 };

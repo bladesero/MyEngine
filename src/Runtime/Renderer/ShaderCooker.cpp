@@ -7,10 +7,14 @@
 #include "Renderer/ShaderCompilerD3D12.h"
 #include "Renderer/ShaderCompilerSlang.h"
 #include "Renderer/ShaderGraphCompiler.h"
+#include "Renderer/RHI/ShaderReflection.h"
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <fstream>
+#include <functional>
+#include <thread>
 #include <unordered_set>
 
 namespace fs = std::filesystem;
@@ -26,6 +30,17 @@ bool IsWithin(const fs::path& path, const fs::path& parent) {
     const fs::path relative = fs::relative(path, parent, ec);
     return !ec && !relative.empty() && !relative.is_absolute() && relative.begin() != relative.end() &&
            *relative.begin() != "..";
+}
+
+std::string CookTemporarySuffix() {
+    const auto now = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+    const auto thread = std::hash<std::thread::id>{}(std::this_thread::get_id());
+    return std::to_string(now) + "." + std::to_string(thread);
+}
+
+bool IsModernOnlyShader(const fs::path& source) {
+    const std::string stem = source.stem().string();
+    return stem.rfind("Modern", 0) == 0 || stem.rfind("Cluster", 0) == 0;
 }
 
 bool ValidateShaderIncludes(const fs::path& source, const fs::path& allowedRoot,
@@ -90,10 +105,11 @@ bool ValidateShaderIncludes(const fs::path& source, const fs::path& allowedRoot,
 
 bool CompileShaderStageForBackend(const fs::path& hlsl, const ShaderStageSource& sourceStage, ShaderStage stage,
                                   ShaderBackend backend, const std::vector<std::string>& defines,
-                                  std::vector<uint8_t>& outBlob, std::string* error) {
-    if (backend == ShaderBackend::Metal || backend == ShaderBackend::Vulkan) {
+                                  std::vector<uint8_t>& outBlob, CookedShaderStageReflection* reflection,
+                                  std::string* error) {
+    if (backend == ShaderBackend::D3D12 || backend == ShaderBackend::Metal || backend == ShaderBackend::Vulkan) {
         return ShaderCompilerSlang::CompileStageFromFile(hlsl, sourceStage.entry, stage, backend, outBlob, defines,
-                                                         error);
+                                                         error, reflection);
     }
 
 #ifdef MYENGINE_PLATFORM_WINDOWS
@@ -109,6 +125,22 @@ bool CompileShaderStageForBackend(const fs::path& hlsl, const ShaderStageSource&
                                                                         profiles11[stageIndex], fallback, defines);
         if (ok) {
             outBlob.assign(fallback.begin(), fallback.end());
+            if (reflection) {
+                ShaderReflection nativeReflection;
+                std::string reflectionError;
+                if (!ReflectDxbcStage(outBlob.data(), outBlob.size(),
+                                      static_cast<uint8_t>(1u << static_cast<uint32_t>(stage)), nativeReflection,
+                                      &reflectionError)) {
+                    SetError(error, reflectionError);
+                    return false;
+                }
+                reflection->bindings.clear();
+                for (const auto& native : nativeReflection.bindings) {
+                    reflection->bindings.push_back({native.name, static_cast<CookedShaderBindingType>(native.type),
+                                                    native.bindPoint, native.bindSpace, native.bindCount,
+                                                    native.byteSize});
+                }
+            }
             return true;
         }
     }
@@ -222,7 +254,8 @@ std::string BuildCacheKey(const fs::path& source, const fs::path& allowedRoot,
     if (outDependencies)
         *outDependencies = dependencies;
 
-    const bool usesSlang = std::find(backends.begin(), backends.end(), ShaderBackend::Metal) != backends.end() ||
+    const bool usesSlang = std::find(backends.begin(), backends.end(), ShaderBackend::D3D12) != backends.end() ||
+                           std::find(backends.begin(), backends.end(), ShaderBackend::Metal) != backends.end() ||
                            std::find(backends.begin(), backends.end(), ShaderBackend::Vulkan) != backends.end();
 
     Sha256 cacheKey;
@@ -231,10 +264,12 @@ std::string BuildCacheKey(const fs::path& source, const fs::path& allowedRoot,
             ? ShaderGraphCompiler::BuildCanonicalKey(description->GetGraph(), description->GetProperties(),
                                                      description->GetShadingModel(), description->GetSurfaceType())
             : std::string{};
-    const std::string cookerContract = std::string(RuntimeCompatibility::kBuildId) + "|shader-cooker-v4|" +
-                                       (usesSlang ? ShaderCompilerSlang::GetVersionString() : "fxc") + "|" +
-                                       std::to_string(description->GetSourceHash()) + "|" + targetPlatform + "|" +
-                                       settingsJson + "|" + graphContract;
+    // Reflection is part of the cooked shader ABI. Bump this contract whenever the Slang reflection mapping changes;
+    // otherwise an unchanged HLSL file can keep an older artifact with missing or mis-typed resource bindings.
+    const std::string cookerContract =
+        std::string(RuntimeCompatibility::kBuildId) + "|shader-cooker-v5-stablepublish1-objectdraw2-materialsampler1|" +
+        (usesSlang ? ShaderCompilerSlang::GetVersionString() : "fxc") + "|" +
+        std::to_string(description->GetSourceHash()) + "|" + targetPlatform + "|" + settingsJson + "|" + graphContract;
     cacheKey.Update(cookerContract.data(), cookerContract.size());
     for (ShaderBackend backend : backends) {
         const std::string backendText = std::to_string(static_cast<int>(backend));
@@ -277,10 +312,30 @@ ShaderCookResult Cook(const ShaderCookRequest& request, std::string* error) {
         if (auto cached = LoadShaderAssetFromFile(request.artifactPath.string());
             cached && cached->IsCooked() && cached->GetStageMask() == description->GetStageMask() &&
             cached->GetPassMask() == description->GetPassMask() &&
-            cached->GetSourceHash() == description->GetSourceHash()) {
-            result.succeeded = true;
-            result.cacheHit = true;
-            return result;
+            cached->GetSourceHash() == description->GetSourceHash() &&
+            cached->GetCookedShaderAbiVersion() == ShaderAsset::kCookedShaderAbiVersion) {
+            bool complete = true;
+            for (ShaderBackend backend : backends) {
+                for (size_t passIndex = 0; passIndex < static_cast<size_t>(ShaderPass::Count); ++passIndex) {
+                    const auto pass = static_cast<ShaderPass>(passIndex);
+                    if (!description->HasPass(pass))
+                        continue;
+                    if (description->IsCompute()) {
+                        complete &= !cached->GetBytecode(backend, pass, ShaderStage::Compute).empty();
+                    } else {
+                        complete &= !cached->GetBytecode(backend, pass, ShaderStage::Vertex).empty();
+                        complete &= !cached->GetBytecode(backend, pass, ShaderStage::Pixel).empty();
+                    }
+                }
+            }
+            if (!complete)
+                cached.reset();
+
+            if (cached) {
+                result.succeeded = true;
+                result.cacheHit = true;
+                return result;
+            }
         }
     }
 
@@ -293,6 +348,8 @@ ShaderCookResult Cook(const ShaderCookRequest& request, std::string* error) {
     }
     constexpr size_t passCount = static_cast<size_t>(ShaderPass::Count);
     std::array<std::array<std::array<std::vector<uint8_t>, kShaderStageCount>, passCount>, kShaderBackendCount> blobs{};
+    CookedShaderReflectionTable reflection{};
+    const bool modernOnly = IsModernOnlyShader(request.sourcePath);
     for (size_t passIndex = 0; passIndex < passCount; ++passIndex) {
         const auto pass = static_cast<ShaderPass>(passIndex);
         if (!description->HasPass(pass))
@@ -319,7 +376,8 @@ ShaderCookResult Cook(const ShaderCookRequest& request, std::string* error) {
                 return result;
             }
             generatedPath = request.artifactPath.parent_path() /
-                            (request.artifactPath.stem().string() + "." + ShaderPassName(pass) + ".generated.hlsl");
+                            (request.artifactPath.stem().string() + "." + ShaderPassName(pass) + "." +
+                             CookTemporarySuffix() + ".generated.hlsl");
             {
                 std::ofstream generatedFile(generatedPath, std::ios::binary | std::ios::trunc);
                 generatedFile.write(generated.hlsl.data(), static_cast<std::streamsize>(generated.hlsl.size()));
@@ -344,8 +402,12 @@ ShaderCookResult Cook(const ShaderCookRequest& request, std::string* error) {
                 continue;
             const fs::path hlsl = description->IsGraph() ? generatedPath : description->ResolveSource(pass, stage);
             for (ShaderBackend backend : backends) {
+                if (modernOnly && backend != ShaderBackend::D3D12 && backend != ShaderBackend::Vulkan)
+                    continue;
                 if (!CompileShaderStageForBackend(hlsl, sourceStage, stage, backend, description->GetDefines(),
-                                                  blobs[static_cast<size_t>(backend)][passIndex][stageIndex], error)) {
+                                                  blobs[static_cast<size_t>(backend)][passIndex][stageIndex],
+                                                  &reflection[static_cast<size_t>(backend)][passIndex][stageIndex],
+                                                  error)) {
                     if (!generatedPath.empty())
                         fs::remove(generatedPath, ec);
                     if (error && error->empty())
@@ -362,7 +424,7 @@ ShaderCookResult Cook(const ShaderCookRequest& request, std::string* error) {
     ShaderAsset cooked(request.artifactPath.string());
     cooked.SetCookedPasses(description->GetPassMask(), description->GetSourceHash(), description->GetSourceMode(),
                            description->GetDomain(), description->GetShadingModel(), description->GetSurfaceType(),
-                           description->GetProperties(), std::move(blobs));
+                           description->GetProperties(), std::move(blobs), std::move(reflection));
     result.succeeded = SaveCookedShaderAsset(cooked, request.artifactPath, error);
     if (!result.succeeded) {
         result.diagnostics.push_back({"error", error ? *error : "failed writing shader artifact"});

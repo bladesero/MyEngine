@@ -324,7 +324,7 @@ void DeferredLightingPass::Execute(GpuCommandList& commands, const Scene&, const
     bindings->SetSampler("g_LinearSampler", m_LinearSampler);
     bindings->SetSampler("g_PointSampler", m_PointSampler);
     bindings->SetSampler("g_ShadowSampler", m_ShadowSampler);
-    if (!bindings->SetStorageBuffer("g_EnvironmentSH2", m_EnvironmentSH2Buffer) && !m_LoggedMissingEnvironmentSH) {
+    if (!bindings->SetBuffer("g_EnvironmentSH2", m_EnvironmentSH2Buffer) && !m_LoggedMissingEnvironmentSH) {
         Logger::Error("[DeferredLightingPass] Failed to bind g_EnvironmentSH2");
         m_LoggedMissingEnvironmentSH = true;
     }

@@ -2,6 +2,7 @@
 
 #include "Project/PublishTargets.h"
 #include "Project/FormatVersions.h"
+#include "Project/GraphicsDeviceProfile.h"
 
 #include <filesystem>
 #include <string>
@@ -17,8 +18,15 @@ struct ProjectInputSettings {
 };
 
 struct ProjectGraphicsSettings {
-    std::string backend = "d3d11";
-    std::string renderPath = "forward";
+#if defined(_WIN32)
+    std::string backend = "d3d12";
+#elif defined(__APPLE__)
+    std::string backend = "metal";
+#else
+    std::string backend = "vulkan";
+#endif
+    std::string renderPath = "deferred";
+    GraphicsDeviceProfile deviceProfile = GraphicsDeviceProfile::Desktop;
 };
 
 class ProjectConfig {
@@ -54,6 +62,7 @@ public:
     void SetName(std::string name) { m_Name = std::move(name); }
     static bool IsSupportedGraphicsBackend(std::string_view backend);
     static bool IsSupportedRenderPath(std::string_view renderPath);
+    static bool IsSupportedDeviceProfile(std::string_view deviceProfile);
 
 private:
     static void SetError(std::string* error, std::string message);

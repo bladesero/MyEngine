@@ -1,8 +1,11 @@
 #include "Core/TransactionalFileWriter.h"
 
 #include <atomic>
+#include <cerrno>
 #include <cstdio>
+#include <functional>
 #include <system_error>
+#include <thread>
 
 #if defined(_WIN32)
 #include <Windows.h>
@@ -36,9 +39,19 @@ bool FlushFile(FILE* file) {
 }
 bool ReplaceFile(const fs::path& temporary, const fs::path& destination, std::string* error) {
 #if defined(_WIN32)
-    if (MoveFileExW(temporary.c_str(), destination.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
-        return true;
-    SetError(error, "atomic replace failed with Win32 error " + std::to_string(GetLastError()));
+    DWORD replaceError = ERROR_SUCCESS;
+    for (uint32_t attempt = 0; attempt < 48; ++attempt) {
+        if (MoveFileExW(temporary.c_str(), destination.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+            return true;
+        replaceError = GetLastError();
+        if (replaceError != ERROR_SHARING_VIOLATION && replaceError != ERROR_ACCESS_DENIED)
+            break;
+        // Virus scanners and another cache reader can briefly hold a just-created artifact. Preserve the atomic
+        // replace contract while allowing that transient Windows handle to drain.
+        Sleep(attempt < 6 ? (1u << attempt) : 50u);
+    }
+    SetError(error, "atomic replace failed from '" + temporary.string() + "' to '" + destination.string() +
+                        "' with Win32 error " + std::to_string(replaceError));
     return false;
 #else
     if (::rename(temporary.c_str(), destination.c_str()) == 0)
@@ -72,17 +85,30 @@ bool TransactionalFileWriter::WriteText(const fs::path& destination, std::string
         SetError(error, "failed to create destination directory: " + ec.message());
         return false;
     }
-    const fs::path temporary = destination.string() + ".tmp." + std::to_string(++g_Sequence);
+    fs::path temporary = destination;
+#if defined(_WIN32)
+    temporary += L".tmp." + std::to_wstring(GetCurrentProcessId()) + L"." + std::to_wstring(GetCurrentThreadId()) +
+                 L"." + std::to_wstring(++g_Sequence);
+#else
+    temporary += ".tmp." + std::to_string(getpid()) + "." +
+                 std::to_string(std::hash<std::thread::id>{}(std::this_thread::get_id())) + "." +
+                 std::to_string(++g_Sequence);
+#endif
     const fs::path backup = destination.string() + ".bak";
     FILE* file = nullptr;
+    int openError = 0;
 #if defined(_WIN32)
-    if (_wfopen_s(&file, temporary.c_str(), L"wb") != 0)
+    openError = _wfopen_s(&file, temporary.c_str(), L"wb");
+    if (openError != 0)
         file = nullptr;
 #else
     file = std::fopen(temporary.c_str(), "wb");
+    if (!file)
+        openError = errno;
 #endif
     if (!file) {
-        SetError(error, "failed to open transaction temporary file");
+        SetError(error, "failed to open transaction temporary file '" + temporary.string() +
+                            "': " + std::error_code(openError, std::generic_category()).message());
         return false;
     }
     const bool wrote = text.empty() || std::fwrite(text.data(), 1, text.size(), file) == text.size();

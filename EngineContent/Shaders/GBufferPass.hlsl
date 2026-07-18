@@ -2,11 +2,14 @@ cbuffer PerDraw : register(b0)
 {
     row_major float4x4 g_ViewProj;
     row_major float4x4 g_World;
+    row_major float4x4 g_PreviousViewProj;
+    row_major float4x4 g_PreviousWorld;
     float4 g_BaseColor;
     float4 g_Material;
     float4 g_Emissive;
     float4 g_MapFlags;
     row_major float4x4 g_BoneMatrices[128];
+    row_major float4x4 g_PreviousBoneMatrices[128];
     float4 g_SkinInfo;
     row_major float4x4 g_NormalMatrix;
 };
@@ -40,6 +43,8 @@ struct VSOut
     float3 tangentW : TANGENT;
     float2 uv       : TEXCOORD0;
     float4 color    : COLOR0;
+    float4 currentClip : TEXCOORD1;
+    float4 previousClip : TEXCOORD2;
 };
 
 struct PSOut
@@ -48,12 +53,14 @@ struct PSOut
     float4 normal   : SV_Target1;
     float4 material : SV_Target2;
     float4 emissive : SV_Target3;
+    float2 velocity : SV_Target4;
 };
 
 VSOut VSMain(VSIn v)
 {
     VSOut o;
     float4 localPosition = float4(v.pos, 1.0f);
+    float4 previousLocalPosition = localPosition;
     float3 localNormal = v.normal;
     float3 localTangent = v.tangent;
     if (g_SkinInfo.x > 0.5f) {
@@ -63,12 +70,20 @@ VSOut VSMain(VSIn v)
             g_BoneMatrices[(uint)v.joints.z] * v.weights.z +
             g_BoneMatrices[(uint)v.joints.w] * v.weights.w;
         localPosition = mul(localPosition, skin);
+        row_major float4x4 previousSkin =
+            g_PreviousBoneMatrices[(uint)v.joints.x] * v.weights.x +
+            g_PreviousBoneMatrices[(uint)v.joints.y] * v.weights.y +
+            g_PreviousBoneMatrices[(uint)v.joints.z] * v.weights.z +
+            g_PreviousBoneMatrices[(uint)v.joints.w] * v.weights.w;
+        previousLocalPosition = mul(previousLocalPosition, previousSkin);
         localNormal = mul(float4(localNormal, 0.0f), skin).xyz;
         localTangent = mul(float4(localTangent, 0.0f), skin).xyz;
     }
 
     float4 worldPos = mul(localPosition, g_World);
     o.pos = mul(worldPos, g_ViewProj);
+    o.currentClip = o.pos;
+    o.previousClip = mul(mul(previousLocalPosition, g_PreviousWorld), g_PreviousViewProj);
     o.normalW = normalize(mul(float4(localNormal, 0.0f), g_NormalMatrix).xyz);
     o.tangentW = mul(float4(localTangent, 0.0f), g_NormalMatrix).xyz;
     o.uv = v.uv;
@@ -116,5 +131,8 @@ PSOut PSMain(VSOut p)
     o.normal = float4(N * 0.5f + 0.5f, 1.0f);
     o.material = float4(metallic, roughness, ao, 0.0f);
     o.emissive = float4(emissive, g_Emissive.w);
+    float2 currentNdc = p.currentClip.xy / max(abs(p.currentClip.w), 1e-5f);
+    float2 previousNdc = p.previousClip.xy / max(abs(p.previousClip.w), 1e-5f);
+    o.velocity = (currentNdc - previousNdc) * float2(0.5f, -0.5f);
     return o;
 }

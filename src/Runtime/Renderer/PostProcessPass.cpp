@@ -18,6 +18,7 @@ struct PostProcessConstants {
     float params[4];
     float params2[4];
     float screenSize[4];
+    float params3[4];
 };
 struct SSAOConstants {
     float projection[16];
@@ -223,8 +224,10 @@ bool PostProcessPass::EnsureResources() {
                 pipeline.depthStencil.depthTestEnable = false;
                 pipeline.depthStencil.depthWriteEnable = false;
                 pipeline.rasterizer.cullMode = RHICullMode::None;
+                const RHIBackend backend = device->GetBackend();
                 const RHIFormat backbufferFormat =
-                    device->GetBackend() == RHIBackend::Metal ? RHIFormat::BGRA8UNorm : RHIFormat::RGBA8UNorm;
+                    backend == RHIBackend::Metal || backend == RHIBackend::Vulkan ? RHIFormat::BGRA8UNorm
+                                                                                 : RHIFormat::RGBA8UNorm;
                 pipeline.shader = m_FXAAShader;
                 pipeline.colorFormats = {backbufferFormat};
                 m_FXAABackbufferPipeline = device->CreateGraphicsPipeline(pipeline);
@@ -241,6 +244,7 @@ bool PostProcessPass::EnsureResources() {
                     m_BlurVersion = m_BlurHandle->version;
                 }
                 m_FXAAVersion = m_FXAAHandle->version;
+                m_LoggedCompositeBindingFailure = false;
             }
             return resourcesComplete();
         }
@@ -359,8 +363,10 @@ bool PostProcessPass::EnsureResources() {
     pipeline.depthStencil.depthTestEnable = false;
     pipeline.depthStencil.depthWriteEnable = false;
     pipeline.rasterizer.cullMode = RHICullMode::None;
+    const RHIBackend backend = device->GetBackend();
     const RHIFormat backbufferFormat =
-        device->GetBackend() == RHIBackend::Metal ? RHIFormat::BGRA8UNorm : RHIFormat::RGBA8UNorm;
+        backend == RHIBackend::Metal || backend == RHIBackend::Vulkan ? RHIFormat::BGRA8UNorm
+                                                                     : RHIFormat::RGBA8UNorm;
     pipeline.shader = m_FXAAShader;
     pipeline.colorFormats = {backbufferFormat};
     m_FXAABackbufferPipeline = device->CreateGraphicsPipeline(pipeline);
@@ -557,7 +563,14 @@ void PostProcessPass::EndOffscreenAndComposite(GpuCommandList& commands, const S
     } else {
         auto bindings = Device()->CreateBindGroup(m_FXAAShader);
         PostProcessConstants constants = CollectPostProcessParams(scene, m_Width, m_Height);
-        bindings->SetConstants("PostProcessParams", &constants, sizeof(constants));
+        constants.params3[0] = m_InputPreprocessed ? 1.0f : 0.0f;
+        if (!bindings || !bindings->SetConstants("PostProcessParams", &constants, sizeof(constants))) {
+            if (!m_LoggedCompositeBindingFailure) {
+                Logger::Error("[PostProcessPass] PostProcessParams does not match shader reflection");
+                m_LoggedCompositeBindingFailure = true;
+            }
+            return;
+        }
         bindings->SetTexture("g_SceneColor", m_SceneColorSrv);
         bindings->SetSampler("g_Sampler", m_LinearClamp);
         bindings->SetTexture("g_SSAOMap", m_SSAOSrv ? m_SSAOSrv : m_SceneColorSrv);
@@ -578,7 +591,14 @@ void PostProcessPass::DrawCompositeOffscreen(GpuCommandList& commands, const Sce
     if (!bindings || !sceneColorView)
         return;
     PostProcessConstants constants = CollectPostProcessParams(scene, m_Width, m_Height);
-    bindings->SetConstants("PostProcessParams", &constants, sizeof(constants));
+    constants.params3[0] = m_InputPreprocessed ? 1.0f : 0.0f;
+    if (!bindings->SetConstants("PostProcessParams", &constants, sizeof(constants))) {
+        if (!m_LoggedCompositeBindingFailure) {
+            Logger::Error("[PostProcessPass] PostProcessParams does not match shader reflection");
+            m_LoggedCompositeBindingFailure = true;
+        }
+        return;
+    }
     bindings->SetTexture("g_SceneColor", std::shared_ptr<GpuTextureView>(sceneColorView, [](GpuTextureView*) {}));
     bindings->SetSampler("g_Sampler", m_LinearClamp);
     bindings->SetTexture(
@@ -614,7 +634,14 @@ void PostProcessPass::DrawCompositeToCurrentTarget(GpuCommandList& commands, con
     if (!bindings || !sceneColorView)
         return;
     PostProcessConstants constants = CollectPostProcessParams(scene, m_Width, m_Height);
-    bindings->SetConstants("PostProcessParams", &constants, sizeof(constants));
+    constants.params3[0] = m_InputPreprocessed ? 1.0f : 0.0f;
+    if (!bindings->SetConstants("PostProcessParams", &constants, sizeof(constants))) {
+        if (!m_LoggedCompositeBindingFailure) {
+            Logger::Error("[PostProcessPass] PostProcessParams does not match shader reflection");
+            m_LoggedCompositeBindingFailure = true;
+        }
+        return;
+    }
     bindings->SetTexture("g_SceneColor", std::shared_ptr<GpuTextureView>(sceneColorView, [](GpuTextureView*) {}));
     bindings->SetSampler("g_Sampler", m_LinearClamp);
     bindings->SetTexture(

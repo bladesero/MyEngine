@@ -5,7 +5,7 @@
 // Persistent compatibility contract. Increment only together with a migration
 // or an explicit rejection test for the preceding published version.
 namespace FormatVersions {
-inline constexpr int Project = 1;
+inline constexpr int Project = 2;
 inline constexpr int Scene = 1;
 inline constexpr uint32_t Prefab = 1;
 inline constexpr uint32_t AssetDatabase = 1;
@@ -19,5 +19,5 @@ inline constexpr uint32_t RuntimeUIScreenConfig = 1;
 inline constexpr uint32_t InputGlyphAtlas = 1;
 inline constexpr int ContentArchive = 2;
 inline constexpr uint32_t ShaderDescription = 1;
-inline constexpr uint32_t CookedShader = 3;
+inline constexpr uint32_t CookedShader = 5;
 } // namespace FormatVersions

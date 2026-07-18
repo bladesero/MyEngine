@@ -85,7 +85,10 @@ function Assert-PlayerRuns([string]$Package, [string]$Backend, [string]$Scene = 
         if (Test-Path -LiteralPath $performanceReport) {
             Remove-Item -LiteralPath $performanceReport -Force
         }
-        $arguments += @("--performance-report", $performanceReport,
+        # Performance acceptance must not inherit the desktop's refresh cadence. Combining VSync with the
+        # engine's 60 Hz limiter can alternate short and long frames even when GPU work is well below budget.
+        $arguments += @("--vsync", "off",
+                        "--performance-report", $performanceReport,
                         "--performance-warmup-frames", $performanceWarmup,
                         "--performance-min-samples", $performanceMinimum)
     }

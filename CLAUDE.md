@@ -36,6 +36,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\clang-format.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File tools\clang-format.ps1 -Fix
 ```
 
+Preview repository-local temporary/intermediate cleanup, then explicitly apply it:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\clean-workspace.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\clean-workspace.ps1 -Apply
+# Optional: also remove build outputs and generated performance/visual reports.
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\clean-workspace.ps1 -Apply -IncludeBuildArtifacts -IncludeGeneratedReports
+```
+
 Repository text uses UTF-8 with LF line endings. C++ formatting follows the root
 `.clang-format`; editors should also honor `.editorconfig`.
 - **Configure and build** (from repo root):

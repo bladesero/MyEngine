@@ -14,6 +14,33 @@ enum class ShaderBackend : uint8_t { D3D11 = 0, D3D12 = 1, Metal = 2, Vulkan = 3
 inline constexpr size_t kShaderBackendCount = 4;
 inline constexpr size_t kShaderStageCount = 3;
 
+enum class CookedShaderBindingType : uint8_t {
+    ConstantBuffer,
+    Texture,
+    Sampler,
+    StructuredBuffer,
+    StorageBuffer,
+    StorageTexture
+};
+
+struct CookedShaderBinding {
+    std::string name;
+    CookedShaderBindingType type = CookedShaderBindingType::Texture;
+    uint32_t bindPoint = 0;
+    uint32_t bindSpace = 0;
+    uint32_t bindCount = 1;
+    uint32_t byteSize = 0;
+};
+
+struct CookedShaderStageReflection {
+    std::vector<CookedShaderBinding> bindings;
+    uint32_t threadGroupSize[3] = {1, 1, 1};
+};
+
+using CookedShaderReflectionTable = std::array<
+    std::array<std::array<CookedShaderStageReflection, kShaderStageCount>, static_cast<size_t>(ShaderPass::Count)>,
+    kShaderBackendCount>;
+
 struct ShaderStageSource {
     std::string source;
     std::string entry;
@@ -23,7 +50,9 @@ class ShaderAsset final : public Asset {
 public:
     static constexpr uint32_t kDescriptionVersion = 2;
     static constexpr uint32_t kLegacyDescriptionVersion = 1;
-    static constexpr uint32_t kCookedFormatVersion = 4;
+    static constexpr uint32_t kCookedFormatVersion = 5;
+    static constexpr uint32_t kCookedFormatVersionWithReflection = 5;
+    static constexpr uint32_t kCookedShaderAbiVersion = 5;
     static constexpr uint32_t kCookedFormatVersionWithPasses = 4;
     static constexpr uint32_t kCookedFormatVersionWithVulkan = 3;
     static constexpr uint32_t kCookedFormatVersionWithMetal = 2;
@@ -62,6 +91,10 @@ public:
     const std::vector<uint8_t>& GetBytecode(ShaderBackend backend, ShaderPass pass, ShaderStage stage) const {
         return m_Bytecode[static_cast<size_t>(backend)][static_cast<size_t>(pass)][static_cast<size_t>(stage)];
     }
+    uint32_t GetCookedShaderAbiVersion() const { return m_CookedShaderAbiVersion; }
+    const CookedShaderStageReflection& GetReflection(ShaderBackend backend, ShaderPass pass, ShaderStage stage) const {
+        return m_Reflection[static_cast<size_t>(backend)][static_cast<size_t>(pass)][static_cast<size_t>(stage)];
+    }
     std::filesystem::path ResolveSource(ShaderStage stage) const;
     std::filesystem::path ResolveSource(ShaderPass pass, ShaderStage stage) const;
 
@@ -84,7 +117,8 @@ public:
         std::array<
             std::array<std::array<std::vector<uint8_t>, kShaderStageCount>, static_cast<size_t>(ShaderPass::Count)>,
             kShaderBackendCount>
-            bytecode);
+            bytecode,
+        CookedShaderReflectionTable reflection = {}, uint32_t abiVersion = kCookedShaderAbiVersion);
     void MarkReady() { SetState(AssetState::Ready); }
     bool ReloadFrom(const Asset& source) override;
 
@@ -97,6 +131,7 @@ private:
     uint32_t m_StageMask = 0;
     uint32_t m_PassMask = 0;
     uint64_t m_SourceHash = 0;
+    uint32_t m_CookedShaderAbiVersion = 0;
     std::array<std::array<ShaderStageSource, kShaderStageCount>, static_cast<size_t>(ShaderPass::Count)>
         m_PassSources{};
     std::vector<std::string> m_Defines;
@@ -106,6 +141,7 @@ private:
     std::array<std::array<std::array<std::vector<uint8_t>, kShaderStageCount>, static_cast<size_t>(ShaderPass::Count)>,
                kShaderBackendCount>
         m_Bytecode{};
+    CookedShaderReflectionTable m_Reflection{};
 };
 
 using ShaderAssetHandle = AssetHandle<ShaderAsset>;

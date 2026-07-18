@@ -387,6 +387,34 @@ TypeDescriptor PostProcessType() {
         d, "ssaoScale", 1.0f,
         [](const Component& c) { return static_cast<const PostProcessComponent&>(c).GetSSAOScale(); },
         [](Component& c, float v) { static_cast<PostProcessComponent&>(c).SetSSAOScale(v); });
+    AddBool(
+        d, "ssgiEnabled", true,
+        [](const Component& c) { return static_cast<const PostProcessComponent&>(c).IsSSGIEnabled(); },
+        [](Component& c, bool v) { static_cast<PostProcessComponent&>(c).SetSSGIEnabled(v); });
+    AddFloat(
+        d, "ssgiIntensity", 1.0f,
+        [](const Component& c) { return static_cast<const PostProcessComponent&>(c).GetSSGIIntensity(); },
+        [](Component& c, float v) { static_cast<PostProcessComponent&>(c).SetSSGIIntensity(v); });
+    AddFloat(
+        d, "ssgiMaxDistance", 10.0f,
+        [](const Component& c) { return static_cast<const PostProcessComponent&>(c).GetSSGIMaxDistance(); },
+        [](Component& c, float v) { static_cast<PostProcessComponent&>(c).SetSSGIMaxDistance(v); });
+    AddBool(
+        d, "ssrEnabled", true,
+        [](const Component& c) { return static_cast<const PostProcessComponent&>(c).IsSSREnabled(); },
+        [](Component& c, bool v) { static_cast<PostProcessComponent&>(c).SetSSREnabled(v); });
+    AddFloat(
+        d, "ssrMaxRoughness", 0.8f,
+        [](const Component& c) { return static_cast<const PostProcessComponent&>(c).GetSSRMaxRoughness(); },
+        [](Component& c, float v) { static_cast<PostProcessComponent&>(c).SetSSRMaxRoughness(v); });
+    AddBool(
+        d, "taaEnabled", true,
+        [](const Component& c) { return static_cast<const PostProcessComponent&>(c).IsTAAEnabled(); },
+        [](Component& c, bool v) { static_cast<PostProcessComponent&>(c).SetTAAEnabled(v); });
+    AddFloat(
+        d, "taaHistoryWeight", 0.9f,
+        [](const Component& c) { return static_cast<const PostProcessComponent&>(c).GetTAAHistoryWeight(); },
+        [](Component& c, float v) { static_cast<PostProcessComponent&>(c).SetTAAHistoryWeight(v); });
     return d;
 }
 TypeDescriptor AudioSourceType() {

@@ -79,12 +79,18 @@ public:
     virtual void SetIndexBuffer(GpuBuffer* buffer) { BindIndexBuffer(buffer); }
     virtual void SetScissor(int32_t, int32_t, uint32_t, uint32_t) {}
     virtual void Dispatch(uint32_t, uint32_t = 1, uint32_t = 1) {}
+    virtual void DispatchIndirect(GpuBuffer*, uint64_t = 0) {}
     virtual void CopyBuffer(GpuBuffer*, uint32_t, GpuBuffer*, uint32_t, uint32_t) {}
     virtual void CopyTexture(GpuTexture*, GpuTexture*) {}
     virtual void CopyTexture(GpuTexture*, const RHITextureRegion&, GpuTexture*, const RHITextureRegion&) {}
     virtual void DrawIndirect(GpuBuffer*, uint64_t = 0) {}
     virtual void DrawIndexedIndirect(GpuBuffer*, uint64_t = 0) {}
+    virtual void DrawIndexedIndirectCount(GpuBuffer*, uint64_t, GpuBuffer*, uint64_t, uint32_t,
+                                          uint32_t = sizeof(RHIDrawIndexedIndirectArgs)) {}
     virtual void WriteTimestamp(GpuTimestampQueryPool*, uint32_t) {}
     virtual void ResolveTimestamps(GpuTimestampQueryPool*, uint32_t, uint32_t) {}
+    virtual void ClearStorageBuffer(GpuBufferView*, uint32_t = 0) {}
     virtual void UAVBarrier(GpuResource*) {}
+    virtual void BeginDebugEvent(const char*) {}
+    virtual void EndDebugEvent() {}
 };

@@ -428,6 +428,19 @@ public:
             if (binding->stages & ShaderStageCompute)
                 m_Owner.GetDeviceContext()->CSSetSamplers(binding->bindPoint, 1, &state);
         }
+        for (const auto& value : group->GetBuffers()) {
+            const auto* binding = reflection.Find(value.first);
+            auto* view = dynamic_cast<D3D11BufferView*>(value.second.get());
+            if (!binding || !view || !view->srv)
+                continue;
+            ID3D11ShaderResourceView* srv = view->srv.Get();
+            if (binding->stages & ShaderStageVertex)
+                m_Owner.GetDeviceContext()->VSSetShaderResources(binding->bindPoint, 1, &srv);
+            if (binding->stages & ShaderStagePixel)
+                m_Owner.GetDeviceContext()->PSSetShaderResources(binding->bindPoint, 1, &srv);
+            if (binding->stages & ShaderStageCompute)
+                m_Owner.GetDeviceContext()->CSSetShaderResources(binding->bindPoint, 1, &srv);
+        }
         for (const auto& value : group->GetStorageBuffers()) {
             const auto* binding = reflection.Find(value.first);
             auto* view = dynamic_cast<D3D11BufferView*>(value.second.get());
@@ -447,8 +460,22 @@ public:
                     m_Owner.GetDeviceContext()->CSSetShaderResources(binding->bindPoint, 1, &srv);
             }
         }
+        for (const auto& value : group->GetStorageTextures()) {
+            const auto* binding = reflection.Find(value.first);
+            auto* view = dynamic_cast<D3D11TextureView*>(value.second.get());
+            if (!binding || !view || !view->uav)
+                continue;
+            ID3D11UnorderedAccessView* uav = view->uav.Get();
+            UINT count = 0;
+            m_Owner.GetDeviceContext()->CSSetUnorderedAccessViews(binding->bindPoint, 1, &uav, &count);
+        }
     }
     void Dispatch(uint32_t x, uint32_t y, uint32_t z) override { m_Owner.GetDeviceContext()->Dispatch(x, y, z); }
+    void DispatchIndirect(GpuBuffer* args, uint64_t offset) override {
+        auto* native = dynamic_cast<D3D11Buffer*>(args);
+        if (native && offset <= UINT32_MAX)
+            m_Owner.GetDeviceContext()->DispatchIndirect(native->buffer.Get(), static_cast<UINT>(offset));
+    }
     void CopyBuffer(GpuBuffer* dst, uint32_t dstOffset, GpuBuffer* src, uint32_t srcOffset,
                     uint32_t byteSize) override {
         auto* d = dynamic_cast<D3D11Buffer*>(dst);
@@ -1299,8 +1326,12 @@ RHIDeviceCapabilities D3D11Context::GetCapabilities() const {
     result.maxTextureArrayLayers = D3D11_REQ_TEXTURE2D_ARRAY_AXIS_DIMENSION;
     result.maxColorAttachments = D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT;
     result.maxSamples = D3D11_MAX_MULTISAMPLE_SAMPLE_COUNT;
+    result.computeShaders = true;
+    result.storageTextures = true;
     result.timestampQueries = true;
     result.indirectDraw = true;
+    result.indirectDispatch = true;
+    result.shaderDrawParameters = true;
     return result;
 }
 

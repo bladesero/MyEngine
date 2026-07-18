@@ -221,6 +221,8 @@ target("MyEngineRuntime")
         "src/Runtime/Renderer/RHI/RHIResourceStats.cpp",
         "src/Runtime/Renderer/SceneLighting.cpp",
         "src/Runtime/Renderer/SceneRenderCollector.cpp",
+        "src/Runtime/Renderer/GpuSceneDatabase.cpp",
+        "src/Runtime/Renderer/ModernDeferredPipeline.cpp",
         "src/Runtime/Renderer/MaterialResourceCache.cpp",
         "src/Runtime/Renderer/MaterialSystem.cpp",
         "src/Runtime/Renderer/ForwardRenderPasses.cpp",

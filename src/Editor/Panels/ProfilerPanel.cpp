@@ -42,6 +42,8 @@ void ProfilerPanel::DrawContent() {
             ImGui::TreePop();
         }
     }
+    ImGui::Text("CPU submission %.2f ms  Graph build %.2f  Execute %.2f", renderer.renderSubmissionCpuMs,
+                renderer.renderGraphBuildCpuMs, renderer.renderGraphExecuteCpuMs);
     ImGui::Text("Render pass CPU: Shadow %.2f  Main %.2f  SSAO %.2f  Composite %.2f", renderer.shadowCpuMs,
                 renderer.mainCpuMs, renderer.ssaoCpuMs, renderer.compositeCpuMs);
     if (renderer.gpuTimingAvailable) {
@@ -57,6 +59,20 @@ void ProfilerPanel::DrawContent() {
     ImGui::Text("Bind groups created %u", renderer.bindGroupCreates);
     ImGui::Text("Texture uploads %u  %.2f MB  %.2f ms", renderer.textureUploads,
                 static_cast<double>(renderer.textureUploadBytes) / (1024.0 * 1024.0), renderer.textureUploadMs);
+    if (renderer.gpuSceneCandidates || renderer.clusterCount) {
+        ImGui::SeparatorText("Modern Deferred");
+        ImGui::Text("GPU Scene upload %.2f MB  candidates %u  visible %u  HiZ occluded %u",
+                    static_cast<double>(renderer.gpuSceneUploadBytes) / (1024.0 * 1024.0), renderer.gpuSceneCandidates,
+                    renderer.gpuFrustumVisible, renderer.gpuHiZOccluded);
+        ImGui::Text("GPU Scene prepare %.3f ms  material resolves %u  cache hits %u", renderer.gpuScenePrepareCpuMs,
+                    renderer.gpuSceneMaterialResolves, renderer.gpuSceneMaterialCacheHits);
+        ImGui::Text("GPU Scene textured materials %u", renderer.gpuSceneTexturedMaterials);
+        ImGui::Text("Indirect draws %u  local lights %u  clusters %u  overflow %u", renderer.indirectDrawCount,
+                    renderer.localLightCount, renderer.clusterCount, renderer.clusterOverflow);
+        ImGui::Text("Bindless descriptors %u / %u", renderer.bindlessResourcesUsed, renderer.bindlessResourcesCapacity);
+        if (!renderer.historyResetReason.empty())
+            ImGui::Text("History reset: %s", renderer.historyResetReason.c_str());
+    }
     ImGui::SeparatorText("Editor Events");
 
     if (!profiler) {

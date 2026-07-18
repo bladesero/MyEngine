@@ -72,6 +72,8 @@ public:
     void ReadWriteUAV(RGTextureHandle handle);
     void ReadWriteUAV(RGTextureHandle handle, RGTextureSubresource subresource);
     void ReadBuffer(RGBufferHandle handle);
+    void ReadIndirect(RGBufferHandle handle);
+    void ReadCopySource(RGBufferHandle handle);
     void ReadWriteUAV(RGBufferHandle handle);
 
 private:
@@ -106,6 +108,7 @@ class RenderGraph {
 public:
     using SetupCallback = std::function<void(RenderGraphBuilder&)>;
     using ExecuteCallback = std::function<void(GpuCommandList&, const RenderGraphResources&)>;
+    enum class PassType : uint8_t { Graphics, Compute };
     enum class PassFlags : uint32_t {
         None = 0,
         AllowNoResourceAccess = 1u << 0,
@@ -125,6 +128,7 @@ public:
         AttachmentSizeMismatch,
         AttachmentFormatMismatch,
         TooManyColorAttachments,
+        ComputeAttachmentAccess,
         DependencyCycle,
         ResourceCreationFailed,
         TransientBudgetExceeded,
@@ -149,13 +153,17 @@ public:
     void SetFinalState(RGBufferHandle handle, RHIResourceState finalState);
     void AddPass(const std::string& name, SetupCallback setup, ExecuteCallback execute,
                  PassFlags flags = PassFlags::None);
+    void AddComputePass(const std::string& name, SetupCallback setup, ExecuteCallback execute,
+                        PassFlags flags = PassFlags::None);
 
     bool Compile();
+    bool Prepare();
     bool Execute(GpuCommandList& commandList);
     void Reset();
     const std::string& GetLastError() const { return m_LastError; }
     ErrorCode GetLastErrorCode() const { return m_LastErrorCode; }
     const std::vector<std::string>& GetExecutionOrder() const { return m_ExecutionOrderNames; }
+    const std::vector<PassType>& GetExecutionPassTypes() const { return m_ExecutionPassTypes; }
     const std::vector<std::string>& GetCulledPasses() const { return m_CulledPassNames; }
     bool SetResourceBudget(const RenderGraphResourceBudget&, std::string* error = nullptr);
     const RenderGraphResourceBudget& GetResourceBudget() const { return m_ResourceBudget; }
@@ -182,6 +190,7 @@ private:
         std::vector<RenderGraphBuilder::BufferAccess> bufferAccesses;
         ExecuteCallback execute;
         PassFlags flags = PassFlags::None;
+        PassType type = PassType::Graphics;
     };
     struct PooledTexture {
         RHITextureDesc desc;
@@ -218,12 +227,16 @@ private:
     std::vector<Pass> m_Passes;
     std::vector<uint32_t> m_ExecutionOrder;
     std::vector<std::string> m_ExecutionOrderNames;
+    std::vector<PassType> m_ExecutionPassTypes;
     std::vector<std::string> m_CulledPassNames;
     std::vector<uint8_t> m_LiveTextures;
     std::vector<uint8_t> m_LiveBuffers;
+    std::vector<uint8_t> m_TextureUavWriteScratch;
+    std::vector<uint8_t> m_BufferUavWriteScratch;
     std::string m_LastError;
     ErrorCode m_LastErrorCode = ErrorCode::None;
     bool m_Compiled = false;
+    bool m_ResourcesReady = false;
     std::unordered_map<std::string, std::vector<PooledTexture>> m_TexturePool;
     std::unordered_map<std::string, std::vector<PooledBuffer>> m_BufferPool;
     RenderGraphResourceBudget m_ResourceBudget;

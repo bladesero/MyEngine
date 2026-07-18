@@ -67,6 +67,7 @@ public:
     std::shared_ptr<GpuBindGroup> CreateBindGroup(const std::shared_ptr<GpuShader>& shader) override;
     RHIDeviceCapabilities GetCapabilities() const override;
     bool IsFormatSupported(RHIFormat format, RHIResourceUsage usage) const override;
+    std::shared_ptr<GpuTimestampQueryPool> CreateTimestampQueryPool(uint32_t count) override;
     std::shared_ptr<GpuReadbackTicket> ReadbackBufferAsync(const std::shared_ptr<GpuBuffer>& buffer) override;
     std::shared_ptr<GpuTextureReadbackTicket> ReadbackTextureAsync(const std::shared_ptr<GpuTexture>& texture,
                                                                    const RHITextureRegion& region) override;

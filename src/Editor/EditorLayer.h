@@ -25,6 +25,7 @@
 #include "Editor/EditorImGuiBackend.h"
 
 #include <array>
+#include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -136,6 +137,7 @@ private:
     std::array<char, 1024> m_InputConfigPath{};
     int m_GraphicsBackendIndex = 0;
     int m_RenderPathIndex = 0;
+    int m_DeviceProfileIndex = 0;
     std::string m_ProjectError;
     std::string m_ProjectResult;
     std::string m_CapturingShortcutAction;
@@ -144,6 +146,7 @@ private:
     std::string m_LastRecoveryScenePath;
     std::string m_LastRecoveryScene;
     uint64_t m_LastRecoveryRevision = 0;
+    uint32_t m_ViewportActivationDelayFrames = 0;
     float m_RecoveryElapsedSeconds = 0.0f;
     bool m_RecoveryDialogRequested = false;
     bool m_ProjectSettingsRequested = false;

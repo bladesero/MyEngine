@@ -24,8 +24,14 @@ public:
     GpuTextureView* GetOutputView() const;
     void SetRenderPath(RenderPath path);
     RenderPath GetRenderPath() const;
+    void SetDeviceProfile(GraphicsDeviceProfile profile);
+    GraphicsDeviceProfile GetDeviceProfile() const;
+    const RenderPipelineDiagnostics& GetPipelineDiagnostics() const;
     void SetFeatureMask(RendererFeatureMask mask);
     RendererFeatureMask GetFeatureMask() const;
+    void SetDebugView(RendererDebugView view);
+    RendererDebugView GetDebugView() const;
+    void InvalidateTemporalHistory(const std::string& reason, bool resetObjectHistory = false);
 
 private:
     void SetCommandViewport(const RenderViewport& viewport, bool presentToSwapchain);

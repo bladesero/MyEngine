@@ -36,8 +36,10 @@
 #include <fstream>
 #include <memory>
 #include <nlohmann/json.hpp>
+#include <optional>
 #include <string>
 #include <sstream>
+#include <utility>
 
 struct PlayerPerformanceStressState {
     uint32_t targetReloads = 0, requestedReloads = 0, completedReloads = 0;
@@ -90,14 +92,15 @@ public:
     PlayerApp(ApplicationConfig cfg, std::filesystem::path projectRoot, std::string sceneOverride,
               bool runRhiConformance, bool injectDeviceLoss, std::filesystem::path performanceReport,
               std::string performanceProfilePath, RuntimePerformanceBudget performanceBudget, bool warmupOverridden,
-              bool minimumOverridden, RuntimeUserSettings userSettings)
+              bool minimumOverridden, RuntimeUserSettings userSettings,
+              std::optional<GraphicsDeviceProfile> deviceProfileOverride)
         : Application(cfg), m_Backend(cfg.backend), m_VSyncEnabled(cfg.window.vsync),
           m_ProjectRoot(std::move(projectRoot)), m_SceneOverride(std::move(sceneOverride)),
           m_RunRhiConformance(runRhiConformance), m_InjectDeviceLoss(injectDeviceLoss),
           m_PerformanceReportPath(std::move(performanceReport)),
           m_PerformanceProfilePath(std::move(performanceProfilePath)), m_PerformanceCliBudget(performanceBudget),
           m_PerformanceWarmupOverridden(warmupOverridden), m_PerformanceMinimumOverridden(minimumOverridden),
-          m_UserSettings(std::move(userSettings)) {}
+          m_UserSettings(std::move(userSettings)), m_DeviceProfileOverride(deviceProfileOverride) {}
 
 protected:
     bool OnInit() override {
@@ -127,7 +130,8 @@ protected:
                                                                           : ShaderCacheMode::EditorOnDemandCompile);
         ShaderCacheService::Get().ClearResolver();
         if (!m_PublishedContentMounted) {
-            Logger::Info("[Player] Content.pak not mounted; using development shader compile fallback");
+            ShaderCacheService::Get().ConfigureFileSystemCache(m_Project.GetRoot() / "Library/windows-x64/ShaderCache");
+            Logger::Info("[Player] Content.pak not mounted; using the development shader cache");
         }
         LoadProjectInputConfig();
         if (RuntimeFileSystem::Get().Exists(InputGlyphAtlas::DefaultPath) &&
@@ -234,6 +238,7 @@ protected:
         }
         sceneLayer->SetRenderPath(m_Project.GetGraphicsSettings().renderPath == "deferred" ? RenderPath::Deferred
                                                                                            : RenderPath::Forward);
+        sceneLayer->SetDeviceProfile(m_DeviceProfileOverride.value_or(m_Project.GetGraphicsSettings().deviceProfile));
         GetEngine().PushLayer(sceneLayer);
         if (!sceneLayer->BeginPlay()) {
             Logger::Error("[Player] Failed to enter Play mode");
@@ -256,6 +261,7 @@ protected:
     void OnBeforeLayersCleared() override { WritePerformanceReport(); }
 
     void OnShutdown() override {
+        ShaderCacheService::Get().ClearResolver();
         SaveGame::ClearStorageRootOverride();
         RuntimeUserSettingsStore::ClearStorageRootOverride();
         if (m_RenderContext) {
@@ -321,8 +327,25 @@ private:
         if (m_SceneLayer) {
             droppedTicks = m_SceneLayer->GetSimulationScene().GetFrameScheduler().GetStats().droppedFixedTicks;
         }
-        m_PerformanceGate->AddSample({frame.frameMs, frame.updateMs, frame.renderMs, gpuMs,
-                                      GetCurrentProcessWorkingSetBytes(), droppedTicks, renderer.gpuTimingAvailable});
+        RuntimePerformanceSample sample;
+        sample.frameMs = frame.frameMs;
+        sample.updateMs = frame.updateMs;
+        sample.renderMs = frame.renderMs;
+        sample.gpuMs = gpuMs;
+        sample.workingSetBytes = GetCurrentProcessWorkingSetBytes();
+        sample.droppedFixedTicks = droppedTicks;
+        sample.gpuTimingAvailable = renderer.gpuTimingAvailable;
+        sample.renderSubmissionMs = renderer.renderSubmissionCpuMs;
+        sample.shadowCpuMs = renderer.shadowCpuMs;
+        sample.mainCpuMs = renderer.mainCpuMs;
+        sample.ssaoCpuMs = renderer.ssaoCpuMs;
+        sample.compositeCpuMs = renderer.compositeCpuMs;
+        sample.renderGraphBuildMs = renderer.renderGraphBuildCpuMs;
+        sample.renderGraphPrepareMs = renderer.renderGraphPrepareCpuMs;
+        sample.gpuScenePrepareMs = renderer.gpuScenePrepareCpuMs;
+        sample.frameWaitMs = renderer.frameWaitCpuMs;
+        sample.presentMs = renderer.presentCpuMs;
+        m_PerformanceGate->AddSample(std::move(sample));
     }
 
     void WritePerformanceReport() {
@@ -344,6 +367,36 @@ private:
                             {"capturedUnixMilliseconds", std::chrono::duration_cast<std::chrono::milliseconds>(
                                                              std::chrono::system_clock::now().time_since_epoch())
                                                              .count()}};
+        if (m_SceneLayer) {
+            const RenderPipelineDiagnostics& pipeline = m_SceneLayer->GetPipelineDiagnostics();
+            value["capture"]["deviceProfile"] = GraphicsDeviceProfileName(pipeline.requestedDeviceProfile);
+            value["capture"]["requestedRenderPath"] = RenderPathName(pipeline.requestedPath);
+            value["capture"]["resolvedRenderPipeline"] = ResolvedRenderPipelineName(pipeline.resolvedPipeline);
+            value["capture"]["renderPipelineFallback"] = pipeline.usedFallback;
+            value["capture"]["renderPipelineReason"] = pipeline.fallbackReason;
+        }
+        const RendererFrameStats& rendererStats = GetEngine().GetFrameStats().renderer;
+        value["renderer"] = {{"renderSubmissionCpuMs", rendererStats.renderSubmissionCpuMs},
+                             {"renderGraphBuildCpuMs", rendererStats.renderGraphBuildCpuMs},
+                             {"renderGraphPrepareCpuMs", rendererStats.renderGraphPrepareCpuMs},
+                             {"frameWaitCpuMs", rendererStats.frameWaitCpuMs},
+                             {"presentCpuMs", rendererStats.presentCpuMs},
+                             {"gpuScenePrepareCpuMs", rendererStats.gpuScenePrepareCpuMs},
+                             {"gpuSceneMaterialResolves", rendererStats.gpuSceneMaterialResolves},
+                             {"gpuSceneMaterialCacheHits", rendererStats.gpuSceneMaterialCacheHits},
+                             {"gpuSceneTexturedMaterials", rendererStats.gpuSceneTexturedMaterials},
+                             {"renderGraphExecuteCpuMs", rendererStats.renderGraphExecuteCpuMs},
+                             {"gpuSceneUploadBytes", rendererStats.gpuSceneUploadBytes},
+                             {"gpuSceneCandidates", rendererStats.gpuSceneCandidates},
+                             {"gpuFrustumVisible", rendererStats.gpuFrustumVisible},
+                             {"gpuHiZOccluded", rendererStats.gpuHiZOccluded},
+                             {"indirectDrawCount", rendererStats.indirectDrawCount},
+                             {"clusterCount", rendererStats.clusterCount},
+                             {"clusterOverflow", rendererStats.clusterOverflow},
+                             {"localLightCount", rendererStats.localLightCount},
+                             {"bindlessResourcesUsed", rendererStats.bindlessResourcesUsed},
+                             {"bindlessResourcesCapacity", rendererStats.bindlessResourcesCapacity},
+                             {"historyResetReason", rendererStats.historyResetReason}};
         const RHIDeviceIdentity identity = m_RenderContext ? m_RenderContext->GetDeviceIdentity() : RHIDeviceIdentity{};
         value["device"] = {{"adapterName", identity.adapterName},
                            {"driverVersion", identity.driverVersion},
@@ -539,6 +592,7 @@ private:
     double m_MaxSceneReloadMs = 5000.0;
     PlayerPerformanceStressState m_StressState;
     std::unique_ptr<RuntimePerformanceGate> m_PerformanceGate;
+    std::optional<GraphicsDeviceProfile> m_DeviceProfileOverride;
 };
 
 static bool ParseBackend(const std::string& value, ApplicationConfig& cfg) {
@@ -674,11 +728,15 @@ static int RunPlayer(int argc, char* argv[]) {
     bool vsyncOverridden = false;
     bool runRhiConformance = false;
     bool injectDeviceLoss = false;
+    std::optional<GraphicsDeviceProfile> deviceProfileOverride;
+    std::optional<int> windowWidthOverride;
+    std::optional<int> windowHeightOverride;
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
-        if (arg == "--project" || arg == "--scene" || arg == "--backend" || arg == "--vsync" ||
-            arg == "--auto-quit-seconds" || arg == "--performance-report" || arg == "--performance-profile" ||
-            arg == "--performance-warmup-frames" || arg == "--performance-min-samples") {
+        if (arg == "--project" || arg == "--scene" || arg == "--backend" || arg == "--device-profile" ||
+            arg == "--width" || arg == "--height" || arg == "--vsync" || arg == "--auto-quit-seconds" ||
+            arg == "--performance-report" || arg == "--performance-profile" || arg == "--performance-warmup-frames" ||
+            arg == "--performance-min-samples") {
             if (i + 1 >= argc) {
                 Logger::Error("Missing value for ", arg);
                 return 2;
@@ -713,6 +771,28 @@ static int RunPlayer(int argc, char* argv[]) {
                 if (!ParseBackend(value, cfg))
                     return 2;
                 backendOverridden = true;
+            } else if (arg == "--device-profile") {
+                deviceProfileOverride = ParseGraphicsDeviceProfile(value);
+                if (!deviceProfileOverride) {
+                    Logger::Error("Unknown device profile: ", value, " (use desktop, console, or mobile)");
+                    return 2;
+                }
+            } else if (arg == "--width" || arg == "--height") {
+                int dimension = 0;
+                try {
+                    dimension = std::stoi(value);
+                } catch (...) {
+                    Logger::Error("Invalid window dimension: ", value);
+                    return 2;
+                }
+                if (dimension < 64 || dimension > 16384) {
+                    Logger::Error("Window dimensions must be between 64 and 16384");
+                    return 2;
+                }
+                if (arg == "--width")
+                    windowWidthOverride = dimension;
+                else
+                    windowHeightOverride = dimension;
             } else if (arg == "--auto-quit-seconds") {
                 try {
                     cfg.engine.autoQuitAfterSeconds = std::stof(value);
@@ -735,6 +815,30 @@ static int RunPlayer(int argc, char* argv[]) {
             if (!ParseBackend(arg.substr(std::string("--backend=").size()), cfg))
                 return 2;
             backendOverridden = true;
+        } else if (arg.rfind("--device-profile=", 0) == 0) {
+            const std::string value = arg.substr(std::string("--device-profile=").size());
+            deviceProfileOverride = ParseGraphicsDeviceProfile(value);
+            if (!deviceProfileOverride) {
+                Logger::Error("Unknown device profile: ", value, " (use desktop, console, or mobile)");
+                return 2;
+            }
+        } else if (arg.rfind("--width=", 0) == 0 || arg.rfind("--height=", 0) == 0) {
+            const bool width = arg.rfind("--width=", 0) == 0;
+            const std::string value =
+                arg.substr(width ? std::string("--width=").size() : std::string("--height=").size());
+            int dimension = 0;
+            try {
+                dimension = std::stoi(value);
+            } catch (...) {
+                Logger::Error("Invalid window dimension: ", value);
+                return 2;
+            }
+            if (dimension < 64 || dimension > 16384)
+                return 2;
+            if (width)
+                windowWidthOverride = dimension;
+            else
+                windowHeightOverride = dimension;
         } else if (arg.rfind("--vsync=", 0) == 0) {
             if (!ParseVSync(arg.substr(std::string("--vsync=").size()), cfg))
                 return 2;
@@ -786,10 +890,15 @@ static int RunPlayer(int argc, char* argv[]) {
     }
     ConfigurePlayerUserData(projectRoot);
     RuntimeUserSettings userSettings = ApplyPlayerUserSettings(cfg, backendOverridden, vsyncOverridden);
+    if (windowWidthOverride)
+        cfg.window.width = *windowWidthOverride;
+    if (windowHeightOverride)
+        cfg.window.height = *windowHeightOverride;
 
     PlayerApp app(cfg, std::move(projectRoot), std::move(sceneOverride), runRhiConformance, injectDeviceLoss,
                   std::move(performanceReport), std::move(performanceProfilePath), performanceBudget,
-                  performanceWarmupOverridden, performanceMinimumOverridden, std::move(userSettings));
+                  performanceWarmupOverridden, performanceMinimumOverridden, std::move(userSettings),
+                  deviceProfileOverride);
     return app.Run();
 }
 

@@ -324,8 +324,10 @@ void ParseMetalBindings(const std::string& source, uint8_t stage, ShaderReflecti
         } else if (attr == "sampler") {
             binding.type = ShaderBindingType::Sampler;
         } else {
-            binding.type = typeText.find("device") != std::string::npos ? ShaderBindingType::StorageBuffer
-                                                                        : ShaderBindingType::ConstantBuffer;
+            binding.type = typeText.find("const device") != std::string::npos
+                               ? ShaderBindingType::StructuredBuffer
+                               : (typeText.find("device") != std::string::npos ? ShaderBindingType::StorageBuffer
+                                                                               : ShaderBindingType::ConstantBuffer);
         }
         AddOrMergeBinding(reflection, binding);
     }
@@ -1167,22 +1169,26 @@ void MetalContext::SetBindGroup(GpuBindGroup* group) {
         if (m_Impl->computeEncoder && (binding->stages == 0 || (binding->stages & ShaderStageCompute)))
             [m_Impl->computeEncoder setSamplerState:sampler->sampler atIndex:slot];
     }
-    for (const auto& value : group->GetStorageBuffers()) {
-        const auto* binding = reflection.Find(value.first);
-        if (!binding || binding->type != ShaderBindingType::StorageBuffer) {
-            warnMissing(value.first);
-            continue;
+    const auto bindBufferMap = [&](const auto& buffers, ShaderBindingType expected) {
+        for (const auto& value : buffers) {
+            const auto* binding = reflection.Find(value.first);
+            if (!binding || binding->type != expected) {
+                warnMissing(value.first);
+                continue;
+            }
+            auto* view = value.second ? dynamic_cast<MetalGpuBuffer*>(value.second->buffer.get()) : nullptr;
+            if (!view || !view->buffer)
+                continue;
+            if (binding->stages == 0 || (binding->stages & ShaderStageVertex))
+                [m_Impl->encoder setVertexBuffer:view->buffer offset:0 atIndex:binding->bindPoint];
+            if (binding->stages == 0 || (binding->stages & ShaderStagePixel))
+                [m_Impl->encoder setFragmentBuffer:view->buffer offset:0 atIndex:binding->bindPoint];
+            if (m_Impl->computeEncoder && (binding->stages == 0 || (binding->stages & ShaderStageCompute)))
+                [m_Impl->computeEncoder setBuffer:view->buffer offset:0 atIndex:binding->bindPoint];
         }
-        auto* view = value.second ? dynamic_cast<MetalGpuBuffer*>(value.second->buffer.get()) : nullptr;
-        if (!view || !view->buffer)
-            continue;
-        if (binding->stages == 0 || (binding->stages & ShaderStageVertex))
-            [m_Impl->encoder setVertexBuffer:view->buffer offset:0 atIndex:binding->bindPoint];
-        if (binding->stages == 0 || (binding->stages & ShaderStagePixel))
-            [m_Impl->encoder setFragmentBuffer:view->buffer offset:0 atIndex:binding->bindPoint];
-        if (m_Impl->computeEncoder && (binding->stages == 0 || (binding->stages & ShaderStageCompute)))
-            [m_Impl->computeEncoder setBuffer:view->buffer offset:0 atIndex:binding->bindPoint];
-    }
+    };
+    bindBufferMap(group->GetBuffers(), ShaderBindingType::StructuredBuffer);
+    bindBufferMap(group->GetStorageBuffers(), ShaderBindingType::StorageBuffer);
 }
 
 void MetalContext::Draw(uint32_t vertexCount, uint32_t startVertex) {

@@ -13,6 +13,16 @@ struct RuntimePerformanceSample {
     uint64_t workingSetBytes = 0;
     uint32_t droppedFixedTicks = 0;
     bool gpuTimingAvailable = false;
+    double renderSubmissionMs = 0.0;
+    double shadowCpuMs = 0.0;
+    double mainCpuMs = 0.0;
+    double ssaoCpuMs = 0.0;
+    double compositeCpuMs = 0.0;
+    double renderGraphBuildMs = 0.0;
+    double renderGraphPrepareMs = 0.0;
+    double gpuScenePrepareMs = 0.0;
+    double frameWaitMs = 0.0;
+    double presentMs = 0.0;
 };
 
 struct RuntimePerformanceBudget {
@@ -33,6 +43,12 @@ struct RuntimePerformanceSummary {
     double p99FrameMs = 0.0;
     double maxFrameMs = 0.0;
     double p95GpuMs = 0.0;
+    double p95RenderSubmissionMs = 0.0;
+    double p95ShadowCpuMs = 0.0;
+    double p95MainCpuMs = 0.0;
+    double p95RenderGraphBuildMs = 0.0;
+    double p95RenderGraphPrepareMs = 0.0;
+    double p95GpuScenePrepareMs = 0.0;
     size_t gpuSampleCount = 0;
     uint64_t workingSetGrowthBytes = 0;
     uint64_t droppedFixedTicks = 0;

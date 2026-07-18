@@ -33,6 +33,10 @@ bool ProjectConfig::IsSupportedRenderPath(std::string_view renderPath) {
     return renderPath == "forward" || renderPath == "deferred";
 }
 
+bool ProjectConfig::IsSupportedDeviceProfile(std::string_view deviceProfile) {
+    return ParseGraphicsDeviceProfile(deviceProfile).has_value();
+}
+
 bool ProjectConfig::Open(fs::path projectRoot, bool allowMissing, std::string* error) {
     if (error)
         error->clear();
@@ -74,6 +78,14 @@ bool ProjectConfig::Open(fs::path projectRoot, bool allowMissing, std::string* e
         nlohmann::json json;
         input >> json;
         JsonMigrationRegistry migrations("project manifest", kCurrentVersion);
+        migrations.Register(1, [](nlohmann::json& value, std::string*) {
+            auto& graphics = value["graphics"];
+            if (!graphics.is_object())
+                graphics = nlohmann::json::object();
+            if (!graphics.contains("deviceProfile"))
+                graphics["deviceProfile"] = "desktop";
+            return true;
+        });
         if (!migrations.Migrate(json, error))
             return false;
         m_Version = json.value("version", 0);
@@ -91,6 +103,14 @@ bool ProjectConfig::Open(fs::path projectRoot, bool allowMissing, std::string* e
             m_GraphicsSettings.backend = graphics->value("backend", std::string{ProjectGraphicsSettings{}.backend});
             m_GraphicsSettings.renderPath =
                 graphics->value("renderPath", std::string{ProjectGraphicsSettings{}.renderPath});
+            const std::string deviceProfile = graphics->value(
+                "deviceProfile", std::string{GraphicsDeviceProfileName(ProjectGraphicsSettings{}.deviceProfile)});
+            if (const auto parsed = ParseGraphicsDeviceProfile(deviceProfile))
+                m_GraphicsSettings.deviceProfile = *parsed;
+            else {
+                SetError(error, "unsupported graphics device profile: " + deviceProfile);
+                return false;
+            }
         }
     } catch (const std::exception& exception) {
         SetError(error, "failed to parse project manifest: " + std::string(exception.what()));
@@ -194,6 +214,7 @@ bool ProjectConfig::Save(std::string* error) {
         json["graphics"] = {
             {"backend", m_GraphicsSettings.backend},
             {"renderPath", m_GraphicsSettings.renderPath},
+            {"deviceProfile", GraphicsDeviceProfileName(m_GraphicsSettings.deviceProfile)},
         };
         TransactionalWriteOptions options;
         options.validator = [](const fs::path& candidate, std::string* validationError) {

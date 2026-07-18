@@ -68,8 +68,20 @@ RuntimePerformanceReport RuntimePerformanceGate::Evaluate() const {
 
     std::vector<double> frameTimes;
     std::vector<double> gpuTimes;
+    std::vector<double> renderSubmissionTimes;
+    std::vector<double> shadowCpuTimes;
+    std::vector<double> mainCpuTimes;
+    std::vector<double> renderGraphBuildTimes;
+    std::vector<double> renderGraphPrepareTimes;
+    std::vector<double> gpuScenePrepareTimes;
     frameTimes.reserve(count);
     gpuTimes.reserve(count);
+    renderSubmissionTimes.reserve(count);
+    shadowCpuTimes.reserve(count);
+    mainCpuTimes.reserve(count);
+    renderGraphBuildTimes.reserve(count);
+    renderGraphPrepareTimes.reserve(count);
+    gpuScenePrepareTimes.reserve(count);
     const uint64_t baselineWorkingSet = begin->workingSetBytes;
     uint64_t maxWorkingSet = 0;
     for (auto it = begin; it != m_Samples.end(); ++it) {
@@ -80,6 +92,12 @@ RuntimePerformanceReport RuntimePerformanceGate::Evaluate() const {
         frameTimes.push_back(it->frameMs);
         if (it->gpuTimingAvailable)
             gpuTimes.push_back(it->gpuMs);
+        renderSubmissionTimes.push_back(it->renderSubmissionMs);
+        shadowCpuTimes.push_back(it->shadowCpuMs);
+        mainCpuTimes.push_back(it->mainCpuMs);
+        renderGraphBuildTimes.push_back(it->renderGraphBuildMs);
+        renderGraphPrepareTimes.push_back(it->renderGraphPrepareMs);
+        gpuScenePrepareTimes.push_back(it->gpuScenePrepareMs);
         maxWorkingSet = std::max(maxWorkingSet, it->workingSetBytes);
         report.summary.droppedFixedTicks += it->droppedFixedTicks;
     }
@@ -94,6 +112,12 @@ RuntimePerformanceReport RuntimePerformanceGate::Evaluate() const {
     report.summary.maxFrameMs = *std::max_element(frameTimes.begin(), frameTimes.end());
     report.summary.gpuSampleCount = gpuTimes.size();
     report.summary.p95GpuMs = Percentile(gpuTimes, 0.95);
+    report.summary.p95RenderSubmissionMs = Percentile(renderSubmissionTimes, 0.95);
+    report.summary.p95ShadowCpuMs = Percentile(shadowCpuTimes, 0.95);
+    report.summary.p95MainCpuMs = Percentile(mainCpuTimes, 0.95);
+    report.summary.p95RenderGraphBuildMs = Percentile(renderGraphBuildTimes, 0.95);
+    report.summary.p95RenderGraphPrepareMs = Percentile(renderGraphPrepareTimes, 0.95);
+    report.summary.p95GpuScenePrepareMs = Percentile(gpuScenePrepareTimes, 0.95);
     report.summary.workingSetGrowthBytes = maxWorkingSet >= baselineWorkingSet ? maxWorkingSet - baselineWorkingSet : 0;
 
     if (report.summary.p95FrameMs > m_Budget.maxP95FrameMs)
@@ -125,6 +149,12 @@ std::string RuntimePerformanceReport::ToJson() const {
                               {"p99FrameMs", summary.p99FrameMs},
                               {"maxFrameMs", summary.maxFrameMs},
                               {"p95GpuMs", summary.p95GpuMs},
+                              {"p95RenderSubmissionMs", summary.p95RenderSubmissionMs},
+                              {"p95ShadowCpuMs", summary.p95ShadowCpuMs},
+                              {"p95MainCpuMs", summary.p95MainCpuMs},
+                              {"p95RenderGraphBuildMs", summary.p95RenderGraphBuildMs},
+                              {"p95RenderGraphPrepareMs", summary.p95RenderGraphPrepareMs},
+                              {"p95GpuScenePrepareMs", summary.p95GpuScenePrepareMs},
                               {"gpuSampleCount", summary.gpuSampleCount},
                               {"workingSetGrowthBytes", summary.workingSetGrowthBytes},
                               {"droppedFixedTicks", summary.droppedFixedTicks}}},
@@ -134,6 +164,16 @@ std::string RuntimePerformanceReport::ToJson() const {
         value["samples"].push_back({{"frameMs", sample.frameMs},
                                     {"updateMs", sample.updateMs},
                                     {"renderMs", sample.renderMs},
+                                    {"renderSubmissionMs", sample.renderSubmissionMs},
+                                    {"shadowCpuMs", sample.shadowCpuMs},
+                                    {"mainCpuMs", sample.mainCpuMs},
+                                    {"ssaoCpuMs", sample.ssaoCpuMs},
+                                    {"compositeCpuMs", sample.compositeCpuMs},
+                                    {"renderGraphBuildMs", sample.renderGraphBuildMs},
+                                    {"renderGraphPrepareMs", sample.renderGraphPrepareMs},
+                                    {"gpuScenePrepareMs", sample.gpuScenePrepareMs},
+                                    {"frameWaitMs", sample.frameWaitMs},
+                                    {"presentMs", sample.presentMs},
                                     {"gpuMs", sample.gpuMs},
                                     {"workingSetBytes", sample.workingSetBytes},
                                     {"droppedFixedTicks", sample.droppedFixedTicks},

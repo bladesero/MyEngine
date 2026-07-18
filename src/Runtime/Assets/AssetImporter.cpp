@@ -88,6 +88,7 @@ public:
         ShaderCookResult cooked = ShaderCooker::Cook(cookRequest, &error);
         result.succeeded = cooked.succeeded;
         result.type = "shader";
+        result.dependencies = std::move(cooked.dependencies);
         result.diagnostics = std::move(cooked.diagnostics);
         if (!result.succeeded && result.diagnostics.empty()) {
             result.diagnostics.push_back({"error", error.empty() ? "shader cook failed" : error});

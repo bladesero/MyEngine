@@ -23,16 +23,30 @@
 
 namespace {
 
-const VertexElement k_ShadowVertexLayout[] = {
+const VertexElement k_StaticShadowVertexLayout[] = {
     {"POSITION", 0, VertexFormat::Float3, offsetof(MeshVertex, position)},
-    {"BLENDINDICES", 0, VertexFormat::Float4, offsetof(MeshVertex, boneIndices)},
-    {"BLENDWEIGHT", 0, VertexFormat::Float4, offsetof(MeshVertex, boneWeights)},
+    {"TEXCOORD", 0, VertexFormat::Float2, offsetof(MeshVertex, u)},
+    {"COLOR", 0, VertexFormat::Float4, offsetof(MeshVertex, color)},
 };
 
-struct ShadowPerDrawConstants {
+const VertexElement k_SkinnedShadowVertexLayout[] = {
+    {"POSITION", 0, VertexFormat::Float3, offsetof(MeshVertex, position)},
+    {"TEXCOORD", 0, VertexFormat::Float2, offsetof(MeshVertex, u)},
+    {"BLENDINDICES", 0, VertexFormat::Float4, offsetof(MeshVertex, boneIndices)},
+    {"BLENDWEIGHT", 0, VertexFormat::Float4, offsetof(MeshVertex, boneWeights)},
+    {"COLOR", 0, VertexFormat::Float4, offsetof(MeshVertex, color)},
+};
+
+struct StaticShadowConstants {
+    float lightMvp[16];
+    float alphaTest[4];
+};
+
+struct SkinnedShadowConstants {
     float lightMvp[16];
     float boneMatrices[128][16];
     float skinInfo[4];
+    float alphaTest[4];
 };
 
 struct GraphShadowConstants {
@@ -132,9 +146,39 @@ static MeshAsset* GetRenderMesh(Actor& actor, SkinnedMeshRendererComponent** out
 ShadowPass::ShadowPass(IRHIDevice* device) : RenderPass(device), m_ResourceCache(device) {
 }
 
+std::shared_ptr<GpuBindGroup> ShadowPass::AcquireBindGroup(const std::shared_ptr<GpuShader>& shader, bool* created) {
+    if (created)
+        *created = false;
+    if (!Device() || !shader)
+        return nullptr;
+    if (Device()->GetBackend() != RHIBackend::D3D12) {
+        auto group = Device()->CreateBindGroup(shader);
+        if (created)
+            *created = group != nullptr;
+        return group;
+    }
+    auto& group = m_D3D12BindGroups[shader.get()];
+    if (!group) {
+        group = Device()->CreateBindGroup(shader);
+        if (created)
+            *created = group != nullptr;
+    }
+    return group;
+}
+
 const Mat4& ShadowPass::GetCascadeViewProj(uint32_t index) const {
     static const Mat4 kIdentity = Mat4::Identity();
     return index < 4 ? m_LightViewProjCascade[index] : kIdentity;
+}
+
+const Mat4& ShadowPass::GetPointLightViewProj(uint32_t face) const {
+    static const Mat4 kIdentity = Mat4::Identity();
+    return face < 6 ? m_PointLightViewProj[face] : kIdentity;
+}
+
+void ShadowPass::DrawCompatibilityScene(GpuCommandList& commands, const Scene& scene, const Mat4& lightViewProjection) {
+    commands.SetViewport(0.0f, 0.0f, static_cast<float>(m_ShadowMapSize), static_cast<float>(m_ShadowMapSize));
+    DrawShadowScene(commands, scene, lightViewProjection, true);
 }
 
 void ShadowPass::Resize(uint32_t width, uint32_t height) {
@@ -150,6 +194,7 @@ void ShadowPass::ReleaseGraphResources() {
     m_ShadowMapTexture.reset();
     m_SpotShadowMapTexture.reset();
     m_PointShadowMapTexture.reset();
+    m_ShadowMapSrv.reset();
     for (auto& view : m_ShadowCascadeViews)
         view.reset();
     m_SpotShadowView.reset();
@@ -414,15 +459,21 @@ void ShadowPass::EnsureShadowShader() {
     if (!Device())
         return;
     if (!m_ShadowShaderHandle)
-        m_ShadowShaderHandle = ShaderManager::Get().GetOrCreate(EngineShaders::kShadowDepth, k_ShadowVertexLayout, 3);
+        m_ShadowShaderHandle =
+            ShaderManager::Get().GetOrCreate(EngineShaders::kShadowDepth, k_StaticShadowVertexLayout,
+                                             static_cast<uint32_t>(std::size(k_StaticShadowVertexLayout)));
+    if (!m_SkinnedShadowShaderHandle)
+        m_SkinnedShadowShaderHandle =
+            ShaderManager::Get().GetOrCreate(EngineShaders::kShadowDepthSkinned, k_SkinnedShadowVertexLayout,
+                                             static_cast<uint32_t>(std::size(k_SkinnedShadowVertexLayout)));
     if (!m_ShadowShaderHandle || !m_ShadowShaderHandle->shader) {
         Logger::Error("[ShadowPass] Failed to create shadow shader");
         m_ShadowPipeline.reset();
         return;
     }
-    if (!m_ShadowPipeline || m_ShadowShaderVersion != m_ShadowShaderHandle->version) {
+    auto createPipeline = [this](const std::shared_ptr<ShaderHandle>& handle) {
         GraphicsPipelineDesc desc;
-        desc.shader = m_ShadowShaderHandle->shader;
+        desc.shader = handle->shader;
         desc.colorFormats.clear();
         desc.depthFormat = RHIFormat::D24S8;
         desc.rasterizer.cullMode = RHICullMode::None;
@@ -431,16 +482,32 @@ void ShadowPass::EnsureShadowShader() {
         desc.depthStencil.depthTestEnable = true;
         desc.depthStencil.depthWriteEnable = true;
         desc.depthStencil.depthCompareOp = RHICompareOp::Less;
-        m_ShadowPipeline = Device()->CreateGraphicsPipeline(desc);
+        return Device()->CreateGraphicsPipeline(desc);
+    };
+    if (!m_ShadowPipeline || m_ShadowShaderVersion != m_ShadowShaderHandle->version) {
+        m_D3D12BindGroups.clear();
+        m_ShadowPipeline = createPipeline(m_ShadowShaderHandle);
         m_ShadowShaderVersion = m_ShadowShaderHandle->version;
         if (!m_ShadowPipeline)
             Logger::Error("[ShadowPass] Failed to create shadow pipeline");
+    }
+    if (!m_SkinnedShadowShaderHandle || !m_SkinnedShadowShaderHandle->shader) {
+        m_SkinnedShadowPipeline.reset();
+        return;
+    }
+    if (!m_SkinnedShadowPipeline || m_SkinnedShadowShaderVersion != m_SkinnedShadowShaderHandle->version) {
+        m_D3D12BindGroups.clear();
+        m_SkinnedShadowPipeline = createPipeline(m_SkinnedShadowShaderHandle);
+        m_SkinnedShadowShaderVersion = m_SkinnedShadowShaderHandle->version;
+        if (!m_SkinnedShadowPipeline)
+            Logger::Error("[ShadowPass] Failed to create skinned shadow pipeline");
     }
 }
 
 bool ShadowPass::EnsureShadowResources() {
     auto resourcesComplete = [&]() {
-        bool valid = m_ShadowMapTexture && m_SpotShadowMapTexture && m_PointShadowMapTexture && m_SpotShadowView;
+        bool valid = m_ShadowMapTexture && m_ShadowMapSrv && m_SpotShadowMapTexture && m_PointShadowMapTexture &&
+                     m_SpotShadowView;
         for (const auto& view : m_ShadowCascadeViews)
             valid = valid && view != nullptr;
         for (const auto& view : m_PointShadowViews)
@@ -474,6 +541,10 @@ bool ShadowPass::EnsureShadowResources() {
         ReleaseGraphResources();
         return false;
     }
+    RHITextureViewDesc directionalSrv;
+    directionalSrv.layerCount = kMaxCascades;
+    directionalSrv.usage = RHIResourceUsage::ShaderResource;
+    m_ShadowMapSrv = Device()->CreateTextureView(m_ShadowMapTexture, directionalSrv);
     for (uint32_t cascade = 0; cascade < kMaxCascades; ++cascade) {
         RHITextureViewDesc view;
         view.firstLayer = cascade;
@@ -491,7 +562,7 @@ bool ShadowPass::EnsureShadowResources() {
         view.usage = RHIResourceUsage::DepthStencil;
         m_PointShadowViews[face] = Device()->CreateTextureView(m_PointShadowMapTexture, view);
     }
-    bool valid = m_SpotShadowView != nullptr;
+    bool valid = m_ShadowMapSrv != nullptr && m_SpotShadowView != nullptr;
     for (const auto& view : m_ShadowCascadeViews)
         valid = valid && view != nullptr;
     for (const auto& view : m_PointShadowViews)
@@ -519,6 +590,7 @@ ShadowPass::GraphResources ShadowPass::GetGraphResources() const {
     for (uint32_t i = 0; i < kMaxCascades; ++i) {
         out.directionalCascadeViews[i] = m_ShadowCascadeViews[i];
     }
+    out.directionalSrv = m_ShadowMapSrv;
     out.spot = m_SpotShadowMapTexture;
     out.spotView = m_SpotShadowView;
     out.point = m_PointShadowMapTexture;
@@ -529,7 +601,8 @@ ShadowPass::GraphResources ShadowPass::GetGraphResources() const {
     return out;
 }
 
-void ShadowPass::DrawShadowScene(GpuCommandList& commands, const Scene& scene, const Mat4& lightViewProj) {
+void ShadowPass::DrawShadowScene(GpuCommandList& commands, const Scene& scene, const Mat4& lightViewProj,
+                                 bool compatibilityOnly) {
     m_ResourceCache.SetDevice(Device());
     m_ResourceCache.EnsureNamedBindingDefaults();
     scene.ForEach([&](Actor& actor) {
@@ -556,15 +629,19 @@ void ShadowPass::DrawShadowScene(GpuCommandList& commands, const Scene& scene, c
         EnsureMeshUploaded(Device(), mesh);
         if (!mesh->GetVertexBuffer())
             return;
-        ShadowPerDrawConstants constants{};
+        StaticShadowConstants staticConstants{};
+        SkinnedShadowConstants skinnedConstants{};
         const Mat4 lightMvp = actor.GetWorldMatrix() * lightViewProj;
-        std::memcpy(constants.lightMvp, lightMvp.Data(), sizeof(constants.lightMvp));
-        if (skin && skin->UsesGpuSkinning()) {
+        std::memcpy(staticConstants.lightMvp, lightMvp.Data(), sizeof(staticConstants.lightMvp));
+        std::memcpy(skinnedConstants.lightMvp, lightMvp.Data(), sizeof(skinnedConstants.lightMvp));
+        const bool gpuSkinned = skin && skin->UsesGpuSkinning();
+        if (gpuSkinned) {
             const auto& matrices = skin->GetSkinMatrices();
             const size_t count = (std::min)(matrices.size(), size_t{128});
-            constants.skinInfo[0] = static_cast<float>(count);
+            skinnedConstants.skinInfo[0] = static_cast<float>(count);
             for (size_t bone = 0; bone < count; ++bone)
-                std::memcpy(constants.boneMatrices[bone], matrices[bone].Data(), sizeof(constants.boneMatrices[bone]));
+                std::memcpy(skinnedConstants.boneMatrices[bone], matrices[bone].Data(),
+                            sizeof(skinnedConstants.boneMatrices[bone]));
         }
         commands.SetVertexBuffer(mesh->GetVertexBuffer());
         commands.SetIndexBuffer(mesh->GetIndexBuffer());
@@ -576,6 +653,13 @@ void ShadowPass::DrawShadowScene(GpuCommandList& commands, const Scene& scene, c
             MaterialAsset* material = skinnedMaterial;
             if (renderer) {
                 material = renderer->GetMaterialForSlot(sm.materialSlot).Get();
+            }
+            // Standard static surfaces are already present in GpuSceneDatabase and are rendered by the Modern
+            // indirect shadow path. Retain skinned, inherited and custom-shader materials here because they require
+            // their specialized vertex/material ABI.
+            if (compatibilityOnly && renderer && material && !material->HasParent() &&
+                !material->GetShaderAsset().IsValid()) {
+                continue;
             }
             ResolvedMaterial resolved;
             std::shared_ptr<ShaderHandle> graphShader;
@@ -592,6 +676,25 @@ void ShadowPass::DrawShadowScene(GpuCommandList& commands, const Scene& scene, c
             } else if (material && material->GetBlendMode() == BlendMode::Transparent) {
                 continue;
             }
+
+            BlendMode shadowBlendMode = material ? material->GetBlendMode() : BlendMode::Opaque;
+            float shadowAlphaThreshold = material ? material->GetAlphaThreshold() : 0.5f;
+            float shadowBaseAlpha = 1.0f;
+            TextureHandle shadowBaseColor;
+            if (resolved.valid) {
+                shadowBlendMode = resolved.blendMode;
+                shadowAlphaThreshold = resolved.alphaThreshold;
+                shadowBaseColor = resolved.FindTexture("BaseColorMap");
+                if (const MaterialParam* baseColor = resolved.FindProperty("BaseColor"))
+                    shadowBaseAlpha = baseColor->data[3];
+            } else if (material) {
+                shadowBaseColor = material->GetTexture("BaseColorMap");
+                shadowBaseAlpha = material->GetParam("BaseColor", MaterialParam::FromColor(Vec3::One())).data[3];
+            }
+            const float alphaTestEnabled = shadowBlendMode == BlendMode::AlphaTest ? 1.0f : 0.0f;
+            staticConstants.alphaTest[0] = skinnedConstants.alphaTest[0] = shadowAlphaThreshold;
+            staticConstants.alphaTest[1] = skinnedConstants.alphaTest[1] = alphaTestEnabled;
+            staticConstants.alphaTest[2] = skinnedConstants.alphaTest[2] = shadowBaseAlpha;
 
             if (graphShader && graphShader->shader) {
                 const std::string key = resolved.shader->GetPath() + ":" + std::to_string(graphShader->version) + ":" +
@@ -633,19 +736,51 @@ void ShadowPass::DrawShadowScene(GpuCommandList& commands, const Scene& scene, c
                         std::memcpy(graphConstants.boneMatrices[bone], matrices[bone].Data(),
                                     sizeof(graphConstants.boneMatrices[bone]));
                 }
-                ++m_LastStats.bindGroupCreates;
-                auto bindings = Device()->CreateBindGroup(graphShader->shader);
+                bool bindGroupCreated = false;
+                auto bindings = AcquireBindGroup(graphShader->shader, &bindGroupCreated);
+                m_LastStats.bindGroupCreates += bindGroupCreated ? 1u : 0u;
                 if (bindings) {
-                    MaterialSystem::BindTextures(*bindings, m_ResourceCache, resolved);
-                    bindings->SetConstants("GraphPerDraw", &graphConstants, sizeof(graphConstants));
+                    const bool complete =
+                        MaterialSystem::BindTextures(*bindings, m_ResourceCache, resolved) &&
+                        bindings->SetConstants("GraphPerDraw", &graphConstants, sizeof(graphConstants));
+                    if (!complete)
+                        continue;
                     commands.SetBindGroup(0, bindings.get());
+                } else {
+                    continue;
                 }
             } else {
-                commands.SetGraphicsPipeline(m_ShadowPipeline.get());
-                ++m_LastStats.bindGroupCreates;
-                auto bindings = Device()->CreateBindGroup(m_ShadowShaderHandle->shader);
-                if (bindings && bindings->SetConstants("ShadowPerDraw", &constants, sizeof(constants)))
+                const auto& shadowPipeline = gpuSkinned ? m_SkinnedShadowPipeline : m_ShadowPipeline;
+                const auto& shadowShader = gpuSkinned ? m_SkinnedShadowShaderHandle : m_ShadowShaderHandle;
+                if (!shadowPipeline || !shadowShader || !shadowShader->shader)
+                    continue;
+                commands.SetGraphicsPipeline(shadowPipeline.get());
+                bool bindGroupCreated = false;
+                auto bindings = AcquireBindGroup(shadowShader->shader, &bindGroupCreated);
+                m_LastStats.bindGroupCreates += bindGroupCreated ? 1u : 0u;
+                if (bindings) {
+                    TextureAsset* baseColorTexture = shadowBaseColor.Get();
+                    if (baseColorTexture)
+                        m_ResourceCache.EnsureTextureUploaded(baseColorTexture);
+                    auto* gpuTexture =
+                        baseColorTexture ? static_cast<GpuTexture*>(baseColorTexture->GetGpuHandle()) : nullptr;
+                    const auto textureView = m_ResourceCache.GetTextureView(gpuTexture);
+                    const auto sampler = baseColorTexture ? m_ResourceCache.GetSamplerForTexture(baseColorTexture)
+                                                          : m_ResourceCache.GetLinearSampler();
+                    const bool textureBindingComplete = bindings->SetTexture("g_BaseColorMap", textureView);
+                    const bool samplerBindingComplete = bindings->SetSampler("g_BaseColorSampler", sampler);
+                    const bool resourceBindingsComplete = textureBindingComplete && samplerBindingComplete;
+                    const bool constantsComplete =
+                        gpuSkinned
+                            ? bindings->SetConstants("ShadowPerDraw", &skinnedConstants, sizeof(skinnedConstants))
+                            : bindings->SetConstants("ShadowPerDraw", &staticConstants, sizeof(staticConstants));
+                    const bool complete = resourceBindingsComplete && constantsComplete;
+                    if (!complete)
+                        continue;
                     commands.SetBindGroup(0, bindings.get());
+                } else {
+                    continue;
+                }
             }
             ++m_LastStats.submittedSubMeshes;
             if (mesh->GetIndexBuffer()) {
@@ -664,7 +799,7 @@ void ShadowPass::ExecuteGraphManaged(GpuCommandList& commands, const Scene& scen
         return;
     commands.SetViewport(0.0f, 0.0f, static_cast<float>(m_ShadowMapSize), static_cast<float>(m_ShadowMapSize));
 
-    auto renderDepth = [&](GpuTextureView* view, const Mat4& matrix) {
+    auto renderDepth = [&](GpuTextureView* view, const Mat4& matrix, bool drawScene) {
         RenderingAttachment depth;
         depth.view = view;
         depth.loadOp = RHILoadOp::Clear;
@@ -675,31 +810,35 @@ void ShadowPass::ExecuteGraphManaged(GpuCommandList& commands, const Scene& scen
         info.width = m_ShadowMapSize;
         info.height = m_ShadowMapSize;
         commands.BeginRendering(info);
-        commands.SetGraphicsPipeline(m_ShadowPipeline.get());
-        DrawShadowScene(commands, scene, matrix);
+        if (drawScene) {
+            commands.SetGraphicsPipeline(m_ShadowPipeline.get());
+            DrawShadowScene(commands, scene, matrix);
+        }
         commands.EndRendering();
     };
     const RHIResourceState before =
         m_ShadowResourcesInShaderState ? RHIResourceState::ShaderResource : RHIResourceState::Undefined;
-    if (m_DirectionalShadowEnabled) {
-        commands.Transition(m_ShadowMapTexture.get(), before, RHIResourceState::DepthWrite);
-        for (uint32_t cascade = 0; cascade < m_CascadeCount; ++cascade)
-            renderDepth(m_ShadowCascadeViews[cascade].get(), m_LightViewProjCascade[cascade]);
-        commands.Transition(m_ShadowMapTexture.get(), RHIResourceState::DepthWrite, RHIResourceState::ShaderResource);
+    // Classic lighting binds all three shadow descriptors even when a light type is absent. Initialize and publish
+    // every subresource so an inactive descriptor never points at VK_IMAGE_LAYOUT_UNDEFINED; inactive maps remain
+    // cleared to the fully-lit depth value.
+    commands.Transition(m_ShadowMapTexture.get(), before, RHIResourceState::DepthWrite);
+    for (uint32_t cascade = 0; cascade < kMaxCascades; ++cascade) {
+        const bool active = m_DirectionalShadowEnabled && cascade < m_CascadeCount;
+        renderDepth(m_ShadowCascadeViews[cascade].get(), active ? m_LightViewProjCascade[cascade] : Mat4::Identity(),
+                    active);
     }
-    if (m_SpotShadowIndex >= 0) {
-        commands.Transition(m_SpotShadowMapTexture.get(), before, RHIResourceState::DepthWrite);
-        renderDepth(m_SpotShadowView.get(), m_SpotLightViewProj);
-        commands.Transition(m_SpotShadowMapTexture.get(), RHIResourceState::DepthWrite,
-                            RHIResourceState::ShaderResource);
-    }
-    if (m_PointShadowIndex >= 0) {
-        commands.Transition(m_PointShadowMapTexture.get(), before, RHIResourceState::DepthWrite);
-        for (uint32_t face = 0; face < 6; ++face)
-            renderDepth(m_PointShadowViews[face].get(), m_PointLightViewProj[face]);
-        commands.Transition(m_PointShadowMapTexture.get(), RHIResourceState::DepthWrite,
-                            RHIResourceState::ShaderResource);
-    }
+    commands.Transition(m_ShadowMapTexture.get(), RHIResourceState::DepthWrite, RHIResourceState::ShaderResource);
+
+    commands.Transition(m_SpotShadowMapTexture.get(), before, RHIResourceState::DepthWrite);
+    renderDepth(m_SpotShadowView.get(), m_SpotLightViewProj, m_SpotShadowIndex >= 0);
+    commands.Transition(m_SpotShadowMapTexture.get(), RHIResourceState::DepthWrite,
+                        RHIResourceState::ShaderResource);
+
+    commands.Transition(m_PointShadowMapTexture.get(), before, RHIResourceState::DepthWrite);
+    for (uint32_t face = 0; face < 6; ++face)
+        renderDepth(m_PointShadowViews[face].get(), m_PointLightViewProj[face], m_PointShadowIndex >= 0);
+    commands.Transition(m_PointShadowMapTexture.get(), RHIResourceState::DepthWrite,
+                        RHIResourceState::ShaderResource);
     m_ShadowResourcesInShaderState = true;
 }
 
@@ -717,7 +856,7 @@ void ShadowPass::Execute(GpuCommandList& commands, const Scene& scene, const Cam
         return;
     commands.SetViewport(0.0f, 0.0f, static_cast<float>(m_ShadowMapSize), static_cast<float>(m_ShadowMapSize));
 
-    auto renderDepth = [&](GpuTextureView* view, const Mat4& matrix) {
+    auto renderDepth = [&](GpuTextureView* view, const Mat4& matrix, bool drawScene) {
         RenderingAttachment depth;
         depth.view = view;
         depth.loadOp = RHILoadOp::Clear;
@@ -728,31 +867,32 @@ void ShadowPass::Execute(GpuCommandList& commands, const Scene& scene, const Cam
         info.width = m_ShadowMapSize;
         info.height = m_ShadowMapSize;
         commands.BeginRendering(info);
-        commands.SetGraphicsPipeline(m_ShadowPipeline.get());
-        DrawShadowScene(commands, scene, matrix);
+        if (drawScene) {
+            commands.SetGraphicsPipeline(m_ShadowPipeline.get());
+            DrawShadowScene(commands, scene, matrix);
+        }
         commands.EndRendering();
     };
     const RHIResourceState before =
         m_ShadowResourcesInShaderState ? RHIResourceState::ShaderResource : RHIResourceState::Undefined;
-    if (m_DirectionalShadowEnabled) {
-        commands.Transition(m_ShadowMapTexture.get(), before, RHIResourceState::DepthWrite);
-        for (uint32_t cascade = 0; cascade < m_CascadeCount; ++cascade)
-            renderDepth(m_ShadowCascadeViews[cascade].get(), m_LightViewProjCascade[cascade]);
-        commands.Transition(m_ShadowMapTexture.get(), RHIResourceState::DepthWrite, RHIResourceState::ShaderResource);
+    commands.Transition(m_ShadowMapTexture.get(), before, RHIResourceState::DepthWrite);
+    for (uint32_t cascade = 0; cascade < kMaxCascades; ++cascade) {
+        const bool active = m_DirectionalShadowEnabled && cascade < m_CascadeCount;
+        renderDepth(m_ShadowCascadeViews[cascade].get(), active ? m_LightViewProjCascade[cascade] : Mat4::Identity(),
+                    active);
     }
-    if (m_SpotShadowIndex >= 0) {
-        commands.Transition(m_SpotShadowMapTexture.get(), before, RHIResourceState::DepthWrite);
-        renderDepth(m_SpotShadowView.get(), m_SpotLightViewProj);
-        commands.Transition(m_SpotShadowMapTexture.get(), RHIResourceState::DepthWrite,
-                            RHIResourceState::ShaderResource);
-    }
-    if (m_PointShadowIndex >= 0) {
-        commands.Transition(m_PointShadowMapTexture.get(), before, RHIResourceState::DepthWrite);
-        for (uint32_t face = 0; face < 6; ++face)
-            renderDepth(m_PointShadowViews[face].get(), m_PointLightViewProj[face]);
-        commands.Transition(m_PointShadowMapTexture.get(), RHIResourceState::DepthWrite,
-                            RHIResourceState::ShaderResource);
-    }
+    commands.Transition(m_ShadowMapTexture.get(), RHIResourceState::DepthWrite, RHIResourceState::ShaderResource);
+
+    commands.Transition(m_SpotShadowMapTexture.get(), before, RHIResourceState::DepthWrite);
+    renderDepth(m_SpotShadowView.get(), m_SpotLightViewProj, m_SpotShadowIndex >= 0);
+    commands.Transition(m_SpotShadowMapTexture.get(), RHIResourceState::DepthWrite,
+                        RHIResourceState::ShaderResource);
+
+    commands.Transition(m_PointShadowMapTexture.get(), before, RHIResourceState::DepthWrite);
+    for (uint32_t face = 0; face < 6; ++face)
+        renderDepth(m_PointShadowViews[face].get(), m_PointLightViewProj[face], m_PointShadowIndex >= 0);
+    commands.Transition(m_PointShadowMapTexture.get(), RHIResourceState::DepthWrite,
+                        RHIResourceState::ShaderResource);
     m_ShadowResourcesInShaderState = true;
     return;
 }

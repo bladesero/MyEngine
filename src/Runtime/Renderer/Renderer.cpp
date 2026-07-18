@@ -1,13 +1,19 @@
 #include "Renderer/Renderer.h"
 
-#include "Renderer/GpuUploadQueue.h"
+#include "Animation/SkinnedMeshRendererComponent.h"
+#include "Assets/AssetManager.h"
+#include "Assets/MaterialAsset.h"
+#include "Core/EngineTime.h"
 #include "Core/FrameStats.h"
 #include "Core/Logger.h"
 #include "Renderer/EnvironmentPass.h"
 #include "Renderer/DeferredLightingPass.h"
+#include "Renderer/EngineShaderCatalog.h"
 #include "Renderer/GBufferPass.h"
+#include "Renderer/GpuUploadQueue.h"
 #include "Renderer/LightComponent.h"
 #include "Renderer/MainPass.h"
+#include "Renderer/ModernDeferredPipeline.h"
 #include "Renderer/PostProcessPass.h"
 #include "Renderer/PostProcessComponent.h"
 #include "Renderer/ShaderManager.h"
@@ -16,14 +22,18 @@
 #include "Renderer/ScreenUIPass.h"
 #include "Renderer/SceneLighting.h"
 #include "Scene/Actor.h"
+#include "Scene/MeshRendererComponent.h"
 #include "UI/Render/UIDrawList.h"
 
+#include <algorithm>
 #include <chrono>
+#include <unordered_set>
 
 namespace {
 struct PostProcessRuntimeOptions {
     bool ssaoEnabled = false;
     float ssaoScale = 1.0f;
+    ModernPostProcessSettings modern;
 };
 
 PostProcessRuntimeOptions CollectPostProcessOptions(const Scene& scene) {
@@ -37,6 +47,17 @@ PostProcessRuntimeOptions CollectPostProcessOptions(const Scene& scene) {
             return;
         options.ssaoEnabled = post->GetSSAOIntensity() > 0.0f;
         options.ssaoScale = post->GetSSAOScale();
+        options.modern.ssgiEnabled = post->IsSSGIEnabled();
+        options.modern.ssrEnabled = post->IsSSREnabled();
+        options.modern.taaEnabled = post->IsTAAEnabled();
+        options.modern.ssgiIntensity = post->GetSSGIIntensity();
+        options.modern.ssgiMaxDistance = post->GetSSGIMaxDistance();
+        options.modern.ssrMaxRoughness = post->GetSSRMaxRoughness();
+        options.modern.taaHistoryWeight = post->GetTAAHistoryWeight();
+        options.modern.exposure = post->GetExposure();
+        options.modern.gamma = post->GetGamma();
+        options.modern.bloomThreshold = post->GetBloomThreshold();
+        options.modern.bloomIntensity = post->IsBloomEnabled() ? post->GetBloomIntensity() : 0.0f;
         found = true;
     });
     return options;
@@ -64,6 +85,40 @@ Vec3 CollectEnvironmentSunDirection(const Scene& scene) {
 float ElapsedMs(std::chrono::steady_clock::time_point start, std::chrono::steady_clock::time_point end) {
     return std::chrono::duration<float, std::milli>(end - start).count();
 }
+
+void CollectMaterialShaderPaths(const MaterialAsset* material,
+                                std::unordered_set<const MaterialAsset*>& visitedMaterials,
+                                std::unordered_set<std::string>& uniqueShaders, std::vector<std::string>& shaders) {
+    if (!material || !visitedMaterials.insert(material).second)
+        return;
+    if (const ShaderAssetHandle& shader = material->GetShaderAsset(); shader.IsValid()) {
+        const std::string path = AssetManager::Get().MakeProjectRelativePath(shader->GetPath());
+        if (!path.empty() && uniqueShaders.insert(path).second)
+            shaders.push_back(path);
+    }
+    if (material->HasParent()) {
+        const MaterialHandle parent = AssetManager::Get().Load<MaterialAsset>(material->GetParentPath());
+        if (parent.IsValid())
+            CollectMaterialShaderPaths(parent.Get(), visitedMaterials, uniqueShaders, shaders);
+    }
+}
+
+std::vector<std::string> CollectSceneShaderPaths(const Scene& scene) {
+    std::unordered_set<const MaterialAsset*> visitedMaterials;
+    std::unordered_set<std::string> uniqueShaders;
+    std::vector<std::string> shaders;
+    scene.ForEach([&](Actor& actor) {
+        if (const auto* renderer = actor.GetComponent<MeshRendererComponent>()) {
+            for (const MaterialHandle& material : renderer->GetMaterials())
+                CollectMaterialShaderPaths(material.Get(), visitedMaterials, uniqueShaders, shaders);
+        }
+        if (const auto* skinned = actor.GetComponent<SkinnedMeshRendererComponent>()) {
+            const MaterialHandle material = skinned->GetMaterial();
+            CollectMaterialShaderPaths(material.Get(), visitedMaterials, uniqueShaders, shaders);
+        }
+    });
+    return shaders;
+}
 } // namespace
 
 Renderer::Renderer(IRHIDevice* device, IRHIFrameContext* frameContext, IRHIReadbackService* readbackService)
@@ -76,11 +131,153 @@ Renderer::Renderer(IRHIDevice* device, IRHIFrameContext* frameContext, IRHIReadb
       m_ScreenUIPass(std::make_unique<ScreenUIPass>(device)),
       m_RenderGraph(device ? std::make_unique<RenderGraph>(*device) : nullptr) {
     ShaderManager::Get().SetDevice(device);
+    RefreshPipelineDiagnostics();
 }
 
 Renderer::~Renderer() = default;
 
+void Renderer::RefreshPipelineDiagnostics() {
+    const RHIBackend backend = m_Device ? m_Device->GetBackend() : RHIBackend::Unknown;
+    const RHIDeviceCapabilities capabilities = m_Device ? m_Device->GetCapabilities() : RHIDeviceCapabilities{};
+    // Before the first Modern frame, report the capability-resolved path without constructing its shaders. Once an
+    // initialization attempt fails, the same diagnostics switch to Classic and retain the concrete failure reason.
+    const bool implementationAvailable = m_ModernImplementationReady || !m_ModernInitializationAttempted;
+    m_PipelineDiagnostics =
+        ResolveRenderPipeline(m_RenderPath, m_DeviceProfile, backend, capabilities, implementationAvailable);
+    if (m_ModernInitializationAttempted && !m_ModernImplementationReady && m_ModernDeferredPipeline &&
+        !m_ModernDeferredPipeline->GetInitializationError().empty()) {
+        m_PipelineDiagnostics.fallbackReason = m_ModernDeferredPipeline->GetInitializationError();
+        m_PipelineDiagnostics.usedFallback = m_RenderPath == RenderPath::Deferred;
+    }
+}
+
+void Renderer::EnsureModernPipeline() {
+    if (m_ModernInitializationAttempted || m_RenderPath != RenderPath::Deferred ||
+        m_DeviceProfile == GraphicsDeviceProfile::Mobile || !m_Device ||
+        !HasModernDeferredCapabilities(m_Device->GetBackend(), m_Device->GetCapabilities())) {
+        return;
+    }
+
+    m_ModernInitializationAttempted = true;
+    const auto start = std::chrono::steady_clock::now();
+    m_ModernDeferredPipeline = std::make_unique<ModernDeferredPipeline>(m_Device, m_ReadbackService);
+    m_ModernImplementationReady = m_ModernDeferredPipeline->IsReady();
+    if (m_ModernImplementationReady) {
+        m_ModernDeferredPipeline->SetQualityProfile(m_DeviceProfile == GraphicsDeviceProfile::Console
+                                                        ? ModernDeferredPipeline::QualityProfile::Console
+                                                        : ModernDeferredPipeline::QualityProfile::Desktop);
+        m_ModernDeferredPipeline->Resize(m_Width, m_Height);
+        Logger::Info("[Renderer] Modern Deferred initialized on first use in ",
+                     ElapsedMs(start, std::chrono::steady_clock::now()), " ms");
+    } else {
+        Logger::Warn("[Renderer] Modern Deferred initialization failed; Classic Deferred will be used: ",
+                     m_ModernDeferredPipeline->GetInitializationError());
+    }
+    RefreshPipelineDiagnostics();
+}
+
+bool Renderer::PrewarmStartupShaders(const Scene& scene) {
+    if (!m_Device)
+        return true;
+
+    constexpr uint8_t kCommonShaders = 1u << 0;
+    constexpr uint8_t kDeferredCoreShaders = 1u << 1;
+    constexpr uint8_t kClassicDeferredEffects = 1u << 2;
+    constexpr uint8_t kModernDeferredShaders = 1u << 3;
+    uint8_t required = kCommonShaders;
+    if (m_RenderPath == RenderPath::Deferred) {
+        // Modern still constructs the Classic compatibility/post-process passes for legacy Code Shaders and the
+        // SSAO pressure fallback, so prepare those artifacts in the same background batch.
+        required |= kDeferredCoreShaders | kClassicDeferredEffects;
+        if (m_DeviceProfile != GraphicsDeviceProfile::Mobile &&
+            HasModernDeferredCapabilities(m_Device->GetBackend(), m_Device->GetCapabilities())) {
+            required |= kModernDeferredShaders;
+        }
+    }
+    const uint8_t missing = required & ~m_ShaderPrewarmMask;
+    const uint64_t sceneGeneration = scene.GetLifetimeGeneration();
+    if (m_ShaderPrewarmSceneGeneration != sceneGeneration) {
+        m_ShaderPrewarmSceneGeneration = sceneGeneration;
+        m_SceneShaderPrewarmComplete = false;
+        m_SceneShaderPrewarmPaths = CollectSceneShaderPaths(scene);
+    }
+    if (missing == 0 && m_SceneShaderPrewarmComplete)
+        return true;
+
+    std::vector<std::string> shaders;
+    if ((missing & kCommonShaders) != 0) {
+        shaders.insert(shaders.end(),
+                       {EngineShaders::kShadowDepth, EngineShaders::kShadowDepthSkinned,
+                        EngineShaders::kAtmosphereCubemap, EngineShaders::kEnvironmentMipmap,
+                        EngineShaders::kAtmosphereSH, EngineShaders::kShadowedMainPass, EngineShaders::kPostProcessFXAA,
+                        EngineShaders::kProceduralSky, EngineShaders::kScreenUI, EngineShaders::kMesh});
+    }
+    if ((missing & kDeferredCoreShaders) != 0) {
+        shaders.insert(shaders.end(), {EngineShaders::kGBuffer, EngineShaders::kDeferredLighting});
+    }
+    if ((missing & kClassicDeferredEffects) != 0) {
+        shaders.insert(shaders.end(), {EngineShaders::kPostProcessSSAO, EngineShaders::kPostProcessSSAOBlur});
+    }
+    if ((missing & kModernDeferredShaders) != 0) {
+        shaders.insert(shaders.end(),
+                       {EngineShaders::kModernCulling, EngineShaders::kModernOcclusionCulling,
+                        EngineShaders::kModernDepth, EngineShaders::kModernGBuffer, EngineShaders::kModernHiZInit,
+                        EngineShaders::kModernHiZReduce, EngineShaders::kClusterCount, EngineShaders::kClusterPrefix,
+                        EngineShaders::kClusterScatter, EngineShaders::kClusterLighting,
+                        EngineShaders::kModernSSGITrace, EngineShaders::kModernSSRTrace, EngineShaders::kModernTemporal,
+                        EngineShaders::kModernAtrous, EngineShaders::kModernEffectsComposite, EngineShaders::kModernTAA,
+                        EngineShaders::kModernBloomTone});
+    }
+    if (!m_SceneShaderPrewarmComplete)
+        shaders.insert(shaders.end(), m_SceneShaderPrewarmPaths.begin(), m_SceneShaderPrewarmPaths.end());
+    const ShaderPrewarmStatus status = ShaderManager::Get().PrewarmCacheArtifactsAsync(shaders);
+    if (status == ShaderPrewarmStatus::Ready) {
+        m_ShaderPrewarmMask |= missing;
+        m_SceneShaderPrewarmComplete = true;
+        return true;
+    }
+    if (status == ShaderPrewarmStatus::Failed) {
+        // Failed artifacts stay cached until a shader is explicitly recompiled, so proceeding cannot trigger a
+        // synchronous render-thread cook. Modern initialization can now fail fast and resolve to Classic Deferred
+        // instead of leaving the viewport on a permanent clear frame while retrying slangc every frame.
+        m_ShaderPrewarmMask |= missing;
+        m_SceneShaderPrewarmComplete = true;
+        Logger::Warn("[Renderer] Startup shader prewarm was incomplete; continuing with available shaders so the ",
+                     "resolved pipeline can fall back without blocking the viewport");
+        return true;
+    }
+    return false;
+}
+
+void Renderer::SetRenderPath(RenderPath path) {
+    if (m_RenderPath == path)
+        return;
+    m_RenderPath = path;
+    RefreshPipelineDiagnostics();
+    InvalidateTemporalHistory("render path changed", true);
+}
+
+void Renderer::SetDeviceProfile(GraphicsDeviceProfile profile) {
+    if (m_DeviceProfile == profile)
+        return;
+    m_DeviceProfile = profile;
+    if (m_ModernDeferredPipeline) {
+        m_ModernDeferredPipeline->SetQualityProfile(profile == GraphicsDeviceProfile::Console
+                                                        ? ModernDeferredPipeline::QualityProfile::Console
+                                                        : ModernDeferredPipeline::QualityProfile::Desktop);
+    }
+    RefreshPipelineDiagnostics();
+    InvalidateTemporalHistory("device profile changed", true);
+    if (m_PipelineDiagnostics.usedFallback) {
+        Logger::Warn("[Renderer] Requested ", GraphicsDeviceProfileName(profile), " profile resolved to ",
+                     ResolvedRenderPipelineName(m_PipelineDiagnostics.resolvedPipeline), ": ",
+                     m_PipelineDiagnostics.fallbackReason);
+    }
+}
+
 void Renderer::Resize(uint32_t width, uint32_t height) {
+    m_Width = (std::max)(width, 1u);
+    m_Height = (std::max)(height, 1u);
     if (m_ShadowPass)
         m_ShadowPass->Resize(width, height);
     if (m_EnvironmentPass)
@@ -95,6 +292,8 @@ void Renderer::Resize(uint32_t width, uint32_t height) {
         m_PostProcessPass->Resize(width, height);
     if (m_ScreenUIPass)
         m_ScreenUIPass->Resize(width, height);
+    if (m_ModernDeferredPipeline)
+        m_ModernDeferredPipeline->Resize(width, height);
 }
 
 void Renderer::ReleaseFrameResources() {
@@ -104,6 +303,18 @@ void Renderer::ReleaseFrameResources() {
 
 void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool present) {
     FrameStatsProvider::SetRendererStats({});
+    if (!PrewarmStartupShaders(scene)) {
+        // Shader cooking is CPU-only and runs off the render thread. Keep the window/editor responsive with a valid
+        // clear frame; the next frame consumes the completed artifacts and creates GPU objects on the render thread.
+        if (m_FrameContext) {
+            m_FrameContext->BeginFrame(0.12f, 0.12f, 0.18f);
+            if (present)
+                m_FrameContext->EndFrame();
+        }
+        return;
+    }
+    EnsureModernPipeline();
+    RefreshPipelineDiagnostics();
     if (!m_Device || !m_FrameContext || !m_ShadowPass || !m_MainPass || !m_GBufferPass || !m_DeferredLightingPass ||
         !m_PostProcessPass)
         return;
@@ -111,7 +322,10 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
     GpuUploadQueue::Get().Process(*m_Device, GpuUploadQueue::Get().GetDefaultBudget());
 
     m_FrameContext->BeginFrame(0.12f, 0.12f, 0.18f);
+    const auto submissionStart = std::chrono::steady_clock::now();
     const auto endFrameOnFailure = [this, present]() {
+        if (m_ModernDeferredPipeline)
+            m_ModernDeferredPipeline->AbortTemporalFrame("render graph frame aborted");
         if (present)
             m_FrameContext->EndFrame();
     };
@@ -121,14 +335,53 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
         return;
     }
 
+    const uint32_t timestampSlot = m_FrameContext->GetFrameIndex() % m_FrameTimestampPools.size();
+    auto& timestampPool = m_FrameTimestampPools[timestampSlot];
+    if (!timestampPool && m_Device->GetCapabilities().timestampQueries)
+        timestampPool = m_Device->CreateTimestampQueryPool(2);
+    if (timestampPool && m_FrameTimestampRecorded[timestampSlot]) {
+        std::vector<uint64_t> ticks;
+        if (timestampPool->ReadResults(0, 2, ticks) && ticks.size() == 2 && ticks[1] >= ticks[0] &&
+            timestampPool->GetFrequency() > 0) {
+            RendererFrameStats stats = FrameStatsProvider::GetRendererStats();
+            stats.mainGpuMs = static_cast<float>(static_cast<double>(ticks[1] - ticks[0]) * 1000.0 /
+                                                 static_cast<double>(timestampPool->GetFrequency()));
+            stats.gpuTimingAvailable = true;
+            FrameStatsProvider::SetRendererStats(stats);
+        }
+    }
+    if (timestampPool)
+        commandList->WriteTimestamp(timestampPool.get(), 0);
+
     m_RenderGraph->Reset();
     const Vec3 environmentSunDirection = CollectEnvironmentSunDirection(scene);
     m_EnvironmentPass->SetSunDirection(environmentSunDirection);
     m_MainPass->SetSunDirection(environmentSunDirection);
+    const bool backendSupportsPostProcess =
+        m_Device->GetBackend() == RHIBackend::D3D11 || m_Device->GetBackend() == RHIBackend::D3D12 ||
+        m_Device->GetBackend() == RHIBackend::Metal || m_Device->GetBackend() == RHIBackend::Vulkan;
+    const bool useOffscreen = backendSupportsPostProcess || m_OutputOffscreen;
+    const bool useDeferred = useOffscreen && m_PipelineDiagnostics.resolvedPipeline != ResolvedRenderPipeline::Forward;
+    const bool modernRequested =
+        useDeferred && m_PipelineDiagnostics.resolvedPipeline == ResolvedRenderPipeline::ModernDeferred;
+    const SceneLightData sceneLights = CollectSceneLights(scene);
+    const PostProcessRuntimeOptions postOptions = CollectPostProcessOptions(scene);
+    bool modernFrameReady = false;
+    if (modernRequested) {
+        modernFrameReady = m_ModernDeferredPipeline &&
+                           m_ModernDeferredPipeline->Prepare(scene, camera, Time::FrameCount(), postOptions.modern);
+        if (!modernFrameReady) {
+            Logger::Warn("[Renderer] Modern Deferred frame preparation failed; using Classic Deferred for this "
+                         "frame: ",
+                         m_ModernDeferredPipeline ? m_ModernDeferredPipeline->GetInitializationError()
+                                                  : "pipeline unavailable");
+        }
+    }
     const bool shadowsEnabled = HasRendererFeature(m_FeatureMask, RendererFeatureMask::Shadows);
     RGTextureHandle directionalShadow;
     RGTextureHandle spotShadow;
     RGTextureHandle pointShadow;
+    std::shared_ptr<GpuTextureView> directionalShadowSrv;
     if (shadowsEnabled) {
         if (!m_ShadowPass->PrepareGraphResources(scene, camera)) {
             Logger::Error("[Renderer] ShadowPass failed to prepare graph resources");
@@ -136,46 +389,141 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
             return;
         }
         const auto shadowResources = m_ShadowPass->GetGraphResources();
-        directionalShadow = m_RenderGraph->ImportTexture(
-            "DirectionalShadow", shadowResources.directional, shadowResources.directionalCascadeViews[0],
-            shadowResources.initialState, RHIResourceState::ShaderResource);
-        spotShadow = m_RenderGraph->ImportTexture("SpotShadow", shadowResources.spot, shadowResources.spotView,
-                                                  shadowResources.initialState, RHIResourceState::ShaderResource);
-        pointShadow = m_RenderGraph->ImportTexture("PointShadow", shadowResources.point, shadowResources.pointViews[0],
-                                                   shadowResources.initialState, RHIResourceState::ShaderResource);
+        directionalShadowSrv = shadowResources.directionalSrv;
+        const auto importShadowResources = [&]() {
+            directionalShadow = m_RenderGraph->ImportTexture(
+                "DirectionalShadow", shadowResources.directional, shadowResources.directionalCascadeViews[0],
+                shadowResources.initialState, RHIResourceState::ShaderResource);
+            spotShadow = m_RenderGraph->ImportTexture("SpotShadow", shadowResources.spot, shadowResources.spotView,
+                                                      shadowResources.initialState, RHIResourceState::ShaderResource);
+            pointShadow =
+                m_RenderGraph->ImportTexture("PointShadow", shadowResources.point, shadowResources.pointViews[0],
+                                             shadowResources.initialState, RHIResourceState::ShaderResource);
+        };
+        importShadowResources();
 
-        m_RenderGraph->AddPass(
-            "Shadow",
-            [directionalShadow, spotShadow, pointShadow](RenderGraphBuilder& builder) {
-                for (uint32_t cascade = 0; cascade < 3; ++cascade) {
-                    builder.WriteDepth(directionalShadow, RGTextureSubresource{0, 1, cascade, 1}, RHILoadOp::Clear,
-                                       RHIStoreOp::Store, 1.0f);
+        const auto addCpuShadowPass = [&](const char* passName) {
+            m_RenderGraph->AddPass(
+                passName,
+                [directionalShadow, spotShadow, pointShadow](RenderGraphBuilder& builder) {
+                    for (uint32_t cascade = 0; cascade < 3; ++cascade) {
+                        builder.WriteDepth(directionalShadow, RGTextureSubresource{0, 1, cascade, 1}, RHILoadOp::Clear,
+                                           RHIStoreOp::Store, 1.0f);
+                    }
+                    builder.WriteDepth(spotShadow, RHILoadOp::Clear, RHIStoreOp::Store, 1.0f);
+                    for (uint32_t face = 0; face < 6; ++face) {
+                        builder.WriteDepth(pointShadow, RGTextureSubresource{0, 1, face, 1}, RHILoadOp::Clear,
+                                           RHIStoreOp::Store, 1.0f);
+                    }
+                },
+                [this, &scene](GpuCommandList& commands, const RenderGraphResources&) {
+                    const auto start = std::chrono::steady_clock::now();
+                    m_ShadowPass->ExecuteGraphManaged(commands, scene);
+                    const auto end = std::chrono::steady_clock::now();
+                    RendererFrameStats stats = FrameStatsProvider::GetRendererStats();
+                    stats.shadowCpuMs += ElapsedMs(start, end);
+                    const auto& shadowStats = m_ShadowPass->GetLastStats();
+                    stats.shadowDrawCalls = shadowStats.drawCalls;
+                    stats.bindGroupCreates += shadowStats.bindGroupCreates;
+                    FrameStatsProvider::SetRendererStats(stats);
+                },
+                RenderGraph::PassFlags::ManualRenderingScope | RenderGraph::PassFlags::ManualResourceTransitions);
+        };
+
+        if (modernFrameReady) {
+            m_ShadowPass->BeginGpuDrivenFrame();
+            const bool hasCompatibilityObjects =
+                m_ModernDeferredPipeline->GetGpuScene().GetStats().compatibilityObjects != 0;
+            bool gpuShadowReady = true;
+            const auto addInactiveShadowClear = [&](const std::string& name, RGTextureHandle target,
+                                                    RGTextureSubresource subresource) {
+                if (shadowResources.initialState != RHIResourceState::Undefined)
+                    return;
+                m_RenderGraph->AddPass(name,
+                                       [target, subresource](RenderGraphBuilder& builder) {
+                                           builder.WriteDepth(target, subresource, RHILoadOp::Clear, RHIStoreOp::Store,
+                                                              1.0f);
+                                       },
+                                       {});
+            };
+            const auto addGpuShadowView = [&](const std::string& name, RGTextureHandle target,
+                                              RGTextureSubresource subresource, const Mat4& viewProjection) {
+                if (!gpuShadowReady)
+                    return;
+                if (!m_ModernDeferredPipeline->AddGpuDrivenShadowView(*m_RenderGraph, name, target, subresource,
+                                                                      viewProjection)) {
+                    gpuShadowReady = false;
+                    return;
                 }
-                builder.WriteDepth(spotShadow, RHILoadOp::Clear, RHIStoreOp::Store, 1.0f);
+                if (!hasCompatibilityObjects)
+                    return;
+                m_RenderGraph->AddPass(
+                    name + "Compatibility",
+                    [target, subresource](RenderGraphBuilder& builder) {
+                        builder.WriteDepth(target, subresource, RHILoadOp::Load, RHIStoreOp::Store, 1.0f);
+                    },
+                    [this, &scene, viewProjection](GpuCommandList& commands, const RenderGraphResources&) {
+                        const auto start = std::chrono::steady_clock::now();
+                        m_ShadowPass->DrawCompatibilityScene(commands, scene, viewProjection);
+                        RendererFrameStats stats = FrameStatsProvider::GetRendererStats();
+                        stats.shadowCpuMs += ElapsedMs(start, std::chrono::steady_clock::now());
+                        const auto& shadowStats = m_ShadowPass->GetLastStats();
+                        stats.shadowDrawCalls = shadowStats.drawCalls;
+                        stats.bindGroupCreates += shadowStats.bindGroupCreates;
+                        FrameStatsProvider::SetRendererStats(stats);
+                    });
+            };
+            if (m_ShadowPass->IsDirectionalShadowEnabled()) {
+                for (uint32_t cascade = 0; cascade < m_ShadowPass->GetCascadeCount(); ++cascade) {
+                    addGpuShadowView("GpuShadowCascade" + std::to_string(cascade), directionalShadow,
+                                     RGTextureSubresource{0, 1, cascade, 1}, m_ShadowPass->GetCascadeViewProj(cascade));
+                }
+            }
+            for (uint32_t cascade = m_ShadowPass->IsDirectionalShadowEnabled() ? m_ShadowPass->GetCascadeCount() : 0u;
+                 cascade < 3u; ++cascade) {
+                addInactiveShadowClear("GpuShadowCascadeInit" + std::to_string(cascade), directionalShadow,
+                                       RGTextureSubresource{0, 1, cascade, 1});
+            }
+            if (m_ShadowPass->GetSpotShadowIndex() >= 0) {
+                addGpuShadowView("GpuShadowSpot", spotShadow, RGTextureSubresource{0, 1, 0, 1},
+                                 m_ShadowPass->GetSpotLightViewProj());
+            } else {
+                addInactiveShadowClear("GpuShadowSpotInit", spotShadow, RGTextureSubresource{0, 1, 0, 1});
+            }
+            if (m_ShadowPass->GetPointShadowIndex() >= 0) {
                 for (uint32_t face = 0; face < 6; ++face) {
-                    builder.WriteDepth(pointShadow, RGTextureSubresource{0, 1, face, 1}, RHILoadOp::Clear,
-                                       RHIStoreOp::Store, 1.0f);
+                    addGpuShadowView("GpuShadowPoint" + std::to_string(face), pointShadow,
+                                     RGTextureSubresource{0, 1, face, 1}, m_ShadowPass->GetPointLightViewProj(face));
                 }
-            },
-            [this, &scene, &camera](GpuCommandList& commands, const RenderGraphResources&) {
-                (void)camera;
-                const auto start = std::chrono::steady_clock::now();
-                m_ShadowPass->ExecuteGraphManaged(commands, scene);
-                const auto end = std::chrono::steady_clock::now();
-                RendererFrameStats stats = FrameStatsProvider::GetRendererStats();
-                stats.shadowCpuMs += ElapsedMs(start, end);
-                const auto& shadowStats = m_ShadowPass->GetLastStats();
-                stats.shadowDrawCalls = shadowStats.drawCalls;
-                stats.bindGroupCreates += shadowStats.bindGroupCreates;
-                FrameStatsProvider::SetRendererStats(stats);
-            },
-            RenderGraph::PassFlags::ManualRenderingScope | RenderGraph::PassFlags::ManualResourceTransitions);
+            } else {
+                for (uint32_t face = 0; face < 6; ++face) {
+                    addInactiveShadowClear("GpuShadowPointInit" + std::to_string(face), pointShadow,
+                                           RGTextureSubresource{0, 1, face, 1});
+                }
+            }
+            if (!gpuShadowReady) {
+                Logger::Warn("[Renderer] GPU-driven shadow setup failed; using CPU shadows for this frame: ",
+                             m_ModernDeferredPipeline->GetLastShadowSetupError());
+                // Shadows are the first graph workload. Rebuild this portion so no already-staged GPU pass can clear
+                // an atlas or commit an indirect-buffer state after one of the later views failed validation.
+                m_ModernDeferredPipeline->AbortGpuDrivenShadowFrame();
+                m_RenderGraph->Reset();
+                importShadowResources();
+                addCpuShadowPass("ShadowFallback");
+            }
+        } else {
+            addCpuShadowPass("Shadow");
+        }
     }
     const bool environmentGraphReady = m_EnvironmentPass->PrepareGraphResources();
     RGTextureHandle environmentCube;
     RGBufferHandle environmentSH;
+    std::shared_ptr<GpuTextureView> environmentCubeSrv;
+    std::shared_ptr<GpuBufferView> environmentSHSrv;
     if (environmentGraphReady) {
         const auto environmentResources = m_EnvironmentPass->GetGraphResources();
+        environmentCubeSrv = environmentResources.environmentView;
+        environmentSHSrv = environmentResources.shBufferView;
         environmentCube = m_RenderGraph->ImportTexture(
             "EnvironmentCube", environmentResources.environment, environmentResources.environmentView,
             environmentResources.environmentInitialState, RHIResourceState::ShaderResource);
@@ -198,14 +546,7 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
             },
             RenderGraph::PassFlags::ManualRenderingScope | RenderGraph::PassFlags::ManualResourceTransitions);
     }
-    const bool backendSupportsPostProcess =
-        m_Device->GetBackend() == RHIBackend::D3D11 || m_Device->GetBackend() == RHIBackend::D3D12 ||
-        m_Device->GetBackend() == RHIBackend::Metal || m_Device->GetBackend() == RHIBackend::Vulkan;
-    const bool useOffscreen = backendSupportsPostProcess || m_OutputOffscreen;
-    const bool useDeferred = useOffscreen && m_RenderPath == RenderPath::Deferred;
     m_MainPass->SetHdrPassthrough(useOffscreen);
-    const SceneLightData sceneLights = CollectSceneLights(scene);
-    const PostProcessRuntimeOptions postOptions = CollectPostProcessOptions(scene);
     const bool ssaoEnabled = HasRendererFeature(m_FeatureMask, RendererFeatureMask::SSAO) && postOptions.ssaoEnabled;
     m_PostProcessPass->SetSSAOEnabled(ssaoEnabled);
     m_PostProcessPass->SetSSAOScale(postOptions.ssaoScale);
@@ -242,9 +583,14 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
         const auto sceneDepth =
             m_RenderGraph->ImportTexture("SceneDepth", postResources.sceneDepth, postResources.sceneDepthDsv,
                                          postResources.sceneDepthState, RHIResourceState::ShaderResource);
+        // SSGI supplies the Modern ambient-occlusion/indirect term. Running the Classic SSAO composite on top of it
+        // double-darkens geometry; retain SSAO only as the documented fallback when SSGI is disabled.
+        const bool frameSsaoEnabled = ssaoEnabled && (!modernFrameReady || !postOptions.modern.ssgiEnabled);
+        m_PostProcessPass->SetSSAOEnabled(frameSsaoEnabled);
+        m_PostProcessPass->SetInputPreprocessed(modernFrameReady);
         RGTextureHandle ssao;
         RGTextureHandle ssaoBlur;
-        if (ssaoEnabled) {
+        if (frameSsaoEnabled) {
             ssao = m_RenderGraph->ImportTexture("SSAO", postResources.ssao, postResources.ssaoRtv,
                                                 postResources.ssaoState, RHIResourceState::ShaderResource);
             ssaoBlur = m_RenderGraph->ImportTexture("SSAOBlur", postResources.ssaoBlur, postResources.ssaoBlurRtv,
@@ -270,6 +616,7 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
         }
 
         RGTextureHandle compositeInput = sceneColor;
+        std::shared_ptr<GpuTextureView> compositeOverride;
         if (useDeferred) {
             if (!m_GBufferPass->PrepareGraphResources() || !m_DeferredLightingPass->PrepareGraphResources()) {
                 endFrameOnFailure();
@@ -289,10 +636,14 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
             const auto gbufferEmissive =
                 m_RenderGraph->ImportTexture("GBufferEmissive", gbufferResources.emissive, gbufferResources.emissiveRtv,
                                              gbufferResources.initialState, RHIResourceState::ShaderResource);
+            const auto gbufferVelocity =
+                m_RenderGraph->ImportTexture("GBufferVelocity", gbufferResources.velocity, gbufferResources.velocityRtv,
+                                             gbufferResources.initialState, RHIResourceState::ShaderResource);
             const auto deferredSceneColor = m_RenderGraph->ImportTexture(
                 "DeferredSceneColor", deferredResources.sceneColor, deferredResources.sceneColorRtv,
                 deferredResources.initialState, RHIResourceState::ShaderResource);
             compositeInput = deferredSceneColor;
+            compositeOverride = deferredResources.sceneColorSrv;
 
             m_DeferredLightingPass->SetGBufferInput(gbufferResources.albedoSrv, gbufferResources.normalSrv,
                                                     gbufferResources.materialSrv, gbufferResources.emissiveSrv);
@@ -314,35 +665,122 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
             m_DeferredLightingPass->SetEnvironmentInput(m_EnvironmentPass->GetEnvironmentCubemap(),
                                                         m_EnvironmentPass->GetSH2BufferView());
 
-            m_RenderGraph->AddPass(
-                "GBuffer",
-                [gbufferAlbedo, gbufferNormal, gbufferMaterial, gbufferEmissive,
-                 sceneDepth](RenderGraphBuilder& builder) {
-                    builder.WriteColor(gbufferAlbedo, RHILoadOp::Clear, RHIStoreOp::Store, {0, 0, 0, 0});
-                    builder.WriteColor(gbufferNormal, RHILoadOp::Clear, RHIStoreOp::Store, {0.5f, 0.5f, 1.0f, 1.0f});
-                    builder.WriteColor(gbufferMaterial, RHILoadOp::Clear, RHIStoreOp::Store, {0, 0.5f, 1.0f, 0});
-                    builder.WriteColor(gbufferEmissive, RHILoadOp::Clear, RHIStoreOp::Store, {0, 0, 0, 0});
-                    builder.WriteDepth(sceneDepth, RHILoadOp::Clear, RHIStoreOp::Store, 1.0f);
-                },
-                [this, &scene, &camera](GpuCommandList& commands, const RenderGraphResources&) {
-                    const auto start = std::chrono::steady_clock::now();
-                    m_GBufferPass->Execute(commands, scene, camera);
-                    const auto end = std::chrono::steady_clock::now();
-                    RendererFrameStats stats = FrameStatsProvider::GetRendererStats();
-                    stats.mainCpuMs += ElapsedMs(start, end);
-                    FrameStatsProvider::SetRendererStats(stats);
-                });
+            RGTextureHandle modernHiZ;
+            if (modernFrameReady) {
+                m_ModernDeferredPipeline->AddDepthPrepass(*m_RenderGraph, sceneDepth);
+                const Mat4 compatibilityViewProjection = m_ModernDeferredPipeline->GetCurrentViewProjection();
+                const Mat4 compatibilityPreviousViewProjection = m_ModernDeferredPipeline->GetPreviousViewProjection();
+                m_RenderGraph->AddPass(
+                    "GBufferCompatibility",
+                    [gbufferAlbedo, gbufferNormal, gbufferMaterial, gbufferEmissive, gbufferVelocity,
+                     sceneDepth](RenderGraphBuilder& builder) {
+                        // This is the first GBuffer writer. Clearing here lets compatibility depth become part of the
+                        // same HiZ hierarchy used for Modern occlusion, SSGI and SSR; the indirect pass loads these
+                        // attachments afterwards and fills Standard-material samples without erasing them.
+                        builder.WriteColor(gbufferAlbedo, RHILoadOp::Clear, RHIStoreOp::Store, {0, 0, 0, 0});
+                        builder.WriteColor(gbufferNormal, RHILoadOp::Clear, RHIStoreOp::Store,
+                                           {0.5f, 0.5f, 1.0f, 1.0f});
+                        builder.WriteColor(gbufferMaterial, RHILoadOp::Clear, RHIStoreOp::Store, {0, 0.5f, 1.0f, 0});
+                        builder.WriteColor(gbufferEmissive, RHILoadOp::Clear, RHIStoreOp::Store, {0, 0, 0, 0});
+                        builder.WriteColor(gbufferVelocity, RHILoadOp::Clear, RHIStoreOp::Store, {0, 0, 0, 0});
+                        builder.WriteDepth(sceneDepth, RHILoadOp::Load, RHIStoreOp::Store, 1.0f);
+                    },
+                    [this, &scene, &camera, compatibilityViewProjection,
+                     compatibilityPreviousViewProjection](GpuCommandList& commands, const RenderGraphResources&) {
+                        const auto start = std::chrono::steady_clock::now();
+                        m_GBufferPass->ExecuteCompatibilityOnly(commands, scene, camera, compatibilityViewProjection,
+                                                                compatibilityPreviousViewProjection);
+                        const auto end = std::chrono::steady_clock::now();
+                        RendererFrameStats stats = FrameStatsProvider::GetRendererStats();
+                        stats.mainCpuMs += ElapsedMs(start, end);
+                        FrameStatsProvider::SetRendererStats(stats);
+                    });
+                modernHiZ =
+                    m_ModernDeferredPipeline->AddHiZPasses(*m_RenderGraph, sceneDepth, postResources.sceneDepthSrv);
+                m_ModernDeferredPipeline->AddHiZOcclusionCulling(*m_RenderGraph, modernHiZ);
+                m_ModernDeferredPipeline->AddGBufferPass(*m_RenderGraph, gbufferAlbedo, gbufferNormal, gbufferMaterial,
+                                                         gbufferEmissive, gbufferVelocity, sceneDepth);
+            } else {
+                m_RenderGraph->AddPass(
+                    "GBuffer",
+                    [gbufferAlbedo, gbufferNormal, gbufferMaterial, gbufferEmissive, gbufferVelocity,
+                     sceneDepth](RenderGraphBuilder& builder) {
+                        builder.WriteColor(gbufferAlbedo, RHILoadOp::Clear, RHIStoreOp::Store, {0, 0, 0, 0});
+                        builder.WriteColor(gbufferNormal, RHILoadOp::Clear, RHIStoreOp::Store,
+                                           {0.5f, 0.5f, 1.0f, 1.0f});
+                        builder.WriteColor(gbufferMaterial, RHILoadOp::Clear, RHIStoreOp::Store, {0, 0.5f, 1.0f, 0});
+                        builder.WriteColor(gbufferEmissive, RHILoadOp::Clear, RHIStoreOp::Store, {0, 0, 0, 0});
+                        builder.WriteColor(gbufferVelocity, RHILoadOp::Clear, RHIStoreOp::Store, {0, 0, 0, 0});
+                        builder.WriteDepth(sceneDepth, RHILoadOp::Clear, RHIStoreOp::Store, 1.0f);
+                    },
+                    [this, &scene, &camera](GpuCommandList& commands, const RenderGraphResources&) {
+                        const auto start = std::chrono::steady_clock::now();
+                        m_GBufferPass->Execute(commands, scene, camera);
+                        const auto end = std::chrono::steady_clock::now();
+                        RendererFrameStats stats = FrameStatsProvider::GetRendererStats();
+                        stats.mainCpuMs += ElapsedMs(start, end);
+                        FrameStatsProvider::SetRendererStats(stats);
+                    });
+            }
+
+            if (modernFrameReady) {
+                m_ModernDeferredPipeline->SetDirectionalShadowInput(
+                    shadowsEnabled && m_ShadowPass->IsDirectionalShadowEnabled(), directionalShadowSrv,
+                    cascadeCount > 0 ? cascades : nullptr, cascadeCount, m_ShadowPass->GetCascadeSplits(),
+                    sceneLights.directionalShadowIntensity);
+                compositeInput = m_ModernDeferredPipeline->AddClusteredLightingPasses(
+                    *m_RenderGraph, camera, gbufferAlbedo, gbufferResources.albedoSrv, gbufferNormal,
+                    gbufferResources.normalSrv, gbufferMaterial, gbufferResources.materialSrv, gbufferEmissive,
+                    gbufferResources.emissiveSrv, sceneDepth, postResources.sceneDepthSrv, environmentCube,
+                    environmentCubeSrv, environmentSH, environmentSHSrv, directionalShadow);
+                compositeOverride = m_ModernDeferredPipeline->GetHdrSrv();
+                compositeInput = m_ModernDeferredPipeline->AddScreenSpaceEffects(
+                    *m_RenderGraph, compositeInput, compositeOverride, sceneDepth, postResources.sceneDepthSrv,
+                    gbufferAlbedo, gbufferResources.albedoSrv, gbufferNormal, gbufferResources.normalSrv,
+                    gbufferMaterial, gbufferResources.materialSrv, gbufferVelocity, gbufferResources.velocitySrv,
+                    modernHiZ,
+                    m_DebugView == RendererDebugView::SSGI ? ModernDeferredPipeline::ScreenSpaceDebugMode::SSGI
+                    : m_DebugView == RendererDebugView::SSRConfidence
+                        ? ModernDeferredPipeline::ScreenSpaceDebugMode::SSRConfidence
+                        : ModernDeferredPipeline::ScreenSpaceDebugMode::None);
+                compositeOverride = m_ModernDeferredPipeline->GetEffectsHdrSrv();
+            } else {
+                m_RenderGraph->AddPass(
+                    "DeferredLighting",
+                    [deferredSceneColor, gbufferAlbedo, gbufferNormal, gbufferMaterial, gbufferEmissive, sceneDepth,
+                     shadowsEnabled, directionalShadow, spotShadow, pointShadow, environmentGraphReady, environmentCube,
+                     environmentSH](RenderGraphBuilder& builder) {
+                        builder.ReadTexture(gbufferAlbedo);
+                        builder.ReadTexture(gbufferNormal);
+                        builder.ReadTexture(gbufferMaterial);
+                        builder.ReadTexture(gbufferEmissive);
+                        builder.ReadTexture(sceneDepth);
+                        if (shadowsEnabled) {
+                            builder.ReadTexture(directionalShadow);
+                            builder.ReadTexture(spotShadow);
+                            builder.ReadTexture(pointShadow);
+                        }
+                        if (environmentGraphReady) {
+                            builder.ReadTexture(environmentCube);
+                            builder.ReadBuffer(environmentSH);
+                        }
+                        builder.WriteColor(deferredSceneColor, RHILoadOp::Clear, RHIStoreOp::Store, {0, 0, 0, 1});
+                    },
+                    [this, &scene, &camera](GpuCommandList& commands, const RenderGraphResources&) {
+                        const auto start = std::chrono::steady_clock::now();
+                        m_DeferredLightingPass->Execute(commands, scene, camera);
+                        const auto end = std::chrono::steady_clock::now();
+                        RendererFrameStats stats = FrameStatsProvider::GetRendererStats();
+                        stats.mainCpuMs += ElapsedMs(start, end);
+                        ++stats.fullscreenDrawCalls;
+                        FrameStatsProvider::SetRendererStats(stats);
+                    });
+            }
 
             m_RenderGraph->AddPass(
-                "DeferredLighting",
-                [deferredSceneColor, gbufferAlbedo, gbufferNormal, gbufferMaterial, gbufferEmissive, sceneDepth,
-                 shadowsEnabled, directionalShadow, spotShadow, pointShadow, environmentGraphReady, environmentCube,
-                 environmentSH](RenderGraphBuilder& builder) {
-                    builder.ReadTexture(gbufferAlbedo);
-                    builder.ReadTexture(gbufferNormal);
-                    builder.ReadTexture(gbufferMaterial);
-                    builder.ReadTexture(gbufferEmissive);
-                    builder.ReadTexture(sceneDepth);
+                "ForwardTransparent",
+                [compositeInput, sceneDepth, shadowsEnabled, directionalShadow, spotShadow, pointShadow,
+                 environmentGraphReady, environmentCube, environmentSH](RenderGraphBuilder& builder) {
                     if (shadowsEnabled) {
                         builder.ReadTexture(directionalShadow);
                         builder.ReadTexture(spotShadow);
@@ -352,22 +790,7 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
                         builder.ReadTexture(environmentCube);
                         builder.ReadBuffer(environmentSH);
                     }
-                    builder.WriteColor(deferredSceneColor, RHILoadOp::Clear, RHIStoreOp::Store, {0, 0, 0, 1});
-                },
-                [this, &scene, &camera](GpuCommandList& commands, const RenderGraphResources&) {
-                    const auto start = std::chrono::steady_clock::now();
-                    m_DeferredLightingPass->Execute(commands, scene, camera);
-                    const auto end = std::chrono::steady_clock::now();
-                    RendererFrameStats stats = FrameStatsProvider::GetRendererStats();
-                    stats.mainCpuMs += ElapsedMs(start, end);
-                    ++stats.fullscreenDrawCalls;
-                    FrameStatsProvider::SetRendererStats(stats);
-                });
-
-            m_RenderGraph->AddPass(
-                "ForwardTransparent",
-                [deferredSceneColor, sceneDepth](RenderGraphBuilder& builder) {
-                    builder.WriteColor(deferredSceneColor, RHILoadOp::Load, RHIStoreOp::Store);
+                    builder.WriteColor(compositeInput, RHILoadOp::Load, RHIStoreOp::Store);
                     builder.WriteDepth(sceneDepth, RHILoadOp::Load, RHIStoreOp::Store, 1.0f);
                 },
                 [this, &scene, &camera](GpuCommandList& commands, const RenderGraphResources&) {
@@ -385,6 +808,13 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
                     stats.textureUploadMs += mainStats.textureUploadMs;
                     FrameStatsProvider::SetRendererStats(stats);
                 });
+            if (modernFrameReady) {
+                // Transparent rendering targets the effects HDR texture. Temporal AA and compute post run after it.
+                compositeInput = m_ModernDeferredPipeline->AddTemporalPostProcess(
+                    *m_RenderGraph, compositeInput, compositeOverride, sceneDepth, postResources.sceneDepthSrv,
+                    gbufferNormal, gbufferResources.normalSrv, gbufferVelocity, gbufferResources.velocitySrv);
+                compositeOverride = m_ModernDeferredPipeline->GetFinalPostSrv();
+            }
         } else {
             m_RenderGraph->AddPass(
                 "Main",
@@ -418,7 +848,7 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
                     FrameStatsProvider::SetRendererStats(stats);
                 });
         }
-        if (ssaoEnabled) {
+        if (frameSsaoEnabled) {
             m_RenderGraph->AddPass(
                 "SSAO",
                 [sceneDepth, ssao](RenderGraphBuilder& builder) {
@@ -467,10 +897,10 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
         }
         m_RenderGraph->AddPass(
             "Composite",
-            [compositeInput, ssao, ssaoEnabled, compositeToBackbuffer, composite,
+            [compositeInput, ssao, frameSsaoEnabled, compositeToBackbuffer, composite,
              backBuffer](RenderGraphBuilder& builder) {
                 builder.ReadTexture(compositeInput);
-                if (ssaoEnabled)
+                if (frameSsaoEnabled)
                     builder.ReadTexture(ssao);
                 if (compositeToBackbuffer) {
                     builder.WriteColor(backBuffer, RHILoadOp::Clear, RHIStoreOp::Store, {0, 0, 0, 1});
@@ -478,12 +908,9 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
                     builder.WriteColor(composite, RHILoadOp::Clear, RHIStoreOp::Store, {0, 0, 0, 1});
                 }
             },
-            [this, &scene, useDeferred](GpuCommandList& commands, const RenderGraphResources&) {
+            [this, &scene, compositeOverride](GpuCommandList& commands, const RenderGraphResources&) {
                 const auto start = std::chrono::steady_clock::now();
-                GpuTextureView* sceneColorOverride = nullptr;
-                if (useDeferred) {
-                    sceneColorOverride = m_DeferredLightingPass->GetGraphResources().sceneColorSrv.get();
-                }
+                GpuTextureView* sceneColorOverride = compositeOverride.get();
                 if (m_PostProcessPass->IsCompositeToBackbuffer()) {
                     if (sceneColorOverride) {
                         m_PostProcessPass->DrawCompositeToCurrentTarget(commands, scene, sceneColorOverride);
@@ -503,8 +930,12 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
                 ++stats.fullscreenDrawCalls;
                 FrameStatsProvider::SetRendererStats(stats);
             });
-        if (HasRendererFeature(m_FeatureMask, RendererFeatureMask::ScreenUI) && m_UIDrawList &&
-            !m_UIDrawList->Empty()) {
+        const bool screenUIRequested =
+            HasRendererFeature(m_FeatureMask, RendererFeatureMask::ScreenUI) && m_UIDrawList && !m_UIDrawList->Empty();
+        const RHIFormat screenUIColorFormat =
+            compositeToBackbuffer ? backBufferView->texture->desc.format : postResources.composite->desc.format;
+        const bool screenUIReady = screenUIRequested && m_ScreenUIPass->Prepare(*m_UIDrawList, screenUIColorFormat);
+        if (screenUIReady) {
             m_RenderGraph->AddPass(
                 "ScreenUI",
                 [compositeToBackbuffer, composite, backBuffer](RenderGraphBuilder& builder) {
@@ -514,8 +945,8 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
                         builder.WriteColor(composite, RHILoadOp::Load, RHIStoreOp::Store);
                     }
                 },
-                [this](GpuCommandList& commands, const RenderGraphResources&) {
-                    m_ScreenUIPass->Execute(commands, *m_UIDrawList);
+                [this, screenUIColorFormat](GpuCommandList& commands, const RenderGraphResources&) {
+                    m_ScreenUIPass->Execute(commands, *m_UIDrawList, screenUIColorFormat);
                 });
         }
     } else {
@@ -559,15 +990,18 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
                 stats.textureUploadMs += mainStats.textureUploadMs;
                 FrameStatsProvider::SetRendererStats(stats);
             });
-        if (HasRendererFeature(m_FeatureMask, RendererFeatureMask::ScreenUI) && m_UIDrawList &&
-            !m_UIDrawList->Empty()) {
+        const bool screenUIRequested =
+            HasRendererFeature(m_FeatureMask, RendererFeatureMask::ScreenUI) && m_UIDrawList && !m_UIDrawList->Empty();
+        const RHIFormat screenUIColorFormat = backBufferView->texture->desc.format;
+        const bool screenUIReady = screenUIRequested && m_ScreenUIPass->Prepare(*m_UIDrawList, screenUIColorFormat);
+        if (screenUIReady) {
             m_RenderGraph->AddPass(
                 "ScreenUI",
                 [backBuffer](RenderGraphBuilder& builder) {
                     builder.WriteColor(backBuffer, RHILoadOp::Load, RHIStoreOp::Store);
                 },
-                [this](GpuCommandList& commands, const RenderGraphResources&) {
-                    m_ScreenUIPass->Execute(commands, *m_UIDrawList);
+                [this, screenUIColorFormat](GpuCommandList& commands, const RenderGraphResources&) {
+                    m_ScreenUIPass->Execute(commands, *m_UIDrawList, screenUIColorFormat);
                 });
         }
     }
@@ -583,13 +1017,57 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
         stats.transientDescriptors = graph.transientDescriptors;
         stats.renderGraphPoolEvictions = graph.poolEvictions;
         stats.transientBudgetExceeded = graph.transientBudgetExceeded;
+        if (m_PipelineDiagnostics.resolvedPipeline == ResolvedRenderPipeline::ModernDeferred &&
+            m_ModernDeferredPipeline) {
+            const auto& modern = m_ModernDeferredPipeline->GetStats();
+            stats.gpuSceneUploadBytes = modern.gpuSceneUploadBytes;
+            stats.gpuScenePrepareCpuMs = modern.gpuScenePrepareCpuMs;
+            stats.gpuSceneMaterialResolves = modern.materialResolves;
+            stats.gpuSceneMaterialCacheHits = modern.materialCacheHits;
+            stats.gpuSceneTexturedMaterials = modern.texturedMaterials;
+            stats.gpuSceneCandidates = modern.candidateObjects;
+            stats.gpuFrustumVisible = modern.indirectDrawCount;
+            stats.gpuHiZOccluded = modern.indirectDrawCount > modern.hizVisibleDrawCount
+                                       ? modern.indirectDrawCount - modern.hizVisibleDrawCount
+                                       : 0;
+            stats.indirectDrawCount = modern.indirectDrawCount;
+            stats.clusterCount = modern.clusterCount;
+            stats.clusterOverflow = modern.clusterOverflow;
+            stats.localLightCount = modern.localLights;
+            stats.bindlessResourcesCapacity = m_Device->GetCapabilities().maxBindlessResources;
+            stats.bindlessResourcesUsed = static_cast<uint32_t>(
+                (std::min<uint64_t>)(FrameStatsProvider::GetResourceStats().liveNativeDescriptorSlots, UINT32_MAX));
+            stats.historyResetReason = m_ModernDeferredPipeline->GetHistoryResetReason();
+        }
         FrameStatsProvider::SetRendererStats(stats);
     };
+    const auto graphPrepareStart = std::chrono::steady_clock::now();
+    if (!m_RenderGraph->Prepare()) {
+        publishGraphStats();
+        Logger::Error("[Renderer] RenderGraph preparation failed: ", m_RenderGraph->GetLastError());
+        endFrameOnFailure();
+        return;
+    }
+    const auto graphExecuteStart = std::chrono::steady_clock::now();
+    RendererFrameStats graphTimingStats = FrameStatsProvider::GetRendererStats();
+    graphTimingStats.renderGraphPrepareCpuMs = ElapsedMs(graphPrepareStart, graphExecuteStart);
+    graphTimingStats.renderGraphBuildCpuMs = ElapsedMs(submissionStart, graphExecuteStart);
+    FrameStatsProvider::SetRendererStats(graphTimingStats);
     if (!m_RenderGraph->Execute(*commandList)) {
         publishGraphStats();
         Logger::Error("[Renderer] RenderGraph execution failed: ", m_RenderGraph->GetLastError());
         endFrameOnFailure();
         return;
+    }
+    if (m_ModernDeferredPipeline)
+        m_ModernDeferredPipeline->CommitTemporalFrame();
+    graphTimingStats = FrameStatsProvider::GetRendererStats();
+    graphTimingStats.renderGraphExecuteCpuMs = ElapsedMs(graphExecuteStart, std::chrono::steady_clock::now());
+    FrameStatsProvider::SetRendererStats(graphTimingStats);
+    if (timestampPool) {
+        commandList->WriteTimestamp(timestampPool.get(), 1);
+        commandList->ResolveTimestamps(timestampPool.get(), 0, 2);
+        m_FrameTimestampRecorded[timestampSlot] = true;
     }
     publishGraphStats();
     if (useOffscreen) {
@@ -607,10 +1085,13 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
         m_EnvironmentPass->MarkGraphResourcesShaderResource();
     }
     RendererFrameStats rendererStats = FrameStatsProvider::GetRendererStats();
+    // Submission is the RenderGraph execution/command-recording phase. Graph construction and
+    // RenderExtract preparation are reported separately so Present and preparation stalls do not
+    // contaminate the CPU submission performance gate.
+    rendererStats.renderSubmissionCpuMs = rendererStats.renderGraphExecuteCpuMs;
     rendererStats.drawCalls =
         rendererStats.shadowDrawCalls + rendererStats.mainDrawCalls + rendererStats.fullscreenDrawCalls;
     FrameStatsProvider::SetRendererStats(rendererStats);
-
     if (present) {
         m_FrameContext->EndFrame();
     }
@@ -635,6 +1116,26 @@ void Renderer::SetFeatureMask(RendererFeatureMask mask) {
         m_PostProcessPass->SetSSAOEnabled(false);
 }
 
+void Renderer::InvalidateTemporalHistory(const std::string& reason, bool resetObjectHistory) {
+    if (m_ModernDeferredPipeline)
+        m_ModernDeferredPipeline->InvalidateTemporalHistory(reason, resetObjectHistory);
+}
+
 GpuTextureView* Renderer::GetSceneColorView() const {
+    if (m_PipelineDiagnostics.resolvedPipeline == ResolvedRenderPipeline::ModernDeferred && m_ModernDeferredPipeline) {
+        if (m_DebugView == RendererDebugView::HDRLighting && m_ModernDeferredPipeline->GetHdrSrv())
+            return m_ModernDeferredPipeline->GetHdrSrv().get();
+        if (m_DebugView == RendererDebugView::HiZ && m_ModernDeferredPipeline->GetHiZDebugSrv())
+            return m_ModernDeferredPipeline->GetHiZDebugSrv().get();
+        if (m_DebugView == RendererDebugView::MotionVectors && m_GBufferPass) {
+            const auto resources = m_GBufferPass->GetGraphResources();
+            if (resources.velocitySrv)
+                return resources.velocitySrv.get();
+        }
+        if (m_DebugView == RendererDebugView::SSGI && m_ModernDeferredPipeline->GetSSGIDebugSrv())
+            return m_ModernDeferredPipeline->GetSSGIDebugSrv().get();
+        if (m_DebugView == RendererDebugView::SSRConfidence && m_ModernDeferredPipeline->GetSSRDebugSrv())
+            return m_ModernDeferredPipeline->GetSSRDebugSrv().get();
+    }
     return m_PostProcessPass ? m_PostProcessPass->GetSceneColorView() : nullptr;
 }

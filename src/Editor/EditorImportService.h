@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Editor/EditorService.h"
+#include "Renderer/ShaderCacheService.h"
 
 #include <filesystem>
 #include <string>
@@ -19,7 +20,8 @@ public:
     bool Reimport(const std::string& uuid);
     bool ReimportWithSettings(const std::string& uuid, const std::string& settingsJson);
     bool EnsureShaderCache(const std::filesystem::path& sourcePath, const std::string& settingsJson, bool allowCompile,
-                           std::filesystem::path& outArtifactPath, bool& outCacheHit, std::string* error = nullptr);
+                           std::filesystem::path& outArtifactPath, bool& outCacheHit, std::string* error = nullptr,
+                           const std::vector<ShaderBackend>& backends = {});
     size_t EnsureModelCachesForScene(const std::filesystem::path& scenePath,
                                      std::vector<std::string>* failures = nullptr);
     size_t ReimportAll(std::vector<std::string>* failures = nullptr);
@@ -32,4 +34,5 @@ public:
 
 private:
     std::unique_ptr<AssetImportService> m_ImportPipeline;
+    std::filesystem::path m_ProjectRoot;
 };

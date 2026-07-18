@@ -186,9 +186,15 @@ struct RHIDeviceCapabilities {
     uint32_t maxColorAttachments = 1;
     uint32_t maxSamples = 1;
     uint32_t maxBindlessResources = 0;
+    bool computeShaders = false;
+    bool storageTextures = false;
     bool timestampQueries = false;
     bool indirectDraw = false;
+    bool indirectDrawCount = false;
+    bool indirectDispatch = false;
     bool bindlessResources = false;
+    bool shaderDrawParameters = false;
+    bool modernDeferredFormats = false;
 };
 
 struct RHIDrawIndirectArgs {
@@ -199,6 +205,25 @@ struct RHIDrawIndexedIndirectArgs {
     uint32_t indexCount = 0, instanceCount = 0, startIndex = 0;
     int32_t baseVertex = 0;
     uint32_t startInstance = 0;
+};
+
+// Modern GPU-driven draws need an explicit object index on D3D12 because SV_InstanceID starts at zero for every
+// draw there. Vulkan consumes the native draw fields at byte offset 4 and exposes firstInstance through Slang's raw
+// SV_VulkanInstanceID semantic.
+struct RHIObjectDrawIndexedIndirectArgs {
+    uint32_t objectIndex = 0;
+    uint32_t indexCount = 0, instanceCount = 0, startIndex = 0;
+    int32_t baseVertex = 0;
+    uint32_t startInstance = 0;
+};
+
+static_assert(sizeof(RHIDrawIndexedIndirectArgs) == 20, "native indexed indirect ABI changed");
+static_assert(sizeof(RHIObjectDrawIndexedIndirectArgs) == 24, "object indexed indirect ABI changed");
+static_assert(offsetof(RHIObjectDrawIndexedIndirectArgs, indexCount) == sizeof(uint32_t),
+              "Vulkan draw arguments must immediately follow objectIndex");
+
+struct RHIDispatchIndirectArgs {
+    uint32_t groupCountX = 0, groupCountY = 0, groupCountZ = 0;
 };
 
 struct RHISamplerDesc {

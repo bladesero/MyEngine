@@ -1195,7 +1195,18 @@ std::string Profiler_GetFrameStats() {
                            {"bindGroupCreates", renderer.bindGroupCreates},
                            {"textureUploads", renderer.textureUploads},
                            {"textureUploadBytes", renderer.textureUploadBytes},
-                           {"textureUploadMs", renderer.textureUploadMs}};
+                           {"textureUploadMs", renderer.textureUploadMs},
+                           {"gpuSceneUploadBytes", renderer.gpuSceneUploadBytes},
+                           {"gpuSceneCandidates", renderer.gpuSceneCandidates},
+                           {"gpuFrustumVisible", renderer.gpuFrustumVisible},
+                           {"gpuHiZOccluded", renderer.gpuHiZOccluded},
+                           {"indirectDrawCount", renderer.indirectDrawCount},
+                           {"clusterCount", renderer.clusterCount},
+                           {"clusterOverflow", renderer.clusterOverflow},
+                           {"localLightCount", renderer.localLightCount},
+                           {"bindlessResourcesUsed", renderer.bindlessResourcesUsed},
+                           {"bindlessResourcesCapacity", renderer.bindlessResourcesCapacity},
+                           {"historyResetReason", renderer.historyResetReason}};
     if (Scene* scene = context ? context->GetSimulationScene() : nullptr) {
         const WorldSchedulerStats& world = scene->GetFrameScheduler().GetStats();
         data["worldFixedTicks"] = world.fixedTicks;

@@ -187,6 +187,15 @@ bool SceneViewportPanel::DrawSceneViewOverlay(EditorContext& context, SceneViewp
         }
 
         ImGui::Separator();
+        if (SceneRenderLayer* sceneLayer = context.GetSceneLayer()) {
+            static constexpr const char* debugViews[] = {"Final",          "HDR Lighting", "HiZ Min/Max",
+                                                         "Motion Vectors", "SSGI",         "SSR Confidence"};
+            int debugView = static_cast<int>(sceneLayer->GetSceneDebugView());
+            ImGui::SetNextItemWidth(145.0f);
+            if (ImGui::Combo("Debug View", &debugView, debugViews, static_cast<int>(std::size(debugViews))))
+                sceneLayer->SetSceneDebugView(static_cast<RendererDebugView>(debugView));
+        }
+        ImGui::Separator();
         const bool canEditSelection = context.CanEditSelection();
         if (!canEditSelection)
             ImGui::BeginDisabled();
@@ -327,10 +336,11 @@ void SceneViewportPanel::DrawContent() {
     sceneViewport->SetInputEnabled(hovered);
 
     bool drewImage = false;
-    if (GpuTextureView* view = sceneViewport->GetOutputView()) {
+    GpuTextureView* outputView = sceneViewport->GetOutputView();
+    if (outputView) {
         void* texture = nullptr;
         if (auto* backend = context->GetImGuiBackend())
-            texture = backend->GetTextureId(view);
+            texture = backend->GetTextureId(outputView);
         if (texture) {
             ImGui::Image(reinterpret_cast<ImTextureID>(texture), imageSize);
             drewImage = true;

@@ -233,9 +233,9 @@ void EditorImGuiBackend::Shutdown() {
 
     const ImGuiBackendHandles handles = m_Interop ? m_Interop->GetImGuiBackendHandles() : ImGuiBackendHandles{};
     const RHIBackend backend = handles.backend;
-    if (ImGui::GetCurrentContext() && (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable)) {
-        ImGui::DestroyPlatformWindows();
-    }
+    // Renderer backends own multi-viewport teardown. In particular, ImGui's DX12 backend must first detach the
+    // special main-viewport frame data before its internal DestroyPlatformWindows call; invoking it here treats the
+    // main viewport as a secondary swapchain and dereferences its intentionally-null command queue.
 #if defined(MYENGINE_PLATFORM_WINDOWS)
 #if defined(MYENGINE_ENABLE_VULKAN)
     if (backend == RHIBackend::Vulkan) {

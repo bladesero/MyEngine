@@ -8,6 +8,7 @@
 #include <array>
 #include <memory>
 #include <unordered_map>
+#include <vector>
 
 struct ShaderHandle;
 class MaterialAsset;
@@ -27,12 +28,18 @@ public:
         std::shared_ptr<GpuTexture> emissive;
         std::shared_ptr<GpuTextureView> emissiveRtv;
         std::shared_ptr<GpuTextureView> emissiveSrv;
+        std::shared_ptr<GpuTexture> velocity;
+        std::shared_ptr<GpuTextureView> velocityRtv;
+        std::shared_ptr<GpuTextureView> velocitySrv;
         RHIResourceState initialState = RHIResourceState::Undefined;
     };
 
     explicit GBufferPass(IRHIDevice* device);
 
     void Execute(GpuCommandList& commands, const Scene& scene, const Camera& camera) override;
+    void ExecuteCompatibilityOnly(GpuCommandList& commands, const Scene& scene, const Camera& camera);
+    void ExecuteCompatibilityOnly(GpuCommandList& commands, const Scene& scene, const Camera& camera,
+                                  const Mat4& viewProjection, const Mat4& previousViewProjection);
     void Resize(uint32_t width, uint32_t height) override;
     bool PrepareGraphResources();
     GraphResources GetGraphResources() const;
@@ -44,6 +51,9 @@ private:
     GpuGraphicsPipeline* GetOrCreatePipeline(const MaterialAsset& material);
     GpuGraphicsPipeline* GetOrCreateGraphPipeline(const ResolvedMaterial& material,
                                                   const std::shared_ptr<ShaderHandle>& shader);
+    void ExecuteFiltered(GpuCommandList& commands, const Scene& scene, const Camera& camera, bool compatibilityOnly,
+                         const Mat4* viewProjectionOverride = nullptr,
+                         const Mat4* previousViewProjectionOverride = nullptr);
 
     uint32_t m_Width = 1;
     uint32_t m_Height = 1;
@@ -66,5 +76,14 @@ private:
     std::shared_ptr<GpuTexture> m_Emissive;
     std::shared_ptr<GpuTextureView> m_EmissiveRtv;
     std::shared_ptr<GpuTextureView> m_EmissiveSrv;
+    std::shared_ptr<GpuTexture> m_Velocity;
+    std::shared_ptr<GpuTextureView> m_VelocityRtv;
+    std::shared_ptr<GpuTextureView> m_VelocitySrv;
+    Mat4 m_PreviousViewProj = Mat4::Identity();
+    bool m_HasPreviousViewProj = false;
+    std::unordered_map<const Actor*, Mat4> m_PreviousWorld;
+    // Pose history is viewport-owned just like view/world history. A component-level previous palette would let
+    // Scene View and Game View overwrite each other's last rendered pose when their frame scheduling differs.
+    std::unordered_map<const SkinnedMeshRendererComponent*, std::vector<Mat4>> m_PreviousSkinMatrices;
     RHIResourceState m_GBufferState = RHIResourceState::Undefined;
 };

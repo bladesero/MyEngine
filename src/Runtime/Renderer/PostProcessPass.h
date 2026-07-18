@@ -58,6 +58,7 @@ public:
     void SetSSAOEnabled(bool enabled);
     bool IsSSAOEnabled() const { return m_SSAOEnabled; }
     void SetSSAOScale(float scale);
+    void SetInputPreprocessed(bool enabled) { m_InputPreprocessed = enabled; }
 
 private:
     bool EnsureResources();
@@ -73,6 +74,8 @@ private:
     bool m_SSAOEnabled = true;
     bool m_CompositeToBackbuffer = true;
     bool m_SceneRendering = false;
+    bool m_InputPreprocessed = false;
+    bool m_LoggedCompositeBindingFailure = false;
 
     std::shared_ptr<GpuTexture> m_SceneColor;
     std::shared_ptr<GpuTextureView> m_SceneColorRtv;

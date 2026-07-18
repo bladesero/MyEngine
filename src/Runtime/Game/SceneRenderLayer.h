@@ -32,6 +32,11 @@ public:
     void SetGameViewportActive(bool active);
     void SetRenderPath(RenderPath path);
     RenderPath GetRenderPath() const;
+    void SetDeviceProfile(GraphicsDeviceProfile profile);
+    GraphicsDeviceProfile GetDeviceProfile() const;
+    const RenderPipelineDiagnostics& GetPipelineDiagnostics() const;
+    void SetSceneDebugView(RendererDebugView view) { m_Viewport.SetDebugView(view); }
+    RendererDebugView GetSceneDebugView() const { return m_Viewport.GetDebugView(); }
     bool IsSceneViewportActive() const { return m_SceneViewportActive; }
     bool IsGameViewportActive() const { return m_GameViewportActive; }
     bool GetSceneViewportUsesSimulationScene() const { return m_SceneViewportUsesSimulationScene; }
@@ -113,6 +118,7 @@ private:
     bool m_GameViewportActive = false;
     bool m_RuntimeScreensEnabled = false;
     bool m_ResourceBudgetEnabled = false;
+    GraphicsDeviceProfile m_DeviceProfile = GraphicsDeviceProfile::Desktop;
     RuntimeResourceBudgetController m_ResourceBudget;
     RuntimeUIScreenStack m_RuntimeScreens = RuntimeUIScreenStack::CreateStandard();
 };

@@ -2,11 +2,13 @@
 
 #include "Core/Logger.h"
 #include "Core/RuntimeFileSystem.h"
+#include "Core/TransactionalFileWriter.h"
 
 #include <algorithm>
 #include <cstring>
 #include <fstream>
 #include <nlohmann/json.hpp>
+#include <sstream>
 #include <unordered_set>
 
 namespace {
@@ -92,6 +94,78 @@ bool ParseStages(const nlohmann::json& stages, std::array<ShaderStageSource, kSh
     return mask == ShaderAsset::kComputeMask || mask == (ShaderAsset::kVertexMask | ShaderAsset::kPixelMask);
 }
 
+nlohmann::json SerializeCookedReflection(const ShaderAsset& shader) {
+    nlohmann::json entries = nlohmann::json::array();
+    for (size_t backend = 0; backend < kShaderBackendCount; ++backend) {
+        for (size_t pass = 0; pass < kPassCount; ++pass) {
+            for (size_t stage = 0; stage < kShaderStageCount; ++stage) {
+                const auto& reflection =
+                    shader.GetReflection(static_cast<ShaderBackend>(backend), static_cast<ShaderPass>(pass),
+                                         static_cast<ShaderStage>(stage));
+                if (reflection.bindings.empty() && reflection.threadGroupSize[0] == 1 &&
+                    reflection.threadGroupSize[1] == 1 && reflection.threadGroupSize[2] == 1)
+                    continue;
+                nlohmann::json bindings = nlohmann::json::array();
+                for (const auto& binding : reflection.bindings) {
+                    bindings.push_back({{"name", binding.name},
+                                        {"type", static_cast<uint8_t>(binding.type)},
+                                        {"bindPoint", binding.bindPoint},
+                                        {"bindSpace", binding.bindSpace},
+                                        {"bindCount", binding.bindCount},
+                                        {"byteSize", binding.byteSize}});
+                }
+                entries.push_back(
+                    {{"backend", backend},
+                     {"pass", pass},
+                     {"stage", stage},
+                     {"threadGroupSize",
+                      {reflection.threadGroupSize[0], reflection.threadGroupSize[1], reflection.threadGroupSize[2]}},
+                     {"bindings", std::move(bindings)}});
+            }
+        }
+    }
+    return entries;
+}
+
+bool ParseCookedReflection(const nlohmann::json& entries, CookedShaderReflectionTable& reflection) {
+    if (!entries.is_array())
+        return false;
+    for (const auto& entry : entries) {
+        if (!entry.is_object())
+            return false;
+        const size_t backend = entry.value("backend", kShaderBackendCount);
+        const size_t pass = entry.value("pass", kPassCount);
+        const size_t stage = entry.value("stage", kShaderStageCount);
+        if (backend >= kShaderBackendCount || pass >= kPassCount || stage >= kShaderStageCount)
+            return false;
+        auto& destination = reflection[backend][pass][stage];
+        const auto threads = entry.value("threadGroupSize", nlohmann::json::array({1, 1, 1}));
+        if (!threads.is_array() || threads.size() != 3)
+            return false;
+        for (size_t axis = 0; axis < 3; ++axis)
+            destination.threadGroupSize[axis] = threads[axis].get<uint32_t>();
+        const auto bindings = entry.value("bindings", nlohmann::json::array());
+        if (!bindings.is_array())
+            return false;
+        for (const auto& item : bindings) {
+            const uint32_t type = item.value("type", UINT32_MAX);
+            if (!item.is_object() || type > static_cast<uint32_t>(CookedShaderBindingType::StorageTexture))
+                return false;
+            CookedShaderBinding binding;
+            binding.name = item.value("name", std::string{});
+            binding.type = static_cast<CookedShaderBindingType>(type);
+            binding.bindPoint = item.value("bindPoint", 0u);
+            binding.bindSpace = item.value("bindSpace", 0u);
+            binding.bindCount = item.value("bindCount", 1u);
+            binding.byteSize = item.value("byteSize", 0u);
+            if (binding.name.empty() || binding.bindCount == 0)
+                return false;
+            destination.bindings.push_back(std::move(binding));
+        }
+    }
+    return true;
+}
+
 std::shared_ptr<ShaderAsset> LoadLegacyCooked(const std::string& path, std::istream& input, uint32_t version) {
     uint32_t mask = 0;
     uint64_t sourceHash = 0;
@@ -148,9 +222,14 @@ std::shared_ptr<ShaderAsset> LoadCooked(const std::string& path, std::istream& i
     if (metadataSize && !input.read(metadata.data(), static_cast<std::streamsize>(metadataSize)))
         return {};
     std::vector<ShaderPropertyDesc> properties;
+    CookedShaderReflectionTable reflection{};
     try {
         const nlohmann::json json = metadata.empty() ? nlohmann::json::object() : nlohmann::json::parse(metadata);
         if (!ParseShaderProperties(json.value("properties", nlohmann::json::array()), properties))
+            return {};
+        if (version >= ShaderAsset::kCookedFormatVersionWithReflection &&
+            (json.value("abiVersion", 0u) != ShaderAsset::kCookedShaderAbiVersion ||
+             !ParseCookedReflection(json.value("reflection", nlohmann::json::array()), reflection)))
             return {};
     } catch (...) {
         return {};
@@ -174,9 +253,11 @@ std::shared_ptr<ShaderAsset> LoadCooked(const std::string& path, std::istream& i
     if (input.peek() != std::char_traits<char>::eof())
         return {};
     auto asset = std::make_shared<ShaderAsset>(path);
-    asset->SetCookedPasses(passMask, sourceHash, static_cast<ShaderSourceMode>(sourceMode),
-                           static_cast<ShaderDomain>(domain), static_cast<ShaderShadingModel>(shadingModel),
-                           static_cast<ShaderSurfaceType>(surfaceType), std::move(properties), std::move(blobs));
+    asset->SetCookedPasses(
+        passMask, sourceHash, static_cast<ShaderSourceMode>(sourceMode), static_cast<ShaderDomain>(domain),
+        static_cast<ShaderShadingModel>(shadingModel), static_cast<ShaderSurfaceType>(surfaceType),
+        std::move(properties), std::move(blobs), std::move(reflection),
+        version >= ShaderAsset::kCookedFormatVersionWithReflection ? ShaderAsset::kCookedShaderAbiVersion : 0u);
     asset->MarkReady();
     return asset;
 }
@@ -268,7 +349,8 @@ void ShaderAsset::SetCookedPasses(
     uint32_t passMask, uint64_t hash, ShaderSourceMode sourceMode, ShaderDomain domain, ShaderShadingModel shadingModel,
     ShaderSurfaceType surfaceType, std::vector<ShaderPropertyDesc> properties,
     std::array<std::array<std::array<std::vector<uint8_t>, kShaderStageCount>, kPassCount>, kShaderBackendCount>
-        bytecode) {
+        bytecode,
+    CookedShaderReflectionTable reflection, uint32_t abiVersion) {
     m_Cooked = true;
     m_SourceMode = sourceMode;
     m_Domain = domain;
@@ -279,6 +361,8 @@ void ShaderAsset::SetCookedPasses(
     m_SourceHash = hash;
     m_Properties = std::move(properties);
     m_Bytecode = std::move(bytecode);
+    m_Reflection = std::move(reflection);
+    m_CookedShaderAbiVersion = abiVersion;
 }
 
 bool ShaderAsset::ReloadFrom(const Asset& source) {
@@ -293,12 +377,14 @@ bool ShaderAsset::ReloadFrom(const Asset& source) {
     m_StageMask = shader->m_StageMask;
     m_PassMask = shader->m_PassMask;
     m_SourceHash = shader->m_SourceHash;
+    m_CookedShaderAbiVersion = shader->m_CookedShaderAbiVersion;
     m_PassSources = shader->m_PassSources;
     m_Defines = shader->m_Defines;
     m_Properties = shader->m_Properties;
     m_Graph = shader->m_Graph;
     m_Diagnostics = shader->m_Diagnostics;
     m_Bytecode = shader->m_Bytecode;
+    m_Reflection = shader->m_Reflection;
     SetState(AssetState::Ready);
     return true;
 }
@@ -411,12 +497,7 @@ std::shared_ptr<ShaderAsset> LoadShaderAssetFromFile(const std::string& path) {
 }
 
 bool SaveCookedShaderAsset(const ShaderAsset& shader, const std::filesystem::path& path, std::string* error) {
-    std::ofstream output(path, std::ios::binary | std::ios::trunc);
-    if (!output) {
-        if (error)
-            *error = "cannot write cooked shader: " + path.string();
-        return false;
-    }
+    std::ostringstream output(std::ios::binary | std::ios::out);
     output.write(kMagic, sizeof(kMagic));
     Write(output, ShaderAsset::kCookedFormatVersion);
     Write(output, shader.GetPassMask());
@@ -425,8 +506,10 @@ bool SaveCookedShaderAsset(const ShaderAsset& shader, const std::filesystem::pat
     Write(output, static_cast<uint8_t>(shader.GetDomain()));
     Write(output, static_cast<uint8_t>(shader.GetShadingModel()));
     Write(output, static_cast<uint8_t>(shader.GetSurfaceType()));
-    const std::string metadata =
-        nlohmann::json({{"properties", SerializeShaderProperties(shader.GetProperties())}}).dump();
+    const std::string metadata = nlohmann::json({{"properties", SerializeShaderProperties(shader.GetProperties())},
+                                                 {"abiVersion", ShaderAsset::kCookedShaderAbiVersion},
+                                                 {"reflection", SerializeCookedReflection(shader)}})
+                                     .dump();
     const uint64_t metadataSize = metadata.size();
     Write(output, metadataSize);
     output.write(metadata.data(), static_cast<std::streamsize>(metadata.size()));
@@ -445,6 +528,14 @@ bool SaveCookedShaderAsset(const ShaderAsset& shader, const std::filesystem::pat
     if (!output) {
         if (error)
             *error = "failed writing cooked shader: " + path.string();
+        return false;
+    }
+    const std::string bytes = output.str();
+    TransactionalWriteOptions options;
+    options.keepBackup = false;
+    if (!TransactionalFileWriter::WriteText(path, bytes, options, error)) {
+        if (error && error->empty())
+            *error = "cannot atomically write cooked shader: " + path.string();
         return false;
     }
     return true;

@@ -2,6 +2,7 @@
 #include "Renderer/RHI/RHIResourceStats.h"
 
 #include <algorithm>
+#include <array>
 #include <sstream>
 #include <queue>
 #include <cmath>
@@ -124,6 +125,14 @@ void RenderGraphBuilder::ReadWriteUAV(RGTextureHandle h, RGTextureSubresource su
 void RenderGraphBuilder::ReadBuffer(RGBufferHandle h) {
     if (m_BufferAccesses)
         m_BufferAccesses->push_back({h, RHIResourceState::ShaderResource, true, false});
+}
+void RenderGraphBuilder::ReadIndirect(RGBufferHandle h) {
+    if (m_BufferAccesses)
+        m_BufferAccesses->push_back({h, RHIResourceState::IndirectArgument, true, false});
+}
+void RenderGraphBuilder::ReadCopySource(RGBufferHandle h) {
+    if (m_BufferAccesses)
+        m_BufferAccesses->push_back({h, RHIResourceState::CopySource, true, false});
 }
 void RenderGraphBuilder::ReadWriteUAV(RGBufferHandle h) {
     if (m_BufferAccesses)
@@ -266,6 +275,19 @@ void RenderGraph::AddPass(const std::string& name, SetupCallback setup, ExecuteC
     m_Compiled = false;
 }
 
+void RenderGraph::AddComputePass(const std::string& name, SetupCallback setup, ExecuteCallback execute,
+                                 PassFlags flags) {
+    Pass pass;
+    pass.name = name;
+    pass.execute = std::move(execute);
+    pass.flags = flags;
+    pass.type = PassType::Compute;
+    RenderGraphBuilder builder(pass.accesses, pass.bufferAccesses);
+    setup(builder);
+    m_Passes.push_back(std::move(pass));
+    m_Compiled = false;
+}
+
 bool RenderGraph::SetError(ErrorCode code, std::string message) {
     m_LastErrorCode = code;
     m_LastError = std::move(message);
@@ -283,6 +305,13 @@ bool RenderGraph::ValidateTextureAccess(const Pass& pass, const RenderGraphBuild
     if (!ValidateHandle(access.handle, pass.name))
         return false;
     const TextureResource& resource = m_Textures[access.handle.index];
+    if (pass.type == PassType::Compute &&
+        (access.state == RHIResourceState::RenderTarget || access.state == RHIResourceState::DepthWrite ||
+         access.state == RHIResourceState::DepthRead)) {
+        return SetError(ErrorCode::ComputeAttachmentAccess, "RenderGraph compute pass '" + pass.name +
+                                                                "' cannot use texture '" + resource.name +
+                                                                "' as a raster attachment");
+    }
     if (access.hasViewDesc) {
         if (access.viewDesc.mipCount == 0 || access.viewDesc.layerCount == 0 ||
             access.viewDesc.firstMip + access.viewDesc.mipCount > resource.desc.mipLevels ||
@@ -361,10 +390,12 @@ bool RenderGraph::ValidateBufferAccess(const Pass& pass, const RenderGraphBuilde
 }
 
 bool RenderGraph::Compile() {
+    m_ResourcesReady = false;
     m_LastError.clear();
     m_LastErrorCode = ErrorCode::None;
     m_ExecutionOrder.clear();
     m_ExecutionOrderNames.clear();
+    m_ExecutionPassTypes.clear();
     m_CulledPassNames.clear();
     m_LiveTextures.clear();
     m_LiveBuffers.clear();
@@ -610,6 +641,7 @@ bool RenderGraph::Compile() {
         ready.pop();
         m_ExecutionOrder.push_back(p);
         m_ExecutionOrderNames.push_back(m_Passes[p].name);
+        m_ExecutionPassTypes.push_back(m_Passes[p].type);
         for (uint32_t next : edges[p]) {
             if (!livePass[next])
                 continue;
@@ -744,21 +776,79 @@ bool RenderGraph::EnsureResources() {
     return true;
 }
 
-bool RenderGraph::Execute(GpuCommandList& commandList) {
+bool RenderGraph::Prepare() {
     if (!m_Compiled && !Compile())
         return false;
-    if (!EnsureResources())
+    if (m_ResourcesReady)
+        return true;
+    m_ResourcesReady = EnsureResources();
+    return m_ResourcesReady;
+}
+
+bool RenderGraph::Execute(GpuCommandList& commandList) {
+    if (!Prepare())
         return false;
     RenderGraphResources resources(*this);
+    m_TextureUavWriteScratch.assign(m_Textures.size(), 0);
+    m_BufferUavWriteScratch.assign(m_Buffers.size(), 0);
+    auto& textureUavWrites = m_TextureUavWriteScratch;
+    auto& bufferUavWrites = m_BufferUavWriteScratch;
     for (uint32_t passIndex : m_ExecutionOrder) {
         Pass& pass = m_Passes[passIndex];
-        std::vector<RenderingAttachment> colors;
+        std::array<RenderingAttachment, 8> colors{};
+        uint32_t colorCount = 0;
         RenderingAttachment depth;
         bool hasDepth = false;
         uint32_t width = 0, height = 0;
         const bool manualTransitions = HasPassFlag(pass.flags, PassFlags::ManualResourceTransitions);
         for (const auto& access : pass.accesses) {
             auto& resource = m_Textures[access.handle.index];
+            const auto transitionWholeTexture = [&](RHIResourceState after) {
+                if (resource.subresourceStates.empty()) {
+                    if (resource.currentState != after)
+                        commandList.Transition(resource.texture.get(), resource.currentState, after);
+                    resource.currentState = after;
+                    return;
+                }
+                const bool anySubresourceNeedsTransition =
+                    std::any_of(resource.subresourceStates.begin(), resource.subresourceStates.end(),
+                                [&](RHIResourceState state) { return state != after; });
+                if (!anySubresourceNeedsTransition) {
+                    resource.currentState = after;
+                    return;
+                }
+                const bool uniformBefore =
+                    std::all_of(resource.subresourceStates.begin(), resource.subresourceStates.end(),
+                                [&](RHIResourceState state) { return state == resource.currentState; });
+                if (uniformBefore) {
+                    if (resource.currentState != after)
+                        commandList.Transition(resource.texture.get(), resource.currentState, after);
+                } else {
+                    for (uint32_t layer = 0; layer < resource.desc.arrayLayers; ++layer) {
+                        for (uint32_t mip = 0; mip < resource.desc.mipLevels; ++mip) {
+                            const uint32_t subresource = SubresourceIndex(resource.desc, mip, layer);
+                            if (subresource >= resource.subresourceStates.size())
+                                continue;
+                            const RHIResourceState before = resource.subresourceStates[subresource];
+                            if (before == after)
+                                continue;
+                            RHITextureViewDesc range;
+                            range.firstMip = mip;
+                            range.mipCount = 1;
+                            range.firstLayer = layer;
+                            range.layerCount = 1;
+                            range.usage = resource.desc.usage;
+                            commandList.TransitionTexture(resource.texture.get(), range, before, after);
+                        }
+                    }
+                }
+                std::fill(resource.subresourceStates.begin(), resource.subresourceStates.end(), after);
+                resource.currentState = after;
+            };
+            if (!manualTransitions && access.state == RHIResourceState::UnorderedAccess &&
+                resource.currentState == RHIResourceState::UnorderedAccess && textureUavWrites[access.handle.index]) {
+                commandList.UAVBarrier(resource.texture.get());
+            }
             if (manualTransitions) {
                 // Manual passes emit their own per-face/per-mip barriers. Only mirror their declared terminal state so
                 // later graph-managed passes do not emit a duplicate whole-resource transition.
@@ -785,11 +875,14 @@ bool RenderGraph::Execute(GpuCommandList& commandList) {
                             resource.subresourceStates[subresource] = access.state;
                     }
                 }
-            } else if (resource.currentState != access.state) {
-                commandList.Transition(resource.texture.get(), resource.currentState, access.state);
-                std::fill(resource.subresourceStates.begin(), resource.subresourceStates.end(), access.state);
+            } else if (resource.currentState != access.state ||
+                       std::any_of(resource.subresourceStates.begin(), resource.subresourceStates.end(),
+                                   [&](RHIResourceState state) { return state != access.state; })) {
+                transitionWholeTexture(access.state);
             }
             resource.currentState = access.state;
+            textureUavWrites[access.handle.index] =
+                access.state == RHIResourceState::UnorderedAccess && access.write ? 1 : 0;
             const uint32_t mip = access.hasViewDesc ? access.viewDesc.firstMip : 0;
             width = (std::max)(1u, resource.desc.width >> mip);
             height = (std::max)(1u, resource.desc.height >> mip);
@@ -799,8 +892,8 @@ bool RenderGraph::Execute(GpuCommandList& commandList) {
             attachment.storeOp = access.storeOp;
             attachment.clearColor = access.clearColor;
             attachment.clearDepth = access.clearDepth;
-            if (access.state == RHIResourceState::RenderTarget)
-                colors.push_back(attachment);
+            if (access.state == RHIResourceState::RenderTarget && colorCount < colors.size())
+                colors[colorCount++] = attachment;
             if (access.state == RHIResourceState::DepthWrite) {
                 depth = attachment;
                 hasDepth = true;
@@ -808,28 +901,61 @@ bool RenderGraph::Execute(GpuCommandList& commandList) {
         }
         for (const auto& access : pass.bufferAccesses) {
             auto& resource = m_Buffers[access.handle.index];
+            if (!manualTransitions && access.state == RHIResourceState::UnorderedAccess &&
+                resource.currentState == RHIResourceState::UnorderedAccess && bufferUavWrites[access.handle.index]) {
+                commandList.UAVBarrier(resource.buffer.get());
+            }
             if (manualTransitions) {
                 resource.currentState = resource.hasFinalState ? resource.finalState : access.state;
             } else if (resource.currentState != access.state) {
                 commandList.Transition(resource.buffer.get(), resource.currentState, access.state);
                 resource.currentState = access.state;
             }
+            bufferUavWrites[access.handle.index] =
+                access.state == RHIResourceState::UnorderedAccess && access.write ? 1 : 0;
         }
         const bool rendering =
-            (!colors.empty() || hasDepth) && !HasPassFlag(pass.flags, PassFlags::ManualRenderingScope);
+            (colorCount != 0 || hasDepth) && !HasPassFlag(pass.flags, PassFlags::ManualRenderingScope);
         if (rendering) {
-            RenderingInfo info{colors.data(), static_cast<uint32_t>(colors.size()), hasDepth ? &depth : nullptr, width,
-                               height};
+            RenderingInfo info{colors.data(), colorCount, hasDepth ? &depth : nullptr, width, height};
             commandList.BeginRendering(info);
         }
+        commandList.BeginDebugEvent(pass.name.c_str());
         if (pass.execute)
             pass.execute(commandList, resources);
         if (rendering)
             commandList.EndRendering();
+        commandList.EndDebugEvent();
     }
     for (auto& resource : m_Textures) {
-        if (resource.hasFinalState && resource.currentState != resource.finalState) {
-            commandList.Transition(resource.texture.get(), resource.currentState, resource.finalState);
+        if (resource.hasFinalState &&
+            (resource.currentState != resource.finalState ||
+             std::any_of(resource.subresourceStates.begin(), resource.subresourceStates.end(),
+                         [&](RHIResourceState state) { return state != resource.finalState; }))) {
+            const bool uniformBefore =
+                std::all_of(resource.subresourceStates.begin(), resource.subresourceStates.end(),
+                            [&](RHIResourceState state) { return state == resource.currentState; });
+            if (uniformBefore) {
+                commandList.Transition(resource.texture.get(), resource.currentState, resource.finalState);
+            } else {
+                for (uint32_t layer = 0; layer < resource.desc.arrayLayers; ++layer) {
+                    for (uint32_t mip = 0; mip < resource.desc.mipLevels; ++mip) {
+                        const uint32_t subresource = SubresourceIndex(resource.desc, mip, layer);
+                        if (subresource >= resource.subresourceStates.size())
+                            continue;
+                        const RHIResourceState before = resource.subresourceStates[subresource];
+                        if (before == resource.finalState)
+                            continue;
+                        RHITextureViewDesc range;
+                        range.firstMip = mip;
+                        range.mipCount = 1;
+                        range.firstLayer = layer;
+                        range.layerCount = 1;
+                        range.usage = resource.desc.usage;
+                        commandList.TransitionTexture(resource.texture.get(), range, before, resource.finalState);
+                    }
+                }
+            }
             resource.currentState = resource.finalState;
             std::fill(resource.subresourceStates.begin(), resource.subresourceStates.end(), resource.finalState);
         }
@@ -924,12 +1050,14 @@ void RenderGraph::Reset() {
     m_Passes.clear();
     m_ExecutionOrder.clear();
     m_ExecutionOrderNames.clear();
+    m_ExecutionPassTypes.clear();
     m_CulledPassNames.clear();
     m_LiveTextures.clear();
     m_LiveBuffers.clear();
     m_LastError.clear();
     m_LastErrorCode = ErrorCode::None;
     m_Compiled = false;
+    m_ResourcesReady = false;
 }
 
 GpuTexture* RenderGraphResources::GetTexture(RGTextureHandle h) const {

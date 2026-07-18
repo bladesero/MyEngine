@@ -187,6 +187,13 @@ bool TestEditorPlatformViewportDpiContract() {
                    backend.find("initInfo.CommandQueue = commandQueue") != std::string::npos,
                "D3D12 ImGui backend does not use the 1.92 initialization contract"))
         return false;
+    if (!Check(backend.find("ImGui::DestroyPlatformWindows()") == std::string::npos,
+               "Editor tears down DX12 platform windows before the renderer backend releases main-viewport data"))
+        return false;
+    if (!Check(d3d12.find("m_Owner.SetComputeConstants") != std::string::npos &&
+                   d3d12.find("SetComputeRootConstantBufferView(0, addr)") != std::string::npos,
+               "D3D12 compute bind groups do not bind their reflected b0 constant buffer"))
+        return false;
     if (!Check(graphPanel.find("SetNextWindowSize") == std::string::npos,
                "Shader Graph overrides the floating window size instead of preserving its dock rectangle"))
         return false;

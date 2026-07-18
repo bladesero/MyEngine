@@ -1,6 +1,7 @@
 #include "D3D12Context.h"
 
 #include "../Core/Logger.h"
+#include "../Core/FrameStats.h"
 #include "../Core/Window.h"
 #include "Renderer/RHI/ShaderReflection.h"
 #include "Renderer/RHI/RHIResourceStats.h"
@@ -13,8 +14,11 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cstring>
 #include <deque>
+#include <filesystem>
+#include <fstream>
 #include <functional>
 #include <iomanip>
 #include <mutex>
@@ -24,6 +28,77 @@
 #pragma comment(lib, "d3d12.lib")
 #pragma comment(lib, "dxgi.lib")
 #pragma comment(lib, "d3dcompiler.lib")
+
+namespace {
+bool CreateTextureRootSignature(ID3D12Device* device, ID3D12RootSignature** outRootSig);
+bool CreateComputeRootSignature(ID3D12Device* device, ID3D12RootSignature** outRootSig);
+
+constexpr uint64_t kPipelineHashOffset = 14695981039346656037ull;
+constexpr uint64_t kPipelineHashPrime = 1099511628211ull;
+constexpr uint64_t kComputeRootSignatureAbi = 0x4d59454e47525331ull; // "MYENGRS1"
+constexpr uint64_t kMaxCachedPipelineBlobBytes = 64ull * 1024ull * 1024ull;
+
+uint64_t HashPipelineBytes(const void* data, size_t size, uint64_t hash = kPipelineHashOffset) {
+    const auto* bytes = static_cast<const uint8_t*>(data);
+    for (size_t index = 0; index < size; ++index) {
+        hash ^= bytes[index];
+        hash *= kPipelineHashPrime;
+    }
+    return hash;
+}
+
+template <typename T> uint64_t HashPipelineValue(const T& value, uint64_t hash) {
+    return HashPipelineBytes(&value, sizeof(value), hash);
+}
+
+std::wstring PipelineHashText(uint64_t hash) {
+    std::wostringstream text;
+    text << std::hex << std::setfill(L'0') << std::setw(16) << hash;
+    return text.str();
+}
+
+std::string PipelineHashTextNarrow(uint64_t hash) {
+    std::ostringstream text;
+    text << std::hex << std::setfill('0') << std::setw(16) << hash;
+    return text.str();
+}
+
+bool ReadPipelineBlob(const std::filesystem::path& path, std::vector<uint8_t>& blob) {
+    std::error_code error;
+    const uint64_t size = std::filesystem::file_size(path, error);
+    if (error || size == 0 || size > kMaxCachedPipelineBlobBytes)
+        return false;
+    std::ifstream input(path, std::ios::binary);
+    if (!input)
+        return false;
+    blob.resize(static_cast<size_t>(size));
+    return static_cast<bool>(input.read(reinterpret_cast<char*>(blob.data()), static_cast<std::streamsize>(size)));
+}
+
+bool WritePipelineBlobAtomic(const std::filesystem::path& path, const void* data, size_t size) {
+    if (!data || size == 0 || size > kMaxCachedPipelineBlobBytes)
+        return false;
+    std::error_code error;
+    std::filesystem::create_directories(path.parent_path(), error);
+    if (error)
+        return false;
+    std::filesystem::path temporary = path;
+    temporary += L".tmp." + std::to_wstring(GetCurrentProcessId()) + L"." + std::to_wstring(GetCurrentThreadId());
+    {
+        std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
+        if (!output || !output.write(static_cast<const char*>(data), static_cast<std::streamsize>(size))) {
+            output.close();
+            std::filesystem::remove(temporary, error);
+            return false;
+        }
+    }
+    if (!MoveFileExW(temporary.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        std::filesystem::remove(temporary, error);
+        return false;
+    }
+    return true;
+}
+} // namespace
 
 // --------------------------------------------------------------------------
 // Factory
@@ -308,6 +383,10 @@ public:
     }
     void DrawIndirect(GpuBuffer* args, uint64_t offset) override { m_Owner.DrawIndirect(args, offset, false); }
     void DrawIndexedIndirect(GpuBuffer* args, uint64_t offset) override { m_Owner.DrawIndirect(args, offset, true); }
+    void DrawIndexedIndirectCount(GpuBuffer* args, uint64_t argumentOffset, GpuBuffer* countBuffer,
+                                  uint64_t countOffset, uint32_t maxDrawCount, uint32_t stride) override {
+        m_Owner.DrawIndexedIndirectCount(args, argumentOffset, countBuffer, countOffset, maxDrawCount, stride);
+    }
     void WriteTimestamp(GpuTimestampQueryPool* pool, uint32_t index) override {
         auto* native = dynamic_cast<D3D12TimestampPool*>(pool);
         if (native && index < native->count)
@@ -320,6 +399,20 @@ public:
                                                        native->readback.Get(),
                                                        static_cast<uint64_t>(first) * sizeof(uint64_t));
     }
+    void ClearStorageBuffer(GpuBufferView* bufferView, uint32_t value) override {
+        auto* view = dynamic_cast<D3D12BufferView*>(bufferView);
+        auto* buffer = view && view->buffer ? dynamic_cast<D3D12Buffer*>(view->buffer.get()) : nullptr;
+        if (!view || !buffer || !buffer->resource || !view->uavCpu.ptr || !view->uavGpu.ptr)
+            return;
+        const UINT values[4] = {value, value, value, value};
+        m_Owner.GetCommandList()->ClearUnorderedAccessViewUint(view->uavGpu, view->uavCpu, buffer->resource.Get(),
+                                                               values, 0, nullptr);
+    }
+    void BeginDebugEvent(const char* name) override {
+        if (name && *name)
+            m_Owner.GetCommandList()->BeginEvent(0, name, static_cast<UINT>(std::strlen(name)));
+    }
+    void EndDebugEvent() override { m_Owner.GetCommandList()->EndEvent(); }
 
     void SetViewport(float x, float y, float w, float h) override { m_Owner.SetViewport(x, y, w, h); }
 
@@ -360,36 +453,64 @@ public:
             return;
         const auto& reflection = group->GetShader()->reflection;
         for (const auto& value : group->GetConstants()) {
-            if (reflection.Find(value.first) && !m_ComputeBinding)
+            const auto* binding = reflection.Find(value.first);
+            if (!binding || binding->bindPoint != 0)
+                continue;
+            if (m_ComputeBinding)
+                m_Owner.SetComputeConstants(value.second.data(), static_cast<uint32_t>(value.second.size()));
+            else
                 m_Owner.SetVSConstants(value.second.data(), static_cast<uint32_t>(value.second.size()));
         }
         for (const auto& value : group->GetTextures()) {
             const auto* binding = reflection.Find(value.first);
             auto* view = dynamic_cast<D3D12TextureView*>(value.second.get());
-            if (!binding || !view)
+            if (!binding || !view || binding->bindSpace != 0 || binding->bindPoint >= D3D12Context::kTextureSlotCount)
                 continue;
-            D3D12_GPU_DESCRIPTOR_HANDLE samplerHandle{};
-            for (const auto& samplerValue : group->GetSamplers()) {
-                const auto* samplerBinding = reflection.Find(samplerValue.first);
-                if (samplerBinding && samplerBinding->bindPoint == binding->bindPoint) {
-                    if (auto* sampler = dynamic_cast<D3D12Sampler*>(samplerValue.second.get()))
-                        samplerHandle = sampler->gpu;
-                    break;
-                }
-            }
             if (m_ComputeBinding) {
                 m_Owner.GetCommandList()->SetComputeRootDescriptorTable(1 + binding->bindPoint * 2, view->srvGpu);
-                if (samplerHandle.ptr)
-                    m_Owner.GetCommandList()->SetComputeRootDescriptorTable(2 + binding->bindPoint * 2, samplerHandle);
             } else {
-                m_Owner.BindPSTextureDescriptors(binding->bindPoint, view->srvGpu, samplerHandle);
+                m_Owner.BindPSTextureDescriptors(binding->bindPoint, view->srvGpu, {});
             }
+        }
+        for (const auto& value : group->GetBuffers()) {
+            const auto* binding = reflection.Find(value.first);
+            auto* view = dynamic_cast<D3D12BufferView*>(value.second.get());
+            if (!binding || !view || !view->srvGpu.ptr || binding->bindSpace != 0 ||
+                binding->bindPoint >= D3D12Context::kTextureSlotCount)
+                continue;
+            if (m_ComputeBinding)
+                m_Owner.GetCommandList()->SetComputeRootDescriptorTable(1 + binding->bindPoint * 2, view->srvGpu);
+            else
+                m_Owner.BindPSTextureDescriptors(binding->bindPoint, view->srvGpu, {});
+        }
+        // Samplers are independent HLSL bindings. Bindless textures commonly live in space1 while their fixed
+        // sampler remains at s0/space0, so pairing a sampler only with a same-slot texture silently leaves the root
+        // sampler table unset. Submit every reflected sampler explicitly after SRVs so it also overrides the default
+        // sampler installed by BindPSTextureDescriptors.
+        for (const auto& value : group->GetSamplers()) {
+            const auto* binding = reflection.Find(value.first);
+            auto* sampler = dynamic_cast<D3D12Sampler*>(value.second.get());
+            if (!binding || !sampler || !sampler->gpu.ptr || binding->bindSpace != 0 ||
+                binding->bindPoint >= D3D12Context::kTextureSlotCount)
+                continue;
+            const uint32_t rootParameter = 2 + binding->bindPoint * 2;
+            if (m_ComputeBinding)
+                m_Owner.GetCommandList()->SetComputeRootDescriptorTable(rootParameter, sampler->gpu);
+            else
+                m_Owner.GetCommandList()->SetGraphicsRootDescriptorTable(rootParameter, sampler->gpu);
         }
         if (m_ComputeBinding) {
             for (const auto& value : group->GetStorageBuffers()) {
                 const auto* binding = reflection.Find(value.first);
                 auto* view = dynamic_cast<D3D12BufferView*>(value.second.get());
-                if (binding && view && view->uavGpu.ptr)
+                if (binding && view && view->uavGpu.ptr && binding->bindSpace == 0 && binding->bindPoint < 8)
+                    m_Owner.GetCommandList()->SetComputeRootDescriptorTable(
+                        1 + D3D12Context::kTextureSlotCount * 2 + binding->bindPoint, view->uavGpu);
+            }
+            for (const auto& value : group->GetStorageTextures()) {
+                const auto* binding = reflection.Find(value.first);
+                auto* view = dynamic_cast<D3D12TextureView*>(value.second.get());
+                if (binding && view && view->uavGpu.ptr && binding->bindSpace == 0 && binding->bindPoint < 8)
                     m_Owner.GetCommandList()->SetComputeRootDescriptorTable(
                         1 + D3D12Context::kTextureSlotCount * 2 + binding->bindPoint, view->uavGpu);
             }
@@ -397,12 +518,14 @@ public:
             for (const auto& value : group->GetStorageBuffers()) {
                 const auto* binding = reflection.Find(value.first);
                 auto* view = dynamic_cast<D3D12BufferView*>(value.second.get());
-                if (binding && view && view->srvGpu.ptr)
+                if (binding && view && view->srvGpu.ptr && binding->bindSpace == 0 &&
+                    binding->bindPoint < D3D12Context::kTextureSlotCount)
                     m_Owner.BindPSTextureDescriptors(binding->bindPoint, view->srvGpu, {});
             }
         }
     }
     void Dispatch(uint32_t x, uint32_t y, uint32_t z) override { m_Owner.GetCommandList()->Dispatch(x, y, z); }
+    void DispatchIndirect(GpuBuffer* args, uint64_t offset) override { m_Owner.DispatchIndirect(args, offset); }
     void CopyBuffer(GpuBuffer* dst, uint32_t dstOffset, GpuBuffer* src, uint32_t srcOffset,
                     uint32_t byteSize) override {
         auto* d = dynamic_cast<D3D12Buffer*>(dst);
@@ -465,20 +588,36 @@ public:
         auto* native = dynamic_cast<D3D12Texture*>(texture);
         if (!native || !native->resource || before == after)
             return;
+        const uint32_t mipLevels = native->desc.mipLevels;
+        const uint32_t arrayLayers = native->desc.arrayLayers;
+        if (range.mipCount == 0 || range.layerCount == 0 || range.firstMip >= mipLevels ||
+            range.mipCount > mipLevels - range.firstMip || range.firstLayer >= arrayLayers ||
+            range.layerCount > arrayLayers - range.firstLayer)
+            return;
+
         const auto beforeState = ToD3D12State(before);
         const auto afterState = ToD3D12State(after);
-        for (uint32_t layer = 0; layer < range.layerCount; ++layer) {
-            for (uint32_t mip = 0; mip < range.mipCount; ++mip) {
-                D3D12_RESOURCE_BARRIER barrier{};
-                barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-                barrier.Transition.pResource = native->resource.Get();
-                barrier.Transition.StateBefore = beforeState;
-                barrier.Transition.StateAfter = afterState;
-                barrier.Transition.Subresource =
-                    (range.firstMip + mip) + (range.firstLayer + layer) * native->desc.mipLevels;
-                m_Owner.GetCommandList()->ResourceBarrier(1, &barrier);
+        const uint32_t planeCount = native->desc.format == RHIFormat::D24S8 ? 2u : 1u;
+        std::vector<D3D12_RESOURCE_BARRIER> barriers;
+        barriers.reserve(static_cast<size_t>(range.layerCount) * range.mipCount * planeCount);
+        for (uint32_t plane = 0; plane < planeCount; ++plane) {
+            for (uint32_t layer = 0; layer < range.layerCount; ++layer) {
+                for (uint32_t mip = 0; mip < range.mipCount; ++mip) {
+                    D3D12_RESOURCE_BARRIER barrier{};
+                    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+                    barrier.Transition.pResource = native->resource.Get();
+                    barrier.Transition.StateBefore = beforeState;
+                    barrier.Transition.StateAfter = afterState;
+                    // Depth and stencil are separate D3D12 subresources. Keeping them in lockstep makes later
+                    // whole-resource transitions valid and prevents a DSV from using an untransitioned stencil plane.
+                    barrier.Transition.Subresource = (range.firstMip + mip) + (range.firstLayer + layer) * mipLevels +
+                                                     plane * mipLevels * arrayLayers;
+                    barriers.push_back(barrier);
+                }
             }
         }
+        if (!barriers.empty())
+            m_Owner.GetCommandList()->ResourceBarrier(static_cast<UINT>(barriers.size()), barriers.data());
     }
 
     void BeginRendering(const RenderingInfo& info) override {
@@ -1117,6 +1256,33 @@ static void EnableD3D12Diagnostics() {
     }
 }
 
+void D3D12Context::InitializePipelineCache() {
+    m_PipelineCacheDirectory.clear();
+    m_PipelineCacheDiagnostics = IsEnvironmentFlagEnabled("MYENGINE_D3D12_PSO_DIAGNOSTICS");
+
+    const DWORD required = GetEnvironmentVariableW(L"LOCALAPPDATA", nullptr, 0);
+    if (required <= 1)
+        return;
+    std::wstring localAppData(required, L'\0');
+    const DWORD written = GetEnvironmentVariableW(L"LOCALAPPDATA", localAppData.data(), required);
+    if (written == 0 || written >= required)
+        return;
+    localAppData.resize(written);
+
+    uint64_t adapterHash = kPipelineHashOffset;
+    adapterHash = HashPipelineValue(m_DeviceIdentity.vendorId, adapterHash);
+    adapterHash = HashPipelineValue(m_DeviceIdentity.deviceId, adapterHash);
+    adapterHash = HashPipelineValue(m_DeviceIdentity.subsystemId, adapterHash);
+    adapterHash = HashPipelineValue(m_DeviceIdentity.revision, adapterHash);
+    adapterHash =
+        HashPipelineBytes(m_DeviceIdentity.driverVersion.data(), m_DeviceIdentity.driverVersion.size(), adapterHash);
+    const std::filesystem::path directory = std::filesystem::path(localAppData) / L"MyEngine" / L"PipelineCache" /
+                                            L"D3D12" / (L"v1_" + PipelineHashText(adapterHash));
+    m_PipelineCacheDirectory = directory.wstring();
+    if (m_PipelineCacheDiagnostics)
+        Logger::Info("[D3D12][PSO] persistent cache directory: ", directory.string());
+}
+
 bool D3D12Context::Init(IWindow* window) {
     if (!window)
         return false;
@@ -1165,6 +1331,27 @@ bool D3D12Context::Init(IWindow* window) {
     indirectDesc.ByteStride = sizeof(D3D12_DRAW_INDEXED_ARGUMENTS);
     if (FAILED(m_Device->CreateCommandSignature(&indirectDesc, nullptr, IID_PPV_ARGS(&m_DrawIndexedIndirectSignature))))
         return false;
+    if (!CreateTextureRootSignature(m_Device.Get(), &m_IndirectObjectRootSignature))
+        return false;
+    if (!CreateComputeRootSignature(m_Device.Get(), &m_ComputeRootSignature))
+        return false;
+    D3D12_INDIRECT_ARGUMENT_DESC objectDrawArgs[2]{};
+    objectDrawArgs[0].Type = D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT;
+    objectDrawArgs[0].Constant.RootParameterIndex = kIndirectObjectRootParameter;
+    objectDrawArgs[0].Constant.DestOffsetIn32BitValues = 0;
+    objectDrawArgs[0].Constant.Num32BitValuesToSet = 1;
+    objectDrawArgs[1].Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED;
+    D3D12_COMMAND_SIGNATURE_DESC objectDrawDesc{};
+    objectDrawDesc.ByteStride = sizeof(RHIObjectDrawIndexedIndirectArgs);
+    objectDrawDesc.NumArgumentDescs = _countof(objectDrawArgs);
+    objectDrawDesc.pArgumentDescs = objectDrawArgs;
+    if (FAILED(m_Device->CreateCommandSignature(&objectDrawDesc, m_IndirectObjectRootSignature.Get(),
+                                                IID_PPV_ARGS(&m_ObjectDrawIndexedIndirectSignature))))
+        return false;
+    indirectArg.Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH;
+    indirectDesc.ByteStride = sizeof(D3D12_DISPATCH_ARGUMENTS);
+    if (FAILED(m_Device->CreateCommandSignature(&indirectDesc, nullptr, IID_PPV_ARGS(&m_DispatchIndirectSignature))))
+        return false;
     m_GraphicsQueue = std::make_shared<D3D12QueueRHI>(*this);
 
     // ---- SwapChain ---------------------------------------------------------
@@ -1181,6 +1368,7 @@ bool D3D12Context::Init(IWindow* window) {
     if (SUCCEEDED(factory->EnumAdapterByLuid(m_Device->GetAdapterLuid(), IID_PPV_ARGS(&adapter)))) {
         m_DeviceIdentity = DescribeAdapter(adapter.Get());
     }
+    InitializePipelineCache();
 
     DXGI_SWAP_CHAIN_DESC1 scd = {};
     scd.BufferCount = kFrameCount;
@@ -1481,6 +1669,10 @@ void D3D12Context::Shutdown() {
     m_Fence.Reset();
     m_DrawIndirectSignature.Reset();
     m_DrawIndexedIndirectSignature.Reset();
+    m_ObjectDrawIndexedIndirectSignature.Reset();
+    m_IndirectObjectRootSignature.Reset();
+    m_ComputeRootSignature.Reset();
+    m_DispatchIndirectSignature.Reset();
     m_GraphicsQueue.reset();
     m_CommandQueue.Reset();
     m_Device.Reset();
@@ -1506,6 +1698,8 @@ void D3D12Context::Shutdown() {
     m_DeviceLossSuppressionLogged = false;
     m_LastDeviceError.clear();
     m_DeviceLossInfo = {};
+    m_PipelineCacheDirectory.clear();
+    m_PipelineCacheDiagnostics = false;
 }
 
 void D3D12Context::WaitForFrame(uint32_t frameIndex) {
@@ -1621,7 +1815,12 @@ void D3D12Context::BeginFrame(float r, float g, float b, float a) {
         return;
 
     m_RenderFrameIndex = m_SwapChain->GetCurrentBackBufferIndex();
+    const auto frameWaitStart = std::chrono::steady_clock::now();
     WaitForFrame(m_RenderFrameIndex);
+    RendererFrameStats frameStats = FrameStatsProvider::GetRendererStats();
+    frameStats.frameWaitCpuMs = static_cast<float>(
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - frameWaitStart).count());
+    FrameStatsProvider::SetRendererStats(frameStats);
 
     auto& fr = m_Frames[m_RenderFrameIndex];
     fr.constantBufferOffset = 0;
@@ -1712,7 +1911,12 @@ void D3D12Context::EndFrame() {
     ID3D12CommandList* cmdLists[] = {m_CommandList.Get()};
     m_CommandQueue->ExecuteCommandLists(1, cmdLists);
 
+    const auto presentStart = std::chrono::steady_clock::now();
     PresentSwapChain(m_VSyncEnabled);
+    RendererFrameStats frameStats = FrameStatsProvider::GetRendererStats();
+    frameStats.presentCpuMs = static_cast<float>(
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - presentStart).count());
+    FrameStatsProvider::SetRendererStats(frameStats);
     if (m_DeviceLost) {
         if (m_DeferredReleaseQueue)
             m_DeferredReleaseQueue->AbandonSubmittedFrame();
@@ -2136,12 +2340,15 @@ std::shared_ptr<GpuBuffer> D3D12Context::CreateBuffer(const RHIBufferDesc& desc,
                                                    IID_PPV_ARGS(&buffer->resource));
     if (!CheckDeviceResult(hr, "CreateCommittedResource(generic buffer)"))
         return nullptr;
+    buffer->state = initialState;
 
     if (initialData && !readback) {
         ComPtr<ID3D12Resource> uploadBuffer;
         D3D12_HEAP_PROPERTIES uploadHeap{};
         uploadHeap.Type = D3D12_HEAP_TYPE_UPLOAD;
-        hr = m_Device->CreateCommittedResource(&uploadHeap, D3D12_HEAP_FLAG_NONE, &native,
+        D3D12_RESOURCE_DESC uploadDesc = native;
+        uploadDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
+        hr = m_Device->CreateCommittedResource(&uploadHeap, D3D12_HEAP_FLAG_NONE, &uploadDesc,
                                                D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&uploadBuffer));
         if (!CheckDeviceResult(hr, "CreateCommittedResource(generic upload buffer)"))
             return nullptr;
@@ -2161,6 +2368,7 @@ std::shared_ptr<GpuBuffer> D3D12Context::CreateBuffer(const RHIBufferDesc& desc,
             ReportDeviceRemovedReason("Generic buffer upload submission");
             return nullptr;
         }
+        buffer->state = finalState;
     }
 
     CommitRHIResourceAccounting(std::static_pointer_cast<GpuBuffer>(buffer));
@@ -2233,7 +2441,7 @@ bool CreateTextureRootSignature(ID3D12Device* device, ID3D12RootSignature** outR
     bindless.BaseShaderRegister = 0;
     bindless.RegisterSpace = 1;
 
-    D3D12_ROOT_PARAMETER rootParams[2 + D3D12Context::kTextureSlotCount * 2] = {};
+    D3D12_ROOT_PARAMETER rootParams[3 + D3D12Context::kTextureSlotCount * 2] = {};
     rootParams[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
     rootParams[0].Descriptor.ShaderRegister = 0;
     rootParams[0].Descriptor.RegisterSpace = 0;
@@ -2250,6 +2458,13 @@ bool CreateTextureRootSignature(ID3D12Device* device, ID3D12RootSignature** outR
     bindlessParam.DescriptorTable.NumDescriptorRanges = 1;
     bindlessParam.DescriptorTable.pDescriptorRanges = &bindless;
     bindlessParam.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+    auto& objectIndexParam = rootParams[D3D12Context::kIndirectObjectRootParameter];
+    objectIndexParam.ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    objectIndexParam.Constants.ShaderRegister = 1;
+    objectIndexParam.Constants.RegisterSpace = 0;
+    objectIndexParam.Constants.Num32BitValues = 1;
+    objectIndexParam.ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
 
     D3D12_ROOT_SIGNATURE_DESC rsDesc = {};
     rsDesc.NumParameters = _countof(rootParams);
@@ -2273,8 +2488,6 @@ bool CreateTextureRootSignature(ID3D12Device* device, ID3D12RootSignature** outR
 }
 
 } // namespace
-
-bool CreateComputeRootSignature(ID3D12Device* device, ID3D12RootSignature** outRootSig);
 
 D3D12_CPU_DESCRIPTOR_HANDLE D3D12Context::GetMainColorRtv() const {
     return m_RtvHandles[m_RenderFrameIndex];
@@ -2550,8 +2763,9 @@ std::shared_ptr<GpuShader> D3D12Context::CreateShader(const std::string& hlslSou
     sh->pixelBytecode.assign(static_cast<const uint8_t*>(psBlob->GetBufferPointer()),
                              static_cast<const uint8_t*>(psBlob->GetBufferPointer()) + psBlob->GetBufferSize());
 
-    if (!CreateTextureRootSignature(m_Device.Get(), &sh->rootSignature)) {
-        ReportDeviceRemovedReason("CreateRootSignature(shader)");
+    sh->rootSignature = m_IndirectObjectRootSignature;
+    if (!sh->rootSignature) {
+        ReportDeviceRemovedReason("AcquireSharedRootSignature(shader)");
         return nullptr;
     }
     sh->hasBindlessTable = true;
@@ -2584,8 +2798,9 @@ std::shared_ptr<GpuShader> D3D12Context::CreateShaderFromBytecode(const void* vs
                               static_cast<const uint8_t*>(vsBytecode) + vsSize);
     sh->pixelBytecode.assign(static_cast<const uint8_t*>(psBytecode), static_cast<const uint8_t*>(psBytecode) + psSize);
 
-    if (!CreateTextureRootSignature(m_Device.Get(), &sh->rootSignature)) {
-        ReportDeviceRemovedReason("CreateRootSignature(bytecode shader)");
+    sh->rootSignature = m_IndirectObjectRootSignature;
+    if (!sh->rootSignature) {
+        ReportDeviceRemovedReason("AcquireSharedRootSignature(bytecode shader)");
         return nullptr;
     }
     sh->hasBindlessTable = true;
@@ -2600,6 +2815,68 @@ std::shared_ptr<GpuShader> D3D12Context::CreateShaderFromBytecode(const void* vs
     return sh;
 }
 
+bool D3D12Context::CreateComputePipelineStateCached(const void* bytecode, size_t byteSize,
+                                                    ID3D12PipelineState** outPipelineState) {
+    if (!m_Device || !m_ComputeRootSignature || !bytecode || byteSize == 0 || !outPipelineState)
+        return false;
+    *outPipelineState = nullptr;
+
+    uint64_t cacheHash = HashPipelineValue(kComputeRootSignatureAbi, kPipelineHashOffset);
+    cacheHash = HashPipelineBytes(bytecode, byteSize, cacheHash);
+    const std::wstring cacheKey = PipelineHashText(cacheHash);
+    const std::string cacheKeyText = PipelineHashTextNarrow(cacheHash);
+    const std::filesystem::path cachePath =
+        m_PipelineCacheDirectory.empty() ? std::filesystem::path{}
+                                         : std::filesystem::path(m_PipelineCacheDirectory) /
+                                               (L"compute_" + cacheKey + L"_" + std::to_wstring(byteSize) + L".bin");
+
+    const auto start = std::chrono::steady_clock::now();
+    std::vector<uint8_t> cachedBlob;
+    if (!cachePath.empty()) {
+        std::lock_guard<std::mutex> lock(m_PipelineCacheMutex);
+        ReadPipelineBlob(cachePath, cachedBlob);
+    }
+
+    D3D12_COMPUTE_PIPELINE_STATE_DESC desc{};
+    desc.pRootSignature = m_ComputeRootSignature.Get();
+    desc.CS = {bytecode, byteSize};
+    if (!cachedBlob.empty())
+        desc.CachedPSO = {cachedBlob.data(), cachedBlob.size()};
+
+    ComPtr<ID3D12PipelineState> pipelineState;
+    HRESULT pipelineHr = m_Device->CreateComputePipelineState(&desc, IID_PPV_ARGS(&pipelineState));
+    const bool cacheHit = !cachedBlob.empty() && SUCCEEDED(pipelineHr);
+    const bool cacheRejected = !cachedBlob.empty() && FAILED(pipelineHr);
+    if (cacheRejected) {
+        // Driver and OS updates can invalidate a D3D12 cached blob even when the adapter identity is unchanged. Retry
+        // with the authoritative DXIL and atomically replace the stale entry after a successful compile.
+        desc.CachedPSO = {};
+        pipelineHr = m_Device->CreateComputePipelineState(&desc, IID_PPV_ARGS(&pipelineState));
+    }
+    if (!CheckDeviceResult(pipelineHr, "CreateComputePipelineState"))
+        return false;
+
+    if (!cacheHit && !cachePath.empty()) {
+        ComPtr<ID3DBlob> serialized;
+        if (SUCCEEDED(pipelineState->GetCachedBlob(&serialized)) && serialized && serialized->GetBufferSize() != 0) {
+            std::lock_guard<std::mutex> lock(m_PipelineCacheMutex);
+            if (!WritePipelineBlobAtomic(cachePath, serialized->GetBufferPointer(), serialized->GetBufferSize()) &&
+                m_PipelineCacheDiagnostics) {
+                Logger::Warn("[D3D12][PSO] failed to persist compute cache key=", cacheKeyText);
+            }
+        }
+    }
+
+    if (m_PipelineCacheDiagnostics) {
+        const double elapsedMs =
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+        Logger::Info("[D3D12][PSO] compute cache=", cacheHit ? "hit" : (cacheRejected ? "rebuilt" : "miss"),
+                     " key=", cacheKeyText, " bytecodeBytes=", byteSize, " elapsedMs=", elapsedMs);
+    }
+    *outPipelineState = pipelineState.Detach();
+    return true;
+}
+
 std::shared_ptr<GpuShader> D3D12Context::CreateComputeShaderFromBytecode(const void* bytecode, size_t byteSize) {
     if (!CanUseDevice("CreateComputeShaderFromBytecode") || !bytecode || byteSize == 0)
         return nullptr;
@@ -2607,19 +2884,17 @@ std::shared_ptr<GpuShader> D3D12Context::CreateComputeShaderFromBytecode(const v
     shader->deferredReleaseQueue = m_DeferredReleaseQueue;
     shader->computeBytecode.assign(static_cast<const uint8_t*>(bytecode),
                                    static_cast<const uint8_t*>(bytecode) + byteSize);
-    if (!CreateComputeRootSignature(m_Device.Get(), &shader->computeRootSignature)) {
-        ReportDeviceRemovedReason("CreateRootSignature(compute shader)");
+    shader->computeRootSignature = m_ComputeRootSignature;
+    if (!shader->computeRootSignature) {
+        ReportDeviceRemovedReason("AcquireSharedRootSignature(compute shader)");
         return nullptr;
     }
-    D3D12_COMPUTE_PIPELINE_STATE_DESC desc{};
-    desc.pRootSignature = shader->computeRootSignature.Get();
-    desc.CS = {bytecode, byteSize};
-    const HRESULT pipelineHr = m_Device->CreateComputePipelineState(&desc, IID_PPV_ARGS(&shader->computePipelineState));
-    if (!CheckDeviceResult(pipelineHr, "CreateComputePipelineState"))
+    if (!CreateComputePipelineStateCached(bytecode, byteSize, &shader->computePipelineState))
         return nullptr;
-    std::string error;
-    if (!ReflectDxbcStage(bytecode, byteSize, ShaderStageCompute, shader->reflection, &error))
-        Logger::Warn("[RHI] D3D12 compute reflection failed: ", error);
+    // D3DReflect only understands legacy DXBC. Modern SM6 shaders carry DXIL and receive their authoritative
+    // cooked-v5 reflection from ShaderManager immediately after creation, while legacy compute bytecode can still
+    // populate this opportunistic table here.
+    ReflectDxbcStage(bytecode, byteSize, ShaderStageCompute, shader->reflection, nullptr);
     return shader;
 }
 
@@ -2742,7 +3017,9 @@ void D3D12Context::SetBlendMode(GpuBlendMode mode) {
 void D3D12Context::BindVertexBuffer(GpuBuffer* buffer) {
     if (!m_IsRecording || !buffer)
         return;
-    auto* b = static_cast<D3D12VertexBuffer*>(buffer);
+    auto* b = dynamic_cast<D3D12VertexBuffer*>(buffer);
+    if (!b || !b->resource)
+        return;
 
     D3D12_VERTEX_BUFFER_VIEW vbv = {};
     vbv.BufferLocation = b->resource->GetGPUVirtualAddress();
@@ -2757,7 +3034,9 @@ void D3D12Context::BindIndexBuffer(GpuBuffer* buffer) {
     if (!buffer)
         return;
 
-    auto* b = static_cast<D3D12IndexBuffer*>(buffer);
+    auto* b = dynamic_cast<D3D12IndexBuffer*>(buffer);
+    if (!b || !b->resource)
+        return;
     D3D12_INDEX_BUFFER_VIEW ibv = {};
     ibv.BufferLocation = b->resource->GetGPUVirtualAddress();
     ibv.SizeInBytes = b->byteSize;
@@ -2766,8 +3045,20 @@ void D3D12Context::BindIndexBuffer(GpuBuffer* buffer) {
 }
 
 void D3D12Context::SetVSConstants(const void* data, uint32_t byteSize) {
+    const D3D12_GPU_VIRTUAL_ADDRESS addr = UploadConstants(data, byteSize);
+    if (addr)
+        m_CommandList->SetGraphicsRootConstantBufferView(0, addr);
+}
+
+void D3D12Context::SetComputeConstants(const void* data, uint32_t byteSize) {
+    const D3D12_GPU_VIRTUAL_ADDRESS addr = UploadConstants(data, byteSize);
+    if (addr)
+        m_CommandList->SetComputeRootConstantBufferView(0, addr);
+}
+
+D3D12_GPU_VIRTUAL_ADDRESS D3D12Context::UploadConstants(const void* data, uint32_t byteSize) {
     if (!m_IsRecording || !data || byteSize == 0)
-        return;
+        return 0;
 
     auto& fr = m_Frames[m_RenderFrameIndex];
 
@@ -2802,7 +3093,7 @@ void D3D12Context::SetVSConstants(const void* data, uint32_t byteSize) {
         if (!CheckDeviceResult(hr, "CreateCommittedResource(grow constant buffer)") || !newRes) {
             if (!newRes)
                 ReportDeviceRemovedReason("Grow constant buffer returned null");
-            return;
+            return 0;
         }
 
         uint8_t* mapped = nullptr;
@@ -2810,7 +3101,7 @@ void D3D12Context::SetVSConstants(const void* data, uint32_t byteSize) {
         if (!CheckDeviceResult(hr, "Map(grown constant buffer)") || !mapped) {
             if (!mapped)
                 ReportDeviceRemovedReason("Map(grown constant buffer) returned null");
-            return;
+            return 0;
         }
 
         RetireD3D12Object(m_DeferredReleaseQueue, fr.constantBufferUpload);
@@ -2822,9 +3113,8 @@ void D3D12Context::SetVSConstants(const void* data, uint32_t byteSize) {
     std::memcpy(fr.constantBufferMapped + alignedOffset, data, byteSize);
 
     const D3D12_GPU_VIRTUAL_ADDRESS addr = fr.constantBufferUpload->GetGPUVirtualAddress() + alignedOffset;
-    m_CommandList->SetGraphicsRootConstantBufferView(0, addr);
-
     fr.constantBufferOffset = alignedOffset + alignedSize;
+    return addr;
 }
 
 void D3D12Context::Draw(uint32_t vertexCount, uint32_t startVertex) {
@@ -2857,6 +3147,29 @@ void D3D12Context::DrawIndirect(GpuBuffer* arguments, uint64_t offset, bool inde
     ID3D12CommandSignature* signature = indexed ? m_DrawIndexedIndirectSignature.Get() : m_DrawIndirectSignature.Get();
     if (m_IsRecording && buffer && buffer->resource && signature)
         m_CommandList->ExecuteIndirect(signature, 1, buffer->resource.Get(), offset, nullptr, 0);
+}
+
+void D3D12Context::DrawIndexedIndirectCount(GpuBuffer* arguments, uint64_t argumentOffset, GpuBuffer* countBuffer,
+                                            uint64_t countOffset, uint32_t maxDrawCount, uint32_t stride) {
+    auto* buffer = dynamic_cast<D3D12Buffer*>(arguments);
+    auto* count = dynamic_cast<D3D12Buffer*>(countBuffer);
+    ID3D12CommandSignature* signature = nullptr;
+    if (stride == sizeof(RHIObjectDrawIndexedIndirectArgs)) {
+        signature = m_ObjectDrawIndexedIndirectSignature.Get();
+    } else if (stride == sizeof(D3D12_DRAW_INDEXED_ARGUMENTS)) {
+        signature = m_DrawIndexedIndirectSignature.Get();
+    }
+    if (!m_IsRecording || !buffer || !buffer->resource || !signature || maxDrawCount == 0)
+        return;
+    m_CommandList->ExecuteIndirect(signature, maxDrawCount, buffer->resource.Get(), argumentOffset,
+                                   count ? count->resource.Get() : nullptr, countOffset);
+}
+
+void D3D12Context::DispatchIndirect(GpuBuffer* arguments, uint64_t offset) {
+    auto* buffer = dynamic_cast<D3D12Buffer*>(arguments);
+    if (m_IsRecording && buffer && buffer->resource && m_DispatchIndirectSignature)
+        m_CommandList->ExecuteIndirect(m_DispatchIndirectSignature.Get(), 1, buffer->resource.Get(), offset, nullptr,
+                                       0);
 }
 
 void D3D12Context::SetViewport(float x, float y, float w, float h) {
@@ -3211,10 +3524,44 @@ bool D3D12Context::UpdateBuffer(const std::shared_ptr<GpuBuffer>& buffer, uint64
         return false;
     std::memcpy(mapped, data, static_cast<size_t>(size));
     upload->Unmap(0, nullptr);
+    const D3D12_RESOURCE_STATES finalState = HasUsage(destination->desc.usage, RHIResourceUsage::ShaderResource)
+                                                 ? ToD3D12State(RHIResourceState::ShaderResource)
+                                             : HasUsage(destination->desc.usage, RHIResourceUsage::UnorderedAccess)
+                                                 ? D3D12_RESOURCE_STATE_UNORDERED_ACCESS
+                                                 : D3D12_RESOURCE_STATE_GENERIC_READ;
+    const auto recordCopy = [&](ID3D12GraphicsCommandList* commandList) {
+        if (destination->state != D3D12_RESOURCE_STATE_COPY_DEST) {
+            D3D12_RESOURCE_BARRIER barrier{};
+            barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+            barrier.Transition.pResource = destination->resource.Get();
+            barrier.Transition.StateBefore = destination->state;
+            barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
+            barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+            commandList->ResourceBarrier(1, &barrier);
+        }
+        commandList->CopyBufferRegion(destination->resource.Get(), offset, upload.Get(), 0, size);
+        if (finalState != D3D12_RESOURCE_STATE_COPY_DEST) {
+            D3D12_RESOURCE_BARRIER barrier{};
+            barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+            barrier.Transition.pResource = destination->resource.Get();
+            barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+            barrier.Transition.StateAfter = finalState;
+            barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+            commandList->ResourceBarrier(1, &barrier);
+        }
+        destination->state = finalState;
+    };
+    if (m_IsRecording && m_CommandList && m_DeferredReleaseQueue) {
+        recordCopy(m_CommandList.Get());
+        ComPtr<IUnknown> retiredUpload;
+        retiredUpload.Attach(upload.Detach());
+        m_DeferredReleaseQueue->Retire(std::move(retiredUpload));
+        return true;
+    }
     if (FAILED(m_UploadCommandAllocator->Reset()) ||
         FAILED(m_UploadCommandList->Reset(m_UploadCommandAllocator.Get(), nullptr)))
         return false;
-    m_UploadCommandList->CopyBufferRegion(destination->resource.Get(), offset, upload.Get(), 0, size);
+    recordCopy(m_UploadCommandList.Get());
     if (FAILED(m_UploadCommandList->Close()))
         return false;
     ID3D12CommandList* lists[] = {m_UploadCommandList.Get()};
@@ -3298,7 +3645,7 @@ std::shared_ptr<GpuTexture> D3D12Context::UploadTexture(const RHITextureDesc& de
     barrier.Transition.pResource = texture->resource.Get();
     barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
     barrier.Transition.StateAfter = HasUsage(desc.usage, RHIResourceUsage::ShaderResource)
-                                        ? D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE
+                                        ? ToD3D12State(RHIResourceState::ShaderResource)
                                         : D3D12_RESOURCE_STATE_COMMON;
     barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
     m_UploadCommandList->ResourceBarrier(1, &barrier);
@@ -3324,12 +3671,23 @@ RHIDeviceCapabilities D3D12Context::GetCapabilities() const {
     result.maxColorAttachments = D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT;
     result.maxSamples = D3D12_MAX_MULTISAMPLE_SAMPLE_COUNT;
     result.maxBindlessResources = kDefaultSrvDescriptorCount;
+    result.computeShaders = true;
+    result.storageTextures = true;
     result.timestampQueries = true;
     result.indirectDraw = true;
+    result.indirectDrawCount = true;
+    result.indirectDispatch = true;
+    result.shaderDrawParameters = true;
     D3D12_FEATURE_DATA_D3D12_OPTIONS options{};
     if (m_Device && SUCCEEDED(m_Device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS, &options, sizeof(options)))) {
         result.bindlessResources = options.ResourceBindingTier >= D3D12_RESOURCE_BINDING_TIER_2;
     }
+    result.modernDeferredFormats =
+        IsFormatSupported(RHIFormat::RGBA16Float, RHIResourceUsage::ShaderResource | RHIResourceUsage::UnorderedAccess |
+                                                      RHIResourceUsage::RenderTarget) &&
+        IsFormatSupported(RHIFormat::RG32Float, RHIResourceUsage::ShaderResource | RHIResourceUsage::UnorderedAccess) &&
+        IsFormatSupported(RHIFormat::RG16Float, RHIResourceUsage::ShaderResource | RHIResourceUsage::RenderTarget) &&
+        IsFormatSupported(RHIFormat::R8UNorm, RHIResourceUsage::ShaderResource | RHIResourceUsage::UnorderedAccess);
     return result;
 }
 
@@ -3407,6 +3765,7 @@ void D3D12Context::BindPSTexture(uint32_t slot, GpuTexture* tex) {
     m_CommandList->SetGraphicsRootDescriptorTable(sampParam, sampGpu);
 }
 
+namespace {
 bool CreateComputeRootSignature(ID3D12Device* device, ID3D12RootSignature** outRootSig) {
     if (!device || !outRootSig)
         return false;
@@ -3446,6 +3805,7 @@ bool CreateComputeRootSignature(ID3D12Device* device, ID3D12RootSignature** outR
     return SUCCEEDED(
         device->CreateRootSignature(0, blob->GetBufferPointer(), blob->GetBufferSize(), IID_PPV_ARGS(outRootSig)));
 }
+} // namespace
 
 std::shared_ptr<GpuTexture> D3D12Context::CreateTexture(const RHITextureDesc& desc) {
     if (!CanUseDevice("CreateTexture") || desc.width == 0 || desc.height == 0)

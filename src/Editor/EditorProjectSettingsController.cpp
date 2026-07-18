@@ -28,6 +28,22 @@ const char* ProjectValueFromRenderPathIndex(int index) {
     return index == 1 ? "deferred" : "forward";
 }
 
+GraphicsDeviceProfile DeviceProfileFromIndex(int index) {
+    if (index == 1)
+        return GraphicsDeviceProfile::Console;
+    if (index == 2)
+        return GraphicsDeviceProfile::Mobile;
+    return GraphicsDeviceProfile::Desktop;
+}
+
+int DeviceProfileIndex(GraphicsDeviceProfile profile) {
+    if (profile == GraphicsDeviceProfile::Console)
+        return 1;
+    if (profile == GraphicsDeviceProfile::Mobile)
+        return 2;
+    return 0;
+}
+
 std::vector<RenderBackend> AvailableEditorBackends() {
     std::vector<RenderBackend> backends;
     for (RenderBackend backend :
@@ -113,6 +129,11 @@ void EditorProjectSettingsController::DrawGraphicsSettingsTab(EditorLayer& layer
     if (layer.m_RenderPathIndex >= kRenderPathCount)
         layer.m_RenderPathIndex = 0;
     ImGui::Combo("Render Path", &layer.m_RenderPathIndex, kRenderPaths, kRenderPathCount);
+    static constexpr const char* kDeviceProfiles[] = {"Desktop (Automatic)", "Console (Modern Preferred)",
+                                                      "Mobile (Classic Deferred)"};
+    if (layer.m_DeviceProfileIndex < 0 || layer.m_DeviceProfileIndex >= 3)
+        layer.m_DeviceProfileIndex = 0;
+    ImGui::Combo("Device Profile", &layer.m_DeviceProfileIndex, kDeviceProfiles, 3);
     const RHIBackend active = layer.m_RenderContext ? layer.m_RenderContext->GetBackend() : RHIBackend::Unknown;
     const RenderBackend activeBackend = active == RHIBackend::Vulkan  ? RenderBackend::Vulkan
                                         : active == RHIBackend::D3D12 ? RenderBackend::D3D12
@@ -120,19 +141,25 @@ void EditorProjectSettingsController::DrawGraphicsSettingsTab(EditorLayer& layer
                                                                       : RenderBackend::D3D11;
     ImGui::LabelText("Active backend", "%s",
                      active == RHIBackend::Unknown ? "Unknown" : RenderBackendToLabel(activeBackend));
-    const RenderPath activeRenderPath = layer.m_SceneLayer ? layer.m_SceneLayer->GetRenderPath() : RenderPath::Forward;
-    ImGui::LabelText("Active render path", "%s", activeRenderPath == RenderPath::Deferred ? "Deferred" : "Forward");
+    const RenderPipelineDiagnostics diagnostics =
+        layer.m_SceneLayer ? layer.m_SceneLayer->GetPipelineDiagnostics() : RenderPipelineDiagnostics{};
+    ImGui::LabelText("Requested render path", "%s", RenderPathName(diagnostics.requestedPath));
+    ImGui::LabelText("Resolved pipeline", "%s", ResolvedRenderPipelineName(diagnostics.resolvedPipeline));
+    if (!diagnostics.fallbackReason.empty())
+        ImGui::TextDisabled("Reason: %s", diagnostics.fallbackReason.c_str());
     ImGui::LabelText("Apply", "%s", "backend next launch, render path immediate");
     if (ImGui::Button("Save Graphics")) {
         auto& editable = layer.m_Project.GetConfig();
         const ProjectConfig previous = editable;
         editable.GetGraphicsSettings().backend = RenderBackendToProjectValue(selectedBackend);
         editable.GetGraphicsSettings().renderPath = ProjectValueFromRenderPathIndex(layer.m_RenderPathIndex);
+        editable.GetGraphicsSettings().deviceProfile = DeviceProfileFromIndex(layer.m_DeviceProfileIndex);
         std::string error;
         if (editable.Save(&error)) {
             if (layer.m_SceneLayer) {
                 layer.m_SceneLayer->SetRenderPath(
                     RenderPathFromProjectValue(editable.GetGraphicsSettings().renderPath));
+                layer.m_SceneLayer->SetDeviceProfile(editable.GetGraphicsSettings().deviceProfile);
             }
             Logger::Info("[Editor] Graphics settings saved");
             layer.ShowProjectResult("Graphics settings saved.", false);
@@ -259,6 +286,7 @@ void EditorProjectSettingsController::Open(EditorLayer& layer) {
     layer.m_InputConfigPath.back() = '\0';
     layer.m_GraphicsBackendIndex = BackendIndexFromProjectValue(config.GetGraphicsSettings().backend);
     layer.m_RenderPathIndex = config.GetGraphicsSettings().renderPath == "deferred" ? 1 : 0;
+    layer.m_DeviceProfileIndex = DeviceProfileIndex(config.GetGraphicsSettings().deviceProfile);
     layer.m_ProjectSettingsRequested = true;
 }
 

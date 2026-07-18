@@ -23,6 +23,7 @@ public:
     struct GraphResources {
         std::shared_ptr<GpuTexture> directional;
         std::shared_ptr<GpuTextureView> directionalCascadeViews[3];
+        std::shared_ptr<GpuTextureView> directionalSrv;
         std::shared_ptr<GpuTexture> spot;
         std::shared_ptr<GpuTextureView> spotView;
         std::shared_ptr<GpuTexture> point;
@@ -51,6 +52,10 @@ public:
     float GetPointShadowRange() const { return m_PointShadowRange; }
     int GetPointShadowIndex() const { return m_PointShadowIndex; }
     GpuTexture* GetPointShadowMapTexture() const { return m_PointShadowMapTexture.get(); }
+    const Mat4& GetPointLightViewProj(uint32_t face) const;
+
+    void BeginGpuDrivenFrame() { m_LastStats = {}; }
+    void DrawCompatibilityScene(GpuCommandList& commands, const Scene& scene, const Mat4& lightViewProjection);
 
     uint32_t GetCascadeCount() const { return m_CascadeCount; }
     const Mat4& GetCascadeViewProj(uint32_t index) const;
@@ -60,20 +65,29 @@ public:
 private:
     void UpdateLightMatrices(const Scene& scene, const Camera& camera);
     void EnsureShadowShader();
+    std::shared_ptr<GpuBindGroup> AcquireBindGroup(const std::shared_ptr<GpuShader>& shader, bool* created = nullptr);
 
     bool EnsureShadowResources();
-    void DrawShadowScene(GpuCommandList& commands, const Scene& scene, const Mat4& lightViewProj);
+    void DrawShadowScene(GpuCommandList& commands, const Scene& scene, const Mat4& lightViewProj,
+                         bool compatibilityOnly = false);
 
 private:
     static constexpr uint32_t kDefaultShadowMapSize = 2048;
     static constexpr uint32_t kMaxCascades = 3;
 
     std::shared_ptr<ShaderHandle> m_ShadowShaderHandle;
+    std::shared_ptr<ShaderHandle> m_SkinnedShadowShaderHandle;
     std::shared_ptr<GpuGraphicsPipeline> m_ShadowPipeline;
+    std::shared_ptr<GpuGraphicsPipeline> m_SkinnedShadowPipeline;
     std::unordered_map<std::string, std::shared_ptr<GpuGraphicsPipeline>> m_GraphPipelines;
+    // D3D12 bind groups are CPU-side binding records. SetBindGroup copies constants and root descriptor handles into
+    // the command list, so one record per shader can be safely rewritten between draws. Vulkan descriptor sets must
+    // remain immutable after recording and therefore continue to use one bind group per draw.
+    std::unordered_map<GpuShader*, std::shared_ptr<GpuBindGroup>> m_D3D12BindGroups;
     MaterialResourceCache m_ResourceCache;
     MaterialSystem m_MaterialSystem;
     uint64_t m_ShadowShaderVersion = 0;
+    uint64_t m_SkinnedShadowShaderVersion = 0;
     Mat4 m_LightViewProj = Mat4::Identity();
     Mat4 m_LightViewProjCascade[4] = {};
     float m_CascadeSplits[4] = {};
@@ -94,6 +108,7 @@ private:
     std::shared_ptr<GpuTexture> m_PointShadowMapTexture;
 
     std::shared_ptr<GpuTextureView> m_ShadowCascadeViews[kMaxCascades];
+    std::shared_ptr<GpuTextureView> m_ShadowMapSrv;
     std::shared_ptr<GpuTextureView> m_SpotShadowView;
     std::shared_ptr<GpuTextureView> m_PointShadowViews[6];
     bool m_ShadowResourcesInShaderState = false;

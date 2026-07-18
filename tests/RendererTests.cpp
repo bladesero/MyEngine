@@ -1,5 +1,6 @@
 #include "TestHarness.h"
 
+#include "Animation/SkinnedMeshRendererComponent.h"
 #include "Assets/AssetManager.h"
 #include "Camera/Camera.h"
 #include "Core/FrameStats.h"
@@ -7,30 +8,81 @@
 #include "Game/SceneRenderLayer.h"
 #include "Renderer/EnvironmentPass.h"
 #include "Renderer/DeferredLightingPass.h"
+#include "Renderer/EngineShaderCatalog.h"
 #include "Renderer/GBufferPass.h"
 #include "Renderer/GpuUploadQueue.h"
+#include "Renderer/GpuSceneDatabase.h"
 #include "Renderer/LightComponent.h"
 #include "Renderer/MaterialResourceCache.h"
+#include "Renderer/ModernDeferredPipeline.h"
 #include "Renderer/ParticleSystemComponent.h"
 #include "Renderer/PostProcessComponent.h"
 #include "Renderer/RHI/RHIResourceStats.h"
 #include "Renderer/RenderGraph.h"
 #include "Renderer/Renderer.h"
+#include "Renderer/ShaderCompilerSlang.h"
+#include "Renderer/ShaderCacheService.h"
+#include "Renderer/ShaderGraphCompiler.h"
 #include "Renderer/ShaderManager.h"
 #include "Scene/MeshRendererComponent.h"
 #include "Scene/Scene.h"
 #include "UI/Render/UIDrawList.h"
 
 #include <algorithm>
+#include <atomic>
 #include <array>
+#include <cctype>
+#include <chrono>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
+#include <future>
 #include <memory>
 #include <sstream>
 #include <string>
+#include <thread>
+#include <unordered_map>
 #include <vector>
 
+#include <nlohmann/json.hpp>
+
 namespace {
+
+std::filesystem::path FindRepositoryFile(const std::array<const char*, 4>& candidates) {
+    for (const char* path : candidates) {
+        std::error_code error;
+        if (std::filesystem::is_regular_file(path, error))
+            return path;
+    }
+    return {};
+}
+
+std::string ReadRepositoryTextFile(const std::array<const char*, 4>& candidates) {
+    const auto path = FindRepositoryFile(candidates);
+    if (path.empty())
+        return {};
+    std::ifstream file(path, std::ios::binary);
+    std::ostringstream contents;
+    contents << file.rdbuf();
+    return contents.str();
+}
+
+std::string CompactSource(const std::string& source) {
+    std::string compact;
+    compact.reserve(source.size());
+    std::copy_if(source.begin(), source.end(), std::back_inserter(compact),
+                 [](unsigned char character) { return std::isspace(character) == 0; });
+    return compact;
+}
+
+size_t CountOccurrences(const std::string& text, const std::string& needle) {
+    if (needle.empty())
+        return 0;
+    size_t count = 0;
+    for (size_t offset = 0; (offset = text.find(needle, offset)) != std::string::npos; offset += needle.size())
+        ++count;
+    return count;
+}
 
 struct MockBuffer final : GpuBuffer {};
 struct MockBufferView final : GpuBufferView {};
@@ -88,8 +140,9 @@ public:
     void SetViewport(float, float, float, float) override {}
     void BindPSTexture(uint32_t, GpuTexture*) override {}
     void SetBlendMode(GpuBlendMode mode) override { blendModes.push_back(mode); }
-    void Transition(GpuResource*, RHIResourceState before, RHIResourceState after) override {
+    void Transition(GpuResource* resource, RHIResourceState before, RHIResourceState after) override {
         transitions.emplace_back(before, after);
+        transitionResources.push_back(resource);
     }
     void TransitionTexture(GpuTexture*, const RHITextureViewDesc& range, RHIResourceState before,
                            RHIResourceState after) override {
@@ -105,13 +158,19 @@ public:
         ++pipelineBinds;
         pipelineBlendEnabled.push_back(pipeline && !pipeline->desc.blend.attachments.empty() &&
                                        pipeline->desc.blend.attachments[0].blendEnable);
+        pipelineDepthWriteEnabled.push_back(pipeline && pipeline->desc.depthStencil.depthWriteEnable);
     }
     void SetComputePipeline(GpuComputePipeline*) override { ++computePipelineBinds; }
-    void SetBindGroup(uint32_t, GpuBindGroup*) override { ++bindGroupBinds; }
+    void SetBindGroup(uint32_t, GpuBindGroup* bindings) override {
+        ++bindGroupBinds;
+        if (captureBindGroupConstants && bindings)
+            bindGroupConstants.push_back(bindings->GetConstants());
+    }
     void Dispatch(uint32_t x, uint32_t y, uint32_t z) override {
         ++dispatches;
         dispatchGroups = {x, y, z};
     }
+    void DispatchIndirect(GpuBuffer*, uint64_t) override { ++indirectDispatches; }
     void UAVBarrier(GpuResource*) override { ++uavBarriers; }
     void CopyTexture(GpuTexture*, const RHITextureRegion& dst, GpuTexture*, const RHITextureRegion& src) override {
         copiedDst = dst;
@@ -120,6 +179,9 @@ public:
     }
     void DrawIndirect(GpuBuffer*, uint64_t) override { ++indirectDraws; }
     void DrawIndexedIndirect(GpuBuffer*, uint64_t) override { ++indirectDraws; }
+    void DrawIndexedIndirectCount(GpuBuffer*, uint64_t, GpuBuffer*, uint64_t, uint32_t, uint32_t) override {
+        ++indirectCountDraws;
+    }
     void WriteTimestamp(GpuTimestampQueryPool*, uint32_t) override { ++timestamps; }
     void ResolveTimestamps(GpuTimestampQueryPool*, uint32_t, uint32_t) override { ++timestampResolves; }
 
@@ -130,17 +192,23 @@ public:
     int submittedInstances = 0;
     std::vector<GpuBlendMode> blendModes;
     std::vector<std::pair<RHIResourceState, RHIResourceState>> transitions;
+    std::vector<GpuResource*> transitionResources;
     std::vector<RHITextureViewDesc> textureTransitions;
     int renderingScopes = 0;
     int renderingBeginCalls = 0;
     int pipelineBinds = 0;
     std::vector<bool> pipelineBlendEnabled;
+    std::vector<bool> pipelineDepthWriteEnabled;
     int computePipelineBinds = 0;
     int bindGroupBinds = 0;
+    bool captureBindGroupConstants = false;
+    std::vector<std::unordered_map<std::string, std::vector<uint8_t>>> bindGroupConstants;
     int dispatches = 0;
+    int indirectDispatches = 0;
     int uavBarriers = 0;
     int textureRegionCopies = 0;
     int indirectDraws = 0;
+    int indirectCountDraws = 0;
     int timestamps = 0;
     int timestampResolves = 0;
     RHITextureRegion copiedDst{}, copiedSrc{};
@@ -225,6 +293,16 @@ public:
         RHIDeviceCapabilities caps;
         caps.maxColorAttachments = 8;
         caps.timestampQueries = caps.indirectDraw = true;
+        if (modernCapabilities) {
+            caps.computeShaders = true;
+            caps.storageTextures = true;
+            caps.indirectDrawCount = true;
+            caps.indirectDispatch = true;
+            caps.bindlessResources = true;
+            caps.shaderDrawParameters = true;
+            caps.modernDeferredFormats = true;
+            caps.maxBindlessResources = 4096;
+        }
         return caps;
     }
     bool IsFormatSupported(RHIFormat format, RHIResourceUsage usage) const override {
@@ -247,6 +325,8 @@ public:
         auto view = std::make_shared<MockTextureView>();
         view->texture = texture;
         view->desc = desc;
+        if (assignBindlessIndices)
+            view->bindlessIndex = nextBindlessIndex++;
         return view;
     }
     std::shared_ptr<GpuSampler> CreateSampler(const RHISamplerDesc& desc) override {
@@ -295,6 +375,9 @@ public:
     RHIBackend backend = RHIBackend::Unknown;
     bool supportBc1 = false;
     bool supportBc3 = false;
+    bool modernCapabilities = false;
+    bool assignBindlessIndices = false;
+    uint32_t nextBindlessIndex = 0;
     int beginFrames = 0;
     int endFrames = 0;
     int vertexUploads = 0;
@@ -696,9 +779,12 @@ bool TestRenderGraphValidationAndExecution() {
 
 bool TestNamedShaderBindings() {
     auto shader = std::make_shared<MockShader>();
-    shader->reflection.bindings = {{"FrameConstants", ShaderBindingType::ConstantBuffer, 0, 1, 16, ShaderStageVertex},
-                                   {"SceneColor", ShaderBindingType::Texture, 0, 1, 0, ShaderStagePixel},
-                                   {"LinearClamp", ShaderBindingType::Sampler, 0, 1, 0, ShaderStagePixel}};
+    shader->reflection.bindings = {
+        {"FrameConstants", ShaderBindingType::ConstantBuffer, 0, 1, 16, ShaderStageVertex},
+        {"SceneColor", ShaderBindingType::Texture, 0, 1, 0, ShaderStagePixel},
+        {"LinearClamp", ShaderBindingType::Sampler, 0, 1, 0, ShaderStagePixel},
+        {"EnvironmentSH", ShaderBindingType::StructuredBuffer, 1, 1, 0, ShaderStagePixel},
+        {"BindlessTextures", ShaderBindingType::Texture, 0, UINT32_MAX, 0, ShaderStagePixel, 1}};
     GpuBindGroup bindings(shader);
     float constants[4] = {};
     if (!Check(!bindings.SetConstants("FrameConstants", constants, 12),
@@ -714,9 +800,530 @@ bool TestNamedShaderBindings() {
     auto view = std::make_shared<MockTextureView>();
     view->texture = texture;
     auto sampler = std::make_shared<MockSampler>();
+    auto buffer = std::make_shared<MockBufferView>();
     return Check(bindings.SetTexture("SceneColor", view) && bindings.SetSampler("LinearClamp", sampler) &&
-                     bindings.Validate(&error),
-                 "complete named bind group failed validation: " + error);
+                     !bindings.SetStorageBuffer("EnvironmentSH", buffer) &&
+                     bindings.SetBuffer("EnvironmentSH", buffer) && bindings.Validate(&error),
+                 "complete named bind group or implicit bindless table failed validation: " + error);
+}
+
+bool TestRenderGraphComputePassTypeAndUavBarriers() {
+    MockRenderContext context;
+    auto storage = std::make_shared<MockBuffer>();
+    storage->desc.size = 64;
+    storage->desc.stride = 16;
+    storage->desc.usage = RHIResourceUsage::ShaderResource | RHIResourceUsage::UnorderedAccess;
+
+    RenderGraph graph(context);
+    const auto handle = graph.ImportBuffer("PersistentHistory", storage, RHIResourceState::ShaderResource,
+                                           RHIResourceState::ShaderResource);
+    graph.AddComputePass(
+        "TemporalAccumulate", [&](RenderGraphBuilder& builder) { builder.ReadWriteUAV(handle); },
+        [](GpuCommandList& commands, const RenderGraphResources&) { commands.Dispatch(1); });
+    graph.AddComputePass(
+        "SpatialFilter", [&](RenderGraphBuilder& builder) { builder.ReadWriteUAV(handle); },
+        [](GpuCommandList& commands, const RenderGraphResources&) { commands.Dispatch(1); });
+    if (!Check(graph.Compile(), "compute RenderGraph compile failed: " + graph.GetLastError()))
+        return false;
+    if (!Check(graph.GetExecutionPassTypes() ==
+                   std::vector<RenderGraph::PassType>({RenderGraph::PassType::Compute, RenderGraph::PassType::Compute}),
+               "RenderGraph lost compute pass classification"))
+        return false;
+    if (!Check(graph.Execute(context.commands) && context.commands.dispatches == 2 && context.commands.uavBarriers == 1,
+               "RenderGraph did not insert a UAV barrier between compute writers"))
+        return false;
+
+    RenderGraph invalid(context);
+    RHITextureDesc color;
+    color.width = color.height = 16;
+    color.usage = RHIResourceUsage::RenderTarget;
+    const auto colorHandle = invalid.CreateTexture("RasterOnly", color);
+    invalid.AddComputePass("InvalidComputeAttachment",
+                           [&](RenderGraphBuilder& builder) { builder.WriteColor(colorHandle); }, {});
+    return Check(!invalid.Compile() && invalid.GetLastErrorCode() == RenderGraph::ErrorCode::ComputeAttachmentAccess,
+                 "RenderGraph accepted a raster attachment in a compute pass");
+}
+
+bool TestGpuSceneDatabaseDirtyUploadAndGeometryArena() {
+    AssetManager::Get().Clear();
+    MockRenderContext context;
+    Scene scene("GpuScene");
+    auto redMaterial = MaterialAsset::CreateDefault("GpuSceneRed");
+    redMaterial->SetParam("BaseColor", MaterialParam::FromVec4(0.8f, 0.1f, 0.2f, 1.0f));
+    redMaterial->SetParam("Metallic", MaterialParam::FromFloat(0.75f));
+    redMaterial->SetParam("Roughness", MaterialParam::FromFloat(0.2f));
+    auto blueMaterial = MaterialAsset::CreateDefault("GpuSceneBlue");
+    blueMaterial->SetParam("BaseColor", MaterialParam::FromVec4(0.1f, 0.2f, 0.9f, 1.0f));
+    blueMaterial->SetParam("Metallic", MaterialParam::FromFloat(0.05f));
+    blueMaterial->SetParam("Roughness", MaterialParam::FromFloat(0.8f));
+    const auto redHandle = AssetManager::Get().Register(redMaterial);
+    const auto blueHandle = AssetManager::Get().Register(blueMaterial);
+
+    Actor* meshActor = scene.CreateActor("RedMesh");
+    meshActor->GetTransform().position = {-2.0f, 0.5f, 1.0f};
+    auto* renderer = meshActor->AddComponent<MeshRendererComponent>();
+    renderer->SetMesh(AssetManager::Get().GetCubeMesh());
+    renderer->SetMaterial(redHandle);
+    Actor* secondMeshActor = scene.CreateActor("BlueMesh");
+    secondMeshActor->GetTransform().position = {3.0f, -1.0f, 2.0f};
+    secondMeshActor->GetTransform().scale = {2.0f, 0.5f, 1.5f};
+    auto* secondRenderer = secondMeshActor->AddComponent<MeshRendererComponent>();
+    secondRenderer->SetMesh(AssetManager::Get().GetCubeMesh());
+    secondRenderer->SetMaterial(blueHandle);
+    Actor* lightActor = scene.CreateActor("PointLight");
+    auto* light = lightActor->AddComponent<LightComponent>();
+    light->SetLightType(LightType::Point);
+    light->SetRange(12.0f);
+
+    GpuSceneDatabase database(&context);
+    if (!Check(database.Update(scene, 1), "GPU Scene initial extraction failed"))
+        return false;
+    const auto first = database.GetStats();
+    if (!Check(first.candidateObjects == 2 && first.localLights == 1 && first.uploadBytes > 0 &&
+                   first.geometryUploadBytes > 0 && database.GetObjectBuffer() && database.GetLightBuffer() &&
+                   database.GetMaterialBuffer() && database.GetMaterials().size() == 2 && first.materialResolves == 0 &&
+                   database.GetGeometryArena().GetVertexBuffer() && database.GetGeometryArena().GetIndexBuffer(),
+               "GPU Scene did not create the expected object/light/material/geometry resources"))
+        return false;
+    const auto matrixEquals = [](const Mat4& lhs, const Mat4& rhs) {
+        for (uint32_t index = 0; index < 16; ++index)
+            if (!NearlyEqual(lhs.Data()[index], rhs.Data()[index]))
+                return false;
+        return true;
+    };
+    const auto& initialObjects = database.GetObjects();
+    const auto& initialMaterials = database.GetMaterials();
+    if (!Check(initialObjects[0].materialId != initialObjects[1].materialId &&
+                   matrixEquals(initialObjects[0].world, meshActor->GetWorldMatrix()) &&
+                   matrixEquals(initialObjects[1].world, secondMeshActor->GetWorldMatrix()) &&
+                   NearlyEqual(initialMaterials[initialObjects[0].materialId].baseColor.x, 0.8f) &&
+                   NearlyEqual(initialMaterials[initialObjects[0].materialId].material.x, 0.75f) &&
+                   NearlyEqual(initialMaterials[initialObjects[0].materialId].material.y, 0.2f) &&
+                   NearlyEqual(initialMaterials[initialObjects[1].materialId].baseColor.z, 0.9f) &&
+                   NearlyEqual(initialMaterials[initialObjects[1].materialId].material.x, 0.05f) &&
+                   NearlyEqual(initialMaterials[initialObjects[1].materialId].material.y, 0.8f),
+               "GPU Scene collapsed distinct actor transforms or material records onto object zero"))
+        return false;
+    if (!Check(context.vertexUploads == 1 && context.indexUploads == 1 &&
+                   !HasUsage(database.GetObjectBuffer()->desc.usage, RHIResourceUsage::UnorderedAccess) &&
+                   !HasUsage(database.GetLightBuffer()->desc.usage, RHIResourceUsage::UnorderedAccess) &&
+                   !HasUsage(database.GetMaterialBuffer()->desc.usage, RHIResourceUsage::UnorderedAccess),
+               "GPU Scene did not use typed geometry buffers and read-only scene buffers"))
+        return false;
+
+    meshActor->GetTransform().position.x = 3.0f;
+    if (!Check(database.Update(scene, 2), "GPU Scene incremental extraction failed"))
+        return false;
+    const auto second = database.GetStats();
+    const auto& objects = database.GetObjects();
+    const auto& materials = database.GetMaterials();
+    if (!Check(second.dirtyObjectRanges == 1 && second.geometryUploadBytes == 0 && second.materialResolves == 0 &&
+                   second.materialCacheHits >= 2 &&
+                   std::memcmp(objects[0].world.Data(), objects[0].previousWorld.Data(), sizeof(float) * 16) != 0 &&
+                   matrixEquals(objects[1].world, objects[1].previousWorld) &&
+                   objects[0].materialId != objects[1].materialId &&
+                   NearlyEqual(materials[objects[0].materialId].baseColor.x, 0.8f) &&
+                   NearlyEqual(materials[objects[1].materialId].baseColor.z, 0.9f),
+               "GPU Scene did not preserve per-object transforms, material IDs, or dirty ranges"))
+        return false;
+
+    redMaterial->SetParam("BaseColor", MaterialParam::FromVec4(0.25f, 0.5f, 0.75f, 1.0f));
+    if (!Check(database.Update(scene, 2), "GPU Scene same-frame extraction reuse failed") ||
+        !Check(database.GetStats().extractionReused && database.GetStats().uploadBytes == 0 &&
+                   NearlyEqual(database.GetMaterials()[database.GetObjects()[0].materialId].baseColor.x, 0.8f),
+               "GPU Scene rebuilt or mutated an immutable same-frame extract"))
+        return false;
+    if (!Check(database.Update(scene, 3), "GPU Scene material-version invalidation failed"))
+        return false;
+    const auto third = database.GetStats();
+    const auto& updatedMaterials = database.GetMaterials();
+    return Check(third.dirtyMaterialRanges == 1 &&
+                     NearlyEqual(updatedMaterials[database.GetObjects()[0].materialId].baseColor.x, 0.25f),
+                 "GPU Scene reused stale cached material data after a material edit");
+}
+
+bool TestGpuSceneMaterialBindlessSamplerSelection() {
+    AssetManager& assets = AssetManager::Get();
+    assets.Clear();
+    MockRenderContext context;
+    context.assignBindlessIndices = true;
+
+    auto material = MaterialAsset::CreateDefault("__test__/ModernSamplerMaterial");
+    const std::array<const char*, 5> slots = {"BaseColorMap", "NormalMap", "MetallicRoughnessMap", "OcclusionMap",
+                                              "EmissiveMap"};
+    const std::array<TextureFilter, 5> filters = {TextureFilter::Linear, TextureFilter::Nearest, TextureFilter::Linear,
+                                                  TextureFilter::Nearest, TextureFilter::Anisotropic};
+    const std::array<TextureWrap, 5> wrapU = {TextureWrap::Repeat, TextureWrap::Repeat, TextureWrap::Clamp,
+                                              TextureWrap::Mirror, TextureWrap::Clamp};
+    const std::array<TextureWrap, 5> wrapV = {TextureWrap::Repeat, TextureWrap::Repeat, TextureWrap::Repeat,
+                                              TextureWrap::Clamp, TextureWrap::Clamp};
+    std::array<TextureHandle, 5> textures;
+    for (uint32_t index = 0; index < textures.size(); ++index) {
+        auto texture = TextureAsset::CreateSolid("ModernSampler" + std::to_string(index), 255, 255, 255, 255);
+        texture->SetSampler(filters[index], wrapU[index], wrapV[index]);
+        textures[index] = assets.Register(texture);
+        material->SetTexture(slots[index], textures[index]);
+    }
+
+    Scene scene("ModernSamplerScene");
+    Actor* actor = scene.CreateActor("SamplerCube");
+    auto* renderer = actor->AddComponent<MeshRendererComponent>();
+    renderer->SetMesh(assets.GetCubeMesh());
+    renderer->SetMaterial(assets.Register(material));
+
+    GpuSceneDatabase database(&context);
+    if (!Check(database.Update(scene, 1) && database.GetObjects().size() == 1 && database.GetMaterials().size() == 1,
+               "GPU Scene failed to extract a textured material for sampler selection")) {
+        return false;
+    }
+    const auto& gpu = database.GetMaterials()[database.GetObjects()[0].materialId];
+    const std::array<uint32_t, 5> expected = {
+        0u,
+        kGpuSceneMaterialSamplerPointBit,
+        kGpuSceneMaterialSamplerClampUBit,
+        kGpuSceneMaterialSamplerPointBit | kGpuSceneMaterialSamplerClampVBit,
+        kGpuSceneMaterialSamplerClampUBit | kGpuSceneMaterialSamplerClampVBit,
+    };
+    for (uint32_t index = 0; index < expected.size(); ++index) {
+        if (!Check(gpu.GetSamplerIndex(index) == expected[index] && (gpu.flags & (1u << index)) != 0,
+                   "GPU Scene material sampler index does not match the TextureAsset filter/wrap state")) {
+            return false;
+        }
+    }
+
+    // TextureAsset::SetSampler intentionally changes only sampler metadata. The material cache must still notice it
+    // even when neither the asset pointer, texture version, nor GPU image changes.
+    textures[2]->SetSampler(TextureFilter::Nearest, TextureWrap::Clamp, TextureWrap::Repeat);
+    if (!Check(database.Update(scene, 2), "GPU Scene sampler-only cache invalidation failed"))
+        return false;
+    const auto& updated = database.GetMaterials()[database.GetObjects()[0].materialId];
+    return Check(updated.GetSamplerIndex(2) == (kGpuSceneMaterialSamplerPointBit | kGpuSceneMaterialSamplerClampUBit) &&
+                     database.GetStats().dirtyMaterialRanges == 1,
+                 "GPU Scene reused a stale sampler index after TextureAsset sampler metadata changed");
+}
+
+bool TestModernBindlessSamplerShaderContract() {
+#ifndef MYENGINE_PLATFORM_WINDOWS
+    return true;
+#else
+    const std::array<const char*, kGpuSceneMaterialSamplerCount> samplerNames = {
+        "g_LinearRepeatSampler",       "g_PointRepeatSampler",         "g_LinearClampURepeatVSampler",
+        "g_PointClampURepeatVSampler", "g_LinearRepeatUClampVSampler", "g_PointRepeatUClampVSampler",
+        "g_LinearClampSampler",        "g_PointClampSampler",
+    };
+    const std::array<std::array<const char*, 4>, 2> candidates = {{
+        {"EngineContent/Shaders/ModernDepth.hlsl", "../../../EngineContent/Shaders/ModernDepth.hlsl",
+         "../../../../EngineContent/Shaders/ModernDepth.hlsl", "../../../../../EngineContent/Shaders/ModernDepth.hlsl"},
+        {"EngineContent/Shaders/ModernGBuffer.hlsl", "../../../EngineContent/Shaders/ModernGBuffer.hlsl",
+         "../../../../EngineContent/Shaders/ModernGBuffer.hlsl",
+         "../../../../../EngineContent/Shaders/ModernGBuffer.hlsl"},
+    }};
+    const std::array<ShaderBackend, 2> backends = {ShaderBackend::D3D12, ShaderBackend::Vulkan};
+    for (const auto& shaderCandidates : candidates) {
+        const auto shaderPath = FindRepositoryFile(shaderCandidates);
+        if (!Check(!shaderPath.empty(), "Modern material shader source was not found"))
+            return false;
+        const std::string compactSource = CompactSource(ReadRepositoryTextFile(shaderCandidates));
+        if (!Check(compactSource.find("uint4textureIndices0;uint4samplerIndices0;uinttextureIndex4;"
+                                      "uintsamplerIndex4;uintflags;uintpadding;") != std::string::npos,
+                   "Modern material shader does not match the 96-byte GpuSceneMaterial ABI")) {
+            return false;
+        }
+        for (ShaderBackend backend : backends) {
+            std::vector<uint8_t> bytecode;
+            CookedShaderStageReflection reflection;
+            std::string error;
+            if (!Check(ShaderCompilerSlang::CompileStageFromFile(shaderPath, "PSMain", ShaderStage::Pixel, backend,
+                                                                 bytecode, {}, &error, &reflection),
+                       "Modern material sampler shader compile failed: " + error)) {
+                return false;
+            }
+            for (const char* samplerName : samplerNames) {
+                const auto found = std::find_if(reflection.bindings.begin(), reflection.bindings.end(),
+                                                [&](const auto& binding) { return binding.name == samplerName; });
+                if (!Check(found != reflection.bindings.end() && found->type == CookedShaderBindingType::Sampler,
+                           std::string("Modern shader reflection lost sampler '") + samplerName + "'")) {
+                    return false;
+                }
+            }
+        }
+    }
+
+    const std::array<const char*, 4> pipelineCandidates = {
+        "src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+        "../../../src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+        "../../../../src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+        "../../../../../src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+    };
+    const std::string pipeline = ReadRepositoryTextFile(pipelineCandidates);
+    if (!Check(!pipeline.empty() && CountOccurrences(pipeline, "SetMaterialSamplerTable(") >= 4,
+               "Modern depth, shadow, and GBuffer passes do not bind the fixed material sampler table")) {
+        return false;
+    }
+    const std::array<const char*, 4> cookerCandidates = {
+        "src/Runtime/Renderer/ShaderCooker.cpp",
+        "../../../src/Runtime/Renderer/ShaderCooker.cpp",
+        "../../../../src/Runtime/Renderer/ShaderCooker.cpp",
+        "../../../../../src/Runtime/Renderer/ShaderCooker.cpp",
+    };
+    const std::string cooker = ReadRepositoryTextFile(cookerCandidates);
+    return Check(cooker.find("shader-cooker-v5-stablepublish1-objectdraw2-materialsampler1") != std::string::npos,
+                 "Modern material sampler ABI did not invalidate stale cooked shader artifacts");
+#endif
+}
+
+bool TestModernEnvironmentLightingMatchesClassicContract() {
+    const std::array<const char*, 4> shaderCandidates = {
+        "EngineContent/Shaders/ClusteredDeferred.hlsl",
+        "../../../EngineContent/Shaders/ClusteredDeferred.hlsl",
+        "../../../../EngineContent/Shaders/ClusteredDeferred.hlsl",
+        "../../../../../EngineContent/Shaders/ClusteredDeferred.hlsl",
+    };
+    const auto shaderPath = FindRepositoryFile(shaderCandidates);
+    if (!Check(!shaderPath.empty(), "ClusteredDeferred shader source was not found"))
+        return false;
+    const std::string shader = CompactSource(ReadRepositoryTextFile(shaderCandidates));
+    if (!Check(shader.find("StructuredBuffer<float4>g_EnvironmentSH2:register(t11)") != std::string::npos &&
+                   shader.find("float3environmentDiffuse=EvaluateEnvironmentSH2(normal)") != std::string::npos &&
+                   shader.find("g_IBLCubemap.SampleLevel(g_LinearSampler,normal,6.0f)") == std::string::npos,
+               "Modern Deferred diffuse IBL does not use the same convolved SH2 contract as Classic Deferred")) {
+        return false;
+    }
+    const std::array<const char*, 5> shBasis = {"0.282095f", "0.488603f", "1.092548f", "0.315392f", "0.546274f"};
+    if (!Check(std::all_of(shBasis.begin(), shBasis.end(),
+                           [&](const char* coefficient) { return shader.find(coefficient) != std::string::npos; }),
+               "Modern Deferred SH2 evaluation is missing the normalized Classic Deferred basis")) {
+        return false;
+    }
+
+    const std::string pipeline = CompactSource(ReadRepositoryTextFile({
+        "src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+        "../../../src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+        "../../../../src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+        "../../../../../src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+    }));
+    const size_t clustered = pipeline.find("RGTextureHandleModernDeferredPipeline::AddClusteredLightingPasses(");
+    const size_t screenSpace =
+        pipeline.find("RGTextureHandleModernDeferredPipeline::AddScreenSpaceEffects(", clustered);
+    if (!Check(clustered != std::string::npos && screenSpace != std::string::npos,
+               "Modern clustered lighting implementation was not found")) {
+        return false;
+    }
+    const std::string lighting = pipeline.substr(clustered, screenSpace - clustered);
+    if (!Check(lighting.find("builder.ReadBuffer(lightingEnvironmentSH)") != std::string::npos &&
+                   lighting.find("bindings->SetBuffer(\"g_EnvironmentSH2\",lightingEnvironmentSHSrv)") !=
+                       std::string::npos &&
+                   lighting.find("bindings->SetSampler(\"g_LinearSampler\",m_LinearClampSampler)") != std::string::npos,
+               "Modern clustered lighting does not declare/bind SH2 with the fixed clamp sampler")) {
+        return false;
+    }
+
+    const std::string d3d12 = CompactSource(ReadRepositoryTextFile({
+        "src/Runtime/Renderer/D3D12Context.cpp",
+        "../../../src/Runtime/Renderer/D3D12Context.cpp",
+        "../../../../src/Runtime/Renderer/D3D12Context.cpp",
+        "../../../../../src/Runtime/Renderer/D3D12Context.cpp",
+    }));
+    const size_t uploadTexture = d3d12.find("std::shared_ptr<GpuTexture>D3D12Context::UploadTexture(");
+    const size_t capabilities = d3d12.find("RHIDeviceCapabilitiesD3D12Context::GetCapabilities()", uploadTexture);
+    if (!Check(uploadTexture != std::string::npos && capabilities != std::string::npos &&
+                   d3d12.substr(uploadTexture, capabilities - uploadTexture)
+                           .find("ToD3D12State(RHIResourceState::ShaderResource)") != std::string::npos,
+               "D3D12 uploaded shader resources are not transitioned for compute shader reads")) {
+        return false;
+    }
+
+    if (!Check(ShaderCompilerSlang::IsAvailable(),
+               "Slang compiler is unavailable; Modern environment DXIL/SPIR-V cannot be validated")) {
+        return false;
+    }
+    const std::array<ShaderBackend, 2> backends = {ShaderBackend::D3D12, ShaderBackend::Vulkan};
+    for (ShaderBackend backend : backends) {
+        std::vector<uint8_t> bytecode;
+        CookedShaderStageReflection reflection;
+        std::string error;
+        if (!Check(ShaderCompilerSlang::CompileStageFromFile(shaderPath, "CSDeferredLighting", ShaderStage::Compute,
+                                                             backend, bytecode, {}, &error, &reflection),
+                   "ClusteredDeferred environment compile failed: " + error)) {
+            return false;
+        }
+        const uint32_t textureShift = backend == ShaderBackend::Vulkan ? 16u : 0u;
+        const uint32_t samplerShift = backend == ShaderBackend::Vulkan ? 64u : 0u;
+        const auto hasBinding = [&](const char* name, CookedShaderBindingType type, uint32_t bindPoint) {
+            return std::find_if(reflection.bindings.begin(), reflection.bindings.end(), [&](const auto& binding) {
+                       return binding.name == name && binding.type == type && binding.bindPoint == bindPoint &&
+                              binding.bindSpace == 0;
+                   }) != reflection.bindings.end();
+        };
+        if (!Check(!bytecode.empty() &&
+                       hasBinding("g_IBLCubemap", CookedShaderBindingType::Texture, textureShift + 9u) &&
+                       hasBinding("g_EnvironmentSH2", CookedShaderBindingType::StructuredBuffer, textureShift + 11u) &&
+                       hasBinding("g_LinearSampler", CookedShaderBindingType::Sampler, samplerShift),
+                   "ClusteredDeferred reflection lost a required environment lighting binding")) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool TestModernClusterBuffersStartInNativeUavState() {
+#ifndef MYENGINE_PLATFORM_WINDOWS
+    return true;
+#else
+    MockRenderContext context;
+    context.backend = RHIBackend::D3D12;
+    ShaderManager::Get().Clear();
+    ShaderManager::Get().SetDevice(&context);
+    struct ShaderManagerReset {
+        ~ShaderManagerReset() {
+            ShaderManager::Get().Clear();
+            ShaderManager::Get().SetDevice(nullptr);
+        }
+    } shaderManagerReset;
+
+    ModernDeferredPipeline pipeline(&context);
+    if (!Check(pipeline.IsReady(),
+               "Modern Deferred test pipeline is unavailable: " + pipeline.GetInitializationError()))
+        return false;
+    for (uint32_t index = 0; index < kGpuSceneMaterialSamplerCount; ++index) {
+        const RHIFilter filter = (index & kGpuSceneMaterialSamplerPointBit) != 0 ? RHIFilter::Point : RHIFilter::Linear;
+        const RHIAddressMode addressU =
+            (index & kGpuSceneMaterialSamplerClampUBit) != 0 ? RHIAddressMode::Clamp : RHIAddressMode::Repeat;
+        const RHIAddressMode addressV =
+            (index & kGpuSceneMaterialSamplerClampVBit) != 0 ? RHIAddressMode::Clamp : RHIAddressMode::Repeat;
+        const auto found =
+            std::find_if(context.samplerDescs.begin(), context.samplerDescs.end(), [&](const RHISamplerDesc& desc) {
+                return desc.filter == filter && desc.addressU == addressU && desc.addressV == addressV &&
+                       desc.addressW == RHIAddressMode::Repeat;
+            });
+        if (!Check(found != context.samplerDescs.end(),
+                   "Modern pipeline did not create every fixed material sampler-table entry")) {
+            return false;
+        }
+    }
+    pipeline.Resize(64, 64);
+    Scene scene("ModernClusterInitialState");
+    Camera camera;
+    camera.LookAt({0.0f, 0.0f, -4.0f}, Vec3::Zero());
+    camera.SetPerspective(60.0f, 1.0f);
+    if (!Check(pipeline.Prepare(scene, camera, 1),
+               "Modern Deferred test pipeline preparation failed: " + pipeline.GetInitializationError()))
+        return false;
+
+    RenderGraph graph(context);
+    const auto createInput = [&](const char* name, RHIFormat format) {
+        RHITextureDesc desc;
+        desc.width = 64;
+        desc.height = 64;
+        desc.format = format;
+        desc.usage = RHIResourceUsage::ShaderResource;
+        desc.debugName = name;
+        auto texture = context.CreateTexture(desc);
+        RHITextureViewDesc viewDesc;
+        viewDesc.usage = RHIResourceUsage::ShaderResource;
+        auto view = context.CreateTextureView(texture, viewDesc);
+        return std::pair<std::shared_ptr<GpuTexture>, std::shared_ptr<GpuTextureView>>{std::move(texture),
+                                                                                       std::move(view)};
+    };
+    auto albedo = createInput("ClusterTestAlbedo", RHIFormat::RGBA8UNorm);
+    auto normal = createInput("ClusterTestNormal", RHIFormat::RGBA16Float);
+    auto material = createInput("ClusterTestMaterial", RHIFormat::RGBA8UNorm);
+    auto emissive = createInput("ClusterTestEmissive", RHIFormat::RGBA16Float);
+    auto depth = createInput("ClusterTestDepth", RHIFormat::D24S8);
+    const auto importInput = [&](const char* name, const auto& resource) {
+        return graph.ImportTexture(name, resource.first, resource.second, RHIResourceState::ShaderResource,
+                                   RHIResourceState::ShaderResource);
+    };
+    const auto albedoHandle = importInput("ClusterTestAlbedo", albedo);
+    const auto normalHandle = importInput("ClusterTestNormal", normal);
+    const auto materialHandle = importInput("ClusterTestMaterial", material);
+    const auto emissiveHandle = importInput("ClusterTestEmissive", emissive);
+    const auto depthHandle = importInput("ClusterTestDepth", depth);
+    RHITextureDesc environmentDesc;
+    environmentDesc.width = 4;
+    environmentDesc.height = 4;
+    environmentDesc.arrayLayers = 6;
+    environmentDesc.cube = true;
+    environmentDesc.format = RHIFormat::RGBA16Float;
+    environmentDesc.usage = RHIResourceUsage::ShaderResource;
+    environmentDesc.debugName = "ClusterTestEnvironment";
+    auto environment = context.CreateTexture(environmentDesc);
+    RHITextureViewDesc environmentViewDesc;
+    environmentViewDesc.layerCount = 6;
+    environmentViewDesc.usage = RHIResourceUsage::ShaderResource;
+    auto environmentView = context.CreateTextureView(environment, environmentViewDesc);
+    const auto environmentHandle =
+        graph.ImportTexture("ClusterTestEnvironment", environment, environmentView, RHIResourceState::ShaderResource,
+                            RHIResourceState::ShaderResource);
+    pipeline.AddClusteredLightingPasses(graph, camera, albedoHandle, albedo.second, normalHandle, normal.second,
+                                        materialHandle, material.second, emissiveHandle, emissive.second, depthHandle,
+                                        depth.second, environmentHandle, environmentView, {}, nullptr, {});
+    if (!Check(graph.Execute(context.commands), "Modern cluster graph execution failed: " + graph.GetLastError()))
+        return false;
+
+    const std::array<std::string, 3> clusterBuffers = {"ClusterCounts", "ClusterOffsets", "ClusterLightIndices"};
+    std::array<bool, 3> sawUavToSrv{};
+    bool sawUndefinedToUav = false;
+    for (size_t index = 0; index < context.commands.transitions.size(); ++index) {
+        auto* buffer = index < context.commands.transitionResources.size()
+                           ? dynamic_cast<GpuBuffer*>(context.commands.transitionResources[index])
+                           : nullptr;
+        if (!buffer)
+            continue;
+        for (size_t clusterIndex = 0; clusterIndex < clusterBuffers.size(); ++clusterIndex) {
+            if (buffer->desc.debugName != clusterBuffers[clusterIndex])
+                continue;
+            const auto [before, after] = context.commands.transitions[index];
+            sawUndefinedToUav |= before == RHIResourceState::Undefined && after == RHIResourceState::UnorderedAccess;
+            sawUavToSrv[clusterIndex] |=
+                before == RHIResourceState::UnorderedAccess && after == RHIResourceState::ShaderResource;
+        }
+    }
+    return Check(!sawUndefinedToUav &&
+                     std::all_of(sawUavToSrv.begin(), sawUavToSrv.end(), [](bool value) { return value; }),
+                 "Modern cluster buffers were not imported from their native first-frame UAV state");
+#endif
+}
+
+bool TestPersistentNativePipelineCacheContracts() {
+#ifndef MYENGINE_PLATFORM_WINDOWS
+    return true;
+#else
+    const std::string d3d12 = CompactSource(ReadRepositoryTextFile({
+        "src/Runtime/Renderer/D3D12Context.cpp",
+        "../../../src/Runtime/Renderer/D3D12Context.cpp",
+        "../../../../src/Runtime/Renderer/D3D12Context.cpp",
+        "../../../../../src/Runtime/Renderer/D3D12Context.cpp",
+    }));
+    if (!Check(d3d12.find("sh->rootSignature=m_IndirectObjectRootSignature") != std::string::npos &&
+                   d3d12.find("shader->computeRootSignature=m_ComputeRootSignature") != std::string::npos,
+               "D3D12 shaders do not reuse the device-level fixed root signatures")) {
+        return false;
+    }
+    if (!Check(d3d12.find("CreateComputePipelineStateCached") != std::string::npos &&
+                   d3d12.find("desc.CachedPSO={cachedBlob.data(),cachedBlob.size()}") != std::string::npos &&
+                   d3d12.find("pipelineState->GetCachedBlob") != std::string::npos &&
+                   d3d12.find("WritePipelineBlobAtomic") != std::string::npos &&
+                   d3d12.find("MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH") != std::string::npos &&
+                   d3d12.find("if(cacheRejected)") != std::string::npos,
+               "D3D12 compute PSOs lack persistent, atomic, corruption-tolerant cached-blob reuse")) {
+        return false;
+    }
+
+    const std::string vulkan = CompactSource(ReadRepositoryTextFile({
+        "src/Runtime/Renderer/VulkanContext.cpp",
+        "../../../src/Runtime/Renderer/VulkanContext.cpp",
+        "../../../../src/Runtime/Renderer/VulkanContext.cpp",
+        "../../../../../src/Runtime/Renderer/VulkanContext.cpp",
+    }));
+    return Check(
+        vulkan.find("vkCreatePipelineCache") != std::string::npos &&
+            vulkan.find("vkGetPipelineCacheData") != std::string::npos &&
+            vulkan.find("vkCreateGraphicsPipelines(m_Impl->device,m_Impl->pipelineCache") != std::string::npos &&
+            vulkan.find("vkCreateComputePipelines(m_Impl->device,m_Impl->pipelineCache") != std::string::npos &&
+            vulkan.find("WriteVulkanPipelineCache") != std::string::npos,
+        "Vulkan graphics/compute pipelines do not share a persisted VkPipelineCache");
+#endif
 }
 
 bool TestBackendIndependentPassRecording() {
@@ -899,6 +1506,40 @@ bool TestRenderGraphTextureSubresourceAccess() {
                "RenderGraph did not transition individual texture subresources"))
         return false;
     if (!Check(transitionContext.textureViewCreates >= 2, "RenderGraph did not create access-local subresource views"))
+        return false;
+
+    MockRenderContext mixedStateContext;
+    RenderGraph mixedState(mixedStateContext);
+    RHITextureDesc uavDesc = desc;
+    uavDesc.usage = RHIResourceUsage::ShaderResource | RHIResourceUsage::UnorderedAccess;
+    const auto mixedTexture = mixedState.CreateTexture("MixedMipStates", uavDesc);
+    mixedState.AddComputePass("WriteMip0UAV",
+                              [mixedTexture](RenderGraphBuilder& builder) {
+                                  builder.ReadWriteUAV(mixedTexture, RGTextureSubresource{0, 1, 0, 1});
+                              },
+                              {});
+    mixedState.AddComputePass("WriteMip1UAV",
+                              [mixedTexture](RenderGraphBuilder& builder) {
+                                  builder.ReadWriteUAV(mixedTexture, RGTextureSubresource{1, 1, 0, 1});
+                              },
+                              {});
+    mixedState.AddComputePass("ReadFullMipChain",
+                              [mixedTexture](RenderGraphBuilder& builder) { builder.ReadTexture(mixedTexture); }, {});
+    if (!Check(mixedState.Execute(mixedStateContext.commands),
+               "RenderGraph failed mixed subresource-to-full transition: " + mixedState.GetLastError()))
+        return false;
+    const bool transitionedMip0ToSrv =
+        std::find_if(mixedStateContext.commands.textureTransitions.begin(),
+                     mixedStateContext.commands.textureTransitions.end(), [](const RHITextureViewDesc& range) {
+                         return range.firstMip == 0 && range.mipCount == 1;
+                     }) != mixedStateContext.commands.textureTransitions.end();
+    const bool transitionedMip1ToSrv =
+        std::find_if(mixedStateContext.commands.textureTransitions.begin(),
+                     mixedStateContext.commands.textureTransitions.end(), [](const RHITextureViewDesc& range) {
+                         return range.firstMip == 1 && range.mipCount == 1;
+                     }) != mixedStateContext.commands.textureTransitions.end();
+    if (!Check(transitionedMip0ToSrv && transitionedMip1ToSrv,
+               "RenderGraph did not expand mixed mip states before full-texture SRV access"))
         return false;
 
     RenderGraph overlap(context);
@@ -1189,6 +1830,835 @@ bool TestShadowedMainPassDirectShadowVisibilityContract() {
                  "directional direct light is not multiplied by shadow visibility");
 }
 
+bool TestShadowDepthAlphaTestIncludesVertexAlpha() {
+    const std::array<const char*, 4> candidates = {
+        "EngineContent/Shaders/ShadowDepth.hlsl",
+        "../../../EngineContent/Shaders/ShadowDepth.hlsl",
+        "../../../../EngineContent/Shaders/ShadowDepth.hlsl",
+        "../../../../../EngineContent/Shaders/ShadowDepth.hlsl",
+    };
+    const std::string source = ReadRepositoryTextFile(candidates);
+    if (!Check(!source.empty(), "ShadowDepth shader source was not found"))
+        return false;
+    if (!Check(source.find("float4 color : COLOR0;") != std::string::npos &&
+                   source.find("float alpha : COLOR0;") != std::string::npos &&
+                   source.find("o.alpha = v.color.a;") != std::string::npos,
+               "shadow depth vertex stage does not carry mesh vertex alpha")) {
+        return false;
+    }
+    if (!Check(source.find("g_BaseColorMap.Sample(g_BaseColorSampler, input.uv).a") != std::string::npos &&
+                   source.find("g_AlphaTest.z * input.alpha") != std::string::npos,
+               "shadow alpha test does not multiply texture, material, and vertex alpha")) {
+        return false;
+    }
+    return Check(source.find("clip(alpha - g_AlphaTest.x);") != std::string::npos,
+                 "shadow alpha test does not clip against the material threshold");
+}
+
+bool TestShaderGraphMaskedAlphaTestIncludesVertexAlpha() {
+    ShaderGraph graph;
+    uint64_t nextPinId = 1;
+    graph.nodes.push_back(CreateShaderGraphNode("SurfaceOutputLit", 1, nextPinId));
+    const std::vector<ShaderPropertyDesc> properties;
+    const auto compile = [&](ShaderPass pass) {
+        const ShaderGraphCompileRequest request{&graph, &properties, ShaderShadingModel::Lit, ShaderSurfaceType::Masked,
+                                                pass};
+        return ShaderGraphCompiler::Compile(request);
+    };
+
+    const auto gbuffer = compile(ShaderPass::GBuffer);
+    const auto forward = compile(ShaderPass::Forward);
+    const auto shadow = compile(ShaderPass::Shadow);
+    if (!Check(gbuffer.succeeded && forward.succeeded && shadow.succeeded,
+               "masked Shader Graph passes failed source generation")) {
+        return false;
+    }
+
+    const std::string compactGBuffer = CompactSource(gbuffer.hlsl);
+    const std::string compactForward = CompactSource(forward.hlsl);
+    const std::string compactShadow = CompactSource(shadow.hlsl);
+    const auto clipsVertexAlpha = [](const std::string& source) {
+        return source.find("floatsurfaceOpacity=s.opacity*p.color.a;") != std::string::npos &&
+               source.find("if(surfaceOpacity<s.alphaClip)discard;") != std::string::npos &&
+               source.find("if(s.opacity<s.alphaClip)discard;") == std::string::npos;
+    };
+    if (!Check(clipsVertexAlpha(compactGBuffer) && clipsVertexAlpha(compactForward),
+               "Shader Graph GBuffer/Forward alpha test ignores mesh vertex alpha")) {
+        return false;
+    }
+    if (!Check(compactGBuffer.find(",surfaceOpacity);o.normal=") != std::string::npos &&
+                   compactForward.find(",surfaceOpacity);}") != std::string::npos,
+               "Shader Graph color passes do not reuse the clipped opacity in their output")) {
+        return false;
+    }
+    return Check(compactShadow.find("float4color:COLOR0;") != std::string::npos &&
+                     compactShadow.find("o.color=v.color;") != std::string::npos && clipsVertexAlpha(compactShadow),
+                 "Shader Graph shadow pass does not preserve the visible masked silhouette");
+}
+
+bool TestSkinnedGBufferMotionUsesPreviousBonePalette() {
+    AssetManager::Get().Clear();
+    std::vector<MeshVertex> vertices(3);
+    vertices[0].position = {-0.5f, -0.5f, 0.0f};
+    vertices[1].position = {0.0f, 0.5f, 0.0f};
+    vertices[2].position = {0.5f, -0.5f, 0.0f};
+    auto mesh = std::make_shared<MeshAsset>("__test__/SkinnedMotionTriangle");
+    mesh->SetGeometry(std::move(vertices), {0, 1, 2, 0, 1, 2}, {{0, 3, 0, 0, "First"}, {3, 3, 0, 0, "Second"}});
+    const MeshHandle meshHandle = AssetManager::Get().Register(std::move(mesh));
+
+    Scene scene("SkinnedMotion");
+    Actor* actor = scene.CreateActor("Skinned");
+    auto* skin = actor->AddComponent<SkinnedMeshRendererComponent>();
+    skin->SetSourceMesh(meshHandle);
+    skin->SetMaterial(AssetManager::Get().GetDefaultMaterial());
+    skin->SetSkeleton(std::vector<Bone>(1), std::vector<SkinWeight>(3));
+    AnimationClip clip;
+    clip.duration = 1.0f;
+    clip.looping = false;
+    BoneTrack track;
+    track.boneIndex = 0;
+    track.keys = {{0.0f, Vec3::Zero(), Quat::Identity(), Vec3::One()},
+                  {1.0f, {2.0f, 0.0f, 0.0f}, Quat::Identity(), Vec3::One()}};
+    clip.tracks.push_back(std::move(track));
+    skin->SetAnimation(std::move(clip));
+
+    Camera camera;
+    camera.LookAt({0.0f, 0.0f, -4.0f}, Vec3::Zero());
+    camera.SetPerspective(60.0f, 1.0f);
+    MockRenderContext context;
+    context.commands.captureBindGroupConstants = true;
+    ShaderManager::Get().Clear();
+    ShaderManager::Get().SetDevice(&context);
+    struct ShaderManagerReset {
+        ~ShaderManagerReset() {
+            ShaderManager::Get().Clear();
+            ShaderManager::Get().SetDevice(nullptr);
+        }
+    } shaderManagerReset;
+
+    GBufferPass pass(&context);
+    skin->SetAnimationTime(0.0f);
+    pass.Execute(context.commands, scene, camera);
+    skin->SetAnimationTime(1.0f);
+    pass.Execute(context.commands, scene, camera);
+
+    struct PerDrawConstants {
+        float viewProj[16];
+        float world[16];
+        float previousViewProj[16];
+        float previousWorld[16];
+        float baseColor[4];
+        float material[4];
+        float emissive[4];
+        float mapFlags[4];
+        float boneMatrices[128][16];
+        float previousBoneMatrices[128][16];
+        float skinInfo[4];
+        float normalMatrix[16];
+    };
+    std::vector<PerDrawConstants> draws;
+    for (const auto& snapshot : context.commands.bindGroupConstants) {
+        const auto constants = snapshot.find("PerDraw");
+        if (constants == snapshot.end() || constants->second.size() != sizeof(PerDrawConstants))
+            continue;
+        PerDrawConstants captured{};
+        std::memcpy(&captured, constants->second.data(), sizeof(captured));
+        draws.push_back(captured);
+    }
+    if (!Check(draws.size() == 4, "skinned GBuffer test did not capture both submeshes across two frames"))
+        return false;
+    for (size_t draw = 2; draw < draws.size(); ++draw) {
+        if (!Check(NearlyEqual(draws[draw].skinInfo[0], 1.0f) && NearlyEqual(draws[draw].boneMatrices[0][12], 2.0f) &&
+                       NearlyEqual(draws[draw].previousBoneMatrices[0][12], 0.0f),
+                   "skinned GBuffer motion did not preserve the last rendered pose for every submesh")) {
+            return false;
+        }
+    }
+
+    const std::string builtin = CompactSource(ReadRepositoryTextFile({
+        "EngineContent/Shaders/GBufferPass.hlsl",
+        "../../../EngineContent/Shaders/GBufferPass.hlsl",
+        "../../../../EngineContent/Shaders/GBufferPass.hlsl",
+        "../../../../../EngineContent/Shaders/GBufferPass.hlsl",
+    }));
+    if (!Check(
+            builtin.find("g_PreviousBoneMatrices[128]") != std::string::npos &&
+                builtin.find("previousLocalPosition=mul(previousLocalPosition,previousSkin);") != std::string::npos &&
+                builtin.find("mul(mul(previousLocalPosition,g_PreviousWorld),g_PreviousViewProj)") != std::string::npos,
+            "built-in GBuffer shader does not use the previous bone palette for velocity")) {
+        return false;
+    }
+
+    ShaderGraph graph;
+    uint64_t nextPinId = 1;
+    graph.nodes.push_back(CreateShaderGraphNode("SurfaceOutputLit", 1, nextPinId));
+    const std::vector<ShaderPropertyDesc> properties;
+    const ShaderGraphCompileRequest request{&graph, &properties, ShaderShadingModel::Lit, ShaderSurfaceType::Opaque,
+                                            ShaderPass::GBuffer};
+    const ShaderGraphCompileResult generated = ShaderGraphCompiler::Compile(request);
+    const std::string graphSource = CompactSource(generated.hlsl);
+    const std::string canonical =
+        ShaderGraphCompiler::BuildCanonicalKey(graph, properties, ShaderShadingModel::Lit, ShaderSurfaceType::Opaque);
+    return Check(generated.succeeded && graphSource.find("g_PreviousBoneMatrices[128]") != std::string::npos &&
+                     graphSource.find("previousLocalPosition=mul(previousLocalPosition,previousSkin);") !=
+                         std::string::npos &&
+                     canonical.find("\"compiler\":3") != std::string::npos,
+                 "Shader Graph GBuffer motion ABI or cache version omitted previous bone poses");
+}
+
+bool TestSlangReflectionPreservesSamplerStateBindings() {
+    const std::array<const char*, 4> shaderCandidates = {
+        "EngineContent/Shaders/ShadowDepth.hlsl",
+        "../../../EngineContent/Shaders/ShadowDepth.hlsl",
+        "../../../../EngineContent/Shaders/ShadowDepth.hlsl",
+        "../../../../../EngineContent/Shaders/ShadowDepth.hlsl",
+    };
+    const auto shaderPath = FindRepositoryFile(shaderCandidates);
+    if (!Check(!shaderPath.empty(), "ShadowDepth shader source was not found"))
+        return false;
+
+    if (!Check(ShaderCompilerSlang::IsAvailable(),
+               "Slang compiler is unavailable; sampler reflection ABI cannot be validated")) {
+        return false;
+    }
+
+    std::vector<uint8_t> bytecode;
+    CookedShaderStageReflection reflection;
+    std::string error;
+    if (!Check(ShaderCompilerSlang::CompileStageFromFile(shaderPath, "PSMain", ShaderStage::Pixel, ShaderBackend::D3D12,
+                                                         bytecode, {}, &error, &reflection),
+               "ShadowDepth Slang reflection compile failed: " + error)) {
+        return false;
+    }
+    const auto isBaseColorSampler = [](const auto& binding) { return binding.name == "g_BaseColorSampler"; };
+    const auto sampler = std::find_if(reflection.bindings.begin(), reflection.bindings.end(), isBaseColorSampler);
+    const size_t samplerCount =
+        static_cast<size_t>(std::count_if(reflection.bindings.begin(), reflection.bindings.end(), isBaseColorSampler));
+    return Check(sampler != reflection.bindings.end() && samplerCount == 1 &&
+                     sampler->type == CookedShaderBindingType::Sampler && sampler->bindPoint == 0 &&
+                     sampler->bindSpace == 0,
+                 "Slang reflection dropped or corrupted the ShadowDepth base-color sampler binding");
+}
+
+bool TestVulkanStructuredBufferAndScreenUIBindingContracts() {
+    const std::array<const char*, 4> vulkanCandidates = {
+        "src/Runtime/Renderer/VulkanContext.cpp",
+        "../../../src/Runtime/Renderer/VulkanContext.cpp",
+        "../../../../src/Runtime/Renderer/VulkanContext.cpp",
+        "../../../../../src/Runtime/Renderer/VulkanContext.cpp",
+    };
+    const std::string vulkan = ReadRepositoryTextFile(vulkanCandidates);
+    if (!Check(!vulkan.empty() &&
+                   vulkan.find("binding.bindPoint >= 128 ? ShaderBindingType::StorageBuffer") != std::string::npos &&
+                   vulkan.find(": ShaderBindingType::StructuredBuffer") != std::string::npos &&
+                   vulkan.find("binding.name == \"g_EnvironmentSH2\"") == std::string::npos,
+               "Vulkan SPIR-V reflection does not preserve read-only t-register structured buffers")) {
+        return false;
+    }
+
+    const std::array<const char*, 4> passCandidates = {
+        "src/Runtime/Renderer/ScreenUIPass.cpp",
+        "../../../src/Runtime/Renderer/ScreenUIPass.cpp",
+        "../../../../src/Runtime/Renderer/ScreenUIPass.cpp",
+        "../../../../../src/Runtime/Renderer/ScreenUIPass.cpp",
+    };
+    const std::string pass = ReadRepositoryTextFile(passCandidates);
+    if (!Check(!pass.empty() && pass.find("EngineShaders::kScreenUI") != std::string::npos &&
+                   pass.find("CreateBindGroup") != std::string::npos &&
+                   pass.find("SetConstants(\"UIScreenConstants\"") != std::string::npos &&
+                   pass.find("SetTexture(\"u_Texture\"") != std::string::npos &&
+                   pass.find("SetSampler(\"u_Sampler\"") != std::string::npos &&
+                   pass.find("SetBindGroup(0, bindings.get())") != std::string::npos,
+               "Vulkan ScreenUI does not use the cooked shader named-binding path")) {
+        return false;
+    }
+
+    const std::array<const char*, 4> shaderCandidates = {
+        "EngineContent/Shaders/ScreenUI.hlsl",
+        "../../../EngineContent/Shaders/ScreenUI.hlsl",
+        "../../../../EngineContent/Shaders/ScreenUI.hlsl",
+        "../../../../../EngineContent/Shaders/ScreenUI.hlsl",
+    };
+    const auto shaderPath = FindRepositoryFile(shaderCandidates);
+    if (!Check(!shaderPath.empty(), "ScreenUI shader source was not found"))
+        return false;
+    if (!Check(ShaderCompilerSlang::IsAvailable(), "Slang compiler is unavailable; Vulkan ScreenUI cannot be cooked"))
+        return false;
+
+    std::vector<uint8_t> vertexBytecode;
+    std::vector<uint8_t> pixelBytecode;
+    CookedShaderStageReflection vertexReflection;
+    CookedShaderStageReflection pixelReflection;
+    std::string error;
+    if (!Check(ShaderCompilerSlang::CompileStageFromFile(shaderPath, "VSMain", ShaderStage::Vertex,
+                                                         ShaderBackend::Vulkan, vertexBytecode, {}, &error,
+                                                         &vertexReflection) &&
+                   ShaderCompilerSlang::CompileStageFromFile(shaderPath, "PSMain", ShaderStage::Pixel,
+                                                             ShaderBackend::Vulkan, pixelBytecode, {}, &error,
+                                                             &pixelReflection),
+               "ScreenUI Vulkan Slang compile failed: " + error)) {
+        return false;
+    }
+    const auto hasBinding = [](const CookedShaderStageReflection& reflection, const std::string& name,
+                               CookedShaderBindingType type) {
+        return std::find_if(reflection.bindings.begin(), reflection.bindings.end(), [&](const auto& binding) {
+                   return binding.name == name && binding.type == type;
+               }) != reflection.bindings.end();
+    };
+    return Check(!vertexBytecode.empty() && !pixelBytecode.empty() &&
+                     hasBinding(vertexReflection, "UIScreenConstants", CookedShaderBindingType::ConstantBuffer) &&
+                     hasBinding(pixelReflection, "u_Texture", CookedShaderBindingType::Texture) &&
+                     hasBinding(pixelReflection, "u_Sampler", CookedShaderBindingType::Sampler),
+                 "ScreenUI Vulkan shader reflection is missing a required named binding");
+}
+
+bool TestGpuDrivenShadowSetupFailureFallsBackBeforeGraphMutation() {
+    const std::array<const char*, 4> pipelineHeaderCandidates = {
+        "src/Runtime/Renderer/ModernDeferredPipeline.h",
+        "../../../src/Runtime/Renderer/ModernDeferredPipeline.h",
+        "../../../../src/Runtime/Renderer/ModernDeferredPipeline.h",
+        "../../../../../src/Runtime/Renderer/ModernDeferredPipeline.h",
+    };
+    const std::array<const char*, 4> pipelineSourceCandidates = {
+        "src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+        "../../../src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+        "../../../../src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+        "../../../../../src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+    };
+    const std::array<const char*, 4> rendererSourceCandidates = {
+        "src/Runtime/Renderer/Renderer.cpp",
+        "../../../src/Runtime/Renderer/Renderer.cpp",
+        "../../../../src/Runtime/Renderer/Renderer.cpp",
+        "../../../../../src/Runtime/Renderer/Renderer.cpp",
+    };
+    const std::string header = CompactSource(ReadRepositoryTextFile(pipelineHeaderCandidates));
+    const std::string pipeline = CompactSource(ReadRepositoryTextFile(pipelineSourceCandidates));
+    const std::string renderer = CompactSource(ReadRepositoryTextFile(rendererSourceCandidates));
+    if (!Check(!header.empty() && !pipeline.empty() && !renderer.empty(),
+               "GPU shadow fallback source files were not found")) {
+        return false;
+    }
+    if (!Check(header.find("boolAddGpuDrivenShadowView(") != std::string::npos &&
+                   header.find("voidAbortGpuDrivenShadowFrame();") != std::string::npos,
+               "GPU shadow setup does not expose an explicit success/failure contract")) {
+        return false;
+    }
+
+    const size_t addView = pipeline.find("boolModernDeferredPipeline::AddGpuDrivenShadowView(");
+    const size_t depthValidation = pipeline.find("stream->depthBindings->Validate(&validationError)", addView);
+    const size_t graphImport = pipeline.find("graph.ImportBuffer(name+\"Objects\"", addView);
+    if (!Check(addView != std::string::npos && depthValidation != std::string::npos &&
+                   graphImport != std::string::npos && depthValidation < graphImport,
+               "GPU shadow bindings are not fully validated before mutating the RenderGraph")) {
+        return false;
+    }
+    if (!Check(pipeline.find("m_ShadowSubmissionSerial+kShadowStreamRetireSubmissions") != std::string::npos &&
+                   pipeline.find("++m_ShadowSubmissionSerial;") != std::string::npos &&
+                   pipeline.find("retired.releaseSubmission<=m_ShadowSubmissionSerial") != std::string::npos,
+               "replaced GPU shadow streams are not retained by successful submission count")) {
+        return false;
+    }
+
+    const size_t checkedAdd = renderer.find("if(!m_ModernDeferredPipeline->AddGpuDrivenShadowView(");
+    const size_t abortShadow = renderer.find("m_ModernDeferredPipeline->AbortGpuDrivenShadowFrame();", checkedAdd);
+    const size_t resetGraph = renderer.find("m_RenderGraph->Reset();", abortShadow);
+    const size_t cpuFallback = renderer.find("addCpuShadowPass(\"ShadowFallback\");", resetGraph);
+    return Check(checkedAdd != std::string::npos && abortShadow != std::string::npos &&
+                     resetGraph != std::string::npos && cpuFallback != std::string::npos && checkedAdd < abortShadow &&
+                     abortShadow < resetGraph && resetGraph < cpuFallback,
+                 "Renderer does not rebuild failed GPU shadows with the CPU fallback pass");
+}
+
+bool TestGpuDrivenShadowSetupFailureLeavesGraphUntouched() {
+    MockRenderContext context;
+    RenderGraph graph(context);
+    RHITextureDesc shadowDesc;
+    shadowDesc.width = 64;
+    shadowDesc.height = 64;
+    shadowDesc.format = RHIFormat::D24S8;
+    shadowDesc.usage = RHIResourceUsage::DepthStencil;
+    auto shadow = context.CreateTexture(shadowDesc);
+    RHITextureViewDesc shadowViewDesc;
+    shadowViewDesc.usage = RHIResourceUsage::DepthStencil;
+    auto shadowView = context.CreateTextureView(shadow, shadowViewDesc);
+    const auto shadowTarget = graph.ImportTexture("ShadowSetupFailureTarget", shadow, shadowView,
+                                                  RHIResourceState::DepthWrite, RHIResourceState::DepthWrite);
+
+    ModernDeferredPipeline unavailablePipeline(nullptr);
+    if (!Check(!unavailablePipeline.AddGpuDrivenShadowView(graph, "UnavailableGpuShadow", shadowTarget, {},
+                                                           Mat4::Identity()),
+               "GPU shadow setup unexpectedly succeeded without a device or pipelines")) {
+        return false;
+    }
+    if (!Check(unavailablePipeline.GetStats().gpuShadowSetupFailures == 1 &&
+                   !unavailablePipeline.GetLastShadowSetupError().empty(),
+               "GPU shadow setup failure did not publish diagnostics")) {
+        return false;
+    }
+    return Check(graph.Compile() && graph.GetExecutionOrder().empty(),
+                 "failed GPU shadow setup registered a clear or draw pass in the RenderGraph");
+}
+
+bool TestModernTemporalReprojectionShaderContract() {
+    const std::array<const char*, 4> candidates = {
+        "EngineContent/Shaders/ModernScreenSpace.hlsl",
+        "../../../EngineContent/Shaders/ModernScreenSpace.hlsl",
+        "../../../../EngineContent/Shaders/ModernScreenSpace.hlsl",
+        "../../../../../EngineContent/Shaders/ModernScreenSpace.hlsl",
+    };
+    const std::string source = ReadRepositoryTextFile(candidates);
+    if (!Check(!source.empty(), "ModernScreenSpace shader source was not found"))
+        return false;
+    if (!Check(source.find("row_major float4x4 g_PreviousInverseViewProjection;") != std::string::npos &&
+                   source.find("row_major float4x4 g_PreviousViewProjection;") != std::string::npos &&
+                   source.find("float4 g_PreviousCameraPosition;") != std::string::npos &&
+                   CountOccurrences(source, "ReconstructWorldPositionUv(historyUv, previousDepth") >= 1 &&
+                   CountOccurrences(source, "ReconstructWorldPositionUv(previousGeometryUv, previousDepth") >= 1 &&
+                   CountOccurrences(source, "g_PreviousInverseViewProjection") >= 3,
+               "SSGI/SSR temporal and TAA paths do not reproject previous depth in previous-world space")) {
+        return false;
+    }
+    if (!Check(CountOccurrences(source, "SampleLevel(g_PointSampler, historyUv, 0.0f)") >= 2 &&
+                   CountOccurrences(source, "SampleLevel(g_PointSampler, previousGeometryUv, 0.0f)") >= 2,
+               "temporal rejection does not point-sample full-resolution previous depth and normal histories")) {
+        return false;
+    }
+    if (!Check(source.find("bool ReprojectBackgroundUv(float2 currentUv, out float2 previousUv)") !=
+                       std::string::npos &&
+                   source.find("g_PreviousCameraPosition.xyz + cameraRay") != std::string::npos &&
+                   source.find("currentBackground") != std::string::npos &&
+                   source.find("previousDepth >= 0.999999f") != std::string::npos,
+               "TAA does not camera-reproject background history without GBuffer velocity")) {
+        return false;
+    }
+
+    const std::string compact = CompactSource(source);
+    return Check(
+        compact.find("currentEffectUv=(float2(pixel)+0.5f)*g_EffectTexelSize") != std::string::npos &&
+            compact.find("previousGeometryUv=currentGeometryUv-velocity") != std::string::npos &&
+            compact.find("g_History.SampleLevel(g_LinearSampler,historyUv,0.0f)") != std::string::npos &&
+            compact.find("g_PreviousDepth.SampleLevel(g_PointSampler,previousGeometryUv,0.0f)") != std::string::npos &&
+            compact.find("g_PreviousNormal.SampleLevel(g_PointSampler,previousGeometryUv,0.0f)") != std::string::npos,
+        "half-resolution history UVs are not separated from full-resolution depth/normal reprojection");
+}
+
+bool TestModernScreenSpaceCompositeShaderContract() {
+    const std::array<const char*, 4> candidates = {
+        "EngineContent/Shaders/ModernScreenSpace.hlsl",
+        "../../../EngineContent/Shaders/ModernScreenSpace.hlsl",
+        "../../../../EngineContent/Shaders/ModernScreenSpace.hlsl",
+        "../../../../../EngineContent/Shaders/ModernScreenSpace.hlsl",
+    };
+    const std::string source = ReadRepositoryTextFile(candidates);
+    if (!Check(!source.empty(), "ModernScreenSpace shader source was not found"))
+        return false;
+    if (!Check(source.find("float4 BilateralUpsample(Texture2D<float4> source, uint2 pixel)") != std::string::npos &&
+                   source.find("BilateralUpsample(g_SSGI, pixel)") != std::string::npos &&
+                   source.find("BilateralUpsample(g_SSR, pixel)") != std::string::npos &&
+                   source.find("dot(centerNormal, sampleNormal)") != std::string::npos,
+               "half-resolution SSGI/SSR are not depth/normal-aware when composited at full resolution")) {
+        return false;
+    }
+    const size_t ssrBegin = source.find("void CSSSRTrace");
+    const size_t ssrEnd = source.find("void CSTemporal", ssrBegin);
+    if (!Check(ssrBegin != std::string::npos && ssrEnd != std::string::npos && ssrBegin < ssrEnd,
+               "SSR trace shader function was not found")) {
+        return false;
+    }
+    const std::string ssrTrace = source.substr(ssrBegin, ssrEnd - ssrBegin);
+    if (!Check(ssrTrace.find("g_Output[pixel] = float4(reflection, confidence);") != std::string::npos &&
+                   ssrTrace.find("metallic") == std::string::npos,
+               "SSR trace confidence is still coupled to material metallic/F0")) {
+        return false;
+    }
+    if (!Check(source.find("g_Environment.SampleLevel(g_LinearSampler, reflectionDirection") != std::string::npos &&
+                   source.find("specularCorrection = (reflection.rgb - environmentRadiance)") != std::string::npos,
+               "SSR composite does not replace the clustered environment reflection")) {
+        return false;
+    }
+    return Check(source.find("hdr + gi + specularCorrection") != std::string::npos &&
+                     source.find("hdr + gi + reflection") == std::string::npos,
+                 "SSR composite still adds a second specular lobe on top of environment lighting");
+}
+
+bool TestModernScreenSpaceSamplingAndConfidenceContracts() {
+    const std::array<const char*, 4> candidates = {
+        "EngineContent/Shaders/ModernScreenSpace.hlsl",
+        "../../../EngineContent/Shaders/ModernScreenSpace.hlsl",
+        "../../../../EngineContent/Shaders/ModernScreenSpace.hlsl",
+        "../../../../../EngineContent/Shaders/ModernScreenSpace.hlsl",
+    };
+    const std::string source = ReadRepositoryTextFile(candidates);
+    if (!Check(!source.empty(), "ModernScreenSpace shader source was not found"))
+        return false;
+    const std::string compact = CompactSource(source);
+    if (!Check(compact.find("EffectPixelToFullPixel(uint2pixel)") != std::string::npos &&
+                   compact.find("float2(g_FullSize)/float2(g_EffectSize)") != std::string::npos,
+               "half-resolution effects do not use render-size-aware representative pixels")) {
+        return false;
+    }
+    if (!Check(compact.find("g_HiZ.GetDimensions(0,baseWidth,baseHeight,levelCount)") != std::string::npos &&
+                   compact.find("resolvedMip=min(requestedMip,max(levelCount,1u)-1u)") != std::string::npos &&
+                   compact.find("rayDepth>=minMaxDepth.x-deviceThickness") != std::string::npos &&
+                   compact.find("rayDepth<=minMaxDepth.y+deviceThickness") != std::string::npos,
+               "SSGI/SSR HiZ tracing does not clamp mip access and test the conservative min/max interval")) {
+        return false;
+    }
+    if (!Check(compact.find("roughnessConfidence=saturate((g_MaxRoughness-roughness)/roughnessFadeWidth)") !=
+                       std::string::npos &&
+                   compact.find("NeighborhoodMaxAlpha(g_Current,int2(pixel),g_EffectSize)") != std::string::npos &&
+                   compact.find("history.a=min(saturate(history.a)") != std::string::npos &&
+                   compact.find("confidenceWeightedColor+=sampleValue.rgb*(weight*confidence)") != std::string::npos &&
+                   compact.find("filteredColor=confidenceSum>1e-5f?confidenceWeightedColor/confidenceSum:0.0f") !=
+                       std::string::npos,
+               "SSR roughness fade or temporal confidence rejection is missing")) {
+        return false;
+    }
+    if (!Check(compact.find("diffuseResponse=(1.0f-fresnel)*(1.0f-metallic)*albedo*ao") != std::string::npos,
+               "SSGI composite does not apply the receiver diffuse material response")) {
+        return false;
+    }
+    if (!Check(compact.find("RefineRayDepthCrossing(float3rayOrigin") != std::string::npos &&
+                   CountOccurrences(compact, "RefineRayDepthCrossing(rayOrigin,direction,previousDistance,distance") ==
+                       2 &&
+                   CountOccurrences(compact, "previousViewDelta<-0.002f&&viewDelta>=-0.002f") == 2 &&
+                   compact.find("hitWeight=hitFacing*saturate(1.0f-hitDistance/") != std::string::npos &&
+                   compact.find("g_Intensity*0.15f") == std::string::npos,
+               "SSGI/SSR still accept self-overlaps, skip thin depth crossings, or double-attenuate cosine samples")) {
+        return false;
+    }
+    if (!Check(compact.find("(g_EffectMode&4u)!=0") != std::string::npos &&
+                   compact.find("1.0f-exp(-radiance*8.0f)") != std::string::npos &&
+                   compact.find("(g_EffectMode&8u)!=0") != std::string::npos &&
+                   compact.find("BilateralUpsample(g_SSR,pixel).a") != std::string::npos &&
+                   compact.find("float4(confidence.xxx,1.0f)") != std::string::npos,
+               "SSGI and SSR confidence debug modes do not visualize the final half-resolution data explicitly")) {
+        return false;
+    }
+    return Check(compact.find("currentReactive=GatherReactiveMask(int2(pixel))") != std::string::npos &&
+                     compact.find("1.0f-saturate(g_Current.Load(int3(samplePixel,0)).a)") != std::string::npos &&
+                     compact.find("previousReactive=valid?1.0f-saturate(history.a):0.0f") != std::string::npos &&
+                     compact.find("reactive=max(currentReactive,previousReactive)") != std::string::npos &&
+                     compact.find("*(1.0f-reactive)") != std::string::npos &&
+                     compact.find("1.0f-currentReactive)") != std::string::npos,
+                 "TAA does not consume, persist, and dilate transparent coverage as a reactive mask");
+}
+
+bool TestModernScreenSpaceDebugRoutingContract() {
+    const std::array<const char*, 4> headerCandidates = {
+        "src/Runtime/Renderer/ModernDeferredPipeline.h",
+        "../../../src/Runtime/Renderer/ModernDeferredPipeline.h",
+        "../../../../src/Runtime/Renderer/ModernDeferredPipeline.h",
+        "../../../../../src/Runtime/Renderer/ModernDeferredPipeline.h",
+    };
+    const std::array<const char*, 4> pipelineCandidates = {
+        "src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+        "../../../src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+        "../../../../src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+        "../../../../../src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+    };
+    const std::array<const char*, 4> rendererCandidates = {
+        "src/Runtime/Renderer/Renderer.cpp",
+        "../../../src/Runtime/Renderer/Renderer.cpp",
+        "../../../../src/Runtime/Renderer/Renderer.cpp",
+        "../../../../../src/Runtime/Renderer/Renderer.cpp",
+    };
+    const std::string header = CompactSource(ReadRepositoryTextFile(headerCandidates));
+    const std::string pipeline = CompactSource(ReadRepositoryTextFile(pipelineCandidates));
+    const std::string renderer = CompactSource(ReadRepositoryTextFile(rendererCandidates));
+    if (!Check(!header.empty() && !pipeline.empty() && !renderer.empty(),
+               "Modern screen-space debug routing source was not found")) {
+        return false;
+    }
+    if (!Check(header.find("GetSSGIDebugSrv()const{returnm_SSGIDebugOutputSrv;}") != std::string::npos &&
+                   header.find("GetSSRDebugSrv()const{returnm_SSRDebugOutputSrv;}") != std::string::npos &&
+                   header.find("GetSSGIDebugSrv()const{returnm_SSGIFilter[1].srv;}") == std::string::npos,
+               "Modern debug getters still expose raw half-resolution working textures")) {
+        return false;
+    }
+    if (!Check(pipeline.find("debugConstants.effectMode=debugSSGI?4u:8u") != std::string::npos &&
+                   pipeline.find("debugSSGI?\"VisualizeSSGI\":\"VisualizeSSRConfidence\"") != std::string::npos &&
+                   pipeline.find("m_SSGIDebugOutputSrv=m_ScreenSpaceDebug.srv") != std::string::npos &&
+                   pipeline.find("m_SSRDebugOutputSrv=m_ScreenSpaceDebug.srv") != std::string::npos,
+               "Modern debug graph does not create explicit full-resolution SSGI/SSR visualization output")) {
+        return false;
+    }
+    return Check(
+        renderer.find("RendererDebugView::SSGI?ModernDeferredPipeline::ScreenSpaceDebugMode::SSGI") !=
+                std::string::npos &&
+            renderer.find(
+                "RendererDebugView::SSRConfidence?ModernDeferredPipeline::ScreenSpaceDebugMode::SSRConfidence") !=
+                std::string::npos,
+        "Renderer debug selection is not routed into the Modern Deferred screen-space graph");
+}
+
+bool TestModernScreenSpaceSlangCompileContracts() {
+    const std::array<const char*, 4> candidates = {
+        "EngineContent/Shaders/ModernScreenSpace.hlsl",
+        "../../../EngineContent/Shaders/ModernScreenSpace.hlsl",
+        "../../../../EngineContent/Shaders/ModernScreenSpace.hlsl",
+        "../../../../../EngineContent/Shaders/ModernScreenSpace.hlsl",
+    };
+    const auto shaderPath = FindRepositoryFile(candidates);
+    if (!Check(!shaderPath.empty(), "ModernScreenSpace shader source was not found"))
+        return false;
+    if (!Check(ShaderCompilerSlang::IsAvailable(),
+               "Slang compiler is unavailable; Modern screen-space DXIL/SPIR-V cannot be validated")) {
+        return false;
+    }
+
+    const std::array<const char*, 7> entries = {
+        "CSSSGITrace", "CSSSRTrace", "CSTemporal", "CSAtrous", "CSEffectsComposite", "CSTAA", "CSBloomTone",
+    };
+    const std::array<ShaderBackend, 2> backends = {ShaderBackend::D3D12, ShaderBackend::Vulkan};
+    for (ShaderBackend backend : backends) {
+        for (const char* entry : entries) {
+            std::vector<uint8_t> bytecode;
+            CookedShaderStageReflection reflection;
+            std::string error;
+            const std::string backendName = backend == ShaderBackend::D3D12 ? "D3D12" : "Vulkan";
+            if (!Check(ShaderCompilerSlang::CompileStageFromFile(shaderPath, entry, ShaderStage::Compute, backend,
+                                                                 bytecode, {}, &error, &reflection),
+                       "ModernScreenSpace " + backendName + " compile failed for " + entry + ": " + error)) {
+                return false;
+            }
+            if (!Check(!bytecode.empty() && reflection.threadGroupSize[0] == 8 && reflection.threadGroupSize[1] == 8 &&
+                           reflection.threadGroupSize[2] == 1,
+                       "ModernScreenSpace reflection has an invalid thread-group ABI for " + backendName + " " +
+                           entry)) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+bool TestModernHiZOddDimensionReductionContract() {
+    const std::array<const char*, 4> candidates = {
+        "EngineContent/Shaders/ModernHiZ.hlsl",
+        "../../../EngineContent/Shaders/ModernHiZ.hlsl",
+        "../../../../EngineContent/Shaders/ModernHiZ.hlsl",
+        "../../../../../EngineContent/Shaders/ModernHiZ.hlsl",
+    };
+    const auto shaderPath = FindRepositoryFile(candidates);
+    if (!Check(!shaderPath.empty(), "ModernHiZ shader source was not found"))
+        return false;
+    const std::string compact = CompactSource(ReadRepositoryTextFile(candidates));
+    if (!Check(compact.find("g_SourceSize.x>g_DestinationSize.x*2u") != std::string::npos &&
+                   compact.find("g_SourceSize.y>g_DestinationSize.y*2u") != std::string::npos &&
+                   compact.find("ExpandRange(range,g_SourceHiZ.Load(int3(g_SourceSize-1u,0)))") != std::string::npos,
+               "HiZ reduction drops the final source row or column for odd-sized viewports")) {
+        return false;
+    }
+    if (!Check(ShaderCompilerSlang::IsAvailable(),
+               "Slang compiler is unavailable; Modern HiZ DXIL/SPIR-V cannot be validated")) {
+        return false;
+    }
+    const std::array<const char*, 2> entries = {"CSInit", "CSReduce"};
+    const std::array<ShaderBackend, 2> backends = {ShaderBackend::D3D12, ShaderBackend::Vulkan};
+    for (ShaderBackend backend : backends) {
+        for (const char* entry : entries) {
+            std::vector<uint8_t> bytecode;
+            CookedShaderStageReflection reflection;
+            std::string error;
+            if (!Check(ShaderCompilerSlang::CompileStageFromFile(shaderPath, entry, ShaderStage::Compute, backend,
+                                                                 bytecode, {}, &error, &reflection),
+                       "ModernHiZ Slang compile failed for " + std::string(entry) + ": " + error)) {
+                return false;
+            }
+            if (!Check(!bytecode.empty() && reflection.threadGroupSize[0] == 8 && reflection.threadGroupSize[1] == 8 &&
+                           reflection.threadGroupSize[2] == 1,
+                       "ModernHiZ reflection has an invalid thread-group ABI")) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+bool TestModernCompatibilityGBufferPrecedesHiZContract() {
+    const std::string renderer = CompactSource(ReadRepositoryTextFile({
+        "src/Runtime/Renderer/Renderer.cpp",
+        "../../../src/Runtime/Renderer/Renderer.cpp",
+        "../../../../src/Runtime/Renderer/Renderer.cpp",
+        "../../../../../src/Runtime/Renderer/Renderer.cpp",
+    }));
+    const std::string pipeline = CompactSource(ReadRepositoryTextFile({
+        "src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+        "../../../src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+        "../../../../src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+        "../../../../../src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+    }));
+    if (!Check(!renderer.empty() && !pipeline.empty(), "Modern Deferred renderer sources were not found"))
+        return false;
+
+    const size_t compatibility = renderer.find("m_RenderGraph->AddPass(\"GBufferCompatibility\"");
+    const size_t hiz = renderer.find("m_ModernDeferredPipeline->AddHiZPasses", compatibility);
+    const size_t occlusion = renderer.find("m_ModernDeferredPipeline->AddHiZOcclusionCulling", hiz);
+    const size_t indirect = renderer.find("m_ModernDeferredPipeline->AddGBufferPass", occlusion);
+    if (!Check(compatibility != std::string::npos && hiz != std::string::npos && occlusion != std::string::npos &&
+                   indirect != std::string::npos && compatibility < hiz && hiz < occlusion && occlusion < indirect,
+               "compatibility/skinned GBuffer does not precede HiZ, occlusion culling, and indirect GBuffer")) {
+        return false;
+    }
+
+    const size_t addGBuffer = pipeline.find("voidModernDeferredPipeline::AddGBufferPass(");
+    const size_t clustered =
+        pipeline.find("RGTextureHandleModernDeferredPipeline::AddClusteredLightingPasses(", addGBuffer);
+    if (!Check(addGBuffer != std::string::npos && clustered != std::string::npos && addGBuffer < clustered,
+               "Modern indirect GBuffer implementation was not found")) {
+        return false;
+    }
+    const std::string gbuffer = pipeline.substr(addGBuffer, clustered - addGBuffer);
+    return Check(CountOccurrences(gbuffer, "builder.WriteColor(") == 5 &&
+                     CountOccurrences(gbuffer, "RHILoadOp::Load") >= 6 &&
+                     gbuffer.find("builder.WriteDepth(sceneDepth,RHILoadOp::Load") != std::string::npos,
+                 "indirect GBuffer does not load and preserve compatibility color/depth attachments");
+}
+
+bool TestModernDiagnosticsReadbackIsThrottled() {
+    const std::string header = CompactSource(ReadRepositoryTextFile({
+        "src/Runtime/Renderer/ModernDeferredPipeline.h",
+        "../../../src/Runtime/Renderer/ModernDeferredPipeline.h",
+        "../../../../src/Runtime/Renderer/ModernDeferredPipeline.h",
+        "../../../../../src/Runtime/Renderer/ModernDeferredPipeline.h",
+    }));
+    const std::string source = CompactSource(ReadRepositoryTextFile({
+        "src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+        "../../../src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+        "../../../../src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+        "../../../../../src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+    }));
+    if (!Check(!header.empty() && !source.empty(), "Modern Deferred diagnostics sources were not found"))
+        return false;
+    return Check(header.find("kDiagnosticsReadbackInterval=30") != std::string::npos &&
+                     source.find("frameNumber>=m_LastDiagnosticsReadbackFrame+kDiagnosticsReadbackInterval") !=
+                         std::string::npos &&
+                     CountOccurrences(source, "if(m_DiagnosticsReadbackThisFrame)") == 4,
+                 "Modern diagnostics create GPU readback resources every frame instead of using a sampled cadence");
+}
+
+bool TestModernTemporalHistoryCommitAndAbort() {
+#ifndef MYENGINE_PLATFORM_WINDOWS
+    return true;
+#else
+    MockRenderContext context;
+    context.backend = RHIBackend::D3D12;
+    ShaderManager::Get().Clear();
+    ShaderManager::Get().SetDevice(&context);
+    struct ShaderManagerReset {
+        ~ShaderManagerReset() {
+            ShaderManager::Get().Clear();
+            ShaderManager::Get().SetDevice(nullptr);
+        }
+    } shaderManagerReset;
+
+    ModernDeferredPipeline pipeline(&context);
+    if (!Check(pipeline.IsReady(),
+               "Modern Deferred test pipeline is unavailable: " + pipeline.GetInitializationError())) {
+        return false;
+    }
+    pipeline.Resize(64, 64);
+    Scene scene("ModernTemporalCommitAbort");
+    Camera camera;
+    camera.LookAt({0.0f, 0.0f, -4.0f}, Vec3::Zero());
+    camera.SetPerspective(60.0f, 1.0f);
+
+    const auto createInput = [&](const char* name, RHIFormat format) {
+        RHITextureDesc desc;
+        desc.width = 64;
+        desc.height = 64;
+        desc.format = format;
+        desc.usage = RHIResourceUsage::ShaderResource;
+        desc.debugName = name;
+        auto texture = context.CreateTexture(desc);
+        RHITextureViewDesc viewDesc;
+        viewDesc.usage = RHIResourceUsage::ShaderResource;
+        auto view = context.CreateTextureView(texture, viewDesc);
+        return std::pair<std::shared_ptr<GpuTexture>, std::shared_ptr<GpuTextureView>>{std::move(texture),
+                                                                                       std::move(view)};
+    };
+    auto hdr = createInput("TemporalTestHDR", RHIFormat::RGBA16Float);
+    auto depth = createInput("TemporalTestDepth", RHIFormat::D24S8);
+    auto normal = createInput("TemporalTestNormal", RHIFormat::RGBA16Float);
+    auto velocity = createInput("TemporalTestVelocity", RHIFormat::RG16Float);
+    const auto stageTemporalFrame = [&]() {
+        RenderGraph graph(context);
+        const auto importInput = [&](const char* name, const auto& resource) {
+            return graph.ImportTexture(name, resource.first, resource.second, RHIResourceState::ShaderResource,
+                                       RHIResourceState::ShaderResource);
+        };
+        const auto hdrHandle = importInput("TemporalInputHDR", hdr);
+        const auto depthHandle = importInput("TemporalInputDepth", depth);
+        const auto normalHandle = importInput("TemporalInputNormal", normal);
+        const auto velocityHandle = importInput("TemporalInputVelocity", velocity);
+        pipeline.AddTemporalPostProcess(graph, hdrHandle, hdr.second, depthHandle, depth.second, normalHandle,
+                                        normal.second, velocityHandle, velocity.second);
+    };
+    const auto matricesEqual = [](const Mat4& left, const Mat4& right) {
+        for (uint32_t index = 0; index < 16; ++index) {
+            if (!NearlyEqual(left.Data()[index], right.Data()[index], 1e-5f))
+                return false;
+        }
+        return true;
+    };
+
+    if (!Check(pipeline.Prepare(scene, camera, 1), "Modern temporal frame 1 preparation failed"))
+        return false;
+    const Mat4 committedViewProjection = pipeline.GetCurrentViewProjection();
+    stageTemporalFrame();
+    pipeline.CommitTemporalFrame();
+
+    if (!Check(pipeline.Prepare(scene, camera, 2), "Modern temporal frame 2 preparation failed"))
+        return false;
+    if (!Check(matricesEqual(pipeline.GetPreviousViewProjection(), committedViewProjection),
+               "temporal commit did not expose the prior successful frame to reprojection")) {
+        return false;
+    }
+    const Mat4 abortedViewProjection = pipeline.GetCurrentViewProjection();
+    if (!Check(!matricesEqual(abortedViewProjection, committedViewProjection),
+               "successful temporal commit did not advance the viewport-local Halton phase")) {
+        return false;
+    }
+    stageTemporalFrame();
+    pipeline.AbortTemporalFrame("unit-test graph abort");
+    if (!Check(pipeline.GetHistoryResetReason() == "unit-test graph abort",
+               "temporal abort did not invalidate history with the supplied diagnostic")) {
+        return false;
+    }
+
+    if (!Check(pipeline.Prepare(scene, camera, 2), "Modern temporal retry preparation failed"))
+        return false;
+    if (!Check(matricesEqual(pipeline.GetPreviousViewProjection(), committedViewProjection) &&
+                   matricesEqual(pipeline.GetCurrentViewProjection(), abortedViewProjection),
+               "an aborted temporal frame advanced its previous matrix or Halton phase")) {
+        return false;
+    }
+    stageTemporalFrame();
+    pipeline.CommitTemporalFrame();
+
+    if (!Check(pipeline.Prepare(scene, camera, 3), "Modern temporal frame 3 preparation failed"))
+        return false;
+    if (!Check(matricesEqual(pipeline.GetPreviousViewProjection(), abortedViewProjection) &&
+                   !matricesEqual(pipeline.GetCurrentViewProjection(), abortedViewProjection),
+               "a successful temporal retry did not commit its matrix and advance exactly one Halton phase")) {
+        return false;
+    }
+
+    Camera orthographicCamera;
+    orthographicCamera.LookAt(Vec3::Zero(), {0.0f, 0.0f, 1.0f});
+    orthographicCamera.SetOrtho(10.0f, 10.0f, 0.1f, 100.0f);
+    if (!Check(pipeline.Prepare(scene, orthographicCamera, 4), "Modern orthographic temporal preparation failed"))
+        return false;
+    const Mat4 orthographicBase = orthographicCamera.GetViewProj();
+    const Mat4 orthographicJittered = pipeline.GetCurrentViewProjection();
+    return Check(NearlyEqual(orthographicJittered.m[2][0], orthographicBase.m[2][0]) &&
+                     NearlyEqual(orthographicJittered.m[2][1], orthographicBase.m[2][1]) &&
+                     !NearlyEqual(orthographicJittered.m[3][1], orthographicBase.m[3][1]),
+                 "orthographic TAA jitter is depth-dependent instead of using clip-space translation");
+#endif
+}
+
 bool TestHeadlessRendering() {
     AssetManager::Get().Clear();
     Scene scene("HeadlessRender");
@@ -1255,11 +2725,18 @@ bool TestHeadlessRendering() {
         return false;
     const auto transparentPipeline =
         std::find(context.commands.pipelineBlendEnabled.begin(), context.commands.pipelineBlendEnabled.end(), true);
-    return Check(transparentPipeline != context.commands.pipelineBlendEnabled.end() &&
-                     transparentPipeline != context.commands.pipelineBlendEnabled.begin() &&
-                     std::count(context.commands.pipelineBlendEnabled.begin(),
-                                context.commands.pipelineBlendEnabled.end(), true) == 1,
-                 "opaque/transparent render ordering or blend state mismatch");
+    if (!Check(transparentPipeline != context.commands.pipelineBlendEnabled.end() &&
+                   transparentPipeline != context.commands.pipelineBlendEnabled.begin() &&
+                   std::count(context.commands.pipelineBlendEnabled.begin(),
+                              context.commands.pipelineBlendEnabled.end(), true) == 1,
+               "opaque/transparent render ordering or blend state mismatch")) {
+        return false;
+    }
+    const size_t transparentPipelineIndex =
+        static_cast<size_t>(std::distance(context.commands.pipelineBlendEnabled.begin(), transparentPipeline));
+    return Check(transparentPipelineIndex < context.commands.pipelineDepthWriteEnabled.size() &&
+                     !context.commands.pipelineDepthWriteEnabled[transparentPipelineIndex],
+                 "transparent forward pipeline writes scene depth and invalidates temporal geometry history");
 }
 
 bool TestMeshRendererSubMeshMaterialSlotDraws() {
@@ -1431,17 +2908,18 @@ bool TestDeferredPassResourceContracts() {
         return false;
     const auto gbufferResources = gbuffer.GetGraphResources();
     if (!Check(gbufferResources.albedo && gbufferResources.normal && gbufferResources.material &&
-                   gbufferResources.emissive,
+                   gbufferResources.emissive && gbufferResources.velocity,
                "GBufferPass did not create all GBuffer textures"))
         return false;
     if (!Check(gbufferResources.albedoSrv && gbufferResources.normalSrv && gbufferResources.materialSrv &&
-                   gbufferResources.emissiveSrv,
+                   gbufferResources.emissiveSrv && gbufferResources.velocitySrv,
                "GBufferPass did not create all shader-resource views"))
         return false;
     if (!Check(gbufferResources.albedo->desc.format == RHIFormat::RGBA8UNorm &&
                    gbufferResources.normal->desc.format == RHIFormat::RGBA16Float &&
                    gbufferResources.material->desc.format == RHIFormat::RGBA8UNorm &&
-                   gbufferResources.emissive->desc.format == RHIFormat::RGBA16Float,
+                   gbufferResources.emissive->desc.format == RHIFormat::RGBA16Float &&
+                   gbufferResources.velocity->desc.format == RHIFormat::RG16Float,
                "GBufferPass resource formats do not match the deferred contract"))
         return false;
 
@@ -1492,7 +2970,7 @@ bool TestDeferredPassResourceContracts() {
                "DeferredLightingPass scene color contract is invalid"))
         return false;
 
-    return Check(context.graphTextureCreates == 5 && context.textureViewCreates == 10 && context.samplerCreates >= 3 &&
+    return Check(context.graphTextureCreates == 6 && context.textureViewCreates == 12 && context.samplerCreates >= 3 &&
                      context.shaderCreates >= 1,
                  "deferred resource passes created an unexpected number of resources");
 }
@@ -1573,6 +3051,312 @@ bool TestRendererRenderPathDefaultsToForward() {
     renderer.SetRenderPath(RenderPath::Deferred);
     return Check(renderer.GetRenderPath() == RenderPath::Deferred,
                  "Renderer render path setter did not persist deferred mode");
+}
+
+bool TestRenderPipelineDeviceProfileResolution() {
+    RHIDeviceCapabilities modern;
+    modern.maxBindlessResources = 8192;
+    modern.computeShaders = true;
+    modern.storageTextures = true;
+    modern.indirectDraw = true;
+    modern.indirectDrawCount = true;
+    modern.indirectDispatch = true;
+    modern.bindlessResources = true;
+    modern.shaderDrawParameters = true;
+    modern.modernDeferredFormats = true;
+
+    const auto desktop =
+        ResolveRenderPipeline(RenderPath::Deferred, GraphicsDeviceProfile::Desktop, RHIBackend::D3D12, modern, true);
+    const auto console =
+        ResolveRenderPipeline(RenderPath::Deferred, GraphicsDeviceProfile::Console, RHIBackend::Vulkan, modern, true);
+    const auto mobile =
+        ResolveRenderPipeline(RenderPath::Deferred, GraphicsDeviceProfile::Mobile, RHIBackend::D3D12, modern, true);
+    modern.storageTextures = false;
+    const auto fallback =
+        ResolveRenderPipeline(RenderPath::Deferred, GraphicsDeviceProfile::Console, RHIBackend::D3D12, modern, true);
+    const auto forward =
+        ResolveRenderPipeline(RenderPath::Forward, GraphicsDeviceProfile::Console, RHIBackend::D3D11, modern, true);
+    return Check(desktop.resolvedPipeline == ResolvedRenderPipeline::ModernDeferred && desktop.modernSupported &&
+                     console.resolvedPipeline == ResolvedRenderPipeline::ModernDeferred &&
+                     mobile.resolvedPipeline == ResolvedRenderPipeline::ClassicDeferred &&
+                     fallback.resolvedPipeline == ResolvedRenderPipeline::ClassicDeferred && fallback.usedFallback &&
+                     !fallback.fallbackReason.empty() && forward.resolvedPipeline == ResolvedRenderPipeline::Forward,
+                 "render pipeline device-profile resolution matrix mismatch");
+}
+
+bool TestRendererDefersModernInitializationUntilFirstRender() {
+    AssetManager::Get().Clear();
+    ShaderManager::Get().Clear();
+    MockRenderContext context;
+    context.backend = RHIBackend::D3D12;
+    context.modernCapabilities = true;
+    uint32_t cacheRequests = 0;
+    ShaderCacheService::Get().SetResolver([&](const ShaderCacheRequest&) {
+        ++cacheRequests;
+        return ShaderCacheResult{};
+    });
+
+    bool valid = false;
+    {
+        Renderer sceneRenderer(&context, &context, &context);
+        Renderer gameRenderer(&context, &context, &context);
+        Renderer previewRenderer(&context, &context, &context);
+        const bool constructorsWereLazy = cacheRequests == 0 && context.samplerCreates == 0;
+
+        sceneRenderer.SetRenderPath(RenderPath::Deferred);
+        const bool desktopResolvesBeforeCreation =
+            sceneRenderer.GetPipelineDiagnostics().resolvedPipeline == ResolvedRenderPipeline::ModernDeferred &&
+            cacheRequests == 0 && context.samplerCreates == 0;
+
+        previewRenderer.SetRenderPath(RenderPath::Deferred);
+        previewRenderer.SetDeviceProfile(GraphicsDeviceProfile::Mobile);
+        const bool mobileStaysClassicWithoutCreation =
+            previewRenderer.GetPipelineDiagnostics().resolvedPipeline == ResolvedRenderPipeline::ClassicDeferred &&
+            cacheRequests == 0 && context.samplerCreates == 0;
+        valid = constructorsWereLazy && desktopResolvesBeforeCreation && mobileStaysClassicWithoutCreation;
+    }
+
+    ShaderCacheService::Get().ClearResolver();
+    ShaderManager::Get().Clear();
+    AssetManager::Get().Clear();
+    return Check(valid, "Renderer constructed or compiled the Modern pipeline before its first requested frame");
+}
+
+bool TestRendererStartsShaderPrewarmOffRenderThread() {
+    AssetManager::Get().Clear();
+    ShaderManager::Get().Clear();
+    MockRenderContext context;
+    context.backend = RHIBackend::D3D12;
+    context.modernCapabilities = true;
+
+    const std::filesystem::path projectRoot =
+        std::filesystem::temp_directory_path() / "myengine_renderer_scene_shader_prewarm";
+    std::error_code projectError;
+    std::filesystem::remove_all(projectRoot, projectError);
+    std::filesystem::create_directories(projectRoot / "Content" / "Shaders", projectError);
+    std::filesystem::create_directories(projectRoot / ".myengine", projectError);
+    const std::filesystem::path sceneShaderSource = projectRoot / "Content" / "Shaders" / "SceneStartup.shader";
+    std::ofstream(sceneShaderSource)
+        << R"({"type":"Shader","version":1,"stages":{"vertex":{"source":"SceneStartup.hlsl","entry":"VSMain"},"pixel":{"source":"SceneStartup.hlsl","entry":"PSMain"}},"defines":[]})";
+
+    const std::string sceneShaderUuid = "renderer-scene-startup-shader";
+    const std::filesystem::path sceneShaderArtifact =
+        projectRoot / "Library" / "windows-x64" / sceneShaderUuid / "cooked.shader";
+    std::filesystem::create_directories(sceneShaderArtifact.parent_path(), projectError);
+    std::array<std::array<std::vector<uint8_t>, kShaderStageCount>, kShaderBackendCount> bytecode{};
+    bytecode[static_cast<size_t>(ShaderBackend::D3D12)][static_cast<size_t>(ShaderStage::Vertex)] = {1};
+    bytecode[static_cast<size_t>(ShaderBackend::D3D12)][static_cast<size_t>(ShaderStage::Pixel)] = {2};
+    ShaderAsset cookedShader(sceneShaderArtifact.string());
+    cookedShader.SetCooked(ShaderAsset::kVertexMask | ShaderAsset::kPixelMask, 1, std::move(bytecode));
+    std::string cookedError;
+    const bool cookedSaved = SaveCookedShaderAsset(cookedShader, sceneShaderArtifact, &cookedError);
+    const nlohmann::json database = {
+        {"version", 1},
+        {"assets", nlohmann::json::array({{{"uuid", sceneShaderUuid},
+                                           {"sourcePath", sceneShaderSource.generic_string()},
+                                           {"artifactPath", sceneShaderArtifact.generic_string()},
+                                           {"type", "shader"},
+                                           {"importer", "shader"},
+                                           {"importerVersion", 1},
+                                           {"sourceHash", "test"},
+                                           {"artifactHash", ""},
+                                           {"settings", "{}"},
+                                           {"dependencies", nlohmann::json::array()},
+                                           {"state", "ready"},
+                                           {"diagnostics", nlohmann::json::array()},
+                                           {"alwaysCook", false}}})}};
+    std::ofstream(projectRoot / ".myengine" / "AssetDatabase.json") << database.dump(2);
+    AssetManager::Get().SetProjectRoot(projectRoot);
+
+    std::promise<void> releaseWorkers;
+    const std::shared_future<void> workerGate = releaseWorkers.get_future().share();
+    std::atomic_uint32_t batchEntries{0};
+    std::atomic_uint32_t batchArtifacts{0};
+    std::atomic_bool sawSceneSource{false};
+    std::atomic_bool sawLibraryPath{false};
+    ShaderCacheService::Get().SetResolver([](const ShaderCacheRequest&) { return ShaderCacheResult{}; },
+                                          [workerGate, &batchEntries, &batchArtifacts, &sawSceneSource, &sawLibraryPath,
+                                           sceneShaderSource](const std::vector<ShaderCacheRequest>& requests) {
+                                              batchArtifacts = static_cast<uint32_t>(requests.size());
+                                              for (const ShaderCacheRequest& request : requests) {
+                                                  const std::filesystem::path normalized =
+                                                      request.sourcePath.lexically_normal();
+                                                  if (normalized == sceneShaderSource.lexically_normal())
+                                                      sawSceneSource.store(true);
+                                                  const std::string path = normalized.generic_string();
+                                                  if (path.find("/Library/") != std::string::npos)
+                                                      sawLibraryPath.store(true);
+                                              }
+                                              ++batchEntries;
+                                              workerGate.wait();
+                                              return std::vector<ShaderCacheResult>(requests.size());
+                                          });
+
+    const ShaderAssetHandle sceneShader = AssetManager::Get().Load<ShaderAsset>("Content/Shaders/SceneStartup.shader");
+    const std::shared_ptr<MaterialAsset> sceneMaterial = MaterialAsset::CreateDefault("SceneStartupMaterial");
+    sceneMaterial->SetShaderAsset(sceneShader);
+
+    Scene scene("AsyncShaderPrewarm");
+    Actor* sceneActor = scene.CreateActor("CustomShaderActor");
+    sceneActor->AddComponent<MeshRendererComponent>()->SetMaterial(MaterialHandle(sceneMaterial));
+    Camera camera;
+    const auto start = std::chrono::steady_clock::now();
+    {
+        Renderer renderer(&context, &context, &context);
+        renderer.SetRenderPath(RenderPath::Deferred);
+        renderer.RenderScene(scene, camera, true);
+    }
+    const double renderMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+    while (batchEntries.load() == 0 && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::yield();
+    const bool valid = cookedSaved && sceneShader.IsValid() && sceneShader->IsCooked() && renderMs < 100.0 &&
+                       batchEntries.load() == 1 && batchArtifacts.load() == 32 && sawSceneSource.load() &&
+                       !sawLibraryPath.load();
+    releaseWorkers.set_value();
+    ShaderManager::Get().Clear();
+    ShaderCacheService::Get().ClearResolver();
+    AssetManager::Get().Clear();
+    AssetManager::Get().SetProjectRoot({});
+    std::filesystem::remove_all(projectRoot, projectError);
+    std::ostringstream failure;
+    failure << "first RenderScene blocked on asynchronous shader cache preparation"
+            << " cookedSaved=" << cookedSaved << " validShader=" << sceneShader.IsValid()
+            << " cookedShader=" << (sceneShader.IsValid() && sceneShader->IsCooked()) << " renderMs=" << renderMs
+            << " batches=" << batchEntries.load() << " artifacts=" << batchArtifacts.load()
+            << " sawSource=" << sawSceneSource.load() << " sawLibrary=" << sawLibraryPath.load()
+            << " cookError=" << cookedError;
+    return Check(valid, failure.str());
+}
+
+bool TestShaderPrewarmAsyncContinuesWithChangedRequestSet() {
+    AssetManager::Get().Clear();
+    ShaderManager::Get().Clear();
+    MockRenderContext context;
+    context.backend = RHIBackend::D3D12;
+    std::atomic_uint32_t batchEntries{0};
+    std::atomic_uint32_t requestedArtifacts{0};
+    ShaderCacheService::Get().SetResolver(
+        [](const ShaderCacheRequest&) { return ShaderCacheResult{}; },
+        [&batchEntries, &requestedArtifacts](const std::vector<ShaderCacheRequest>& requests) {
+            ++batchEntries;
+            requestedArtifacts += static_cast<uint32_t>(requests.size());
+            std::vector<ShaderCacheResult> results(requests.size());
+            for (ShaderCacheResult& result : results)
+                result.succeeded = true;
+            return results;
+        });
+    ShaderManager::Get().SetDevice(&context);
+
+    const ShaderPrewarmStatus initial =
+        ShaderManager::Get().PrewarmCacheArtifactsAsync({EngineShaders::kPostProcessFXAA});
+    ShaderPrewarmStatus changed = ShaderPrewarmStatus::Pending;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (changed == ShaderPrewarmStatus::Pending && std::chrono::steady_clock::now() < deadline) {
+        changed = ShaderManager::Get().PrewarmCacheArtifactsAsync({EngineShaders::kProceduralSky});
+        std::this_thread::yield();
+    }
+    const bool valid = initial == ShaderPrewarmStatus::Pending && changed == ShaderPrewarmStatus::Ready &&
+                       batchEntries.load() == 2 && requestedArtifacts.load() == 2;
+
+    ShaderManager::Get().Clear();
+    ShaderCacheService::Get().ClearResolver();
+    AssetManager::Get().Clear();
+    return Check(valid, "asynchronous shader prewarm marked a changed request set ready before preparing it");
+}
+
+bool TestShaderManagerClearCancelsPendingPrewarm() {
+    AssetManager::Get().Clear();
+    ShaderManager::Get().Clear();
+    MockRenderContext context;
+    context.backend = RHIBackend::D3D12;
+    std::atomic_bool workerEntered{false};
+    std::atomic_bool cancellationObserved{false};
+    ShaderCacheService::Get().SetResolverWithCancellation(
+        [](const ShaderCacheRequest&) { return ShaderCacheResult{}; },
+        [&workerEntered, &cancellationObserved](const std::vector<ShaderCacheRequest>& requests,
+                                                const std::shared_ptr<ShaderCacheBatchCancellation>& cancellation) {
+            workerEntered.store(true);
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+            while (cancellation && !cancellation->IsCancellationRequested() &&
+                   std::chrono::steady_clock::now() < deadline) {
+                std::this_thread::yield();
+            }
+            cancellationObserved.store(cancellation && cancellation->IsCancellationRequested());
+            std::vector<ShaderCacheResult> results(requests.size());
+            for (ShaderCacheResult& result : results) {
+                result.diagnostic = "prewarm cancelled by ShaderManager::Clear";
+                result.failureKind = ShaderCacheFailureKind::Cancelled;
+            }
+            return results;
+        });
+    ShaderManager::Get().SetDevice(&context);
+
+    const ShaderPrewarmStatus status =
+        ShaderManager::Get().PrewarmCacheArtifactsAsync({EngineShaders::kPostProcessFXAA});
+    const auto workerDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (!workerEntered.load() && std::chrono::steady_clock::now() < workerDeadline)
+        std::this_thread::yield();
+    const auto clearStart = std::chrono::steady_clock::now();
+    ShaderManager::Get().Clear();
+    const double clearElapsedMs =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - clearStart).count();
+    const bool valid = status == ShaderPrewarmStatus::Pending && workerEntered.load() && cancellationObserved.load() &&
+                       clearElapsedMs < 500.0;
+
+    ShaderCacheService::Get().ClearResolver();
+    AssetManager::Get().Clear();
+    return Check(valid, "ShaderManager::Clear did not cancel a pending shader prewarm batch promptly");
+}
+
+bool TestShaderPrewarmFailureIsCachedWithoutRenderThreadRetry() {
+    AssetManager::Get().Clear();
+    ShaderManager::Get().Clear();
+    MockRenderContext context;
+    context.backend = RHIBackend::D3D12;
+    std::atomic_uint32_t singleEntries{0};
+    std::atomic_uint32_t batchEntries{0};
+    ShaderCacheService::Get().SetResolver(
+        [&singleEntries](const ShaderCacheRequest&) {
+            ++singleEntries;
+            return ShaderCacheResult{};
+        },
+        [&batchEntries](const std::vector<ShaderCacheRequest>& requests) {
+            ++batchEntries;
+            std::vector<ShaderCacheResult> results(requests.size());
+            for (ShaderCacheResult& result : results)
+                result.diagnostic = "intentional prewarm failure";
+            return results;
+        });
+    ShaderManager::Get().SetDevice(&context);
+
+    ShaderPrewarmStatus status = ShaderManager::Get().PrewarmCacheArtifactsAsync({EngineShaders::kPostProcessFXAA});
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (status == ShaderPrewarmStatus::Pending && std::chrono::steady_clock::now() < deadline) {
+        status = ShaderManager::Get().PrewarmCacheArtifactsAsync({EngineShaders::kPostProcessFXAA});
+        std::this_thread::yield();
+    }
+    const ShaderPrewarmStatus repeated =
+        ShaderManager::Get().PrewarmCacheArtifactsAsync({EngineShaders::kPostProcessFXAA});
+    ShaderManager::Get().Recompile("EngineContent/Shaders/PostProcessFXAA.shader");
+    ShaderPrewarmStatus afterEngineAliasReload =
+        ShaderManager::Get().PrewarmCacheArtifactsAsync({EngineShaders::kPostProcessFXAA});
+    const auto reloadDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (afterEngineAliasReload == ShaderPrewarmStatus::Pending &&
+           std::chrono::steady_clock::now() < reloadDeadline) {
+        afterEngineAliasReload = ShaderManager::Get().PrewarmCacheArtifactsAsync({EngineShaders::kPostProcessFXAA});
+        std::this_thread::yield();
+    }
+    const std::shared_ptr<ShaderHandle> handle =
+        ShaderManager::Get().GetOrCreate(EngineShaders::kPostProcessFXAA, nullptr, 0);
+    const bool valid = status == ShaderPrewarmStatus::Failed && repeated == ShaderPrewarmStatus::Failed &&
+                       afterEngineAliasReload == ShaderPrewarmStatus::Failed && batchEntries.load() == 2 &&
+                       singleEntries.load() == 0 && handle && !handle->shader;
+
+    ShaderManager::Get().Clear();
+    ShaderCacheService::Get().ClearResolver();
+    AssetManager::Get().Clear();
+    return Check(valid, "failed shader prewarm retried cooking or fell through to render-thread compilation");
 }
 
 bool TestRendererFeatureMaskSkipsOptionalPasses() {
@@ -1825,6 +3609,19 @@ MYENGINE_REGISTER_TEST("Renderer", "TestMaterialResourceCacheMeshResidencyAndQua
                        TestMaterialResourceCacheMeshResidencyAndQualityDegradation);
 MYENGINE_REGISTER_TEST("Renderer", "TestRenderGraphValidationAndExecution", TestRenderGraphValidationAndExecution);
 MYENGINE_REGISTER_TEST("Renderer", "TestNamedShaderBindings", TestNamedShaderBindings);
+MYENGINE_REGISTER_TEST("Renderer", "TestRenderGraphComputePassTypeAndUavBarriers",
+                       TestRenderGraphComputePassTypeAndUavBarriers);
+MYENGINE_REGISTER_TEST("Renderer", "TestGpuSceneDatabaseDirtyUploadAndGeometryArena",
+                       TestGpuSceneDatabaseDirtyUploadAndGeometryArena);
+MYENGINE_REGISTER_TEST("Renderer", "TestGpuSceneMaterialBindlessSamplerSelection",
+                       TestGpuSceneMaterialBindlessSamplerSelection);
+MYENGINE_REGISTER_TEST("Renderer", "TestModernBindlessSamplerShaderContract", TestModernBindlessSamplerShaderContract);
+MYENGINE_REGISTER_TEST("Renderer", "TestModernEnvironmentLightingMatchesClassicContract",
+                       TestModernEnvironmentLightingMatchesClassicContract);
+MYENGINE_REGISTER_TEST("Renderer", "TestModernClusterBuffersStartInNativeUavState",
+                       TestModernClusterBuffersStartInNativeUavState);
+MYENGINE_REGISTER_TEST("Renderer", "TestPersistentNativePipelineCacheContracts",
+                       TestPersistentNativePipelineCacheContracts);
 MYENGINE_REGISTER_TEST("Renderer", "TestBackendIndependentPassRecording", TestBackendIndependentPassRecording);
 MYENGINE_REGISTER_TEST("Renderer", "TestComputeStorageBufferAndAsyncReadback",
                        TestComputeStorageBufferAndAsyncReadback);
@@ -1840,6 +3637,37 @@ MYENGINE_REGISTER_TEST("Renderer", "TestRendererSynchronizesEnvironmentSunBefore
                        TestRendererSynchronizesEnvironmentSunBeforePrepare);
 MYENGINE_REGISTER_TEST("Renderer", "TestShadowedMainPassDirectShadowVisibilityContract",
                        TestShadowedMainPassDirectShadowVisibilityContract);
+MYENGINE_REGISTER_TEST("Renderer", "TestShadowDepthAlphaTestIncludesVertexAlpha",
+                       TestShadowDepthAlphaTestIncludesVertexAlpha);
+MYENGINE_REGISTER_TEST("Renderer", "TestShaderGraphMaskedAlphaTestIncludesVertexAlpha",
+                       TestShaderGraphMaskedAlphaTestIncludesVertexAlpha);
+MYENGINE_REGISTER_TEST("Renderer", "TestSkinnedGBufferMotionUsesPreviousBonePalette",
+                       TestSkinnedGBufferMotionUsesPreviousBonePalette);
+MYENGINE_REGISTER_TEST("Renderer", "TestSlangReflectionPreservesSamplerStateBindings",
+                       TestSlangReflectionPreservesSamplerStateBindings);
+MYENGINE_REGISTER_TEST("Renderer", "TestVulkanStructuredBufferAndScreenUIBindingContracts",
+                       TestVulkanStructuredBufferAndScreenUIBindingContracts);
+MYENGINE_REGISTER_TEST("Renderer", "TestGpuDrivenShadowSetupFailureFallsBackBeforeGraphMutation",
+                       TestGpuDrivenShadowSetupFailureFallsBackBeforeGraphMutation);
+MYENGINE_REGISTER_TEST("Renderer", "TestGpuDrivenShadowSetupFailureLeavesGraphUntouched",
+                       TestGpuDrivenShadowSetupFailureLeavesGraphUntouched);
+MYENGINE_REGISTER_TEST("Renderer", "TestModernTemporalReprojectionShaderContract",
+                       TestModernTemporalReprojectionShaderContract);
+MYENGINE_REGISTER_TEST("Renderer", "TestModernScreenSpaceCompositeShaderContract",
+                       TestModernScreenSpaceCompositeShaderContract);
+MYENGINE_REGISTER_TEST("Renderer", "TestModernScreenSpaceSamplingAndConfidenceContracts",
+                       TestModernScreenSpaceSamplingAndConfidenceContracts);
+MYENGINE_REGISTER_TEST("Renderer", "TestModernScreenSpaceDebugRoutingContract",
+                       TestModernScreenSpaceDebugRoutingContract);
+MYENGINE_REGISTER_TEST("Renderer", "TestModernScreenSpaceSlangCompileContracts",
+                       TestModernScreenSpaceSlangCompileContracts);
+MYENGINE_REGISTER_TEST("Renderer", "TestModernHiZOddDimensionReductionContract",
+                       TestModernHiZOddDimensionReductionContract);
+MYENGINE_REGISTER_TEST("Renderer", "TestModernCompatibilityGBufferPrecedesHiZContract",
+                       TestModernCompatibilityGBufferPrecedesHiZContract);
+MYENGINE_REGISTER_TEST("Renderer", "TestModernDiagnosticsReadbackIsThrottled",
+                       TestModernDiagnosticsReadbackIsThrottled);
+MYENGINE_REGISTER_TEST("Renderer", "TestModernTemporalHistoryCommitAndAbort", TestModernTemporalHistoryCommitAndAbort);
 MYENGINE_REGISTER_TEST("Renderer", "TestHeadlessRendering", TestHeadlessRendering);
 MYENGINE_REGISTER_TEST("Renderer", "TestMeshRendererSubMeshMaterialSlotDraws",
                        TestMeshRendererSubMeshMaterialSlotDraws);
@@ -1851,6 +3679,18 @@ MYENGINE_REGISTER_TEST("Renderer", "TestDeferredLightingShaderSourceContract",
 MYENGINE_REGISTER_TEST("Renderer", "TestRendererDeferredPathSubmitsGBufferLightingTransparentAndComposite",
                        TestRendererDeferredPathSubmitsGBufferLightingTransparentAndComposite);
 MYENGINE_REGISTER_TEST("Renderer", "TestRendererRenderPathDefaultsToForward", TestRendererRenderPathDefaultsToForward);
+MYENGINE_REGISTER_TEST("Renderer", "TestRenderPipelineDeviceProfileResolution",
+                       TestRenderPipelineDeviceProfileResolution);
+MYENGINE_REGISTER_TEST("Renderer", "TestRendererDefersModernInitializationUntilFirstRender",
+                       TestRendererDefersModernInitializationUntilFirstRender);
+MYENGINE_REGISTER_TEST("Renderer", "TestRendererStartsShaderPrewarmOffRenderThread",
+                       TestRendererStartsShaderPrewarmOffRenderThread);
+MYENGINE_REGISTER_TEST("Renderer", "TestShaderPrewarmAsyncContinuesWithChangedRequestSet",
+                       TestShaderPrewarmAsyncContinuesWithChangedRequestSet);
+MYENGINE_REGISTER_TEST("Renderer", "TestShaderManagerClearCancelsPendingPrewarm",
+                       TestShaderManagerClearCancelsPendingPrewarm);
+MYENGINE_REGISTER_TEST("Renderer", "TestShaderPrewarmFailureIsCachedWithoutRenderThreadRetry",
+                       TestShaderPrewarmFailureIsCachedWithoutRenderThreadRetry);
 MYENGINE_REGISTER_TEST("Renderer", "TestRendererFeatureMaskSkipsOptionalPasses",
                        TestRendererFeatureMaskSkipsOptionalPasses);
 MYENGINE_REGISTER_TEST("Renderer", "TestMaterialPreviewDirtyDrivenScheduling",

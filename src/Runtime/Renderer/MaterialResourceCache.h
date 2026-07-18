@@ -88,6 +88,7 @@ private:
         uint64_t bytes = 0, lastUsed = 0;
     };
     std::unordered_map<TextureAsset*, TextureEntry> m_TextureCache;
+    std::unordered_map<GpuTexture*, TextureEntry*> m_TextureEntriesByGpu;
     std::unordered_map<GpuTexture*, std::shared_ptr<GpuTextureView>> m_TextureViews;
     std::vector<std::shared_ptr<GpuSampler>> m_TextureSamplers;
     std::shared_ptr<GpuTexture> m_DefaultTexture;

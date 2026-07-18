@@ -10,6 +10,7 @@ cbuffer PostProcessParams : register(b0)
     float4 g_Params;        // exposure, gamma, toneMapping, vignette
     float4 g_Params2;       // saturation, contrast, fxaaEnabled, fxaaQuality
     float4 g_ScreenSize;    // 1/w, 1/h, w, h
+    float4 g_Params3;       // x: input already tone-mapped by Modern compute post
 };
 
 struct VSOut
@@ -83,6 +84,8 @@ float3 FxaaPass(float2 uv, float2 rcpFrame, float quality)
 float4 PSMain(VSOut input) : SV_TARGET
 {
     float3 sceneColor = g_SceneColor.Sample(g_Sampler, input.uv).rgb;
+    if (g_Params3.x > 0.5f)
+        return float4(saturate(sceneColor), 1.0f);
     float3 color = sceneColor;
 
     if (g_Params2.z > 0.5f)

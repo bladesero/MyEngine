@@ -110,26 +110,17 @@ EditorImportService::~EditorImportService() {
 
 void EditorImportService::OnAttach(EditorContext& context) {
     EditorService::OnAttach(context);
+    m_ProjectRoot = std::filesystem::absolute(context.GetProjectRoot()).lexically_normal();
     std::string error;
     if (!m_ImportPipeline->OpenProject(context.GetProjectRoot(), &error))
         Logger::Warn("[Editor] Asset import pipeline unavailable: ", error);
-    ShaderCacheService::Get().SetResolver([this](const ShaderCacheRequest& request) {
-        ShaderCacheResult result;
-        std::string error;
-        bool cacheHit = false;
-        if (EnsureShaderCache(request.sourcePath, "{}", request.allowCompile, result.artifactPath, cacheHit, &error)) {
-            result.succeeded = true;
-            result.cacheHit = cacheHit;
-        } else {
-            result.diagnostic = std::move(error);
-        }
-        return result;
-    });
+    ShaderCacheService::Get().ConfigureFileSystemCache(m_ProjectRoot / "Library/windows-x64/ShaderCache");
 }
 
 bool EditorImportService::EnsureShaderCache(const std::filesystem::path& sourcePath, const std::string& settingsJson,
                                             bool allowCompile, std::filesystem::path& outArtifactPath,
-                                            bool& outCacheHit, std::string* error) {
+                                            bool& outCacheHit, std::string* error,
+                                            const std::vector<ShaderBackend>& backends) {
     if (!m_ImportPipeline) {
         if (error)
             *error = "asset import pipeline is unavailable";
@@ -137,6 +128,19 @@ bool EditorImportService::EnsureShaderCache(const std::filesystem::path& sourceP
     }
 
     const std::filesystem::path resolved = AssetManager::Get().ResolvePath(sourcePath.string());
+    if (!backends.empty()) {
+        const ShaderCacheResult result =
+            ShaderCacheService::Get().EnsureShaderArtifact({resolved, backends, allowCompile, settingsJson});
+        if (!result.succeeded) {
+            if (error)
+                *error = result.diagnostic;
+            return false;
+        }
+        outArtifactPath = result.artifactPath;
+        outCacheHit = result.cacheHit;
+        return true;
+    }
+
     const AssetRecord* existing = m_ImportPipeline->GetDatabase().FindBySourcePath(resolved.generic_string());
     if (!existing) {
         std::error_code ec;
@@ -146,7 +150,10 @@ bool EditorImportService::EnsureShaderCache(const std::filesystem::path& sourceP
             existing = m_ImportPipeline->GetDatabase().FindBySourcePath(relative.generic_string());
         }
     }
-    if (existing && existing->state == AssetImportState::Ready && existing->type == "shader" &&
+    // A ready database record is only authoritative for runtime/cook-only use. In the Editor,
+    // ImportSourceInternal recomputes the cache key from the descriptor, stage sources, and includes;
+    // bypassing it here can keep bytecode/reflection whose constant-buffer ABI no longer matches HLSL.
+    if (!allowCompile && existing && existing->state == AssetImportState::Ready && existing->type == "shader" &&
         std::filesystem::is_regular_file(existing->artifactPath)) {
         outArtifactPath = existing->artifactPath;
         outCacheHit = true;

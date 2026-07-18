@@ -88,12 +88,36 @@ RenderPath RenderViewport::GetRenderPath() const {
     return m_RenderExecution.GetRenderPath();
 }
 
+void RenderViewport::SetDeviceProfile(GraphicsDeviceProfile profile) {
+    m_RenderExecution.SetDeviceProfile(profile);
+}
+
+GraphicsDeviceProfile RenderViewport::GetDeviceProfile() const {
+    return m_RenderExecution.GetDeviceProfile();
+}
+
+const RenderPipelineDiagnostics& RenderViewport::GetPipelineDiagnostics() const {
+    return m_RenderExecution.GetPipelineDiagnostics();
+}
+
 void RenderViewport::SetFeatureMask(RendererFeatureMask mask) {
     m_RenderExecution.SetFeatureMask(mask);
 }
 
 RendererFeatureMask RenderViewport::GetFeatureMask() const {
     return m_RenderExecution.GetFeatureMask();
+}
+
+void RenderViewport::SetDebugView(RendererDebugView view) {
+    m_RenderExecution.SetDebugView(view);
+}
+
+RendererDebugView RenderViewport::GetDebugView() const {
+    return m_RenderExecution.GetDebugView();
+}
+
+void RenderViewport::InvalidateTemporalHistory(const std::string& reason, bool resetObjectHistory) {
+    m_RenderExecution.InvalidateTemporalHistory(reason, resetObjectHistory);
 }
 
 void RenderViewport::UpdateCameraAspect(Camera& camera) {

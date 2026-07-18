@@ -48,6 +48,18 @@ public:
         m_StorageBuffers[name] = std::move(view);
         return true;
     }
+    bool SetBuffer(const std::string& name, std::shared_ptr<GpuBufferView> view) {
+        if ((!Find(name, ShaderBindingType::StructuredBuffer) && HasReflection()) || !view)
+            return false;
+        m_Buffers[name] = std::move(view);
+        return true;
+    }
+    bool SetStorageTexture(const std::string& name, std::shared_ptr<GpuTextureView> view) {
+        if ((!Find(name, ShaderBindingType::StorageTexture) && HasReflection()) || !view)
+            return false;
+        m_StorageTextures[name] = std::move(view);
+        return true;
+    }
     bool Validate(std::string* error = nullptr) const {
         if (!m_Shader) {
             if (error)
@@ -55,10 +67,32 @@ public:
             return false;
         }
         for (const auto& binding : m_Shader->reflection.bindings) {
-            bool found = binding.type == ShaderBindingType::ConstantBuffer ? m_Constants.count(binding.name) != 0
-                         : binding.type == ShaderBindingType::Texture      ? m_Textures.count(binding.name) != 0
-                         : binding.type == ShaderBindingType::Sampler      ? m_Samplers.count(binding.name) != 0
-                                                                           : m_StorageBuffers.count(binding.name) != 0;
+            // Unbounded descriptor arrays are populated by the device-level bindless table, not by a
+            // per-draw bind group. Requiring a single view here would both reject valid bindless passes and
+            // misrepresent the lifetime of the global descriptor heap.
+            if (binding.bindCount == UINT32_MAX && binding.type == ShaderBindingType::Texture)
+                continue;
+            bool found = false;
+            switch (binding.type) {
+            case ShaderBindingType::ConstantBuffer:
+                found = m_Constants.count(binding.name) != 0;
+                break;
+            case ShaderBindingType::Texture:
+                found = m_Textures.count(binding.name) != 0;
+                break;
+            case ShaderBindingType::Sampler:
+                found = m_Samplers.count(binding.name) != 0;
+                break;
+            case ShaderBindingType::StorageBuffer:
+                found = m_StorageBuffers.count(binding.name) != 0;
+                break;
+            case ShaderBindingType::StructuredBuffer:
+                found = m_Buffers.count(binding.name) != 0;
+                break;
+            case ShaderBindingType::StorageTexture:
+                found = m_StorageTextures.count(binding.name) != 0;
+                break;
+            }
             if (!found) {
                 if (error)
                     *error = "missing shader binding '" + binding.name + "'";
@@ -72,6 +106,8 @@ public:
     const auto& GetTextures() const { return m_Textures; }
     const auto& GetSamplers() const { return m_Samplers; }
     const auto& GetStorageBuffers() const { return m_StorageBuffers; }
+    const auto& GetBuffers() const { return m_Buffers; }
+    const auto& GetStorageTextures() const { return m_StorageTextures; }
 
 private:
     bool HasReflection() const { return m_Shader && !m_Shader->reflection.bindings.empty(); }
@@ -86,4 +122,6 @@ private:
     std::unordered_map<std::string, std::shared_ptr<GpuTextureView>> m_Textures;
     std::unordered_map<std::string, std::shared_ptr<GpuSampler>> m_Samplers;
     std::unordered_map<std::string, std::shared_ptr<GpuBufferView>> m_StorageBuffers;
+    std::unordered_map<std::string, std::shared_ptr<GpuBufferView>> m_Buffers;
+    std::unordered_map<std::string, std::shared_ptr<GpuTextureView>> m_StorageTextures;
 };

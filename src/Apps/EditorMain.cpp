@@ -16,6 +16,7 @@
 
 #include <memory>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <sstream>
 
@@ -103,9 +104,11 @@ void ApplyProjectBackend(const std::filesystem::path& projectRoot, ApplicationCo
 // --------------------------------------------------------------------------
 class MyApp : public Application {
 public:
-    MyApp(ApplicationConfig cfg, std::filesystem::path projectRoot, EditorAutomationConfig automation)
+    MyApp(ApplicationConfig cfg, std::filesystem::path projectRoot, EditorAutomationConfig automation,
+          std::optional<GraphicsDeviceProfile> deviceProfileOverride)
         : Application(cfg), m_Backend(cfg.backend), m_VSyncEnabled(cfg.window.vsync),
-          m_ProjectRoot(std::move(projectRoot)), m_Automation(std::move(automation)) {}
+          m_ProjectRoot(std::move(projectRoot)), m_Automation(std::move(automation)),
+          m_DeviceProfileOverride(deviceProfileOverride) {}
 
 protected:
     bool OnInit() override {
@@ -138,6 +141,11 @@ protected:
         GetEngine().PushLayer(sceneLayer);
         GetEngine().PushLayer(
             new EditorLayer(sceneLayer, &win, &GetEngine(), std::move(m_ProjectRoot), std::move(m_Automation)));
+        if (m_DeviceProfileOverride) {
+            sceneLayer->SetDeviceProfile(*m_DeviceProfileOverride);
+            Logger::Info("[App] Device profile overridden to '", GraphicsDeviceProfileName(*m_DeviceProfileOverride),
+                         "'");
+        }
         return true;
     }
 
@@ -154,6 +162,7 @@ private:
     bool m_VSyncEnabled = false;
     std::filesystem::path m_ProjectRoot;
     EditorAutomationConfig m_Automation;
+    std::optional<GraphicsDeviceProfile> m_DeviceProfileOverride;
 };
 
 static int RunEditor(int argc, char* argv[]) {
@@ -167,6 +176,7 @@ static int RunEditor(int argc, char* argv[]) {
     std::filesystem::path projectRoot;
     EditorAutomationConfig automation;
     bool backendOverridden = false;
+    std::optional<GraphicsDeviceProfile> deviceProfileOverride;
     const std::filesystem::path executableDirectory = GetExecutableDirectory(argv[0]);
     const std::filesystem::path bundledEngineContent = (executableDirectory / "EngineContent").lexically_normal();
     std::error_code ec;
@@ -199,6 +209,18 @@ static int RunEditor(int argc, char* argv[]) {
         } else if (arg.rfind("--backend=", 0) == 0) {
             const std::string b = arg.substr(std::string("--backend=").size());
             backendOverridden = ApplyBackendValue(b, cfg);
+        } else if (arg == "--device-profile" && i + 1 < argc) {
+            deviceProfileOverride = ParseGraphicsDeviceProfile(argv[++i]);
+            if (!deviceProfileOverride) {
+                Logger::Error("Unknown device profile (use desktop, console, or mobile)");
+                return 2;
+            }
+        } else if (arg.rfind("--device-profile=", 0) == 0) {
+            deviceProfileOverride = ParseGraphicsDeviceProfile(arg.substr(std::string("--device-profile=").size()));
+            if (!deviceProfileOverride) {
+                Logger::Error("Unknown device profile (use desktop, console, or mobile)");
+                return 2;
+            }
         } else if (arg == "--vsync" && i + 1 < argc) {
             ApplyVSyncValue(argv[++i], cfg);
         } else if (arg.rfind("--vsync=", 0) == 0) {
@@ -214,7 +236,7 @@ static int RunEditor(int argc, char* argv[]) {
         cfg.engine.autoQuitAfterSeconds = 20.0f;
     }
 
-    MyApp app(cfg, std::move(projectRoot), std::move(automation));
+    MyApp app(cfg, std::move(projectRoot), std::move(automation), deviceProfileOverride);
     return app.Run();
 }
 

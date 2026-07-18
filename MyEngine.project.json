@@ -1,6 +1,8 @@
 {
   "graphics": {
-    "backend": "vulkan"
+    "backend": "d3d12",
+    "deviceProfile": "console",
+    "renderPath": "deferred"
   },
   "input": {
     "config": "Content/Config/Input.input.json"
@@ -12,5 +14,5 @@
     "target": "windows-x64"
   },
   "startupScene": "Content/Scenes/Main.scene.json",
-  "version": 1
+  "version": 2
 }

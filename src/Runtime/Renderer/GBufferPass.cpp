@@ -20,11 +20,14 @@ namespace {
 struct GBufferPerDrawConstants {
     float viewProj[16];
     float world[16];
+    float previousViewProj[16];
+    float previousWorld[16];
     float baseColor[4];
     float material[4];
     float emissive[4];
     float mapFlags[4];
     float boneMatrices[128][16];
+    float previousBoneMatrices[128][16];
     float skinInfo[4];
     float normalMatrix[16];
 };
@@ -32,7 +35,10 @@ struct GBufferPerDrawConstants {
 struct GraphGBufferConstants {
     float viewProj[16];
     float world[16];
+    float previousViewProj[16];
+    float previousWorld[16];
     float boneMatrices[128][16];
+    float previousBoneMatrices[128][16];
     float skinInfo[4];
     float normalMatrix[16];
     Vec4 values[MaterialSystem::kConstantSlotCount];
@@ -51,6 +57,27 @@ void FillColorConstants(float out[4], const MaterialAsset& material, const char*
     out[1] = color.data[1];
     out[2] = color.data[2];
     out[3] = color.data[3];
+}
+
+template <typename Constants>
+void FillSkinningConstants(
+    Constants& constants, const SkinnedMeshRendererComponent* skin,
+    const std::unordered_map<const SkinnedMeshRendererComponent*, std::vector<Mat4>>& previousSkinMatrices) {
+    if (!skin || !skin->UsesGpuSkinning())
+        return;
+
+    const auto& matrices = skin->GetSkinMatrices();
+    const size_t boneCount = (std::min)(matrices.size(), size_t{128});
+    const auto previous = previousSkinMatrices.find(skin);
+    const bool hasCompatiblePrevious =
+        previous != previousSkinMatrices.end() && previous->second.size() == matrices.size();
+    constants.skinInfo[0] = static_cast<float>(boneCount);
+    for (size_t bone = 0; bone < boneCount; ++bone) {
+        std::memcpy(constants.boneMatrices[bone], matrices[bone].Data(), sizeof(constants.boneMatrices[bone]));
+        const Mat4& previousMatrix = hasCompatiblePrevious ? previous->second[bone] : matrices[bone];
+        std::memcpy(constants.previousBoneMatrices[bone], previousMatrix.Data(),
+                    sizeof(constants.previousBoneMatrices[bone]));
+    }
 }
 
 } // namespace
@@ -77,6 +104,12 @@ void GBufferPass::Resize(uint32_t width, uint32_t height) {
     m_Emissive.reset();
     m_EmissiveRtv.reset();
     m_EmissiveSrv.reset();
+    m_Velocity.reset();
+    m_VelocityRtv.reset();
+    m_VelocitySrv.reset();
+    m_PreviousWorld.clear();
+    m_PreviousSkinMatrices.clear();
+    m_HasPreviousViewProj = false;
     m_GBufferState = RHIResourceState::Undefined;
 }
 
@@ -98,6 +131,9 @@ GBufferPass::GraphResources GBufferPass::GetGraphResources() const {
     resources.emissive = m_Emissive;
     resources.emissiveRtv = m_EmissiveRtv;
     resources.emissiveSrv = m_EmissiveSrv;
+    resources.velocity = m_Velocity;
+    resources.velocityRtv = m_VelocityRtv;
+    resources.velocitySrv = m_VelocitySrv;
     resources.initialState = m_GBufferState;
     return resources;
 }
@@ -110,7 +146,8 @@ bool GBufferPass::EnsureResources() {
     if (!Device())
         return false;
     if (m_Albedo && m_AlbedoRtv && m_AlbedoSrv && m_Normal && m_NormalRtv && m_NormalSrv && m_Material &&
-        m_MaterialRtv && m_MaterialSrv && m_Emissive && m_EmissiveRtv && m_EmissiveSrv)
+        m_MaterialRtv && m_MaterialSrv && m_Emissive && m_EmissiveRtv && m_EmissiveSrv && m_Velocity && m_VelocityRtv &&
+        m_VelocitySrv)
         return true;
 
     auto createTarget = [&](const char* name, RHIFormat format, std::shared_ptr<GpuTexture>& texture,
@@ -148,7 +185,8 @@ bool GBufferPass::EnsureResources() {
     return createTarget("GBufferAlbedo", RHIFormat::RGBA8UNorm, m_Albedo, m_AlbedoRtv, m_AlbedoSrv) &&
            createTarget("GBufferNormal", RHIFormat::RGBA16Float, m_Normal, m_NormalRtv, m_NormalSrv) &&
            createTarget("GBufferMaterial", RHIFormat::RGBA8UNorm, m_Material, m_MaterialRtv, m_MaterialSrv) &&
-           createTarget("GBufferEmissive", RHIFormat::RGBA16Float, m_Emissive, m_EmissiveRtv, m_EmissiveSrv);
+           createTarget("GBufferEmissive", RHIFormat::RGBA16Float, m_Emissive, m_EmissiveRtv, m_EmissiveSrv) &&
+           createTarget("GBufferVelocity", RHIFormat::RG16Float, m_Velocity, m_VelocityRtv, m_VelocitySrv);
 }
 
 GpuShader* GBufferPass::GetOrCreateShader() {
@@ -177,10 +215,8 @@ GpuGraphicsPipeline* GBufferPass::GetOrCreatePipeline(const MaterialAsset& mater
         GraphicsPipelineDesc desc;
         desc.shader = m_ShaderHandle->shader;
         desc.colorFormats = {
-            RHIFormat::RGBA8UNorm,
-            RHIFormat::RGBA16Float,
-            RHIFormat::RGBA8UNorm,
-            RHIFormat::RGBA16Float,
+            RHIFormat::RGBA8UNorm,  RHIFormat::RGBA16Float, RHIFormat::RGBA8UNorm,
+            RHIFormat::RGBA16Float, RHIFormat::RG16Float,
         };
         desc.depthFormat = RHIFormat::D24S8;
         desc.rasterizer.cullMode = material.IsTwoSided() ? RHICullMode::None : RHICullMode::Back;
@@ -206,7 +242,7 @@ GpuGraphicsPipeline* GBufferPass::GetOrCreateGraphPipeline(const ResolvedMateria
         GraphicsPipelineDesc desc;
         desc.shader = shader->shader;
         desc.colorFormats = {RHIFormat::RGBA8UNorm, RHIFormat::RGBA16Float, RHIFormat::RGBA8UNorm,
-                             RHIFormat::RGBA16Float};
+                             RHIFormat::RGBA16Float, RHIFormat::RG16Float};
         desc.depthFormat = RHIFormat::D24S8;
         desc.rasterizer.cullMode = material.twoSided ? RHICullMode::None : RHICullMode::Back;
         desc.rasterizer.fillMode = material.wireframe ? RHIFillMode::Wireframe : RHIFillMode::Solid;
@@ -217,6 +253,21 @@ GpuGraphicsPipeline* GBufferPass::GetOrCreateGraphPipeline(const ResolvedMateria
 }
 
 void GBufferPass::Execute(GpuCommandList& commands, const Scene& scene, const Camera& camera) {
+    ExecuteFiltered(commands, scene, camera, false);
+}
+
+void GBufferPass::ExecuteCompatibilityOnly(GpuCommandList& commands, const Scene& scene, const Camera& camera) {
+    ExecuteFiltered(commands, scene, camera, true);
+}
+
+void GBufferPass::ExecuteCompatibilityOnly(GpuCommandList& commands, const Scene& scene, const Camera& camera,
+                                           const Mat4& viewProjection, const Mat4& previousViewProjection) {
+    ExecuteFiltered(commands, scene, camera, true, &viewProjection, &previousViewProjection);
+}
+
+void GBufferPass::ExecuteFiltered(GpuCommandList& commands, const Scene& scene, const Camera& camera,
+                                  bool compatibilityOnly, const Mat4* viewProjectionOverride,
+                                  const Mat4* previousViewProjectionOverride) {
     if (!Device())
         return;
     GpuShader* shader = GetOrCreateShader();
@@ -227,8 +278,13 @@ void GBufferPass::Execute(GpuCommandList& commands, const Scene& scene, const Ca
     m_ResourceCache.ResetFrameStats();
     m_ResourceCache.EnsureNamedBindingDefaults();
 
-    const Mat4 viewProj = camera.GetViewProj();
+    const Mat4 viewProj = viewProjectionOverride ? *viewProjectionOverride : camera.GetViewProj();
+    const Mat4 previousViewProj = previousViewProjectionOverride
+                                      ? *previousViewProjectionOverride
+                                      : (m_HasPreviousViewProj ? m_PreviousViewProj : viewProj);
     const SceneRenderCollection collection = m_Collector.Collect(scene, camera);
+    std::unordered_map<const Actor*, Mat4> nextPreviousWorld;
+    std::unordered_map<const SkinnedMeshRendererComponent*, std::vector<Mat4>> nextPreviousSkinMatrices;
 
     for (const SceneRenderItem& item : collection.opaqueItems) {
         Actor* actor = item.actor;
@@ -244,6 +300,9 @@ void GBufferPass::Execute(GpuCommandList& commands, const Scene& scene, const Ca
             continue;
 
         const bool hasMaterialContract = material->HasParent() || material->GetShaderAsset().IsValid();
+        const bool skinned = actor->GetComponent<SkinnedMeshRendererComponent>() != nullptr;
+        if (compatibilityOnly && !skinned && !hasMaterialContract)
+            continue;
         ResolvedMaterial resolved;
         std::shared_ptr<ShaderHandle> graphShader;
         if (hasMaterialContract) {
@@ -264,6 +323,8 @@ void GBufferPass::Execute(GpuCommandList& commands, const Scene& scene, const Ca
         commands.BindVertexBuffer(mesh->GetVertexBuffer());
 
         const Mat4 world = actor->GetWorldMatrix();
+        const auto previousWorldIt = m_PreviousWorld.find(actor);
+        const Mat4 previousWorld = previousWorldIt == m_PreviousWorld.end() ? world : previousWorldIt->second;
         Mat4 normalMatrix = Mat4::Identity();
         if (Mat4Invert(world, normalMatrix)) {
             normalMatrix = normalMatrix.Transposed();
@@ -273,6 +334,8 @@ void GBufferPass::Execute(GpuCommandList& commands, const Scene& scene, const Ca
             GraphGBufferConstants constants{};
             std::memcpy(constants.viewProj, viewProj.Data(), sizeof(constants.viewProj));
             std::memcpy(constants.world, world.Data(), sizeof(constants.world));
+            std::memcpy(constants.previousViewProj, previousViewProj.Data(), sizeof(constants.previousViewProj));
+            std::memcpy(constants.previousWorld, previousWorld.Data(), sizeof(constants.previousWorld));
             std::memcpy(constants.normalMatrix, normalMatrix.Data(), sizeof(constants.normalMatrix));
             std::copy(resolved.constants.begin(), resolved.constants.end(), constants.values);
             constants.graphTime[0] = GraphElapsedSeconds();
@@ -280,14 +343,7 @@ void GBufferPass::Execute(GpuCommandList& commands, const Scene& scene, const Ca
             constants.graphTime[1] = cameraPosition.x;
             constants.graphTime[2] = cameraPosition.y;
             constants.graphTime[3] = cameraPosition.z;
-            if (item.skin && item.skin->UsesGpuSkinning()) {
-                const auto& matrices = item.skin->GetSkinMatrices();
-                const size_t boneCount = (std::min)(matrices.size(), size_t{128});
-                constants.skinInfo[0] = static_cast<float>(boneCount);
-                for (size_t bone = 0; bone < boneCount; ++bone)
-                    std::memcpy(constants.boneMatrices[bone], matrices[bone].Data(),
-                                sizeof(constants.boneMatrices[bone]));
-            }
+            FillSkinningConstants(constants, item.skin, m_PreviousSkinMatrices);
             auto bindings = Device()->CreateBindGroup(graphShader->shader);
             if (bindings) {
                 MaterialSystem::BindTextures(*bindings, m_ResourceCache, resolved);
@@ -302,12 +358,17 @@ void GBufferPass::Execute(GpuCommandList& commands, const Scene& scene, const Ca
                 commands.BindIndexBuffer(nullptr);
                 commands.Draw(subMesh->indexCount, subMesh->vertexOffset);
             }
+            nextPreviousWorld[actor] = world;
+            if (item.skin && item.skin->UsesGpuSkinning())
+                nextPreviousSkinMatrices.try_emplace(item.skin, item.skin->GetSkinMatrices());
             continue;
         }
 
         GBufferPerDrawConstants constants{};
         std::memcpy(constants.viewProj, viewProj.Data(), sizeof(constants.viewProj));
         std::memcpy(constants.world, world.Data(), sizeof(constants.world));
+        std::memcpy(constants.previousViewProj, previousViewProj.Data(), sizeof(constants.previousViewProj));
+        std::memcpy(constants.previousWorld, previousWorld.Data(), sizeof(constants.previousWorld));
         std::memcpy(constants.normalMatrix, normalMatrix.Data(), sizeof(constants.normalMatrix));
         FillColorConstants(constants.baseColor, *material, "BaseColor", Vec3::One());
         constants.material[0] = std::clamp(material->GetFloat("Metallic", 0.0f), 0.0f, 1.0f);
@@ -319,6 +380,7 @@ void GBufferPass::Execute(GpuCommandList& commands, const Scene& scene, const Ca
         constants.emissive[1] = emissive.y;
         constants.emissive[2] = emissive.z;
         constants.emissive[3] = material->GetBlendMode() == BlendMode::AlphaTest ? 1.0f : 0.0f;
+        FillSkinningConstants(constants, item.skin, m_PreviousSkinMatrices);
         if (errorMaterial) {
             constants.baseColor[0] = 1.0f;
             constants.baseColor[1] = 0.0f;
@@ -369,5 +431,14 @@ void GBufferPass::Execute(GpuCommandList& commands, const Scene& scene, const Ca
             commands.BindIndexBuffer(nullptr);
             commands.Draw(subMesh->indexCount, subMesh->vertexOffset);
         }
+        nextPreviousWorld[actor] = world;
+        if (item.skin && item.skin->UsesGpuSkinning())
+            nextPreviousSkinMatrices.try_emplace(item.skin, item.skin->GetSkinMatrices());
+    }
+    m_PreviousWorld.swap(nextPreviousWorld);
+    m_PreviousSkinMatrices.swap(nextPreviousSkinMatrices);
+    if (!viewProjectionOverride) {
+        m_PreviousViewProj = viewProj;
+        m_HasPreviousViewProj = true;
     }
 }

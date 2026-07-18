@@ -1,8 +1,10 @@
 #include "Renderer/ScreenUIPass.h"
 
 #include "Core/Logger.h"
+#include "Renderer/EngineShaderCatalog.h"
 #include "Renderer/RHI/GpuPipeline.h"
 #include "Renderer/RHI/VertexLayout.h"
+#include "Renderer/ShaderManager.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -108,38 +110,49 @@ void ScreenUIPass::Resize(uint32_t width, uint32_t height) {
 }
 
 GpuShader* ScreenUIPass::GetOrCreateShader() {
-    if (m_Shader || !Device())
+    if (m_Shader || m_ShaderCreationAttempted || !Device())
         return m_Shader.get();
+    m_ShaderCreationAttempted = true;
     const VertexElement layout[] = {
         {"POSITION", 0, VertexFormat::Float2, offsetof(UIVertex, x)},
         {"TEXCOORD", 0, VertexFormat::Float2, offsetof(UIVertex, u)},
         {"COLOR", 0, VertexFormat::Float4, offsetof(UIVertex, r)},
     };
-    const char* source = Device()->GetBackend() == RHIBackend::Metal ? kUIShaderMetal : kUIShader;
-    m_Shader = Device()->CreateShader(source, "VSMain", "PSMain", layout, 3);
+    if (Device()->GetBackend() == RHIBackend::Vulkan) {
+        m_ShaderHandle = ShaderManager::Get().GetOrCreate(EngineShaders::kScreenUI, layout, 3);
+        m_Shader = m_ShaderHandle ? m_ShaderHandle->shader : nullptr;
+    } else {
+        const char* source = Device()->GetBackend() == RHIBackend::Metal ? kUIShaderMetal : kUIShader;
+        m_Shader = Device()->CreateShader(source, "VSMain", "PSMain", layout, 3);
+    }
     if (!m_Shader)
         Logger::Warn("[ScreenUIPass] Failed to create UI shader");
     return m_Shader.get();
 }
 
-GpuGraphicsPipeline* ScreenUIPass::GetOrCreatePipeline() {
-    if (m_Pipeline)
-        return m_Pipeline.get();
+GpuGraphicsPipeline* ScreenUIPass::GetOrCreatePipeline(RHIFormat colorFormat) {
+    const uint32_t key = static_cast<uint32_t>(colorFormat);
+    if (const auto it = m_Pipelines.find(key); it != m_Pipelines.end())
+        return it->second.get();
     GpuShader* shader = GetOrCreateShader();
     if (!shader || !Device())
         return nullptr;
 
     GraphicsPipelineDesc desc;
     desc.shader = m_Shader;
-    desc.colorFormats = {RHIFormat::RGBA8UNorm};
+    desc.colorFormats = {colorFormat};
     desc.depthStencil.depthTestEnable = false;
     desc.depthStencil.depthWriteEnable = false;
     desc.rasterizer.cullMode = RHICullMode::None;
     desc.blend.attachments[0].blendEnable = true;
-    m_Pipeline = Device()->CreateGraphicsPipeline(desc);
-    if (!m_Pipeline)
+    auto pipeline = Device()->CreateGraphicsPipeline(desc);
+    if (!pipeline) {
         Logger::Warn("[ScreenUIPass] Failed to create UI pipeline");
-    return m_Pipeline.get();
+        return nullptr;
+    }
+    GpuGraphicsPipeline* result = pipeline.get();
+    m_Pipelines.emplace(key, std::move(pipeline));
+    return result;
 }
 
 std::shared_ptr<GpuTexture> ScreenUIPass::GetOrCreateWhiteTexture() {
@@ -150,11 +163,53 @@ std::shared_ptr<GpuTexture> ScreenUIPass::GetOrCreateWhiteTexture() {
     return m_WhiteTexture;
 }
 
+std::shared_ptr<GpuTextureView> ScreenUIPass::GetOrCreateTextureView(const std::shared_ptr<GpuTexture>& texture) {
+    if (!Device() || !texture)
+        return nullptr;
+    if (const auto it = m_TextureViews.find(texture.get()); it != m_TextureViews.end())
+        return it->second;
+    RHITextureViewDesc desc;
+    desc.usage = RHIResourceUsage::ShaderResource;
+    auto view = Device()->CreateTextureView(texture, desc);
+    if (view)
+        m_TextureViews.emplace(texture.get(), view);
+    return view;
+}
+
+std::shared_ptr<GpuSampler> ScreenUIPass::GetOrCreateSampler() {
+    if (m_LinearSampler || !Device())
+        return m_LinearSampler;
+    RHISamplerDesc desc;
+    desc.filter = RHIFilter::Linear;
+    desc.addressU = desc.addressV = desc.addressW = RHIAddressMode::Clamp;
+    m_LinearSampler = Device()->CreateSampler(desc);
+    return m_LinearSampler;
+}
+
 void ScreenUIPass::Execute(GpuCommandList&, const Scene&, const Camera&) {
 }
 
-void ScreenUIPass::Execute(GpuCommandList& commands, const UIDrawList& drawList) {
-    GpuGraphicsPipeline* pipeline = GetOrCreatePipeline();
+bool ScreenUIPass::Prepare(const UIDrawList& drawList, RHIFormat colorFormat) {
+    if (!GetOrCreatePipeline(colorFormat))
+        return false;
+    if (Device()->GetBackend() != RHIBackend::Vulkan)
+        return true;
+
+    // Vulkan texture uploads and layout transitions must happen outside the dynamic-rendering scope opened by
+    // RenderGraph. Build every resource variant used by this immutable draw list before graph execution begins.
+    const auto whiteTexture = GetOrCreateWhiteTexture();
+    if (!whiteTexture || !GetOrCreateSampler())
+        return false;
+    for (const UIDrawCommand& command : drawList.GetCommands()) {
+        const auto& texture = command.texture ? command.texture : whiteTexture;
+        if (!GetOrCreateTextureView(texture))
+            return false;
+    }
+    return true;
+}
+
+void ScreenUIPass::Execute(GpuCommandList& commands, const UIDrawList& drawList, RHIFormat colorFormat) {
+    GpuGraphicsPipeline* pipeline = GetOrCreatePipeline(colorFormat);
     if (!pipeline || drawList.Empty())
         return;
 
@@ -167,14 +222,37 @@ void ScreenUIPass::Execute(GpuCommandList& commands, const UIDrawList& drawList)
         constants.invSize[1] = 1.0f / static_cast<float>(m_Height);
         constants.translation[0] = command.translateX;
         constants.translation[1] = command.translateY;
-        commands.SetVSConstants(&constants, sizeof(constants));
+        if (Device()->GetBackend() == RHIBackend::Vulkan) {
+            const auto texture = command.texture ? command.texture : m_WhiteTexture;
+            auto bindings = Device()->CreateBindGroup(m_Shader);
+            const auto viewIt = texture ? m_TextureViews.find(texture.get()) : m_TextureViews.end();
+            const auto textureView = viewIt != m_TextureViews.end() ? viewIt->second : nullptr;
+            const auto sampler = m_LinearSampler;
+            std::string error;
+            const bool complete = bindings &&
+                                  bindings->SetConstants("UIScreenConstants", &constants, sizeof(constants)) &&
+                                  bindings->SetTexture("u_Texture", textureView) &&
+                                  bindings->SetSampler("u_Sampler", sampler) && bindings->Validate(&error);
+            if (!complete) {
+                if (!m_LoggedBindingFailure) {
+                    Logger::Warn("[ScreenUIPass] Failed to bind Vulkan UI resources",
+                                 error.empty() ? std::string{} : ": ", error);
+                    m_LoggedBindingFailure = true;
+                }
+                continue;
+            }
+            commands.SetBindGroup(0, bindings.get());
+        } else {
+            commands.SetVSConstants(&constants, sizeof(constants));
+        }
         if (command.scissor.enabled) {
             commands.SetScissor(command.scissor.x, command.scissor.y, static_cast<uint32_t>(command.scissor.width),
                                 static_cast<uint32_t>(command.scissor.height));
         }
         commands.BindVertexBuffer(command.vertexBuffer.get());
         commands.BindIndexBuffer(command.indexBuffer.get());
-        commands.BindPSTexture(0, command.texture ? command.texture.get() : GetOrCreateWhiteTexture().get());
+        if (Device()->GetBackend() != RHIBackend::Vulkan)
+            commands.BindPSTexture(0, command.texture ? command.texture.get() : GetOrCreateWhiteTexture().get());
         commands.DrawIndexed(command.indexCount, command.startIndex, command.baseVertex);
     }
 }

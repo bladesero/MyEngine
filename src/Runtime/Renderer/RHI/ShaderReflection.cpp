@@ -14,11 +14,13 @@ static ShaderBindingType ToBindingType(D3D_SHADER_INPUT_TYPE type) {
     case D3D_SIT_SAMPLER:
         return ShaderBindingType::Sampler;
     case D3D_SIT_UAV_RWTYPED:
+        return ShaderBindingType::StorageTexture;
     case D3D_SIT_UAV_RWSTRUCTURED:
     case D3D_SIT_UAV_RWBYTEADDRESS:
+        return ShaderBindingType::StorageBuffer;
     case D3D_SIT_STRUCTURED:
     case D3D_SIT_BYTEADDRESS:
-        return ShaderBindingType::StorageBuffer;
+        return ShaderBindingType::StructuredBuffer;
     default:
         return ShaderBindingType::Texture;
     }
@@ -53,6 +55,7 @@ bool ReflectDxbcStage(const void* bytecode, size_t byteSize, uint8_t stage, Shad
         binding.name = native.Name ? native.Name : "";
         binding.type = ToBindingType(native.Type);
         binding.bindPoint = native.BindPoint;
+        binding.bindSpace = 0;
         binding.bindCount = native.BindCount;
         binding.stages = stage;
         if (native.Type == D3D_SIT_CBUFFER) {

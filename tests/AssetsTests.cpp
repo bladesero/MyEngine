@@ -11,6 +11,8 @@
 #include "Editor/EditorImportService.h"
 #include "Project/ProjectConfig.h"
 #include "Renderer/MaterialSystem.h"
+#include "Renderer/ShaderCacheService.h"
+#include "Renderer/ShaderCompilerSlang.h"
 #include "Renderer/ShaderCooker.h"
 #include "Renderer/ShaderGraphCompiler.h"
 #include "Scene/MeshRendererComponent.h"
@@ -18,10 +20,14 @@
 #include "Scene/SceneSerializer.h"
 #include "Scripting/ScriptComponent.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <future>
+#include <thread>
 #include <unordered_set>
 #include <vector>
 
@@ -211,9 +217,15 @@ bool TestSurfaceShaderGraphV2Contract() {
     blobs[static_cast<size_t>(ShaderBackend::D3D12)][static_cast<size_t>(ShaderPass::Forward)]
          [static_cast<size_t>(ShaderStage::Pixel)] = {5, 6};
     ShaderAsset cooked(path.string());
+    CookedShaderReflectionTable reflection{};
+    auto& pixelReflection =
+        reflection[static_cast<size_t>(ShaderBackend::D3D12)][static_cast<size_t>(ShaderPass::Forward)]
+                  [static_cast<size_t>(ShaderStage::Pixel)];
+    pixelReflection.bindings.push_back({"g_BaseColor", CookedShaderBindingType::Texture, 0, 0, 1, 0});
+    pixelReflection.bindings.push_back({"g_BindlessTextures", CookedShaderBindingType::Texture, 0, 1, UINT32_MAX, 0});
     cooked.SetCookedPasses(1u << static_cast<uint32_t>(ShaderPass::Forward), 99, ShaderSourceMode::Graph,
                            ShaderDomain::Surface, ShaderShadingModel::Unlit, ShaderSurfaceType::Transparent,
-                           shader->GetProperties(), std::move(blobs));
+                           shader->GetProperties(), std::move(blobs), std::move(reflection));
     const fs::path cookedPath = root / "Cooked.shader";
     std::string error;
     if (!Check(SaveCookedShaderAsset(cooked, cookedPath, &error), error))
@@ -222,7 +234,13 @@ bool TestSurfaceShaderGraphV2Contract() {
     const bool cookedOk =
         loadedCooked && loadedCooked->IsCooked() && loadedCooked->IsGraph() &&
         loadedCooked->HasPass(ShaderPass::Forward) && loadedCooked->GetProperties().size() == 1 &&
-        loadedCooked->GetBytecode(ShaderBackend::D3D12, ShaderPass::Forward, ShaderStage::Pixel).size() == 2;
+        loadedCooked->GetBytecode(ShaderBackend::D3D12, ShaderPass::Forward, ShaderStage::Pixel).size() == 2 &&
+        loadedCooked->GetCookedShaderAbiVersion() == ShaderAsset::kCookedShaderAbiVersion &&
+        loadedCooked->GetReflection(ShaderBackend::D3D12, ShaderPass::Forward, ShaderStage::Pixel).bindings.size() ==
+            2 &&
+        loadedCooked->GetReflection(ShaderBackend::D3D12, ShaderPass::Forward, ShaderStage::Pixel)
+                .bindings.back()
+                .bindCount == UINT32_MAX;
     fs::remove_all(root, ec);
     return Check(cookedOk, "cooked backend/pass/stage shader container round-trip failed");
 }
@@ -1421,6 +1439,438 @@ bool TestShaderLibraryArtifactCacheHit() {
     return Check(ok, "shader source did not resolve to Library cooked artifact");
 }
 
+bool TestEditorShaderCacheRevalidatesStageSources() {
+#ifndef MYENGINE_PLATFORM_WINDOWS
+    return true;
+#else
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "myengine_editor_shader_cache_revalidation";
+    std::error_code ec;
+    fs::remove_all(root, ec);
+    fs::create_directories(root / "Content" / "Shaders", ec);
+    fs::create_directories(root / ".myengine", ec);
+    const fs::path descriptor = root / "Content" / "Shaders" / "Cache.shader";
+    const fs::path hlsl = root / "Content" / "Shaders" / "Cache.hlsl";
+    std::ofstream(descriptor)
+        << R"({"type":"Shader","version":1,"stages":{"vertex":{"source":"Cache.hlsl","entry":"VSMain"},"pixel":{"source":"Cache.hlsl","entry":"PSMain"}},"defines":[]})";
+    auto writeHlsl = [&](bool extended) {
+        std::ofstream output(hlsl, std::ios::trunc);
+        output << "cbuffer Params : register(b0) { float4 g_Color;";
+        if (extended)
+            output << " float4 g_Extra;";
+        output << R"( };
+struct VSOut { float4 position : SV_POSITION; };
+VSOut VSMain(uint vertexId : SV_VertexID) {
+    VSOut output;
+    float2 uv = float2((vertexId << 1) & 2, vertexId & 2);
+    output.position = float4(uv * float2(2.0, -2.0) + float2(-1.0, 1.0), 0.0, 1.0);
+    return output;
+}
+
+float4 PSMain(VSOut input) : SV_TARGET {
+    return g_Color;
+}
+)";
+    };
+    writeHlsl(false);
+
+    AssetManager& assets = AssetManager::Get();
+    assets.Clear();
+    assets.SetProjectRoot(root);
+    EditorContext context;
+    context.SetProjectRoot(root);
+    EditorImportService imports;
+    imports.OnAttach(context);
+
+    std::filesystem::path firstArtifact;
+    std::filesystem::path cachedArtifact;
+    std::filesystem::path updatedArtifact;
+    bool firstHit = false;
+    bool secondHit = false;
+    bool updatedHit = false;
+    std::string error;
+    const bool firstOk = imports.EnsureShaderCache(descriptor, "{}", true, firstArtifact, firstHit, &error);
+    const bool cachedOk =
+        firstOk && imports.EnsureShaderCache(descriptor, "{}", true, cachedArtifact, secondHit, &error);
+    writeHlsl(true);
+    const bool updatedOk =
+        cachedOk && imports.EnsureShaderCache(descriptor, "{}", true, updatedArtifact, updatedHit, &error);
+
+    AssetDatabase database;
+    const bool databaseOpened = database.Open(root / ".myengine" / "AssetDatabase.json", &error);
+    const AssetRecord* record = databaseOpened ? database.FindBySourcePath(descriptor.generic_string()) : nullptr;
+    const bool dependencyRecorded = record && std::find(record->dependencies.begin(), record->dependencies.end(),
+                                                        hlsl.generic_string()) != record->dependencies.end();
+    const bool valid = firstOk && cachedOk && updatedOk && !firstHit && secondHit && !updatedHit &&
+                       firstArtifact == cachedArtifact && firstArtifact != updatedArtifact && dependencyRecorded;
+
+    imports.OnDetach();
+    assets.Clear();
+    assets.SetProjectRoot({});
+    fs::remove_all(root, ec);
+    return Check(valid, error.empty() ? "Editor shader cache did not invalidate after an HLSL ABI change" : error);
+#endif
+}
+
+bool TestEditorShaderCacheCooksOnlyRequestedBackend() {
+#ifndef MYENGINE_PLATFORM_WINDOWS
+    return true;
+#else
+    if (!Check(ShaderCompilerSlang::IsAvailable(), "Slang compiler is unavailable for backend-specific cache test"))
+        return false;
+
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "myengine_editor_shader_cache_active_backend";
+    std::error_code ec;
+    fs::remove_all(root, ec);
+    fs::create_directories(root / "Content" / "Shaders", ec);
+    fs::create_directories(root / ".myengine", ec);
+    const fs::path descriptor = root / "Content" / "Shaders" / "ActiveBackend.shader";
+    const fs::path hlsl = root / "Content" / "Shaders" / "ActiveBackend.hlsl";
+    std::ofstream(descriptor)
+        << R"({"type":"Shader","version":1,"stages":{"compute":{"source":"ActiveBackend.hlsl","entry":"CSMain"}},"defines":[]})";
+    std::ofstream(hlsl) << "[numthreads(1,1,1)] void CSMain(uint3 id : SV_DispatchThreadID) {}\n";
+
+    AssetManager& assets = AssetManager::Get();
+    assets.Clear();
+    assets.SetProjectRoot(root);
+    EditorContext context;
+    context.SetProjectRoot(root);
+    EditorImportService imports;
+    imports.OnAttach(context);
+
+    std::string error;
+    const std::vector<ShaderBackend> requested = {ShaderBackend::D3D12};
+    const ShaderCacheRequest request{descriptor, requested, true};
+    const std::vector<ShaderCacheResult> batch = ShaderCacheService::Get().EnsureShaderArtifacts(
+        {request, {fs::path("Content/Shaders/ActiveBackend.shader"), requested, true}});
+    const ShaderCacheResult first = batch.empty() ? ShaderCacheResult{} : batch.front();
+    const ShaderCacheResult alias = batch.size() < 2 ? ShaderCacheResult{} : batch[1];
+    const ShaderCacheResult second = ShaderCacheService::Get().EnsureShaderArtifact(request);
+    const std::shared_ptr<ShaderAsset> cooked =
+        second.succeeded ? LoadShaderAssetFromFile(second.artifactPath.string()) : nullptr;
+    if (!first.succeeded)
+        error = first.diagnostic;
+    else if (!second.succeeded)
+        error = second.diagnostic;
+    const bool valid = first.succeeded && alias.succeeded && second.succeeded && !first.cacheHit && !alias.cacheHit &&
+                       second.cacheHit && first.artifactPath == alias.artifactPath &&
+                       first.artifactPath == second.artifactPath && cooked && cooked->IsCooked() &&
+                       !cooked->GetBytecode(ShaderBackend::D3D12, ShaderStage::Compute).empty() &&
+                       cooked->GetBytecode(ShaderBackend::D3D11, ShaderStage::Compute).empty() &&
+                       cooked->GetBytecode(ShaderBackend::Vulkan, ShaderStage::Compute).empty();
+
+    imports.OnDetach();
+    assets.Clear();
+    assets.SetProjectRoot({});
+    fs::remove_all(root, ec);
+    return Check(valid, error.empty() ? "Editor shader cache cooked backends that were not requested" : error);
+#endif
+}
+
+bool TestShaderCacheCompileDisabledNeverRepairsInvalidArtifact() {
+#ifndef MYENGINE_PLATFORM_WINDOWS
+    return true;
+#else
+    if (!Check(ShaderCompilerSlang::IsAvailable(), "Slang compiler is unavailable for strict shader cache test"))
+        return false;
+
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "myengine_shader_cache_compile_disabled";
+    std::error_code ec;
+    fs::remove_all(root, ec);
+    fs::create_directories(root / "Content" / "Shaders", ec);
+    fs::create_directories(root / ".myengine", ec);
+    const fs::path descriptor = root / "Content" / "Shaders" / "Strict.shader";
+    const fs::path hlsl = root / "Content" / "Shaders" / "Strict.hlsl";
+    std::ofstream(descriptor)
+        << R"({"type":"Shader","version":1,"stages":{"compute":{"source":"Strict.hlsl","entry":"CSMain"}},"defines":[]})";
+    std::ofstream(hlsl) << "[numthreads(1,1,1)] void CSMain(uint3 id : SV_DispatchThreadID) {}\n";
+
+    AssetManager& assets = AssetManager::Get();
+    assets.Clear();
+    assets.SetProjectRoot(root);
+    EditorContext context;
+    context.SetProjectRoot(root);
+    EditorImportService imports;
+    imports.OnAttach(context);
+
+    const std::vector<ShaderBackend> backends = {ShaderBackend::D3D12};
+    const ShaderCacheResult cooked = ShaderCacheService::Get().EnsureShaderArtifact({descriptor, backends, true});
+    const std::string corruptBytes = "not-a-cooked-shader";
+    if (cooked.succeeded)
+        std::ofstream(cooked.artifactPath, std::ios::binary | std::ios::trunc)
+            .write(corruptBytes.data(), static_cast<std::streamsize>(corruptBytes.size()));
+
+    const ShaderCacheResult runtimeReadOnly =
+        ShaderCacheService::Get().EnsureShaderArtifact({descriptor, backends, false});
+    std::filesystem::path editorArtifact;
+    bool editorCacheHit = false;
+    std::string editorError;
+    const bool editorReadOnly =
+        imports.EnsureShaderCache(descriptor, "{}", false, editorArtifact, editorCacheHit, &editorError, backends);
+    std::ifstream input(cooked.artifactPath, std::ios::binary);
+    const std::string bytes((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+    const bool valid = cooked.succeeded && !runtimeReadOnly.succeeded && !editorReadOnly && !editorCacheHit &&
+                       bytes == corruptBytes &&
+                       runtimeReadOnly.diagnostic.find("compilation is disabled") != std::string::npos &&
+                       editorError.find("compilation is disabled") != std::string::npos;
+
+    imports.OnDetach();
+    assets.Clear();
+    assets.SetProjectRoot({});
+    fs::remove_all(root, ec);
+    return Check(valid, "compile-disabled shader cache path repaired or overwrote an invalid artifact");
+#endif
+}
+
+bool TestParallelStartupShaderCachePrewarm() {
+#ifndef MYENGINE_PLATFORM_WINDOWS
+    return true;
+#else
+    if (!Check(ShaderCompilerSlang::IsAvailable(), "Slang compiler is unavailable for parallel prewarm test"))
+        return false;
+
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "myengine_parallel_startup_shader_prewarm";
+    std::error_code ec;
+    fs::remove_all(root, ec);
+    const fs::path shaderRoot = fs::current_path() / "EngineContent" / "Shaders";
+    const std::array<const char*, 31> descriptors = {
+        "ShadowDepth.shader",
+        "ShadowDepthSkinned.shader",
+        "AtmosphereCubemap.shader",
+        "EnvironmentMipmap.shader",
+        "AtmosphereSH.shader",
+        "ShadowedMainPass.shader",
+        "PostProcessFXAA.shader",
+        "ProceduralSky.shader",
+        "ScreenUI.shader",
+        "Mesh.shader",
+        "PostProcessSSAO.shader",
+        "PostProcessSSAOBlur.shader",
+        "GBufferPass.shader",
+        "DeferredLightingPass.shader",
+        "ModernCulling.shader",
+        "ModernOcclusionCulling.shader",
+        "ModernDepth.shader",
+        "ModernGBuffer.shader",
+        "ModernHiZInit.shader",
+        "ModernHiZReduce.shader",
+        "ClusterCount.shader",
+        "ClusterPrefix.shader",
+        "ClusterScatter.shader",
+        "ClusterLighting.shader",
+        "ModernSSGITrace.shader",
+        "ModernSSRTrace.shader",
+        "ModernTemporal.shader",
+        "ModernAtrous.shader",
+        "ModernEffectsComposite.shader",
+        "ModernTAA.shader",
+        "ModernBloomTone.shader",
+    };
+    ShaderCacheService::Get().ConfigureFileSystemCache(root, "windows-x64", 4);
+    std::vector<ShaderCacheRequest> requests;
+    requests.reserve(descriptors.size());
+    for (const char* descriptor : descriptors)
+        requests.push_back({shaderRoot / descriptor, {ShaderBackend::D3D12}, true});
+    const std::vector<ShaderCacheResult> results = ShaderCacheService::Get().EnsureShaderArtifacts(requests);
+
+    std::string diagnostic;
+    bool valid = results.size() == requests.size();
+    for (size_t index = 0; index < results.size(); ++index) {
+        if (results[index].succeeded)
+            continue;
+        valid = false;
+        diagnostic += std::string(descriptors[index]) + ": " + results[index].diagnostic + "\n";
+    }
+    ShaderCacheService::Get().ClearResolver();
+    fs::remove_all(root, ec);
+    return Check(valid, diagnostic.empty() ? "parallel startup shader prewarm was incomplete" : diagnostic);
+#endif
+}
+
+bool TestShaderCachePublishesOnlyStableDependencyKey() {
+#ifndef MYENGINE_PLATFORM_WINDOWS
+    return true;
+#else
+    if (!Check(ShaderCompilerSlang::IsAvailable(), "Slang compiler is unavailable for stable publish test"))
+        return false;
+
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "myengine_shader_cache_stable_publish";
+    const fs::path shaderRoot = root / "Content" / "Shaders";
+    const fs::path cacheRoot = root / "Library" / "windows-x64" / "ShaderCache";
+    const fs::path descriptor = shaderRoot / "Stable.shader";
+    const fs::path hlsl = shaderRoot / "Stable.hlsl";
+    const fs::path include = shaderRoot / "Mutable.hlsli";
+    std::error_code ec;
+    fs::remove_all(root, ec);
+    fs::create_directories(shaderRoot, ec);
+    std::ofstream(descriptor)
+        << R"({"type":"Shader","version":1,"stages":{"compute":{"source":"Stable.hlsl","entry":"CSMain"}},"defines":[]})";
+    std::ofstream(hlsl) << R"(#include "Mutable.hlsli"
+RWStructuredBuffer<float4> g_Output : register(u0);
+[numthreads(1,1,1)] void CSMain(uint3 id : SV_DispatchThreadID) { g_Output[id.x] = MutableValue(); }
+)";
+    auto writeInclude = [&](float value) {
+        std::ofstream(include, std::ios::trunc)
+            << "float4 MutableValue() { return float4(" << value << ", 0.0, 0.0, 1.0); }\n";
+    };
+    writeInclude(1.0f);
+
+    const std::vector<ShaderBackend> backends = {ShaderBackend::D3D12};
+    std::string error;
+    const std::string initialKey =
+        ShaderCooker::BuildCacheKey(descriptor, root / "Content", backends, "windows-x64", "{}", nullptr, &error);
+    ShaderCacheService::Get().ConfigureFileSystemCache(cacheRoot, "windows-x64", 1);
+    auto cooking = std::async(std::launch::async, [&] {
+        return ShaderCacheService::Get().EnsureShaderArtifact({descriptor, backends, true});
+    });
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    while (!fs::is_directory(cacheRoot / ".staging") && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    const bool observedCompile = fs::is_directory(cacheRoot / ".staging");
+    writeInclude(2.0f);
+    // The in-flight request owns a resolver snapshot; shutdown can clear the service without racing the worker.
+    ShaderCacheService::Get().ClearResolver();
+    const ShaderCacheResult result = cooking.get();
+    const std::string stableKey =
+        ShaderCooker::BuildCacheKey(descriptor, root / "Content", backends, "windows-x64", "{}", nullptr, &error);
+
+    const bool valid = observedCompile && !ShaderCacheService::Get().HasResolver() && result.succeeded &&
+                       !result.cacheHit && !initialKey.empty() && !stableKey.empty() && initialKey != stableKey &&
+                       result.artifactPath.stem() == stableKey && !fs::exists(cacheRoot / (initialKey + ".shader"));
+    fs::remove_all(root, ec);
+    return Check(valid, error.empty() ? "shader cache published bytecode under an unstable dependency key" : error);
+#endif
+}
+
+bool TestSlangCompilerProcessTimeout() {
+#ifndef MYENGINE_PLATFORM_WINDOWS
+    return true;
+#else
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "myengine_slang_timeout";
+    std::error_code ec;
+    fs::remove_all(root, ec);
+    fs::create_directories(root, ec);
+    const fs::path fakeCompiler = root / "slow-slangc.cmd";
+    const fs::path shader = root / "Timeout.hlsl";
+    std::ofstream(fakeCompiler) << "@echo off\r\nping 127.0.0.1 -n 6 >nul\r\nexit /b 0\r\n";
+    std::ofstream(shader)
+        << "RWStructuredBuffer<float4> g_Output : register(u0);\n"
+           "[numthreads(1,1,1)] void CSMain(uint3 id : SV_DispatchThreadID) { g_Output[id.x] = 1.0; }\n";
+
+    const char* previousCompilerValue = std::getenv("MYENGINE_SLANGC");
+    const char* previousTimeoutValue = std::getenv("MYENGINE_SLANG_TIMEOUT_MS");
+    const bool hadCompiler = previousCompilerValue != nullptr;
+    const bool hadTimeout = previousTimeoutValue != nullptr;
+    const std::string previousCompiler = previousCompilerValue ? previousCompilerValue : "";
+    const std::string previousTimeout = previousTimeoutValue ? previousTimeoutValue : "";
+    _putenv_s("MYENGINE_SLANGC", fakeCompiler.string().c_str());
+    _putenv_s("MYENGINE_SLANG_TIMEOUT_MS", "200");
+
+    std::vector<uint8_t> bytecode;
+    std::string error;
+    const auto start = std::chrono::steady_clock::now();
+    const bool compiled = ShaderCompilerSlang::CompileStageFromFile(shader, "CSMain", ShaderStage::Compute,
+                                                                    ShaderBackend::D3D12, bytecode, {}, &error);
+    const double elapsedMs =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+
+    _putenv_s("MYENGINE_SLANGC", hadCompiler ? previousCompiler.c_str() : "");
+    _putenv_s("MYENGINE_SLANG_TIMEOUT_MS", hadTimeout ? previousTimeout.c_str() : "");
+    fs::remove_all(root, ec);
+    return Check(!compiled && bytecode.empty() && elapsedMs < 3000.0,
+                 "slangc timeout did not terminate the compiler process within the startup bound");
+#endif
+}
+
+bool TestShaderCacheBatchStopsAfterCompilerTimeout() {
+#ifndef MYENGINE_PLATFORM_WINDOWS
+    return true;
+#else
+    if (!Check(ShaderCompilerSlang::IsAvailable(), "Slang compiler is unavailable for batch timeout test"))
+        return false;
+
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "myengine_shader_batch_timeout";
+    const fs::path shaderRoot = root / "Content" / "Shaders";
+    const fs::path cacheRoot = root / "Library" / "windows-x64" / "ShaderCache";
+    std::error_code ec;
+    fs::remove_all(root, ec);
+    fs::create_directories(shaderRoot, ec);
+    const fs::path slowCompiler = root / "slow-slangc.cmd";
+    const fs::path failingCompiler = root / "failing-slangc.cmd";
+    const fs::path slowInvocations = root / "slow-invocations.txt";
+    std::ofstream(slowCompiler) << "@echo off\r\necho invocation>>\"" << slowInvocations.string()
+                                << "\"\r\nping 127.0.0.1 -n 6 >nul\r\nexit /b 0\r\n";
+    std::ofstream(failingCompiler) << "@echo off\r\necho intentional compiler diagnostic 1>&2\r\nexit /b 1\r\n";
+
+    std::vector<ShaderCacheRequest> requests;
+    constexpr size_t kRequestCount = 6;
+    requests.reserve(kRequestCount);
+    for (size_t index = 0; index < kRequestCount; ++index) {
+        const std::string stem = "Timeout" + std::to_string(index);
+        const fs::path descriptor = shaderRoot / (stem + ".shader");
+        const fs::path hlsl = shaderRoot / (stem + ".hlsl");
+        std::ofstream(descriptor) << "{\"type\":\"Shader\",\"version\":1,\"stages\":{\"compute\":{\"source\":\"" << stem
+                                  << ".hlsl\",\"entry\":\"CSMain\"}},\"defines\":[]}";
+        std::ofstream(hlsl) << "RWStructuredBuffer<float4> g_Output : register(u0);\n"
+                               "[numthreads(1,1,1)] void CSMain(uint3 id : SV_DispatchThreadID) { "
+                               "g_Output[id.x] = float4("
+                            << index << ", 0, 0, 1); }\n";
+        requests.push_back({descriptor, {ShaderBackend::D3D12}, true});
+    }
+
+    const char* previousCompilerValue = std::getenv("MYENGINE_SLANGC");
+    const char* previousTimeoutValue = std::getenv("MYENGINE_SLANG_TIMEOUT_MS");
+    const bool hadCompiler = previousCompilerValue != nullptr;
+    const bool hadTimeout = previousTimeoutValue != nullptr;
+    const std::string previousCompiler = previousCompilerValue ? previousCompilerValue : "";
+    const std::string previousTimeout = previousTimeoutValue ? previousTimeoutValue : "";
+
+    ShaderCacheService::Get().ConfigureFileSystemCache(cacheRoot, "windows-x64", 1);
+    _putenv_s("MYENGINE_SLANGC", slowCompiler.string().c_str());
+    _putenv_s("MYENGINE_SLANG_TIMEOUT_MS", "200");
+    const auto timeoutStart = std::chrono::steady_clock::now();
+    const std::vector<ShaderCacheResult> timedOut = ShaderCacheService::Get().EnsureShaderArtifacts(requests);
+    const double timeoutElapsedMs =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - timeoutStart).count();
+
+    size_t timeoutCount = 0;
+    size_t cancelledCount = 0;
+    for (const ShaderCacheResult& result : timedOut) {
+        timeoutCount += result.failureKind == ShaderCacheFailureKind::CompilerTimeout ? 1u : 0u;
+        cancelledCount += result.failureKind == ShaderCacheFailureKind::Cancelled ? 1u : 0u;
+    }
+    size_t slowInvocationCount = 0;
+    std::ifstream slowInvocationInput(slowInvocations);
+    for (std::string line; std::getline(slowInvocationInput, line);)
+        ++slowInvocationCount;
+
+    _putenv_s("MYENGINE_SLANGC", failingCompiler.string().c_str());
+    _putenv_s("MYENGINE_SLANG_TIMEOUT_MS", "2000");
+    const std::vector<ShaderCacheResult> ordinaryFailures =
+        ShaderCacheService::Get().EnsureShaderArtifacts({requests[0], requests[1]});
+    const bool ordinaryDiagnosticsPreserved =
+        ordinaryFailures.size() == 2 &&
+        std::all_of(ordinaryFailures.begin(), ordinaryFailures.end(), [](const ShaderCacheResult& result) {
+            return !result.succeeded && result.failureKind == ShaderCacheFailureKind::None &&
+                   result.diagnostic.find("intentional compiler diagnostic") != std::string::npos;
+        });
+
+    _putenv_s("MYENGINE_SLANGC", hadCompiler ? previousCompiler.c_str() : "");
+    _putenv_s("MYENGINE_SLANG_TIMEOUT_MS", hadTimeout ? previousTimeout.c_str() : "");
+    ShaderCacheService::Get().ClearResolver();
+    fs::remove_all(root, ec);
+    return Check(timedOut.size() == kRequestCount && timeoutCount == 1 && slowInvocationCount == 1 &&
+                     cancelledCount == kRequestCount - 1 && timeoutElapsedMs < 3000.0 && ordinaryDiagnosticsPreserved,
+                 "shader cache batch continued compiling after timeout or truncated ordinary diagnostics");
+#endif
+}
+
 MYENGINE_REGISTER_TEST("Assets", "TestShaderAssetFormats", TestShaderAssetFormats);
 MYENGINE_REGISTER_TEST("Assets", "TestSurfaceShaderGraphV2Contract", TestSurfaceShaderGraphV2Contract);
 MYENGINE_REGISTER_TEST("Assets", "TestShaderGraphReachableTimeDetection", TestShaderGraphReachableTimeDetection);
@@ -1449,5 +1899,17 @@ MYENGINE_REGISTER_TEST("Assets", "TestTextureDerivedData", TestTextureDerivedDat
 MYENGINE_REGISTER_TEST("Assets", "TestTextureSamplerSettingsFromAssetDatabase",
                        TestTextureSamplerSettingsFromAssetDatabase);
 MYENGINE_REGISTER_TEST("Assets", "TestShaderLibraryArtifactCacheHit", TestShaderLibraryArtifactCacheHit);
+MYENGINE_REGISTER_TEST("Assets", "TestEditorShaderCacheRevalidatesStageSources",
+                       TestEditorShaderCacheRevalidatesStageSources);
+MYENGINE_REGISTER_TEST("Assets", "TestEditorShaderCacheCooksOnlyRequestedBackend",
+                       TestEditorShaderCacheCooksOnlyRequestedBackend);
+MYENGINE_REGISTER_TEST("Assets", "TestShaderCacheCompileDisabledNeverRepairsInvalidArtifact",
+                       TestShaderCacheCompileDisabledNeverRepairsInvalidArtifact);
+MYENGINE_REGISTER_TEST("Assets", "TestParallelStartupShaderCachePrewarm", TestParallelStartupShaderCachePrewarm);
+MYENGINE_REGISTER_TEST("Assets", "TestShaderCachePublishesOnlyStableDependencyKey",
+                       TestShaderCachePublishesOnlyStableDependencyKey);
+MYENGINE_REGISTER_TEST("Assets", "TestSlangCompilerProcessTimeout", TestSlangCompilerProcessTimeout);
+MYENGINE_REGISTER_TEST("Assets", "TestShaderCacheBatchStopsAfterCompilerTimeout",
+                       TestShaderCacheBatchStopsAfterCompilerTimeout);
 
 } // namespace

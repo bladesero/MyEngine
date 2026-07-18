@@ -154,8 +154,17 @@ void MaterialResourceCache::EnsureTextureUploaded(TextureAsset* texture) {
     if (!texture || !m_Device)
         return;
     if (auto found = m_TextureCache.find(texture); found != m_TextureCache.end()) {
-        found->second.lastUsed = ++m_UseClock;
-        return;
+        // Asset hot reload preserves the TextureAsset address but clears its type-erased GPU handle. Keeping the
+        // pointer-keyed cache entry in that state would make every later upload return early and leave materials
+        // permanently sampling the pre-reload resource (or no resource at all).
+        if (texture->GetGpuHandle() == found->second.texture.get()) {
+            found->second.lastUsed = ++m_UseClock;
+            return;
+        }
+        GpuTexture* staleTexture = found->second.texture.get();
+        m_TextureEntriesByGpu.erase(staleTexture);
+        m_TextureViews.erase(staleTexture);
+        m_TextureCache.erase(found);
     }
     if (texture->HasGpuHandle())
         return;
@@ -237,7 +246,8 @@ void MaterialResourceCache::EnsureTextureUploaded(TextureAsset* texture) {
     entry.path = texture->GetPath();
     entry.lastUsed = ++m_UseClock;
     entry.texture = std::move(gpuTexture);
-    m_TextureCache[texture] = std::move(entry);
+    auto inserted = m_TextureCache.insert_or_assign(texture, std::move(entry));
+    m_TextureEntriesByGpu[inserted.first->second.texture.get()] = &inserted.first->second;
 }
 
 void MaterialResourceCache::EnsureNamedBindingDefaults() {
@@ -261,12 +271,8 @@ std::shared_ptr<GpuTextureView> MaterialResourceCache::GetTextureView(GpuTexture
     EnsureNamedBindingDefaults();
     if (!texture)
         return m_DefaultTextureView;
-    for (auto& entry : m_TextureCache) {
-        if (entry.second.texture.get() == texture) {
-            entry.second.lastUsed = ++m_UseClock;
-            break;
-        }
-    }
+    if (const auto entry = m_TextureEntriesByGpu.find(texture); entry != m_TextureEntriesByGpu.end())
+        entry->second->lastUsed = ++m_UseClock;
     auto found = m_TextureViews.find(texture);
     if (found != m_TextureViews.end())
         return found->second;
@@ -371,6 +377,7 @@ GpuTextureGarbageCollectionReport MaterialResourceCache::CollectGlobalTextureGar
             report.blockers.push_back({candidate.path, candidate.bytes, GpuTextureEvictionBlockReason::Referenced});
             continue;
         }
+        GpuTexture* evictedTexture = found->second.texture.get();
         if (view != candidate.cache->m_TextureViews.end())
             candidate.cache->m_TextureViews.erase(view);
         if (assetAlive && candidate.asset->GetGpuHandle() == found->second.texture.get())
@@ -378,6 +385,7 @@ GpuTextureGarbageCollectionReport MaterialResourceCache::CollectGlobalTextureGar
         report.evictions.push_back({candidate.path, candidate.bytes});
         candidate.cache->m_FrameStats.textureEvictions++;
         candidate.cache->m_FrameStats.textureEvictedBytes += candidate.bytes;
+        candidate.cache->m_TextureEntriesByGpu.erase(evictedTexture);
         candidate.cache->m_TextureCache.erase(found);
         report.bytesAfter = RHIResourceStatsProvider::GetStats().liveResourceBytes;
     }

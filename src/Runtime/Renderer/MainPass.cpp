@@ -195,7 +195,7 @@ MainPass::GetOrCreateMaterialBindGroup(GpuShader* shader, const MaterialAsset& m
             bindings->SetSampler(kMainSamplerNames[slot], sampler);
         }
         if (shadowedPbr) {
-            if (!bindings->SetStorageBuffer("g_EnvironmentSH2", m_EnvironmentSH2Buffer)) {
+            if (!bindings->SetBuffer("g_EnvironmentSH2", m_EnvironmentSH2Buffer)) {
                 if (!m_LoggedEnvironmentSHBindingFailure) {
                     Logger::Error("[MainPass] Failed to bind g_EnvironmentSH2: shaderMode=",
                                   static_cast<int>(m_ShaderMode), " environmentView=", m_EnvironmentSH2Buffer ? 1 : 0);
@@ -304,9 +304,14 @@ GpuGraphicsPipeline* MainPass::GetOrCreateMainPipeline(bool transparent, bool tw
         desc.shader = m_MainShaderHandle->shader;
         desc.colorFormats = {m_HdrPassthrough ? RHIFormat::RGBA16Float : RHIFormat::RGBA8UNorm};
         desc.depthFormat = RHIFormat::D24S8;
+        desc.depthStencil.depthWriteEnable = !transparent;
         desc.rasterizer.cullMode = twoSided ? RHICullMode::None : RHICullMode::Back;
         desc.rasterizer.fillMode = wireframe ? RHIFillMode::Wireframe : RHIFillMode::Solid;
         desc.blend.attachments[0].blendEnable = transparent;
+        if (transparent) {
+            desc.blend.attachments[0].srcAlphaFactor = RHIBlendFactor::Zero;
+            desc.blend.attachments[0].dstAlphaFactor = RHIBlendFactor::OneMinusSrcAlpha;
+        }
         pipeline = Device()->CreateGraphicsPipeline(desc);
     }
     return pipeline.get();
@@ -334,9 +339,14 @@ GpuGraphicsPipeline* MainPass::GetOrCreateMaterialPipeline(const MaterialAsset& 
         desc.shader = shader;
         desc.colorFormats = {colorFormat};
         desc.depthFormat = RHIFormat::D24S8;
+        desc.depthStencil.depthWriteEnable = !transparent;
         desc.rasterizer.cullMode = cull;
         desc.rasterizer.fillMode = fill;
         desc.blend.attachments[0].blendEnable = transparent;
+        if (transparent) {
+            desc.blend.attachments[0].srcAlphaFactor = RHIBlendFactor::Zero;
+            desc.blend.attachments[0].dstAlphaFactor = RHIBlendFactor::OneMinusSrcAlpha;
+        }
         pipeline = Device()->CreateGraphicsPipeline(desc);
     }
     return pipeline.get();

@@ -11,6 +11,7 @@
 #include <wrl/client.h>
 
 #include <cstdint>
+#include <mutex>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -28,6 +29,7 @@ struct D3D12Buffer : GpuBuffer {
     ComPtr<ID3D12Resource> resource;
     std::shared_ptr<D3D12DeferredReleaseQueue> deferredReleaseQueue;
     uint32_t byteSize = 0;
+    D3D12_RESOURCE_STATES state = D3D12_RESOURCE_STATE_COMMON;
 };
 
 struct D3D12VertexBuffer : D3D12Buffer {
@@ -115,11 +117,12 @@ struct D3D12Sampler : GpuSampler {
 class D3D12Context final : public IRenderContext, public IEditorImGuiRHIInterop {
 public:
     static constexpr uint32_t kFrameCount = 2;
-    static constexpr uint32_t kTextureSlotCount = 10;
+    static constexpr uint32_t kTextureSlotCount = 13;
+    static constexpr uint32_t kIndirectObjectRootParameter = 2 + kTextureSlotCount * 2;
     static constexpr uint32_t kOffscreenRtvCount = 256;
     static constexpr uint32_t kDsvDescriptorCount = 128;
     static constexpr uint32_t kDefaultConstantBufferCapacity = 1024 * 1024;
-    static constexpr uint32_t kDefaultSrvDescriptorCount = 1024;
+    static constexpr uint32_t kDefaultSrvDescriptorCount = 16384;
     static constexpr uint32_t kDefaultSamplerDescriptorCount = 2048;
     static constexpr DXGI_FORMAT kDepthFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
     static constexpr DXGI_FORMAT kDepthTypelessFormat = DXGI_FORMAT_R24G8_TYPELESS;
@@ -138,6 +141,7 @@ public:
     RHIDeviceLossInfo GetDeviceLossInfo() const override { return m_DeviceLossInfo; }
     GpuSwapChain* GetSwapChain() override;
     GpuCommandList* GetGraphicsCommandList() override;
+    uint32_t GetFrameIndex() const override { return m_RenderFrameIndex; }
     GpuQueue* GetGraphicsQueue() override { return m_GraphicsQueue.get(); }
     GpuTextureView* GetCurrentBackBufferView() override {
         if (m_RenderFrameIndex >= kFrameCount)
@@ -171,6 +175,7 @@ public:
     void BindVertexBuffer(GpuBuffer* buffer);
     void BindIndexBuffer(GpuBuffer* buffer);
     void SetVSConstants(const void* data, uint32_t byteSize);
+    void SetComputeConstants(const void* data, uint32_t byteSize);
 
     void Draw(uint32_t vertexCount, uint32_t startVertex = 0);
     void DrawIndexed(uint32_t indexCount, uint32_t startIndex = 0, uint32_t baseVertex = 0);
@@ -178,6 +183,9 @@ public:
     void DrawIndexedInstanced(uint32_t indexCount, uint32_t instanceCount, uint32_t startIndex = 0,
                               uint32_t baseVertex = 0);
     void DrawIndirect(GpuBuffer* arguments, uint64_t offset, bool indexed);
+    void DrawIndexedIndirectCount(GpuBuffer* arguments, uint64_t argumentOffset, GpuBuffer* countBuffer,
+                                  uint64_t countOffset, uint32_t maxDrawCount, uint32_t stride);
+    void DispatchIndirect(GpuBuffer* arguments, uint64_t offset);
 
     void SetViewport(float x, float y, float w, float h);
 
@@ -241,6 +249,8 @@ public:
     void WaitForGpuIdle();
 
 private:
+    D3D12_GPU_VIRTUAL_ADDRESS UploadConstants(const void* data, uint32_t byteSize);
+
     struct FrameResources {
         ComPtr<ID3D12CommandAllocator> commandAllocator;
 
@@ -294,6 +304,9 @@ private:
     void ApplyBoundPipelineState();
     bool UploadBufferData(ID3D12Resource* destination, ID3D12Resource* uploadBuffer, uint64_t byteSize,
                           D3D12_RESOURCE_STATES finalState);
+    void InitializePipelineCache();
+    bool CreateComputePipelineStateCached(const void* bytecode, size_t byteSize,
+                                          ID3D12PipelineState** outPipelineState);
 
     bool BuildShaderPipelines(D3D12Shader& shader, const D3D12_SHADER_BYTECODE& vs, const D3D12_SHADER_BYTECODE& ps,
                               const VertexElement* layout, uint32_t layoutCount);
@@ -330,6 +343,10 @@ private:
     ComPtr<ID3D12CommandQueue> m_CommandQueue;
     ComPtr<ID3D12CommandSignature> m_DrawIndirectSignature;
     ComPtr<ID3D12CommandSignature> m_DrawIndexedIndirectSignature;
+    ComPtr<ID3D12CommandSignature> m_ObjectDrawIndexedIndirectSignature;
+    ComPtr<ID3D12RootSignature> m_IndirectObjectRootSignature;
+    ComPtr<ID3D12RootSignature> m_ComputeRootSignature;
+    ComPtr<ID3D12CommandSignature> m_DispatchIndirectSignature;
     ComPtr<IDXGISwapChain3> m_SwapChain;
     ComPtr<ID3D12GraphicsCommandList> m_CommandList;
 
@@ -387,6 +404,9 @@ private:
     std::unique_ptr<GpuSwapChain> m_SwapChainInterface;
     std::unique_ptr<GpuCommandList> m_GraphicsCommandList;
     std::shared_ptr<GpuQueue> m_GraphicsQueue;
+    std::wstring m_PipelineCacheDirectory;
+    std::mutex m_PipelineCacheMutex;
+    bool m_PipelineCacheDiagnostics = false;
     D3D12Shader* m_BoundShader = nullptr;
     GpuBlendMode m_BlendMode = GpuBlendMode::Opaque;
     RenderTargetBinding m_CurrentRenderTarget;

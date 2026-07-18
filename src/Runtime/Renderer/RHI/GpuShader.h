@@ -7,7 +7,14 @@
 #include <string>
 #include <vector>
 
-enum class ShaderBindingType : uint8_t { ConstantBuffer, Texture, Sampler, StorageBuffer };
+enum class ShaderBindingType : uint8_t {
+    ConstantBuffer,
+    Texture,
+    Sampler,
+    StructuredBuffer,
+    StorageBuffer,
+    StorageTexture
+};
 enum ShaderStageMask : uint8_t { ShaderStageVertex = 1, ShaderStagePixel = 2, ShaderStageCompute = 4 };
 
 struct ShaderBindingDesc {
@@ -17,6 +24,7 @@ struct ShaderBindingDesc {
     uint32_t bindCount = 1;
     uint32_t byteSize = 0;
     uint8_t stages = 0;
+    uint32_t bindSpace = 0;
 };
 
 struct ShaderInputDesc {
@@ -41,5 +49,7 @@ struct GpuShader : GpuResource {
     std::vector<uint8_t> pixelBytecode;
     std::vector<uint8_t> computeBytecode;
     std::vector<VertexElement> vertexLayout;
+    uint32_t threadGroupSize[3] = {1, 1, 1};
+    uint32_t abiVersion = 0;
     virtual ~GpuShader() = default;
 };

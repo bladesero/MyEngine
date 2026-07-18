@@ -252,8 +252,9 @@ struct SurfaceData { float3 baseColor; float3 normalTS; float metallic; float ro
 )";
 }
 
-std::string MeshVertexTypes() {
-    return R"(
+std::string MeshVertexTypes(bool withMotion = false) {
+    if (!withMotion) {
+        return R"(
 struct VSIn { float3 pos : POSITION; float3 normal : NORMAL; float3 tangent : TANGENT; float2 uv : TEXCOORD0; float4 joints : BLENDINDICES; float4 weights : BLENDWEIGHT; float4 color : COLOR0; };
 struct VSOut { float4 pos : SV_POSITION; float3 normalW : NORMAL; float3 tangentW : TANGENT; float2 uv : TEXCOORD0; float3 worldPos : TEXCOORD1; float4 color : COLOR0; };
 VSOut VSMain(VSIn v) {
@@ -262,25 +263,36 @@ VSOut VSMain(VSIn v) {
     float4 worldPos=mul(localPosition,g_World); o.pos=mul(worldPos,g_ViewProj); o.normalW=normalize(mul(float4(localNormal,0),g_NormalMatrix).xyz); o.tangentW=normalize(mul(float4(localTangent,0),g_NormalMatrix).xyz); o.uv=v.uv; o.worldPos=worldPos.xyz; o.color=v.color; return o;
 }
 )";
+    }
+    return R"(
+struct VSIn { float3 pos : POSITION; float3 normal : NORMAL; float3 tangent : TANGENT; float2 uv : TEXCOORD0; float4 joints : BLENDINDICES; float4 weights : BLENDWEIGHT; float4 color : COLOR0; };
+struct VSOut { float4 pos : SV_POSITION; float3 normalW : NORMAL; float3 tangentW : TANGENT; float2 uv : TEXCOORD0; float3 worldPos : TEXCOORD1; float4 color : COLOR0; float4 currentClip : TEXCOORD2; float4 previousClip : TEXCOORD3; };
+VSOut VSMain(VSIn v) {
+    VSOut o; float4 localPosition=float4(v.pos,1); float4 previousLocalPosition=localPosition; float3 localNormal=v.normal; float3 localTangent=v.tangent;
+    if (g_SkinInfo.x > 0.5f) { row_major float4x4 skin=g_BoneMatrices[(uint)v.joints.x]*v.weights.x+g_BoneMatrices[(uint)v.joints.y]*v.weights.y+g_BoneMatrices[(uint)v.joints.z]*v.weights.z+g_BoneMatrices[(uint)v.joints.w]*v.weights.w; row_major float4x4 previousSkin=g_PreviousBoneMatrices[(uint)v.joints.x]*v.weights.x+g_PreviousBoneMatrices[(uint)v.joints.y]*v.weights.y+g_PreviousBoneMatrices[(uint)v.joints.z]*v.weights.z+g_PreviousBoneMatrices[(uint)v.joints.w]*v.weights.w; localPosition=mul(localPosition,skin); previousLocalPosition=mul(previousLocalPosition,previousSkin); localNormal=mul(float4(localNormal,0),skin).xyz; localTangent=mul(float4(localTangent,0),skin).xyz; }
+    float4 worldPos=mul(localPosition,g_World); o.pos=mul(worldPos,g_ViewProj); o.currentClip=o.pos; o.previousClip=mul(mul(previousLocalPosition,g_PreviousWorld),g_PreviousViewProj); o.normalW=normalize(mul(float4(localNormal,0),g_NormalMatrix).xyz); o.tangentW=normalize(mul(float4(localTangent,0),g_NormalMatrix).xyz); o.uv=v.uv; o.worldPos=worldPos.xyz; o.color=v.color; return o;
+}
+)";
 }
 
 std::string GenerateGBuffer(Generator& generator, const ShaderGraphNode& output, ShaderShadingModel model,
                             ShaderSurfaceType surface) {
     std::ostringstream hlsl;
     hlsl
-        << R"(cbuffer GraphPerDraw : register(b0) { row_major float4x4 g_ViewProj; row_major float4x4 g_World; row_major float4x4 g_BoneMatrices[128]; float4 g_SkinInfo; row_major float4x4 g_NormalMatrix; float4 g_MaterialValues[32]; float4 g_GraphTime; };
+        << R"(cbuffer GraphPerDraw : register(b0) { row_major float4x4 g_ViewProj; row_major float4x4 g_World; row_major float4x4 g_PreviousViewProj; row_major float4x4 g_PreviousWorld; row_major float4x4 g_BoneMatrices[128]; row_major float4x4 g_PreviousBoneMatrices[128]; float4 g_SkinInfo; row_major float4x4 g_NormalMatrix; float4 g_MaterialValues[32]; float4 g_GraphTime; };
 )";
-    hlsl << TextureDeclarations(generator.properties) << CommonTypes() << MeshVertexTypes();
+    hlsl << TextureDeclarations(generator.properties) << CommonTypes() << MeshVertexTypes(true);
     hlsl << BuildSurfaceEvaluation(generator, output, model);
     hlsl << R"(
-struct PSOut { float4 albedo:SV_Target0; float4 normal:SV_Target1; float4 material:SV_Target2; float4 emissive:SV_Target3; };
+struct PSOut { float4 albedo:SV_Target0; float4 normal:SV_Target1; float4 material:SV_Target2; float4 emissive:SV_Target3; float2 velocity:SV_Target4; };
 PSOut PSMain(VSOut p) { GraphInput i; i.uv=p.uv; i.worldPosition=p.worldPos; i.worldNormal=normalize(p.normalW); i.worldTangent=normalize(p.tangentW); i.viewDirection=normalize(g_GraphTime.yzw-p.worldPos); SurfaceData s=EvaluateSurface(i);
 )";
+    hlsl << "    float surfaceOpacity=s.opacity*p.color.a;\n";
     if (surface == ShaderSurfaceType::Masked)
-        hlsl << "    if (s.opacity < s.alphaClip) discard;\n";
+        hlsl << "    if (surfaceOpacity < s.alphaClip) discard;\n";
     hlsl
         << R"(    float3 N=normalize(p.normalW); float3 T=normalize(p.tangentW-N*dot(p.tangentW,N)); float3 B=normalize(cross(N,T)); N=normalize(s.normalTS.x*T+s.normalTS.y*B+s.normalTS.z*N);
-    PSOut o; o.albedo=float4(max(s.baseColor*p.color.rgb,0),s.opacity*p.color.a); o.normal=float4(N*0.5f+0.5f,1); o.material=float4(s.metallic,s.roughness,s.ao,0); o.emissive=float4(s.emissive,0); return o; }
+    PSOut o; o.albedo=float4(max(s.baseColor*p.color.rgb,0),surfaceOpacity); o.normal=float4(N*0.5f+0.5f,1); o.material=float4(s.metallic,s.roughness,s.ao,0); o.emissive=float4(s.emissive,0); float2 currentNdc=p.currentClip.xy/max(abs(p.currentClip.w),1e-5f); float2 previousNdc=p.previousClip.xy/max(abs(p.previousClip.w),1e-5f); o.velocity=(currentNdc-previousNdc)*float2(0.5f,-0.5f); return o; }
 )";
     return hlsl.str();
 }
@@ -296,8 +308,9 @@ std::string GenerateForward(Generator& generator, const ShaderGraphNode& output,
     hlsl << R"(
 float4 PSMain(VSOut p):SV_TARGET { GraphInput i; i.uv=p.uv; i.worldPosition=p.worldPos; i.worldNormal=normalize(p.normalW); i.worldTangent=normalize(p.tangentW); i.viewDirection=normalize(g_CameraPosition.xyz-p.worldPos); SurfaceData s=EvaluateSurface(i);
 )";
+    hlsl << "    float surfaceOpacity=s.opacity*p.color.a;\n";
     if (surface == ShaderSurfaceType::Masked)
-        hlsl << "    if (s.opacity < s.alphaClip) discard;\n";
+        hlsl << "    if (surfaceOpacity < s.alphaClip) discard;\n";
     if (model == ShaderShadingModel::Unlit)
         hlsl << "    float3 color=s.baseColor+s.emissive;\n";
     else
@@ -305,7 +318,7 @@ float4 PSMain(VSOut p):SV_TARGET { GraphInput i; i.uv=p.uv; i.worldPosition=p.wo
                 "B=normalize(cross(N,T)); N=normalize(s.normalTS.x*T+s.normalTS.y*B+s.normalTS.z*N); float "
                 "ndl=saturate(dot(N,normalize(-g_LightDirection.xyz))); float3 "
                 "color=s.baseColor*(0.08f+ndl*g_LightColor.rgb*max(g_LightDirection.w,0.0f))+s.emissive;\n";
-    hlsl << "    return float4(max(color,0.0f),s.opacity*p.color.a); }\n";
+    hlsl << "    return float4(max(color,0.0f),surfaceOpacity); }\n";
     return hlsl.str();
 }
 
@@ -317,15 +330,15 @@ std::string GenerateShadow(Generator& generator, const ShaderGraphNode& output, 
 )";
     hlsl << TextureDeclarations(generator.properties) << CommonTypes();
     hlsl
-        << R"(struct VSIn { float3 pos:POSITION; float3 normal:NORMAL; float3 tangent:TANGENT; float2 uv:TEXCOORD0; float4 joints:BLENDINDICES; float4 weights:BLENDWEIGHT; float4 color:COLOR0; }; struct VSOut { float4 pos:SV_POSITION; float2 uv:TEXCOORD0; float3 worldPos:TEXCOORD1; float3 normalW:NORMAL; };
-VSOut VSMain(VSIn v) { VSOut o; float4 local=float4(v.pos,1); if(g_SkinInfo.x>0.5f){row_major float4x4 skin=g_BoneMatrices[(uint)v.joints.x]*v.weights.x+g_BoneMatrices[(uint)v.joints.y]*v.weights.y+g_BoneMatrices[(uint)v.joints.z]*v.weights.z+g_BoneMatrices[(uint)v.joints.w]*v.weights.w; local=mul(local,skin);} float4 world=mul(local,g_World); o.pos=mul(local,g_LightMVP); o.uv=v.uv; o.worldPos=world.xyz; o.normalW=normalize(mul(float4(v.normal,0),g_NormalMatrix).xyz); return o; }
+        << R"(struct VSIn { float3 pos:POSITION; float3 normal:NORMAL; float3 tangent:TANGENT; float2 uv:TEXCOORD0; float4 joints:BLENDINDICES; float4 weights:BLENDWEIGHT; float4 color:COLOR0; }; struct VSOut { float4 pos:SV_POSITION; float2 uv:TEXCOORD0; float3 worldPos:TEXCOORD1; float3 normalW:NORMAL; float4 color:COLOR0; };
+VSOut VSMain(VSIn v) { VSOut o; float4 local=float4(v.pos,1); if(g_SkinInfo.x>0.5f){row_major float4x4 skin=g_BoneMatrices[(uint)v.joints.x]*v.weights.x+g_BoneMatrices[(uint)v.joints.y]*v.weights.y+g_BoneMatrices[(uint)v.joints.z]*v.weights.z+g_BoneMatrices[(uint)v.joints.w]*v.weights.w; local=mul(local,skin);} float4 world=mul(local,g_World); o.pos=mul(local,g_LightMVP); o.uv=v.uv; o.worldPos=world.xyz; o.normalW=normalize(mul(float4(v.normal,0),g_NormalMatrix).xyz); o.color=v.color; return o; }
 )";
     hlsl << BuildSurfaceEvaluation(generator, output, model);
     hlsl << "float4 PSMain(VSOut p):SV_TARGET {";
     if (surface == ShaderSurfaceType::Masked) {
         hlsl << " GraphInput i; i.uv=p.uv; i.worldPosition=p.worldPos; i.worldNormal=p.normalW; "
                 "i.worldTangent=float3(1,0,0); i.viewDirection=float3(0,0,1); SurfaceData s=EvaluateSurface(i); "
-                "if(s.opacity<s.alphaClip) discard;";
+                "float surfaceOpacity=s.opacity*p.color.a; if(surfaceOpacity<s.alphaClip) discard;";
     }
     hlsl << " return (1.0f).xxxx; }\n";
     return hlsl.str();
@@ -521,7 +534,7 @@ std::string BuildCanonicalKey(const ShaderGraph& graph, const std::vector<Shader
     auto normalizedProperties = properties;
     std::sort(normalizedProperties.begin(), normalizedProperties.end(),
               [](const auto& left, const auto& right) { return left.id < right.id; });
-    nlohmann::json canonical = {{"compiler", 2},
+    nlohmann::json canonical = {{"compiler", 3},
                                 {"nodeLibrary", 1},
                                 {"shadingModel", static_cast<uint32_t>(shadingModel)},
                                 {"surfaceType", static_cast<uint32_t>(surfaceType)},

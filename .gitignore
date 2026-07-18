@@ -1,4 +1,4 @@
-﻿# Xmake
+# Xmake
 .xmake/
 
 # Build directories
@@ -21,8 +21,25 @@ xcuserdata/
 *.xcworkspace/
 DerivedData/
 Library/
-.myengine/AssetDatabase.json
-.myengine/AssetDatabase.json.tmp
+
+# Runtime/editor-generated state
+.myengine/
+Saved/Captures/
+Saved/SaveGames/
+Saved/VisualChecks/
+
+# Performance gates keep a small checked-in D3D11 baseline set. Ignore
+# machine-specific runs unless they are deliberately force-added.
+Saved/PerformanceReports/**
+!Saved/PerformanceReports/cold-start-d3d11.json
+!Saved/PerformanceReports/resource-stress-d3d11.json
+!Saved/PerformanceReports/scene-transition-d3d11.json
+!Saved/PerformanceReports/warm-gameplay-d3d11.json
+
+# Transactional writer and tool scratch files
+*.bak
+*.tmp
+*.tmp.*
 
 # macOS
 .DS_Store

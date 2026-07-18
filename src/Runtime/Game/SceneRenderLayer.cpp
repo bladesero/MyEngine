@@ -114,7 +114,10 @@ void SceneRenderLayer::SetPresentEnabled(bool enabled) {
 }
 
 void SceneRenderLayer::SetSceneViewportUsesSimulationScene(bool enabled) {
+    if (m_SceneViewportUsesSimulationScene == enabled)
+        return;
     m_SceneViewportUsesSimulationScene = enabled;
+    m_Viewport.InvalidateTemporalHistory("EditorWorld/PlayWorld switch", true);
 }
 
 void SceneRenderLayer::SetRenderPath(RenderPath path) {
@@ -124,6 +127,21 @@ void SceneRenderLayer::SetRenderPath(RenderPath path) {
 
 RenderPath SceneRenderLayer::GetRenderPath() const {
     return m_Viewport.GetRenderPath();
+}
+
+void SceneRenderLayer::SetDeviceProfile(GraphicsDeviceProfile profile) {
+    m_DeviceProfile = profile;
+    m_Viewport.SetDeviceProfile(profile);
+    m_GameViewport.SetDeviceProfile(profile);
+    m_MaterialPreviewViewport.SetDeviceProfile(profile);
+}
+
+GraphicsDeviceProfile SceneRenderLayer::GetDeviceProfile() const {
+    return m_DeviceProfile;
+}
+
+const RenderPipelineDiagnostics& SceneRenderLayer::GetPipelineDiagnostics() const {
+    return m_Viewport.GetPipelineDiagnostics();
 }
 
 Scene& SceneRenderLayer::GetSceneViewportRenderScene() {
@@ -435,6 +453,8 @@ void SceneRenderLayer::SyncSceneLoadOverlay() {
 void SceneRenderLayer::OnSceneLoaded() {
     SceneLayer::OnSceneLoaded();
     DefaultSceneFactory::PopulateIfEmpty(GetEditorScene());
+    m_Viewport.InvalidateTemporalHistory("scene or camera switched", true);
+    m_GameViewport.InvalidateTemporalHistory("scene or camera switched", true);
 }
 
 void SceneRenderLayer::OnRender() {

@@ -158,11 +158,27 @@ Shader 管线以 HLSL 为唯一源码形态：`.shader` 描述逻辑 stage、ent
 defines，源码仍放在 `EngineContent/Shaders` 或项目 `Content/Shaders` 下的
 `.hlsl/.hlsli`。`ShaderCompilerSlang` 负责将同一份 HLSL 编译为当前 RHI 所需
 产物：D3D11/D3D12 使用 DX bytecode，Metal 使用 MSL 文本 blob；cooked shader
-容器 v3 同时保存 D3D11、D3D12、Metal、Vulkan 后端数据，并兼容读取旧 v1/v2
-容器。Editor 按需把 engine/project shader 编译为当前项目
-`Library/windows-x64/<uuid>/<cacheKey>.shader` cooked artifact，并记录到
-`.myengine/AssetDatabase.json`；`AssetManager` 冷启动时可把 source `.shader`
-透明解析到 Library artifact。Player 默认只消费 cooked shader，缺失时输出明确错误。
+容器 v5 保存后端字节码、反射与 ABI 元数据，并兼容读取旧容器。Editor 与未挂载
+`Content.pak` 的开发态 Player 通过 `ShaderCacheService` 使用项目级
+`Library/windows-x64/ShaderCache/<cacheKey>.shader` 内容寻址缓存；键包含构建与
+cooker ABI、编译器版本、目标后端/平台、设置以及 `.shader/.hlsl/.hlsli` 完整依赖
+内容。发布包 Player 切换到 `RuntimeCookedOnly`、移除开发态 resolver，只消费
+`Content.pak` 中的 cooked shader，缺失或不匹配时明确失败而不在用户机器上编译。
+
+`Renderer` 按实际 render path、device profile 与能力收集精确的启动 Shader 集，
+`ShaderManager` 将规范化去重后的缓存解析与缺失项 cook 作为有界并行后台批次执行；
+后台阶段不创建 GPU 对象。批次未完成时渲染线程提交有效清屏帧，Editor 仍按既有
+frame ownership 在 ImGui 后统一 Present；批次完成后才由渲染线程消费产物并创建
+resident shader/PSO。缓存 miss 先写入跨进程唯一 staging 路径，cook 后重新计算完整
+依赖键并校验 source/pass/backend/ABI；只有前后键稳定时才通过事务写原子发布到最终
+内容地址，源码在编译期间变化则重试，`allowCompile=false` 永不修复或覆盖无效缓存。
+
+驱动级管线缓存独立于 cooked shader 缓存并放在 `%LOCALAPPDATA%/MyEngine/PipelineCache`。
+D3D12 以 adapter/driver 身份隔离目录，以共享 compute root-signature ABI、DXIL 与长度
+标识持久化 compute PSO blob；驱动拒绝旧 blob 时用权威 DXIL 重建并原子替换，graphics
+PSO 当前仍按需创建。Vulkan 以 vendor/device/driver 与 `pipelineCacheUUID` 隔离
+`VkPipelineCache`，同时参与 graphics/compute pipeline 创建，并在设备关闭时原子保存；
+损坏或供应商判定无效的缓存会回退为空缓存而不阻止设备启动。
 开发机需要在 `PATH` 中提供 `slangc`，或通过 `MYENGINE_SLANGC` 指定编译器路径；
 Windows 热编译在 Slang 不可用时可临时回退到原 D3D 编译器，Metal 后端必须依赖 Slang。
 
@@ -680,3 +696,57 @@ authoring graph JSON out of `Content.pak` and writes the cooked `.shader` at the
 same project-relative path. The dependency direction remains
 `Editor -> Game/Scene/Assets/Renderer`; Runtime and Renderer never include Editor
 headers.
+
+## Hybrid modern rendering pipeline
+
+Project manifest schema v2 owns `graphics.backend`, `graphics.renderPath`, and
+`graphics.deviceProfile`. Device profiles are quality simulations, not new
+deployment platforms. Forward always resolves to Forward; mobile deferred
+resolves to Classic Deferred; desktop and console deferred resolve to Modern
+Deferred only when D3D12 or Vulkan exposes compute, storage images, bindless
+sampled textures, shader draw parameters, indirect-count/dispatch, and the
+required HDR/velocity/UAV formats. Resolution records requested and actual
+pipelines plus a stable fallback reason. D3D11 and Metal remain Classic
+Deferred/Forward.
+
+Each `ViewportRenderExecution` owns a `Renderer`, visibility buffers, and
+SSGI/SSR/TAA histories. The device-level `GpuSceneDatabase` and geometry arena
+are shared by renderers on the same `IRHIDevice`; they upload only dirty object,
+light, and material ranges. Stable bindless texture indices are device-owned.
+D3D12 descriptor leases and Vulkan descriptor-index slots are recycled only
+after an in-flight-frame delay. Renderer and RHI code stay in Runtime and never
+include Editor headers; Editor only selects policies and presents diagnostics.
+Object-indexed indirect records use a shared 24-byte ABI: D3D12 consumes the
+leading object ID as a vertex-visible root constant before `DRAW_INDEXED`, while
+Vulkan skips that word for the native draw arguments and carries the same ID in
+`firstInstance`, read via Slang's `SV_VulkanInstanceID`. This keeps transform and
+material lookup identical even though the two APIs define base-instance vertex
+semantics differently.
+
+Modern Deferred executes on the graphics queue in this order:
+
+1. immutable scene extraction and incremental GPU Scene upload;
+2. compute frustum/LOD candidate generation and indirect depth prepass;
+3. compute RG32Float min/max HiZ generation and conservative occlusion culling;
+4. indirect static Standard GBuffer plus a raster compatibility subpass for
+   specialized Shader Graph/code and skinned vertex ABIs;
+5. 32x32x24 clustered light count, prefix, scatter, and compute deferred
+   lighting into RGBA16Float HDR;
+6. half-resolution SSGI/SSR trace, temporal rejection/clamping, bilateral
+   a-trous filtering, and composition;
+7. sorted transparent/particle raster, TAA, bloom, ACES tone mapping, color
+   adjustment, Runtime UI, and final raster blit.
+
+There is no async-compute queue in this version. RenderGraph represents compute
+and graphics pass types, per-mip UAV accesses, indirect/copy-source buffer
+access, persistent imported histories, automatic transitions, and UAV barriers.
+History invalidation is explicit for resize, camera cuts/projection changes,
+effect toggles, render-path/profile changes, scene changes, and EditorWorld /
+PlayWorld switches. Editor renders ImGui after the viewport result and presents
+once.
+
+Cooked shader container v5 stores ABI version 5, backend bytecode, reflected
+array/space bindings, constant sizes, and compute thread-group sizes. Windows
+packages contain Classic D3D11 and Modern D3D12 variants; Vulkan-enabled builds
+also contain SPIR-V. Modern-only engine shaders are intentionally omitted from
+D3D11/Metal blobs, while legacy v4 cooked containers remain readable.

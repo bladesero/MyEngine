@@ -87,10 +87,16 @@ public:
     uint32_t GetFormatVersion() const { return m_FormatVersion; }
     bool WasLoadedFromLegacyFormat() const { return m_LoadedFromLegacyFormat; }
     const std::string& GetParentPath() const { return m_ParentPath; }
-    void SetParentPath(std::string path) { m_ParentPath = std::move(path); }
+    void SetParentPath(std::string path) {
+        m_ParentPath = std::move(path);
+        IncrementVersion();
+    }
     bool HasParent() const { return !m_ParentPath.empty(); }
     uint8_t GetSurfaceOverrideMask() const { return m_SurfaceOverrideMask; }
-    void SetSurfaceOverrideMask(uint8_t value) { m_SurfaceOverrideMask = value; }
+    void SetSurfaceOverrideMask(uint8_t value) {
+        m_SurfaceOverrideMask = value;
+        IncrementVersion();
+    }
     bool OverridesSurface(SurfaceOverride field) const { return (m_SurfaceOverrideMask & field) != 0; }
 
     // ---- 基础参数 ----------------------------------------------------------
@@ -102,39 +108,55 @@ public:
     void SetBlendMode(BlendMode bm) {
         m_BlendMode = bm;
         m_SurfaceOverrideMask |= OverrideBlendMode;
+        IncrementVersion();
     }
     void SetTwoSided(bool v) {
         m_TwoSided = v;
         m_SurfaceOverrideMask |= OverrideTwoSided;
+        IncrementVersion();
     }
     void SetWireframe(bool v) {
         m_Wireframe = v;
         m_SurfaceOverrideMask |= OverrideWireframe;
+        IncrementVersion();
     }
     void SetAlphaThreshold(float v) {
         m_AlphaThreshold = v;
         m_SurfaceOverrideMask |= OverrideAlphaThreshold;
+        IncrementVersion();
     }
 
     // ---- 纹理槽 ------------------------------------------------------------
-    void SetTexture(const std::string& slot, TextureHandle tex) { m_Textures[slot] = std::move(tex); }
+    void SetTexture(const std::string& slot, TextureHandle tex) {
+        m_Textures[slot] = std::move(tex);
+        IncrementVersion();
+    }
     TextureHandle GetTexture(const std::string& slot) const {
         auto it = m_Textures.find(slot);
         return (it != m_Textures.end()) ? it->second : TextureHandle{};
     }
     bool HasTexture(const std::string& slot) const { return m_Textures.count(slot) > 0; }
-    void RemoveTexture(const std::string& slot) { m_Textures.erase(slot); }
+    void RemoveTexture(const std::string& slot) {
+        if (m_Textures.erase(slot) > 0)
+            IncrementVersion();
+    }
 
     const std::unordered_map<std::string, TextureHandle>& GetTextures() const { return m_Textures; }
 
     // ---- 标量/向量参数 -----------------------------------------------------
-    void SetParam(const std::string& name, const MaterialParam& p) { m_Params[name] = p; }
+    void SetParam(const std::string& name, const MaterialParam& p) {
+        m_Params[name] = p;
+        IncrementVersion();
+    }
     MaterialParam GetParam(const std::string& name, const MaterialParam& def = {}) const {
         auto it = m_Params.find(name);
         return (it != m_Params.end()) ? it->second : def;
     }
     bool HasParam(const std::string& name) const { return m_Params.count(name) > 0; }
-    void RemoveParam(const std::string& name) { m_Params.erase(name); }
+    void RemoveParam(const std::string& name) {
+        if (m_Params.erase(name) > 0)
+            IncrementVersion();
+    }
 
     float GetFloat(const std::string& n, float def = 0.f) const {
         auto it = m_Params.find(n);
@@ -153,11 +175,15 @@ public:
     void SetShader(std::shared_ptr<GpuShader> shader) {
         m_Shader = std::move(shader);
         SetState(AssetState::Ready);
+        IncrementVersion();
     }
     GpuShader* GetShader() const { return m_Shader.get(); }
     const std::shared_ptr<GpuShader>& GetShaderHandle() const { return m_Shader; }
     bool HasShader() const { return m_Shader != nullptr; }
-    void SetShaderAsset(ShaderAssetHandle shader) { m_ShaderAsset = std::move(shader); }
+    void SetShaderAsset(ShaderAssetHandle shader) {
+        m_ShaderAsset = std::move(shader);
+        IncrementVersion();
+    }
     const ShaderAssetHandle& GetShaderAsset() const { return m_ShaderAsset; }
     void MarkReady() { SetState(AssetState::Ready); }
 

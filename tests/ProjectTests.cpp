@@ -293,6 +293,7 @@ bool TestProjectConfigAndPortableAssetPaths() {
     project.SetName("ProjectTest");
     project.GetGraphicsSettings().backend = "d3d12";
     project.GetGraphicsSettings().renderPath = "deferred";
+    project.GetGraphicsSettings().deviceProfile = GraphicsDeviceProfile::Console;
     if (!Check(project.SetInputConfigPath("Content/Config/Input.input.json", &error),
                "project input config path save failed: " + error))
         return false;
@@ -307,7 +308,8 @@ bool TestProjectConfigAndPortableAssetPaths() {
                    loaded.GetStartupScene() == "Content/Scenes/Main.scene.json" &&
                    loaded.GetInputSettings().config == "Content/Config/Input.input.json" &&
                    loaded.GetGraphicsSettings().backend == "d3d12" &&
-                   loaded.GetGraphicsSettings().renderPath == "deferred",
+                   loaded.GetGraphicsSettings().renderPath == "deferred" &&
+                   loaded.GetGraphicsSettings().deviceProfile == GraphicsDeviceProfile::Console,
                "project manifest fields mismatch"))
         return false;
 
@@ -347,6 +349,25 @@ bool TestProjectConfigAndPortableAssetPaths() {
     loaded.GetGraphicsSettings().renderPath = "forward";
     if (!Check(loaded.Save(&error), "failed to restore graphics backend"))
         return false;
+    if (!Check(ProjectConfig::IsSupportedDeviceProfile("desktop") &&
+                   ProjectConfig::IsSupportedDeviceProfile("console") &&
+                   ProjectConfig::IsSupportedDeviceProfile("mobile") &&
+                   !ProjectConfig::IsSupportedDeviceProfile("handheld"),
+               "graphics device profile validation mismatch"))
+        return false;
+    {
+        nlohmann::json legacy;
+        std::ifstream input(root / ProjectConfig::kFileName);
+        input >> legacy;
+        legacy["version"] = 1;
+        legacy["graphics"].erase("deviceProfile");
+        std::ofstream(root / ProjectConfig::kFileName) << legacy.dump(2);
+        ProjectConfig migrated;
+        if (!Check(migrated.Open(root, false, &error) && migrated.GetVersion() == ProjectConfig::kCurrentVersion &&
+                       migrated.GetGraphicsSettings().deviceProfile == GraphicsDeviceProfile::Desktop,
+                   "v1 project graphics profile migration failed: " + error))
+            return false;
+    }
     std::ofstream(root / ProjectConfig::kFileName)
         << R"({"version":999,"name":"Future","startupScene":"Content/Scenes/Main.scene.json"})";
     ProjectConfig unsupported;
@@ -608,7 +629,8 @@ bool TestWorkspaceCookAndPublish() {
             EngineShaders::kAtmosphereCubemap, EngineShaders::kAtmosphereSH,    EngineShaders::kDeferredLighting,
             EngineShaders::kEnvironmentMipmap, EngineShaders::kGBuffer,         EngineShaders::kMesh,
             EngineShaders::kPostProcessFXAA,   EngineShaders::kPostProcessSSAO, EngineShaders::kPostProcessSSAOBlur,
-            EngineShaders::kProceduralSky,     EngineShaders::kShadowDepth,     EngineShaders::kShadowedMainPass};
+            EngineShaders::kProceduralSky,     EngineShaders::kShadowDepth,
+            EngineShaders::kShadowDepthSkinned, EngineShaders::kShadowedMainPass};
         for (const char* engineShader : engineShaders) {
             auto assetManagerShader = AssetManager::Get().Load<ShaderAsset>(engineShader);
             if (!Check(assetManagerShader && assetManagerShader->IsCooked(),

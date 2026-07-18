@@ -55,12 +55,36 @@ RenderPath ViewportRenderExecution::GetRenderPath() const {
     return m_Renderer.GetRenderPath();
 }
 
+void ViewportRenderExecution::SetDeviceProfile(GraphicsDeviceProfile profile) {
+    m_Renderer.SetDeviceProfile(profile);
+}
+
+GraphicsDeviceProfile ViewportRenderExecution::GetDeviceProfile() const {
+    return m_Renderer.GetDeviceProfile();
+}
+
+const RenderPipelineDiagnostics& ViewportRenderExecution::GetPipelineDiagnostics() const {
+    return m_Renderer.GetPipelineDiagnostics();
+}
+
 void ViewportRenderExecution::SetFeatureMask(RendererFeatureMask mask) {
     m_Renderer.SetFeatureMask(mask);
 }
 
 RendererFeatureMask ViewportRenderExecution::GetFeatureMask() const {
     return m_Renderer.GetFeatureMask();
+}
+
+void ViewportRenderExecution::SetDebugView(RendererDebugView view) {
+    m_Renderer.SetDebugView(view);
+}
+
+RendererDebugView ViewportRenderExecution::GetDebugView() const {
+    return m_Renderer.GetDebugView();
+}
+
+void ViewportRenderExecution::InvalidateTemporalHistory(const std::string& reason, bool resetObjectHistory) {
+    m_Renderer.InvalidateTemporalHistory(reason, resetObjectHistory);
 }
 
 void ViewportRenderExecution::SetCommandViewport(const RenderViewport& viewport, bool presentToSwapchain) {

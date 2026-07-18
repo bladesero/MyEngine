@@ -31,8 +31,14 @@ public:
     void ReleaseFrameResources();
     void SetRenderPath(RenderPath path);
     RenderPath GetRenderPath() const;
+    void SetDeviceProfile(GraphicsDeviceProfile profile);
+    GraphicsDeviceProfile GetDeviceProfile() const;
+    const RenderPipelineDiagnostics& GetPipelineDiagnostics() const;
     void SetFeatureMask(RendererFeatureMask mask);
     RendererFeatureMask GetFeatureMask() const;
+    void SetDebugView(RendererDebugView view);
+    RendererDebugView GetDebugView() const;
+    void InvalidateTemporalHistory(const std::string& reason, bool resetObjectHistory = false);
 
     virtual Camera& GetCamera() = 0;
     virtual const Camera& GetCamera() const = 0;
