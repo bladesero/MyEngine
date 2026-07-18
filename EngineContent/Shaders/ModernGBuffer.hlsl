@@ -2,6 +2,7 @@ struct GpuSceneObject
 {
     row_major float4x4 world;
     row_major float4x4 previousWorld;
+    row_major float4x4 normalMatrix;
     float4 boundsMin;
     float4 boundsMax;
     uint meshId, materialId, bonePaletteOffset, flags;
@@ -90,12 +91,16 @@ VSOutput VSMain(VSInput input, uint drawInstanceIndex : MYENGINE_DRAW_INSTANCE_S
     output.position = mul(world, g_ViewProjection);
     output.currentClip = output.position;
     output.previousClip = mul(mul(float4(input.position, 1.0f), object.previousWorld), g_PreviousViewProjection);
-    output.tangentW = normalize(mul(float4(input.tangent, 0.0f), object.world).xyz);
-    float3 bitangentObject = normalize(cross(input.normal, input.tangent));
-    float3 bitangentW = normalize(mul(float4(bitangentObject, 0.0f), object.world).xyz);
-    // Rebuilding the normal from two transformed tangent-plane vectors is equivalent to the inverse-transpose
-    // direction and remains correct under non-uniform object scale.
-    output.normalW = normalize(cross(output.tangentW, bitangentW));
+    output.normalW = normalize(mul(float4(input.normal, 0.0f), object.normalMatrix).xyz);
+    float3 tangentW = mul(float4(input.tangent, 0.0f), object.world).xyz;
+    tangentW -= output.normalW * dot(tangentW, output.normalW);
+    if (dot(tangentW, tangentW) <= 1e-8f)
+    {
+        float3 fallbackAxis = abs(output.normalW.y) < 0.999f ? float3(0.0f, 1.0f, 0.0f)
+                                                              : float3(1.0f, 0.0f, 0.0f);
+        tangentW = cross(fallbackAxis, output.normalW);
+    }
+    output.tangentW = normalize(tangentW);
     output.uv = input.uv;
     output.color = input.color;
     output.materialId = object.materialId;

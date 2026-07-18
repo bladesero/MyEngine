@@ -52,7 +52,14 @@ PostProcessRuntimeOptions CollectPostProcessOptions(const Scene& scene) {
         options.modern.taaEnabled = post->IsTAAEnabled();
         options.modern.ssgiIntensity = post->GetSSGIIntensity();
         options.modern.ssgiMaxDistance = post->GetSSGIMaxDistance();
+        options.modern.ssgiHistoryWeight = post->GetSSGIHistoryWeight();
+        options.modern.ssgiStepCount = post->GetSSGIStepCount();
+        options.modern.ssgiFilterRounds = post->GetSSGIFilterRounds();
+        options.modern.ssrMaxDistance = post->GetSSRMaxDistance();
         options.modern.ssrMaxRoughness = post->GetSSRMaxRoughness();
+        options.modern.ssrHistoryWeight = post->GetSSRHistoryWeight();
+        options.modern.ssrStepCount = post->GetSSRStepCount();
+        options.modern.ssrFilterRounds = post->GetSSRFilterRounds();
         options.modern.taaHistoryWeight = post->GetTAAHistoryWeight();
         options.modern.exposure = post->GetExposure();
         options.modern.gamma = post->GetGamma();

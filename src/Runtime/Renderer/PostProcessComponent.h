@@ -2,6 +2,8 @@
 
 #include "Scene/Component.h"
 
+#include <cstdint>
+
 class PostProcessComponent final : public Component {
 public:
     const char* GetTypeName() const override { return "PostProcess"; }
@@ -57,11 +59,25 @@ public:
     void SetSSGIIntensity(float intensity);
     float GetSSGIMaxDistance() const { return m_SSGIMaxDistance; }
     void SetSSGIMaxDistance(float distance);
+    float GetSSGIHistoryWeight() const { return m_SSGIHistoryWeight; }
+    void SetSSGIHistoryWeight(float weight);
+    uint32_t GetSSGIStepCount() const { return m_SSGIStepCount; }
+    void SetSSGIStepCount(uint32_t stepCount);
+    uint32_t GetSSGIFilterRounds() const { return m_SSGIFilterRounds; }
+    void SetSSGIFilterRounds(uint32_t rounds);
 
     bool IsSSREnabled() const { return m_SSREnabled; }
     void SetSSREnabled(bool enabled) { m_SSREnabled = enabled; }
+    float GetSSRMaxDistance() const { return m_SSRMaxDistance; }
+    void SetSSRMaxDistance(float distance);
     float GetSSRMaxRoughness() const { return m_SSRMaxRoughness; }
     void SetSSRMaxRoughness(float roughness);
+    float GetSSRHistoryWeight() const { return m_SSRHistoryWeight; }
+    void SetSSRHistoryWeight(float weight);
+    uint32_t GetSSRStepCount() const { return m_SSRStepCount; }
+    void SetSSRStepCount(uint32_t stepCount);
+    uint32_t GetSSRFilterRounds() const { return m_SSRFilterRounds; }
+    void SetSSRFilterRounds(uint32_t rounds);
 
     bool IsTAAEnabled() const { return m_TAAEnabled; }
     void SetTAAEnabled(bool enabled) { m_TAAEnabled = enabled; }
@@ -90,8 +106,15 @@ private:
     bool m_SSGIEnabled = true;
     float m_SSGIIntensity = 1.0f;
     float m_SSGIMaxDistance = 10.0f;
+    float m_SSGIHistoryWeight = 0.9f;
+    uint32_t m_SSGIStepCount = 32;
+    uint32_t m_SSGIFilterRounds = 3;
     bool m_SSREnabled = true;
+    float m_SSRMaxDistance = 10.0f;
     float m_SSRMaxRoughness = 0.8f;
+    float m_SSRHistoryWeight = 0.9f;
+    uint32_t m_SSRStepCount = 48;
+    uint32_t m_SSRFilterRounds = 2;
     bool m_TAAEnabled = true;
     float m_TAAHistoryWeight = 0.9f;
 };

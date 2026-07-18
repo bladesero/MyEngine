@@ -5,6 +5,7 @@
 #include "Renderer/RHI/IRHIReadbackService.h"
 
 #include <array>
+#include <cstddef>
 #include <memory>
 #include <unordered_map>
 
@@ -37,7 +38,14 @@ struct ModernPostProcessSettings {
     bool taaEnabled = true;
     float ssgiIntensity = 1.0f;
     float ssgiMaxDistance = 10.0f;
+    float ssgiHistoryWeight = 0.9f;
+    uint32_t ssgiStepCount = 32;
+    uint32_t ssgiFilterRounds = 3;
+    float ssrMaxDistance = 10.0f;
     float ssrMaxRoughness = 0.8f;
+    float ssrHistoryWeight = 0.9f;
+    uint32_t ssrStepCount = 48;
+    uint32_t ssrFilterRounds = 2;
     float taaHistoryWeight = 0.9f;
     float exposure = 1.0f;
     float gamma = 2.2f;
@@ -196,18 +204,30 @@ private:
         uint32_t historyValid = 0;
         uint32_t filterStep = 0;
         uint32_t effectMode = 0;
-        float intensity = 1.0f;
-        float maxDistance = 10.0f;
-        float maxRoughness = 0.8f;
-        float historyWeight = 0.9f;
+        float ssgiIntensity = 1.0f;
+        float ssgiMaxDistance = 10.0f;
+        float ssgiHistoryWeight = 0.9f;
+        float ssrMaxDistance = 10.0f;
+        float ssrMaxRoughness = 0.8f;
+        float ssrHistoryWeight = 0.9f;
+        float taaHistoryWeight = 0.9f;
         float exposure = 1.0f;
         float gamma = 2.2f;
         float bloomThreshold = 1.0f;
         float bloomIntensity = 0.0f;
         uint32_t ssgiStepCount = 32;
         uint32_t ssrStepCount = 48;
-        uint32_t padding[2]{};
+        uint32_t padding[3]{};
     };
+    static_assert(sizeof(ScreenSpaceConstants) == 528, "ScreenSpaceConstants size must match ModernScreenSpace.hlsl");
+    static_assert(offsetof(ScreenSpaceConstants, ssgiIntensity) == 464,
+                  "ScreenSpaceConstants SSGI tuning offset changed");
+    static_assert(offsetof(ScreenSpaceConstants, ssrMaxRoughness) == 480,
+                  "ScreenSpaceConstants SSR tuning offset changed");
+    static_assert(offsetof(ScreenSpaceConstants, gamma) == 496,
+                  "ScreenSpaceConstants post-process tuning offset changed");
+    static_assert(offsetof(ScreenSpaceConstants, ssrStepCount) == 512,
+                  "ScreenSpaceConstants step-count offset changed");
 
     IRHIDevice* m_Device = nullptr;
     IRHIReadbackService* m_ReadbackService = nullptr;

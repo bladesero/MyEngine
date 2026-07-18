@@ -56,6 +56,7 @@ private:
 struct alignas(16) GpuSceneObjectData {
     Mat4 world = Mat4::Identity();
     Mat4 previousWorld = Mat4::Identity();
+    Mat4 normalMatrix = Mat4::Identity();
     Vec4 boundsMin{};
     Vec4 boundsMax{};
     uint32_t meshId = 0;
@@ -67,6 +68,22 @@ struct alignas(16) GpuSceneObjectData {
     int32_t baseVertex = 0;
     uint32_t objectId = 0;
 };
+
+static_assert(std::is_standard_layout_v<GpuSceneObjectData>);
+static_assert(offsetof(GpuSceneObjectData, world) == 0u);
+static_assert(offsetof(GpuSceneObjectData, previousWorld) == 64u);
+static_assert(offsetof(GpuSceneObjectData, normalMatrix) == 128u);
+static_assert(offsetof(GpuSceneObjectData, boundsMin) == 192u);
+static_assert(offsetof(GpuSceneObjectData, boundsMax) == 208u);
+static_assert(offsetof(GpuSceneObjectData, meshId) == 224u);
+static_assert(offsetof(GpuSceneObjectData, materialId) == 228u);
+static_assert(offsetof(GpuSceneObjectData, bonePaletteOffset) == 232u);
+static_assert(offsetof(GpuSceneObjectData, flags) == 236u);
+static_assert(offsetof(GpuSceneObjectData, firstIndex) == 240u);
+static_assert(offsetof(GpuSceneObjectData, indexCount) == 244u);
+static_assert(offsetof(GpuSceneObjectData, baseVertex) == 248u);
+static_assert(offsetof(GpuSceneObjectData, objectId) == 252u);
+static_assert(sizeof(GpuSceneObjectData) == 256u);
 
 struct alignas(16) GpuSceneLightData {
     Vec4 positionRange{};

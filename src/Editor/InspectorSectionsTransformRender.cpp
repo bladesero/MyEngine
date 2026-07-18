@@ -468,6 +468,68 @@ public:
         if (ImGui::DragFloat("Bloom", &bloom, 0.02f, 0.0f, 8.0f)) {
             CommitComponentEdit(context, *actor, *post, "bloomIntensity", [&] { post->SetBloomIntensity(bloom); });
         }
+
+        ImGui::SeparatorText("SSGI");
+        bool ssgiEnabled = post->IsSSGIEnabled();
+        float ssgiIntensity = post->GetSSGIIntensity();
+        float ssgiMaxDistance = post->GetSSGIMaxDistance();
+        float ssgiHistoryWeight = post->GetSSGIHistoryWeight();
+        int ssgiStepCount = static_cast<int>(post->GetSSGIStepCount());
+        int ssgiFilterRounds = static_cast<int>(post->GetSSGIFilterRounds());
+        if (ImGui::Checkbox("Enabled##SSGI", &ssgiEnabled)) {
+            CommitComponentEdit(context, *actor, *post, "ssgiEnabled", [&] { post->SetSSGIEnabled(ssgiEnabled); });
+        }
+        if (ImGui::DragFloat("Intensity##SSGI", &ssgiIntensity, 0.02f, 0.0f, 4.0f)) {
+            CommitComponentEdit(context, *actor, *post, "ssgiIntensity",
+                                [&] { post->SetSSGIIntensity(ssgiIntensity); });
+        }
+        if (ImGui::DragFloat("Max Distance##SSGI", &ssgiMaxDistance, 0.1f, 0.1f, 100.0f)) {
+            CommitComponentEdit(context, *actor, *post, "ssgiMaxDistance",
+                                [&] { post->SetSSGIMaxDistance(ssgiMaxDistance); });
+        }
+        if (ImGui::DragFloat("History Weight##SSGI", &ssgiHistoryWeight, 0.005f, 0.0f, 0.99f)) {
+            CommitComponentEdit(context, *actor, *post, "ssgiHistoryWeight",
+                                [&] { post->SetSSGIHistoryWeight(ssgiHistoryWeight); });
+        }
+        if (ImGui::DragInt("Trace Steps##SSGI", &ssgiStepCount, 1.0f, 1, 128)) {
+            CommitComponentEdit(context, *actor, *post, "ssgiStepCount",
+                                [&] { post->SetSSGIStepCount(static_cast<uint32_t>(ssgiStepCount)); });
+        }
+        if (ImGui::DragInt("Filter Rounds##SSGI", &ssgiFilterRounds, 1.0f, 0, 4)) {
+            CommitComponentEdit(context, *actor, *post, "ssgiFilterRounds",
+                                [&] { post->SetSSGIFilterRounds(static_cast<uint32_t>(ssgiFilterRounds)); });
+        }
+
+        ImGui::SeparatorText("SSR");
+        bool ssrEnabled = post->IsSSREnabled();
+        float ssrMaxDistance = post->GetSSRMaxDistance();
+        float ssrMaxRoughness = post->GetSSRMaxRoughness();
+        float ssrHistoryWeight = post->GetSSRHistoryWeight();
+        int ssrStepCount = static_cast<int>(post->GetSSRStepCount());
+        int ssrFilterRounds = static_cast<int>(post->GetSSRFilterRounds());
+        if (ImGui::Checkbox("Enabled##SSR", &ssrEnabled)) {
+            CommitComponentEdit(context, *actor, *post, "ssrEnabled", [&] { post->SetSSREnabled(ssrEnabled); });
+        }
+        if (ImGui::DragFloat("Max Distance##SSR", &ssrMaxDistance, 0.1f, 0.1f, 100.0f)) {
+            CommitComponentEdit(context, *actor, *post, "ssrMaxDistance",
+                                [&] { post->SetSSRMaxDistance(ssrMaxDistance); });
+        }
+        if (ImGui::DragFloat("Max Roughness##SSR", &ssrMaxRoughness, 0.01f, 0.0f, 1.0f)) {
+            CommitComponentEdit(context, *actor, *post, "ssrMaxRoughness",
+                                [&] { post->SetSSRMaxRoughness(ssrMaxRoughness); });
+        }
+        if (ImGui::DragFloat("History Weight##SSR", &ssrHistoryWeight, 0.005f, 0.0f, 0.99f)) {
+            CommitComponentEdit(context, *actor, *post, "ssrHistoryWeight",
+                                [&] { post->SetSSRHistoryWeight(ssrHistoryWeight); });
+        }
+        if (ImGui::DragInt("Trace Steps##SSR", &ssrStepCount, 1.0f, 1, 128)) {
+            CommitComponentEdit(context, *actor, *post, "ssrStepCount",
+                                [&] { post->SetSSRStepCount(static_cast<uint32_t>(ssrStepCount)); });
+        }
+        if (ImGui::DragInt("Filter Rounds##SSR", &ssrFilterRounds, 1.0f, 0, 4)) {
+            CommitComponentEdit(context, *actor, *post, "ssrFilterRounds",
+                                [&] { post->SetSSRFilterRounds(static_cast<uint32_t>(ssrFilterRounds)); });
+        }
         if (EditorWidgets::IconButton("RemovePostProcess", "X", "Remove Post Process")) {
             RemoveComponentByType(context, *actor, "PostProcess");
         }

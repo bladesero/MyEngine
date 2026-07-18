@@ -2,6 +2,7 @@ struct GpuSceneObject
 {
     row_major float4x4 world;
     row_major float4x4 previousWorld;
+    row_major float4x4 normalMatrix;
     float4 boundsMin;
     float4 boundsMax;
     uint meshId;

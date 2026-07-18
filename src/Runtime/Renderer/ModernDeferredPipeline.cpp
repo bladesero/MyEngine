@@ -65,6 +65,10 @@ bool MatricesNearlyEqual(const Mat4& left, const Mat4& right, float epsilon = 1e
     return true;
 }
 
+bool FloatsNearlyEqual(float left, float right, float epsilon = 1e-5f) {
+    return std::abs(left - right) <= epsilon;
+}
+
 bool BindModernPass(GpuCommandList& commands, const char* passName, const std::shared_ptr<GpuBindGroup>& bindings) {
     std::string error;
     if (bindings && bindings->GetShader() && !bindings->GetShader()->reflection.bindings.empty() &&
@@ -602,6 +606,12 @@ void ModernDeferredPipeline::UpdateHistoryValidity(const Camera& camera, const M
              settings.ssrEnabled != m_PreviousPostSettings.ssrEnabled ||
              settings.taaEnabled != m_PreviousPostSettings.taaEnabled)
         reason = "screen-space effect toggle changed";
+    else if (!FloatsNearlyEqual(settings.ssgiMaxDistance, m_PreviousPostSettings.ssgiMaxDistance) ||
+             settings.ssgiStepCount != m_PreviousPostSettings.ssgiStepCount ||
+             !FloatsNearlyEqual(settings.ssrMaxDistance, m_PreviousPostSettings.ssrMaxDistance) ||
+             !FloatsNearlyEqual(settings.ssrMaxRoughness, m_PreviousPostSettings.ssrMaxRoughness) ||
+             settings.ssrStepCount != m_PreviousPostSettings.ssrStepCount)
+        reason = "screen-space trace settings changed";
     if (!reason.empty()) {
         m_HistoryValid = false;
         m_HistoryResetReason = std::move(reason);
@@ -881,17 +891,22 @@ bool ModernDeferredPipeline::Prepare(const Scene& scene, const Camera& camera, u
     const Vec3 previousCameraPosition = m_HasPreviousProjection ? m_PreviousCameraPosition : camera.GetPosition();
     m_ScreenSpaceConstants.previousCameraPosition =
         Vec4{previousCameraPosition.x, previousCameraPosition.y, previousCameraPosition.z, 0.0f};
-    m_ScreenSpaceConstants.intensity = settings.ssgiIntensity;
-    m_ScreenSpaceConstants.maxDistance = settings.ssgiMaxDistance;
-    m_ScreenSpaceConstants.maxRoughness = settings.ssrMaxRoughness;
-    m_ScreenSpaceConstants.historyWeight = settings.taaHistoryWeight;
+    m_ScreenSpaceConstants.ssgiIntensity = settings.ssgiIntensity;
+    m_ScreenSpaceConstants.ssgiMaxDistance = settings.ssgiMaxDistance;
+    m_ScreenSpaceConstants.ssgiHistoryWeight = settings.ssgiHistoryWeight;
+    m_ScreenSpaceConstants.ssrMaxDistance = settings.ssrMaxDistance;
+    m_ScreenSpaceConstants.ssrMaxRoughness = settings.ssrMaxRoughness;
+    m_ScreenSpaceConstants.ssrHistoryWeight = settings.ssrHistoryWeight;
+    m_ScreenSpaceConstants.taaHistoryWeight = settings.taaHistoryWeight;
     m_ScreenSpaceConstants.exposure = settings.exposure;
     m_ScreenSpaceConstants.gamma = settings.gamma;
     m_ScreenSpaceConstants.bloomThreshold = settings.bloomThreshold;
     m_ScreenSpaceConstants.bloomIntensity = settings.bloomIntensity;
     const bool consoleQuality = m_QualityProfile == QualityProfile::Console;
-    m_ScreenSpaceConstants.ssgiStepCount = consoleQuality ? 16u : 32u;
-    m_ScreenSpaceConstants.ssrStepCount = consoleQuality ? 24u : 48u;
+    m_ScreenSpaceConstants.ssgiStepCount =
+        consoleQuality ? (std::min)(settings.ssgiStepCount, 16u) : settings.ssgiStepCount;
+    m_ScreenSpaceConstants.ssrStepCount =
+        consoleQuality ? (std::min)(settings.ssrStepCount, 24u) : settings.ssrStepCount;
     m_Stats.clusterCount = m_ClusterConstants.clusterCount;
     m_Stats.indirectDrawCapacity = m_IndirectCapacity;
     return true;
@@ -1503,10 +1518,8 @@ RGTextureHandle ModernDeferredPipeline::AddScreenSpaceEffects(
     std::shared_ptr<GpuTextureView> ssrFinalSrv;
 
     ScreenSpaceConstants ssgiTemporalConstants = m_ScreenSpaceConstants;
-    ssgiTemporalConstants.historyWeight = 0.9f;
     ssgiTemporalConstants.effectMode = 1u;
     ScreenSpaceConstants ssrTemporalConstants = m_ScreenSpaceConstants;
-    ssrTemporalConstants.historyWeight = 0.9f;
     ssrTemporalConstants.effectMode = 2u;
     if (m_PostSettings.ssgiEnabled) {
         ScreenSpaceConstants ssgiTraceConstants = m_ScreenSpaceConstants;
@@ -1577,7 +1590,9 @@ RGTextureHandle ModernDeferredPipeline::AddScreenSpaceEffects(
         RGTextureHandle ssgiFilterHandles[2] = {ssgiFilter0, ssgiFilter1};
         RGTextureHandle ssgiInput = ssgiHistoryWrite;
         std::shared_ptr<GpuTextureView> ssgiInputSrv = m_SSGIHistory[writeHistory].srv;
-        const uint32_t ssgiFilterRounds = m_QualityProfile == QualityProfile::Console ? 2u : 3u;
+        const uint32_t ssgiFilterRounds = m_QualityProfile == QualityProfile::Console
+                                              ? (std::min)(m_PostSettings.ssgiFilterRounds, 2u)
+                                              : m_PostSettings.ssgiFilterRounds;
         for (uint32_t pass = 0; pass < ssgiFilterRounds * 2u; ++pass) {
             const uint32_t outputIndex = pass & 1u;
             const RGTextureHandle outputHandle = ssgiFilterHandles[outputIndex];
@@ -1690,7 +1705,9 @@ RGTextureHandle ModernDeferredPipeline::AddScreenSpaceEffects(
         RGTextureHandle ssrFilterHandles[2] = {ssrFilter0, ssrFilter1};
         RGTextureHandle ssrInput = ssrHistoryWrite;
         std::shared_ptr<GpuTextureView> ssrInputSrv = m_SSRHistory[writeHistory].srv;
-        const uint32_t ssrFilterRounds = m_QualityProfile == QualityProfile::Console ? 1u : 2u;
+        const uint32_t ssrFilterRounds = m_QualityProfile == QualityProfile::Console
+                                             ? (std::min)(m_PostSettings.ssrFilterRounds, 1u)
+                                             : m_PostSettings.ssrFilterRounds;
         for (uint32_t pass = 0; pass < ssrFilterRounds * 2u; ++pass) {
             const uint32_t outputIndex = pass & 1u;
             const RGTextureHandle outputHandle = ssrFilterHandles[outputIndex];

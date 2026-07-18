@@ -5,6 +5,7 @@
 #include "Assets/MaterialAsset.h"
 #include "Assets/MeshAsset.h"
 #include "Core/Logger.h"
+#include "Math/Mat4Inverse.h"
 #include "Renderer/LightComponent.h"
 #include "Renderer/MaterialSystem.h"
 #include "Scene/Actor.h"
@@ -372,6 +373,10 @@ bool GpuSceneDatabase::Update(const Scene& scene, uint64_t frameNumber) {
         GpuSceneObjectData object;
         object.world = world;
         object.previousWorld = previous == previousWorld.end() ? world : previous->second;
+        Mat4 normalMatrix = Mat4::Identity();
+        if (Mat4Invert(world, normalMatrix))
+            normalMatrix = normalMatrix.Transposed();
+        object.normalMatrix = normalMatrix;
         const AABB bounds = TransformAABB(subMesh.bounds, world);
         object.boundsMin = {bounds.min.x, bounds.min.y, bounds.min.z, 1.0f};
         object.boundsMax = {bounds.max.x, bounds.max.y, bounds.max.z, 1.0f};

@@ -399,14 +399,42 @@ TypeDescriptor PostProcessType() {
         d, "ssgiMaxDistance", 10.0f,
         [](const Component& c) { return static_cast<const PostProcessComponent&>(c).GetSSGIMaxDistance(); },
         [](Component& c, float v) { static_cast<PostProcessComponent&>(c).SetSSGIMaxDistance(v); });
+    AddFloat(
+        d, "ssgiHistoryWeight", 0.9f,
+        [](const Component& c) { return static_cast<const PostProcessComponent&>(c).GetSSGIHistoryWeight(); },
+        [](Component& c, float v) { static_cast<PostProcessComponent&>(c).SetSSGIHistoryWeight(v); });
+    AddUInt(
+        d, "ssgiStepCount", 32u,
+        [](const Component& c) { return static_cast<const PostProcessComponent&>(c).GetSSGIStepCount(); },
+        [](Component& c, uint32_t v) { static_cast<PostProcessComponent&>(c).SetSSGIStepCount(v); });
+    AddUInt(
+        d, "ssgiFilterRounds", 3u,
+        [](const Component& c) { return static_cast<const PostProcessComponent&>(c).GetSSGIFilterRounds(); },
+        [](Component& c, uint32_t v) { static_cast<PostProcessComponent&>(c).SetSSGIFilterRounds(v); });
     AddBool(
         d, "ssrEnabled", true,
         [](const Component& c) { return static_cast<const PostProcessComponent&>(c).IsSSREnabled(); },
         [](Component& c, bool v) { static_cast<PostProcessComponent&>(c).SetSSREnabled(v); });
     AddFloat(
+        d, "ssrMaxDistance", 10.0f,
+        [](const Component& c) { return static_cast<const PostProcessComponent&>(c).GetSSRMaxDistance(); },
+        [](Component& c, float v) { static_cast<PostProcessComponent&>(c).SetSSRMaxDistance(v); });
+    AddFloat(
         d, "ssrMaxRoughness", 0.8f,
         [](const Component& c) { return static_cast<const PostProcessComponent&>(c).GetSSRMaxRoughness(); },
         [](Component& c, float v) { static_cast<PostProcessComponent&>(c).SetSSRMaxRoughness(v); });
+    AddFloat(
+        d, "ssrHistoryWeight", 0.9f,
+        [](const Component& c) { return static_cast<const PostProcessComponent&>(c).GetSSRHistoryWeight(); },
+        [](Component& c, float v) { static_cast<PostProcessComponent&>(c).SetSSRHistoryWeight(v); });
+    AddUInt(
+        d, "ssrStepCount", 48u,
+        [](const Component& c) { return static_cast<const PostProcessComponent&>(c).GetSSRStepCount(); },
+        [](Component& c, uint32_t v) { static_cast<PostProcessComponent&>(c).SetSSRStepCount(v); });
+    AddUInt(
+        d, "ssrFilterRounds", 2u,
+        [](const Component& c) { return static_cast<const PostProcessComponent&>(c).GetSSRFilterRounds(); },
+        [](Component& c, uint32_t v) { static_cast<PostProcessComponent&>(c).SetSSRFilterRounds(v); });
     AddBool(
         d, "taaEnabled", true,
         [](const Component& c) { return static_cast<const PostProcessComponent&>(c).IsTAAEnabled(); },

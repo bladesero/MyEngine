@@ -30,6 +30,7 @@ cbuffer ClusterConstants : register(b0)
 };
 
 #include "PBR_BRDF.hlsli"
+#include "ModernReflection.hlsli"
 
 StructuredBuffer<GpuSceneLight> g_Lights : register(t0);
 StructuredBuffer<uint> g_ClusterCounts : register(t1);
@@ -240,7 +241,7 @@ void CSDeferredLighting(uint3 dispatchThreadId : SV_DispatchThreadID)
     float3 color = PbrDirectLighting(albedoSample.rgb, metallic, roughness, normal, viewDirection, sunDirection,
                                      g_DirectionalColorAmbient.rgb * max(g_DirectionalLight.w, 0.0f) *
                                          directionalShadow);
-    float3 reflectionDirection = reflect(-viewDirection, normal);
+    float3 reflectionDirection = ModernWorldReflectionDirection(worldPosition, g_CameraPosition, normal);
     float3 environmentDiffuse = EvaluateEnvironmentSH2(normal);
     float3 environmentSpecular =
         g_IBLCubemap.SampleLevel(g_LinearSampler, reflectionDirection, roughness * 6.0f).rgb;

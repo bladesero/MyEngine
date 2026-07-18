@@ -16,18 +16,23 @@ cbuffer ScreenSpaceConstants : register(b0)
     uint g_HistoryValid;
     uint g_FilterStep;
     uint g_EffectMode;
-    float g_Intensity;
-    float g_MaxDistance;
-    float g_MaxRoughness;
-    float g_HistoryWeight;
+    float g_SSGIIntensity;
+    float g_SSGIMaxDistance;
+    float g_SSGIHistoryWeight;
+    float g_SSRMaxDistance;
+    float g_SSRMaxRoughness;
+    float g_SSRHistoryWeight;
+    float g_TAAHistoryWeight;
     float g_Exposure;
     float g_Gamma;
     float g_BloomThreshold;
     float g_BloomIntensity;
     uint g_SSGIStepCount;
     uint g_SSRStepCount;
-    uint2 g_ScreenSpacePadding;
+    uint3 g_ScreenSpacePadding;
 };
+
+#include "ModernReflection.hlsli"
 
 Texture2D<float> g_Depth : register(t0);
 Texture2D<float4> g_Normal : register(t1);
@@ -263,6 +268,74 @@ float NeighborhoodMaxAlpha(Texture2D<float4> source, int2 pixel, uint2 size)
     return maximum;
 }
 
+void SSGINeighborhoodStatistics(Texture2D<float4> source, int2 pixel, uint2 size, out float3 minimum,
+                                out float3 maximum, out float meanLuminance, out float secondMoment)
+{
+    minimum = 1e30f.xxx;
+    maximum = -1e30f.xxx;
+    meanLuminance = 0.0f;
+    secondMoment = 0.0f;
+    [unroll]
+    for (int y = -1; y <= 1; ++y)
+    [unroll]
+    for (int x = -1; x <= 1; ++x)
+    {
+        int2 samplePixel = clamp(pixel + int2(x, y), int2(0, 0), int2(size) - 1);
+        float4 sampleValue = source.Load(int3(samplePixel, 0));
+        float luminance = Luminance(sampleValue.rgb);
+        float3 ycocg = RGBToYCoCg(sampleValue.rgb);
+        minimum = min(minimum, ycocg);
+        maximum = max(maximum, ycocg);
+        meanLuminance += luminance;
+        secondMoment += max(sampleValue.a, luminance * luminance);
+    }
+    meanLuminance /= 9.0f;
+    secondMoment /= 9.0f;
+}
+
+float4 AccumulateSSGIHistory(float4 current, float4 history, int2 pixel, bool valid)
+{
+    float3 minimum, maximum;
+    float currentMeanLuminance, currentSecondMomentMean;
+    SSGINeighborhoodStatistics(g_Current, pixel, g_EffectSize, minimum, maximum, currentMeanLuminance,
+                               currentSecondMomentMean);
+
+    float historyLuminance = Luminance(history.rgb);
+    float historyVariance = max(history.a - historyLuminance * historyLuminance, 0.0f);
+    float currentVariance = max(currentSecondMomentMean - currentMeanLuminance * currentMeanLuminance, 0.0f);
+    float weight = valid ? saturate(g_SSGIHistoryWeight) : 0.0f;
+    float meanDifference = historyLuminance - currentMeanLuminance;
+    float temporalVariance = lerp(currentVariance, historyVariance, weight) +
+                             weight * (1.0f - weight) * meanDifference * meanDifference;
+    float luminanceRadius = 3.0f * sqrt(max(temporalVariance, 0.0f)) + 0.02f;
+    float3 clippingRadius = float3(luminanceRadius, luminanceRadius * 0.5f, luminanceRadius * 0.5f);
+    history.rgb = YCoCgToRGB(clamp(RGBToYCoCg(history.rgb), minimum - clippingRadius, maximum + clippingRadius));
+
+    float clampedHistoryLuminance = Luminance(history.rgb);
+    history.a = clampedHistoryLuminance * clampedHistoryLuminance + historyVariance;
+    float4 accumulated = lerp(current, history, weight);
+    float currentLuminance = Luminance(current.rgb);
+    float currentSecondMoment = max(current.a, currentLuminance * currentLuminance);
+    accumulated.a = lerp(currentSecondMoment, history.a, weight);
+    return accumulated;
+}
+
+float4 AccumulateSSRHistory(float4 current, float4 history, int2 pixel, bool valid)
+{
+    float3 minimum, maximum;
+    NeighborhoodBounds(g_Current, pixel, g_EffectSize, minimum, maximum);
+    history.rgb = YCoCgToRGB(clamp(RGBToYCoCg(history.rgb), minimum, maximum));
+    // SSR alpha is hit confidence. Clamp it to confidence present in the current neighborhood; otherwise a
+    // reprojected hit can retain high confidence after its radiance was clamped to zero, subtracting the IBL
+    // fallback in the composite and leaving a dark ghost.
+    history.a = min(saturate(history.a), saturate(NeighborhoodMaxAlpha(g_Current, pixel, g_EffectSize)));
+    float luminanceDelta = RelativeLuminanceDifference(current.rgb, history.rgb);
+    float weight = valid ? saturate(g_SSRHistoryWeight) * saturate(1.0f - luminanceDelta) : 0.0f;
+    float4 accumulated = lerp(current, history, weight);
+    accumulated.a = saturate(accumulated.a);
+    return accumulated;
+}
+
 [numthreads(8, 8, 1)]
 void CSSSGITrace(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
@@ -289,14 +362,14 @@ void CSSSGITrace(uint3 dispatchThreadId : SV_DispatchThreadID)
     [loop]
     for (uint step = 1; step <= g_SSGIStepCount; ++step)
     {
-        float distance = max(g_MaxDistance, 0.1f) * ((float)step / (float)g_SSGIStepCount);
+        float distance = max(g_SSGIMaxDistance, 0.1f) * ((float)step / (float)g_SSGIStepCount);
         float3 rayPosition = rayOrigin + direction * distance;
         float2 sampleUv;
         float rayDepth;
         if (!ProjectViewPosition(rayPosition, sampleUv, rayDepth)) break;
         uint2 samplePixel = min((uint2)(sampleUv * g_FullSize), g_FullSize - 1);
         float2 minMaxDepth = LoadHiZRange(samplePixel, (uint)max(log2((float)step), 0.0f));
-        float viewThickness = max(0.05f, g_MaxDistance / max((float)g_SSGIStepCount, 1.0f) * 0.5f);
+        float viewThickness = max(0.05f, g_SSGIMaxDistance / max((float)g_SSGIStepCount, 1.0f) * 0.5f);
         const bool hiZCandidate = HiZRangeOverlapsRay(rayDepth, rayPosition.z, viewThickness, minMaxDepth);
         // A coarse min/max overlap is only a candidate. Confirm against mip 0 and retain a depth crossing even when
         // the fixed step overshoots the candidate interval; the latter is refined below instead of losing thin
@@ -322,8 +395,9 @@ void CSSSGITrace(uint3 dispatchThreadId : SV_DispatchThreadID)
                 if (hitFacing <= 0.05f)
                     continue;
                 indirect = g_HdrInput.Load(int3(hitPixel, 0)).rgb;
-                // Rays are cosine-weighted already, so multiplying by N.L again biases the estimator dark.
-                hitWeight = hitFacing * saturate(1.0f - hitDistance / max(g_MaxDistance, 0.1f));
+                // Rays are cosine-weighted already. hitFacing only rejects back-facing geometry; multiplying it into
+                // the estimate applies an extra cosine term and makes valid indirect lighting systematically dark.
+                hitWeight = saturate(1.0f - hitDistance / max(g_SSGIMaxDistance, 0.1f));
                 break;
             }
             previousViewDelta = viewDelta;
@@ -332,7 +406,7 @@ void CSSSGITrace(uint3 dispatchThreadId : SV_DispatchThreadID)
     }
     // The traced HDR value is incident radiance; the receiver BRDF is applied during full-resolution composition.
     // Keep the single-ray estimate energy-bounded before temporal accumulation.
-    float3 radiance = indirect * hitWeight * g_Intensity;
+    float3 radiance = indirect * hitWeight;
     float luminance = Luminance(radiance);
     g_Output[pixel] = float4(radiance, luminance * luminance);
 }
@@ -345,7 +419,7 @@ void CSSSRTrace(uint3 dispatchThreadId : SV_DispatchThreadID)
     if (g_EffectMode == 0) { g_Output[pixel] = 0.0f; return; }
     uint2 fullPixel = EffectPixelToFullPixel(pixel);
     float roughness = g_Material.Load(int3(fullPixel, 0)).y;
-    if (roughness > g_MaxRoughness)
+    if (roughness > g_SSRMaxRoughness)
     {
         g_Output[pixel] = 0.0f;
         return;
@@ -355,8 +429,8 @@ void CSSSRTrace(uint3 dispatchThreadId : SV_DispatchThreadID)
     float3 origin = ReconstructViewPosition(fullPixel, depth);
     float3 normal = WorldNormalToView(g_Normal.Load(int3(fullPixel, 0)).xyz);
     float3 direction = normalize(reflect(normalize(origin), normal));
-    float roughnessFadeWidth = max(g_MaxRoughness * 0.2f, 0.05f);
-    float roughnessConfidence = saturate((g_MaxRoughness - roughness) / roughnessFadeWidth);
+    float roughnessFadeWidth = max(g_SSRMaxRoughness * 0.2f, 0.05f);
+    float roughnessConfidence = saturate((g_SSRMaxRoughness - roughness) / roughnessFadeWidth);
     float3 reflection = 0.0f;
     float confidence = 0.0f;
     const float3 rayOrigin = origin + normal * 0.02f;
@@ -365,14 +439,14 @@ void CSSSRTrace(uint3 dispatchThreadId : SV_DispatchThreadID)
     [loop]
     for (uint step = 1; step <= g_SSRStepCount; ++step)
     {
-        float distance = max(g_MaxDistance, 0.1f) * ((float)step / (float)g_SSRStepCount);
+        float distance = max(g_SSRMaxDistance, 0.1f) * ((float)step / (float)g_SSRStepCount);
         float3 rayPosition = rayOrigin + direction * distance;
         float2 sampleUv;
         float rayDepth;
         if (!ProjectViewPosition(rayPosition, sampleUv, rayDepth)) break;
         uint2 samplePixel = min((uint2)(sampleUv * g_FullSize), g_FullSize - 1);
         float2 minMaxDepth = LoadHiZRange(samplePixel, (uint)max(log2((float)step), 0.0f));
-        float viewThickness = max(0.03f, g_MaxDistance / max((float)g_SSRStepCount, 1.0f) * 0.35f +
+        float viewThickness = max(0.03f, g_SSRMaxDistance / max((float)g_SSRStepCount, 1.0f) * 0.35f +
                                                    roughness * 0.05f);
         const bool hiZCandidate = HiZRangeOverlapsRay(rayDepth, rayPosition.z, viewThickness, minMaxDepth);
         float surfaceDepth = g_Depth.Load(int3(samplePixel, 0));
@@ -395,7 +469,7 @@ void CSSSRTrace(uint3 dispatchThreadId : SV_DispatchThreadID)
                 reflection = g_HdrInput.Load(int3(hitPixel, 0)).rgb;
                 float2 edge = abs((float2(hitPixel) + 0.5f) / g_FullSize * 2.0f - 1.0f);
                 confidence = saturate(1.0f - max(edge.x, edge.y)) * hitFacing *
-                             roughnessConfidence * saturate(1.0f - hitDistance / max(g_MaxDistance, 0.1f));
+                             roughnessConfidence * saturate(1.0f - hitDistance / max(g_SSRMaxDistance, 0.1f));
                 break;
             }
             previousViewDelta = viewDelta;
@@ -437,40 +511,8 @@ void CSTemporal(uint3 dispatchThreadId : SV_DispatchThreadID)
     float3 historyNormal =
         DecodeWorldNormal(g_PreviousNormal.SampleLevel(g_PointSampler, previousGeometryUv, 0.0f).xyz);
     valid = valid && dot(currentNormal, historyNormal) > 0.9f;
-    float3 minimum, maximum;
-    NeighborhoodBounds(g_Current, int2(pixel), g_EffectSize, minimum, maximum);
-    float historyLuminance = Luminance(history.rgb);
-    float variance = g_EffectMode == 1u ? max(history.a - historyLuminance * historyLuminance, 0.0f) : 0.0f;
-    if (g_EffectMode == 1u) {
-        float sigma = sqrt(variance);
-        minimum.x -= sigma;
-        maximum.x += sigma;
-    }
-    history.rgb = YCoCgToRGB(clamp(RGBToYCoCg(history.rgb), minimum, maximum));
-    if (g_EffectMode == 1u)
-    {
-        float clampedHistoryLuminance = Luminance(history.rgb);
-        history.a = clampedHistoryLuminance * clampedHistoryLuminance + variance;
-    }
-    else if (g_EffectMode == 2u)
-    {
-        // SSR alpha is hit confidence. Clamp it to confidence present in the current neighborhood; otherwise a
-        // reprojected hit can retain high confidence after its radiance was clamped to zero, subtracting the IBL
-        // fallback in the composite and leaving a dark ghost.
-        history.a = min(saturate(history.a), saturate(NeighborhoodMaxAlpha(g_Current, int2(pixel), g_EffectSize)));
-    }
-    float luminanceDelta = RelativeLuminanceDifference(current.rgb, history.rgb);
-    float weight = valid ? saturate(g_HistoryWeight) * saturate(1.0f - luminanceDelta) : 0.0f;
-    float4 accumulated = lerp(current, history, weight);
-    if (g_EffectMode == 1u) {
-        float currentLuminance = Luminance(current.rgb);
-        float currentSecondMoment = max(current.a, currentLuminance * currentLuminance);
-        accumulated.a = lerp(currentSecondMoment, history.a, weight);
-    }
-    else if (g_EffectMode == 2u) {
-        accumulated.a = saturate(accumulated.a);
-    }
-    g_Output[pixel] = accumulated;
+    g_Output[pixel] = g_EffectMode == 1u ? AccumulateSSGIHistory(current, history, int2(pixel), valid)
+                                         : AccumulateSSRHistory(current, history, int2(pixel), valid);
 }
 
 [numthreads(8, 8, 1)]
@@ -640,14 +682,17 @@ void CSEffectsComposite(uint3 dispatchThreadId : SV_DispatchThreadID)
             // gain an unphysical diffuse lobe and material AO remains consistent with clustered environment lighting.
             float3 fresnel = FresnelSchlickScreen(nDotV, f0);
             float3 diffuseResponse = (1.0f - fresnel) * (1.0f - metallic) * albedo * ao;
-            gi = BilateralUpsample(g_SSGI, pixel).rgb * diffuseResponse;
+            // Keep temporal history in unscaled radiance space. The art-directed intensity belongs at the final
+            // material composition point so changing it is immediate and does not invalidate accumulated history.
+            gi = BilateralUpsample(g_SSGI, pixel).rgb * diffuseResponse * max(g_SSGIIntensity, 0.0f);
         }
         if ((g_EffectMode & 2u) != 0 && reflection.a > 0.0f)
         {
             float2 brdf = EnvBrdfApproxScreen(roughness, nDotV);
             float3 brdfFactor =
                 max(f0 * brdf.x + brdf.y, 0.0f) * ao * max(g_CameraPositionAmbient.w, 0.0f);
-            float3 reflectionDirection = reflect(-viewDirection, normal);
+            float3 reflectionDirection =
+                ModernWorldReflectionDirection(worldPosition, g_CameraPositionAmbient.xyz, normal);
             float3 environmentRadiance =
                 g_Environment.SampleLevel(g_LinearSampler, reflectionDirection, roughness * 6.0f).rgb;
             // Clustered lighting already contains this environment term. Replace it with the confident screen hit
@@ -719,7 +764,8 @@ void CSTAA(uint3 dispatchThreadId : SV_DispatchThreadID)
     // location of a moving transparent surface even though transparent geometry has no velocity GBuffer output.
     float previousReactive = valid ? 1.0f - saturate(history.a) : 0.0f;
     float reactive = max(currentReactive, previousReactive);
-    float adaptiveWeight = valid ? saturate(g_HistoryWeight) * saturate(1.0f - luminanceDelta) * (1.0f - reactive)
+    float adaptiveWeight =
+        valid ? saturate(g_TAAHistoryWeight) * saturate(1.0f - luminanceDelta) * (1.0f - reactive)
                                  : 0.0f;
     // Persist only current coverage. Previous coverage is consumed for one frame, which rejects the stale color
     // without allowing the reactive region to grow or remain forever.

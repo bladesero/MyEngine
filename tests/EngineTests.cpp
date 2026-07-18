@@ -320,8 +320,15 @@ bool TestSceneSerializationRegression() {
     post->SetSSGIEnabled(false);
     post->SetSSGIIntensity(1.7f);
     post->SetSSGIMaxDistance(24.0f);
+    post->SetSSGIHistoryWeight(0.77f);
+    post->SetSSGIStepCount(40);
+    post->SetSSGIFilterRounds(4);
     post->SetSSREnabled(false);
+    post->SetSSRMaxDistance(37.0f);
     post->SetSSRMaxRoughness(0.62f);
+    post->SetSSRHistoryWeight(0.73f);
+    post->SetSSRStepCount(56);
+    post->SetSSRFilterRounds(1);
     post->SetTAAEnabled(false);
     post->SetTAAHistoryWeight(0.84f);
 
@@ -381,8 +388,13 @@ bool TestSceneSerializationRegression() {
                 NearlyEqual(loadedPost->GetSSAORadius(), 2.4f) && NearlyEqual(loadedPost->GetSSAOBias(), 0.04f) &&
                 NearlyEqual(loadedPost->GetSSAOPower(), 2.2f) && NearlyEqual(loadedPost->GetSSAOIntensity(), 0.75f) &&
                 !loadedPost->IsSSGIEnabled() && NearlyEqual(loadedPost->GetSSGIIntensity(), 1.7f) &&
-                NearlyEqual(loadedPost->GetSSGIMaxDistance(), 24.0f) && !loadedPost->IsSSREnabled() &&
-                NearlyEqual(loadedPost->GetSSRMaxRoughness(), 0.62f) && !loadedPost->IsTAAEnabled() &&
+                NearlyEqual(loadedPost->GetSSGIMaxDistance(), 24.0f) &&
+                NearlyEqual(loadedPost->GetSSGIHistoryWeight(), 0.77f) && loadedPost->GetSSGIStepCount() == 40 &&
+                loadedPost->GetSSGIFilterRounds() == 4 && !loadedPost->IsSSREnabled() &&
+                NearlyEqual(loadedPost->GetSSRMaxDistance(), 37.0f) &&
+                NearlyEqual(loadedPost->GetSSRMaxRoughness(), 0.62f) &&
+                NearlyEqual(loadedPost->GetSSRHistoryWeight(), 0.73f) && loadedPost->GetSSRStepCount() == 56 &&
+                loadedPost->GetSSRFilterRounds() == 1 && !loadedPost->IsTAAEnabled() &&
                 NearlyEqual(loadedPost->GetTAAHistoryWeight(), 0.84f),
             "PostProcess fields mismatch after deserialize"))
         return false;
@@ -2231,6 +2243,15 @@ bool TestTypeRegistryMetadataAndWorldScheduler() {
     if (!Check(healthType && TypeRegistry::Get().FindProperty(*healthType, "maxHealth") &&
                    TypeRegistry::Get().FindProperty(*healthType, "health"),
                "reflected gameplay component properties are missing"))
+        return false;
+    const TypeDescriptor* postProcessType = TypeRegistry::Get().Find("PostProcess");
+    const PropertyDescriptor* ssgiStepCount =
+        postProcessType ? TypeRegistry::Get().FindProperty(*postProcessType, "ssgiStepCount") : nullptr;
+    const PropertyDescriptor* ssrMaxDistance =
+        postProcessType ? TypeRegistry::Get().FindProperty(*postProcessType, "ssrMaxDistance") : nullptr;
+    if (!Check(ssgiStepCount && ssgiStepCount->kind == PropertyKind::UInt32 && ssrMaxDistance &&
+                   ssrMaxDistance->kind == PropertyKind::Float,
+               "PostProcess SSGI/SSR tuning metadata is missing or has the wrong type"))
         return false;
     for (const char* migrated : {"Camera", "Light", "PostProcess", "RigidBody", "BoxCollider", "SphereCollider",
                                  "CapsuleCollider", "CharacterController"}) {

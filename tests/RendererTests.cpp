@@ -6,6 +6,7 @@
 #include "Core/FrameStats.h"
 #include "Core/RuntimeQualityDegradation.h"
 #include "Game/SceneRenderLayer.h"
+#include "Math/Mat4Inverse.h"
 #include "Renderer/EnvironmentPass.h"
 #include "Renderer/DeferredLightingPass.h"
 #include "Renderer/EngineShaderCatalog.h"
@@ -893,9 +894,18 @@ bool TestGpuSceneDatabaseDirtyUploadAndGeometryArena() {
     };
     const auto& initialObjects = database.GetObjects();
     const auto& initialMaterials = database.GetMaterials();
+    Mat4 expectedSecondNormal = Mat4::Identity();
+    if (!Check(Mat4Invert(secondMeshActor->GetWorldMatrix(), expectedSecondNormal),
+               "non-uniform GPU Scene object transform was unexpectedly singular")) {
+        return false;
+    }
+    expectedSecondNormal = expectedSecondNormal.Transposed();
     if (!Check(initialObjects[0].materialId != initialObjects[1].materialId &&
                    matrixEquals(initialObjects[0].world, meshActor->GetWorldMatrix()) &&
                    matrixEquals(initialObjects[1].world, secondMeshActor->GetWorldMatrix()) &&
+                   matrixEquals(initialObjects[1].normalMatrix, expectedSecondNormal) &&
+                   database.GetObjectBuffer()->desc.stride == sizeof(GpuSceneObjectData) &&
+                   database.GetObjectBuffer()->desc.stride == 256u &&
                    NearlyEqual(initialMaterials[initialObjects[0].materialId].baseColor.x, 0.8f) &&
                    NearlyEqual(initialMaterials[initialObjects[0].materialId].material.x, 0.75f) &&
                    NearlyEqual(initialMaterials[initialObjects[0].materialId].material.y, 0.2f) &&
@@ -921,6 +931,7 @@ bool TestGpuSceneDatabaseDirtyUploadAndGeometryArena() {
                    second.materialCacheHits >= 2 &&
                    std::memcmp(objects[0].world.Data(), objects[0].previousWorld.Data(), sizeof(float) * 16) != 0 &&
                    matrixEquals(objects[1].world, objects[1].previousWorld) &&
+                   matrixEquals(objects[1].normalMatrix, expectedSecondNormal) &&
                    objects[0].materialId != objects[1].materialId &&
                    NearlyEqual(materials[objects[0].materialId].baseColor.x, 0.8f) &&
                    NearlyEqual(materials[objects[1].materialId].baseColor.z, 0.9f),
@@ -937,9 +948,18 @@ bool TestGpuSceneDatabaseDirtyUploadAndGeometryArena() {
         return false;
     const auto third = database.GetStats();
     const auto& updatedMaterials = database.GetMaterials();
-    return Check(third.dirtyMaterialRanges == 1 &&
-                     NearlyEqual(updatedMaterials[database.GetObjects()[0].materialId].baseColor.x, 0.25f),
-                 "GPU Scene reused stale cached material data after a material edit");
+    if (!Check(third.dirtyMaterialRanges == 1 &&
+                   NearlyEqual(updatedMaterials[database.GetObjects()[0].materialId].baseColor.x, 0.25f),
+               "GPU Scene reused stale cached material data after a material edit")) {
+        return false;
+    }
+
+    secondMeshActor->GetTransform().scale.y = 0.0f;
+    if (!Check(database.Update(scene, 4), "GPU Scene singular normal-matrix fallback extraction failed"))
+        return false;
+    return Check(database.GetStats().dirtyObjectRanges == 1 &&
+                     matrixEquals(database.GetObjects()[1].normalMatrix, Mat4::Identity()),
+                 "GPU Scene did not fall back to an identity normal matrix for a singular world transform");
 }
 
 bool TestGpuSceneMaterialBindlessSamplerSelection() {
@@ -1070,6 +1090,90 @@ bool TestModernBindlessSamplerShaderContract() {
     return Check(cooker.find("shader-cooker-v5-stablepublish1-objectdraw2-materialsampler1") != std::string::npos,
                  "Modern material sampler ABI did not invalidate stale cooked shader artifacts");
 #endif
+}
+
+bool TestModernGpuSceneNormalAndReflectionContracts() {
+    const std::array<std::array<const char*, 4>, 3> objectShaderCandidates = {{
+        {"EngineContent/Shaders/ModernCulling.hlsl", "../../../EngineContent/Shaders/ModernCulling.hlsl",
+         "../../../../EngineContent/Shaders/ModernCulling.hlsl",
+         "../../../../../EngineContent/Shaders/ModernCulling.hlsl"},
+        {"EngineContent/Shaders/ModernDepth.hlsl", "../../../EngineContent/Shaders/ModernDepth.hlsl",
+         "../../../../EngineContent/Shaders/ModernDepth.hlsl", "../../../../../EngineContent/Shaders/ModernDepth.hlsl"},
+        {"EngineContent/Shaders/ModernGBuffer.hlsl", "../../../EngineContent/Shaders/ModernGBuffer.hlsl",
+         "../../../../EngineContent/Shaders/ModernGBuffer.hlsl",
+         "../../../../../EngineContent/Shaders/ModernGBuffer.hlsl"},
+    }};
+    const std::string objectPrefix =
+        "row_majorfloat4x4world;row_majorfloat4x4previousWorld;row_majorfloat4x4normalMatrix;float4boundsMin;";
+    for (const auto& candidates : objectShaderCandidates) {
+        const std::string shader = CompactSource(ReadRepositoryTextFile(candidates));
+        if (!Check(!shader.empty() && shader.find(objectPrefix) != std::string::npos,
+                   "Modern culling/depth/GBuffer shader lost the 256-byte GPU Scene object ABI")) {
+            return false;
+        }
+    }
+
+    const std::string gbuffer = CompactSource(ReadRepositoryTextFile(objectShaderCandidates[2]));
+    if (!Check(gbuffer.find("output.normalW=normalize(mul(float4(input.normal,0.0f),object.normalMatrix).xyz)") !=
+                       std::string::npos &&
+                   gbuffer.find("tangentW-=output.normalW*dot(tangentW,output.normalW)") != std::string::npos &&
+                   gbuffer.find("tangentW=cross(fallbackAxis,output.normalW)") != std::string::npos &&
+                   gbuffer.find("output.normalW=normalize(cross(output.tangentW,bitangentW))") == std::string::npos,
+               "Modern GBuffer does not use inverse-transpose normals with a stable orthogonal tangent")) {
+        return false;
+    }
+
+    const std::array<const char*, 4> reflectionCandidates = {
+        "EngineContent/Shaders/ModernReflection.hlsli",
+        "../../../EngineContent/Shaders/ModernReflection.hlsli",
+        "../../../../EngineContent/Shaders/ModernReflection.hlsli",
+        "../../../../../EngineContent/Shaders/ModernReflection.hlsli",
+    };
+    const std::string reflection = CompactSource(ReadRepositoryTextFile(reflectionCandidates));
+    const std::string clustered = CompactSource(ReadRepositoryTextFile({
+        "EngineContent/Shaders/ClusteredDeferred.hlsl",
+        "../../../EngineContent/Shaders/ClusteredDeferred.hlsl",
+        "../../../../EngineContent/Shaders/ClusteredDeferred.hlsl",
+        "../../../../../EngineContent/Shaders/ClusteredDeferred.hlsl",
+    }));
+    const std::string screenSpace = CompactSource(ReadRepositoryTextFile({
+        "EngineContent/Shaders/ModernScreenSpace.hlsl",
+        "../../../EngineContent/Shaders/ModernScreenSpace.hlsl",
+        "../../../../EngineContent/Shaders/ModernScreenSpace.hlsl",
+        "../../../../../EngineContent/Shaders/ModernScreenSpace.hlsl",
+    }));
+    if (!Check(
+            reflection.find("incidentDirection=normalize(worldPosition-cameraPosition)") != std::string::npos &&
+                reflection.find("normal=normalize(worldNormal)") != std::string::npos &&
+                reflection.find("returnnormalize(reflect(incidentDirection,normal))") != std::string::npos &&
+                clustered.find("ModernWorldReflectionDirection(worldPosition,g_CameraPosition,normal)") !=
+                    std::string::npos &&
+                screenSpace.find("ModernWorldReflectionDirection(worldPosition,g_CameraPositionAmbient.xyz,normal)") !=
+                    std::string::npos,
+            "Modern cubemap sampling points do not share the normalized world-space reflection convention")) {
+        return false;
+    }
+
+    if (!Check(ShaderCompilerSlang::IsAvailable(),
+               "Slang compiler is unavailable; Modern GBuffer DXIL/SPIR-V cannot be validated")) {
+        return false;
+    }
+    const auto gbufferPath = FindRepositoryFile(objectShaderCandidates[2]);
+    const std::array<ShaderBackend, 2> backends = {ShaderBackend::D3D12, ShaderBackend::Vulkan};
+    for (ShaderBackend backend : backends) {
+        for (const auto& stage : {std::pair{"VSMain", ShaderStage::Vertex}, std::pair{"PSMain", ShaderStage::Pixel}}) {
+            std::vector<uint8_t> bytecode;
+            std::string error;
+            if (!Check(ShaderCompilerSlang::CompileStageFromFile(gbufferPath, stage.first, stage.second, backend,
+                                                                 bytecode, {}, &error),
+                       "Modern GBuffer normal-matrix shader compile failed: " + error)) {
+                return false;
+            }
+            if (!Check(!bytecode.empty(), "Modern GBuffer normal-matrix shader produced empty bytecode"))
+                return false;
+        }
+    }
+    return true;
 }
 
 bool TestModernEnvironmentLightingMatchesClassicContract() {
@@ -2276,9 +2380,15 @@ bool TestModernScreenSpaceCompositeShaderContract() {
                "SSR composite does not replace the clustered environment reflection")) {
         return false;
     }
+    const std::string compact = CompactSource(source);
+    if (!Check(compact.find("gi=BilateralUpsample(g_SSGI,pixel).rgb*diffuseResponse*max(g_SSGIIntensity,0.0f)") !=
+                   std::string::npos,
+               "SSGI intensity is not applied where indirect radiance reaches the final material composite")) {
+        return false;
+    }
     return Check(source.find("hdr + gi + specularCorrection") != std::string::npos &&
-                     source.find("hdr + gi + reflection") == std::string::npos,
-                 "SSR composite still adds a second specular lobe on top of environment lighting");
+                      source.find("hdr + gi + reflection") == std::string::npos,
+                  "SSR composite still adds a second specular lobe on top of environment lighting");
 }
 
 bool TestModernScreenSpaceSamplingAndConfidenceContracts() {
@@ -2304,9 +2414,9 @@ bool TestModernScreenSpaceSamplingAndConfidenceContracts() {
                "SSGI/SSR HiZ tracing does not clamp mip access and test the conservative min/max interval")) {
         return false;
     }
-    if (!Check(compact.find("roughnessConfidence=saturate((g_MaxRoughness-roughness)/roughnessFadeWidth)") !=
+    if (!Check(compact.find("roughnessConfidence=saturate((g_SSRMaxRoughness-roughness)/roughnessFadeWidth)") !=
                        std::string::npos &&
-                   compact.find("NeighborhoodMaxAlpha(g_Current,int2(pixel),g_EffectSize)") != std::string::npos &&
+                   compact.find("NeighborhoodMaxAlpha(g_Current,pixel,g_EffectSize)") != std::string::npos &&
                    compact.find("history.a=min(saturate(history.a)") != std::string::npos &&
                    compact.find("confidenceWeightedColor+=sampleValue.rgb*(weight*confidence)") != std::string::npos &&
                    compact.find("filteredColor=confidenceSum>1e-5f?confidenceWeightedColor/confidenceSum:0.0f") !=
@@ -2322,9 +2432,45 @@ bool TestModernScreenSpaceSamplingAndConfidenceContracts() {
                    CountOccurrences(compact, "RefineRayDepthCrossing(rayOrigin,direction,previousDistance,distance") ==
                        2 &&
                    CountOccurrences(compact, "previousViewDelta<-0.002f&&viewDelta>=-0.002f") == 2 &&
-                   compact.find("hitWeight=hitFacing*saturate(1.0f-hitDistance/") != std::string::npos &&
-                   compact.find("g_Intensity*0.15f") == std::string::npos,
-               "SSGI/SSR still accept self-overlaps, skip thin depth crossings, or double-attenuate cosine samples")) {
+                    compact.find("hitWeight=saturate(1.0f-hitDistance/") != std::string::npos &&
+                    compact.find("hitWeight=hitFacing*") == std::string::npos,
+                "SSGI/SSR still accept self-overlaps, skip thin depth crossings, or double-attenuate cosine samples")) {
+        return false;
+    }
+    const size_t ssgiTraceBegin = compact.find("voidCSSSGITrace");
+    const size_t ssgiTraceEnd = compact.find("voidCSSSRTrace", ssgiTraceBegin);
+    if (!Check(ssgiTraceBegin != std::string::npos && ssgiTraceEnd != std::string::npos &&
+                   compact.substr(ssgiTraceBegin, ssgiTraceEnd - ssgiTraceBegin).find("g_SSGIIntensity") ==
+                       std::string::npos,
+               "SSGI trace history is still intensity-scaled before final composition")) {
+        return false;
+    }
+    const size_t ssgiBegin = compact.find("float4AccumulateSSGIHistory(");
+    const size_t ssrBegin = compact.find("float4AccumulateSSRHistory(", ssgiBegin);
+    const size_t traceBegin = compact.find("voidCSSSGITrace", ssrBegin);
+    if (!Check(ssgiBegin != std::string::npos && ssrBegin != std::string::npos && traceBegin != std::string::npos,
+               "separate SSGI and SSR temporal accumulation functions were not found")) {
+        return false;
+    }
+    const std::string ssgiTemporal = compact.substr(ssgiBegin, ssrBegin - ssgiBegin);
+    const std::string ssrTemporal = compact.substr(ssrBegin, traceBegin - ssrBegin);
+    if (!Check(ssgiTemporal.find("SSGINeighborhoodStatistics(g_Current,pixel,g_EffectSize") != std::string::npos &&
+                   ssgiTemporal.find("temporalVariance=lerp(currentVariance,historyVariance,weight)+") !=
+                       std::string::npos &&
+                   ssgiTemporal.find("weight=valid?saturate(g_SSGIHistoryWeight):0.0f") != std::string::npos &&
+                   ssgiTemporal.find("accumulated=lerp(current,history,weight)") != std::string::npos &&
+                   ssgiTemporal.find("accumulated.a=lerp(currentSecondMoment,history.a,weight)") != std::string::npos &&
+                   ssgiTemporal.find("RelativeLuminanceDifference") == std::string::npos,
+               "SSGI temporal accumulation still rejects valid history by instantaneous luminance or mismatches "
+               "radiance/moment weights")) {
+        return false;
+    }
+    if (!Check(ssrTemporal.find("luminanceDelta=RelativeLuminanceDifference(current.rgb,history.rgb)") !=
+                       std::string::npos &&
+                   ssrTemporal.find("weight=valid?saturate(g_SSRHistoryWeight)*saturate(1.0f-luminanceDelta):0.0f") !=
+                       std::string::npos &&
+                   ssrTemporal.find("history.a=min(saturate(history.a)") != std::string::npos,
+               "SSR temporal confidence and luminance rejection strategy changed unexpectedly")) {
         return false;
     }
     if (!Check(compact.find("(g_EffectMode&4u)!=0") != std::string::npos &&
@@ -2342,6 +2488,85 @@ bool TestModernScreenSpaceSamplingAndConfidenceContracts() {
                      compact.find("*(1.0f-reactive)") != std::string::npos &&
                      compact.find("1.0f-currentReactive)") != std::string::npos,
                  "TAA does not consume, persist, and dilate transparent coverage as a reactive mask");
+}
+
+bool TestModernScreenSpacePostProcessTuningContract() {
+    PostProcessComponent post;
+    if (!Check(NearlyEqual(post.GetSSGIHistoryWeight(), 0.9f) && post.GetSSGIStepCount() == 32 &&
+                   post.GetSSGIFilterRounds() == 3 && NearlyEqual(post.GetSSRMaxDistance(), 10.0f) &&
+                   NearlyEqual(post.GetSSRHistoryWeight(), 0.9f) && post.GetSSRStepCount() == 48 &&
+                   post.GetSSRFilterRounds() == 2,
+               "PostProcess Modern SSGI/SSR tuning defaults changed unexpectedly")) {
+        return false;
+    }
+    post.SetSSGIHistoryWeight(2.0f);
+    post.SetSSGIStepCount(0);
+    post.SetSSGIFilterRounds(9);
+    post.SetSSRMaxDistance(0.0f);
+    post.SetSSRHistoryWeight(-1.0f);
+    post.SetSSRStepCount(256);
+    post.SetSSRFilterRounds(9);
+    if (!Check(NearlyEqual(post.GetSSGIHistoryWeight(), 0.99f) && post.GetSSGIStepCount() == 1 &&
+                   post.GetSSGIFilterRounds() == 4 && NearlyEqual(post.GetSSRMaxDistance(), 0.1f) &&
+                   NearlyEqual(post.GetSSRHistoryWeight(), 0.0f) && post.GetSSRStepCount() == 128 &&
+                   post.GetSSRFilterRounds() == 4,
+               "PostProcess Modern SSGI/SSR tuning ranges are not bounded")) {
+        return false;
+    }
+
+    const std::string shader = CompactSource(ReadRepositoryTextFile({
+        "EngineContent/Shaders/ModernScreenSpace.hlsl",
+        "../../../EngineContent/Shaders/ModernScreenSpace.hlsl",
+        "../../../../EngineContent/Shaders/ModernScreenSpace.hlsl",
+        "../../../../../EngineContent/Shaders/ModernScreenSpace.hlsl",
+    }));
+    const std::string pipeline = CompactSource(ReadRepositoryTextFile({
+        "src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+        "../../../src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+        "../../../../src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+        "../../../../../src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+    }));
+    const std::string renderer = CompactSource(ReadRepositoryTextFile({
+        "src/Runtime/Renderer/Renderer.cpp",
+        "../../../src/Runtime/Renderer/Renderer.cpp",
+        "../../../../src/Runtime/Renderer/Renderer.cpp",
+        "../../../../../src/Runtime/Renderer/Renderer.cpp",
+    }));
+    if (!Check(!shader.empty() && !pipeline.empty() && !renderer.empty(),
+               "Modern post-process tuning contract sources were not found")) {
+        return false;
+    }
+    if (!Check(shader.find("g_SSGIHistoryWeight") != std::string::npos &&
+                   shader.find("g_SSRHistoryWeight") != std::string::npos &&
+                   shader.find("g_TAAHistoryWeight") != std::string::npos &&
+                   shader.find("max(g_SSGIMaxDistance,0.1f)") != std::string::npos &&
+                   shader.find("max(g_SSRMaxDistance,0.1f)") != std::string::npos &&
+                   shader.find("g_MaxDistance") == std::string::npos &&
+                   shader.find("g_HistoryWeight") == std::string::npos,
+               "SSGI, SSR, and TAA still share screen-space distance or temporal tuning constants")) {
+        return false;
+    }
+    if (!Check(pipeline.find("m_ScreenSpaceConstants.ssgiHistoryWeight=settings.ssgiHistoryWeight") !=
+                       std::string::npos &&
+                   pipeline.find("m_ScreenSpaceConstants.ssrHistoryWeight=settings.ssrHistoryWeight") !=
+                       std::string::npos &&
+                   pipeline.find("m_ScreenSpaceConstants.taaHistoryWeight=settings.taaHistoryWeight") !=
+                       std::string::npos &&
+                    pipeline.find("m_PostSettings.ssgiFilterRounds") != std::string::npos &&
+                    pipeline.find("FloatsNearlyEqual(settings.ssgiIntensity") == std::string::npos &&
+                   pipeline.find("m_PostSettings.ssrFilterRounds") != std::string::npos,
+               "Modern pipeline does not consume independent SSGI/SSR trace, temporal, and filter settings")) {
+        return false;
+    }
+    return Check(
+        renderer.find("options.modern.ssgiHistoryWeight=post->GetSSGIHistoryWeight()") != std::string::npos &&
+            renderer.find("options.modern.ssgiStepCount=post->GetSSGIStepCount()") != std::string::npos &&
+            renderer.find("options.modern.ssgiFilterRounds=post->GetSSGIFilterRounds()") != std::string::npos &&
+            renderer.find("options.modern.ssrMaxDistance=post->GetSSRMaxDistance()") != std::string::npos &&
+            renderer.find("options.modern.ssrHistoryWeight=post->GetSSRHistoryWeight()") != std::string::npos &&
+            renderer.find("options.modern.ssrStepCount=post->GetSSRStepCount()") != std::string::npos &&
+            renderer.find("options.modern.ssrFilterRounds=post->GetSSRFilterRounds()") != std::string::npos,
+        "Renderer does not route PostProcess SSGI/SSR tuning into Modern Deferred");
 }
 
 bool TestModernScreenSpaceDebugRoutingContract() {
@@ -3616,6 +3841,8 @@ MYENGINE_REGISTER_TEST("Renderer", "TestGpuSceneDatabaseDirtyUploadAndGeometryAr
 MYENGINE_REGISTER_TEST("Renderer", "TestGpuSceneMaterialBindlessSamplerSelection",
                        TestGpuSceneMaterialBindlessSamplerSelection);
 MYENGINE_REGISTER_TEST("Renderer", "TestModernBindlessSamplerShaderContract", TestModernBindlessSamplerShaderContract);
+MYENGINE_REGISTER_TEST("Renderer", "TestModernGpuSceneNormalAndReflectionContracts",
+                       TestModernGpuSceneNormalAndReflectionContracts);
 MYENGINE_REGISTER_TEST("Renderer", "TestModernEnvironmentLightingMatchesClassicContract",
                        TestModernEnvironmentLightingMatchesClassicContract);
 MYENGINE_REGISTER_TEST("Renderer", "TestModernClusterBuffersStartInNativeUavState",
@@ -3657,6 +3884,8 @@ MYENGINE_REGISTER_TEST("Renderer", "TestModernScreenSpaceCompositeShaderContract
                        TestModernScreenSpaceCompositeShaderContract);
 MYENGINE_REGISTER_TEST("Renderer", "TestModernScreenSpaceSamplingAndConfidenceContracts",
                        TestModernScreenSpaceSamplingAndConfidenceContracts);
+MYENGINE_REGISTER_TEST("Renderer", "TestModernScreenSpacePostProcessTuningContract",
+                       TestModernScreenSpacePostProcessTuningContract);
 MYENGINE_REGISTER_TEST("Renderer", "TestModernScreenSpaceDebugRoutingContract",
                        TestModernScreenSpaceDebugRoutingContract);
 MYENGINE_REGISTER_TEST("Renderer", "TestModernScreenSpaceSlangCompileContracts",

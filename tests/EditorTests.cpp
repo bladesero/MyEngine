@@ -929,6 +929,16 @@ bool TestEditorOperatorsSelectionAndCommands() {
             *post, "PostProcess", "exposure", [&] { post->SetExposure(2.5f); },
             [&] { return post->GetExposure() == 2.5f; }, [&] { return post->GetExposure() == 1.0f; }, "post process"))
         return false;
+    if (!verifyPropertyEdit(
+            *post, "PostProcess", "ssgiStepCount", [&] { post->SetSSGIStepCount(64); },
+            [&] { return post->GetSSGIStepCount() == 64; }, [&] { return post->GetSSGIStepCount() == 32; },
+            "post process SSGI"))
+        return false;
+    if (!verifyPropertyEdit(
+            *post, "PostProcess", "ssrHistoryWeight", [&] { post->SetSSRHistoryWeight(0.72f); },
+            [&] { return NearlyEqual(post->GetSSRHistoryWeight(), 0.72f); },
+            [&] { return NearlyEqual(post->GetSSRHistoryWeight(), 0.9f); }, "post process SSR"))
+        return false;
 
     auto* canvas = actor->AddComponent<UICanvasComponent>();
     auto* rect = actor->AddComponent<UIRectTransformComponent>();

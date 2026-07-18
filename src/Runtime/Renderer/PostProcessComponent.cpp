@@ -62,8 +62,36 @@ void PostProcessComponent::SetSSGIMaxDistance(float distance) {
     m_SSGIMaxDistance = std::clamp(distance, 0.1f, 100.0f);
 }
 
+void PostProcessComponent::SetSSGIHistoryWeight(float weight) {
+    m_SSGIHistoryWeight = std::clamp(weight, 0.0f, 0.99f);
+}
+
+void PostProcessComponent::SetSSGIStepCount(uint32_t stepCount) {
+    m_SSGIStepCount = std::clamp(stepCount, 1u, 128u);
+}
+
+void PostProcessComponent::SetSSGIFilterRounds(uint32_t rounds) {
+    m_SSGIFilterRounds = std::clamp(rounds, 0u, 4u);
+}
+
+void PostProcessComponent::SetSSRMaxDistance(float distance) {
+    m_SSRMaxDistance = std::clamp(distance, 0.1f, 100.0f);
+}
+
 void PostProcessComponent::SetSSRMaxRoughness(float roughness) {
     m_SSRMaxRoughness = std::clamp(roughness, 0.0f, 1.0f);
+}
+
+void PostProcessComponent::SetSSRHistoryWeight(float weight) {
+    m_SSRHistoryWeight = std::clamp(weight, 0.0f, 0.99f);
+}
+
+void PostProcessComponent::SetSSRStepCount(uint32_t stepCount) {
+    m_SSRStepCount = std::clamp(stepCount, 1u, 128u);
+}
+
+void PostProcessComponent::SetSSRFilterRounds(uint32_t rounds) {
+    m_SSRFilterRounds = std::clamp(rounds, 0u, 4u);
 }
 
 void PostProcessComponent::SetTAAHistoryWeight(float weight) {
@@ -89,8 +117,15 @@ void PostProcessComponent::Serialize(nlohmann::json& data) const {
     data["ssgiEnabled"] = m_SSGIEnabled;
     data["ssgiIntensity"] = m_SSGIIntensity;
     data["ssgiMaxDistance"] = m_SSGIMaxDistance;
+    data["ssgiHistoryWeight"] = m_SSGIHistoryWeight;
+    data["ssgiStepCount"] = m_SSGIStepCount;
+    data["ssgiFilterRounds"] = m_SSGIFilterRounds;
     data["ssrEnabled"] = m_SSREnabled;
+    data["ssrMaxDistance"] = m_SSRMaxDistance;
     data["ssrMaxRoughness"] = m_SSRMaxRoughness;
+    data["ssrHistoryWeight"] = m_SSRHistoryWeight;
+    data["ssrStepCount"] = m_SSRStepCount;
+    data["ssrFilterRounds"] = m_SSRFilterRounds;
     data["taaEnabled"] = m_TAAEnabled;
     data["taaHistoryWeight"] = m_TAAHistoryWeight;
 }
@@ -114,8 +149,15 @@ void PostProcessComponent::Deserialize(const nlohmann::json& data) {
     SetSSGIEnabled(data.value("ssgiEnabled", true));
     SetSSGIIntensity(data.value("ssgiIntensity", 1.0f));
     SetSSGIMaxDistance(data.value("ssgiMaxDistance", 10.0f));
+    SetSSGIHistoryWeight(data.value("ssgiHistoryWeight", 0.9f));
+    SetSSGIStepCount(data.value("ssgiStepCount", 32u));
+    SetSSGIFilterRounds(data.value("ssgiFilterRounds", 3u));
     SetSSREnabled(data.value("ssrEnabled", true));
+    SetSSRMaxDistance(data.value("ssrMaxDistance", 10.0f));
     SetSSRMaxRoughness(data.value("ssrMaxRoughness", 0.8f));
+    SetSSRHistoryWeight(data.value("ssrHistoryWeight", 0.9f));
+    SetSSRStepCount(data.value("ssrStepCount", 48u));
+    SetSSRFilterRounds(data.value("ssrFilterRounds", 2u));
     SetTAAEnabled(data.value("taaEnabled", true));
     SetTAAHistoryWeight(data.value("taaHistoryWeight", 0.9f));
 }
