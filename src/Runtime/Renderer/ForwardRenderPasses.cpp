@@ -57,6 +57,10 @@ struct ShadowedPerDrawConstants {
     float iblInfo[4];
     float normalMatrix[16];
     float cameraForward[4];
+    uint32_t localReflectionProbeCount;
+    uint32_t localSHProbeVolumeCount;
+    float localReflectionMipCount;
+    float probeLightingPadding;
 };
 
 struct GraphForwardConstants {
@@ -101,7 +105,7 @@ public:
         if (!shader)
             return;
 
-        const Mat4 viewProj = camera.GetViewProj();
+        const Mat4 viewProj = context.viewProjection ? *context.viewProjection : camera.GetViewProj();
         const SceneLightData& sceneLights = *context.sceneLights;
         const ScenePostProcessData& postProcess = *context.postProcess;
         const bool backendAllowsInstancing = allowInstancing && mainPass.Device()->GetBackend() != RHIBackend::Metal;
@@ -460,6 +464,9 @@ public:
                 constants.iblInfo[0] = iblEnabled;
                 constants.iblInfo[1] = mat->GetFloat("IBLIntensity", 1.0f);
                 std::memcpy(constants.normalMatrix, normalMatrix.Data(), sizeof(constants.normalMatrix));
+                constants.localReflectionProbeCount = mainPass.m_ProbeReflectionCount;
+                constants.localSHProbeVolumeCount = mainPass.m_ProbeSHVolumeCount;
+                constants.localReflectionMipCount = static_cast<float>(mainPass.m_ProbeReflectionMipCount);
 
                 mainPass.EnsureNamedBindingDefaults();
                 auto bindings =

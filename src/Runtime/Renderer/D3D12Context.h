@@ -117,7 +117,7 @@ struct D3D12Sampler : GpuSampler {
 class D3D12Context final : public IRenderContext, public IEditorImGuiRHIInterop {
 public:
     static constexpr uint32_t kFrameCount = 2;
-    static constexpr uint32_t kTextureSlotCount = 13;
+    static constexpr uint32_t kTextureSlotCount = 16;
     static constexpr uint32_t kIndirectObjectRootParameter = 2 + kTextureSlotCount * 2;
     static constexpr uint32_t kOffscreenRtvCount = 256;
     static constexpr uint32_t kDsvDescriptorCount = 128;

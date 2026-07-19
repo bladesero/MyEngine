@@ -37,7 +37,8 @@ public:
     ~MainPass() override;
 
     void Execute(GpuCommandList& commands, const Scene& scene, const Camera& camera) override;
-    void ExecuteTransparentOnly(GpuCommandList& commands, const Scene& scene, const Camera& camera);
+    void ExecuteTransparentOnly(GpuCommandList& commands, const Scene& scene, const Camera& camera,
+                                const Mat4* viewProjection = nullptr);
     void Resize(uint32_t width, uint32_t height) override;
 
     void SetHdrPassthrough(bool passthrough);
@@ -49,6 +50,10 @@ public:
     void SetCascadeShadowInput(const Mat4* cascadeViewProj, uint32_t cascadeCount, const float* cascadeSplits);
     void SetEnvironmentInput(GpuTexture* environmentCubemap, std::shared_ptr<GpuBufferView> sh2Buffer,
                              const float* sh2Coefficients);
+    void SetProbeInput(std::shared_ptr<GpuTextureView> reflectionAtlas,
+                       std::shared_ptr<GpuBufferView> reflectionMetadata,
+                       std::shared_ptr<GpuBufferView> shVolumeMetadata, std::shared_ptr<GpuBufferView> shCoefficients,
+                       uint32_t reflectionCount, uint32_t shVolumeCount, uint32_t reflectionMipCount);
     void SetSunDirection(const Vec3& direction);
     const Stats& GetLastStats() const { return m_LastStats; }
 
@@ -112,6 +117,13 @@ private:
     GpuTexture* m_PointShadowMap = nullptr;
     GpuTexture* m_EnvironmentCubemap = nullptr;
     std::shared_ptr<GpuBufferView> m_EnvironmentSH2Buffer;
+    std::shared_ptr<GpuTextureView> m_ProbeReflectionAtlas;
+    std::shared_ptr<GpuBufferView> m_ProbeReflectionMetadata;
+    std::shared_ptr<GpuBufferView> m_ProbeSHVolumeMetadata;
+    std::shared_ptr<GpuBufferView> m_ProbeSHCoefficients;
+    uint32_t m_ProbeReflectionCount = 0;
+    uint32_t m_ProbeSHVolumeCount = 0;
+    uint32_t m_ProbeReflectionMipCount = 1;
     float m_EnvironmentSH2[9][4] = {};
     bool m_LoggedEnvironmentState = false;
     bool m_LoggedEnvironmentSHBindingFailure = false;

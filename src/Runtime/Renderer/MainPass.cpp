@@ -109,6 +109,26 @@ void MainPass::SetEnvironmentInput(GpuTexture* environmentCubemap, std::shared_p
     }
 }
 
+void MainPass::SetProbeInput(std::shared_ptr<GpuTextureView> reflectionAtlas,
+                             std::shared_ptr<GpuBufferView> reflectionMetadata,
+                             std::shared_ptr<GpuBufferView> shVolumeMetadata,
+                             std::shared_ptr<GpuBufferView> shCoefficients, uint32_t reflectionCount,
+                             uint32_t shVolumeCount, uint32_t reflectionMipCount) {
+    const bool changed = m_ProbeReflectionAtlas != reflectionAtlas || m_ProbeReflectionMetadata != reflectionMetadata ||
+                         m_ProbeSHVolumeMetadata != shVolumeMetadata || m_ProbeSHCoefficients != shCoefficients ||
+                         m_ProbeReflectionCount != reflectionCount || m_ProbeSHVolumeCount != shVolumeCount ||
+                         m_ProbeReflectionMipCount != reflectionMipCount;
+    m_ProbeReflectionAtlas = std::move(reflectionAtlas);
+    m_ProbeReflectionMetadata = std::move(reflectionMetadata);
+    m_ProbeSHVolumeMetadata = std::move(shVolumeMetadata);
+    m_ProbeSHCoefficients = std::move(shCoefficients);
+    m_ProbeReflectionCount = reflectionCount;
+    m_ProbeSHVolumeCount = shVolumeCount;
+    m_ProbeReflectionMipCount = reflectionMipCount;
+    if (changed)
+        m_MaterialBindGroups.clear();
+}
+
 void MainPass::SetSunDirection(const Vec3& direction) {
     if (direction.LengthSq() < 1e-8f)
         return;
@@ -160,6 +180,14 @@ MainPass::GetOrCreateMaterialBindGroup(GpuShader* shader, const MaterialAsset& m
     signature += ':';
     AppendPointer(signature, m_EnvironmentSH2Buffer.get());
     signature += ':';
+    AppendPointer(signature, m_ProbeReflectionAtlas.get());
+    signature += ':';
+    AppendPointer(signature, m_ProbeReflectionMetadata.get());
+    signature += ':';
+    AppendPointer(signature, m_ProbeSHVolumeMetadata.get());
+    signature += ':';
+    AppendPointer(signature, m_ProbeSHCoefficients.get());
+    signature += ':';
     auto linearSampler = m_ResourceCache.GetLinearSampler();
     auto shadowSampler = m_ResourceCache.GetShadowSampler();
     AppendPointer(signature, linearSampler.get());
@@ -202,6 +230,14 @@ MainPass::GetOrCreateMaterialBindGroup(GpuShader* shader, const MaterialAsset& m
                     m_LoggedEnvironmentSHBindingFailure = true;
                 }
             }
+            if (m_ProbeReflectionAtlas)
+                bindings->SetTexture("g_LocalReflectionProbes", m_ProbeReflectionAtlas);
+            if (m_ProbeReflectionMetadata)
+                bindings->SetBuffer("g_LocalReflectionProbeData", m_ProbeReflectionMetadata);
+            if (m_ProbeSHVolumeMetadata)
+                bindings->SetBuffer("g_LocalSHProbeVolumes", m_ProbeSHVolumeMetadata);
+            if (m_ProbeSHCoefficients)
+                bindings->SetBuffer("g_LocalSHCoefficients", m_ProbeSHCoefficients);
         }
         return bindings;
     };
@@ -461,7 +497,8 @@ void MainPass::Execute(GpuCommandList& commands, const Scene& scene, const Camer
     // EndFrame called by Renderer after PostProcessPass.
 }
 
-void MainPass::ExecuteTransparentOnly(GpuCommandList& commands, const Scene& scene, const Camera& camera) {
+void MainPass::ExecuteTransparentOnly(GpuCommandList& commands, const Scene& scene, const Camera& camera,
+                                      const Mat4* viewProjection) {
     m_LastStats = {};
     if (!Device())
         return;
@@ -481,6 +518,7 @@ void MainPass::ExecuteTransparentOnly(GpuCommandList& commands, const Scene& sce
     ForwardRenderContext forwardContext;
     forwardContext.sceneLights = &sceneLights;
     forwardContext.postProcess = &postProcess;
+    forwardContext.viewProjection = viewProjection;
     if (m_ForwardTransparentPass) {
         m_ForwardTransparentPass->Execute(commands, scene, camera, collection.transparentItems, forwardContext);
     }

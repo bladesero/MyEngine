@@ -74,6 +74,31 @@ public:
         if (ImGui::Button("Bake Navigation")) {
             EditorNavigationBakeService{}.Bake(context, *scene);
         }
+
+        ImGui::Separator();
+        ImGui::TextUnformatted("Lighting Probes");
+        LightingProbeBakeSettings lightingSettings = scene->GetLightingProbeBakeSettings();
+        int resolutionIndex = lightingSettings.reflectionResolution == 64 ? 0 :
+                              lightingSettings.reflectionResolution == 256 ? 2 : 1;
+        const char* resolutions[] = {"64", "128", "256"};
+        bool lightingSettingsChanged = false;
+        if (ImGui::Combo("Reflection Resolution", &resolutionIndex, resolutions, 3)) {
+            lightingSettings.reflectionResolution = resolutionIndex == 0 ? 64u : resolutionIndex == 2 ? 256u : 128u;
+            lightingSettingsChanged = true;
+        }
+        lightingSettingsChanged |= ImGui::DragFloat("RGBM Maximum Range", &lightingSettings.rgbmMaximumRange,
+                                                    1.0f, 4.0f, 64.0f, "%.0f");
+        if (lightingSettingsChanged) {
+            CommitLightingProbeBakeSettingsEdit(context, *scene, lightingSettings);
+        }
+        const bool bakeCurrent = EditorLightingBakeService{}.IsBakeCurrent(*scene);
+        ImGui::Text("Status: %s", scene->GetLightingProbeAssetPath().empty()
+                                    ? "Not baked"
+                                    : bakeCurrent ? "Baked" : "Stale");
+        if (!scene->GetLightingProbeAssetPath().empty())
+            ImGui::TextWrapped("Asset: %s", scene->GetLightingProbeAssetPath().c_str());
+        if (ImGui::Button("Bake All Lighting Probes"))
+            EditorLightingBakeService{}.Bake(context, *scene);
     }
 };
 

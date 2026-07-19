@@ -10,6 +10,7 @@
 #include "Assets/ScriptAsset.h"
 #include "Assets/UIAsset.h"
 #include "Assets/NavMeshAsset.h"
+#include "Assets/LightingProbeAsset.h"
 #include "Assets/ParticleAsset.h"
 #include "Audio/AudioClipAsset.h"
 #include "Core/Logger.h"

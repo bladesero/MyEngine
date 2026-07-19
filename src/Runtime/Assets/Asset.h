@@ -52,6 +52,7 @@ enum class AssetType : uint8_t {
     UIFont,
     NavMesh,
     Particle,
+    LightingProbes,
 };
 
 inline const char* AssetTypeToString(AssetType t) {
@@ -80,6 +81,8 @@ inline const char* AssetTypeToString(AssetType t) {
         return "NavMesh";
     case AssetType::Particle:
         return "Particle";
+    case AssetType::LightingProbes:
+        return "LightingProbes";
     default:
         return "Unknown";
     }

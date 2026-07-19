@@ -20,6 +20,7 @@ class GBufferPass;
 class DeferredLightingPass;
 class ScreenUIPass;
 class ModernDeferredPipeline;
+class ProbeLightingSystem;
 class RenderGraph;
 class UIDrawList;
 
@@ -72,6 +73,7 @@ private:
     std::unique_ptr<PostProcessPass> m_PostProcessPass;
     std::unique_ptr<ScreenUIPass> m_ScreenUIPass;
     std::unique_ptr<ModernDeferredPipeline> m_ModernDeferredPipeline;
+    std::unique_ptr<ProbeLightingSystem> m_ProbeLightingSystem;
     std::unique_ptr<RenderGraph> m_RenderGraph;
     RenderPath m_RenderPath = RenderPath::Forward;
     GraphicsDeviceProfile m_DeviceProfile = GraphicsDeviceProfile::Desktop;

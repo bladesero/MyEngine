@@ -656,6 +656,8 @@ void Scene::Clear() {
     m_PhysicsWorld.Clear();
     m_NavigationWorld.Clear();
     m_NavMeshAssetPath.clear();
+    m_LightingProbeAssetPath.clear();
+    m_LightingProbeBakeSettings = {};
     m_PreloadAssets.clear();
     m_PendingCreates.clear();
     m_Commands.clear();
@@ -673,6 +675,16 @@ void Scene::Clear() {
     }
     if (MemoryService::Get().IsInitialized() && count)
         MemoryService::Get().SceneNotifyActorsDestroyed(static_cast<uint64_t>(count));
+}
+
+void Scene::SetLightingProbeBakeSettings(const LightingProbeBakeSettings& value) {
+    m_LightingProbeBakeSettings = value;
+    if (m_LightingProbeBakeSettings.reflectionResolution != 64 &&
+        m_LightingProbeBakeSettings.reflectionResolution != 128 &&
+        m_LightingProbeBakeSettings.reflectionResolution != 256)
+        m_LightingProbeBakeSettings.reflectionResolution = 128;
+    m_LightingProbeBakeSettings.rgbmMaximumRange =
+        std::clamp(m_LightingProbeBakeSettings.rgbmMaximumRange, 4.0f, 64.0f);
 }
 
 Actor* Scene::FindByID(uint64_t id) const {

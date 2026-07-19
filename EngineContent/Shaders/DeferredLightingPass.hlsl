@@ -8,6 +8,11 @@ Texture2D g_SpotShadowMap : register(t6);
 TextureCube g_PointShadowMap : register(t7);
 TextureCube g_IBLCubemap : register(t8);
 StructuredBuffer<float4> g_EnvironmentSH2 : register(t9);
+#include "ProbeLighting.hlsli"
+Texture2DArray<float4> g_LocalReflectionProbes : register(t10);
+StructuredBuffer<ReflectionProbeGpuData> g_LocalReflectionProbeData : register(t11);
+StructuredBuffer<SHProbeVolumeGpuData> g_LocalSHProbeVolumes : register(t12);
+StructuredBuffer<float4> g_LocalSHCoefficients : register(t13);
 
 SamplerState g_LinearSampler : register(s0);
 SamplerState g_PointSampler : register(s1);
@@ -36,6 +41,10 @@ cbuffer DeferredLightingParams : register(b0)
     float4 g_ShadowIntensity;
     float4 g_IBLInfo;
     float4 g_ScreenSize;
+    uint g_LocalReflectionProbeCount;
+    uint g_LocalSHProbeVolumeCount;
+    float g_LocalReflectionMipCount;
+    float g_ProbeLightingPadding;
 };
 
 #include "PBR_BRDF.hlsli"
@@ -252,9 +261,14 @@ float4 PSMain(VSOut input) : SV_TARGET
     float3 reflectionDirection = reflect(-V, N);
     float3 ambient;
     if (g_IBLInfo.x > 0.5f) {
-        float3 irradiance = EvaluateEnvironmentSH2(N);
-        float3 prefilteredColor = g_IBLCubemap.SampleLevel(
+        float3 globalIrradiance = EvaluateEnvironmentSH2(N);
+        float3 irradiance = EvaluateLocalSHVolumes(g_LocalSHProbeVolumes, g_LocalSHCoefficients,
+            g_LocalSHProbeVolumeCount, worldPos, N, globalIrradiance);
+        float3 globalPrefilteredColor = g_IBLCubemap.SampleLevel(
             g_LinearSampler, reflectionDirection, roughness * 6.0f).rgb;
+        float3 prefilteredColor = SampleLocalReflectionsAuto(g_LocalReflectionProbes, g_LinearSampler,
+            g_LocalReflectionProbeData, g_LocalReflectionProbeCount, worldPos, reflectionDirection,
+            roughness, g_LocalReflectionMipCount, globalPrefilteredColor);
         ambient = PbrEnvironmentLighting(
             albedo, metallic, roughness, ao, N, V, irradiance, prefilteredColor) *
             max(g_LightInfo.y, 0.0f) * max(g_IBLInfo.y, 0.0f);

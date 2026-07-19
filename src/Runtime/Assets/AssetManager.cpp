@@ -698,6 +698,9 @@ void AssetManager::RegisterDefaultLoaders() {
     RegisterLoader("navmesh", [](const std::string& path) -> std::shared_ptr<Asset> {
         return std::static_pointer_cast<Asset>(LoadNavMeshAssetFromFile(path));
     });
+    RegisterLoader("lightprobes", [](const std::string& path) -> std::shared_ptr<Asset> {
+        return std::static_pointer_cast<Asset>(LoadLightingProbeAssetFromFile(path));
+    });
     RegisterLoader("particle", [](const std::string& path) -> std::shared_ptr<Asset> {
         return std::static_pointer_cast<Asset>(LoadParticleAssetFromFile(path));
     });

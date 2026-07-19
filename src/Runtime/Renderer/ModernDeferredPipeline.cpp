@@ -124,6 +124,8 @@ void ModernDeferredPipeline::InvalidateTemporalHistory(std::string reason, bool 
     m_HistoryResetReason = reason.empty() ? "explicit reset" : std::move(reason);
     m_JitterSequenceIndex = 0;
     m_PendingJitterSequenceIndex = 0;
+    std::fill(std::begin(m_PreviousJitterUv), std::end(m_PreviousJitterUv), 0.0f);
+    std::fill(std::begin(m_PendingJitterUv), std::end(m_PendingJitterUv), 0.0f);
     if (resetObjectHistory && m_GpuScene)
         m_GpuScene->ResetTemporalState();
     if (resetObjectHistory) {
@@ -157,6 +159,7 @@ void ModernDeferredPipeline::CommitTemporalFrame() {
     m_PreviousPostSettings = m_PendingPostSettings;
     m_HasPreviousProjection = true;
     m_JitterSequenceIndex = m_PendingJitterSequenceIndex;
+    std::copy(std::begin(m_PendingJitterUv), std::end(m_PendingJitterUv), std::begin(m_PreviousJitterUv));
     m_LastCommittedFrameNumber = m_CurrentFrameNumber;
     m_HasCommittedFrameNumber = true;
     m_HistoryValid = true;
@@ -201,6 +204,23 @@ void ModernDeferredPipeline::SetDirectionalShadowInput(bool enabled, const std::
     m_ClusterConstants.shadowInfo =
         Vec4{usable ? 1.0f : 0.0f, std::clamp(intensity, 0.0f, 1.0f), static_cast<float>(count), 0.0f};
     m_DirectionalShadowSrv = usable ? shadowSrv : m_ShadowFallbackSrv;
+}
+
+void ModernDeferredPipeline::SetProbeInput(std::shared_ptr<GpuTextureView> reflectionAtlas,
+                                           std::shared_ptr<GpuBufferView> reflectionMetadata,
+                                           std::shared_ptr<GpuBufferView> shVolumeMetadata,
+                                           std::shared_ptr<GpuBufferView> shCoefficients, uint32_t reflectionCount,
+                                           uint32_t shVolumeCount, uint32_t reflectionMipCount) {
+    m_ProbeReflectionAtlas = std::move(reflectionAtlas);
+    m_ProbeReflectionMetadata = std::move(reflectionMetadata);
+    m_ProbeSHVolumeMetadata = std::move(shVolumeMetadata);
+    m_ProbeSHCoefficients = std::move(shCoefficients);
+    m_ProbeReflectionCount = reflectionCount;
+    m_ProbeSHVolumeCount = shVolumeCount;
+    m_ProbeReflectionMipCount = reflectionMipCount;
+    m_ClusterConstants.localReflectionProbeCount = reflectionCount;
+    m_ClusterConstants.localSHProbeVolumeCount = shVolumeCount;
+    m_ClusterConstants.localReflectionMipCount = static_cast<float>(reflectionMipCount);
 }
 
 void ModernDeferredPipeline::ConsumeDiagnosticsReadback() {
@@ -371,9 +391,49 @@ bool ModernDeferredPipeline::EnsurePipelines() {
     environmentSHFallbackSrv.elementCount = 9;
     environmentSHFallbackSrv.usage = RHIResourceUsage::ShaderResource;
     m_EnvironmentSHFallbackSrv = m_Device->CreateBufferView(m_EnvironmentSHFallback, environmentSHFallbackSrv);
+
+    RHITextureDesc probeReflectionFallback;
+    probeReflectionFallback.width = probeReflectionFallback.height = 1;
+    probeReflectionFallback.arrayLayers = 1;
+    probeReflectionFallback.format = RHIFormat::RGBA8UNorm;
+    probeReflectionFallback.usage = RHIResourceUsage::ShaderResource | RHIResourceUsage::CopyDestination;
+    probeReflectionFallback.debugName = "ModernProbeReflectionFallback";
+    const RHITextureSubresourceData probePixel{blackPixel.data(), 4, 4, 0, 0};
+    m_ProbeReflectionFallback = m_Device->UploadTexture(probeReflectionFallback, &probePixel, 1);
+    RHITextureViewDesc probeReflectionView;
+    probeReflectionView.layerCount = 1;
+    probeReflectionView.usage = RHIResourceUsage::ShaderResource;
+    m_ProbeReflectionFallbackSrv = m_Device->CreateTextureView(m_ProbeReflectionFallback, probeReflectionView);
+
+    const auto createProbeFallback = [this](uint32_t stride, const char* name, std::shared_ptr<GpuBuffer>& buffer,
+                                            std::shared_ptr<GpuBufferView>& view) {
+        std::array<uint8_t, 192> zero{};
+        RHIBufferDesc desc;
+        desc.size = stride;
+        desc.stride = stride;
+        desc.usage = RHIResourceUsage::ShaderResource;
+        desc.debugName = name;
+        buffer = m_Device->CreateBuffer(desc, zero.data());
+        RHIBufferViewDesc viewDesc;
+        viewDesc.elementCount = 1;
+        viewDesc.usage = RHIResourceUsage::ShaderResource;
+        view = m_Device->CreateBufferView(buffer, viewDesc);
+    };
+    createProbeFallback(192, "ModernProbeReflectionMetadataFallback", m_ProbeReflectionMetadataFallback,
+                        m_ProbeReflectionMetadataFallbackSrv);
+    createProbeFallback(112, "ModernProbeSHVolumeMetadataFallback", m_ProbeSHVolumeMetadataFallback,
+                        m_ProbeSHVolumeMetadataFallbackSrv);
+    createProbeFallback(16, "ModernProbeSHCoefficientFallback", m_ProbeSHCoefficientFallback,
+                        m_ProbeSHCoefficientFallbackSrv);
+    m_ProbeReflectionAtlas = m_ProbeReflectionFallbackSrv;
+    m_ProbeReflectionMetadata = m_ProbeReflectionMetadataFallbackSrv;
+    m_ProbeSHVolumeMetadata = m_ProbeSHVolumeMetadataFallbackSrv;
+    m_ProbeSHCoefficients = m_ProbeSHCoefficientFallbackSrv;
     if (!HasMaterialSamplerTable(m_MaterialSamplers) || !m_LinearClampSampler || !m_PointClampSampler ||
         !m_ShadowSampler || !m_ShadowFallback || !m_ShadowFallbackSrv || !m_EnvironmentFallback ||
-        !m_EnvironmentFallbackSrv || !m_EnvironmentSHFallback || !m_EnvironmentSHFallbackSrv) {
+        !m_EnvironmentFallbackSrv || !m_EnvironmentSHFallback || !m_EnvironmentSHFallbackSrv ||
+        !m_ProbeReflectionFallbackSrv || !m_ProbeReflectionMetadataFallbackSrv || !m_ProbeSHVolumeMetadataFallbackSrv ||
+        !m_ProbeSHCoefficientFallbackSrv) {
         m_InitializationError = "failed to create Modern fixed samplers or environment/shadow fallback";
         return false;
     }
@@ -808,12 +868,15 @@ bool ModernDeferredPipeline::Prepare(const Scene& scene, const Camera& camera, u
     const Mat4 view = camera.GetView();
     const Mat4 projection = camera.GetProj();
     Mat4 jitteredProjection = projection;
+    float jitterUv[2]{};
     if (settings.taaEnabled) {
         // Advance the Halton phase only after a frame is successfully submitted. Global application frames can skip
         // a viewport or abort its graph; using frameNumber here makes those events appear as visible sample jumps.
         const uint32_t jitterIndex = (m_JitterSequenceIndex % 16u) + 1u;
         const float jitterX = Halton(jitterIndex, 2u) - 0.5f;
         const float jitterY = Halton(jitterIndex, 3u) - 0.5f;
+        jitterUv[0] = jitterX / static_cast<float>(m_Width);
+        jitterUv[1] = jitterY / static_cast<float>(m_Height);
         if (camera.GetProjectionMode() == ProjectionMode::Perspective) {
             jitteredProjection.m[2][0] += 2.0f * jitterX / static_cast<float>(m_Width);
             jitteredProjection.m[2][1] -= 2.0f * jitterY / static_cast<float>(m_Height);
@@ -877,6 +940,12 @@ bool ModernDeferredPipeline::Prepare(const Scene& scene, const Camera& camera, u
     m_ScreenSpaceConstants.fullTexelSize[1] = 1.0f / m_Height;
     m_ScreenSpaceConstants.effectTexelSize[0] = 1.0f / m_ScreenSpaceConstants.effectSize[0];
     m_ScreenSpaceConstants.effectTexelSize[1] = 1.0f / m_ScreenSpaceConstants.effectSize[1];
+    m_ScreenSpaceConstants.currentJitterUv[0] = jitterUv[0];
+    m_ScreenSpaceConstants.currentJitterUv[1] = jitterUv[1];
+    m_ScreenSpaceConstants.previousJitterUv[0] = m_HasPreviousViewProjection ? m_PreviousJitterUv[0] : jitterUv[0];
+    m_ScreenSpaceConstants.previousJitterUv[1] = m_HasPreviousViewProjection ? m_PreviousJitterUv[1] : jitterUv[1];
+    m_PendingJitterUv[0] = jitterUv[0];
+    m_PendingJitterUv[1] = jitterUv[1];
     m_ScreenSpaceConstants.frameIndex = static_cast<uint32_t>(frameNumber % 16u);
     m_ScreenSpaceConstants.view = view;
     m_ScreenSpaceConstants.projection = jitteredProjection;
@@ -1449,6 +1518,14 @@ RGTextureHandle ModernDeferredPipeline::AddClusteredLightingPasses(
             bindings->SetTexture("g_SceneDepth", sceneDepthSrv);
             bindings->SetTexture("g_IBLCubemap", lightingEnvironmentSrv);
             bindings->SetBuffer("g_EnvironmentSH2", lightingEnvironmentSHSrv);
+            if (m_ProbeReflectionAtlas)
+                bindings->SetTexture("g_LocalReflectionProbes", m_ProbeReflectionAtlas);
+            if (m_ProbeReflectionMetadata)
+                bindings->SetBuffer("g_LocalReflectionProbeData", m_ProbeReflectionMetadata);
+            if (m_ProbeSHVolumeMetadata)
+                bindings->SetBuffer("g_LocalSHProbeVolumes", m_ProbeSHVolumeMetadata);
+            if (m_ProbeSHCoefficients)
+                bindings->SetBuffer("g_LocalSHCoefficients", m_ProbeSHCoefficients);
             bindings->SetTexture("g_ShadowMap", m_DirectionalShadowSrv);
             bindings->SetSampler("g_LinearSampler", m_LinearClampSampler);
             bindings->SetSampler("g_ShadowSampler", m_ShadowSampler);

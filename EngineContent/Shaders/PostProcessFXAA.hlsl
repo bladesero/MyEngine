@@ -83,9 +83,16 @@ float3 FxaaPass(float2 uv, float2 rcpFrame, float quality)
 
 float4 PSMain(VSOut input) : SV_TARGET
 {
-    float3 sceneColor = g_SceneColor.Sample(g_Sampler, input.uv).rgb;
     if (g_Params3.x > 0.5f)
-        return float4(saturate(sceneColor), 1.0f);
+    {
+        // Modern compute post already produced the final output grid. A same-size linear sample is theoretically
+        // centered, but a pixel-addressed load makes the final composite phase exact across viewport/backends and
+        // prevents the blit from reintroducing a sub-pixel wobble after TAA has converged.
+        uint2 textureSize = max((uint2)g_ScreenSize.zw, uint2(1u, 1u));
+        uint2 pixel = min((uint2)(input.uv * float2(textureSize)), textureSize - 1u);
+        return float4(saturate(g_SceneColor.Load(int3(pixel, 0)).rgb), 1.0f);
+    }
+    float3 sceneColor = g_SceneColor.Sample(g_Sampler, input.uv).rgb;
     float3 color = sceneColor;
 
     if (g_Params2.z > 0.5f)

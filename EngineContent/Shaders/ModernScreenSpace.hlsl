@@ -12,6 +12,8 @@ cbuffer ScreenSpaceConstants : register(b0)
     uint2 g_EffectSize;
     float2 g_FullTexelSize;
     float2 g_EffectTexelSize;
+    float2 g_CurrentJitterUv;
+    float2 g_PreviousJitterUv;
     uint g_FrameIndex;
     uint g_HistoryValid;
     uint g_FilterStep;
@@ -74,6 +76,33 @@ float3 YCoCgToRGB(float3 c)
 float2 PixelToUv(uint2 pixel)
 {
     return (float2(pixel) + 0.5f) * g_FullTexelSize;
+}
+
+float2 JitterDeltaUv()
+{
+    return g_CurrentJitterUv - g_PreviousJitterUv;
+}
+
+float2 StableHistoryUv(float2 currentUv, float2 rasterVelocity)
+{
+    // Raster velocity contains the projection-jitter delta because GBuffer depth/normal are themselves jittered.
+    // Accumulated radiance, however, is stored on the stable output pixel grid. Removing the jitter delta here keeps
+    // a static history sample at the same output texel instead of translating the entire prior frame every sample.
+    return currentUv - (rasterVelocity - JitterDeltaUv());
+}
+
+float EncodeTaaMetadata(float historyAge, float reactive)
+{
+    // TAA history is RGBA16F. RGB stores radiance; the integer portion of alpha stores a bounded convergence age and
+    // the lower half of its fractional portion stores reactive coverage. Point sampling alpha keeps the packing
+    // stable while RGB remains bilinearly reprojected.
+    return min(historyAge, 127.0f) + saturate(reactive) * 0.5f;
+}
+
+void DecodeTaaMetadata(float metadata, out float historyAge, out float reactive)
+{
+    historyAge = floor(max(metadata, 0.0f) + 1e-3f);
+    reactive = saturate(frac(max(metadata, 0.0f)) * 2.0f);
 }
 
 uint2 EffectPixelToFullPixel(uint2 pixel)
@@ -492,7 +521,7 @@ void CSTemporal(uint3 dispatchThreadId : SV_DispatchThreadID)
     // we loaded. Keeping both coordinate spaces prevents a systematic half-texel history shift.
     const float2 currentEffectUv = (float2(pixel) + 0.5f) * g_EffectTexelSize;
     const float2 currentGeometryUv = PixelToUv(fullPixel);
-    float2 historyUv = currentEffectUv - velocity;
+    float2 historyUv = StableHistoryUv(currentEffectUv, velocity);
     float2 previousGeometryUv = currentGeometryUv - velocity;
     bool valid = g_HistoryValid != 0 && all(historyUv >= 0.0f) && all(historyUv <= 1.0f) &&
                  all(previousGeometryUv >= 0.0f) && all(previousGeometryUv <= 1.0f);
@@ -726,15 +755,21 @@ void CSTAA(uint3 dispatchThreadId : SV_DispatchThreadID)
     const float2 currentUv = PixelToUv(pixel);
     const float currentDepth = g_Depth.Load(int3(pixel, 0));
     const bool currentBackground = currentDepth >= 0.999999f;
-    float2 velocity = g_Velocity.Load(int3(pixel, 0));
-    float2 historyUv = currentUv - velocity;
+    float2 rasterVelocity = g_Velocity.Load(int3(pixel, 0));
+    float2 previousGeometryUv = currentUv - rasterVelocity;
     bool backgroundReprojectionValid = true;
     if (currentBackground)
-        backgroundReprojectionValid = ReprojectBackgroundUv(currentUv, historyUv);
-    bool valid = g_HistoryValid != 0 && all(historyUv >= 0.0f) && all(historyUv <= 1.0f);
+        backgroundReprojectionValid = ReprojectBackgroundUv(currentUv, previousGeometryUv);
+    // The background path computes the equivalent raster-space reprojection explicitly; foreground velocity already
+    // contains the same jitter delta. Color history lives on the stable output grid, while depth and normal history
+    // must retain raster-space coordinates to reconstruct the same surface sample.
+    float2 historyUv = currentBackground ? previousGeometryUv + JitterDeltaUv()
+                                         : StableHistoryUv(currentUv, rasterVelocity);
+    bool valid = g_HistoryValid != 0 && all(historyUv >= 0.0f) && all(historyUv <= 1.0f) &&
+                 all(previousGeometryUv >= 0.0f) && all(previousGeometryUv <= 1.0f);
     valid = valid && backgroundReprojectionValid;
     float4 history = valid ? g_History.SampleLevel(g_LinearSampler, historyUv, 0.0f) : current;
-    const float previousDepth = g_PreviousDepth.SampleLevel(g_PointSampler, historyUv, 0.0f);
+    const float previousDepth = g_PreviousDepth.SampleLevel(g_PointSampler, previousGeometryUv, 0.0f);
     if (currentBackground)
     {
         // Require a previous background sample so foreground silhouettes cannot leak into the sky history.
@@ -745,31 +780,46 @@ void CSTAA(uint3 dispatchThreadId : SV_DispatchThreadID)
         const float3 currentWorld =
             ReconstructWorldPositionUv(currentUv, currentDepth, g_InverseViewProjection);
         const float3 previousWorld =
-            ReconstructWorldPositionUv(historyUv, previousDepth, g_PreviousInverseViewProjection);
+            ReconstructWorldPositionUv(previousGeometryUv, previousDepth, g_PreviousInverseViewProjection);
         const float currentViewDepth = mul(float4(currentWorld, 1.0f), g_View).z;
         const float worldThreshold = max(0.04f, abs(currentViewDepth) * 0.0075f);
         valid = valid && previousDepth < 0.999999f && length(currentWorld - previousWorld) < worldThreshold;
         float3 currentNormal = DecodeWorldNormal(g_Normal.Load(int3(pixel, 0)).xyz);
-        float3 historyNormal = DecodeWorldNormal(g_PreviousNormal.SampleLevel(g_PointSampler, historyUv, 0.0f).xyz);
+        float3 historyNormal =
+            DecodeWorldNormal(g_PreviousNormal.SampleLevel(g_PointSampler, previousGeometryUv, 0.0f).xyz);
         valid = valid && dot(currentNormal, historyNormal) > 0.9f;
     }
     float3 minimum, maximum;
     NeighborhoodBounds(g_Current, int2(pixel), g_FullSize, minimum, maximum);
     history.rgb = YCoCgToRGB(clamp(RGBToYCoCg(history.rgb), minimum, maximum));
     float luminanceDelta = RelativeLuminanceDifference(current.rgb, history.rgb);
+    // Color history has already been de-jittered above. Only stable screen-space motion may re-enable the luminance
+    // response; a static edge intentionally contributes different sub-pixel samples to the same output texel.
+    float2 stableVelocity = rasterVelocity - JitterDeltaUv();
+    float nonJitterMotionPixels = length(stableVelocity * float2(g_FullSize));
+    float jitterOnlyHistory = 1.0f - smoothstep(0.05f, 0.5f, nonJitterMotionPixels);
+    float luminanceStability = lerp(saturate(1.0f - luminanceDelta), 1.0f, jitterOnlyHistory);
     // Forward transparency encodes coverage into the HDR alpha channel. Treat it as an embedded reactive mask so
     // moving translucent surfaces do not retain opaque history. Dilate by one pixel to cover newly exposed edges.
     float currentReactive = GatherReactiveMask(int2(pixel));
-    // TAA history alpha stores last frame's reactive coverage. Sampling it at the reprojected UV clears the old
-    // location of a moving transparent surface even though transparent geometry has no velocity GBuffer output.
-    float previousReactive = valid ? 1.0f - saturate(history.a) : 0.0f;
+    float previousAge = 0.0f;
+    float previousReactive = 0.0f;
+    if (valid)
+    {
+        float historyMetadata = g_History.SampleLevel(g_PointSampler, historyUv, 0.0f).a;
+        DecodeTaaMetadata(historyMetadata, previousAge, previousReactive);
+    }
     float reactive = max(currentReactive, previousReactive);
-    float adaptiveWeight =
-        valid ? saturate(g_TAAHistoryWeight) * saturate(1.0f - luminanceDelta) * (1.0f - reactive)
-                                 : 0.0f;
-    // Persist only current coverage. Previous coverage is consumed for one frame, which rejects the stale color
-    // without allowing the reactive region to grow or remain forever.
-    g_Output[pixel] = float4(lerp(current.rgb, history.rgb, adaptiveWeight), 1.0f - currentReactive);
+    // A fixed 0.9 EMA never fully settles for a repeating Halton edge pattern. Track local valid-history age and move
+    // static sub-pixel edges toward a running average, while genuine motion keeps the authored response weight.
+    float convergenceWeight = previousAge / max(previousAge + 1.0f, 1.0f);
+    float staticEdge = jitterOnlyHistory * smoothstep(0.02f, 0.2f, luminanceDelta);
+    float authoredWeight = saturate(g_TAAHistoryWeight) * luminanceStability;
+    float convergingWeight = max(saturate(g_TAAHistoryWeight), convergenceWeight);
+    float adaptiveWeight = valid ? lerp(authoredWeight, convergingWeight, staticEdge) * (1.0f - reactive) : 0.0f;
+    float nextAge = valid && reactive < 0.01f ? min(previousAge + 1.0f, 127.0f) : 1.0f;
+    g_Output[pixel] = float4(lerp(current.rgb, history.rgb, adaptiveWeight),
+                             EncodeTaaMetadata(nextAge, currentReactive));
 }
 
 float3 AcesToneMap(float3 color)

@@ -33,6 +33,10 @@ cbuffer PerDraw : register(b0)
     float4 g_IBLInfo;
     row_major float4x4 g_NormalMatrix;
     float4 g_CameraForward;
+    uint g_LocalReflectionProbeCount;
+    uint g_LocalSHProbeVolumeCount;
+    float g_LocalReflectionMipCount;
+    float g_ProbeLightingPadding;
 };
 
 Texture2D    g_BaseColorMap : register(t0);
@@ -53,7 +57,13 @@ TextureCube  g_PointShadowMap : register(t7);
 SamplerState g_PointShadowSampler : register(s7);
 TextureCube  g_IBLCubemap : register(t8);
 SamplerState g_IBLSampler : register(s8);
+#include "ProbeLighting.hlsli"
+
 StructuredBuffer<float4> g_EnvironmentSH2 : register(t9);
+Texture2DArray<float4> g_LocalReflectionProbes : register(t10);
+StructuredBuffer<ReflectionProbeGpuData> g_LocalReflectionProbeData : register(t11);
+StructuredBuffer<SHProbeVolumeGpuData> g_LocalSHProbeVolumes : register(t12);
+StructuredBuffer<float4> g_LocalSHCoefficients : register(t13);
 
 #include "PBR_BRDF.hlsli"
 #include "EnvironmentRadiance.hlsli"
@@ -323,10 +333,15 @@ float4 PSMain(VSOut p) : SV_TARGET
     float3 reflectionDirection = reflect(-V, N);
     float3 ambient;
     if (g_IBLInfo.x > 0.5f) {
-        float3 irradiance = EvaluateEnvironmentSH2(N);
+        float3 globalIrradiance = EvaluateEnvironmentSH2(N);
+        float3 irradiance = EvaluateLocalSHVolumes(g_LocalSHProbeVolumes, g_LocalSHCoefficients,
+            g_LocalSHProbeVolumeCount, p.worldPos, N, globalIrradiance);
         float mipLevel = roughness * 6.0f;
-        float3 prefilteredColor = g_IBLCubemap.SampleLevel(
+        float3 globalPrefilteredColor = g_IBLCubemap.SampleLevel(
             g_IBLSampler, reflectionDirection, mipLevel).rgb;
+        float3 prefilteredColor = SampleLocalReflectionsAuto(g_LocalReflectionProbes, g_IBLSampler,
+            g_LocalReflectionProbeData, g_LocalReflectionProbeCount, p.worldPos, reflectionDirection,
+            roughness, g_LocalReflectionMipCount, globalPrefilteredColor);
         ambient = PbrEnvironmentLighting(
             albedo, metallic, roughness, ao, N, V, irradiance, prefilteredColor) *
             max(g_LightInfo.y, 0.0f) * max(g_IBLInfo.y, 0.0f);

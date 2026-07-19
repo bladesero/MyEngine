@@ -70,6 +70,10 @@ public:
     void SetDirectionalShadowInput(bool enabled, const std::shared_ptr<GpuTextureView>& shadowSrv,
                                    const Mat4* cascadeViewProjection, uint32_t cascadeCount, const float* cascadeSplits,
                                    float intensity);
+    void SetProbeInput(std::shared_ptr<GpuTextureView> reflectionAtlas,
+                       std::shared_ptr<GpuBufferView> reflectionMetadata,
+                       std::shared_ptr<GpuBufferView> shVolumeMetadata, std::shared_ptr<GpuBufferView> shCoefficients,
+                       uint32_t reflectionCount, uint32_t shVolumeCount, uint32_t reflectionMipCount);
     void AddDepthPrepass(RenderGraph& graph, RGTextureHandle sceneDepth);
     bool AddGpuDrivenShadowView(RenderGraph& graph, const std::string& name, RGTextureHandle shadowTarget,
                                 RGTextureSubresource subresource, const Mat4& viewProjection);
@@ -186,6 +190,10 @@ private:
         Mat4 shadowViewProjection[3] = {Mat4::Identity(), Mat4::Identity(), Mat4::Identity()};
         Vec4 cascadeSplits{};
         Vec4 shadowInfo{};
+        uint32_t localReflectionProbeCount = 0;
+        uint32_t localSHProbeVolumeCount = 0;
+        float localReflectionMipCount = 1.0f;
+        float probeLightingPadding = 0.0f;
     };
     struct ScreenSpaceConstants {
         Mat4 view = Mat4::Identity();
@@ -200,6 +208,8 @@ private:
         uint32_t effectSize[2]{};
         float fullTexelSize[2]{};
         float effectTexelSize[2]{};
+        float currentJitterUv[2]{};
+        float previousJitterUv[2]{};
         uint32_t frameIndex = 0;
         uint32_t historyValid = 0;
         uint32_t filterStep = 0;
@@ -219,14 +229,18 @@ private:
         uint32_t ssrStepCount = 48;
         uint32_t padding[3]{};
     };
-    static_assert(sizeof(ScreenSpaceConstants) == 528, "ScreenSpaceConstants size must match ModernScreenSpace.hlsl");
-    static_assert(offsetof(ScreenSpaceConstants, ssgiIntensity) == 464,
+    static_assert(sizeof(ScreenSpaceConstants) == 544, "ScreenSpaceConstants size must match ModernScreenSpace.hlsl");
+    static_assert(offsetof(ScreenSpaceConstants, currentJitterUv) == 448,
+                  "ScreenSpaceConstants current jitter offset changed");
+    static_assert(offsetof(ScreenSpaceConstants, previousJitterUv) == 456,
+                  "ScreenSpaceConstants previous jitter offset changed");
+    static_assert(offsetof(ScreenSpaceConstants, ssgiIntensity) == 480,
                   "ScreenSpaceConstants SSGI tuning offset changed");
-    static_assert(offsetof(ScreenSpaceConstants, ssrMaxRoughness) == 480,
+    static_assert(offsetof(ScreenSpaceConstants, ssrMaxRoughness) == 496,
                   "ScreenSpaceConstants SSR tuning offset changed");
-    static_assert(offsetof(ScreenSpaceConstants, gamma) == 496,
+    static_assert(offsetof(ScreenSpaceConstants, gamma) == 512,
                   "ScreenSpaceConstants post-process tuning offset changed");
-    static_assert(offsetof(ScreenSpaceConstants, ssrStepCount) == 512,
+    static_assert(offsetof(ScreenSpaceConstants, ssrStepCount) == 528,
                   "ScreenSpaceConstants step-count offset changed");
 
     IRHIDevice* m_Device = nullptr;
@@ -283,7 +297,22 @@ private:
     std::shared_ptr<GpuTextureView> m_EnvironmentFallbackSrv;
     std::shared_ptr<GpuBuffer> m_EnvironmentSHFallback;
     std::shared_ptr<GpuBufferView> m_EnvironmentSHFallbackSrv;
+    std::shared_ptr<GpuTexture> m_ProbeReflectionFallback;
+    std::shared_ptr<GpuTextureView> m_ProbeReflectionFallbackSrv;
+    std::shared_ptr<GpuBuffer> m_ProbeReflectionMetadataFallback;
+    std::shared_ptr<GpuBufferView> m_ProbeReflectionMetadataFallbackSrv;
+    std::shared_ptr<GpuBuffer> m_ProbeSHVolumeMetadataFallback;
+    std::shared_ptr<GpuBufferView> m_ProbeSHVolumeMetadataFallbackSrv;
+    std::shared_ptr<GpuBuffer> m_ProbeSHCoefficientFallback;
+    std::shared_ptr<GpuBufferView> m_ProbeSHCoefficientFallbackSrv;
     std::shared_ptr<GpuTextureView> m_EnvironmentCubeSrv;
+    std::shared_ptr<GpuTextureView> m_ProbeReflectionAtlas;
+    std::shared_ptr<GpuBufferView> m_ProbeReflectionMetadata;
+    std::shared_ptr<GpuBufferView> m_ProbeSHVolumeMetadata;
+    std::shared_ptr<GpuBufferView> m_ProbeSHCoefficients;
+    uint32_t m_ProbeReflectionCount = 0;
+    uint32_t m_ProbeSHVolumeCount = 0;
+    uint32_t m_ProbeReflectionMipCount = 1;
     std::shared_ptr<GpuTextureView> m_DirectionalShadowSrv;
     std::shared_ptr<GpuBuffer> m_IndirectArgs;
     std::shared_ptr<GpuBufferView> m_IndirectArgsUav;
@@ -369,6 +398,8 @@ private:
     uint32_t m_PendingHistoryPing = 0;
     uint32_t m_JitterSequenceIndex = 0;
     uint32_t m_PendingJitterSequenceIndex = 0;
+    float m_PreviousJitterUv[2]{};
+    float m_PendingJitterUv[2]{};
     bool m_TemporalFramePending = false;
     Mat4 m_PreviousViewProjection = Mat4::Identity();
     Mat4 m_PendingViewProjection = Mat4::Identity();

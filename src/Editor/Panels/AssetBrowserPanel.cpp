@@ -61,6 +61,8 @@ const char* IconForAssetType(EditorAssetType type) {
         return EditorIcons::Asset;
     case EditorAssetType::Navigation:
         return EditorIcons::Scene;
+    case EditorAssetType::Lighting:
+        return EditorIcons::Light;
     default:
         return EditorIcons::Asset;
     }
@@ -105,6 +107,8 @@ const char* AssetTypeName(EditorAssetType type) {
         return "Particle";
     case EditorAssetType::Navigation:
         return "Navigation";
+    case EditorAssetType::Lighting:
+        return "Lighting";
     default:
         return "Unknown";
     }
@@ -134,6 +138,8 @@ EditorAssetType AssetTypeFromFilterIndex(int index) {
         return EditorAssetType::Particle;
     case 11:
         return EditorAssetType::Navigation;
+    case 12:
+        return EditorAssetType::Lighting;
     default:
         return EditorAssetType::Unknown;
     }
@@ -1645,7 +1651,7 @@ void AssetBrowserPanel::DrawContent() {
     ImGui::InputTextWithHint("##Filter", "Filter...", m_Filter, sizeof(m_Filter));
     ImGui::SameLine();
     const char* typeItems[] = {"All Types", "Model",  "Texture", "Material", "Scene",    "Prefab",
-                               "Script",    "Shader", "Audio",   "UI",       "Particle", "Navigation"};
+                               "Script",    "Shader", "Audio",   "UI",       "Particle", "Navigation", "Lighting"};
     ImGui::SetNextItemWidth(120.0f);
     ImGui::Combo("##AssetTypeFilter", &m_TypeFilter, typeItems, static_cast<int>(std::size(typeItems)));
     ImGui::SameLine();

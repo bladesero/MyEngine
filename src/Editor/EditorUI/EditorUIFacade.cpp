@@ -105,6 +105,8 @@ const char* AssetTypeDisplayName(EditorAssetType type) {
         return "Particle";
     case EditorAssetType::Navigation:
         return "Navigation";
+    case EditorAssetType::Lighting:
+        return "Lighting";
     default:
         return "Unknown";
     }
@@ -133,6 +135,8 @@ EditorAssetType ParseAssetType(const std::string& type) {
         return EditorAssetType::Particle;
     if (type == "Navigation" || type == "navigation" || type == "navmesh")
         return EditorAssetType::Navigation;
+    if (type == "Lighting" || type == "lighting" || type == "lightprobes")
+        return EditorAssetType::Lighting;
     return EditorAssetType::Unknown;
 }
 
@@ -1084,6 +1088,8 @@ std::string AssetTypeName(EditorAssetType type) {
         return "particle";
     case EditorAssetType::Navigation:
         return "navigation";
+    case EditorAssetType::Lighting:
+        return "lighting";
     default:
         return "unknown";
     }

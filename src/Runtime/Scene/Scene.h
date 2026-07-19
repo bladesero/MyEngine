@@ -105,6 +105,11 @@ struct WorldZoneStats {
     size_t taskCount = 0;
 };
 
+struct LightingProbeBakeSettings {
+    uint32_t reflectionResolution = 128;
+    float rgbmMaximumRange = 64.0f;
+};
+
 class Scene {
 public:
     explicit Scene(std::string name = "Scene");
@@ -207,6 +212,10 @@ public:
     const NavigationWorld& GetNavigationWorld() const { return m_NavigationWorld; }
     void SetNavMeshAssetPath(std::string path) { m_NavMeshAssetPath = std::move(path); }
     const std::string& GetNavMeshAssetPath() const { return m_NavMeshAssetPath; }
+    void SetLightingProbeAssetPath(std::string path) { m_LightingProbeAssetPath = std::move(path); }
+    const std::string& GetLightingProbeAssetPath() const { return m_LightingProbeAssetPath; }
+    void SetLightingProbeBakeSettings(const LightingProbeBakeSettings& value);
+    const LightingProbeBakeSettings& GetLightingProbeBakeSettings() const { return m_LightingProbeBakeSettings; }
     void SetPreloadAssets(std::vector<std::string> paths) { m_PreloadAssets = std::move(paths); }
     const std::vector<std::string>& GetPreloadAssets() const { return m_PreloadAssets; }
     void SetSceneManager(class SceneManager* manager) { m_SceneManager = manager; }
@@ -281,6 +290,8 @@ private:
     NavigationWorld m_NavigationWorld;
     WorldFrameScheduler m_FrameScheduler;
     std::string m_NavMeshAssetPath;
+    std::string m_LightingProbeAssetPath;
+    LightingProbeBakeSettings m_LightingProbeBakeSettings;
     std::vector<std::string> m_PreloadAssets;
     SceneState m_State = SceneState::Edit;
     bool m_Traversing = false;

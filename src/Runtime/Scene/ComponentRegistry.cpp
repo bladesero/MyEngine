@@ -16,6 +16,7 @@
 #include "Physics/RigidBodyComponent.h"
 #include "Physics/SphereColliderComponent.h"
 #include "Renderer/LightComponent.h"
+#include "Renderer/ProbeComponents.h"
 #include "Renderer/PostProcessComponent.h"
 #include "Renderer/ParticleSystemComponent.h"
 #include "Scene/Actor.h"
@@ -639,6 +640,10 @@ ComponentRegistry::ComponentRegistry() {
     TypeRegistry::Get().Register(CapsuleColliderType());
     TypeRegistry::Get().Register(CharacterControllerType());
     TypeRegistry::Get().Register(LightTypeDescriptor());
+    TypeRegistry::Get().Register(
+        ReflectedLegacyType<ReflectionProbeComponent>("ReflectionProbe", "Reflection Probe", "Rendering"));
+    TypeRegistry::Get().Register(
+        ReflectedLegacyType<SHProbeVolumeComponent>("SHProbeVolume", "SH Probe Volume", "Rendering"));
     TypeRegistry::Get().Register(PostProcessType());
     TypeRegistry::Get().Register(AudioSourceType());
     TypeRegistry::Get().Register(

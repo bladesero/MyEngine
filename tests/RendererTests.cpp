@@ -2,6 +2,7 @@
 
 #include "Animation/SkinnedMeshRendererComponent.h"
 #include "Assets/AssetManager.h"
+#include "Assets/LightingProbeAsset.h"
 #include "Camera/Camera.h"
 #include "Core/FrameStats.h"
 #include "Core/RuntimeQualityDegradation.h"
@@ -17,6 +18,8 @@
 #include "Renderer/MaterialResourceCache.h"
 #include "Renderer/ModernDeferredPipeline.h"
 #include "Renderer/ParticleSystemComponent.h"
+#include "Renderer/ProbeBakeRenderer.h"
+#include "Renderer/ProbeComponents.h"
 #include "Renderer/PostProcessComponent.h"
 #include "Renderer/RHI/RHIResourceStats.h"
 #include "Renderer/RenderGraph.h"
@@ -1188,7 +1191,8 @@ bool TestModernEnvironmentLightingMatchesClassicContract() {
         return false;
     const std::string shader = CompactSource(ReadRepositoryTextFile(shaderCandidates));
     if (!Check(shader.find("StructuredBuffer<float4>g_EnvironmentSH2:register(t11)") != std::string::npos &&
-                   shader.find("float3environmentDiffuse=EvaluateEnvironmentSH2(normal)") != std::string::npos &&
+                   shader.find("float3globalEnvironmentDiffuse=EvaluateEnvironmentSH2(normal)") != std::string::npos &&
+                   shader.find("EvaluateLocalSHVolumes") != std::string::npos &&
                    shader.find("g_IBLCubemap.SampleLevel(g_LinearSampler,normal,6.0f)") == std::string::npos,
                "Modern Deferred diffuse IBL does not use the same convolved SH2 contract as Classic Deferred")) {
         return false;
@@ -1427,6 +1431,24 @@ bool TestPersistentNativePipelineCacheContracts() {
             vulkan.find("vkCreateComputePipelines(m_Impl->device,m_Impl->pipelineCache") != std::string::npos &&
             vulkan.find("WriteVulkanPipelineCache") != std::string::npos,
         "Vulkan graphics/compute pipelines do not share a persisted VkPipelineCache");
+#endif
+}
+
+bool TestD3D12DebugEventUsesAnsiMetadata() {
+#ifndef MYENGINE_PLATFORM_WINDOWS
+    return true;
+#else
+    const std::string d3d12 = CompactSource(ReadRepositoryTextFile({
+        "src/Runtime/Renderer/D3D12Context.cpp",
+        "../../../src/Runtime/Renderer/D3D12Context.cpp",
+        "../../../../src/Runtime/Renderer/D3D12Context.cpp",
+        "../../../../../src/Runtime/Renderer/D3D12Context.cpp",
+    }));
+    return Check(d3d12.find("constexprUINTkPixEventAnsiVersion=1") != std::string::npos &&
+                     d3d12.find("BeginEvent(kPixEventAnsiVersion,name,") != std::string::npos &&
+                     d3d12.find("(std::strlen(name)+1)*sizeof(name[0])") != std::string::npos &&
+                     d3d12.find("BeginEvent(0,name,") == std::string::npos,
+                 "D3D12 debug events must identify narrow marker text as ANSI and include its terminator");
 #endif
 }
 
@@ -2316,14 +2338,13 @@ bool TestModernTemporalReprojectionShaderContract() {
     if (!Check(source.find("row_major float4x4 g_PreviousInverseViewProjection;") != std::string::npos &&
                    source.find("row_major float4x4 g_PreviousViewProjection;") != std::string::npos &&
                    source.find("float4 g_PreviousCameraPosition;") != std::string::npos &&
-                   CountOccurrences(source, "ReconstructWorldPositionUv(historyUv, previousDepth") >= 1 &&
-                   CountOccurrences(source, "ReconstructWorldPositionUv(previousGeometryUv, previousDepth") >= 1 &&
+                   CountOccurrences(source, "ReconstructWorldPositionUv(previousGeometryUv, previousDepth") >= 2 &&
                    CountOccurrences(source, "g_PreviousInverseViewProjection") >= 3,
                "SSGI/SSR temporal and TAA paths do not reproject previous depth in previous-world space")) {
         return false;
     }
-    if (!Check(CountOccurrences(source, "SampleLevel(g_PointSampler, historyUv, 0.0f)") >= 2 &&
-                   CountOccurrences(source, "SampleLevel(g_PointSampler, previousGeometryUv, 0.0f)") >= 2,
+    if (!Check(CountOccurrences(source, "SampleLevel(g_PointSampler, historyUv, 0.0f)") >= 1 &&
+                   CountOccurrences(source, "SampleLevel(g_PointSampler, previousGeometryUv, 0.0f)") >= 4,
                "temporal rejection does not point-sample full-resolution previous depth and normal histories")) {
         return false;
     }
@@ -2339,11 +2360,94 @@ bool TestModernTemporalReprojectionShaderContract() {
     const std::string compact = CompactSource(source);
     return Check(
         compact.find("currentEffectUv=(float2(pixel)+0.5f)*g_EffectTexelSize") != std::string::npos &&
+            compact.find("historyUv=StableHistoryUv(currentEffectUv,velocity)") != std::string::npos &&
             compact.find("previousGeometryUv=currentGeometryUv-velocity") != std::string::npos &&
             compact.find("g_History.SampleLevel(g_LinearSampler,historyUv,0.0f)") != std::string::npos &&
             compact.find("g_PreviousDepth.SampleLevel(g_PointSampler,previousGeometryUv,0.0f)") != std::string::npos &&
             compact.find("g_PreviousNormal.SampleLevel(g_PointSampler,previousGeometryUv,0.0f)") != std::string::npos,
         "half-resolution history UVs are not separated from full-resolution depth/normal reprojection");
+}
+
+bool TestModernTaaCameraJitterStabilityContract() {
+    const std::string shader = CompactSource(ReadRepositoryTextFile({
+        "EngineContent/Shaders/ModernScreenSpace.hlsl",
+        "../../../EngineContent/Shaders/ModernScreenSpace.hlsl",
+        "../../../../EngineContent/Shaders/ModernScreenSpace.hlsl",
+        "../../../../../EngineContent/Shaders/ModernScreenSpace.hlsl",
+    }));
+    const std::string pipelineHeader = CompactSource(ReadRepositoryTextFile({
+        "src/Runtime/Renderer/ModernDeferredPipeline.h",
+        "../../../src/Runtime/Renderer/ModernDeferredPipeline.h",
+        "../../../../src/Runtime/Renderer/ModernDeferredPipeline.h",
+        "../../../../../src/Runtime/Renderer/ModernDeferredPipeline.h",
+    }));
+    const std::string pipelineSource = CompactSource(ReadRepositoryTextFile({
+        "src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+        "../../../src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+        "../../../../src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+        "../../../../../src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+    }));
+    const std::string forwardSource = CompactSource(ReadRepositoryTextFile({
+        "src/Runtime/Renderer/ForwardRenderPasses.cpp",
+        "../../../src/Runtime/Renderer/ForwardRenderPasses.cpp",
+        "../../../../src/Runtime/Renderer/ForwardRenderPasses.cpp",
+        "../../../../../src/Runtime/Renderer/ForwardRenderPasses.cpp",
+    }));
+    const std::string mainPassSource = CompactSource(ReadRepositoryTextFile({
+        "src/Runtime/Renderer/MainPass.cpp",
+        "../../../src/Runtime/Renderer/MainPass.cpp",
+        "../../../../src/Runtime/Renderer/MainPass.cpp",
+        "../../../../../src/Runtime/Renderer/MainPass.cpp",
+    }));
+    const std::string rendererSource = CompactSource(ReadRepositoryTextFile({
+        "src/Runtime/Renderer/Renderer.cpp",
+        "../../../src/Runtime/Renderer/Renderer.cpp",
+        "../../../../src/Runtime/Renderer/Renderer.cpp",
+        "../../../../../src/Runtime/Renderer/Renderer.cpp",
+    }));
+    const std::string postCompositeShader = CompactSource(ReadRepositoryTextFile({
+        "EngineContent/Shaders/PostProcessFXAA.hlsl",
+        "../../../EngineContent/Shaders/PostProcessFXAA.hlsl",
+        "../../../../EngineContent/Shaders/PostProcessFXAA.hlsl",
+        "../../../../../EngineContent/Shaders/PostProcessFXAA.hlsl",
+    }));
+    if (!Check(!shader.empty() && !pipelineHeader.empty() && !pipelineSource.empty() && !forwardSource.empty() &&
+                   !mainPassSource.empty() && !rendererSource.empty() && !postCompositeShader.empty(),
+               "Modern TAA camera-jitter contract sources were not found")) {
+        return false;
+    }
+    if (!Check(shader.find("float2g_CurrentJitterUv") != std::string::npos &&
+                   shader.find("float2g_PreviousJitterUv") != std::string::npos &&
+                   shader.find("returncurrentUv-(rasterVelocity-JitterDeltaUv())") != std::string::npos &&
+                   shader.find("previousGeometryUv=currentUv-rasterVelocity") != std::string::npos &&
+                   shader.find("historyUv=currentBackground?previousGeometryUv+JitterDeltaUv()") != std::string::npos &&
+                   shader.find("stableVelocity=rasterVelocity-JitterDeltaUv()") != std::string::npos &&
+                   shader.find("luminanceStability=lerp(saturate(1.0f-luminanceDelta),1.0f,jitterOnlyHistory)") !=
+                       std::string::npos &&
+                   shader.find("convergenceWeight=previousAge/max(previousAge+1.0f,1.0f)") != std::string::npos &&
+                   shader.find("EncodeTaaMetadata(nextAge,currentReactive)") != std::string::npos &&
+                   shader.find("historyUv=currentUv-rasterVelocity") == std::string::npos,
+               "TAA color history is still shifted by raster jitter or lacks static-edge convergence")) {
+        return false;
+    }
+    if (!Check(pipelineHeader.find("floatcurrentJitterUv[2]") != std::string::npos &&
+                   pipelineHeader.find("floatpreviousJitterUv[2]") != std::string::npos &&
+                   pipelineHeader.find("sizeof(ScreenSpaceConstants)==544") != std::string::npos &&
+                   pipelineSource.find("m_PendingJitterUv),std::begin(m_PreviousJitterUv)") != std::string::npos &&
+                   pipelineSource.find("m_PendingJitterUv[0]=jitterUv[0]") != std::string::npos,
+               "Modern Deferred does not commit current/previous jitter with the displayed temporal frame")) {
+        return false;
+    }
+    return Check(
+        forwardSource.find("context.viewProjection?*context.viewProjection:camera.GetViewProj()") !=
+                std::string::npos &&
+            mainPassSource.find("forwardContext.viewProjection=viewProjection") != std::string::npos &&
+            rendererSource.find("modernFrameReady?&m_ModernDeferredPipeline->GetCurrentViewProjection():nullptr") !=
+                std::string::npos &&
+            rendererSource.find("SetInputPreprocessed(modernFrameReady)") != std::string::npos &&
+            postCompositeShader.find("if(g_Params3.x>0.5f){") != std::string::npos &&
+            postCompositeShader.find("g_SceneColor.Load(int3(pixel,0))") != std::string::npos,
+        "Modern transparent rendering or final composite is not preserving the TAA projection phase");
 }
 
 bool TestModernScreenSpaceCompositeShaderContract() {
@@ -2387,8 +2491,8 @@ bool TestModernScreenSpaceCompositeShaderContract() {
         return false;
     }
     return Check(source.find("hdr + gi + specularCorrection") != std::string::npos &&
-                      source.find("hdr + gi + reflection") == std::string::npos,
-                  "SSR composite still adds a second specular lobe on top of environment lighting");
+                     source.find("hdr + gi + reflection") == std::string::npos,
+                 "SSR composite still adds a second specular lobe on top of environment lighting");
 }
 
 bool TestModernScreenSpaceSamplingAndConfidenceContracts() {
@@ -2432,9 +2536,9 @@ bool TestModernScreenSpaceSamplingAndConfidenceContracts() {
                    CountOccurrences(compact, "RefineRayDepthCrossing(rayOrigin,direction,previousDistance,distance") ==
                        2 &&
                    CountOccurrences(compact, "previousViewDelta<-0.002f&&viewDelta>=-0.002f") == 2 &&
-                    compact.find("hitWeight=saturate(1.0f-hitDistance/") != std::string::npos &&
-                    compact.find("hitWeight=hitFacing*") == std::string::npos,
-                "SSGI/SSR still accept self-overlaps, skip thin depth crossings, or double-attenuate cosine samples")) {
+                   compact.find("hitWeight=saturate(1.0f-hitDistance/") != std::string::npos &&
+                   compact.find("hitWeight=hitFacing*") == std::string::npos,
+               "SSGI/SSR still accept self-overlaps, skip thin depth crossings, or double-attenuate cosine samples")) {
         return false;
     }
     const size_t ssgiTraceBegin = compact.find("voidCSSSGITrace");
@@ -2483,10 +2587,11 @@ bool TestModernScreenSpaceSamplingAndConfidenceContracts() {
     }
     return Check(compact.find("currentReactive=GatherReactiveMask(int2(pixel))") != std::string::npos &&
                      compact.find("1.0f-saturate(g_Current.Load(int3(samplePixel,0)).a)") != std::string::npos &&
-                     compact.find("previousReactive=valid?1.0f-saturate(history.a):0.0f") != std::string::npos &&
+                     compact.find("DecodeTaaMetadata(historyMetadata,previousAge,previousReactive)") !=
+                         std::string::npos &&
                      compact.find("reactive=max(currentReactive,previousReactive)") != std::string::npos &&
                      compact.find("*(1.0f-reactive)") != std::string::npos &&
-                     compact.find("1.0f-currentReactive)") != std::string::npos,
+                     compact.find("EncodeTaaMetadata(nextAge,currentReactive)") != std::string::npos,
                  "TAA does not consume, persist, and dilate transparent coverage as a reactive mask");
 }
 
@@ -2552,8 +2657,8 @@ bool TestModernScreenSpacePostProcessTuningContract() {
                        std::string::npos &&
                    pipeline.find("m_ScreenSpaceConstants.taaHistoryWeight=settings.taaHistoryWeight") !=
                        std::string::npos &&
-                    pipeline.find("m_PostSettings.ssgiFilterRounds") != std::string::npos &&
-                    pipeline.find("FloatsNearlyEqual(settings.ssgiIntensity") == std::string::npos &&
+                   pipeline.find("m_PostSettings.ssgiFilterRounds") != std::string::npos &&
+                   pipeline.find("FloatsNearlyEqual(settings.ssgiIntensity") == std::string::npos &&
                    pipeline.find("m_PostSettings.ssrFilterRounds") != std::string::npos,
                "Modern pipeline does not consume independent SSGI/SSR trace, temporal, and filter settings")) {
         return false;
@@ -2831,6 +2936,16 @@ bool TestModernTemporalHistoryCommitAndAbort() {
     if (!Check(pipeline.Prepare(scene, camera, 1), "Modern temporal frame 1 preparation failed"))
         return false;
     const Mat4 committedViewProjection = pipeline.GetCurrentViewProjection();
+    const Vec4 projectionProbe{0.25f, -0.15f, 2.0f, 1.0f};
+    const Vec4 stableClip = camera.GetViewProj().Transform(projectionProbe);
+    const Vec4 jitteredClip = committedViewProjection.Transform(projectionProbe);
+    const float stableUvY = 0.5f - 0.5f * stableClip.y / stableClip.w;
+    const float jitteredUvY = 0.5f - 0.5f * jitteredClip.y / jitteredClip.w;
+    if (!Check(NearlyEqual(jitteredClip.x / jitteredClip.w, stableClip.x / stableClip.w, 1e-6f) &&
+                   NearlyEqual(jitteredUvY - stableUvY, (-1.0f / 6.0f) / 64.0f, 1e-6f),
+               "perspective TAA jitter is not an exact sub-pixel clip-space translation")) {
+        return false;
+    }
     stageTemporalFrame();
     pipeline.CommitTemporalFrame();
 
@@ -2931,7 +3046,8 @@ bool TestHeadlessRendering() {
         return false;
     if (!Check(context.vertexUploads == 1 && context.indexUploads == 1, "headless mesh upload mismatch"))
         return false;
-    if (!Check(context.textureUploads == 3, "headless texture uploads missing material or named-binding fallback"))
+    if (!Check(context.textureUploads == 4,
+               "headless texture uploads missing material, probe, or named-binding fallback"))
         return false;
     if (!Check(context.commands.drawCalls == 3, "frustum culling emitted an unexpected draw count"))
         return false;
@@ -3120,8 +3236,8 @@ bool TestMainPassSamplerCacheDeduplicatesTextureSamplerStates() {
     if (!Check(linearRepeatSamplers == 1, "main pass created duplicate Linear/Repeat samplers for texture assets")) {
         return false;
     }
-    return Check(context.textureUploads == static_cast<int>(kMaterialCount) + 1,
-                 "sampler cache test did not upload every unique material texture plus fallback");
+    return Check(context.textureUploads == static_cast<int>(kMaterialCount) + 2,
+                 "sampler cache test did not upload every unique material texture plus probe fallbacks");
 }
 
 bool TestDeferredPassResourceContracts() {
@@ -3822,6 +3938,104 @@ bool TestRendererGraphHasNoEmptyCompatibilityPasses() {
                  "Renderer should not register CPU-only RenderGraph compatibility passes");
 }
 
+bool TestLightingProbeComponentAndAssetRoundTrip() {
+    namespace fs = std::filesystem;
+    Scene scene("ProbeRoundTrip");
+    Actor* reflectionActor = scene.CreateActor("Reflection");
+    auto* reflection = reflectionActor->AddComponent<ReflectionProbeComponent>();
+    reflection->SetBoxExtents({3.0f, 4.0f, 5.0f});
+    reflection->SetBlendDistance(0.75f);
+    reflection->SetPriority(4);
+    const std::string reflectionId = reflection->GetProbeId();
+    Actor* volumeActor = scene.CreateActor("SHVolume");
+    auto* volume = volumeActor->AddComponent<SHProbeVolumeComponent>();
+    volume->SetGridSpacing(1.5f);
+    const std::string volumeId = volume->GetProbeId();
+    scene.SetLightingProbeAssetPath("Content/Lighting/ProbeRoundTrip.lightprobes");
+    scene.SetLightingProbeBakeSettings({64, 32.0f});
+    const std::string json = SceneSerializer::SaveToString(scene);
+    Scene loaded;
+    if (!SceneSerializer::LoadFromString(loaded, json))
+        return Check(false, "lighting probe scene round trip failed to load");
+    Actor* loadedReflectionActor = loaded.FindByName("Reflection");
+    Actor* loadedVolumeActor = loaded.FindByName("SHVolume");
+    const auto* loadedReflection =
+        loadedReflectionActor ? loadedReflectionActor->GetComponent<ReflectionProbeComponent>() : nullptr;
+    const auto* loadedVolume = loadedVolumeActor ? loadedVolumeActor->GetComponent<SHProbeVolumeComponent>() : nullptr;
+
+    LightingProbeAsset asset("ProbeRoundTrip.lightprobes");
+    asset.SetSceneGuid("probe-scene");
+    asset.SetDependencyHash(42);
+    asset.SetReflectionResolution(64);
+    asset.ReflectionProbes().push_back({reflectionId, Vec3::Zero(), {3, 4, 5}, 8.0f, 0});
+    asset.ReflectionPixels().resize(asset.GetBytesPerReflectionProbe(), 127);
+    asset.SHVolumes().push_back({volumeId, Vec3::Zero(), {5, 5, 5}, 2, 2, 2, 0});
+    asset.SHCoefficients().resize(8 * LightingProbeAsset::SHCoefficientCount);
+    for (size_t i = 0; i < asset.SHCoefficients().size(); ++i)
+        asset.SHCoefficients()[i] = {static_cast<float>(i) * 0.01f, 0.25f, 0.5f, 0.0f};
+    asset.MarkReady();
+    const fs::path root = fs::temp_directory_path() / "myengine_lighting_probe_asset_test";
+    std::error_code ec;
+    fs::remove_all(root, ec);
+    fs::create_directories(root, ec);
+    const fs::path path = root / "ProbeRoundTrip.lightprobes";
+    std::string error;
+    const bool saved = SaveLightingProbeAssetToFile(asset, path.string(), &error);
+    const auto reloaded = saved ? LoadLightingProbeAssetFromFile(path.string()) : nullptr;
+    const bool halfRoundTrip =
+        std::abs(LightingProbeHalfToFloat(LightingProbeFloatToHalf(3.14159f)) - 3.14159f) < 0.003f;
+    const bool valid = loadedReflection && loadedVolume && loadedReflection->GetProbeId() == reflectionId &&
+                       loadedVolume->GetProbeId() == volumeId &&
+                       loaded.GetLightingProbeAssetPath() == scene.GetLightingProbeAssetPath() &&
+                       loaded.GetLightingProbeBakeSettings().reflectionResolution == 64 && saved && reloaded &&
+                       reloaded->GetReflectionProbes().size() == 1 && reloaded->GetSHVolumes().size() == 1 &&
+                       reloaded->GetReflectionPixels() == asset.GetReflectionPixels() && halfRoundTrip;
+    fs::remove_all(root, ec);
+    return Check(valid, "lighting probe component or binary asset round trip failed: " + error);
+}
+
+bool TestLightingProbeBakeAndShaderContracts() {
+    Scene scene("ProbeBake");
+    scene.SetLightingProbeBakeSettings({64, 16.0f});
+    Actor* reflectionActor = scene.CreateActor("Reflection");
+    reflectionActor->AddComponent<ReflectionProbeComponent>()->SetBoxExtents({2.0f, 2.0f, 2.0f});
+    Actor* volumeActor = scene.CreateActor("SHVolume");
+    auto* volume = volumeActor->AddComponent<SHProbeVolumeComponent>();
+    volume->SetBoxExtents({0.2f, 0.2f, 0.2f});
+    volume->SetGridSpacing(2.0f);
+    LightingProbeAsset asset("ProbeBake.lightprobes");
+    const ProbeBakeResult result = ProbeBakeRenderer{}.Bake(scene, asset);
+    const std::string forward = ReadRepositoryTextFile(
+        {"EngineContent/Shaders/ShadowedMainPass.hlsl", "../EngineContent/Shaders/ShadowedMainPass.hlsl",
+         "../../EngineContent/Shaders/ShadowedMainPass.hlsl", "../../../EngineContent/Shaders/ShadowedMainPass.hlsl"});
+    const std::string deferred = ReadRepositoryTextFile({"EngineContent/Shaders/DeferredLightingPass.hlsl",
+                                                         "../EngineContent/Shaders/DeferredLightingPass.hlsl",
+                                                         "../../EngineContent/Shaders/DeferredLightingPass.hlsl",
+                                                         "../../../EngineContent/Shaders/DeferredLightingPass.hlsl"});
+    const std::string modern = ReadRepositoryTextFile({"EngineContent/Shaders/ClusteredDeferred.hlsl",
+                                                       "../EngineContent/Shaders/ClusteredDeferred.hlsl",
+                                                       "../../EngineContent/Shaders/ClusteredDeferred.hlsl",
+                                                       "../../../EngineContent/Shaders/ClusteredDeferred.hlsl"});
+    const std::string d3d12Context = ReadRepositoryTextFile(
+        {"src/Runtime/Renderer/D3D12Context.h", "../src/Runtime/Renderer/D3D12Context.h",
+         "../../../src/Runtime/Renderer/D3D12Context.h", "../../../../src/Runtime/Renderer/D3D12Context.h"});
+    return Check(result.succeeded && result.reflectionProbeCount == 1 && result.shVolumeCount == 1 &&
+                     result.shSampleCount == 8 &&
+                     asset.GetReflectionPixels().size() == asset.GetBytesPerReflectionProbe() &&
+                     asset.GetSHCoefficients().size() == 8 * LightingProbeAsset::SHCoefficientCount &&
+                     forward.find("SampleLocalReflectionsAuto") != std::string::npos &&
+                     deferred.find("EvaluateLocalSHVolumes") != std::string::npos &&
+                     modern.find("SampleLocalReflectionsAuto") != std::string::npos &&
+                     forward.find("ProbeLightingConstants : register(b1)") == std::string::npos &&
+                     deferred.find("ProbeLightingConstants : register(b1)") == std::string::npos &&
+                     modern.find("ProbeLightingConstants : register(b1)") == std::string::npos &&
+                     d3d12Context.find("kTextureSlotCount = 16") != std::string::npos,
+                 "lighting probe bake or all-pipeline shader contract is incomplete");
+}
+
+MYENGINE_REGISTER_TEST("Renderer", "TestLightingProbeComponentAndAssetRoundTrip",
+                       TestLightingProbeComponentAndAssetRoundTrip);
+MYENGINE_REGISTER_TEST("Renderer", "TestLightingProbeBakeAndShaderContracts", TestLightingProbeBakeAndShaderContracts);
 MYENGINE_REGISTER_TEST("Renderer", "TestExtendedRHIContracts", TestExtendedRHIContracts);
 MYENGINE_REGISTER_TEST("Renderer", "TestStableRHIDeviceLossContract", TestStableRHIDeviceLossContract);
 MYENGINE_REGISTER_TEST("Renderer", "TestMaterialResourceCacheUploadsBc3WhenSupported",
@@ -3849,6 +4063,7 @@ MYENGINE_REGISTER_TEST("Renderer", "TestModernClusterBuffersStartInNativeUavStat
                        TestModernClusterBuffersStartInNativeUavState);
 MYENGINE_REGISTER_TEST("Renderer", "TestPersistentNativePipelineCacheContracts",
                        TestPersistentNativePipelineCacheContracts);
+MYENGINE_REGISTER_TEST("Renderer", "TestD3D12DebugEventUsesAnsiMetadata", TestD3D12DebugEventUsesAnsiMetadata);
 MYENGINE_REGISTER_TEST("Renderer", "TestBackendIndependentPassRecording", TestBackendIndependentPassRecording);
 MYENGINE_REGISTER_TEST("Renderer", "TestComputeStorageBufferAndAsyncReadback",
                        TestComputeStorageBufferAndAsyncReadback);
@@ -3880,6 +4095,8 @@ MYENGINE_REGISTER_TEST("Renderer", "TestGpuDrivenShadowSetupFailureLeavesGraphUn
                        TestGpuDrivenShadowSetupFailureLeavesGraphUntouched);
 MYENGINE_REGISTER_TEST("Renderer", "TestModernTemporalReprojectionShaderContract",
                        TestModernTemporalReprojectionShaderContract);
+MYENGINE_REGISTER_TEST("Renderer", "TestModernTaaCameraJitterStabilityContract",
+                       TestModernTaaCameraJitterStabilityContract);
 MYENGINE_REGISTER_TEST("Renderer", "TestModernScreenSpaceCompositeShaderContract",
                        TestModernScreenSpaceCompositeShaderContract);
 MYENGINE_REGISTER_TEST("Renderer", "TestModernScreenSpaceSamplingAndConfidenceContracts",

@@ -13,6 +13,7 @@ class Scene;
 struct ForwardRenderContext {
     const SceneLightData* sceneLights = nullptr;
     const ScenePostProcessData* postProcess = nullptr;
+    const Mat4* viewProjection = nullptr;
 };
 
 class SkyPass {

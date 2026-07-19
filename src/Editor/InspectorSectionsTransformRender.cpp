@@ -537,6 +537,100 @@ public:
     }
 };
 
+class LightingProbeInspectorSection final : public ActorInspectorSection {
+public:
+    const char* GetID() const override { return "lightingProbes"; }
+    int GetOrder() const override { return 430; }
+
+    void Draw(EditorContext& context) override {
+        Actor* actor = SelectedActor(context);
+        if (!actor)
+            return;
+        if (auto* probe = actor->GetComponent<ReflectionProbeComponent>()) {
+            ImGui::Separator();
+            ImGui::PushID("ReflectionProbe");
+            if (SectionHeaderWithIcon(context, EditorIcons::Light, "Reflection Probe")) {
+                DrawEnabled(*probe);
+                Vec3 extents = probe->GetBoxExtents();
+                Vec3 offset = probe->GetCaptureOffset();
+                float blend = probe->GetBlendDistance();
+                float intensity = probe->GetIntensity();
+                int priority = probe->GetPriority();
+                uint32_t mask = probe->GetLayerMask();
+                ImGui::TextDisabled("ID: %s", probe->GetProbeId().c_str());
+                if (DrawVec3("Box Extents", extents, 0.05f))
+                    CommitComponentEdit(context, *actor, *probe, "boxExtents",
+                                        [&] { probe->SetBoxExtents(extents); });
+                if (DrawVec3("Capture Offset", offset, 0.05f))
+                    CommitComponentEdit(context, *actor, *probe, "captureOffset",
+                                        [&] { probe->SetCaptureOffset(offset); });
+                if (ImGui::DragFloat("Blend Distance", &blend, 0.05f, 0.0f, 10000.0f))
+                    CommitComponentEdit(context, *actor, *probe, "blendDistance",
+                                        [&] { probe->SetBlendDistance(blend); });
+                if (ImGui::DragInt("Priority", &priority))
+                    CommitComponentEdit(context, *actor, *probe, "priority",
+                                        [&] { probe->SetPriority(priority); });
+                if (ImGui::DragFloat("Intensity", &intensity, 0.05f, 0.0f, 1000.0f))
+                    CommitComponentEdit(context, *actor, *probe, "intensity",
+                                        [&] { probe->SetIntensity(intensity); });
+                if (ImGui::InputScalar("Layer Mask", ImGuiDataType_U32, &mask))
+                    CommitComponentEdit(context, *actor, *probe, "layerMask",
+                                        [&] { probe->SetLayerMask(mask); });
+                if (ImGui::Button("Bake Selected")) {
+                    if (Scene* scene = context.GetInspectorScene())
+                        EditorLightingBakeService{}.Bake(context, *scene);
+                }
+                ImGui::SameLine();
+                ImGui::TextDisabled("updates the unified scene asset");
+                if (EditorWidgets::IconButton("RemoveReflectionProbe", "X", "Remove Reflection Probe"))
+                    RemoveComponentByType(context, *actor, "ReflectionProbe");
+            }
+            ImGui::PopID();
+        }
+        if (auto* volume = actor->GetComponent<SHProbeVolumeComponent>()) {
+            ImGui::Separator();
+            ImGui::PushID("SHProbeVolume");
+            if (SectionHeaderWithIcon(context, EditorIcons::Light, "SH Probe Volume")) {
+                DrawEnabled(*volume);
+                Vec3 extents = volume->GetBoxExtents();
+                float spacing = volume->GetGridSpacing();
+                float blend = volume->GetBlendDistance();
+                float intensity = volume->GetIntensity();
+                int priority = volume->GetPriority();
+                uint32_t mask = volume->GetLayerMask();
+                ImGui::TextDisabled("ID: %s", volume->GetProbeId().c_str());
+                if (DrawVec3("Box Extents", extents, 0.05f))
+                    CommitComponentEdit(context, *actor, *volume, "boxExtents",
+                                        [&] { volume->SetBoxExtents(extents); });
+                if (ImGui::DragFloat("Grid Spacing", &spacing, 0.05f, 0.01f, 10000.0f))
+                    CommitComponentEdit(context, *actor, *volume, "gridSpacing",
+                                        [&] { volume->SetGridSpacing(spacing); });
+                if (ImGui::DragFloat("Blend Distance", &blend, 0.05f, 0.0f, 10000.0f))
+                    CommitComponentEdit(context, *actor, *volume, "blendDistance",
+                                        [&] { volume->SetBlendDistance(blend); });
+                if (ImGui::DragInt("Priority", &priority))
+                    CommitComponentEdit(context, *actor, *volume, "priority",
+                                        [&] { volume->SetPriority(priority); });
+                if (ImGui::DragFloat("Intensity", &intensity, 0.05f, 0.0f, 1000.0f))
+                    CommitComponentEdit(context, *actor, *volume, "intensity",
+                                        [&] { volume->SetIntensity(intensity); });
+                if (ImGui::InputScalar("Layer Mask", ImGuiDataType_U32, &mask))
+                    CommitComponentEdit(context, *actor, *volume, "layerMask",
+                                        [&] { volume->SetLayerMask(mask); });
+                if (ImGui::Button("Bake Selected")) {
+                    if (Scene* scene = context.GetInspectorScene())
+                        EditorLightingBakeService{}.Bake(context, *scene);
+                }
+                ImGui::SameLine();
+                ImGui::TextDisabled("updates the unified scene asset");
+                if (EditorWidgets::IconButton("RemoveSHProbeVolume", "X", "Remove SH Probe Volume"))
+                    RemoveComponentByType(context, *actor, "SHProbeVolume");
+            }
+            ImGui::PopID();
+        }
+    }
+};
+
 } // namespace
 
 void RegisterTransformRenderInspectorSections(std::vector<std::unique_ptr<EditorInspectorSection>>& sections) {
@@ -549,6 +643,7 @@ void RegisterTransformRenderInspectorSections(std::vector<std::unique_ptr<Editor
     sections.push_back(std::make_unique<CameraInspectorSection>());
     sections.push_back(std::make_unique<LightInspectorSection>());
     sections.push_back(std::make_unique<PostProcessInspectorSection>());
+    sections.push_back(std::make_unique<LightingProbeInspectorSection>());
 }
 
 void RegisterAudioInspectorSections(std::vector<std::unique_ptr<EditorInspectorSection>>& sections) {

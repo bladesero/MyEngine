@@ -37,6 +37,8 @@ constexpr uint64_t kPipelineHashOffset = 14695981039346656037ull;
 constexpr uint64_t kPipelineHashPrime = 1099511628211ull;
 constexpr uint64_t kComputeRootSignatureAbi = 0x4d59454e47525331ull; // "MYENGRS1"
 constexpr uint64_t kMaxCachedPipelineBlobBytes = 64ull * 1024ull * 1024ull;
+// ID3D12GraphicsCommandList::BeginEvent follows the PIX metadata convention: 0 is UTF-16, 1 is ANSI.
+constexpr UINT kPixEventAnsiVersion = 1;
 
 uint64_t HashPipelineBytes(const void* data, size_t size, uint64_t hash = kPipelineHashOffset) {
     const auto* bytes = static_cast<const uint8_t*>(data);
@@ -410,7 +412,8 @@ public:
     }
     void BeginDebugEvent(const char* name) override {
         if (name && *name)
-            m_Owner.GetCommandList()->BeginEvent(0, name, static_cast<UINT>(std::strlen(name)));
+            m_Owner.GetCommandList()->BeginEvent(kPixEventAnsiVersion, name,
+                                                 static_cast<UINT>((std::strlen(name) + 1) * sizeof(name[0])));
     }
     void EndDebugEvent() override { m_Owner.GetCommandList()->EndEvent(); }
 

@@ -75,6 +75,11 @@ static Json SceneToJson(const Scene& scene) {
     }
     if (!scene.GetNavMeshAssetPath().empty())
         root["navMeshAsset"] = scene.GetNavMeshAssetPath();
+    if (!scene.GetLightingProbeAssetPath().empty())
+        root["lightingProbeAsset"] = scene.GetLightingProbeAssetPath();
+    const LightingProbeBakeSettings& probeSettings = scene.GetLightingProbeBakeSettings();
+    root["lightingProbeBakeSettings"] = {{"reflectionResolution", probeSettings.reflectionResolution},
+                                          {"rgbmMaximumRange", probeSettings.rgbmMaximumRange}};
     if (!scene.GetPreloadAssets().empty())
         root["preloadAssets"] = scene.GetPreloadAssets();
 
@@ -160,6 +165,12 @@ static bool JsonToScene(const Json& root, Scene& scene) {
         scene.SetMainCameraHintActorID(root.value("mainCameraHintActorID", uint64_t{0}));
         scene.SetAmbientIntensity(root.value("ambientIntensity", 1.0f));
         scene.SetNavMeshAssetPath(root.value("navMeshAsset", std::string{}));
+        scene.SetLightingProbeAssetPath(root.value("lightingProbeAsset", std::string{}));
+        if (root.contains("lightingProbeBakeSettings") && root["lightingProbeBakeSettings"].is_object()) {
+            const auto& settings = root["lightingProbeBakeSettings"];
+            scene.SetLightingProbeBakeSettings({settings.value("reflectionResolution", 128u),
+                                                 settings.value("rgbmMaximumRange", 64.0f)});
+        }
         scene.SetPreloadAssets(root.value("preloadAssets", std::vector<std::string>{}));
         if (!scene.GetNavMeshAssetPath().empty()) {
             auto nav = AssetManager::Get().Load<NavMeshAsset>(scene.GetNavMeshAssetPath());
@@ -399,6 +410,13 @@ bool SceneSerializer::InstantiateLoadPlan(Scene& scene, const SceneLoadPlan& pla
             scene.SetMainCameraHintActorID(plan.root.value("mainCameraHintActorID", uint64_t{0}));
             scene.SetAmbientIntensity(plan.root.value("ambientIntensity", 1.0f));
             scene.SetNavMeshAssetPath(plan.root.value("navMeshAsset", std::string{}));
+            scene.SetLightingProbeAssetPath(plan.root.value("lightingProbeAsset", std::string{}));
+            if (plan.root.contains("lightingProbeBakeSettings") &&
+                plan.root["lightingProbeBakeSettings"].is_object()) {
+                const auto& settings = plan.root["lightingProbeBakeSettings"];
+                scene.SetLightingProbeBakeSettings({settings.value("reflectionResolution", 128u),
+                                                     settings.value("rgbmMaximumRange", 64.0f)});
+            }
             scene.SetPreloadAssets(plan.root.value("preloadAssets", std::vector<std::string>{}));
             if (plan.root.contains("nextID"))
                 scene.SetNextID(plan.root["nextID"].get<uint64_t>());

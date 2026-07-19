@@ -27,6 +27,10 @@ cbuffer ClusterConstants : register(b0)
     row_major float4x4 g_ShadowViewProjection[3];
     float4 g_CascadeSplits;
     float4 g_ShadowInfo;
+    uint g_LocalReflectionProbeCount;
+    uint g_LocalSHProbeVolumeCount;
+    float g_LocalReflectionMipCount;
+    float g_ProbeLightingPadding;
 };
 
 #include "PBR_BRDF.hlsli"
@@ -49,6 +53,11 @@ Texture2D<float> g_SceneDepth : register(t8);
 TextureCube<float4> g_IBLCubemap : register(t9);
 Texture2DArray<float> g_ShadowMap : register(t10);
 StructuredBuffer<float4> g_EnvironmentSH2 : register(t11);
+#include "ProbeLighting.hlsli"
+Texture2DArray<float4> g_LocalReflectionProbes : register(t12);
+StructuredBuffer<ReflectionProbeGpuData> g_LocalReflectionProbeData : register(t13);
+StructuredBuffer<SHProbeVolumeGpuData> g_LocalSHProbeVolumes : register(t14);
+StructuredBuffer<float4> g_LocalSHCoefficients : register(t15);
 SamplerState g_LinearSampler : register(s0);
 SamplerComparisonState g_ShadowSampler : register(s1);
 RWTexture2D<float4> g_HdrOutput : register(u4);
@@ -242,9 +251,14 @@ void CSDeferredLighting(uint3 dispatchThreadId : SV_DispatchThreadID)
                                      g_DirectionalColorAmbient.rgb * max(g_DirectionalLight.w, 0.0f) *
                                          directionalShadow);
     float3 reflectionDirection = ModernWorldReflectionDirection(worldPosition, g_CameraPosition, normal);
-    float3 environmentDiffuse = EvaluateEnvironmentSH2(normal);
-    float3 environmentSpecular =
+    float3 globalEnvironmentDiffuse = EvaluateEnvironmentSH2(normal);
+    float3 environmentDiffuse = EvaluateLocalSHVolumes(g_LocalSHProbeVolumes, g_LocalSHCoefficients,
+        g_LocalSHProbeVolumeCount, worldPosition, normal, globalEnvironmentDiffuse);
+    float3 globalEnvironmentSpecular =
         g_IBLCubemap.SampleLevel(g_LinearSampler, reflectionDirection, roughness * 6.0f).rgb;
+    float3 environmentSpecular = SampleLocalReflectionsAuto(g_LocalReflectionProbes, g_LinearSampler,
+        g_LocalReflectionProbeData, g_LocalReflectionProbeCount, worldPosition, reflectionDirection,
+        roughness, g_LocalReflectionMipCount, globalEnvironmentSpecular);
     color += PbrEnvironmentLighting(albedoSample.rgb, metallic, roughness, ao, normal, viewDirection,
                                     environmentDiffuse, environmentSpecular) *
              max(g_DirectionalColorAmbient.w, 0.0f);

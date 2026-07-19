@@ -22,11 +22,13 @@
 #include "Game/SceneRenderLayer.h"
 #include "Navigation/NavAgentComponent.h"
 #include "Renderer/ParticleSystemComponent.h"
+#include "Renderer/ProbeComponents.h"
 #include "Editor/EditorContext.h"
 #include "Editor/EditorAssetRegistry.h"
 #include "Editor/EditorInspectorSection.h"
 #include "Editor/EditorImportService.h"
 #include "Editor/EditorNavigationBakeService.h"
+#include "Editor/EditorLightingBakeService.h"
 #include "Editor/EditorOperators.h"
 #include "Editor/EditorPanelHelpers.h"
 #include "Editor/EditorResourceOperator.h"
@@ -48,6 +50,7 @@
 #include "Scene/PrefabSystem.h"
 #include "Scene/MeshRendererComponent.h"
 #include "Scene/Scene.h"
+#include "Scene/SceneSerializer.h"
 #include "Scripting/ScriptComponent.h"
 #include "UI/Core/UICanvasComponent.h"
 #include "UI/Core/UIComponents.h"
@@ -211,6 +214,8 @@ const char* EditorAssetTypeLabel(EditorAssetType type) {
         return "Particle";
     case EditorAssetType::Navigation:
         return "Navigation";
+    case EditorAssetType::Lighting:
+        return "Lighting";
     default:
         return "Unknown";
     }
@@ -731,6 +736,22 @@ bool CommitSceneAmbientIntensityEdit(EditorContext& context, float beforeIntensi
     }
     EditorCommandOperator commandOperator;
     return commandOperator.SetSceneAmbientIntensity(context, afterIntensity);
+}
+
+bool CommitLightingProbeBakeSettingsEdit(EditorContext& context, Scene& scene,
+                                         const LightingProbeBakeSettings& settings) {
+    const std::string before = SceneSerializer::SaveToString(scene);
+    scene.SetLightingProbeBakeSettings(settings);
+    const std::string after = SceneSerializer::SaveToString(scene);
+    if (before == after)
+        return false;
+    const uint64_t selectedActor = context.GetSelection().GetActorID();
+    if (auto* operators = context.GetOperators())
+        return operators->Transactions().CommitSceneSnapshot(context, "Set Lighting Probe Bake Settings", before,
+                                                              after, selectedActor, selectedActor);
+    EditorTransactionOperator transactionOperator;
+    return transactionOperator.CommitSceneSnapshot(context, "Set Lighting Probe Bake Settings", before, after,
+                                                    selectedActor, selectedActor);
 }
 
 template <typename Fn>

@@ -99,6 +99,8 @@ EditorAssetType TypeFromRecord(const AssetRecord& record, const std::filesystem:
         return EditorAssetType::Particle;
     if (record.type == "navigation" || record.type == "navmesh")
         return EditorAssetType::Navigation;
+    if (record.type == "lighting" || record.type == "lightprobes")
+        return EditorAssetType::Lighting;
     return EditorAssetRegistry::Classify(sourcePath);
 }
 
@@ -203,6 +205,8 @@ EditorAssetType EditorAssetRegistry::Classify(const std::filesystem::path& path)
         return EditorAssetType::Particle;
     if (extension == ".navmesh")
         return EditorAssetType::Navigation;
+    if (extension == ".lightprobes")
+        return EditorAssetType::Lighting;
     if (extension == ".json")
         return EditorAssetType::Scene;
     if (extension == ".lua" || extension == ".as")

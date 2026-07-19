@@ -37,6 +37,11 @@ public:
                         GpuTexture* pointShadowMap, const Mat4* cascadeViewProj, uint32_t cascadeCount,
                         const float* cascadeSplits);
     void SetEnvironmentInput(GpuTexture* environmentCubemap, std::shared_ptr<GpuBufferView> sh2Buffer);
+    void SetProbeInput(std::shared_ptr<GpuTextureView> reflectionAtlas,
+                       std::shared_ptr<GpuBufferView> reflectionMetadata,
+                       std::shared_ptr<GpuBufferView> shVolumeMetadata,
+                       std::shared_ptr<GpuBufferView> shCoefficients, uint32_t reflectionCount,
+                       uint32_t shVolumeCount, uint32_t reflectionMipCount);
 
 private:
     bool EnsureResources();
@@ -80,5 +85,12 @@ private:
     int m_PointShadowIndex = -1;
     GpuTexture* m_EnvironmentCubemap = nullptr;
     std::shared_ptr<GpuBufferView> m_EnvironmentSH2Buffer;
+    std::shared_ptr<GpuTextureView> m_ProbeReflectionAtlas;
+    std::shared_ptr<GpuBufferView> m_ProbeReflectionMetadata;
+    std::shared_ptr<GpuBufferView> m_ProbeSHVolumeMetadata;
+    std::shared_ptr<GpuBufferView> m_ProbeSHCoefficients;
+    uint32_t m_ProbeReflectionCount = 0;
+    uint32_t m_ProbeSHVolumeCount = 0;
+    uint32_t m_ProbeReflectionMipCount = 1;
     bool m_LoggedMissingEnvironmentSH = false;
 };

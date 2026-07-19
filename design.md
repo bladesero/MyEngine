@@ -750,3 +750,15 @@ array/space bindings, constant sizes, and compute thread-group sizes. Windows
 packages contain Classic D3D11 and Modern D3D12 variants; Vulkan-enabled builds
 also contain SPIR-V. Modern-only engine shaders are intentionally omitted from
 D3D11/Metal blobs, while legacy v4 cooked containers remain readable.
+
+## Local lighting probes
+
+Scenes may reference one versioned `Content/Lighting/*.lightprobes` asset. Runtime
+components in `Renderer/ProbeComponents` describe reflection influence boxes and
+regular L2 SH grids; `ProbeLightingSystem` loads their shared RGBM8 octahedral
+`Texture2DArray` and structured metadata/coefficient buffers. Forward, Classic
+Deferred, and Modern Deferred consume the same `ProbeLighting.hlsli` ABI and fall
+back to the scene environment cubemap and SH whenever a local probe is absent or
+its asset cannot be loaded. Asset loading and rendering remain Runtime-owned;
+`EditorLightingBakeService` is the Editor-only authoring boundary and writes the
+transactional bake output tracked by `CookDependencyGraph`.

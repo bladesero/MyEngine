@@ -33,6 +33,10 @@ struct DeferredLightingConstants {
     float shadowIntensity[4];
     float iblInfo[4];
     float screenSize[4];
+    uint32_t localReflectionProbeCount;
+    uint32_t localSHProbeVolumeCount;
+    float localReflectionMipCount;
+    float probeLightingPadding;
 };
 
 } // namespace
@@ -101,6 +105,20 @@ void DeferredLightingPass::SetEnvironmentInput(GpuTexture* environmentCubemap,
                                                std::shared_ptr<GpuBufferView> sh2Buffer) {
     m_EnvironmentCubemap = environmentCubemap;
     m_EnvironmentSH2Buffer = std::move(sh2Buffer);
+}
+
+void DeferredLightingPass::SetProbeInput(std::shared_ptr<GpuTextureView> reflectionAtlas,
+                                         std::shared_ptr<GpuBufferView> reflectionMetadata,
+                                         std::shared_ptr<GpuBufferView> shVolumeMetadata,
+                                         std::shared_ptr<GpuBufferView> shCoefficients, uint32_t reflectionCount,
+                                         uint32_t shVolumeCount, uint32_t reflectionMipCount) {
+    m_ProbeReflectionAtlas = std::move(reflectionAtlas);
+    m_ProbeReflectionMetadata = std::move(reflectionMetadata);
+    m_ProbeSHVolumeMetadata = std::move(shVolumeMetadata);
+    m_ProbeSHCoefficients = std::move(shCoefficients);
+    m_ProbeReflectionCount = reflectionCount;
+    m_ProbeSHVolumeCount = shVolumeCount;
+    m_ProbeReflectionMipCount = reflectionMipCount;
 }
 
 bool DeferredLightingPass::PrepareGraphResources() {
@@ -307,6 +325,9 @@ void DeferredLightingPass::Execute(GpuCommandList& commands, const Scene&, const
     constants.screenSize[1] = 1.0f / static_cast<float>(m_Height);
     constants.screenSize[2] = static_cast<float>(m_Width);
     constants.screenSize[3] = static_cast<float>(m_Height);
+    constants.localReflectionProbeCount = m_ProbeReflectionCount;
+    constants.localSHProbeVolumeCount = m_ProbeSHVolumeCount;
+    constants.localReflectionMipCount = static_cast<float>(m_ProbeReflectionMipCount);
 
     auto bindings = Device()->CreateBindGroup(m_ShaderHandle->shader);
     if (!bindings)
@@ -321,6 +342,8 @@ void DeferredLightingPass::Execute(GpuCommandList& commands, const Scene&, const
     bindings->SetTexture("g_SpotShadowMap", GetTextureView(m_SpotShadowMap));
     bindings->SetTexture("g_PointShadowMap", GetTextureView(m_PointShadowMap));
     bindings->SetTexture("g_IBLCubemap", GetTextureView(m_EnvironmentCubemap));
+    if (m_ProbeReflectionAtlas)
+        bindings->SetTexture("g_LocalReflectionProbes", m_ProbeReflectionAtlas);
     bindings->SetSampler("g_LinearSampler", m_LinearSampler);
     bindings->SetSampler("g_PointSampler", m_PointSampler);
     bindings->SetSampler("g_ShadowSampler", m_ShadowSampler);
@@ -328,6 +351,12 @@ void DeferredLightingPass::Execute(GpuCommandList& commands, const Scene&, const
         Logger::Error("[DeferredLightingPass] Failed to bind g_EnvironmentSH2");
         m_LoggedMissingEnvironmentSH = true;
     }
+    if (m_ProbeReflectionMetadata)
+        bindings->SetBuffer("g_LocalReflectionProbeData", m_ProbeReflectionMetadata);
+    if (m_ProbeSHVolumeMetadata)
+        bindings->SetBuffer("g_LocalSHProbeVolumes", m_ProbeSHVolumeMetadata);
+    if (m_ProbeSHCoefficients)
+        bindings->SetBuffer("g_LocalSHCoefficients", m_ProbeSHCoefficients);
 
     commands.SetGraphicsPipeline(m_Pipeline.get());
     commands.SetBindGroup(0, bindings.get());

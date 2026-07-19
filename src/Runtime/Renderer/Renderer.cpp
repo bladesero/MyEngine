@@ -14,6 +14,7 @@
 #include "Renderer/LightComponent.h"
 #include "Renderer/MainPass.h"
 #include "Renderer/ModernDeferredPipeline.h"
+#include "Renderer/ProbeLightingSystem.h"
 #include "Renderer/PostProcessPass.h"
 #include "Renderer/PostProcessComponent.h"
 #include "Renderer/ShaderManager.h"
@@ -136,6 +137,7 @@ Renderer::Renderer(IRHIDevice* device, IRHIFrameContext* frameContext, IRHIReadb
       m_DeferredLightingPass(std::make_unique<DeferredLightingPass>(device)),
       m_PostProcessPass(std::make_unique<PostProcessPass>(device)),
       m_ScreenUIPass(std::make_unique<ScreenUIPass>(device)),
+      m_ProbeLightingSystem(std::make_unique<ProbeLightingSystem>(device)),
       m_RenderGraph(device ? std::make_unique<RenderGraph>(*device) : nullptr) {
     ShaderManager::Get().SetDevice(device);
     RefreshPipelineDiagnostics();
@@ -361,6 +363,28 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
         commandList->WriteTimestamp(timestampPool.get(), 0);
 
     m_RenderGraph->Reset();
+    if (m_ProbeLightingSystem && !m_ProbeLightingSystem->Prepare(scene) &&
+        !m_ProbeLightingSystem->GetLastError().empty())
+        Logger::Warn("[Renderer] local lighting probes unavailable; using global environment: ",
+                     m_ProbeLightingSystem->GetLastError());
+    if (m_ProbeLightingSystem) {
+        const uint32_t mipCount = m_ProbeLightingSystem->GetReflectionTexture()
+                                      ? m_ProbeLightingSystem->GetReflectionTexture()->desc.mipLevels
+                                      : 1u;
+        m_MainPass->SetProbeInput(
+            m_ProbeLightingSystem->GetReflectionTextureView(), m_ProbeLightingSystem->GetReflectionMetadataView(),
+            m_ProbeLightingSystem->GetSHVolumeMetadataView(), m_ProbeLightingSystem->GetSHCoefficientView(),
+            m_ProbeLightingSystem->GetReflectionProbeCount(), m_ProbeLightingSystem->GetSHVolumeCount(), mipCount);
+        m_DeferredLightingPass->SetProbeInput(
+            m_ProbeLightingSystem->GetReflectionTextureView(), m_ProbeLightingSystem->GetReflectionMetadataView(),
+            m_ProbeLightingSystem->GetSHVolumeMetadataView(), m_ProbeLightingSystem->GetSHCoefficientView(),
+            m_ProbeLightingSystem->GetReflectionProbeCount(), m_ProbeLightingSystem->GetSHVolumeCount(), mipCount);
+        if (m_ModernDeferredPipeline)
+            m_ModernDeferredPipeline->SetProbeInput(
+                m_ProbeLightingSystem->GetReflectionTextureView(), m_ProbeLightingSystem->GetReflectionMetadataView(),
+                m_ProbeLightingSystem->GetSHVolumeMetadataView(), m_ProbeLightingSystem->GetSHCoefficientView(),
+                m_ProbeLightingSystem->GetReflectionProbeCount(), m_ProbeLightingSystem->GetSHVolumeCount(), mipCount);
+    }
     const Vec3 environmentSunDirection = CollectEnvironmentSunDirection(scene);
     m_EnvironmentPass->SetSunDirection(environmentSunDirection);
     m_MainPass->SetSunDirection(environmentSunDirection);
@@ -800,9 +824,11 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
                     builder.WriteColor(compositeInput, RHILoadOp::Load, RHIStoreOp::Store);
                     builder.WriteDepth(sceneDepth, RHILoadOp::Load, RHIStoreOp::Store, 1.0f);
                 },
-                [this, &scene, &camera](GpuCommandList& commands, const RenderGraphResources&) {
+                [this, &scene, &camera, modernFrameReady](GpuCommandList& commands, const RenderGraphResources&) {
                     const auto start = std::chrono::steady_clock::now();
-                    m_MainPass->ExecuteTransparentOnly(commands, scene, camera);
+                    const Mat4* viewProjection =
+                        modernFrameReady ? &m_ModernDeferredPipeline->GetCurrentViewProjection() : nullptr;
+                    m_MainPass->ExecuteTransparentOnly(commands, scene, camera, viewProjection);
                     const auto end = std::chrono::steady_clock::now();
                     RendererFrameStats stats = FrameStatsProvider::GetRendererStats();
                     stats.mainCpuMs += ElapsedMs(start, end);

@@ -21,7 +21,8 @@ enum class EditorAssetType {
     Audio,
     UI,
     Particle,
-    Navigation
+    Navigation,
+    Lighting
 };
 struct EditorAssetInfo {
     std::filesystem::path absolutePath;
