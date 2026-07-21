@@ -53,9 +53,20 @@ public:
 
         ImGui::Separator();
         ImGui::TextUnformatted("Rendering Defaults");
+        const SceneEnvironmentData environment = CollectSceneEnvironmentData(*scene);
         float ambientIntensity = scene->GetAmbientIntensity();
-        if (ImGui::DragFloat("Ambient Intensity", &ambientIntensity, 0.05f, 0.0f, 20.0f, "%.2f")) {
+        if (environment.HasSkylight())
+            ImGui::BeginDisabled();
+        if (ImGui::DragFloat("Legacy Ambient Intensity", &ambientIntensity, 0.05f, 0.0f, 20.0f, "%.2f")) {
             CommitSceneAmbientIntensityEdit(context, scene->GetAmbientIntensity(), ambientIntensity);
+        }
+        if (environment.HasSkylight()) {
+            ImGui::EndDisabled();
+            Actor* source = scene->FindByID(environment.sourceActorID);
+            ImGui::TextDisabled("Controlled by Skylight: %s",
+                                source ? source->GetName().c_str() : "missing source actor");
+        } else {
+            ImGui::TextDisabled("Used when no active Skylight is present");
         }
 
         ImGui::Separator();
@@ -78,23 +89,24 @@ public:
         ImGui::Separator();
         ImGui::TextUnformatted("Lighting Probes");
         LightingProbeBakeSettings lightingSettings = scene->GetLightingProbeBakeSettings();
-        int resolutionIndex = lightingSettings.reflectionResolution == 64 ? 0 :
-                              lightingSettings.reflectionResolution == 256 ? 2 : 1;
+        int resolutionIndex = lightingSettings.reflectionResolution == 64    ? 0
+                              : lightingSettings.reflectionResolution == 256 ? 2
+                                                                             : 1;
         const char* resolutions[] = {"64", "128", "256"};
         bool lightingSettingsChanged = false;
         if (ImGui::Combo("Reflection Resolution", &resolutionIndex, resolutions, 3)) {
             lightingSettings.reflectionResolution = resolutionIndex == 0 ? 64u : resolutionIndex == 2 ? 256u : 128u;
             lightingSettingsChanged = true;
         }
-        lightingSettingsChanged |= ImGui::DragFloat("RGBM Maximum Range", &lightingSettings.rgbmMaximumRange,
-                                                    1.0f, 4.0f, 64.0f, "%.0f");
+        lightingSettingsChanged |=
+            ImGui::DragFloat("RGBM Maximum Range", &lightingSettings.rgbmMaximumRange, 1.0f, 4.0f, 64.0f, "%.0f");
         if (lightingSettingsChanged) {
             CommitLightingProbeBakeSettingsEdit(context, *scene, lightingSettings);
         }
         const bool bakeCurrent = EditorLightingBakeService{}.IsBakeCurrent(*scene);
-        ImGui::Text("Status: %s", scene->GetLightingProbeAssetPath().empty()
-                                    ? "Not baked"
-                                    : bakeCurrent ? "Baked" : "Stale");
+        ImGui::Text("Status: %s", scene->GetLightingProbeAssetPath().empty() ? "Not baked"
+                                  : bakeCurrent                              ? "Baked"
+                                                                             : "Stale");
         if (!scene->GetLightingProbeAssetPath().empty())
             ImGui::TextWrapped("Asset: %s", scene->GetLightingProbeAssetPath().c_str());
         if (ImGui::Button("Bake All Lighting Probes"))

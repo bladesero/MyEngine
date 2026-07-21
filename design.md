@@ -549,6 +549,13 @@ cascade/cube-face subresources become first-class graph accesses.
 Environment cubemap and SH resources are graph-declared dependencies too; the
 generation pass keeps manual per-mip/per-face transitions until subresource
 access is represented directly by RenderGraph.
+`SkylightComponent` is the scene-level authoring source for procedural-sky tint,
+visible-sky intensity, and the final environment-lighting color/intensity. The
+first enabled Skylight on an active Actor wins; scenes without one retain the
+root `ambientIntensity` compatibility fallback. Sky tint or sun-direction
+changes invalidate the generated cubemap/mips/SH, while final lighting and
+visible-sky multipliers remain runtime constants shared by Forward, Classic
+Deferred, and Modern Deferred.
 RenderGraph now exposes `RGTextureSubresource` access overloads and creates
 access-local views, allowing disjoint mip/layer ranges to be tracked without
 falling back to whole-texture dependencies.

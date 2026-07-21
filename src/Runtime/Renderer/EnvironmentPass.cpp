@@ -12,6 +12,9 @@ namespace {
 struct AtmosphereFaceConstants {
     float faceInfo[4];
     float sunDirection[4];
+    float skyTint[4];
+    float horizonTint[4];
+    float groundTint[4];
 };
 
 struct EnvironmentMipmapConstants {
@@ -51,6 +54,17 @@ void EnvironmentPass::SetSunDirection(const Vec3& direction) {
     if (m_Generated) {
         MarkDirty();
     }
+}
+
+void EnvironmentPass::SetEnvironmentSettings(const SceneEnvironmentData& environment) {
+    const bool changed = (environment.skyTint - m_SkyTint).LengthSq() >= 1e-6f ||
+                         (environment.horizonTint - m_HorizonTint).LengthSq() >= 1e-6f ||
+                         (environment.groundTint - m_GroundTint).LengthSq() >= 1e-6f;
+    m_SkyTint = environment.skyTint;
+    m_HorizonTint = environment.horizonTint;
+    m_GroundTint = environment.groundTint;
+    if (changed && m_Generated)
+        MarkDirty();
 }
 
 bool EnvironmentPass::EnsureResources() {
@@ -238,8 +252,13 @@ void EnvironmentPass::RenderCubemap(GpuCommandList& commands) {
             commands.EndRendering();
             return;
         }
-        AtmosphereFaceConstants constants{{static_cast<float>(face), 0, 0, 0},
-                                          {m_SunDirection.x, m_SunDirection.y, m_SunDirection.z, 0.0f}};
+        AtmosphereFaceConstants constants{
+            {static_cast<float>(face), 0, 0, 0},
+            {m_SunDirection.x, m_SunDirection.y, m_SunDirection.z, 0.0f},
+            {m_SkyTint.x, m_SkyTint.y, m_SkyTint.z, 0.0f},
+            {m_HorizonTint.x, m_HorizonTint.y, m_HorizonTint.z, 0.0f},
+            {m_GroundTint.x, m_GroundTint.y, m_GroundTint.z, 0.0f},
+        };
         bindings->SetConstants("AtmosphereFaceConstants", &constants, sizeof(constants));
         commands.SetBindGroup(0, bindings.get());
         commands.Draw(3);

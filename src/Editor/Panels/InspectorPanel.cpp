@@ -70,7 +70,7 @@ std::string ComponentDisplayName(std::string type) {
 
 const char* ComponentCategory(const std::string& type) {
     if (type == "MeshRenderer" || type == "SkinnedMeshRenderer" || type == "Camera" || type == "Light" ||
-        type == "PostProcess") {
+        type == "Skylight" || type == "PostProcess") {
         return "Rendering";
     }
     if (type == "AudioSource")
@@ -84,6 +84,15 @@ const char* ComponentCategory(const std::string& type) {
     if (type.rfind("UI", 0) == 0)
         return "UI";
     return "Gameplay";
+}
+
+bool SceneHasComponentType(const Scene& scene, const std::string& typeName) {
+    bool found = false;
+    scene.ForEach([&](Actor& actor) {
+        if (!found && actor.HasComponentType(typeName))
+            found = true;
+    });
+    return found;
 }
 
 bool ComponentMatchesFilter(const std::string& type, const char* filter) {
@@ -660,9 +669,13 @@ void InspectorPanel::DrawContent() {
                         !ComponentMatchesFilter(type, m_MultiAddComponentSearch)) {
                         continue;
                     }
-                    const bool existsOnAny = std::any_of(actors.begin(), actors.end(), [&](const Actor* selectedActor) {
-                        return selectedActor && selectedActor->HasComponentType(type);
-                    });
+                    const bool existsOnAny =
+                        std::any_of(actors.begin(), actors.end(),
+                                    [&](const Actor* selectedActor) {
+                                        return selectedActor && selectedActor->HasComponentType(type);
+                                    }) ||
+                        (type == "Skylight" &&
+                         (actors.size() != 1 || SceneHasComponentType(*context->GetScene(), type)));
                     if (existsOnAny)
                         ImGui::BeginDisabled();
                     const std::string label = ComponentDisplayName(type);

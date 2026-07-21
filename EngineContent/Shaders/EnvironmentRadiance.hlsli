@@ -6,7 +6,12 @@ static const float ENV_PI = 3.14159265359f;
 // Analytical atmosphere sky model.
 // direction: world-space view direction (Y-up, +Z forward, left-handed).
 // Returns HDR radiance in the given direction.
-float3 EnvironmentRadiance(float3 direction, float3 sunDirection)
+float3 EnvironmentRadiance(
+    float3 direction,
+    float3 sunDirection,
+    float3 skyTint,
+    float3 horizonTint,
+    float3 groundTint)
 {
     sunDirection = normalize(sunDirection);
     float mu = dot(direction, sunDirection);
@@ -33,17 +38,17 @@ float3 EnvironmentRadiance(float3 direction, float3 sunDirection)
         sunTransmittance * horizonAirMass * 35.0f;
 
     float3 extinction = exp(-(betaRayleigh + betaMie) * horizonAirMass);
-    float3 groundRadiance = float3(0.010f, 0.012f, 0.014f) *
+    float3 groundRadiance = float3(0.010f, 0.012f, 0.014f) * groundTint *
         (0.35f + 0.65f * sunHeight);
-    float3 horizonHaze = float3(0.055f, 0.075f, 0.105f) * horizonMask *
+    float3 horizonHaze = float3(0.055f, 0.075f, 0.105f) * horizonTint * horizonMask *
         (0.35f + 0.65f * sunHeight);
 
     float sunDisc = smoothstep(0.99980f, 0.99996f, mu);
     float sunGlow = pow(saturate(mu), 2048.0f);
     float3 solarRadiance = float3(24.0f, 20.0f, 14.0f) * sunTransmittance;
 
-    float3 skyRadiance = inscatter * (1.0f - extinction * 0.45f) +
-        solarRadiance * (sunDisc + sunGlow * 0.35f);
+    float3 skyRadiance = (inscatter * (1.0f - extinction * 0.45f) +
+        solarRadiance * (sunDisc + sunGlow * 0.35f)) * skyTint;
     return lerp(groundRadiance + horizonHaze, skyRadiance + horizonHaze, skyMask);
 }
 

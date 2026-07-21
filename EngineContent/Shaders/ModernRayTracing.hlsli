@@ -49,6 +49,7 @@ cbuffer ModernRayTracingConstants : register(b0)
     float4 g_RTCameraPositionAmbient;
     float4 g_RTLightDirectionIntensity;
     float4 g_RTLightColor;
+    float4 g_RTEnvironmentColor;
     uint2 g_RTFullSize;
     uint2 g_RTEffectSize;
     float4 g_RTParams0; // AO radius, bias, power, intensity
@@ -228,8 +229,9 @@ float3 ModernRTSurfaceRadiance(uint instanceId, uint primitiveIndex, float2 bary
                                            : 0.0f)
                                     : 0.0f;
     float3 environment = g_RTEnvironment.SampleLevel(g_RTLinearSampler, normal, 6.0f).rgb;
-    return material.emissive.rgb + baseColor * (environment * g_RTCameraPositionAmbient.w +
-                                                 g_RTLightColor.rgb * g_RTLightDirectionIntensity.w * nDotL * visibility);
+    return material.emissive.rgb + baseColor * (environment * g_RTCameraPositionAmbient.w *
+                                                  max(g_RTEnvironmentColor.rgb, 0.0f) +
+                                                  g_RTLightColor.rgb * g_RTLightDirectionIntensity.w * nDotL * visibility);
 }
 
 #endif

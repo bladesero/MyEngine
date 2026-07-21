@@ -38,6 +38,8 @@
 #include "Game/SceneRenderLayer.h"
 #include "Assets/AssetMeta.h"
 #include "Camera/CameraComponent.h"
+#include "Renderer/SceneLighting.h"
+#include "Renderer/SkylightComponent.h"
 #include "Core/Sha256.h"
 #include "Physics/BoxColliderComponent.h"
 #include "Renderer/LightComponent.h"
@@ -5525,6 +5527,101 @@ bool TestEditorRecoveryServiceLifecycle() {
     return Check(clean, "clean shutdown was not persisted: " + error);
 }
 
+bool TestEditorSkylightUniquenessAndLegacyInitialization() {
+    Scene scene("EditorSkylight");
+    scene.SetAmbientIntensity(2.75f);
+    EditorContext context(&scene);
+    EditorCommandStack stack;
+    EditorOperators operators;
+    context.SetCommandStack(&stack);
+    context.SetOperators(&operators);
+
+    Actor* firstActor = scene.CreateActor("FirstSkylightActor");
+    Actor* secondActor = scene.CreateActor("SecondSkylightActor");
+    const uint64_t firstID = firstActor->GetID();
+    const uint64_t secondID = secondActor->GetID();
+    if (!Check(!operators.Components().AddComponents(context, {firstID, secondID}, "Skylight"),
+               "batch component add created multiple scene Skylights")) {
+        return false;
+    }
+    if (!Check(operators.Components().AddComponents(context, {firstID}, "Skylight"),
+               "single-target Skylight add failed")) {
+        return false;
+    }
+
+    firstActor = scene.FindByID(firstID);
+    auto* skylight = firstActor ? firstActor->GetComponent<SkylightComponent>() : nullptr;
+    if (!Check(skylight && std::abs(skylight->GetEnvironmentIntensity() - 2.75f) < 1e-5f,
+               "new Skylight did not inherit legacy ambient intensity")) {
+        return false;
+    }
+    if (!Check(!operators.Components().AddComponent(context, secondID, "Skylight"),
+               "component operator allowed a second scene Skylight")) {
+        return false;
+    }
+
+    if (!Check(stack.Undo(context) && !CollectSceneEnvironmentData(scene).HasSkylight() &&
+                   std::abs(CollectSceneEnvironmentData(scene).environmentIntensity - 2.75f) < 1e-5f,
+               "Skylight add undo did not restore legacy ambient fallback")) {
+        return false;
+    }
+    if (!Check(stack.Redo(context), "Skylight add redo failed"))
+        return false;
+    const SceneEnvironmentData restored = CollectSceneEnvironmentData(scene);
+    if (!Check(restored.sourceActorID == firstID && std::abs(restored.environmentIntensity - 2.75f) < 1e-5f,
+               "Skylight add redo did not restore the resolved environment")) {
+        return false;
+    }
+
+    if (!Check(operators.Components().SetEnabled(context, firstID, "Skylight", false) &&
+                   !CollectSceneEnvironmentData(scene).HasSkylight(),
+               "disabling Skylight did not restore the legacy fallback")) {
+        return false;
+    }
+    if (!Check(stack.Undo(context) && CollectSceneEnvironmentData(scene).HasSkylight(),
+               "Skylight enabled-state undo failed")) {
+        return false;
+    }
+    if (!Check(stack.Redo(context) && !CollectSceneEnvironmentData(scene).HasSkylight(),
+               "Skylight enabled-state redo failed")) {
+        return false;
+    }
+    if (!Check(stack.Undo(context) && CollectSceneEnvironmentData(scene).HasSkylight(),
+               "Skylight enabled-state restore failed")) {
+        return false;
+    }
+
+    firstActor = scene.FindByID(firstID);
+    skylight = firstActor ? firstActor->GetComponent<SkylightComponent>() : nullptr;
+    nlohmann::json before = nlohmann::json::object();
+    if (skylight)
+        skylight->Serialize(before);
+    nlohmann::json after = before;
+    after["environmentIntensity"] = 4.25f;
+    if (!Check(skylight &&
+                   operators.Components().SetProperty(context, *firstActor, "Skylight", "environmentIntensity", before,
+                                                      after) &&
+                   std::abs(CollectSceneEnvironmentData(scene).environmentIntensity - 4.25f) < 1e-5f,
+               "Skylight parameter edit did not apply through the component operation API")) {
+        return false;
+    }
+    if (!Check(stack.Undo(context) &&
+                   std::abs(CollectSceneEnvironmentData(scene).environmentIntensity - 2.75f) < 1e-5f &&
+                   stack.Redo(context) &&
+                   std::abs(CollectSceneEnvironmentData(scene).environmentIntensity - 4.25f) < 1e-5f,
+               "Skylight parameter undo or redo failed")) {
+        return false;
+    }
+
+    if (!Check(operators.Components().RemoveComponent(context, firstID, "Skylight") &&
+                   !CollectSceneEnvironmentData(scene).HasSkylight(),
+               "removing Skylight did not restore legacy fallback")) {
+        return false;
+    }
+    return Check(stack.Undo(context) && CollectSceneEnvironmentData(scene).HasSkylight(),
+                 "Skylight remove undo did not restore the component");
+}
+
 bool TestImNodesMatchesImGuiAbiAndDestroysCleanly() {
     IMGUI_CHECKVERSION();
     ImGuiContext* imguiContext = ImGui::CreateContext();
@@ -5569,6 +5666,8 @@ bool TestImNodesMatchesImGuiAbiAndDestroysCleanly() {
 }
 
 MYENGINE_REGISTER_TEST("Editor", "TestEditorRecoveryServiceLifecycle", TestEditorRecoveryServiceLifecycle);
+MYENGINE_REGISTER_TEST("Editor", "TestEditorSkylightUniquenessAndLegacyInitialization",
+                       TestEditorSkylightUniquenessAndLegacyInitialization);
 MYENGINE_REGISTER_TEST("Editor", "TestImNodesMatchesImGuiAbiAndDestroysCleanly",
                        TestImNodesMatchesImGuiAbiAndDestroysCleanly);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorCommandStackAndSelection", TestEditorCommandStackAndSelection);

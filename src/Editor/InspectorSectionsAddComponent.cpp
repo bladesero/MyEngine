@@ -34,7 +34,9 @@ public:
         });
 
         auto addRegisteredComponent = [&](const std::string& type) {
-            const bool exists = actor->HasComponentType(type);
+            Scene* scene = context.GetScene();
+            const bool exists =
+                actor->HasComponentType(type) || (type == "Skylight" && scene && SceneHasComponentType(*scene, type));
             if (exists)
                 ImGui::BeginDisabled();
             const std::string label = ComponentDisplayName(type);

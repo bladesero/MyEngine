@@ -110,6 +110,7 @@ public:
     bool SetComponentPropertyForActors(EditorContext& context, const std::vector<uint64_t>& actorIDs,
                                        const std::string& typeName, const std::string& propertyName,
                                        const nlohmann::json& value) const;
+    bool SetEnabled(EditorContext& context, uint64_t actorID, const std::string& typeName, bool enabled) const;
     bool SetJson(EditorContext& context, uint64_t actorID, const std::string& typeName,
                  const nlohmann::json& beforeJson, const nlohmann::json& afterJson,
                  const std::string& label = {}) const;

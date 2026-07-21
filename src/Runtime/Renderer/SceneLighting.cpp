@@ -2,14 +2,45 @@
 
 #include "Renderer/LightComponent.h"
 #include "Renderer/PostProcessComponent.h"
+#include "Renderer/SkylightComponent.h"
 #include "Scene/Actor.h"
 #include "Scene/Scene.h"
 
 #include <cmath>
 
-SceneLightData CollectSceneLights(const Scene& scene) {
+SceneEnvironmentData CollectSceneEnvironmentData(const Scene& scene) {
+    SceneEnvironmentData out;
+    out.environmentIntensity = scene.GetAmbientIntensity();
+    scene.ForEach([&](Actor& actor) {
+        if (!actor.IsActive())
+            return;
+        const auto* skylight = actor.GetComponent<SkylightComponent>();
+        if (!skylight || !skylight->IsEnabled())
+            return;
+
+        ++out.activeSkylightCount;
+        if (out.HasSkylight())
+            return;
+
+        out.sourceActorID = actor.GetID();
+        out.environmentColor = skylight->GetEnvironmentColor();
+        out.environmentIntensity = skylight->GetEnvironmentIntensity();
+        out.skyIntensity = skylight->GetSkyIntensity();
+        out.skyTint = skylight->GetSkyTint();
+        out.horizonTint = skylight->GetHorizonTint();
+        out.groundTint = skylight->GetGroundTint();
+    });
+    return out;
+}
+
+SceneLightData CollectSceneLights(const Scene& scene, const SceneEnvironmentData& environment) {
     SceneLightData out;
-    out.ambientIntensity = scene.GetAmbientIntensity();
+    out.ambientIntensity = environment.environmentIntensity;
+    out.environmentColor = environment.environmentColor;
+    out.skyIntensity = environment.skyIntensity;
+    out.skyTint = environment.skyTint;
+    out.horizonTint = environment.horizonTint;
+    out.groundTint = environment.groundTint;
     bool foundDirectional = false;
     scene.ForEach([&](Actor& actor) {
         if (!actor.IsActive())
@@ -54,6 +85,10 @@ SceneLightData CollectSceneLights(const Scene& scene) {
         }
     });
     return out;
+}
+
+SceneLightData CollectSceneLights(const Scene& scene) {
+    return CollectSceneLights(scene, CollectSceneEnvironmentData(scene));
 }
 
 ScenePostProcessData CollectScenePostProcessData(const Scene& scene) {

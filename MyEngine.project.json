@@ -1,8 +1,8 @@
 {
   "graphics": {
     "backend": "d3d12",
-    "deviceProfile": "mobile",
-    "hardwareRayTracing": false,
+    "deviceProfile": "desktop",
+    "hardwareRayTracing": true,
     "renderPath": "deferred"
   },
   "input": {

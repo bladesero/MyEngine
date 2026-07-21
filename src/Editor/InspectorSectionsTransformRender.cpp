@@ -385,6 +385,64 @@ public:
     }
 };
 
+class SkylightInspectorSection final : public ActorInspectorSection {
+public:
+    const char* GetID() const override { return "skylight"; }
+    int GetOrder() const override { return 360; }
+
+    void Draw(EditorContext& context) override {
+        Actor* actor = SelectedActor(context);
+        auto* skylight = actor ? actor->GetComponent<SkylightComponent>() : nullptr;
+        if (!skylight)
+            return;
+
+        ImGui::Separator();
+        ImGui::PushID("Skylight");
+        if (!SectionHeaderWithIcon(context, EditorIcons::Light, "Skylight")) {
+            ImGui::PopID();
+            return;
+        }
+        bool enabled = skylight->IsEnabled();
+        if (ImGui::Checkbox("Enabled", &enabled))
+            CommitComponentEnabledEdit(context, *actor, *skylight, enabled);
+
+        auto drawHdrColor = [&](const char* label, const Vec3& value, const char* propertyName, auto&& setter) {
+            float values[3] = {value.x, value.y, value.z};
+            if (ImGui::ColorEdit3(label, values, ImGuiColorEditFlags_HDR | ImGuiColorEditFlags_Float)) {
+                CommitComponentEdit(context, *actor, *skylight, propertyName,
+                                    [&] { setter(Vec3{values[0], values[1], values[2]}); });
+            }
+        };
+        auto drawIntensity = [&](const char* label, float value, const char* propertyName, auto&& setter) {
+            if (ImGui::DragFloat(label, &value, 0.05f, 0.0f, 20.0f, "%.2f")) {
+                CommitComponentEdit(context, *actor, *skylight, propertyName, [&] { setter(value); });
+            }
+        };
+
+        ImGui::TextUnformatted("Environment");
+        drawHdrColor("Color", skylight->GetEnvironmentColor(), "environmentColor",
+                     [&](const Vec3& value) { skylight->SetEnvironmentColor(value); });
+        drawIntensity("Intensity", skylight->GetEnvironmentIntensity(), "environmentIntensity",
+                      [&](float value) { skylight->SetEnvironmentIntensity(value); });
+
+        ImGui::Spacing();
+        ImGui::TextUnformatted("Procedural Sky");
+        drawIntensity("Sky Intensity", skylight->GetSkyIntensity(), "skyIntensity",
+                      [&](float value) { skylight->SetSkyIntensity(value); });
+        drawHdrColor("Sky Tint", skylight->GetSkyTint(), "skyTint",
+                     [&](const Vec3& value) { skylight->SetSkyTint(value); });
+        drawHdrColor("Horizon Tint", skylight->GetHorizonTint(), "horizonTint",
+                     [&](const Vec3& value) { skylight->SetHorizonTint(value); });
+        drawHdrColor("Ground Tint", skylight->GetGroundTint(), "groundTint",
+                     [&](const Vec3& value) { skylight->SetGroundTint(value); });
+
+        ImGui::TextDisabled("Sun direction follows the first enabled Directional Light");
+        if (EditorWidgets::IconButton("RemoveSkylight", "X", "Remove Skylight"))
+            RemoveComponentByType(context, *actor, "Skylight");
+        ImGui::PopID();
+    }
+};
+
 class CameraInspectorSection final : public ActorInspectorSection {
 public:
     const char* GetID() const override { return "camera"; }
@@ -678,6 +736,7 @@ void RegisterTransformRenderInspectorSections(std::vector<std::unique_ptr<Editor
     sections.push_back(std::make_unique<MaterialInspectorSection>());
     sections.push_back(std::make_unique<CameraInspectorSection>());
     sections.push_back(std::make_unique<LightInspectorSection>());
+    sections.push_back(std::make_unique<SkylightInspectorSection>());
     sections.push_back(std::make_unique<PostProcessInspectorSection>());
     sections.push_back(std::make_unique<LightingProbeInspectorSection>());
 }

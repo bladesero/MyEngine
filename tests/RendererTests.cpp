@@ -28,8 +28,13 @@
 #include "Renderer/ShaderCacheService.h"
 #include "Renderer/ShaderGraphCompiler.h"
 #include "Renderer/ShaderManager.h"
+#include "Renderer/SceneLighting.h"
+#include "Renderer/SkylightComponent.h"
+#include "Scene/ComponentRegistry.h"
 #include "Scene/MeshRendererComponent.h"
 #include "Scene/Scene.h"
+#include "Scene/SceneSerializer.h"
+#include "Scene/TypeRegistry.h"
 #include "UI/Render/UIDrawList.h"
 
 #include <algorithm>
@@ -1863,8 +1868,12 @@ bool TestEnvironmentRadianceHorizonContract() {
     if (!Check(!source.empty(), "EnvironmentRadiance shader source was not found")) {
         return false;
     }
-    if (!Check(source.find("float3 EnvironmentRadiance(float3 direction, float3 sunDirection)") != std::string::npos,
-               "environment radiance does not accept runtime sun direction")) {
+    if (!Check(source.find("float3 EnvironmentRadiance(") != std::string::npos &&
+                   source.find("float3 sunDirection") != std::string::npos &&
+                   source.find("float3 skyTint") != std::string::npos &&
+                   source.find("float3 horizonTint") != std::string::npos &&
+                   source.find("float3 groundTint") != std::string::npos,
+               "environment radiance does not accept runtime sun and art parameters")) {
         return false;
     }
     if (!Check(source.find("float3 sunDirection = normalize(float3(") == std::string::npos,
@@ -1887,6 +1896,97 @@ bool TestEnvironmentRadianceHorizonContract() {
     return Check(source.find("lerp(groundRadiance + horizonHaze, skyRadiance + horizonHaze, skyMask)") !=
                      std::string::npos,
                  "environment radiance does not blend ground and sky by skyMask");
+}
+
+bool TestSkylightComponentSerializationAndResolution() {
+    ComponentRegistry::Get();
+    const TypeDescriptor* descriptor = TypeRegistry::Get().Find("Skylight");
+    if (!Check(descriptor && descriptor->schemaVersion == 1 && descriptor->category == "Rendering" &&
+                   descriptor->properties.size() == 6,
+               "Skylight type metadata is missing or incomplete")) {
+        return false;
+    }
+
+    Scene scene("SkylightResolution");
+    scene.SetAmbientIntensity(2.5f);
+    SceneEnvironmentData environment = CollectSceneEnvironmentData(scene);
+    if (!Check(!environment.HasSkylight() && environment.activeSkylightCount == 0 &&
+                   std::abs(environment.environmentIntensity - 2.5f) < 1e-5f,
+               "legacy ambient fallback changed without an active Skylight")) {
+        return false;
+    }
+
+    Actor* inactiveActor = scene.CreateActor("InactiveSkylight");
+    inactiveActor->SetActive(false);
+    inactiveActor->AddComponent<SkylightComponent>()->SetEnvironmentIntensity(9.0f);
+    Actor* disabledActor = scene.CreateActor("DisabledSkylight");
+    auto* disabled = disabledActor->AddComponent<SkylightComponent>();
+    disabled->SetEnvironmentIntensity(8.0f);
+    disabled->SetEnabled(false);
+    environment = CollectSceneEnvironmentData(scene);
+    if (!Check(!environment.HasSkylight() && std::abs(environment.environmentIntensity - 2.5f) < 1e-5f,
+               "inactive or disabled Skylight overrode the legacy fallback")) {
+        return false;
+    }
+
+    Actor* firstActor = scene.CreateActor("PrimarySkylight");
+    auto* first = firstActor->AddComponent<SkylightComponent>();
+    first->SetEnvironmentColor({-1.0f, 2.0f, 3.0f});
+    first->SetEnvironmentIntensity(3.5f);
+    first->SetSkyIntensity(1.75f);
+    first->SetSkyTint({1.2f, 0.9f, 0.8f});
+    first->SetHorizonTint({0.7f, 1.1f, 1.4f});
+    first->SetGroundTint({0.4f, 0.5f, 0.6f});
+    Actor* secondActor = scene.CreateActor("SecondarySkylight");
+    secondActor->AddComponent<SkylightComponent>()->SetEnvironmentIntensity(7.0f);
+
+    environment = CollectSceneEnvironmentData(scene);
+    if (!Check(environment.sourceActorID == firstActor->GetID() && environment.activeSkylightCount == 2 &&
+                   std::abs(environment.environmentIntensity - 3.5f) < 1e-5f &&
+                   std::abs(environment.skyIntensity - 1.75f) < 1e-5f && environment.environmentColor.x == 0.0f &&
+                   environment.environmentColor.y == 2.0f && environment.environmentColor.z == 3.0f,
+               "Skylight resolution did not choose the first active component or clamp negative color")) {
+        return false;
+    }
+
+    const std::string json = SceneSerializer::SaveToString(scene);
+    Scene loaded("LoadedSkylight");
+    if (!Check(SceneSerializer::LoadFromString(loaded, json), "Skylight scene round trip failed"))
+        return false;
+    const Actor* loadedActor = loaded.FindByName("PrimarySkylight");
+    const auto* loadedSkylight = loadedActor ? loadedActor->GetComponent<SkylightComponent>() : nullptr;
+    return Check(loadedSkylight && std::abs(loadedSkylight->GetEnvironmentIntensity() - 3.5f) < 1e-5f &&
+                     std::abs(loadedSkylight->GetSkyTint().x - 1.2f) < 1e-5f &&
+                     std::abs(loadedSkylight->GetHorizonTint().z - 1.4f) < 1e-5f &&
+                     std::abs(loadedSkylight->GetGroundTint().y - 0.5f) < 1e-5f,
+                 "Skylight component values were not preserved by scene serialization");
+}
+
+bool TestSkylightAllPipelineShaderContract() {
+    const std::string forward = CompactSource(ReadRepositoryTextFile(
+        {"EngineContent/Shaders/ShadowedMainPass.hlsl", "../EngineContent/Shaders/ShadowedMainPass.hlsl",
+         "../../EngineContent/Shaders/ShadowedMainPass.hlsl", "../../../EngineContent/Shaders/ShadowedMainPass.hlsl"}));
+    const std::string deferred = CompactSource(ReadRepositoryTextFile(
+        {"EngineContent/Shaders/DeferredLightingPass.hlsl", "../EngineContent/Shaders/DeferredLightingPass.hlsl",
+         "../../EngineContent/Shaders/DeferredLightingPass.hlsl",
+         "../../../EngineContent/Shaders/DeferredLightingPass.hlsl"}));
+    const std::string modern = CompactSource(ReadRepositoryTextFile(
+        {"EngineContent/Shaders/ClusteredDeferred.hlsl", "../EngineContent/Shaders/ClusteredDeferred.hlsl",
+         "../../EngineContent/Shaders/ClusteredDeferred.hlsl",
+         "../../../EngineContent/Shaders/ClusteredDeferred.hlsl"}));
+    const std::string proceduralSky = CompactSource(ReadRepositoryTextFile(
+        {"EngineContent/Shaders/ProceduralSky.hlsl", "../EngineContent/Shaders/ProceduralSky.hlsl",
+         "../../EngineContent/Shaders/ProceduralSky.hlsl", "../../../EngineContent/Shaders/ProceduralSky.hlsl"}));
+
+    return Check(!forward.empty() && !deferred.empty() && !modern.empty() && !proceduralSky.empty() &&
+                     forward.find("max(g_EnvironmentLighting.rgb,0.0f)") != std::string::npos &&
+                     deferred.find("max(g_EnvironmentLighting.rgb,0.0f)") != std::string::npos &&
+                     deferred.find("max(g_EnvironmentLighting.w,0.0f)") != std::string::npos &&
+                     modern.find("max(g_EnvironmentLighting.rgb,0.0f)") != std::string::npos &&
+                     modern.find("max(g_EnvironmentLighting.w,0.0f)") != std::string::npos &&
+                     proceduralSky.find("g_Parameters.z") != std::string::npos &&
+                     proceduralSky.find("g_SkyTint.rgb,g_HorizonTint.rgb,g_GroundTint.rgb") != std::string::npos,
+                 "Skylight environment color or independent sky intensity is missing from a render path");
 }
 
 bool TestEnvironmentPassSunDirectionDirtyState() {
@@ -1919,6 +2019,13 @@ bool TestEnvironmentPassSunDirectionDirtyState() {
                    source.find("direction.Normalized()") != std::string::npos &&
                    source.find("DefaultSunDirection()") != std::string::npos,
                "environment pass does not normalize or default sun direction")) {
+        return false;
+    }
+    if (!Check(source.find("void EnvironmentPass::SetEnvironmentSettings(") != std::string::npos &&
+                   source.find("environment.skyTint - m_SkyTint") != std::string::npos &&
+                   source.find("environment.horizonTint - m_HorizonTint") != std::string::npos &&
+                   source.find("environment.groundTint - m_GroundTint") != std::string::npos,
+               "environment pass does not dirty generated resources after Skylight atmosphere changes")) {
         return false;
     }
     if (!Check(source.find("referenceDirection") != std::string::npos &&
@@ -1956,6 +2063,13 @@ bool TestRendererSynchronizesEnvironmentSunBeforePrepare() {
     const size_t environmentSet = source.find("m_EnvironmentPass->SetSunDirection(environmentSunDirection)");
     const size_t mainSet = source.find("m_MainPass->SetSunDirection(environmentSunDirection)");
     const size_t prepare = source.find("m_EnvironmentPass->PrepareGraphResources()");
+    if (!Check(source.find("environment.activeSkylightCount > 1") != std::string::npos &&
+                   source.find("Multiple active Skylight components found") != std::string::npos &&
+                   source.find("m_SkylightConflictLogged = true") != std::string::npos &&
+                   source.find("m_SkylightConflictLogged = false") != std::string::npos,
+               "renderer does not diagnose duplicate active Skylights once per conflict episode")) {
+        return false;
+    }
     return Check(collect != std::string::npos && environmentSet != std::string::npos && mainSet != std::string::npos &&
                      prepare != std::string::npos && collect < environmentSet && environmentSet < prepare &&
                      mainSet < prepare,
@@ -3665,8 +3779,9 @@ bool TestDeferredLightingShaderSourceContract() {
                    source.find("g_ShadowMap.SampleCmpLevelZero") != std::string::npos,
                "DeferredLightingPass does not sample directional shadows"))
         return false;
-    return Check(source.find("EnvironmentRadiance(viewDir") != std::string::npos,
-                 "DeferredLightingPass does not include sky fallback for far depth");
+    return Check(source.find("g_EnvironmentLighting.w") != std::string::npos &&
+                     source.find("g_IBLCubemap.SampleLevel") != std::string::npos,
+                 "DeferredLightingPass does not apply independent Skylight background intensity");
 }
 
 bool TestRendererDeferredPathSubmitsGBufferLightingTransparentAndComposite() {
@@ -4405,6 +4520,9 @@ MYENGINE_REGISTER_TEST("Renderer", "TestRenderGraphTextureSubresourceAccess", Te
 MYENGINE_REGISTER_TEST("Renderer", "TestRenderGraphPassCullingAndLifetime", TestRenderGraphPassCullingAndLifetime);
 MYENGINE_REGISTER_TEST("Renderer", "TestRenderGraphDescriptorKeyedPooling", TestRenderGraphDescriptorKeyedPooling);
 MYENGINE_REGISTER_TEST("Renderer", "TestEnvironmentRadianceHorizonContract", TestEnvironmentRadianceHorizonContract);
+MYENGINE_REGISTER_TEST("Renderer", "TestSkylightComponentSerializationAndResolution",
+                       TestSkylightComponentSerializationAndResolution);
+MYENGINE_REGISTER_TEST("Renderer", "TestSkylightAllPipelineShaderContract", TestSkylightAllPipelineShaderContract);
 MYENGINE_REGISTER_TEST("Renderer", "TestEnvironmentPassSunDirectionDirtyState",
                        TestEnvironmentPassSunDirectionDirtyState);
 MYENGINE_REGISTER_TEST("Renderer", "TestRendererSynchronizesEnvironmentSunBeforePrepare",

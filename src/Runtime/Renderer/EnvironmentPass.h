@@ -3,6 +3,7 @@
 #include "Renderer/RenderPass.h"
 #include "Renderer/RHI/GpuBufferView.h"
 #include "Renderer/RHI/GpuReadback.h"
+#include "Renderer/SceneLighting.h"
 
 #include <array>
 #include <memory>
@@ -31,6 +32,7 @@ public:
     void ExecuteGraphManaged(GpuCommandList& commands);
     void MarkGraphResourcesShaderResource();
     void SetSunDirection(const Vec3& direction);
+    void SetEnvironmentSettings(const SceneEnvironmentData& environment);
 
     GpuTexture* GetEnvironmentCubemap() const { return m_Environment.get(); }
     std::shared_ptr<GpuBufferView> GetSH2BufferView() const { return m_SH2Srv; }
@@ -49,6 +51,9 @@ private:
     bool m_Generated = false;
     Vec3 m_SunDirection = DefaultSunDirection();
     Vec3 m_GeneratedSunDirection = DefaultSunDirection();
+    Vec3 m_SkyTint = Vec3::One();
+    Vec3 m_HorizonTint = Vec3::One();
+    Vec3 m_GroundTint = Vec3::One();
 
     std::shared_ptr<GpuTexture> m_Environment;
     std::shared_ptr<GpuTextureView> m_EnvironmentSrv;

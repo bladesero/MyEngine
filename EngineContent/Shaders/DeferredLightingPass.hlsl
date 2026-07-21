@@ -45,6 +45,10 @@ cbuffer DeferredLightingParams : register(b0)
     uint g_LocalSHProbeVolumeCount;
     float g_LocalReflectionMipCount;
     float g_ProbeLightingPadding;
+    float4 g_EnvironmentLighting;
+    float4 g_SkyTint;
+    float4 g_HorizonTint;
+    float4 g_GroundTint;
 };
 
 #include "PBR_BRDF.hlsli"
@@ -178,7 +182,9 @@ float4 PSMain(VSOut input) : SV_TARGET
     float3 viewDir = normalize(worldPos - g_CameraPosition.xyz);
     float3 sunDirection = normalize(-g_LightDirection.xyz);
     if (depth >= 0.9999f) {
-        return float4(EnvironmentRadiance(viewDir, sunDirection), 1.0f);
+        float3 sky = EnvironmentRadiance(
+            viewDir, sunDirection, g_SkyTint.rgb, g_HorizonTint.rgb, g_GroundTint.rgb);
+        return float4(sky * max(g_EnvironmentLighting.w, 0.0f), 1.0f);
     }
 
     float4 albedoAlpha = g_GBufferAlbedo.SampleLevel(g_LinearSampler, input.uv, 0);
@@ -271,14 +277,16 @@ float4 PSMain(VSOut input) : SV_TARGET
             roughness, g_LocalReflectionMipCount, globalPrefilteredColor);
         ambient = PbrEnvironmentLighting(
             albedo, metallic, roughness, ao, N, V, irradiance, prefilteredColor) *
-            max(g_LightInfo.y, 0.0f) * max(g_IBLInfo.y, 0.0f);
+            max(g_LightInfo.y, 0.0f) * max(g_IBLInfo.y, 0.0f) * max(g_EnvironmentLighting.rgb, 0.0f);
     } else {
-        float3 environmentDiffuse = EnvironmentRadiance(N, sunDirection) / ENV_PI;
+        float3 environmentDiffuse = EnvironmentRadiance(
+            N, sunDirection, g_SkyTint.rgb, g_HorizonTint.rgb, g_GroundTint.rgb) / ENV_PI;
         float3 environmentSpecular = EnvironmentRadiance(
-            normalize(lerp(reflectionDirection, N, roughness * roughness)), sunDirection);
+            normalize(lerp(reflectionDirection, N, roughness * roughness)), sunDirection,
+            g_SkyTint.rgb, g_HorizonTint.rgb, g_GroundTint.rgb);
         ambient = PbrEnvironmentLighting(
             albedo, metallic, roughness, ao, N, V, environmentDiffuse, environmentSpecular) *
-            max(g_LightInfo.y, 0.0f);
+            max(g_LightInfo.y, 0.0f) * max(g_EnvironmentLighting.rgb, 0.0f);
     }
 
     return float4(ambient + direct + emissive, albedoAlpha.a);

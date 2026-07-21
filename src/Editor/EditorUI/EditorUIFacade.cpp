@@ -142,7 +142,7 @@ EditorAssetType ParseAssetType(const std::string& type) {
 
 std::string ComponentCategory(const std::string& type) {
     if (type.find("Renderer") != std::string::npos || type == "CameraComponent" || type == "LightComponent" ||
-        type == "PostProcessComponent")
+        type == "Skylight" || type == "PostProcessComponent")
         return "Rendering";
     if (type.find("Audio") != std::string::npos)
         return "Audio";

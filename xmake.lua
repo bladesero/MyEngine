@@ -232,6 +232,7 @@ target("MyEngineRuntime")
         "src/Runtime/Renderer/ForwardRenderPasses.cpp",
         "src/Runtime/Renderer/GpuUploadQueue.cpp",
         "src/Runtime/Renderer/LightComponent.cpp",
+        "src/Runtime/Renderer/SkylightComponent.cpp",
         "src/Runtime/Renderer/ProbeComponents.cpp",
         "src/Runtime/Renderer/PostProcessComponent.cpp",
         "src/Runtime/Renderer/ParticleSystemComponent.cpp",

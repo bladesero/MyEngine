@@ -84,7 +84,8 @@ void CSRTDiffuse(uint3 dispatchThreadId : SV_DispatchThreadID)
     float3 radiance = ModernRTTrace(origin, direction, 0.001f, max(g_RTParams1.x, 0.1f), instanceId,
                                     primitiveIndex, barycentrics, hitDistance)
                           ? ModernRTSurfaceRadiance(instanceId, primitiveIndex, barycentrics)
-                          : g_RTEnvironment.SampleLevel(g_RTLinearSampler, direction, 6.0f).rgb;
+                          : g_RTEnvironment.SampleLevel(g_RTLinearSampler, direction, 6.0f).rgb *
+                                max(g_RTCameraPositionAmbient.w, 0.0f) * max(g_RTEnvironmentColor.rgb, 0.0f);
     // Keep temporal history in unscaled incoming-radiance space; the shared effects composite applies SSGI intensity.
     g_RTOutput[pixel] = float4(max(radiance, 0.0f), 1.0f);
 }

@@ -91,6 +91,7 @@ private:
     std::unique_ptr<PostProcessPass> m_PostProcessPass;
     std::unique_ptr<ScreenUIPass> m_ScreenUIPass;
     std::unique_ptr<ModernDeferredPipeline> m_ModernDeferredPipeline;
+    bool m_SkylightConflictLogged = false;
     std::unique_ptr<ProbeLightingSystem> m_ProbeLightingSystem;
     std::unique_ptr<RenderGraph> m_RenderGraph;
     RenderPath m_RenderPath = RenderPath::Forward;

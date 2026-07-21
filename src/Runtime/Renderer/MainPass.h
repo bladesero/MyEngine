@@ -4,6 +4,7 @@
 #include "Renderer/MaterialSystem.h"
 #include "Renderer/RenderPass.h"
 #include "Renderer/SceneRenderCollector.h"
+#include "Renderer/SceneLighting.h"
 #include "Core/EngineMath.h"
 
 #include <memory>
@@ -50,6 +51,7 @@ public:
     void SetCascadeShadowInput(const Mat4* cascadeViewProj, uint32_t cascadeCount, const float* cascadeSplits);
     void SetEnvironmentInput(GpuTexture* environmentCubemap, std::shared_ptr<GpuBufferView> sh2Buffer,
                              const float* sh2Coefficients);
+    void SetEnvironmentSettings(const SceneEnvironmentData& environment);
     void SetProbeInput(std::shared_ptr<GpuTextureView> reflectionAtlas,
                        std::shared_ptr<GpuBufferView> reflectionMetadata,
                        std::shared_ptr<GpuBufferView> shVolumeMetadata, std::shared_ptr<GpuBufferView> shCoefficients,
@@ -125,6 +127,7 @@ private:
     uint32_t m_ProbeSHVolumeCount = 0;
     uint32_t m_ProbeReflectionMipCount = 1;
     float m_EnvironmentSH2[9][4] = {};
+    SceneEnvironmentData m_EnvironmentSettings;
     bool m_LoggedEnvironmentState = false;
     bool m_LoggedEnvironmentSHBindingFailure = false;
     Mat4 m_LightViewProj = Mat4::Identity();

@@ -7,6 +7,7 @@ cbuffer ScreenSpaceConstants : register(b0)
     row_major float4x4 g_PreviousInverseViewProjection;
     row_major float4x4 g_PreviousViewProjection;
     float4 g_CameraPositionAmbient;
+    float4 g_EnvironmentColor;
     float4 g_PreviousCameraPosition;
     uint2 g_FullSize;
     uint2 g_EffectSize;
@@ -725,7 +726,8 @@ void CSEffectsComposite(uint3 dispatchThreadId : SV_DispatchThreadID)
         {
             float2 brdf = EnvBrdfApproxScreen(roughness, nDotV);
             float3 brdfFactor =
-                max(f0 * brdf.x + brdf.y, 0.0f) * ao * max(g_CameraPositionAmbient.w, 0.0f);
+                max(f0 * brdf.x + brdf.y, 0.0f) * ao * max(g_CameraPositionAmbient.w, 0.0f) *
+                max(g_EnvironmentColor.rgb, 0.0f);
             float3 reflectionDirection =
                 ModernWorldReflectionDirection(worldPosition, g_CameraPositionAmbient.xyz, normal);
             float3 environmentRadiance =

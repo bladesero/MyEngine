@@ -19,6 +19,7 @@
 #include "Renderer/ProbeComponents.h"
 #include "Renderer/PostProcessComponent.h"
 #include "Renderer/ParticleSystemComponent.h"
+#include "Renderer/SkylightComponent.h"
 #include "Scene/Actor.h"
 #include "Scene/MeshRendererComponent.h"
 #include "Scripting/ScriptComponent.h"
@@ -137,6 +138,23 @@ void AddVec3(TypeDescriptor& d, const char* name, const Vec3& defaultValue, std:
     PropertyDescriptor p;
     p.stableName = name;
     p.kind = PropertyKind::Vec3;
+    p.flags = EditableFlags();
+    p.defaultValue = Vec3Json(defaultValue);
+    p.getter = [get](const Component& c) { return Vec3Json(get(c)); };
+    p.setter = [set](Component& c, const nlohmann::json& v, std::string* e) {
+        Vec3 value;
+        if (!ReadVec3(v, value, e))
+            return false;
+        set(c, value);
+        return true;
+    };
+    d.properties.push_back(std::move(p));
+}
+void AddColor(TypeDescriptor& d, const char* name, const Vec3& defaultValue, std::function<Vec3(const Component&)> get,
+              std::function<void(Component&, const Vec3&)> set) {
+    PropertyDescriptor p;
+    p.stableName = name;
+    p.kind = PropertyKind::Color;
     p.flags = EditableFlags();
     p.defaultValue = Vec3Json(defaultValue);
     p.getter = [get](const Component& c) { return Vec3Json(get(c)); };
@@ -617,6 +635,34 @@ TypeDescriptor LightTypeDescriptor() {
     MYENGINE_MIGRATION(0, IdentityMigration);
     return MYENGINE_END_COMPONENT_TYPE();
 }
+TypeDescriptor SkylightTypeDescriptor() {
+    auto d = BeginType<SkylightComponent>("Skylight", "Skylight", "Rendering");
+    AddColor(
+        d, "environmentColor", Vec3::One(),
+        [](const Component& c) { return static_cast<const SkylightComponent&>(c).GetEnvironmentColor(); },
+        [](Component& c, const Vec3& v) { static_cast<SkylightComponent&>(c).SetEnvironmentColor(v); });
+    AddFloat(
+        d, "environmentIntensity", 1.0f,
+        [](const Component& c) { return static_cast<const SkylightComponent&>(c).GetEnvironmentIntensity(); },
+        [](Component& c, float v) { static_cast<SkylightComponent&>(c).SetEnvironmentIntensity(v); });
+    AddFloat(
+        d, "skyIntensity", 1.0f,
+        [](const Component& c) { return static_cast<const SkylightComponent&>(c).GetSkyIntensity(); },
+        [](Component& c, float v) { static_cast<SkylightComponent&>(c).SetSkyIntensity(v); });
+    AddColor(
+        d, "skyTint", Vec3::One(),
+        [](const Component& c) { return static_cast<const SkylightComponent&>(c).GetSkyTint(); },
+        [](Component& c, const Vec3& v) { static_cast<SkylightComponent&>(c).SetSkyTint(v); });
+    AddColor(
+        d, "horizonTint", Vec3::One(),
+        [](const Component& c) { return static_cast<const SkylightComponent&>(c).GetHorizonTint(); },
+        [](Component& c, const Vec3& v) { static_cast<SkylightComponent&>(c).SetHorizonTint(v); });
+    AddColor(
+        d, "groundTint", Vec3::One(),
+        [](const Component& c) { return static_cast<const SkylightComponent&>(c).GetGroundTint(); },
+        [](Component& c, const Vec3& v) { static_cast<SkylightComponent&>(c).SetGroundTint(v); });
+    return d;
+}
 TypeDescriptor BoxColliderType() {
     MYENGINE_BEGIN_COMPONENT_TYPE(BoxColliderComponent, "BoxCollider", 1)
     _myengine_type_descriptor.displayName = "Box Collider";
@@ -668,6 +714,7 @@ ComponentRegistry::ComponentRegistry() {
     TypeRegistry::Get().Register(CapsuleColliderType());
     TypeRegistry::Get().Register(CharacterControllerType());
     TypeRegistry::Get().Register(LightTypeDescriptor());
+    TypeRegistry::Get().Register(SkylightTypeDescriptor());
     TypeRegistry::Get().Register(
         ReflectedLegacyType<ReflectionProbeComponent>("ReflectionProbe", "Reflection Probe", "Rendering"));
     TypeRegistry::Get().Register(

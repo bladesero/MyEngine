@@ -61,26 +61,28 @@ Vec3 ClampPositive(const Vec3& value) {
     return {(std::max)(0.0f, value.x), (std::max)(0.0f, value.y), (std::max)(0.0f, value.z)};
 }
 
-Vec3 SkyRadiance(Vec3 direction, Vec3 sunDirection) {
+Vec3 SkyRadiance(Vec3 direction, Vec3 sunDirection, const SceneLightData& lights) {
     direction = direction.Normalized();
     sunDirection = sunDirection.Normalized();
     const float mu = direction.Dot(sunDirection);
     const float sky = std::clamp(direction.y * 20.0f + 0.5f, 0.0f, 1.0f);
     const float horizon = 1.0f - std::clamp(std::abs(direction.y) * 6.0f, 0.0f, 1.0f);
     const float sun = std::pow((std::max)(0.0f, mu), 2048.0f) * 18.0f;
-    const Vec3 ground{0.01f, 0.012f, 0.014f};
-    const Vec3 zenith{0.08f, 0.18f, 0.42f};
-    return ground * (1.0f - sky) + zenith * sky + Vec3{0.055f, 0.075f, 0.105f} * horizon +
-           Vec3{24.0f, 20.0f, 14.0f} * sun;
+    const Vec3 ground = Multiply(Vec3{0.01f, 0.012f, 0.014f}, lights.groundTint);
+    const Vec3 zenith = Multiply(Vec3{0.08f, 0.18f, 0.42f}, lights.skyTint);
+    const Vec3 horizonColor = Multiply(Vec3{0.055f, 0.075f, 0.105f}, lights.horizonTint);
+    const Vec3 solar = Multiply(Vec3{24.0f, 20.0f, 14.0f}, lights.skyTint);
+    return ground * (1.0f - sky) + zenith * sky + horizonColor * horizon + solar * sun;
 }
 
 Vec3 ShadeSurface(const Vec3& worldPosition, Vec3 normal, const Vec3& baseColor, const Vec3& emissive,
                   const SceneLightData& lights) {
     normal = normal.LengthSq() > 1e-8f ? normal.Normalized() : Vec3::Up();
-    Vec3 color = Multiply(baseColor, SkyRadiance(normal, -lights.direction)) * (0.18f * lights.ambientIntensity);
+    const Vec3 environment = Multiply(SkyRadiance(normal, -lights.direction, lights), lights.environmentColor);
+    Vec3 color = Multiply(baseColor, environment) * (0.18f * lights.ambientIntensity);
     const Vec3 directional = (-lights.direction).Normalized();
-    color += Multiply(baseColor, lights.color) *
-             ((std::max)(0.0f, normal.Dot(directional)) * lights.directionalIntensity);
+    color +=
+        Multiply(baseColor, lights.color) * ((std::max)(0.0f, normal.Dot(directional)) * lights.directionalIntensity);
     for (const ScenePointLight& light : lights.pointLights) {
         const Vec3 delta = light.position - worldPosition;
         const float distance = delta.Length();
@@ -100,8 +102,8 @@ Vec3 ShadeSurface(const Vec3& worldPosition, Vec3 normal, const Vec3& baseColor,
                                           (std::max)(light.innerConeCos - light.outerConeCos, 1e-5f),
                                       0.0f, 1.0f);
         const float attenuation = std::pow(1.0f - distance / light.range, 2.0f) * cone;
-        color += Multiply(baseColor, light.color) *
-                 ((std::max)(0.0f, normal.Dot(toLight)) * light.intensity * attenuation);
+        color +=
+            Multiply(baseColor, light.color) * ((std::max)(0.0f, normal.Dot(toLight)) * light.intensity * attenuation);
     }
     return ClampPositive(color + emissive);
 }
@@ -114,8 +116,8 @@ bool ProjectVertex(const Vec3& position, const Vec3& capture, const FaceBasis& f
         return false;
     const float x = delta.Dot(face.right) / depth;
     const float y = delta.Dot(face.up) / depth;
-    projected = {(x * 0.5f + 0.5f) * static_cast<float>(resolution),
-                 (0.5f - y * 0.5f) * static_cast<float>(resolution), depth};
+    projected = {(x * 0.5f + 0.5f) * static_cast<float>(resolution), (0.5f - y * 0.5f) * static_cast<float>(resolution),
+                 depth};
     return true;
 }
 
@@ -130,18 +132,14 @@ void RasterizeTriangle(CubeFace& target, const Vec3 projected[3], const Vec3 wor
         return;
     const int maxXLimit = static_cast<int>(target.color.width) - 1;
     const int maxYLimit = static_cast<int>(target.color.height) - 1;
-    const int minX = std::clamp(static_cast<int>(std::floor((std::min)({projected[0].x, projected[1].x,
-                                                                        projected[2].x}))),
-                                0, maxXLimit);
-    const int maxX = std::clamp(static_cast<int>(std::ceil((std::max)({projected[0].x, projected[1].x,
-                                                                       projected[2].x}))),
-                                0, maxXLimit);
-    const int minY = std::clamp(static_cast<int>(std::floor((std::min)({projected[0].y, projected[1].y,
-                                                                        projected[2].y}))),
-                                0, maxYLimit);
-    const int maxY = std::clamp(static_cast<int>(std::ceil((std::max)({projected[0].y, projected[1].y,
-                                                                       projected[2].y}))),
-                                0, maxYLimit);
+    const int minX = std::clamp(
+        static_cast<int>(std::floor((std::min)({projected[0].x, projected[1].x, projected[2].x}))), 0, maxXLimit);
+    const int maxX = std::clamp(
+        static_cast<int>(std::ceil((std::max)({projected[0].x, projected[1].x, projected[2].x}))), 0, maxXLimit);
+    const int minY = std::clamp(
+        static_cast<int>(std::floor((std::min)({projected[0].y, projected[1].y, projected[2].y}))), 0, maxYLimit);
+    const int maxY = std::clamp(
+        static_cast<int>(std::ceil((std::max)({projected[0].y, projected[1].y, projected[2].y}))), 0, maxYLimit);
     for (int y = minY; y <= maxY; ++y)
         for (int x = minX; x <= maxX; ++x) {
             const float px = static_cast<float>(x) + 0.5f;
@@ -180,11 +178,10 @@ std::array<CubeFace, 6> CaptureScene(const Scene& scene, const Vec3& capture, ui
             for (uint32_t x = 0; x < resolution; ++x) {
                 const float sx = (static_cast<float>(x) + 0.5f) / resolution * 2.0f - 1.0f;
                 const float sy = 1.0f - (static_cast<float>(y) + 0.5f) / resolution * 2.0f;
-                const Vec3 direction = (kFaces[faceIndex].forward + kFaces[faceIndex].right * sx +
-                                        kFaces[faceIndex].up * sy)
-                                           .Normalized();
+                const Vec3 direction =
+                    (kFaces[faceIndex].forward + kFaces[faceIndex].right * sx + kFaces[faceIndex].up * sy).Normalized();
                 face.color.pixels[static_cast<size_t>(y) * resolution + x] =
-                    SkyRadiance(direction, -lights.direction);
+                    SkyRadiance(direction, -lights.direction, lights);
             }
     }
     scene.ForEach([&](Actor& actor) {
@@ -205,8 +202,8 @@ std::array<CubeFace, 6> CaptureScene(const Scene& scene, const Vec3& capture, ui
             if (!material.IsValid() || material->GetBlendMode() == BlendMode::Transparent)
                 continue;
             const Vec3 baseColor = material->GetColor("BaseColor", Vec3::One());
-            const Vec3 emissive = material->GetColor("EmissiveColor", Vec3::Zero()) *
-                                  material->GetFloat("EmissiveIntensity", 1.0f);
+            const Vec3 emissive =
+                material->GetColor("EmissiveColor", Vec3::Zero()) * material->GetFloat("EmissiveIntensity", 1.0f);
             for (uint32_t index = 0; index + 2 < subMesh.indexCount; index += 3) {
                 uint32_t vertexIndices[3]{};
                 for (uint32_t corner = 0; corner < 3; ++corner) {
@@ -286,9 +283,9 @@ FloatImage Downsample(const FloatImage& source) {
             Vec3 sum = Vec3::Zero();
             for (uint32_t oy = 0; oy < 2; ++oy)
                 for (uint32_t ox = 0; ox < 2; ++ox)
-                    sum += source.pixels[static_cast<size_t>((std::min)(y * 2u + oy, source.height - 1u)) *
-                                             source.width +
-                                         (std::min)(x * 2u + ox, source.width - 1u)];
+                    sum +=
+                        source.pixels[static_cast<size_t>((std::min)(y * 2u + oy, source.height - 1u)) * source.width +
+                                      (std::min)(x * 2u + ox, source.width - 1u)];
             result.pixels[static_cast<size_t>(y) * result.width + x] = sum * 0.25f;
         }
     return result;
@@ -338,16 +335,17 @@ void BakeSHSample(const Vec3& position, const SceneLightData& lights, std::vecto
         const float radius = std::sqrt((std::max)(0.0f, 1.0f - y * y));
         const float phi = 2.39996323f * sample;
         const Vec3 direction{std::cos(phi) * radius, y, std::sin(phi) * radius};
-        Vec3 radiance = SkyRadiance(direction, -lights.direction);
+        Vec3 radiance = SkyRadiance(direction, -lights.direction, lights);
         const Vec3 directional = (-lights.direction).Normalized();
-        radiance += lights.color * (lights.directionalIntensity * std::pow((std::max)(0.0f, direction.Dot(directional)), 64.0f));
+        radiance += lights.color *
+                    (lights.directionalIntensity * std::pow((std::max)(0.0f, direction.Dot(directional)), 64.0f));
         for (const ScenePointLight& light : lights.pointLights) {
             const Vec3 delta = light.position - position;
             const float distance = delta.Length();
             if (distance < light.range && distance > 1e-5f) {
                 const float attenuation = std::pow(1.0f - distance / light.range, 2.0f);
                 radiance += light.color * (light.intensity * attenuation *
-                    std::pow((std::max)(0.0f, direction.Dot(delta / distance)), 32.0f));
+                                           std::pow((std::max)(0.0f, direction.Dot(delta / distance)), 32.0f));
             }
         }
         float basis[9];
@@ -394,8 +392,14 @@ uint64_t ProbeBakeRenderer::ComputeDependencyHash(const Scene& scene) {
 ProbeBakeResult ProbeBakeRenderer::Bake(const Scene& scene, LightingProbeAsset& output,
                                         const ProgressCallback& progress, const std::atomic<bool>* cancellation) const {
     ProbeBakeResult result;
-    struct ReflectionSource { Actor* actor; ReflectionProbeComponent* component; };
-    struct VolumeSource { Actor* actor; SHProbeVolumeComponent* component; };
+    struct ReflectionSource {
+        Actor* actor;
+        ReflectionProbeComponent* component;
+    };
+    struct VolumeSource {
+        Actor* actor;
+        SHProbeVolumeComponent* component;
+    };
     std::vector<ReflectionSource> reflections;
     std::vector<VolumeSource> volumes;
     std::unordered_set<std::string> ids;
@@ -495,11 +499,9 @@ ProbeBakeResult ProbeBakeRenderer::Bake(const Scene& scene, LightingProbeAsset& 
                     const Vec3 uvw{baked.gridWidth > 1 ? static_cast<float>(x) / (baked.gridWidth - 1u) : 0.5f,
                                    baked.gridHeight > 1 ? static_cast<float>(y) / (baked.gridHeight - 1u) : 0.5f,
                                    baked.gridDepth > 1 ? static_cast<float>(z) / (baked.gridDepth - 1u) : 0.5f};
-                    const Vec3 local{(uvw.x * 2.0f - 1.0f) * extents.x,
-                                     (uvw.y * 2.0f - 1.0f) * extents.y,
+                    const Vec3 local{(uvw.x * 2.0f - 1.0f) * extents.x, (uvw.y * 2.0f - 1.0f) * extents.y,
                                      (uvw.z * 2.0f - 1.0f) * extents.z};
-                    BakeSHSample(source.actor->GetWorldMatrix().TransformPoint(local), lights,
-                                 output.SHCoefficients());
+                    BakeSHSample(source.actor->GetWorldMatrix().TransformPoint(local), lights, output.SHCoefficients());
                     ++completed;
                 }
     }

@@ -442,9 +442,22 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
                 m_ProbeLightingSystem->GetSHVolumeMetadataView(), m_ProbeLightingSystem->GetSHCoefficientView(),
                 m_ProbeLightingSystem->GetReflectionProbeCount(), m_ProbeLightingSystem->GetSHVolumeCount(), mipCount);
     }
+    const SceneEnvironmentData environment = CollectSceneEnvironmentData(scene);
+    if (environment.activeSkylightCount > 1) {
+        if (!m_SkylightConflictLogged) {
+            Logger::Warn("[Renderer] Multiple active Skylight components found; using actor ",
+                         environment.sourceActorID, " and ignoring ", environment.activeSkylightCount - 1,
+                         " additional component(s)");
+            m_SkylightConflictLogged = true;
+        }
+    } else {
+        m_SkylightConflictLogged = false;
+    }
     const Vec3 environmentSunDirection = CollectEnvironmentSunDirection(scene);
     m_EnvironmentPass->SetSunDirection(environmentSunDirection);
+    m_EnvironmentPass->SetEnvironmentSettings(environment);
     m_MainPass->SetSunDirection(environmentSunDirection);
+    m_MainPass->SetEnvironmentSettings(environment);
     const bool backendSupportsPostProcess =
         m_Device->GetBackend() == RHIBackend::D3D11 || m_Device->GetBackend() == RHIBackend::D3D12 ||
         m_Device->GetBackend() == RHIBackend::Metal || m_Device->GetBackend() == RHIBackend::Vulkan;
@@ -452,7 +465,7 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
     const bool useDeferred = useOffscreen && m_PipelineDiagnostics.resolvedPipeline != ResolvedRenderPipeline::Forward;
     const bool modernRequested =
         useDeferred && m_PipelineDiagnostics.resolvedPipeline == ResolvedRenderPipeline::ModernDeferred;
-    const SceneLightData sceneLights = CollectSceneLights(scene);
+    const SceneLightData sceneLights = CollectSceneLights(scene, environment);
     PostProcessRuntimeOptions postOptions = CollectPostProcessOptions(scene);
     if (!HasRendererFeature(m_FeatureMask, RendererFeatureMask::SSAO))
         postOptions.modern.ssaoIntensity = 0.0f;

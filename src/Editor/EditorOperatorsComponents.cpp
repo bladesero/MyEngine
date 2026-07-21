@@ -1,15 +1,37 @@
 ﻿#include "Editor/EditorOperatorShared.h"
 
+namespace {
+
+bool SceneHasSkylight(const Scene& scene) {
+    bool found = false;
+    scene.ForEach([&](Actor& actor) {
+        if (!found && actor.HasComponentType("Skylight"))
+            found = true;
+    });
+    return found;
+}
+
+nlohmann::json ResolveInitialComponentData(const Scene& scene, const std::string& typeName,
+                                           const nlohmann::json& initialData) {
+    nlohmann::json resolved = initialData.is_object() ? initialData : nlohmann::json::object();
+    if (typeName == "Skylight" && !resolved.contains("environmentIntensity"))
+        resolved["environmentIntensity"] = scene.GetAmbientIntensity();
+    return resolved;
+}
+
+} // namespace
+
 bool EditorComponentOperator::AddComponent(EditorContext& context, uint64_t actorID, const std::string& typeName,
                                            const nlohmann::json& initialData) const {
     Scene* scene = context.GetScene();
     Actor* actor = scene ? scene->FindByID(actorID) : nullptr;
-    if (!actor || typeName.empty() || actor->HasComponentType(typeName) || !context.GetCommandStack() ||
-        !context.CanEditScene()) {
+    if (!actor || typeName.empty() || actor->HasComponentType(typeName) ||
+        (typeName == "Skylight" && SceneHasSkylight(*scene)) || !context.GetCommandStack() || !context.CanEditScene()) {
         return false;
     }
+    const nlohmann::json resolvedData = ResolveInitialComponentData(*scene, typeName, initialData);
     return context.GetCommandStack()->ExecuteCommand(
-        EditorUndoUtil::MakeAddComponentCommand(*actor, typeName, initialData), context);
+        EditorUndoUtil::MakeAddComponentCommand(*actor, typeName, resolvedData), context);
 }
 
 bool EditorComponentOperator::AddComponents(EditorContext& context, const std::vector<uint64_t>& actorIDs,
@@ -20,6 +42,9 @@ bool EditorComponentOperator::AddComponents(EditorContext& context, const std::v
         !ComponentRegistry::Get().IsRegistered(typeName)) {
         return false;
     }
+    if (typeName == "Skylight" && (actorIDs.size() != 1 || SceneHasSkylight(*scene)))
+        return false;
+    const nlohmann::json resolvedData = ResolveInitialComponentData(*scene, typeName, initialData);
 
     std::vector<uint64_t> targets;
     targets.reserve(actorIDs.size());
@@ -44,8 +69,8 @@ bool EditorComponentOperator::AddComponents(EditorContext& context, const std::v
             SceneSerializer::LoadFromString(*scene, before);
             return false;
         }
-        if (!initialData.is_null() && !initialData.empty()) {
-            component->Deserialize(initialData);
+        if (!resolvedData.empty()) {
+            component->Deserialize(resolvedData);
         }
         changed = true;
     }
@@ -57,6 +82,23 @@ bool EditorComponentOperator::AddComponents(EditorContext& context, const std::v
     return stack->ExecuteCommand(
         EditorUndoUtil::MakeSceneSnapshotCommand("Add Components", before, after, beforeSelection, beforeSelection),
         context);
+}
+
+bool EditorComponentOperator::SetEnabled(EditorContext& context, uint64_t actorID, const std::string& typeName,
+                                         bool enabled) const {
+    Scene* scene = context.GetScene();
+    Actor* actor = scene ? scene->FindByID(actorID) : nullptr;
+    Component* component = actor ? actor->GetComponentByTypeName(typeName) : nullptr;
+    if (!scene || !component || component->IsEnabled() == enabled || !context.GetCommandStack() ||
+        !context.CanEditScene()) {
+        return false;
+    }
+
+    const std::string before = SceneSerializer::SaveToString(*scene);
+    component->SetEnabled(enabled);
+    const std::string after = SceneSerializer::SaveToString(*scene);
+    return EditorTransactionOperator{}.CommitSceneSnapshot(context, "Set Component Enabled", before, after, actorID,
+                                                           actorID);
 }
 
 bool EditorComponentOperator::RemoveComponent(EditorContext& context, uint64_t actorID,

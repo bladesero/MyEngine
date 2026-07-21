@@ -44,6 +44,8 @@
 #include "Physics/SphereColliderComponent.h"
 #include "Renderer/LightComponent.h"
 #include "Renderer/PostProcessComponent.h"
+#include "Renderer/SceneLighting.h"
+#include "Renderer/SkylightComponent.h"
 #include "Renderer/MaterialSystem.h"
 #include "Scene/Actor.h"
 #include "Scene/ComponentRegistry.h"
@@ -169,7 +171,7 @@ std::string ComponentDisplayName(std::string type) {
 
 const char* ComponentCategory(const std::string& type) {
     if (type == "MeshRenderer" || type == "SkinnedMeshRenderer" || type == "Animator" || type == "Camera" ||
-        type == "ThirdPersonCamera" || type == "Light" || type == "PostProcess") {
+        type == "ThirdPersonCamera" || type == "Light" || type == "Skylight" || type == "PostProcess") {
         return "Rendering";
     }
     if (type == "AudioSource")
@@ -183,6 +185,15 @@ const char* ComponentCategory(const std::string& type) {
     if (type.rfind("UI", 0) == 0)
         return "UI";
     return "Gameplay";
+}
+
+bool SceneHasComponentType(const Scene& scene, const std::string& typeName) {
+    bool found = false;
+    scene.ForEach([&](Actor& actor) {
+        if (!found && actor.HasComponentType(typeName))
+            found = true;
+    });
+    return found;
 }
 
 bool ComponentMatchesFilter(const std::string& type, const char* filter) {
@@ -695,6 +706,15 @@ void CommitComponentEdit(EditorContext& context, Actor& actor, T& component, con
     }
 }
 
+bool CommitComponentEnabledEdit(EditorContext& context, Actor& actor, Component& component, bool enabled) {
+    if (component.IsEnabled() == enabled)
+        return false;
+    if (auto* operators = context.GetOperators())
+        return operators->Components().SetEnabled(context, actor.GetID(), component.GetTypeName(), enabled);
+    EditorComponentOperator componentOperator;
+    return componentOperator.SetEnabled(context, actor.GetID(), component.GetTypeName(), enabled);
+}
+
 bool CommitSceneNameEdit(EditorContext& context, const std::string& beforeName, const std::string& afterName) {
     if (beforeName == afterName)
         return false;
@@ -747,11 +767,11 @@ bool CommitLightingProbeBakeSettingsEdit(EditorContext& context, Scene& scene,
         return false;
     const uint64_t selectedActor = context.GetSelection().GetActorID();
     if (auto* operators = context.GetOperators())
-        return operators->Transactions().CommitSceneSnapshot(context, "Set Lighting Probe Bake Settings", before,
-                                                              after, selectedActor, selectedActor);
+        return operators->Transactions().CommitSceneSnapshot(context, "Set Lighting Probe Bake Settings", before, after,
+                                                             selectedActor, selectedActor);
     EditorTransactionOperator transactionOperator;
     return transactionOperator.CommitSceneSnapshot(context, "Set Lighting Probe Bake Settings", before, after,
-                                                    selectedActor, selectedActor);
+                                                   selectedActor, selectedActor);
 }
 
 template <typename Fn>

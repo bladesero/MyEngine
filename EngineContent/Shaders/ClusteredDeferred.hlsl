@@ -24,6 +24,7 @@ cbuffer ClusterConstants : register(b0)
     float g_ClusterPadding;
     float4 g_DirectionalLight;
     float4 g_DirectionalColorAmbient;
+    float4 g_EnvironmentLighting;
     row_major float4x4 g_ShadowViewProjection[3];
     float4 g_CascadeSplits;
     float4 g_ShadowInfo;
@@ -233,7 +234,10 @@ void CSDeferredLighting(uint3 dispatchThreadId : SV_DispatchThreadID)
     {
         float3 farWorldPosition = ReconstructWorldPosition(pixel, depth);
         float3 viewDirection = normalize(farWorldPosition - g_CameraPosition);
-        g_HdrOutput[pixel] = float4(g_IBLCubemap.SampleLevel(g_LinearSampler, viewDirection, 0.0f).rgb, 1.0f);
+        g_HdrOutput[pixel] = float4(
+            g_IBLCubemap.SampleLevel(g_LinearSampler, viewDirection, 0.0f).rgb *
+                max(g_EnvironmentLighting.w, 0.0f),
+            1.0f);
         return;
     }
     float3 worldPosition = ReconstructWorldPosition(pixel, depth);
@@ -263,7 +267,7 @@ void CSDeferredLighting(uint3 dispatchThreadId : SV_DispatchThreadID)
         roughness, g_LocalReflectionMipCount, globalEnvironmentSpecular);
     color += PbrEnvironmentLighting(albedoSample.rgb, metallic, roughness, ao, normal, viewDirection,
                                     environmentDiffuse, environmentSpecular) *
-             max(g_DirectionalColorAmbient.w, 0.0f);
+             max(g_DirectionalColorAmbient.w, 0.0f) * max(g_EnvironmentLighting.rgb, 0.0f);
     color += emissive;
     uint count = g_ClusterCounts[cluster];
     uint offset = g_ClusterOffsets[cluster];

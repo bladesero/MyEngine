@@ -29,6 +29,9 @@ struct SkyConstants {
     float up[4];
     float sunDirection[4];
     float parameters[4];
+    float skyTint[4];
+    float horizonTint[4];
+    float groundTint[4];
 };
 
 constexpr uint32_t kMainTextureSlotCount = 9;
@@ -107,6 +110,10 @@ void MainPass::SetEnvironmentInput(GpuTexture* environmentCubemap, std::shared_p
     } else {
         std::memset(m_EnvironmentSH2, 0, sizeof(m_EnvironmentSH2));
     }
+}
+
+void MainPass::SetEnvironmentSettings(const SceneEnvironmentData& environment) {
+    m_EnvironmentSettings = environment;
 }
 
 void MainPass::SetProbeInput(std::shared_ptr<GpuTextureView> reflectionAtlas,
@@ -440,8 +447,17 @@ void MainPass::RenderSky(const Camera& camera, GpuCommandList& cmd) {
     constants.sunDirection[3] = 0.0f;
     constants.parameters[0] = std::tan(camera.GetFovY() * kDeg2Rad * 0.5f);
     constants.parameters[1] = camera.GetAspect();
-    constants.parameters[2] = 1.0f;
+    constants.parameters[2] = m_EnvironmentSettings.skyIntensity;
     constants.parameters[3] = m_HdrPassthrough ? 1.0f : 0.0f;
+    constants.skyTint[0] = m_EnvironmentSettings.skyTint.x;
+    constants.skyTint[1] = m_EnvironmentSettings.skyTint.y;
+    constants.skyTint[2] = m_EnvironmentSettings.skyTint.z;
+    constants.horizonTint[0] = m_EnvironmentSettings.horizonTint.x;
+    constants.horizonTint[1] = m_EnvironmentSettings.horizonTint.y;
+    constants.horizonTint[2] = m_EnvironmentSettings.horizonTint.z;
+    constants.groundTint[0] = m_EnvironmentSettings.groundTint.x;
+    constants.groundTint[1] = m_EnvironmentSettings.groundTint.y;
+    constants.groundTint[2] = m_EnvironmentSettings.groundTint.z;
 
     GpuGraphicsPipeline* skyPipeline = GetOrCreateSkyPipeline();
     if (!skyPipeline)
@@ -468,7 +484,9 @@ void MainPass::Execute(GpuCommandList& commands, const Scene& scene, const Camer
 
     // BeginFrame/EndFrame moved to Renderer for offscreen pipeline.
 
-    const SceneLightData sceneLights = CollectSceneLights(scene);
+    const SceneEnvironmentData environment = CollectSceneEnvironmentData(scene);
+    SetEnvironmentSettings(environment);
+    const SceneLightData sceneLights = CollectSceneLights(scene, environment);
     const ScenePostProcessData postProcess = CollectScenePostProcessData(scene);
     if (m_SkyPass) {
         m_SkyPass->Execute(commands, camera);
@@ -507,7 +525,9 @@ void MainPass::ExecuteTransparentOnly(GpuCommandList& commands, const Scene& sce
     if (!shader)
         return;
 
-    const SceneLightData sceneLights = CollectSceneLights(scene);
+    const SceneEnvironmentData environment = CollectSceneEnvironmentData(scene);
+    SetEnvironmentSettings(environment);
+    const SceneLightData sceneLights = CollectSceneLights(scene, environment);
     const ScenePostProcessData postProcess = CollectScenePostProcessData(scene);
 
     m_ResourceCache.ResetFrameStats();

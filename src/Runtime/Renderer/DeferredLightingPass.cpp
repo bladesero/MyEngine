@@ -37,6 +37,10 @@ struct DeferredLightingConstants {
     uint32_t localSHProbeVolumeCount;
     float localReflectionMipCount;
     float probeLightingPadding;
+    float environmentLighting[4];
+    float skyTint[4];
+    float horizonTint[4];
+    float groundTint[4];
 };
 
 } // namespace
@@ -303,6 +307,19 @@ void DeferredLightingPass::Execute(GpuCommandList& commands, const Scene&, const
     constants.lightInfo[0] = static_cast<float>(pointCount);
     constants.lightInfo[1] = m_Lights.ambientIntensity;
     constants.lightInfo[2] = static_cast<float>(spotCount);
+    constants.environmentLighting[0] = m_Lights.environmentColor.x;
+    constants.environmentLighting[1] = m_Lights.environmentColor.y;
+    constants.environmentLighting[2] = m_Lights.environmentColor.z;
+    constants.environmentLighting[3] = m_Lights.skyIntensity;
+    constants.skyTint[0] = m_Lights.skyTint.x;
+    constants.skyTint[1] = m_Lights.skyTint.y;
+    constants.skyTint[2] = m_Lights.skyTint.z;
+    constants.horizonTint[0] = m_Lights.horizonTint.x;
+    constants.horizonTint[1] = m_Lights.horizonTint.y;
+    constants.horizonTint[2] = m_Lights.horizonTint.z;
+    constants.groundTint[0] = m_Lights.groundTint.x;
+    constants.groundTint[1] = m_Lights.groundTint.y;
+    constants.groundTint[2] = m_Lights.groundTint.z;
     constants.pointShadowPosition[0] = m_PointShadowPosition.x;
     constants.pointShadowPosition[1] = m_PointShadowPosition.y;
     constants.pointShadowPosition[2] = m_PointShadowPosition.z;

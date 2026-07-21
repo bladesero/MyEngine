@@ -207,12 +207,13 @@ private:
         Vec4 cameraPositionAmbient{};
         Vec4 lightDirectionIntensity{};
         Vec4 lightColor{};
+        Vec4 environmentColor{};
         uint32_t fullSize[2]{};
         uint32_t effectSize[2]{};
         Vec4 params0{};
         Vec4 params1{};
     };
-    static_assert(sizeof(RayTracingConstants) == 160, "ModernRayTracingConstants ABI changed");
+    static_assert(sizeof(RayTracingConstants) == 176, "ModernRayTracingConstants ABI changed");
 
     struct ShadowIndirectStream {
         std::shared_ptr<GpuBuffer> args;
@@ -262,6 +263,7 @@ private:
         float padding = 0.0f;
         Vec4 directionalLight{-0.55f, -1.0f, -0.45f, 0.0f};
         Vec4 directionalColorAmbient{1.0f, 1.0f, 1.0f, 1.0f};
+        Vec4 environmentLighting{1.0f, 1.0f, 1.0f, 1.0f};
         Mat4 shadowViewProjection[3] = {Mat4::Identity(), Mat4::Identity(), Mat4::Identity()};
         Vec4 cascadeSplits{};
         Vec4 shadowInfo{};
@@ -278,6 +280,7 @@ private:
         Mat4 previousInverseViewProjection = Mat4::Identity();
         Mat4 previousViewProjection = Mat4::Identity();
         Vec4 cameraPositionAmbient{};
+        Vec4 environmentColor{};
         Vec4 previousCameraPosition{};
         uint32_t fullSize[2]{};
         uint32_t effectSize[2]{};
@@ -303,18 +306,18 @@ private:
         uint32_t ssrStepCount = 48;
         uint32_t padding[4]{};
     };
-    static_assert(sizeof(ScreenSpaceConstants) == 544, "ScreenSpaceConstants size must match ModernScreenSpace.hlsl");
-    static_assert(offsetof(ScreenSpaceConstants, currentJitterUv) == 448,
+    static_assert(sizeof(ScreenSpaceConstants) == 560, "ScreenSpaceConstants size must match ModernScreenSpace.hlsl");
+    static_assert(offsetof(ScreenSpaceConstants, currentJitterUv) == 464,
                   "ScreenSpaceConstants current jitter offset changed");
-    static_assert(offsetof(ScreenSpaceConstants, previousJitterUv) == 456,
+    static_assert(offsetof(ScreenSpaceConstants, previousJitterUv) == 472,
                   "ScreenSpaceConstants previous jitter offset changed");
-    static_assert(offsetof(ScreenSpaceConstants, ssgiIntensity) == 480,
+    static_assert(offsetof(ScreenSpaceConstants, ssgiIntensity) == 496,
                   "ScreenSpaceConstants SSGI tuning offset changed");
-    static_assert(offsetof(ScreenSpaceConstants, ssrMaxRoughness) == 496,
+    static_assert(offsetof(ScreenSpaceConstants, ssrMaxRoughness) == 512,
                   "ScreenSpaceConstants SSR tuning offset changed");
-    static_assert(offsetof(ScreenSpaceConstants, gamma) == 508,
+    static_assert(offsetof(ScreenSpaceConstants, gamma) == 524,
                   "ScreenSpaceConstants post-process tuning offset changed");
-    static_assert(offsetof(ScreenSpaceConstants, ssrStepCount) == 524,
+    static_assert(offsetof(ScreenSpaceConstants, ssrStepCount) == 540,
                   "ScreenSpaceConstants step-count offset changed");
 
     struct TemporalAAConstants {

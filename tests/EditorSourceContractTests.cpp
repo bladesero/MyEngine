@@ -1022,7 +1022,8 @@ bool TestEditorOperatorSourceContracts() {
                    sceneHeader.find("SetAmbientIntensity") != std::string::npos &&
                    sceneSerializer.find("\"mainCameraHintActorID\"") != std::string::npos &&
                    sceneSerializer.find("\"ambientIntensity\"") != std::string::npos &&
-                   sceneLighting.find("out.ambientIntensity = scene.GetAmbientIntensity()") != std::string::npos &&
+                   sceneLighting.find("out.environmentIntensity = scene.GetAmbientIntensity()") != std::string::npos &&
+                   sceneLighting.find("CollectSceneEnvironmentData") != std::string::npos &&
                    gameViewportSource.find("scene.GetMainCameraHintActorID()") != std::string::npos &&
                    gameViewportSource.find("hintedActor->GetComponent<CameraComponent>()") != std::string::npos,
                "Scene Settings still bypass EditorCommandOperator edit helpers"))

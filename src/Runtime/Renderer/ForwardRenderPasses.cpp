@@ -61,6 +61,10 @@ struct ShadowedPerDrawConstants {
     uint32_t localSHProbeVolumeCount;
     float localReflectionMipCount;
     float probeLightingPadding;
+    float environmentLighting[4];
+    float skyTint[4];
+    float horizonTint[4];
+    float groundTint[4];
 };
 
 struct GraphForwardConstants {
@@ -407,6 +411,19 @@ public:
                 constants.lightInfo[0] = static_cast<float>(pointCount);
                 constants.lightInfo[1] = sceneLights.ambientIntensity;
                 constants.lightInfo[2] = static_cast<float>(spotCount);
+                constants.environmentLighting[0] = sceneLights.environmentColor.x;
+                constants.environmentLighting[1] = sceneLights.environmentColor.y;
+                constants.environmentLighting[2] = sceneLights.environmentColor.z;
+                constants.environmentLighting[3] = sceneLights.skyIntensity;
+                constants.skyTint[0] = sceneLights.skyTint.x;
+                constants.skyTint[1] = sceneLights.skyTint.y;
+                constants.skyTint[2] = sceneLights.skyTint.z;
+                constants.horizonTint[0] = sceneLights.horizonTint.x;
+                constants.horizonTint[1] = sceneLights.horizonTint.y;
+                constants.horizonTint[2] = sceneLights.horizonTint.z;
+                constants.groundTint[0] = sceneLights.groundTint.x;
+                constants.groundTint[1] = sceneLights.groundTint.y;
+                constants.groundTint[2] = sceneLights.groundTint.z;
                 constants.pointShadowPosition[0] = mainPass.m_PointShadowPosition.x;
                 constants.pointShadowPosition[1] = mainPass.m_PointShadowPosition.y;
                 constants.pointShadowPosition[2] = mainPass.m_PointShadowPosition.z;

@@ -7,6 +7,7 @@
 #include "Renderer/EngineShaderCatalog.h"
 #include "Renderer/LightComponent.h"
 #include "Renderer/MeshShader.h"
+#include "Renderer/SceneLighting.h"
 #include "Renderer/ShaderManager.h"
 #include "Scene/Actor.h"
 #include "Scene/Scene.h"
@@ -1333,8 +1334,11 @@ bool ModernDeferredPipeline::Prepare(const Scene& scene, const Camera& camera, u
     m_ClusterConstants.nearPlane = camera.GetNear();
     m_ClusterConstants.farPlane = camera.GetFar();
     m_ClusterConstants.cameraPosition = camera.GetPosition();
+    const SceneEnvironmentData environment = CollectSceneEnvironmentData(scene);
     m_ClusterConstants.directionalLight = Vec4{-0.55f, -1.0f, -0.45f, 0.0f};
-    m_ClusterConstants.directionalColorAmbient = Vec4{1.0f, 1.0f, 1.0f, scene.GetAmbientIntensity()};
+    m_ClusterConstants.directionalColorAmbient = Vec4{1.0f, 1.0f, 1.0f, environment.environmentIntensity};
+    m_ClusterConstants.environmentLighting = Vec4{environment.environmentColor.x, environment.environmentColor.y,
+                                                  environment.environmentColor.z, environment.skyIntensity};
     scene.ForEach([this](Actor& actor) {
         if (m_ClusterConstants.directionalLight.w > 0.0f || !actor.IsActive())
             return;
@@ -1373,7 +1377,9 @@ bool ModernDeferredPipeline::Prepare(const Scene& scene, const Camera& camera, u
     m_ScreenSpaceConstants.previousViewProjection = m_GBufferConstants.previousViewProjection;
     m_ScreenSpaceConstants.historyValid = m_HistoryValid ? 1u : 0u;
     m_ScreenSpaceConstants.cameraPositionAmbient =
-        Vec4{camera.GetPosition().x, camera.GetPosition().y, camera.GetPosition().z, scene.GetAmbientIntensity()};
+        Vec4{camera.GetPosition().x, camera.GetPosition().y, camera.GetPosition().z, environment.environmentIntensity};
+    m_ScreenSpaceConstants.environmentColor =
+        Vec4{environment.environmentColor.x, environment.environmentColor.y, environment.environmentColor.z, 0.0f};
     const Vec3 previousCameraPosition = m_HasPreviousProjection ? m_PreviousCameraPosition : camera.GetPosition();
     m_ScreenSpaceConstants.previousCameraPosition =
         Vec4{previousCameraPosition.x, previousCameraPosition.y, previousCameraPosition.z, 0.0f};
@@ -1443,6 +1449,7 @@ bool ModernDeferredPipeline::Prepare(const Scene& scene, const Camera& camera, u
     m_RayTracingConstants.cameraPositionAmbient = m_ScreenSpaceConstants.cameraPositionAmbient;
     m_RayTracingConstants.lightDirectionIntensity = m_ClusterConstants.directionalLight;
     m_RayTracingConstants.lightColor = m_ClusterConstants.directionalColorAmbient;
+    m_RayTracingConstants.environmentColor = m_ClusterConstants.environmentLighting;
     m_RayTracingConstants.fullSize[0] = m_Width;
     m_RayTracingConstants.fullSize[1] = m_Height;
     m_RayTracingConstants.effectSize[0] = m_ScreenSpaceConstants.effectSize[0];
