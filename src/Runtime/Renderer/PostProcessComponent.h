@@ -83,6 +83,10 @@ public:
     void SetTAAEnabled(bool enabled) { m_TAAEnabled = enabled; }
     float GetTAAHistoryWeight() const { return m_TAAHistoryWeight; }
     void SetTAAHistoryWeight(float weight);
+    float GetTAAJitterSpread() const { return m_TAAJitterSpread; }
+    void SetTAAJitterSpread(float spread);
+    float GetTAAHistoryClipExpansion() const { return m_TAAHistoryClipExpansion; }
+    void SetTAAHistoryClipExpansion(float expansion);
 
     void Serialize(nlohmann::json& data) const override;
     void Deserialize(const nlohmann::json& data) override;
@@ -117,4 +121,6 @@ private:
     uint32_t m_SSRFilterRounds = 2;
     bool m_TAAEnabled = true;
     float m_TAAHistoryWeight = 0.9f;
+    float m_TAAJitterSpread = 1.0f;
+    float m_TAAHistoryClipExpansion = 0.0f;
 };

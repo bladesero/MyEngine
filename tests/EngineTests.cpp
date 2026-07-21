@@ -331,6 +331,8 @@ bool TestSceneSerializationRegression() {
     post->SetSSRFilterRounds(1);
     post->SetTAAEnabled(false);
     post->SetTAAHistoryWeight(0.84f);
+    post->SetTAAJitterSpread(0.65f);
+    post->SetTAAHistoryClipExpansion(1.25f);
 
     const std::string json = SceneSerializer::SaveToString(scene);
 
@@ -395,7 +397,9 @@ bool TestSceneSerializationRegression() {
                 NearlyEqual(loadedPost->GetSSRMaxRoughness(), 0.62f) &&
                 NearlyEqual(loadedPost->GetSSRHistoryWeight(), 0.73f) && loadedPost->GetSSRStepCount() == 56 &&
                 loadedPost->GetSSRFilterRounds() == 1 && !loadedPost->IsTAAEnabled() &&
-                NearlyEqual(loadedPost->GetTAAHistoryWeight(), 0.84f),
+                NearlyEqual(loadedPost->GetTAAHistoryWeight(), 0.84f) &&
+                NearlyEqual(loadedPost->GetTAAJitterSpread(), 0.65f) &&
+                NearlyEqual(loadedPost->GetTAAHistoryClipExpansion(), 1.25f),
             "PostProcess fields mismatch after deserialize"))
         return false;
 

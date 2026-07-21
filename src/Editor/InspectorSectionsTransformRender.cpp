@@ -530,6 +530,27 @@ public:
             CommitComponentEdit(context, *actor, *post, "ssrFilterRounds",
                                 [&] { post->SetSSRFilterRounds(static_cast<uint32_t>(ssrFilterRounds)); });
         }
+
+        ImGui::SeparatorText("TAA");
+        bool taaEnabled = post->IsTAAEnabled();
+        float taaHistoryWeight = post->GetTAAHistoryWeight();
+        float taaJitterSpread = post->GetTAAJitterSpread();
+        float taaHistoryClipExpansion = post->GetTAAHistoryClipExpansion();
+        if (ImGui::Checkbox("Enabled##TAA", &taaEnabled)) {
+            CommitComponentEdit(context, *actor, *post, "taaEnabled", [&] { post->SetTAAEnabled(taaEnabled); });
+        }
+        if (ImGui::DragFloat("History Weight##TAA", &taaHistoryWeight, 0.005f, 0.0f, 0.99f)) {
+            CommitComponentEdit(context, *actor, *post, "taaHistoryWeight",
+                                [&] { post->SetTAAHistoryWeight(taaHistoryWeight); });
+        }
+        if (ImGui::DragFloat("Jitter Spread##TAA", &taaJitterSpread, 0.01f, 0.0f, 2.0f)) {
+            CommitComponentEdit(context, *actor, *post, "taaJitterSpread",
+                                [&] { post->SetTAAJitterSpread(taaJitterSpread); });
+        }
+        if (ImGui::DragFloat("History Clip Expansion##TAA", &taaHistoryClipExpansion, 0.02f, 0.0f, 4.0f)) {
+            CommitComponentEdit(context, *actor, *post, "taaHistoryClipExpansion",
+                                [&] { post->SetTAAHistoryClipExpansion(taaHistoryClipExpansion); });
+        }
         if (EditorWidgets::IconButton("RemovePostProcess", "X", "Remove Post Process")) {
             RemoveComponentByType(context, *actor, "PostProcess");
         }

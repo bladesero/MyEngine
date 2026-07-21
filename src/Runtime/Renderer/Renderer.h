@@ -24,7 +24,16 @@ class ProbeLightingSystem;
 class RenderGraph;
 class UIDrawList;
 
-enum class RendererDebugView : uint8_t { Final, HDRLighting, HiZ, MotionVectors, SSGI, SSRConfidence };
+enum class RendererDebugView : uint8_t {
+    Final,
+    HDRLighting,
+    HiZ,
+    MotionVectors,
+    SSGI,
+    SSRConfidence,
+    TAAHistoryAge,
+    TAARejectReason
+};
 
 // ============================================================================
 // Renderer  minimal scene renderer for MeshRendererComponent

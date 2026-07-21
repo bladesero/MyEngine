@@ -170,7 +170,8 @@ void ModernDeferredPipeline::CommitTemporalFrame() {
     m_TAAResourcesInShaderState = m_TAAResourcesInShaderState || m_PostSettings.taaEnabled;
     m_EffectsResourceInShaderState =
         m_EffectsResourceInShaderState || m_PostSettings.ssgiEnabled || m_PostSettings.ssrEnabled;
-    m_ScreenSpaceDebugInShaderState = m_ScreenSpaceDebugInShaderState || m_SSGIDebugOutputSrv || m_SSRDebugOutputSrv;
+    m_ScreenSpaceDebugInShaderState =
+        m_ScreenSpaceDebugInShaderState || m_SSGIDebugOutputSrv || m_SSRDebugOutputSrv || m_PostSettings.taaEnabled;
     m_TemporalFramePending = false;
 }
 
@@ -278,6 +279,8 @@ void ModernDeferredPipeline::Resize(uint32_t width, uint32_t height) {
     m_ScreenSpaceDebug = {};
     m_SSGIDebugOutputSrv.reset();
     m_SSRDebugOutputSrv.reset();
+    m_TAAHistoryAgeDebugOutputSrv.reset();
+    m_TAARejectReasonDebugOutputSrv.reset();
     m_TAAHistory[0] = {};
     m_TAAHistory[1] = {};
     m_DepthHistory[0] = {};
@@ -290,6 +293,7 @@ void ModernDeferredPipeline::Resize(uint32_t width, uint32_t height) {
     m_FrameNormalHistoryRead = {};
     m_FrameNormalHistoryWrite = {};
     m_FrameEnvironment = {};
+    m_FrameScreenSpaceDebug = {};
     m_GeometryHistoryInShaderState = false;
     m_PostColorInShaderState = false;
     m_SSGIResourcesInShaderState = false;
@@ -666,6 +670,9 @@ void ModernDeferredPipeline::UpdateHistoryValidity(const Camera& camera, const M
              settings.ssrEnabled != m_PreviousPostSettings.ssrEnabled ||
              settings.taaEnabled != m_PreviousPostSettings.taaEnabled)
         reason = "screen-space effect toggle changed";
+    else if (settings.taaEnabled &&
+             !FloatsNearlyEqual(settings.taaJitterSpread, m_PreviousPostSettings.taaJitterSpread))
+        reason = "TAA jitter spread changed";
     else if (!FloatsNearlyEqual(settings.ssgiMaxDistance, m_PreviousPostSettings.ssgiMaxDistance) ||
              settings.ssgiStepCount != m_PreviousPostSettings.ssgiStepCount ||
              !FloatsNearlyEqual(settings.ssrMaxDistance, m_PreviousPostSettings.ssrMaxDistance) ||
@@ -825,6 +832,7 @@ bool ModernDeferredPipeline::Prepare(const Scene& scene, const Camera& camera, u
     m_FrameNormalHistoryRead = {};
     m_FrameNormalHistoryWrite = {};
     m_FrameEnvironment = {};
+    m_FrameScreenSpaceDebug = {};
     ConsumeDiagnosticsReadback();
     // These counters feed diagnostics only. Creating three committed readback resources every frame puts descriptor
     // and resource allocation noise directly on the render-submission p95 path. Sample once immediately and then at
@@ -873,8 +881,9 @@ bool ModernDeferredPipeline::Prepare(const Scene& scene, const Camera& camera, u
         // Advance the Halton phase only after a frame is successfully submitted. Global application frames can skip
         // a viewport or abort its graph; using frameNumber here makes those events appear as visible sample jumps.
         const uint32_t jitterIndex = (m_JitterSequenceIndex % 16u) + 1u;
-        const float jitterX = Halton(jitterIndex, 2u) - 0.5f;
-        const float jitterY = Halton(jitterIndex, 3u) - 0.5f;
+        const float jitterSpread = std::clamp(settings.taaJitterSpread, 0.0f, 2.0f);
+        const float jitterX = (Halton(jitterIndex, 2u) - 0.5f) * jitterSpread;
+        const float jitterY = (Halton(jitterIndex, 3u) - 0.5f) * jitterSpread;
         jitterUv[0] = jitterX / static_cast<float>(m_Width);
         jitterUv[1] = jitterY / static_cast<float>(m_Height);
         if (camera.GetProjectionMode() == ProjectionMode::Perspective) {
@@ -967,6 +976,7 @@ bool ModernDeferredPipeline::Prepare(const Scene& scene, const Camera& camera, u
     m_ScreenSpaceConstants.ssrMaxRoughness = settings.ssrMaxRoughness;
     m_ScreenSpaceConstants.ssrHistoryWeight = settings.ssrHistoryWeight;
     m_ScreenSpaceConstants.taaHistoryWeight = settings.taaHistoryWeight;
+    m_ScreenSpaceConstants.taaHistoryClipExpansion = settings.taaHistoryClipExpansion;
     m_ScreenSpaceConstants.exposure = settings.exposure;
     m_ScreenSpaceConstants.gamma = settings.gamma;
     m_ScreenSpaceConstants.bloomThreshold = settings.bloomThreshold;
@@ -1872,11 +1882,14 @@ RGTextureHandle ModernDeferredPipeline::AddScreenSpaceEffects(
     const bool debugSSGI = debugMode == ScreenSpaceDebugMode::SSGI && m_PostSettings.ssgiEnabled;
     const bool debugSSR = debugMode == ScreenSpaceDebugMode::SSRConfidence && m_PostSettings.ssrEnabled;
     if (debugSSGI || debugSSR) {
-        const RHIResourceState debugInitial =
-            m_ScreenSpaceDebugInShaderState ? RHIResourceState::ShaderResource : RHIResourceState::Undefined;
-        const auto debugOutput =
-            graph.ImportTexture("ModernScreenSpaceDebug", m_ScreenSpaceDebug.texture, m_ScreenSpaceDebug.srv,
-                                debugInitial, RHIResourceState::ShaderResource);
+        if (!m_FrameScreenSpaceDebug.IsValid()) {
+            const RHIResourceState debugInitial =
+                m_ScreenSpaceDebugInShaderState ? RHIResourceState::ShaderResource : RHIResourceState::Undefined;
+            m_FrameScreenSpaceDebug =
+                graph.ImportTexture("ModernScreenSpaceDebug", m_ScreenSpaceDebug.texture, m_ScreenSpaceDebug.srv,
+                                    debugInitial, RHIResourceState::ShaderResource);
+        }
+        const RGTextureHandle debugOutput = m_FrameScreenSpaceDebug;
         ScreenSpaceConstants debugConstants = m_ScreenSpaceConstants;
         debugConstants.effectMode = debugSSGI ? 4u : 8u;
         graph.AddComputePass(
@@ -1929,7 +1942,9 @@ RGTextureHandle ModernDeferredPipeline::AddTemporalPostProcess(
     RenderGraph& graph, RGTextureHandle input, const std::shared_ptr<GpuTextureView>& inputSrv,
     RGTextureHandle sceneDepth, const std::shared_ptr<GpuTextureView>& sceneDepthSrv, RGTextureHandle gbufferNormal,
     const std::shared_ptr<GpuTextureView>& gbufferNormalSrv, RGTextureHandle gbufferVelocity,
-    const std::shared_ptr<GpuTextureView>& gbufferVelocitySrv) {
+    const std::shared_ptr<GpuTextureView>& gbufferVelocitySrv, ScreenSpaceDebugMode debugMode) {
+    m_TAAHistoryAgeDebugOutputSrv.reset();
+    m_TAARejectReasonDebugOutputSrv.reset();
     const uint32_t readHistory = m_HistoryPing;
     const uint32_t writeHistory = 1u - readHistory;
     const RHIResourceState geometryInitial =
@@ -1963,9 +1978,20 @@ RGTextureHandle ModernDeferredPipeline::AddTemporalPostProcess(
         const auto taaWrite =
             graph.ImportTexture("TAAHistoryWrite", m_TAAHistory[writeHistory].texture, m_TAAHistory[writeHistory].srv,
                                 taaInitial, RHIResourceState::ShaderResource);
+        if (!m_FrameScreenSpaceDebug.IsValid()) {
+            const RHIResourceState debugInitial =
+                m_ScreenSpaceDebugInShaderState ? RHIResourceState::ShaderResource : RHIResourceState::Undefined;
+            m_FrameScreenSpaceDebug =
+                graph.ImportTexture("ModernScreenSpaceDebug", m_ScreenSpaceDebug.texture, m_ScreenSpaceDebug.srv,
+                                    debugInitial, RHIResourceState::ShaderResource);
+        }
         ScreenSpaceConstants taaConstants = m_ScreenSpaceConstants;
         taaConstants.effectSize[0] = m_Width;
         taaConstants.effectSize[1] = m_Height;
+        if (debugMode == ScreenSpaceDebugMode::TAAHistoryAge)
+            taaConstants.effectMode = 16u;
+        else if (debugMode == ScreenSpaceDebugMode::TAARejectReason)
+            taaConstants.effectMode = 32u;
         graph.AddComputePass(
             "TemporalAntiAliasing",
             [this, input, taaRead, taaWrite, sceneDepth, gbufferNormal, gbufferVelocity](RenderGraphBuilder& builder) {
@@ -1977,6 +2003,7 @@ RGTextureHandle ModernDeferredPipeline::AddTemporalPostProcess(
                 builder.ReadTexture(m_FrameDepthHistoryRead);
                 builder.ReadTexture(m_FrameNormalHistoryRead);
                 builder.ReadWriteUAV(taaWrite);
+                builder.ReadWriteUAV(m_FrameScreenSpaceDebug);
             },
             [this, inputSrv, sceneDepthSrv, gbufferNormalSrv, gbufferVelocitySrv, readHistory, writeHistory,
              taaConstants](GpuCommandList& commands, const RenderGraphResources&) {
@@ -1995,12 +2022,17 @@ RGTextureHandle ModernDeferredPipeline::AddTemporalPostProcess(
                 bindings->SetSampler("g_LinearSampler", m_LinearClampSampler);
                 bindings->SetSampler("g_PointSampler", m_PointClampSampler);
                 bindings->SetStorageTexture("g_Output", m_TAAHistory[writeHistory].uav);
+                bindings->SetStorageTexture("g_TAADebugOutput", m_ScreenSpaceDebug.uav);
                 if (!BindModernPass(commands, "ModernTAA", bindings))
                     return;
                 commands.Dispatch((m_Width + 7u) / 8u, (m_Height + 7u) / 8u, 1);
             });
         toneInput = taaWrite;
         toneInputSrv = m_TAAHistory[writeHistory].srv;
+        if (debugMode == ScreenSpaceDebugMode::TAAHistoryAge)
+            m_TAAHistoryAgeDebugOutputSrv = m_ScreenSpaceDebug.srv;
+        else if (debugMode == ScreenSpaceDebugMode::TAARejectReason)
+            m_TAARejectReasonDebugOutputSrv = m_ScreenSpaceDebug.srv;
     }
     const ScreenSpaceConstants toneConstants = m_ScreenSpaceConstants;
     graph.AddComputePass(

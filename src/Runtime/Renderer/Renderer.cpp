@@ -62,6 +62,8 @@ PostProcessRuntimeOptions CollectPostProcessOptions(const Scene& scene) {
         options.modern.ssrStepCount = post->GetSSRStepCount();
         options.modern.ssrFilterRounds = post->GetSSRFilterRounds();
         options.modern.taaHistoryWeight = post->GetTAAHistoryWeight();
+        options.modern.taaJitterSpread = post->GetTAAJitterSpread();
+        options.modern.taaHistoryClipExpansion = post->GetTAAHistoryClipExpansion();
         options.modern.exposure = post->GetExposure();
         options.modern.gamma = post->GetGamma();
         options.modern.bloomThreshold = post->GetBloomThreshold();
@@ -69,6 +71,21 @@ PostProcessRuntimeOptions CollectPostProcessOptions(const Scene& scene) {
         found = true;
     });
     return options;
+}
+
+ModernDeferredPipeline::ScreenSpaceDebugMode ResolveModernScreenSpaceDebugMode(RendererDebugView view) {
+    switch (view) {
+    case RendererDebugView::SSGI:
+        return ModernDeferredPipeline::ScreenSpaceDebugMode::SSGI;
+    case RendererDebugView::SSRConfidence:
+        return ModernDeferredPipeline::ScreenSpaceDebugMode::SSRConfidence;
+    case RendererDebugView::TAAHistoryAge:
+        return ModernDeferredPipeline::ScreenSpaceDebugMode::TAAHistoryAge;
+    case RendererDebugView::TAARejectReason:
+        return ModernDeferredPipeline::ScreenSpaceDebugMode::TAARejectReason;
+    default:
+        return ModernDeferredPipeline::ScreenSpaceDebugMode::None;
+    }
 }
 
 Vec3 CollectEnvironmentSunDirection(const Scene& scene) {
@@ -769,11 +786,7 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
                     *m_RenderGraph, compositeInput, compositeOverride, sceneDepth, postResources.sceneDepthSrv,
                     gbufferAlbedo, gbufferResources.albedoSrv, gbufferNormal, gbufferResources.normalSrv,
                     gbufferMaterial, gbufferResources.materialSrv, gbufferVelocity, gbufferResources.velocitySrv,
-                    modernHiZ,
-                    m_DebugView == RendererDebugView::SSGI ? ModernDeferredPipeline::ScreenSpaceDebugMode::SSGI
-                    : m_DebugView == RendererDebugView::SSRConfidence
-                        ? ModernDeferredPipeline::ScreenSpaceDebugMode::SSRConfidence
-                        : ModernDeferredPipeline::ScreenSpaceDebugMode::None);
+                    modernHiZ, ResolveModernScreenSpaceDebugMode(m_DebugView));
                 compositeOverride = m_ModernDeferredPipeline->GetEffectsHdrSrv();
             } else {
                 m_RenderGraph->AddPass(
@@ -845,7 +858,8 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
                 // Transparent rendering targets the effects HDR texture. Temporal AA and compute post run after it.
                 compositeInput = m_ModernDeferredPipeline->AddTemporalPostProcess(
                     *m_RenderGraph, compositeInput, compositeOverride, sceneDepth, postResources.sceneDepthSrv,
-                    gbufferNormal, gbufferResources.normalSrv, gbufferVelocity, gbufferResources.velocitySrv);
+                    gbufferNormal, gbufferResources.normalSrv, gbufferVelocity, gbufferResources.velocitySrv,
+                    ResolveModernScreenSpaceDebugMode(m_DebugView));
                 compositeOverride = m_ModernDeferredPipeline->GetFinalPostSrv();
             }
         } else {
@@ -1169,6 +1183,13 @@ GpuTextureView* Renderer::GetSceneColorView() const {
             return m_ModernDeferredPipeline->GetSSGIDebugSrv().get();
         if (m_DebugView == RendererDebugView::SSRConfidence && m_ModernDeferredPipeline->GetSSRDebugSrv())
             return m_ModernDeferredPipeline->GetSSRDebugSrv().get();
+        if (m_DebugView == RendererDebugView::TAAHistoryAge && m_ModernDeferredPipeline->GetTAAHistoryAgeDebugSrv()) {
+            return m_ModernDeferredPipeline->GetTAAHistoryAgeDebugSrv().get();
+        }
+        if (m_DebugView == RendererDebugView::TAARejectReason &&
+            m_ModernDeferredPipeline->GetTAARejectReasonDebugSrv()) {
+            return m_ModernDeferredPipeline->GetTAARejectReasonDebugSrv().get();
+        }
     }
     return m_PostProcessPass ? m_PostProcessPass->GetSceneColorView() : nullptr;
 }

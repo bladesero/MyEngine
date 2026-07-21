@@ -939,6 +939,11 @@ bool TestEditorOperatorsSelectionAndCommands() {
             [&] { return NearlyEqual(post->GetSSRHistoryWeight(), 0.72f); },
             [&] { return NearlyEqual(post->GetSSRHistoryWeight(), 0.9f); }, "post process SSR"))
         return false;
+    if (!verifyPropertyEdit(
+            *post, "PostProcess", "taaHistoryClipExpansion", [&] { post->SetTAAHistoryClipExpansion(1.5f); },
+            [&] { return NearlyEqual(post->GetTAAHistoryClipExpansion(), 1.5f); },
+            [&] { return NearlyEqual(post->GetTAAHistoryClipExpansion(), 0.0f); }, "post process TAA"))
+        return false;
 
     auto* canvas = actor->AddComponent<UICanvasComponent>();
     auto* rect = actor->AddComponent<UIRectTransformComponent>();

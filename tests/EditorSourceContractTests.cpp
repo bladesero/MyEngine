@@ -941,6 +941,13 @@ bool TestEditorOperatorSourceContracts() {
                    inspectorSections.find("actor->AddComponent<ScriptComponent>()") == std::string::npos,
                "InspectorSections do not route component edits through operators"))
         return false;
+    if (!Check(inspectorSections.find("ImGui::SeparatorText(\"TAA\")") != std::string::npos &&
+                   inspectorSections.find("ImGui::Checkbox(\"Enabled##TAA\"") != std::string::npos &&
+                   inspectorSections.find("\"taaHistoryWeight\"") != std::string::npos &&
+                   inspectorSections.find("\"taaJitterSpread\"") != std::string::npos &&
+                   inspectorSections.find("\"taaHistoryClipExpansion\"") != std::string::npos,
+               "Post Process Inspector does not expose the Modern TAA switch and tuning parameters"))
+        return false;
     if (!Check(
             viewportPolicy.find("ImGui::GetMainViewport()") != std::string::npos &&
                 viewportPolicy.find("ImGui::GetWindowViewport()") != std::string::npos &&

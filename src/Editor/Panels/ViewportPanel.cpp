@@ -188,12 +188,18 @@ bool SceneViewportPanel::DrawSceneViewOverlay(EditorContext& context, SceneViewp
 
         ImGui::Separator();
         if (SceneRenderLayer* sceneLayer = context.GetSceneLayer()) {
-            static constexpr const char* debugViews[] = {"Final",          "HDR Lighting", "HiZ Min/Max",
-                                                         "Motion Vectors", "SSGI",         "SSR Confidence"};
+            static constexpr const char* debugViews[] = {
+                "Final", "HDR Lighting",   "HiZ Min/Max",     "Motion Vectors",
+                "SSGI",  "SSR Confidence", "TAA History Age", "TAA Reject Reason"};
             int debugView = static_cast<int>(sceneLayer->GetSceneDebugView());
             ImGui::SetNextItemWidth(145.0f);
             if (ImGui::Combo("Debug View", &debugView, debugViews, static_cast<int>(std::size(debugViews))))
                 sceneLayer->SetSceneDebugView(static_cast<RendererDebugView>(debugView));
+            if (debugView == static_cast<int>(RendererDebugView::TAAHistoryAge))
+                ImGui::TextDisabled("Red: 1  Yellow: 60  Green: 120+");
+            else if (debugView == static_cast<int>(RendererDebugView::TAARejectReason))
+                ImGui::TextDisabled(
+                    "Green direct | Cyan rescue | Teal retained | Purple motion guard | Red depth | Magenta normal");
         }
         ImGui::Separator();
         const bool canEditSelection = context.CanEditSelection();

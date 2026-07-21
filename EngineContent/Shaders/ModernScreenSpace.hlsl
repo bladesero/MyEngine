@@ -25,13 +25,14 @@ cbuffer ScreenSpaceConstants : register(b0)
     float g_SSRMaxRoughness;
     float g_SSRHistoryWeight;
     float g_TAAHistoryWeight;
+    float g_TAAHistoryClipExpansion;
     float g_Exposure;
     float g_Gamma;
     float g_BloomThreshold;
     float g_BloomIntensity;
     uint g_SSGIStepCount;
     uint g_SSRStepCount;
-    uint3 g_ScreenSpacePadding;
+    uint2 g_ScreenSpacePadding;
 };
 
 #include "ModernReflection.hlsli"
@@ -54,6 +55,7 @@ SamplerState g_PointSampler : register(s1);
 RWTexture2D<float4> g_Output : register(u0);
 RWTexture2D<float> g_DepthHistoryOutput : register(u1);
 RWTexture2D<float4> g_NormalHistoryOutput : register(u2);
+RWTexture2D<float4> g_TAADebugOutput : register(u3);
 
 float Hash12(float2 p)
 {
@@ -746,6 +748,335 @@ float GatherReactiveMask(int2 pixel)
     return reactive;
 }
 
+static const uint TAA_HISTORY_REJECTED = 0u;
+static const uint TAA_HISTORY_DIRECT = 1u;
+static const uint TAA_HISTORY_COVERAGE_RESCUE = 2u;
+static const uint TAA_HISTORY_RETAINED = 3u;
+
+float TAAWorldPixelFootprint(float2 currentUv, float currentDepth, float3 currentWorld)
+{
+    const float2 minimumUv = g_FullTexelSize * 0.5f;
+    const float2 maximumUv = float2(1.0f, 1.0f) - minimumUv;
+    const float2 xUv = clamp(currentUv + float2(g_FullTexelSize.x, 0.0f), minimumUv, maximumUv);
+    const float2 yUv = clamp(currentUv + float2(0.0f, g_FullTexelSize.y), minimumUv, maximumUv);
+    const float3 xWorld = ReconstructWorldPositionUv(xUv, currentDepth, g_InverseViewProjection);
+    const float3 yWorld = ReconstructWorldPositionUv(yUv, currentDepth, g_InverseViewProjection);
+    return max(max(length(xWorld - currentWorld), length(yWorld - currentWorld)), 1e-3f);
+}
+
+float TAANonJitterMotionPixels(int2 samplePixel, float sampleDepth)
+{
+    const float2 sampleUv = (float2(samplePixel) + 0.5f) * g_FullTexelSize;
+    float2 sampleHistoryUv;
+    if (sampleDepth >= 0.999999f)
+    {
+        float2 previousGeometryUv;
+        if (!ReprojectBackgroundUv(sampleUv, previousGeometryUv))
+            return 1e6f;
+        sampleHistoryUv = previousGeometryUv + JitterDeltaUv();
+    }
+    else
+    {
+        const float2 sampleVelocity = g_Velocity.Load(int3(samplePixel, 0));
+        sampleHistoryUv = StableHistoryUv(sampleUv, sampleVelocity);
+    }
+    return length((sampleUv - sampleHistoryUv) * float2(g_FullSize));
+}
+
+void TAAAnalyzeCurrentSurface(int2 pixel, bool currentBackground, float3 currentWorld, float3 currentNormal,
+                              float pixelFootprint, out bool coverageEdge, out float3 normalConeAxis,
+                              out float normalConeCosine, out float normalGradient, out float strongNormalThreshold,
+                              out float retainedNormalThreshold, out float localMaximumMotionPixels)
+{
+    coverageEdge = false;
+    float minimumConnectedNormalDot = 1.0f;
+    float3 weightedNormal = 0.0f.xxx;
+    float normalWeight = 0.0f;
+    localMaximumMotionPixels = 0.0f;
+    const float planeThreshold = max(0.01f, pixelFootprint * 1.25f);
+    const float tangentThreshold = max(0.01f, pixelFootprint * 2.25f);
+    [unroll]
+    for (int y = -1; y <= 1; ++y)
+    [unroll]
+    for (int x = -1; x <= 1; ++x)
+    {
+        const int2 samplePixel = clamp(pixel + int2(x, y), int2(0, 0), int2(g_FullSize) - 1);
+        const float sampleDepth = g_Depth.Load(int3(samplePixel, 0));
+        const bool sampleBackground = sampleDepth >= 0.999999f;
+        localMaximumMotionPixels = max(localMaximumMotionPixels,
+                                       TAANonJitterMotionPixels(samplePixel, sampleDepth));
+        if (currentBackground)
+        {
+            coverageEdge = coverageEdge || !sampleBackground;
+            continue;
+        }
+        if (sampleBackground)
+        {
+            coverageEdge = true;
+            continue;
+        }
+
+        const float2 sampleUv = (float2(samplePixel) + 0.5f) * g_FullTexelSize;
+        const float3 sampleWorld = ReconstructWorldPositionUv(sampleUv, sampleDepth, g_InverseViewProjection);
+        const float3 worldDelta = sampleWorld - currentWorld;
+        const float signedPlaneDistance = dot(worldDelta, currentNormal);
+        const float planeDistance = abs(signedPlaneDistance);
+        const float tangentDistance = length(worldDelta - currentNormal * signedPlaneDistance);
+        const bool connected = planeDistance <= planeThreshold && tangentDistance <= tangentThreshold;
+        if (!connected)
+        {
+            coverageEdge = true;
+            continue;
+        }
+        const float3 sampleNormal = DecodeWorldNormal(g_Normal.Load(int3(samplePixel, 0)).xyz);
+        minimumConnectedNormalDot = min(minimumConnectedNormalDot, dot(currentNormal, sampleNormal));
+        const float spatialWeight = (x == 0 ? 2.0f : 1.0f) * (y == 0 ? 2.0f : 1.0f);
+        weightedNormal += sampleNormal * spatialWeight;
+        normalWeight += spatialWeight;
+    }
+    const float weightedNormalLengthSquared = dot(weightedNormal, weightedNormal);
+    normalConeAxis = normalWeight > 0.0f && weightedNormalLengthSquared > 1e-8f
+                         ? weightedNormal * rsqrt(weightedNormalLengthSquared)
+                         : currentNormal;
+    normalConeCosine = 1.0f;
+    if (!currentBackground)
+    {
+        [unroll]
+        for (int y = -1; y <= 1; ++y)
+        [unroll]
+        for (int x = -1; x <= 1; ++x)
+        {
+            const int2 samplePixel = clamp(pixel + int2(x, y), int2(0, 0), int2(g_FullSize) - 1);
+            const float sampleDepth = g_Depth.Load(int3(samplePixel, 0));
+            if (sampleDepth >= 0.999999f)
+                continue;
+            const float2 sampleUv = (float2(samplePixel) + 0.5f) * g_FullTexelSize;
+            const float3 sampleWorld = ReconstructWorldPositionUv(sampleUv, sampleDepth, g_InverseViewProjection);
+            const float3 worldDelta = sampleWorld - currentWorld;
+            const float signedPlaneDistance = dot(worldDelta, currentNormal);
+            const float planeDistance = abs(signedPlaneDistance);
+            const float tangentDistance = length(worldDelta - currentNormal * signedPlaneDistance);
+            if (planeDistance > planeThreshold || tangentDistance > tangentThreshold)
+                continue;
+            const float3 sampleNormal = DecodeWorldNormal(g_Normal.Load(int3(samplePixel, 0)).xyz);
+            normalConeCosine = min(normalConeCosine, dot(normalConeAxis, sampleNormal));
+        }
+    }
+    normalGradient = saturate(1.0f - minimumConnectedNormalDot);
+    strongNormalThreshold = clamp(minimumConnectedNormalDot - 0.02f, 0.82f, 0.90f);
+    retainedNormalThreshold = max(0.75f, strongNormalThreshold - 0.08f);
+}
+
+uint TAAEvaluatePreviousSurface(float2 sampleUv, bool currentBackground, float3 currentWorld,
+                                float3 currentNormal, float pixelFootprint, float3 normalConeAxis,
+                                float normalConeCosine, float strongNormalThreshold, float retainedNormalThreshold,
+                                bool jitterOnlySurface, out float matchScore, out bool retainedDepthValid,
+                                out bool retainedNormalValid)
+{
+    const float previousDepth = g_PreviousDepth.SampleLevel(g_PointSampler, sampleUv, 0.0f);
+    if (currentBackground)
+    {
+        const bool backgroundMatch = previousDepth >= 0.999999f;
+        matchScore = backgroundMatch ? 1.0f : 0.0f;
+        retainedDepthValid = backgroundMatch;
+        retainedNormalValid = true;
+        return backgroundMatch ? 2u : 0u;
+    }
+    if (previousDepth >= 0.999999f)
+    {
+        matchScore = 0.0f;
+        retainedDepthValid = false;
+        retainedNormalValid = false;
+        return 0u;
+    }
+
+    const float3 previousWorld =
+        ReconstructWorldPositionUv(sampleUv, previousDepth, g_PreviousInverseViewProjection);
+    const float3 worldDelta = previousWorld - currentWorld;
+    const float signedPlaneDistance = dot(worldDelta, currentNormal);
+    const float planeDistance = abs(signedPlaneDistance);
+    const float tangentDistance = length(worldDelta - currentNormal * signedPlaneDistance);
+    const float strongPlaneThreshold =
+        max(0.01f, pixelFootprint * (jitterOnlySurface ? 0.75f : 0.5f));
+    const float strongTangentThreshold =
+        max(0.01f, pixelFootprint * (jitterOnlySurface ? 1.75f : 1.0f));
+    const float retainedPlaneThreshold = max(0.01f, pixelFootprint * 1.25f);
+    const float retainedTangentThreshold = max(0.01f, pixelFootprint * 2.25f);
+    retainedDepthValid = planeDistance <= retainedPlaneThreshold && tangentDistance <= retainedTangentThreshold;
+
+    const float3 previousNormal =
+        DecodeWorldNormal(g_PreviousNormal.SampleLevel(g_PointSampler, sampleUv, 0.0f).xyz);
+    const float normalDot = dot(currentNormal, previousNormal);
+    const bool normalConeUsable = normalConeCosine >= 0.75f;
+    const float coneNormalDot = dot(normalConeAxis, previousNormal);
+    const float strongConeThreshold = max(0.72f, normalConeCosine - 0.03f);
+    const float retainedConeThreshold = max(0.67f, normalConeCosine - 0.08f);
+    const bool strongConeValid = normalConeUsable && coneNormalDot >= strongConeThreshold;
+    const bool retainedConeValid = normalConeUsable && coneNormalDot >= retainedConeThreshold;
+    retainedNormalValid = normalDot >= retainedNormalThreshold || retainedConeValid;
+    const bool strongDepthValid = planeDistance <= strongPlaneThreshold && tangentDistance <= strongTangentThreshold;
+    const bool strongNormalValid = jitterOnlySurface ? (normalDot >= strongNormalThreshold || strongConeValid)
+                                                     : normalDot >= 0.90f;
+
+    const float planeScore = 1.0f - saturate(planeDistance / retainedPlaneThreshold);
+    const float tangentScore = 1.0f - saturate(tangentDistance / retainedTangentThreshold);
+    const float centerNormalScore = saturate((normalDot - retainedNormalThreshold) /
+                                             max(1.0f - retainedNormalThreshold, 1e-4f));
+    const float coneNormalScore = normalConeUsable
+                                      ? saturate((coneNormalDot - retainedConeThreshold) /
+                                                 max(1.0f - retainedConeThreshold, 1e-4f))
+                                      : 0.0f;
+    const float normalScore = jitterOnlySurface ? max(centerNormalScore, coneNormalScore) : centerNormalScore;
+    matchScore = planeScore * 0.45f + tangentScore * 0.25f + normalScore * 0.30f;
+    if (strongDepthValid && strongNormalValid)
+        return 2u;
+    return jitterOnlySurface && retainedDepthValid && retainedNormalValid ? 1u : 0u;
+}
+
+uint TAAFindNeighborhoodSurfaceMatch(float2 previousGeometryUv, bool currentBackground, bool coverageEdge,
+                                      float3 currentWorld, float3 currentNormal, float pixelFootprint,
+                                      float3 normalConeAxis, float normalConeCosine, float strongNormalThreshold,
+                                      float retainedNormalThreshold, out float bestMatchScore)
+{
+    if (currentBackground && !coverageEdge)
+    {
+        bestMatchScore = 0.0f;
+        return 0u;
+    }
+    const int2 centerPixel = clamp(int2(previousGeometryUv * float2(g_FullSize)), int2(0, 0),
+                                   int2(g_FullSize) - 1);
+    uint bestMatchLevel = 0u;
+    float bestRank = -1e30f;
+    bestMatchScore = 0.0f;
+    [unroll]
+    for (int y = -1; y <= 1; ++y)
+    [unroll]
+    for (int x = -1; x <= 1; ++x)
+    {
+        const int2 offset = int2(x, y);
+        const int2 samplePixel = clamp(centerPixel + offset, int2(0, 0), int2(g_FullSize) - 1);
+        const float2 sampleUv = (float2(samplePixel) + 0.5f) * g_FullTexelSize;
+        float matchScore;
+        bool retainedDepthValid;
+        bool retainedNormalValid;
+        const uint matchLevel = TAAEvaluatePreviousSurface(
+            sampleUv, currentBackground, currentWorld, currentNormal, pixelFootprint, normalConeAxis,
+            normalConeCosine, strongNormalThreshold, retainedNormalThreshold, true, matchScore, retainedDepthValid,
+            retainedNormalValid);
+        // Offset affects only which witness wins. Once accepted, every witness produces the same temporal color weight.
+        const float rank = float(matchLevel) * 2.0f + matchScore - 0.05f * dot(float2(offset), float2(offset));
+        if (matchLevel > 0u && rank > bestRank)
+        {
+            bestRank = rank;
+            bestMatchLevel = matchLevel;
+            bestMatchScore = matchScore;
+        }
+    }
+    return bestMatchLevel;
+}
+
+void TAASurfaceAwareStatistics(int2 pixel, bool currentBackground, float3 currentWorld, float3 currentNormal,
+                               float pixelFootprint, float3 normalConeAxis, float normalConeCosine,
+                               float retainedNormalThreshold, bool coverageEdge, out float3 minimum,
+                               out float3 maximum, out float3 mean, out float3 variance)
+{
+    minimum = 1e30f.xxx;
+    maximum = -1e30f.xxx;
+    mean = 0.0f.xxx;
+    float3 secondMoment = 0.0f.xxx;
+    float weightSum = 0.0f;
+    const float planeThreshold = max(0.01f, pixelFootprint * 1.25f);
+    const float tangentThreshold = max(0.01f, pixelFootprint * 2.25f);
+    [unroll]
+    for (int y = -1; y <= 1; ++y)
+    [unroll]
+    for (int x = -1; x <= 1; ++x)
+    {
+        const int2 samplePixel = clamp(pixel + int2(x, y), int2(0, 0), int2(g_FullSize) - 1);
+        const float sampleDepth = g_Depth.Load(int3(samplePixel, 0));
+        const bool sampleBackground = sampleDepth >= 0.999999f;
+        bool includeSample = sampleBackground;
+        if (currentBackground)
+        {
+            includeSample = sampleBackground || coverageEdge;
+        }
+        else if (!sampleBackground)
+        {
+            const float2 sampleUv = (float2(samplePixel) + 0.5f) * g_FullTexelSize;
+            const float3 sampleWorld = ReconstructWorldPositionUv(sampleUv, sampleDepth, g_InverseViewProjection);
+            const float3 worldDelta = sampleWorld - currentWorld;
+            const float signedPlaneDistance = dot(worldDelta, currentNormal);
+            const float planeDistance = abs(signedPlaneDistance);
+            const float tangentDistance = length(worldDelta - currentNormal * signedPlaneDistance);
+            const float3 sampleNormal = DecodeWorldNormal(g_Normal.Load(int3(samplePixel, 0)).xyz);
+            const bool normalConeUsable = normalConeCosine >= 0.75f;
+            const bool normalConnected =
+                normalConeUsable ? dot(normalConeAxis, sampleNormal) >= max(0.72f, normalConeCosine - 0.03f)
+                                 : dot(currentNormal, sampleNormal) >= retainedNormalThreshold;
+            includeSample = planeDistance <= planeThreshold && tangentDistance <= tangentThreshold &&
+                            normalConnected;
+        }
+        else
+        {
+            includeSample = coverageEdge;
+        }
+        if (!includeSample)
+            continue;
+
+        const float spatialWeight = (x == 0 ? 2.0f : 1.0f) * (y == 0 ? 2.0f : 1.0f);
+        const float3 value = RGBToYCoCg(g_Current.Load(int3(samplePixel, 0)).rgb);
+        minimum = min(minimum, value);
+        maximum = max(maximum, value);
+        mean += value * spatialWeight;
+        secondMoment += value * value * spatialWeight;
+        weightSum += spatialWeight;
+    }
+    if (weightSum <= 0.0f)
+    {
+        const float3 value = RGBToYCoCg(g_Current.Load(int3(pixel, 0)).rgb);
+        minimum = value;
+        maximum = value;
+        mean = value;
+        variance = 0.0f.xxx;
+        return;
+    }
+    mean /= weightSum;
+    variance = max(secondMoment / weightSum - mean * mean, 0.0f.xxx);
+}
+
+float3 TAAClipHistoryToAabb(float3 history, float3 center, float3 extent)
+{
+    const float3 delta = history - center;
+    const float3 normalizedDelta = abs(delta) / max(extent, 1e-5f.xxx);
+    const float maximumComponent = max(normalizedDelta.x, max(normalizedDelta.y, normalizedDelta.z));
+    return center + delta / max(maximumComponent, 1.0f);
+}
+
+float3 TAAHistoryAgeDebugColor(float historyAge)
+{
+    // Red -> yellow -> green. Reaching solid green means this texel accumulated at least 120 consecutive frames.
+    const float age120 = saturate(historyAge / 120.0f);
+    return float3(saturate(2.0f - 2.0f * age120), saturate(2.0f * age120), 0.0f);
+}
+
+float3 TAARejectReasonDebugColor(uint reason, float historyWeight)
+{
+    // Green: direct, cyan: coverage rescue, teal: retained, gray: no history, orange: reprojection, blue: background,
+    // red: depth/surface, magenta: normal, white: reactive, yellow: no acceptable surface match, purple: motion guard.
+    float3 color = float3(0.0f, 1.0f, 0.0f);
+    if (reason == 1u) color = float3(0.0f, 1.0f, 1.0f);
+    else if (reason == 2u) color = 0.25f.xxx;
+    else if (reason == 3u) color = float3(1.0f, 0.35f, 0.0f);
+    else if (reason == 4u) color = float3(0.0f, 0.25f, 1.0f);
+    else if (reason == 5u) color = float3(1.0f, 0.0f, 0.0f);
+    else if (reason == 6u) color = float3(1.0f, 0.0f, 1.0f);
+    else if (reason == 7u) color = 1.0f.xxx;
+    else if (reason == 8u) color = float3(1.0f, 1.0f, 0.0f);
+    else if (reason == 9u) color = float3(0.0f, 0.75f, 0.5f);
+    else if (reason == 10u) color = float3(0.55f, 0.15f, 1.0f);
+    return color * lerp(0.35f, 1.0f, saturate(historyWeight));
+}
+
 [numthreads(8, 8, 1)]
 void CSTAA(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
@@ -765,61 +1096,154 @@ void CSTAA(uint3 dispatchThreadId : SV_DispatchThreadID)
     // must retain raster-space coordinates to reconstruct the same surface sample.
     float2 historyUv = currentBackground ? previousGeometryUv + JitterDeltaUv()
                                          : StableHistoryUv(currentUv, rasterVelocity);
-    bool valid = g_HistoryValid != 0 && all(historyUv >= 0.0f) && all(historyUv <= 1.0f) &&
-                 all(previousGeometryUv >= 0.0f) && all(previousGeometryUv <= 1.0f);
-    valid = valid && backgroundReprojectionValid;
-    float4 history = valid ? g_History.SampleLevel(g_LinearSampler, historyUv, 0.0f) : current;
-    const float previousDepth = g_PreviousDepth.SampleLevel(g_PointSampler, previousGeometryUv, 0.0f);
-    if (currentBackground)
+    const bool historyEnabled = g_HistoryValid != 0;
+    const bool historyUvValid = all(historyUv >= 0.0f) && all(historyUv <= 1.0f);
+    const bool geometryUvValid = all(previousGeometryUv >= 0.0f) && all(previousGeometryUv <= 1.0f);
+    const bool baseValid = historyEnabled && historyUvValid && geometryUvValid && backgroundReprojectionValid;
+    float4 history = baseValid ? g_History.SampleLevel(g_LinearSampler, historyUv, 0.0f) : current;
+
+    const float centerNonJitterMotionPixels = length((currentUv - historyUv) * float2(g_FullSize));
+    float previousAge = 0.0f;
+    float previousReactive = 0.0f;
+    if (baseValid)
     {
-        // Require a previous background sample so foreground silhouettes cannot leak into the sky history.
-        valid = valid && previousDepth >= 0.999999f;
+        const float historyMetadata = g_History.SampleLevel(g_PointSampler, historyUv, 0.0f).a;
+        DecodeTaaMetadata(historyMetadata, previousAge, previousReactive);
     }
-    else
+    const bool establishedHistory = previousAge >= 4.0f;
+
+    float3 currentWorld = 0.0f.xxx;
+    float3 currentNormal = float3(0.0f, 0.0f, 1.0f);
+    float pixelFootprint = 1.0f;
+    if (!currentBackground)
     {
-        const float3 currentWorld =
-            ReconstructWorldPositionUv(currentUv, currentDepth, g_InverseViewProjection);
-        const float3 previousWorld =
-            ReconstructWorldPositionUv(previousGeometryUv, previousDepth, g_PreviousInverseViewProjection);
-        const float currentViewDepth = mul(float4(currentWorld, 1.0f), g_View).z;
-        const float worldThreshold = max(0.04f, abs(currentViewDepth) * 0.0075f);
-        valid = valid && previousDepth < 0.999999f && length(currentWorld - previousWorld) < worldThreshold;
-        float3 currentNormal = DecodeWorldNormal(g_Normal.Load(int3(pixel, 0)).xyz);
-        float3 historyNormal =
-            DecodeWorldNormal(g_PreviousNormal.SampleLevel(g_PointSampler, previousGeometryUv, 0.0f).xyz);
-        valid = valid && dot(currentNormal, historyNormal) > 0.9f;
+        currentWorld = ReconstructWorldPositionUv(currentUv, currentDepth, g_InverseViewProjection);
+        currentNormal = DecodeWorldNormal(g_Normal.Load(int3(pixel, 0)).xyz);
+        pixelFootprint = TAAWorldPixelFootprint(currentUv, currentDepth, currentWorld);
     }
-    float3 minimum, maximum;
-    NeighborhoodBounds(g_Current, int2(pixel), g_FullSize, minimum, maximum);
-    history.rgb = YCoCgToRGB(clamp(RGBToYCoCg(history.rgb), minimum, maximum));
+    bool coverageEdge;
+    float3 normalConeAxis;
+    float normalConeCosine;
+    float normalGradient;
+    float strongNormalThreshold;
+    float retainedNormalThreshold;
+    float localMaximumMotionPixels;
+    TAAAnalyzeCurrentSurface(int2(pixel), currentBackground, currentWorld, currentNormal, pixelFootprint,
+                             coverageEdge, normalConeAxis, normalConeCosine, normalGradient, strongNormalThreshold,
+                             retainedNormalThreshold, localMaximumMotionPixels);
+    const bool jitterOnlySurface =
+        centerNonJitterMotionPixels < 0.01f && localMaximumMotionPixels < 0.01f;
+
+    uint historyClass = TAA_HISTORY_REJECTED;
+    uint rejectReason = 0u;
+    if (!historyEnabled)
+        rejectReason = 2u;
+    else if (!historyUvValid || !geometryUvValid || !backgroundReprojectionValid)
+        rejectReason = 3u;
+    if (baseValid)
+    {
+        float centerMatchScore;
+        bool centerRetainedDepthValid;
+        bool centerRetainedNormalValid;
+        const uint centerMatchLevel = TAAEvaluatePreviousSurface(
+            previousGeometryUv, currentBackground, currentWorld, currentNormal, pixelFootprint, normalConeAxis,
+            normalConeCosine, strongNormalThreshold, retainedNormalThreshold, jitterOnlySurface, centerMatchScore,
+            centerRetainedDepthValid, centerRetainedNormalValid);
+        if (centerMatchLevel == 2u)
+        {
+            historyClass = TAA_HISTORY_DIRECT;
+            rejectReason = 0u;
+        }
+        else if (jitterOnlySurface && centerMatchLevel == 1u && establishedHistory)
+        {
+            historyClass = TAA_HISTORY_RETAINED;
+            rejectReason = 9u;
+        }
+        else if (jitterOnlySurface && (coverageEdge || normalGradient > 0.01f))
+        {
+            float neighborhoodMatchScore;
+            const uint neighborhoodMatchLevel = TAAFindNeighborhoodSurfaceMatch(
+                previousGeometryUv, currentBackground, coverageEdge, currentWorld, currentNormal, pixelFootprint,
+                normalConeAxis, normalConeCosine, strongNormalThreshold, retainedNormalThreshold,
+                neighborhoodMatchScore);
+            if (neighborhoodMatchLevel == 2u)
+            {
+                historyClass = TAA_HISTORY_COVERAGE_RESCUE;
+                rejectReason = 1u;
+            }
+            else if (neighborhoodMatchLevel == 1u && establishedHistory)
+            {
+                historyClass = TAA_HISTORY_RETAINED;
+                rejectReason = 9u;
+            }
+        }
+        if (historyClass == TAA_HISTORY_REJECTED)
+        {
+            if (currentBackground)
+                rejectReason = 4u;
+            else if (!jitterOnlySurface && centerRetainedDepthValid && centerRetainedNormalValid)
+                rejectReason = 10u;
+            else if (!centerRetainedDepthValid)
+                rejectReason = 5u;
+            else if (!centerRetainedNormalValid)
+                rejectReason = 6u;
+            else
+                rejectReason = 8u;
+        }
+    }
+    const bool historyValid = baseValid && historyClass != TAA_HISTORY_REJECTED;
+
+    float3 minimum, maximum, clipCenter, neighborhoodVariance;
+    TAASurfaceAwareStatistics(int2(pixel), currentBackground, currentWorld, currentNormal, pixelFootprint,
+                              normalConeAxis, normalConeCosine, retainedNormalThreshold, coverageEdge, minimum,
+                              maximum, clipCenter, neighborhoodVariance);
+    const float3 rangeExtent = max(maximum - clipCenter, clipCenter - minimum);
+    float classFactor = 0.0f;
+    if (historyClass == TAA_HISTORY_DIRECT) classFactor = 0.25f;
+    else if (historyClass == TAA_HISTORY_RETAINED) classFactor = 0.5f;
+    else if (historyClass == TAA_HISTORY_COVERAGE_RESCUE) classFactor = 1.0f;
+    const float normalVarianceFactor = saturate(normalGradient / 0.08f);
+    classFactor = jitterOnlySurface ? max(classFactor, normalVarianceFactor) : 0.0f;
+    const float ageRamp = historyValid && jitterOnlySurface ? saturate((previousAge - 1.0f) / 7.0f) : 0.0f;
+    float3 historyYCoCg = RGBToYCoCg(history.rgb);
+    const float3 temporalDelta = historyYCoCg - clipCenter;
+    const float3 stableVariance = neighborhoodVariance + ageRamp * classFactor * temporalDelta * temporalDelta;
+    const float luminanceScale = max(abs(clipCenter.x), 1.0f);
+    const float3 minimumClipExtent = float3(0.02f, 0.01f, 0.01f) * luminanceScale;
+    const float3 varianceExtent = max(1.5f * sqrt(stableVariance), minimumClipExtent);
+    float3 clipExtent = max(rangeExtent, varianceExtent);
+    if (jitterOnlySurface && historyClass == TAA_HISTORY_COVERAGE_RESCUE)
+        clipExtent = max(clipExtent, abs(temporalDelta));
+    clipExtent *= 1.0f + max(g_TAAHistoryClipExpansion, 0.0f);
+    historyYCoCg = TAAClipHistoryToAabb(historyYCoCg, clipCenter, clipExtent);
+    history.rgb = YCoCgToRGB(historyYCoCg);
     float luminanceDelta = RelativeLuminanceDifference(current.rgb, history.rgb);
     // Color history has already been de-jittered above. Only stable screen-space motion may re-enable the luminance
     // response; a static edge intentionally contributes different sub-pixel samples to the same output texel.
-    float2 stableVelocity = rasterVelocity - JitterDeltaUv();
-    float nonJitterMotionPixels = length(stableVelocity * float2(g_FullSize));
-    float jitterOnlyHistory = 1.0f - smoothstep(0.05f, 0.5f, nonJitterMotionPixels);
-    float luminanceStability = lerp(saturate(1.0f - luminanceDelta), 1.0f, jitterOnlyHistory);
+    float luminanceStability = jitterOnlySurface ? 1.0f : saturate(1.0f - luminanceDelta);
     // Forward transparency encodes coverage into the HDR alpha channel. Treat it as an embedded reactive mask so
     // moving translucent surfaces do not retain opaque history. Dilate by one pixel to cover newly exposed edges.
     float currentReactive = GatherReactiveMask(int2(pixel));
-    float previousAge = 0.0f;
-    float previousReactive = 0.0f;
-    if (valid)
-    {
-        float historyMetadata = g_History.SampleLevel(g_PointSampler, historyUv, 0.0f).a;
-        DecodeTaaMetadata(historyMetadata, previousAge, previousReactive);
-    }
-    float reactive = max(currentReactive, previousReactive);
-    // A fixed 0.9 EMA never fully settles for a repeating Halton edge pattern. Track local valid-history age and move
-    // static sub-pixel edges toward a running average, while genuine motion keeps the authored response weight.
+    float reactive = max(currentReactive, historyValid ? previousReactive : 0.0f);
+    // All stationary witnesses converge with the same age-derived weight. Candidate class and location validate
+    // history but never modulate its color weight; genuine motion retains the authored luminance response.
     float convergenceWeight = previousAge / max(previousAge + 1.0f, 1.0f);
-    float staticEdge = jitterOnlyHistory * smoothstep(0.02f, 0.2f, luminanceDelta);
-    float authoredWeight = saturate(g_TAAHistoryWeight) * luminanceStability;
-    float convergingWeight = max(saturate(g_TAAHistoryWeight), convergenceWeight);
-    float adaptiveWeight = valid ? lerp(authoredWeight, convergingWeight, staticEdge) * (1.0f - reactive) : 0.0f;
-    float nextAge = valid && reactive < 0.01f ? min(previousAge + 1.0f, 127.0f) : 1.0f;
+    const float stationaryHistoryWeight = max(saturate(g_TAAHistoryWeight), convergenceWeight);
+    const float movingHistoryWeight = saturate(g_TAAHistoryWeight) * luminanceStability;
+    float adaptiveWeight = historyValid
+                               ? (jitterOnlySurface ? stationaryHistoryWeight : movingHistoryWeight) *
+                                     (1.0f - reactive)
+                               : 0.0f;
+    const bool historyAgeAdvances = historyValid && jitterOnlySurface && reactive < 0.01f;
+    float nextAge = historyAgeAdvances ? min(previousAge + 1.0f, 127.0f) : 1.0f;
+    if (reactive >= 0.5f)
+        rejectReason = 7u;
     g_Output[pixel] = float4(lerp(current.rgb, history.rgb, adaptiveWeight),
                              EncodeTaaMetadata(nextAge, currentReactive));
+    if (g_EffectMode == 16u)
+        g_TAADebugOutput[pixel] = float4(TAAHistoryAgeDebugColor(nextAge), 1.0f);
+    else if (g_EffectMode == 32u)
+        g_TAADebugOutput[pixel] = float4(TAARejectReasonDebugColor(rejectReason, adaptiveWeight), 1.0f);
 }
 
 float3 AcesToneMap(float3 color)

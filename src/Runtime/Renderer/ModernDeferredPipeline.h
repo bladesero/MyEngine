@@ -47,6 +47,8 @@ struct ModernPostProcessSettings {
     uint32_t ssrStepCount = 48;
     uint32_t ssrFilterRounds = 2;
     float taaHistoryWeight = 0.9f;
+    float taaJitterSpread = 1.0f;
+    float taaHistoryClipExpansion = 0.0f;
     float exposure = 1.0f;
     float gamma = 2.2f;
     float bloomThreshold = 1.0f;
@@ -56,7 +58,7 @@ struct ModernPostProcessSettings {
 class ModernDeferredPipeline {
 public:
     enum class QualityProfile { Desktop, Console };
-    enum class ScreenSpaceDebugMode { None, SSGI, SSRConfidence };
+    enum class ScreenSpaceDebugMode { None, SSGI, SSRConfidence, TAAHistoryAge, TAARejectReason };
     ModernDeferredPipeline(IRHIDevice* device, IRHIReadbackService* readbackService = nullptr);
     ~ModernDeferredPipeline();
 
@@ -105,12 +107,17 @@ public:
     AddTemporalPostProcess(RenderGraph& graph, RGTextureHandle input, const std::shared_ptr<GpuTextureView>& inputSrv,
                            RGTextureHandle sceneDepth, const std::shared_ptr<GpuTextureView>& sceneDepthSrv,
                            RGTextureHandle gbufferNormal, const std::shared_ptr<GpuTextureView>& gbufferNormalSrv,
-                           RGTextureHandle gbufferVelocity, const std::shared_ptr<GpuTextureView>& gbufferVelocitySrv);
+                           RGTextureHandle gbufferVelocity, const std::shared_ptr<GpuTextureView>& gbufferVelocitySrv,
+                           ScreenSpaceDebugMode debugMode = ScreenSpaceDebugMode::None);
     const std::shared_ptr<GpuTextureView>& GetFinalPostSrv() const { return m_PostColor.srv; }
     const std::shared_ptr<GpuTextureView>& GetEffectsHdrSrv() const { return m_EffectsOutputSrv; }
     const std::shared_ptr<GpuTextureView>& GetHiZDebugSrv() const { return m_HiZSrv; }
     const std::shared_ptr<GpuTextureView>& GetSSGIDebugSrv() const { return m_SSGIDebugOutputSrv; }
     const std::shared_ptr<GpuTextureView>& GetSSRDebugSrv() const { return m_SSRDebugOutputSrv; }
+    const std::shared_ptr<GpuTextureView>& GetTAAHistoryAgeDebugSrv() const { return m_TAAHistoryAgeDebugOutputSrv; }
+    const std::shared_ptr<GpuTextureView>& GetTAARejectReasonDebugSrv() const {
+        return m_TAARejectReasonDebugOutputSrv;
+    }
     const std::string& GetHistoryResetReason() const { return m_HistoryResetReason; }
     const std::string& GetLastShadowSetupError() const { return m_LastShadowSetupError; }
     bool IsReady() const { return m_Ready; }
@@ -221,13 +228,14 @@ private:
         float ssrMaxRoughness = 0.8f;
         float ssrHistoryWeight = 0.9f;
         float taaHistoryWeight = 0.9f;
+        float taaHistoryClipExpansion = 0.0f;
         float exposure = 1.0f;
         float gamma = 2.2f;
         float bloomThreshold = 1.0f;
         float bloomIntensity = 0.0f;
         uint32_t ssgiStepCount = 32;
         uint32_t ssrStepCount = 48;
-        uint32_t padding[3]{};
+        uint32_t padding[2]{};
     };
     static_assert(sizeof(ScreenSpaceConstants) == 544, "ScreenSpaceConstants size must match ModernScreenSpace.hlsl");
     static_assert(offsetof(ScreenSpaceConstants, currentJitterUv) == 448,
@@ -238,9 +246,11 @@ private:
                   "ScreenSpaceConstants SSGI tuning offset changed");
     static_assert(offsetof(ScreenSpaceConstants, ssrMaxRoughness) == 496,
                   "ScreenSpaceConstants SSR tuning offset changed");
-    static_assert(offsetof(ScreenSpaceConstants, gamma) == 512,
+    static_assert(offsetof(ScreenSpaceConstants, taaHistoryClipExpansion) == 508,
+                  "ScreenSpaceConstants TAA tuning offset changed");
+    static_assert(offsetof(ScreenSpaceConstants, gamma) == 516,
                   "ScreenSpaceConstants post-process tuning offset changed");
-    static_assert(offsetof(ScreenSpaceConstants, ssrStepCount) == 528,
+    static_assert(offsetof(ScreenSpaceConstants, ssrStepCount) == 532,
                   "ScreenSpaceConstants step-count offset changed");
 
     IRHIDevice* m_Device = nullptr;
@@ -350,6 +360,8 @@ private:
     std::shared_ptr<GpuTextureView> m_EffectsOutputSrv;
     std::shared_ptr<GpuTextureView> m_SSGIDebugOutputSrv;
     std::shared_ptr<GpuTextureView> m_SSRDebugOutputSrv;
+    std::shared_ptr<GpuTextureView> m_TAAHistoryAgeDebugOutputSrv;
+    std::shared_ptr<GpuTextureView> m_TAARejectReasonDebugOutputSrv;
     ComputeTexture m_TAAHistory[2];
     ComputeTexture m_DepthHistory[2];
     ComputeTexture m_NormalHistory[2];
@@ -359,6 +371,7 @@ private:
     RGTextureHandle m_FrameNormalHistoryRead;
     RGTextureHandle m_FrameNormalHistoryWrite;
     RGTextureHandle m_FrameEnvironment;
+    RGTextureHandle m_FrameScreenSpaceDebug;
     uint32_t m_IndirectCapacity = 0;
     CullingConstants m_CullingConstants;
     DepthConstants m_DepthConstants;

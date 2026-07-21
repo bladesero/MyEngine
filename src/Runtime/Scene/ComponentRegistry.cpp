@@ -444,6 +444,14 @@ TypeDescriptor PostProcessType() {
         d, "taaHistoryWeight", 0.9f,
         [](const Component& c) { return static_cast<const PostProcessComponent&>(c).GetTAAHistoryWeight(); },
         [](Component& c, float v) { static_cast<PostProcessComponent&>(c).SetTAAHistoryWeight(v); });
+    AddFloat(
+        d, "taaJitterSpread", 1.0f,
+        [](const Component& c) { return static_cast<const PostProcessComponent&>(c).GetTAAJitterSpread(); },
+        [](Component& c, float v) { static_cast<PostProcessComponent&>(c).SetTAAJitterSpread(v); });
+    AddFloat(
+        d, "taaHistoryClipExpansion", 0.0f,
+        [](const Component& c) { return static_cast<const PostProcessComponent&>(c).GetTAAHistoryClipExpansion(); },
+        [](Component& c, float v) { static_cast<PostProcessComponent&>(c).SetTAAHistoryClipExpansion(v); });
     return d;
 }
 TypeDescriptor AudioSourceType() {

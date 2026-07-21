@@ -98,6 +98,14 @@ void PostProcessComponent::SetTAAHistoryWeight(float weight) {
     m_TAAHistoryWeight = std::clamp(weight, 0.0f, 0.99f);
 }
 
+void PostProcessComponent::SetTAAJitterSpread(float spread) {
+    m_TAAJitterSpread = std::clamp(spread, 0.0f, 2.0f);
+}
+
+void PostProcessComponent::SetTAAHistoryClipExpansion(float expansion) {
+    m_TAAHistoryClipExpansion = std::clamp(expansion, 0.0f, 4.0f);
+}
+
 void PostProcessComponent::Serialize(nlohmann::json& data) const {
     data["toneMapping"] = m_ToneMapping;
     data["exposure"] = m_Exposure;
@@ -128,6 +136,8 @@ void PostProcessComponent::Serialize(nlohmann::json& data) const {
     data["ssrFilterRounds"] = m_SSRFilterRounds;
     data["taaEnabled"] = m_TAAEnabled;
     data["taaHistoryWeight"] = m_TAAHistoryWeight;
+    data["taaJitterSpread"] = m_TAAJitterSpread;
+    data["taaHistoryClipExpansion"] = m_TAAHistoryClipExpansion;
 }
 
 void PostProcessComponent::Deserialize(const nlohmann::json& data) {
@@ -160,4 +170,6 @@ void PostProcessComponent::Deserialize(const nlohmann::json& data) {
     SetSSRFilterRounds(data.value("ssrFilterRounds", 2u));
     SetTAAEnabled(data.value("taaEnabled", true));
     SetTAAHistoryWeight(data.value("taaHistoryWeight", 0.9f));
+    SetTAAJitterSpread(data.value("taaJitterSpread", 1.0f));
+    SetTAAHistoryClipExpansion(data.value("taaHistoryClipExpansion", 0.0f));
 }
