@@ -1,5 +1,7 @@
 #include "Renderer/LightComponent.h"
 
+#include "Scene/Actor.h"
+
 #include <algorithm>
 #include <string>
 
@@ -40,6 +42,17 @@ LightType LightTypeFromString(const std::string& value) {
     return LightType::Directional;
 }
 
+Mat4 RotationMatrix(const Transform& transform) {
+    return Mat4::RotationY(transform.rotation.y * kDeg2Rad) * Mat4::RotationX(transform.rotation.x * kDeg2Rad) *
+           Mat4::RotationZ(transform.rotation.z * kDeg2Rad);
+}
+
+Mat4 WorldRotationMatrix(const Actor& actor) {
+    const Mat4 localRotation = RotationMatrix(actor.GetTransform());
+    const Actor* parent = actor.GetParent();
+    return parent ? localRotation * WorldRotationMatrix(*parent) : localRotation;
+}
+
 } // namespace
 
 void LightComponent::SetIntensity(float intensity) {
@@ -64,11 +77,13 @@ void LightComponent::SetOuterConeAngle(float angleDegrees) {
     }
 }
 
-void LightComponent::SetDirection(const Vec3& direction) {
-    if (direction.LengthSq() < 1e-8f) {
-        return;
-    }
-    m_Direction = direction.Normalized();
+Vec3 LightComponent::GetDirection() const {
+    const Actor* owner = GetOwner();
+    if (!owner)
+        return Vec3::Forward();
+
+    // Direction is derived only from actor rotations; position and scale must not skew lighting orientation.
+    return WorldRotationMatrix(*owner).TransformDir(Vec3::Forward()).Normalized();
 }
 
 void LightComponent::SetShadowIntensity(float intensity) {
@@ -82,7 +97,6 @@ void LightComponent::Serialize(nlohmann::json& data) const {
     data["range"] = m_Range;
     data["innerConeAngle"] = m_InnerConeAngle;
     data["outerConeAngle"] = m_OuterConeAngle;
-    data["direction"] = VecToJson(m_Direction);
     data["castShadows"] = m_CastShadows;
     data["shadowIntensity"] = m_ShadowIntensity;
 }
@@ -94,9 +108,6 @@ void LightComponent::Deserialize(const nlohmann::json& data) {
     SetRange(data.value("range", 8.0f));
     SetInnerConeAngle(data.value("innerConeAngle", 25.0f));
     SetOuterConeAngle(data.value("outerConeAngle", 35.0f));
-    if (data.contains("direction")) {
-        SetDirection(VecFromJson(data["direction"], m_Direction));
-    }
     SetCastShadows(data.value("castShadows", true));
     SetShadowIntensity(data.value("shadowIntensity", 1.0f));
 }

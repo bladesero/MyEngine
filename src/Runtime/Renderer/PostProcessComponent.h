@@ -52,6 +52,8 @@ public:
 
     float GetSSAOScale() const { return m_SSAOScale; }
     void SetSSAOScale(float scale);
+    bool UsesRayTracedAOReplacement() const { return m_RayTracedAOReplacement; }
+    void SetRayTracedAOReplacement(bool enabled) { m_RayTracedAOReplacement = enabled; }
 
     bool IsSSGIEnabled() const { return m_SSGIEnabled; }
     void SetSSGIEnabled(bool enabled) { m_SSGIEnabled = enabled; }
@@ -65,6 +67,8 @@ public:
     void SetSSGIStepCount(uint32_t stepCount);
     uint32_t GetSSGIFilterRounds() const { return m_SSGIFilterRounds; }
     void SetSSGIFilterRounds(uint32_t rounds);
+    bool UsesRayTracedDiffuseReplacement() const { return m_RayTracedDiffuseReplacement; }
+    void SetRayTracedDiffuseReplacement(bool enabled) { m_RayTracedDiffuseReplacement = enabled; }
 
     bool IsSSREnabled() const { return m_SSREnabled; }
     void SetSSREnabled(bool enabled) { m_SSREnabled = enabled; }
@@ -78,6 +82,11 @@ public:
     void SetSSRStepCount(uint32_t stepCount);
     uint32_t GetSSRFilterRounds() const { return m_SSRFilterRounds; }
     void SetSSRFilterRounds(uint32_t rounds);
+    bool UsesRayTracedReflectionReplacement() const { return m_RayTracedReflectionReplacement; }
+    void SetRayTracedReflectionReplacement(bool enabled) { m_RayTracedReflectionReplacement = enabled; }
+
+    bool UsesRayTracedShadowReplacement() const { return m_RayTracedShadowReplacement; }
+    void SetRayTracedShadowReplacement(bool enabled) { m_RayTracedShadowReplacement = enabled; }
 
     bool IsTAAEnabled() const { return m_TAAEnabled; }
     void SetTAAEnabled(bool enabled) { m_TAAEnabled = enabled; }
@@ -107,18 +116,22 @@ private:
     float m_SSAOPower = 1.5f;
     float m_SSAOIntensity = 0.0f;
     float m_SSAOScale = 1.0f;
+    bool m_RayTracedAOReplacement = false;
     bool m_SSGIEnabled = true;
     float m_SSGIIntensity = 1.0f;
     float m_SSGIMaxDistance = 10.0f;
     float m_SSGIHistoryWeight = 0.9f;
     uint32_t m_SSGIStepCount = 32;
     uint32_t m_SSGIFilterRounds = 3;
+    bool m_RayTracedDiffuseReplacement = false;
     bool m_SSREnabled = true;
     float m_SSRMaxDistance = 10.0f;
     float m_SSRMaxRoughness = 0.8f;
     float m_SSRHistoryWeight = 0.9f;
     uint32_t m_SSRStepCount = 48;
     uint32_t m_SSRFilterRounds = 2;
+    bool m_RayTracedReflectionReplacement = false;
+    bool m_RayTracedShadowReplacement = false;
     bool m_TAAEnabled = true;
     float m_TAAHistoryWeight = 0.8f;
     float m_TAAJitterSpread = 1.0f;

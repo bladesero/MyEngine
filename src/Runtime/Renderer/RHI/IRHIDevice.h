@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Renderer/RHI/GpuAccelerationStructure.h"
 #include "Renderer/RHI/GpuBindGroup.h"
 #include "Renderer/RHI/GpuBuffer.h"
 #include "Renderer/RHI/GpuBufferView.h"
@@ -28,6 +29,13 @@ public:
     }
     virtual std::shared_ptr<GpuBufferView> CreateBufferView(const std::shared_ptr<GpuBuffer>&,
                                                             const RHIBufferViewDesc&) {
+        return nullptr;
+    }
+    virtual RHIAccelerationStructureBuildSizes
+    GetAccelerationStructureBuildSizes(const RHIAccelerationStructureDesc&) const {
+        return {};
+    }
+    virtual std::shared_ptr<GpuAccelerationStructure> CreateAccelerationStructure(const RHIAccelerationStructureDesc&) {
         return nullptr;
     }
     virtual std::shared_ptr<GpuShader> CreateShader(const std::string& source, const std::string& vsEntry,

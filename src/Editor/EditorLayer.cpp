@@ -260,6 +260,7 @@ bool EditorLayer::OpenProject(const std::filesystem::path& root) {
     if (m_SceneLayer) {
         m_SceneLayer->SetRenderPath(RenderPathFromProjectValue(projectConfig.GetGraphicsSettings().renderPath));
         m_SceneLayer->SetDeviceProfile(projectConfig.GetGraphicsSettings().deviceProfile);
+        m_SceneLayer->SetHardwareRayTracingEnabled(projectConfig.GetGraphicsSettings().hardwareRayTracing);
     }
     m_Context.SetProjectRoot(m_Project.GetRoot());
     m_Context.SetProfiler(&m_Profiler);

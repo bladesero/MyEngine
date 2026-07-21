@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Renderer/RHI/GpuAccelerationStructure.h"
 #include "Renderer/RHI/GpuBuffer.h"
 #include "Renderer/RHI/GpuBufferView.h"
 #include "Renderer/RHI/GpuSampler.h"
@@ -60,6 +61,12 @@ public:
         m_StorageTextures[name] = std::move(view);
         return true;
     }
+    bool SetAccelerationStructure(const std::string& name, std::shared_ptr<GpuAccelerationStructure> value) {
+        if ((!Find(name, ShaderBindingType::AccelerationStructure) && HasReflection()) || !value)
+            return false;
+        m_AccelerationStructures[name] = std::move(value);
+        return true;
+    }
     bool Validate(std::string* error = nullptr) const {
         if (!m_Shader) {
             if (error)
@@ -92,6 +99,9 @@ public:
             case ShaderBindingType::StorageTexture:
                 found = m_StorageTextures.count(binding.name) != 0;
                 break;
+            case ShaderBindingType::AccelerationStructure:
+                found = m_AccelerationStructures.count(binding.name) != 0;
+                break;
             }
             if (!found) {
                 if (error)
@@ -108,6 +118,7 @@ public:
     const auto& GetStorageBuffers() const { return m_StorageBuffers; }
     const auto& GetBuffers() const { return m_Buffers; }
     const auto& GetStorageTextures() const { return m_StorageTextures; }
+    const auto& GetAccelerationStructures() const { return m_AccelerationStructures; }
 
 private:
     bool HasReflection() const { return m_Shader && !m_Shader->reflection.bindings.empty(); }
@@ -124,4 +135,5 @@ private:
     std::unordered_map<std::string, std::shared_ptr<GpuBufferView>> m_StorageBuffers;
     std::unordered_map<std::string, std::shared_ptr<GpuBufferView>> m_Buffers;
     std::unordered_map<std::string, std::shared_ptr<GpuTextureView>> m_StorageTextures;
+    std::unordered_map<std::string, std::shared_ptr<GpuAccelerationStructure>> m_AccelerationStructures;
 };

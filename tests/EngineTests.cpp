@@ -280,11 +280,13 @@ bool TestShaderAssetFormats() {
 }
 
 bool TestSceneSerializationRegression() {
+    ComponentRegistry::Get();
     AssetManager::Get().Clear();
 
     Scene scene("SerializeCase");
     Actor* parent = scene.CreateActor("Parent");
     parent->GetTransform().position = Vec3{2.0f, 3.0f, 4.0f};
+    parent->GetTransform().rotation = Vec3{90.0f, 0.0f, 0.0f};
 
     Actor* child = scene.CreateActor("Child", parent);
     child->GetTransform().position = Vec3{1.0f, 0.0f, 0.0f};
@@ -304,7 +306,6 @@ bool TestSceneSerializationRegression() {
     light->SetColor({0.7f, 0.8f, 1.0f});
     light->SetIntensity(4.0f);
     light->SetRange(12.0f);
-    light->SetDirection({0.0f, -1.0f, 0.0f});
     light->SetInnerConeAngle(18.0f);
     light->SetOuterConeAngle(32.0f);
     light->SetShadowIntensity(0.42f);
@@ -333,8 +334,37 @@ bool TestSceneSerializationRegression() {
     post->SetTAAHistoryWeight(0.84f);
     post->SetTAAJitterSpread(0.65f);
     post->SetTAAHistoryClipExpansion(1.25f);
+    post->SetRayTracedShadowReplacement(true);
+    post->SetRayTracedAOReplacement(true);
+    post->SetRayTracedDiffuseReplacement(true);
+    post->SetRayTracedReflectionReplacement(true);
+    if (!Check(post->UsesRayTracedShadowReplacement() && post->UsesRayTracedAOReplacement() &&
+                   post->UsesRayTracedDiffuseReplacement() && post->UsesRayTracedReflectionReplacement(),
+               "PostProcess ray tracing replacement setters did not persist"))
+        return false;
 
     const std::string json = SceneSerializer::SaveToString(scene);
+    const nlohmann::json savedScene = nlohmann::json::parse(json);
+    const auto savedParent =
+        std::find_if(savedScene["actors"].begin(), savedScene["actors"].end(),
+                     [](const nlohmann::json& value) { return value.value("name", std::string{}) == "Parent"; });
+    if (!Check(savedParent != savedScene["actors"].end(), "serialized parent actor was not found"))
+        return false;
+    const auto& savedComponents = (*savedParent)["components"];
+    const auto savedPost =
+        std::find_if(savedComponents.begin(), savedComponents.end(),
+                     [](const nlohmann::json& value) { return value.value("type", std::string{}) == "PostProcess"; });
+    if (!Check(savedPost != savedComponents.end(), "serialized PostProcess component was not found"))
+        return false;
+    const auto& savedPostData = (*savedPost)["data"];
+    const auto& savedPostProperties =
+        savedPostData.contains("properties") ? savedPostData["properties"] : savedPostData;
+    if (!Check(savedPostProperties.value("rayTracedShadowReplacement", false) &&
+                   savedPostProperties.value("rayTracedAOReplacement", false) &&
+                   savedPostProperties.value("rayTracedDiffuseReplacement", false) &&
+                   savedPostProperties.value("rayTracedReflectionReplacement", false),
+               "PostProcess ray tracing replacement fields were not serialized as true"))
+        return false;
 
     Scene loaded("Loaded");
     if (!Check(SceneSerializer::LoadFromString(loaded, json), "LoadFromString failed"))
@@ -377,12 +407,16 @@ bool TestSceneSerializationRegression() {
     if (!Check(NearlyEqual(loadedLight->GetIntensity(), 4.0f) && NearlyEqual(loadedLight->GetRange(), 12.0f) &&
                    NearlyEqual(loadedLight->GetInnerConeAngle(), 18.0f) &&
                    NearlyEqual(loadedLight->GetOuterConeAngle(), 32.0f) &&
-                   NearlyEqual(loadedLight->GetShadowIntensity(), 0.42f) &&
+                   NearlyEqual(loadedLight->GetShadowIntensity(), 0.42f) && loadedLight->GetDirection().y < -0.99f &&
                    NearlyEqual(loadedLight->GetColor().z, 1.0f),
                "Light fields mismatch after deserialize"))
         return false;
     auto* loadedPost = loadedParent->GetComponent<PostProcessComponent>();
     if (!Check(loadedPost, "PostProcess missing after deserialize"))
+        return false;
+    if (!Check(loadedPost->UsesRayTracedShadowReplacement() && loadedPost->UsesRayTracedAOReplacement() &&
+                   loadedPost->UsesRayTracedDiffuseReplacement() && loadedPost->UsesRayTracedReflectionReplacement(),
+               "PostProcess ray tracing replacement fields mismatch after deserialize"))
         return false;
     if (!Check(
             !loadedPost->IsToneMappingEnabled() && NearlyEqual(loadedPost->GetExposure(), 1.4f) &&
@@ -404,6 +438,35 @@ bool TestSceneSerializationRegression() {
         return false;
 
     return true;
+}
+
+bool TestLightDirectionFollowsActorRotation() {
+    Scene scene("LightRotation");
+    Actor* root = scene.CreateActor("RotatedRoot");
+    root->GetTransform().rotation = {0.0f, 90.0f, 0.0f};
+    root->GetTransform().scale = {0.0f, 4.0f, 0.0f};
+    auto* rootLight = root->AddComponent<LightComponent>();
+    const Vec3 rootDirection = rootLight->GetDirection();
+    if (!Check(rootDirection.x > 0.99f && std::fabs(rootDirection.y) < 1e-4f && std::fabs(rootDirection.z) < 1e-4f,
+               "light direction was not derived from actor rotation independently of scale"))
+        return false;
+
+    Actor* child = scene.CreateActor("ChildLight", root);
+    child->GetTransform().rotation = {30.0f, 0.0f, 0.0f};
+    auto* childLight = child->AddComponent<LightComponent>();
+    const Vec3 childDirection = childLight->GetDirection();
+    if (!Check(childDirection.x > 0.866f && childDirection.y < -0.499f && std::fabs(childDirection.z) < 1e-4f,
+               "light direction did not include parent and local rotations"))
+        return false;
+
+    nlohmann::json serialized;
+    childLight->Serialize(serialized);
+    if (!Check(!serialized.contains("direction"), "light still serialized an independently adjustable direction"))
+        return false;
+    childLight->Deserialize({{"direction", nlohmann::json::array({0.0f, 1.0f, 0.0f})}});
+    const Vec3 legacyDirection = childLight->GetDirection();
+    return Check(legacyDirection.x > 0.866f && legacyDirection.y < -0.499f && std::fabs(legacyDirection.z) < 1e-4f,
+                 "legacy direction data overrode the rotation-derived light direction");
 }
 
 bool TestBuiltinSceneMaterialRoundTrip() {
@@ -2253,9 +2316,21 @@ bool TestTypeRegistryMetadataAndWorldScheduler() {
         postProcessType ? TypeRegistry::Get().FindProperty(*postProcessType, "ssgiStepCount") : nullptr;
     const PropertyDescriptor* ssrMaxDistance =
         postProcessType ? TypeRegistry::Get().FindProperty(*postProcessType, "ssrMaxDistance") : nullptr;
+    const PropertyDescriptor* rayTracedAO =
+        postProcessType ? TypeRegistry::Get().FindProperty(*postProcessType, "rayTracedAOReplacement") : nullptr;
+    const PropertyDescriptor* rayTracedDiffuse =
+        postProcessType ? TypeRegistry::Get().FindProperty(*postProcessType, "rayTracedDiffuseReplacement") : nullptr;
+    const PropertyDescriptor* rayTracedReflection =
+        postProcessType ? TypeRegistry::Get().FindProperty(*postProcessType, "rayTracedReflectionReplacement")
+                        : nullptr;
+    const PropertyDescriptor* rayTracedShadow =
+        postProcessType ? TypeRegistry::Get().FindProperty(*postProcessType, "rayTracedShadowReplacement") : nullptr;
     if (!Check(ssgiStepCount && ssgiStepCount->kind == PropertyKind::UInt32 && ssrMaxDistance &&
-                   ssrMaxDistance->kind == PropertyKind::Float,
-               "PostProcess SSGI/SSR tuning metadata is missing or has the wrong type"))
+                   ssrMaxDistance->kind == PropertyKind::Float && rayTracedAO && rayTracedDiffuse &&
+                   rayTracedReflection && rayTracedShadow && rayTracedAO->kind == PropertyKind::Bool &&
+                   rayTracedDiffuse->kind == PropertyKind::Bool && rayTracedReflection->kind == PropertyKind::Bool &&
+                   rayTracedShadow->kind == PropertyKind::Bool,
+               "PostProcess SSGI/SSR/RT metadata is missing or has the wrong type"))
         return false;
     for (const char* migrated : {"Camera", "Light", "PostProcess", "RigidBody", "BoxCollider", "SphereCollider",
                                  "CapsuleCollider", "CharacterController"}) {
@@ -7057,6 +7132,7 @@ bool TestTaskServicePriorityCancellationFailureAndShutdown() {
 }
 
 MYENGINE_REGISTER_TEST("Scene", "TestSceneSerializationRegression", TestSceneSerializationRegression);
+MYENGINE_REGISTER_TEST("Renderer", "TestLightDirectionFollowsActorRotation", TestLightDirectionFollowsActorRotation);
 MYENGINE_REGISTER_TEST("Scene", "TestBuiltinSceneMaterialRoundTrip", TestBuiltinSceneMaterialRoundTrip);
 MYENGINE_REGISTER_TEST("Scripting", "TestScriptRuntimeLifecycle", TestScriptRuntimeLifecycle);
 MYENGINE_REGISTER_TEST("Scripting", "TestAngelScriptFilesErrorsAndPhysicsBindings",

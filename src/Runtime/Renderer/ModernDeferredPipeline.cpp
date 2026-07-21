@@ -1,6 +1,7 @@
 #include "Renderer/ModernDeferredPipeline.h"
 
 #include "Camera/Camera.h"
+#include "Assets/MeshAsset.h"
 #include "Core/Logger.h"
 #include "Math/Mat4Inverse.h"
 #include "Renderer/EngineShaderCatalog.h"
@@ -101,12 +102,66 @@ bool HasMaterialSamplerTable(const std::array<std::shared_ptr<GpuSampler>, kGpuS
 }
 } // namespace
 
+uint32_t ResolveModernRayTracingEffectMask(uint32_t requestedMask, bool projectEnabled,
+                                           const RHIDeviceCapabilities& capabilities, uint32_t sourceEffectMask,
+                                           uint32_t readyPipelineMask) {
+    if (!projectEnabled || !capabilities.accelerationStructures || !capabilities.inlineRayQueries ||
+        capabilities.rayTracingTier != RHIRayTracingTier::Tier11)
+        return ModernRayTracingNone;
+    return requestedMask & sourceEffectMask & readyPipelineMask;
+}
+
 ModernDeferredPipeline::ModernDeferredPipeline(IRHIDevice* device, IRHIReadbackService* readbackService)
     : m_Device(device), m_ReadbackService(readbackService), m_GpuScene(AcquireGpuScene(device)) {
     m_Ready = EnsurePipelines();
 }
 
 ModernDeferredPipeline::~ModernDeferredPipeline() = default;
+
+void ModernDeferredPipeline::SetHardwareRayTracingEnabled(bool enabled) {
+    if (m_HardwareRayTracingEnabled == enabled)
+        return;
+    m_HardwareRayTracingEnabled = enabled;
+    m_RayTracingPermanentlyUnavailable = false;
+    m_RayTracingFallbackReason = enabled ? "ray tracing has not been initialized" : "hardware ray tracing is disabled";
+    m_RayTracingEffectiveMask = 0;
+    m_RayTracingRequestedMask = 0;
+    m_FrameRayTracingTlas = {};
+    InvalidateTemporalHistory("hardware ray tracing setting changed", false);
+    if (!enabled) {
+        m_RayTracingBlas.clear();
+        m_RayTracingInstances.clear();
+        m_RayTracingTlas.reset();
+        m_RayTracingArenaGeneration = 0;
+        m_RayTracingTlasCapacity = 0;
+        m_RayTracingTlasBuilt = false;
+        m_RTShadow = {};
+        m_RTAOTrace = {};
+        m_RTAOHistory[0] = {};
+        m_RTAOHistory[1] = {};
+        m_RTAOFilter[0] = {};
+        m_RTAOFilter[1] = {};
+        m_RTAOWidth = 0;
+        m_RTAOHeight = 0;
+        m_RTAOResourcesInShaderState = false;
+        m_RTShadowInShaderState = false;
+    }
+}
+
+void ModernDeferredPipeline::DisableRayTracing(std::string reason) {
+    m_RayTracingPermanentlyUnavailable = true;
+    m_RayTracingEffectiveMask = 0;
+    m_RayTracingFallbackReason = reason.empty() ? "ray tracing initialization failed" : std::move(reason);
+    m_PendingRayTracingBuild = false;
+    m_PendingRayTracingBlasBuilds.clear();
+    m_FrameRayTracingTlas = {};
+    m_RayTracingBlas.clear();
+    m_RayTracingInstances.clear();
+    m_RayTracingTlas.reset();
+    m_RayTracingTlasCapacity = 0;
+    m_RayTracingTlasBuilt = false;
+    InvalidateTemporalHistory(m_RayTracingFallbackReason, false);
+}
 
 std::shared_ptr<GpuBindGroup> ModernDeferredPipeline::AcquireBindGroup(const std::shared_ptr<GpuShader>& shader) {
     if (!m_Device || !shader)
@@ -121,6 +176,8 @@ std::shared_ptr<GpuBindGroup> ModernDeferredPipeline::AcquireBindGroup(const std
 
 void ModernDeferredPipeline::InvalidateTemporalHistory(std::string reason, bool resetObjectHistory) {
     m_HistoryValid = false;
+    m_ScreenSpaceConstants.historyValid = 0;
+    m_TAAConstants.historyValid = 0;
     m_HistoryResetReason = reason.empty() ? "explicit reset" : std::move(reason);
     m_JitterSequenceIndex = 0;
     m_PendingJitterSequenceIndex = 0;
@@ -148,6 +205,15 @@ void ModernDeferredPipeline::CommitTemporalFrame() {
         stream->countState = RHIResourceState::IndirectArgument;
     }
     m_PendingShadowStreams.clear();
+    if (m_PendingRayTracingBuild) {
+        for (uint32_t index : m_PendingRayTracingBlasBuilds)
+            if (index < m_RayTracingBlas.size())
+                m_RayTracingBlas[index].built = true;
+        m_RayTracingTlasBuilt = true;
+        m_PreviousRayTracingInstanceCount = static_cast<uint32_t>(m_RayTracingInstances.size());
+        m_PendingRayTracingBuild = false;
+        m_PendingRayTracingBlasBuilds.clear();
+    }
     if (!m_TemporalFramePending)
         return;
     m_HistoryPing = m_PendingHistoryPing;
@@ -163,14 +229,18 @@ void ModernDeferredPipeline::CommitTemporalFrame() {
     std::copy(std::begin(m_PendingJitterUv), std::end(m_PendingJitterUv), std::begin(m_PreviousJitterUv));
     m_LastCommittedFrameNumber = m_CurrentFrameNumber;
     m_HasCommittedFrameNumber = true;
+    m_CommittedRayTracingEffectiveMask = m_RayTracingEffectiveMask;
     m_HistoryValid = true;
     m_GeometryHistoryInShaderState = true;
     m_PostColorInShaderState = true;
     m_SSGIResourcesInShaderState = m_SSGIResourcesInShaderState || m_PostSettings.ssgiEnabled;
     m_SSRResourcesInShaderState = m_SSRResourcesInShaderState || m_PostSettings.ssrEnabled;
+    m_RTAOResourcesInShaderState =
+        m_RTAOResourcesInShaderState || (m_RayTracingEffectiveMask & ModernRayTracingAO) != 0;
+    m_RTShadowInShaderState = m_RTShadowInShaderState || (m_RayTracingEffectiveMask & ModernRayTracingShadow) != 0;
     m_TAAResourcesInShaderState = m_TAAResourcesInShaderState || m_PostSettings.taaEnabled;
-    m_EffectsResourceInShaderState =
-        m_EffectsResourceInShaderState || m_PostSettings.ssgiEnabled || m_PostSettings.ssrEnabled;
+    m_EffectsResourceInShaderState = m_EffectsResourceInShaderState || m_PostSettings.ssgiEnabled ||
+                                     m_PostSettings.ssrEnabled || (m_RayTracingEffectiveMask & ModernRayTracingAO) != 0;
     m_ScreenSpaceDebugInShaderState =
         m_ScreenSpaceDebugInShaderState || m_SSGIDebugOutputSrv || m_SSRDebugOutputSrv || m_PostSettings.taaEnabled;
     m_TemporalFramePending = false;
@@ -180,6 +250,8 @@ void ModernDeferredPipeline::AbortTemporalFrame(const std::string& reason) {
     // The imported states still describe the last successfully submitted frame. Keep them unchanged when graph
     // preparation or execution aborts, otherwise the next frame would skip a required UAV transition.
     m_PendingShadowStreams.clear();
+    if (m_PendingRayTracingBuild)
+        DisableRayTracing(reason.empty() ? "ray tracing graph execution failed" : reason);
     if (!m_TemporalFramePending)
         return;
     m_TemporalFramePending = false;
@@ -276,10 +348,21 @@ void ModernDeferredPipeline::Resize(uint32_t width, uint32_t height) {
     m_SSRHistory[1] = {};
     m_SSRFilter[0] = {};
     m_SSRFilter[1] = {};
+    m_RTShadow = {};
+    m_RTAOTrace = {};
+    m_RTAOHistory[0] = {};
+    m_RTAOHistory[1] = {};
+    m_RTAOFilter[0] = {};
+    m_RTAOFilter[1] = {};
+    m_RTAOWidth = 0;
+    m_RTAOHeight = 0;
     m_EffectsHdr = {};
     m_ScreenSpaceDebug = {};
     m_SSGIDebugOutputSrv.reset();
     m_SSRDebugOutputSrv.reset();
+    m_RTAODebugOutputSrv.reset();
+    m_RTDiffuseDebugOutputSrv.reset();
+    m_RTReflectionDebugOutputSrv.reset();
     m_TAAHistoryAgeDebugOutputSrv.reset();
     m_TAARejectReasonDebugOutputSrv.reset();
     m_TAAHistory[0] = {};
@@ -295,6 +378,7 @@ void ModernDeferredPipeline::Resize(uint32_t width, uint32_t height) {
     m_FrameNormalHistoryWrite = {};
     m_FrameEnvironment = {};
     m_FrameScreenSpaceDebug = {};
+    m_FrameRayTracingTlas = {};
     m_GeometryHistoryInShaderState = false;
     m_PostColorInShaderState = false;
     m_SSGIResourcesInShaderState = false;
@@ -302,6 +386,8 @@ void ModernDeferredPipeline::Resize(uint32_t width, uint32_t height) {
     m_TAAResourcesInShaderState = false;
     m_EffectsResourceInShaderState = false;
     m_ScreenSpaceDebugInShaderState = false;
+    m_RTShadowInShaderState = false;
+    m_RTAOResourcesInShaderState = false;
     m_TemporalFramePending = false;
     m_HasCommittedFrameNumber = false;
     m_HasPreviousViewProjection = false;
@@ -658,6 +744,318 @@ bool ModernDeferredPipeline::EnsureTemporalResources() {
            createTexture("ModernPostColor", m_Width, m_Height, true, m_PostColor);
 }
 
+bool ModernDeferredPipeline::EnsureRayTracingPipelines() {
+    if (!m_Device || m_Device->GetBackend() != RHIBackend::D3D12 || !m_Device->GetCapabilities().inlineRayQueries)
+        return false;
+    m_RayTracingPipelineMask = 0;
+    const auto ensurePipeline = [this](uint32_t effect, const char* path, std::shared_ptr<ShaderHandle>& handle,
+                                       std::shared_ptr<GpuShader>& shader,
+                                       std::shared_ptr<GpuComputePipeline>& pipeline) {
+        if ((m_RayTracingRequestedMask & effect) == 0)
+            return;
+        if (!handle)
+            handle = ShaderManager::Get().GetOrCreateCompute(path);
+        shader = handle ? handle->shader : nullptr;
+        if (!shader)
+            return;
+        if (!pipeline) {
+            ComputePipelineDesc desc;
+            desc.shader = shader;
+            pipeline = m_Device->CreateComputePipeline(desc);
+        }
+        if (pipeline)
+            m_RayTracingPipelineMask |= effect;
+    };
+    ensurePipeline(ModernRayTracingShadow, EngineShaders::kModernRTShadow, m_RTShadowHandle, m_RTShadowShader,
+                   m_RTShadowPipeline);
+    ensurePipeline(ModernRayTracingAO, EngineShaders::kModernRTAO, m_RTAOHandle, m_RTAOShader, m_RTAOPipeline);
+    ensurePipeline(ModernRayTracingDiffuse, EngineShaders::kModernRTDiffuse, m_RTDiffuseHandle, m_RTDiffuseShader,
+                   m_RTDiffusePipeline);
+    ensurePipeline(ModernRayTracingReflection, EngineShaders::kModernRTReflection, m_RTReflectionHandle,
+                   m_RTReflectionShader, m_RTReflectionPipeline);
+    m_RayTracingPipelinesReady = m_RayTracingPipelineMask != 0;
+    return m_RayTracingPipelinesReady;
+}
+
+bool ModernDeferredPipeline::EnsureRayTracingResources() {
+    if (!m_Device)
+        return false;
+    const auto createTexture = [this](const char* name, uint32_t width, uint32_t height, ComputeTexture& output) {
+        if (output.texture)
+            return true;
+        RHITextureDesc desc;
+        desc.width = width;
+        desc.height = height;
+        desc.format = RHIFormat::RGBA16Float;
+        desc.usage = RHIResourceUsage::ShaderResource | RHIResourceUsage::UnorderedAccess;
+        desc.debugName = name;
+        output.texture = m_Device->CreateTexture(desc);
+        RHITextureViewDesc srv;
+        srv.usage = RHIResourceUsage::ShaderResource;
+        output.srv = m_Device->CreateTextureView(output.texture, srv);
+        RHITextureViewDesc uav;
+        uav.usage = RHIResourceUsage::UnorderedAccess;
+        output.uav = m_Device->CreateTextureView(output.texture, uav);
+        return output.texture && output.srv && output.uav;
+    };
+    if ((m_RayTracingEffectiveMask & ModernRayTracingAO) == 0)
+        return true;
+    const float scale = m_PostSettings.ssaoScale <= 0.75f ? 0.5f : 1.0f;
+    const uint32_t width = (std::max)(1u, static_cast<uint32_t>(static_cast<float>(m_Width) * scale));
+    const uint32_t height = (std::max)(1u, static_cast<uint32_t>(static_cast<float>(m_Height) * scale));
+    if (m_RTAOTrace.texture && (m_RTAOWidth != width || m_RTAOHeight != height)) {
+        m_RTAOTrace = {};
+        m_RTAOHistory[0] = {};
+        m_RTAOHistory[1] = {};
+        m_RTAOFilter[0] = {};
+        m_RTAOFilter[1] = {};
+        m_RTAOResourcesInShaderState = false;
+        InvalidateTemporalHistory("RTAO resolution scale changed", false);
+    }
+    m_RTAOWidth = width;
+    m_RTAOHeight = height;
+    return createTexture("ModernRTAOTrace", width, height, m_RTAOTrace) &&
+           createTexture("ModernRTAOHistory0", width, height, m_RTAOHistory[0]) &&
+           createTexture("ModernRTAOHistory1", width, height, m_RTAOHistory[1]) &&
+           createTexture("ModernRTAOFilter0", width, height, m_RTAOFilter[0]) &&
+           createTexture("ModernRTAOFilter1", width, height, m_RTAOFilter[1]);
+}
+
+bool ModernDeferredPipeline::EnsureRayTracingScene() {
+    if (!m_Device || m_RayTracingEffectiveMask == 0)
+        return false;
+    const auto& arena = m_GpuScene->GetGeometryArena();
+    const auto& objects = m_GpuScene->GetObjects();
+    const auto& materials = m_GpuScene->GetMaterials();
+    if (!arena.GetVertexBuffer() || !arena.GetIndexBuffer() || !arena.GetVertexView() || !arena.GetIndexView() ||
+        arena.GetVertexCount() == 0 || objects.empty()) {
+        m_RayTracingFallbackReason = "no eligible standard static geometry";
+        m_RayTracingEffectiveMask = 0;
+        return false;
+    }
+    if (m_RayTracingArenaGeneration != arena.GetGeneration()) {
+        m_RayTracingBlas.clear();
+        m_RayTracingTlas.reset();
+        m_RayTracingTlasCapacity = 0;
+        m_RayTracingTlasBuilt = false;
+        m_PreviousRayTracingInstanceCount = 0;
+        m_RayTracingArenaGeneration = arena.GetGeneration();
+        InvalidateTemporalHistory("ray tracing geometry generation changed", false);
+    }
+
+    std::unordered_map<uint64_t, uint32_t> blasLookup;
+    for (uint32_t index = 0; index < m_RayTracingBlas.size(); ++index) {
+        const auto& entry = m_RayTracingBlas[index];
+        blasLookup[(static_cast<uint64_t>(entry.firstIndex) << 32u) | entry.indexCount] = index;
+    }
+    for (uint32_t objectIndex = 0; objectIndex < objects.size(); ++objectIndex) {
+        const auto& object = objects[objectIndex];
+        const uint64_t key = (static_cast<uint64_t>(object.firstIndex) << 32u) | object.indexCount;
+        if (blasLookup.count(key))
+            continue;
+        RayTracingBlasEntry entry;
+        entry.firstIndex = object.firstIndex;
+        entry.indexCount = object.indexCount;
+        entry.geometry.vertexBuffer = arena.GetVertexBuffer();
+        entry.geometry.indexBuffer = arena.GetIndexBuffer();
+        entry.geometry.vertexCount = arena.GetVertexCount();
+        entry.geometry.vertexStride = sizeof(MeshVertex);
+        entry.geometry.indexOffset = static_cast<uint64_t>(object.firstIndex) * sizeof(uint32_t);
+        entry.geometry.indexCount = object.indexCount;
+        entry.geometry.opaque = false;
+        RHIAccelerationStructureDesc desc;
+        desc.type = RHIAccelerationStructureType::BottomLevel;
+        desc.geometries.push_back(entry.geometry);
+        desc.flags = RHIAccelerationStructureBuildFlags::PreferFastTrace;
+        desc.debugName = "ModernRTBLAS";
+        entry.accelerationStructure = m_Device->CreateAccelerationStructure(desc);
+        if (!entry.accelerationStructure) {
+            DisableRayTracing("failed to create a Modern Deferred BLAS");
+            return false;
+        }
+        const uint32_t index = static_cast<uint32_t>(m_RayTracingBlas.size());
+        blasLookup[key] = index;
+        m_RayTracingBlas.push_back(std::move(entry));
+    }
+
+    m_RayTracingInstances.clear();
+    m_RayTracingInstances.reserve(objects.size());
+    for (uint32_t objectIndex = 0; objectIndex < objects.size(); ++objectIndex) {
+        const auto& object = objects[objectIndex];
+        const uint64_t key = (static_cast<uint64_t>(object.firstIndex) << 32u) | object.indexCount;
+        const auto found = blasLookup.find(key);
+        if (found == blasLookup.end() || object.materialId >= materials.size())
+            continue;
+        RHIRayTracingInstanceDesc instance;
+        // Engine matrices use row vectors. DXR's 3x4 instance transform is the transposed affine transform.
+        for (uint32_t row = 0; row < 3; ++row)
+            for (uint32_t column = 0; column < 4; ++column)
+                instance.transform[row * 4 + column] = object.world.m[column][row];
+        // InstanceID is an index into the frame's tightly packed GPU Scene object buffer.
+        instance.instanceId = objectIndex;
+        instance.forceNonOpaque = true;
+        instance.disableTriangleCulling = (materials[object.materialId].flags & (1u << 9u)) != 0;
+        instance.bottomLevel = m_RayTracingBlas[found->second].accelerationStructure;
+        m_RayTracingInstances.push_back(std::move(instance));
+    }
+    if (m_RayTracingInstances.empty()) {
+        m_RayTracingFallbackReason = "no eligible ray tracing instances";
+        m_RayTracingEffectiveMask = 0;
+        return false;
+    }
+    const uint32_t required = static_cast<uint32_t>(m_RayTracingInstances.size());
+    if (!m_RayTracingTlas || required > m_RayTracingTlasCapacity) {
+        m_RayTracingTlasCapacity = 1;
+        while (m_RayTracingTlasCapacity < required)
+            m_RayTracingTlasCapacity *= 2u;
+        RHIAccelerationStructureDesc desc;
+        desc.type = RHIAccelerationStructureType::TopLevel;
+        desc.maxInstances = m_RayTracingTlasCapacity;
+        desc.flags =
+            RHIAccelerationStructureBuildFlags::AllowUpdate | RHIAccelerationStructureBuildFlags::PreferFastTrace;
+        desc.debugName = "ModernRTTLAS";
+        m_RayTracingTlas = m_Device->CreateAccelerationStructure(desc);
+        m_RayTracingTlasBuilt = false;
+        if (!m_RayTracingTlas) {
+            DisableRayTracing("failed to create the Modern Deferred TLAS");
+            return false;
+        }
+        InvalidateTemporalHistory("ray tracing TLAS capacity changed", false);
+    }
+    m_Stats.rayTracingBlasCount = static_cast<uint32_t>(m_RayTracingBlas.size());
+    m_Stats.rayTracingTlasInstanceCount = required;
+    m_Stats.rayTracingAccelerationStructureBytes =
+        m_RayTracingTlas->buildSizes.resultBytes + m_RayTracingTlas->buildSizes.scratchBytes;
+    for (const auto& entry : m_RayTracingBlas)
+        m_Stats.rayTracingAccelerationStructureBytes +=
+            entry.accelerationStructure->buildSizes.resultBytes + entry.accelerationStructure->buildSizes.scratchBytes;
+    return true;
+}
+
+void ModernDeferredPipeline::AddRayTracingBuildPass(RenderGraph& graph) {
+    m_FrameRayTracingTlas = {};
+    if (m_RayTracingEffectiveMask == 0 || m_RayTracingPermanentlyUnavailable || !EnsureRayTracingScene())
+        return;
+    std::vector<RGAccelerationStructureHandle> blasHandles;
+    blasHandles.reserve(m_RayTracingBlas.size());
+    m_PendingRayTracingBlasBuilds.clear();
+    for (uint32_t index = 0; index < m_RayTracingBlas.size(); ++index) {
+        blasHandles.push_back(graph.ImportAccelerationStructure("ModernRTBLAS" + std::to_string(index),
+                                                                m_RayTracingBlas[index].accelerationStructure));
+        if (!m_RayTracingBlas[index].built)
+            m_PendingRayTracingBlasBuilds.push_back(index);
+    }
+    m_FrameRayTracingTlas = graph.ImportAccelerationStructure("ModernRTTLAS", m_RayTracingTlas);
+    const bool updateTlas = m_RayTracingTlasBuilt &&
+                            m_PreviousRayTracingInstanceCount == static_cast<uint32_t>(m_RayTracingInstances.size());
+    const auto builds = m_PendingRayTracingBlasBuilds;
+    graph.AddAccelerationStructurePass(
+        updateTlas ? "UpdateModernRTTLAS" : "BuildModernRTAccelerationStructures",
+        [blasHandles, tlas = m_FrameRayTracingTlas, builds](RenderGraphBuilder& builder) {
+            for (uint32_t index : builds)
+                builder.WriteAccelerationStructure(blasHandles[index]);
+            builder.WriteAccelerationStructure(tlas);
+        },
+        [this, builds, updateTlas](GpuCommandList& commands, const RenderGraphResources&) {
+            const auto start = std::chrono::steady_clock::now();
+            for (uint32_t index : builds)
+                commands.BuildBottomLevelAccelerationStructure(m_RayTracingBlas[index].accelerationStructure.get(),
+                                                               {m_RayTracingBlas[index].geometry}, false);
+            commands.BuildTopLevelAccelerationStructure(m_RayTracingTlas.get(), m_RayTracingInstances, updateTlas);
+            const auto elapsed = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - start);
+            m_Stats.rayTracingBuildCpuMs = elapsed.count();
+            m_Stats.rayTracingTlasUpdated = updateTlas;
+        });
+    m_PendingRayTracingBuild = true;
+}
+
+bool ModernDeferredPipeline::ConfigureRayTracedShadow(bool directionalShadowEnabled, float intensity) {
+    m_RayTracingEffectiveMask &= ~ModernRayTracingShadow;
+    const uint32_t sourceMask = directionalShadowEnabled ? ModernRayTracingShadow : ModernRayTracingNone;
+    if (!m_RayTracingPermanentlyUnavailable)
+        m_RayTracingEffectiveMask |=
+            ResolveModernRayTracingEffectMask(m_RayTracingRequestedMask, m_HardwareRayTracingEnabled,
+                                              m_Device->GetCapabilities(), sourceMask, m_RayTracingPipelineMask);
+    const bool effective = (m_RayTracingEffectiveMask & ModernRayTracingShadow) != 0;
+    if (effective && !EnsureRayTracingScene())
+        m_RayTracingEffectiveMask &= ~ModernRayTracingShadow;
+    if (!directionalShadowEnabled && (m_RayTracingRequestedMask & ModernRayTracingShadow) != 0 &&
+        m_RayTracingEffectiveMask == 0)
+        m_RayTracingFallbackReason =
+            "RTShadow requested but the Shadows feature or shadow-casting directional light is disabled";
+    m_RayTracingConstants.params1.z = std::clamp(intensity, 0.0f, 1.0f);
+    if (m_RayTracingEffectiveMask != m_CommittedRayTracingEffectiveMask)
+        InvalidateTemporalHistory("ray tracing replacement mask changed", false);
+    m_Stats.rayTracingEffectiveMask = m_RayTracingEffectiveMask;
+    return (m_RayTracingEffectiveMask & ModernRayTracingShadow) != 0;
+}
+
+RGTextureHandle ModernDeferredPipeline::AddRayTracedShadowPass(
+    RenderGraph& graph, RGTextureHandle sceneDepth, const std::shared_ptr<GpuTextureView>& sceneDepthSrv,
+    RGTextureHandle gbufferNormal, const std::shared_ptr<GpuTextureView>& gbufferNormalSrv) {
+    if ((m_RayTracingEffectiveMask & ModernRayTracingShadow) == 0 || !m_FrameRayTracingTlas.IsValid() ||
+        !m_RTShadowPipeline || !sceneDepthSrv || !gbufferNormalSrv)
+        return {};
+    if (!m_RTShadow.texture) {
+        RHITextureDesc desc;
+        desc.width = m_Width;
+        desc.height = m_Height;
+        desc.arrayLayers = 1;
+        desc.format = RHIFormat::R32Float;
+        desc.usage = RHIResourceUsage::ShaderResource | RHIResourceUsage::UnorderedAccess;
+        desc.debugName = "ModernRTShadow";
+        m_RTShadow.texture = m_Device->CreateTexture(desc);
+        RHITextureViewDesc srv;
+        srv.layerCount = 1;
+        srv.usage = RHIResourceUsage::ShaderResource;
+        m_RTShadow.srv = m_Device->CreateTextureView(m_RTShadow.texture, srv);
+        RHITextureViewDesc uav = srv;
+        uav.usage = RHIResourceUsage::UnorderedAccess;
+        m_RTShadow.uav = m_Device->CreateTextureView(m_RTShadow.texture, uav);
+        if (!m_RTShadow.texture || !m_RTShadow.srv || !m_RTShadow.uav) {
+            DisableRayTracing("failed to create the RTShadow output");
+            return {};
+        }
+    }
+    const auto shadow =
+        graph.ImportTexture("ModernRTShadow", m_RTShadow.texture, m_RTShadow.srv,
+                            m_RTShadowInShaderState ? RHIResourceState::ShaderResource : RHIResourceState::Undefined,
+                            RHIResourceState::ShaderResource);
+    graph.AddComputePass(
+        "RTShadow",
+        [this, sceneDepth, gbufferNormal, shadow](RenderGraphBuilder& builder) {
+            builder.ReadAccelerationStructure(m_FrameRayTracingTlas);
+            builder.ReadTexture(sceneDepth);
+            builder.ReadTexture(gbufferNormal);
+            builder.ReadWriteUAV(shadow);
+        },
+        [this, sceneDepthSrv, gbufferNormalSrv](GpuCommandList& commands, const RenderGraphResources&) {
+            commands.SetComputePipeline(m_RTShadowPipeline.get());
+            auto bindings = AcquireBindGroup(m_RTShadowShader);
+            if (!bindings)
+                return;
+            bindings->SetConstants("ModernRayTracingConstants", &m_RayTracingConstants, sizeof(m_RayTracingConstants));
+            bindings->SetAccelerationStructure("g_RTScene", m_RayTracingTlas);
+            bindings->SetTexture("g_RTDepth", sceneDepthSrv);
+            bindings->SetTexture("g_RTNormal", gbufferNormalSrv);
+            bindings->SetBuffer("g_RTVertices", m_GpuScene->GetGeometryArena().GetVertexView());
+            bindings->SetBuffer("g_RTIndices", m_GpuScene->GetGeometryArena().GetIndexView());
+            bindings->SetBuffer("g_RTObjects", m_GpuScene->GetObjectView());
+            bindings->SetBuffer("g_RTMaterials", m_GpuScene->GetMaterialView());
+            bindings->SetSampler("g_RTLinearSampler", m_LinearClampSampler);
+            bindings->SetStorageTexture("g_RTShadowOutput", m_RTShadow.uav);
+            if (!BindModernPass(commands, "RTShadow", bindings))
+                return;
+            commands.Dispatch((m_Width + 7u) / 8u, (m_Height + 7u) / 8u, 1);
+        });
+    m_DirectionalShadowSrv = m_RTShadow.srv;
+    m_ClusterConstants.shadowInfo.x = 1.0f;
+    m_ClusterConstants.shadowInfo.y = m_RayTracingConstants.params1.z;
+    m_ClusterConstants.shadowInfo.z = 1.0f;
+    m_ClusterConstants.shadowInfo.w = 1.0f;
+    return shadow;
+}
+
 void ModernDeferredPipeline::UpdateHistoryValidity(const Camera& camera, const ModernPostProcessSettings& settings) {
     const Vec3 position = camera.GetPosition();
     const Vec3 forward = camera.GetForward();
@@ -671,7 +1069,11 @@ void ModernDeferredPipeline::UpdateHistoryValidity(const Camera& camera, const M
         reason = "camera projection changed";
     else if (settings.ssgiEnabled != m_PreviousPostSettings.ssgiEnabled ||
              settings.ssrEnabled != m_PreviousPostSettings.ssrEnabled ||
-             settings.taaEnabled != m_PreviousPostSettings.taaEnabled)
+             settings.taaEnabled != m_PreviousPostSettings.taaEnabled ||
+             settings.rayTracedShadowReplacement != m_PreviousPostSettings.rayTracedShadowReplacement ||
+             settings.rayTracedAOReplacement != m_PreviousPostSettings.rayTracedAOReplacement ||
+             settings.rayTracedReflectionReplacement != m_PreviousPostSettings.rayTracedReflectionReplacement ||
+             settings.rayTracedDiffuseReplacement != m_PreviousPostSettings.rayTracedDiffuseReplacement)
         reason = "screen-space effect toggle changed";
     else if (settings.taaEnabled &&
              !FloatsNearlyEqual(settings.taaJitterSpread, m_PreviousPostSettings.taaJitterSpread))
@@ -836,6 +1238,7 @@ bool ModernDeferredPipeline::Prepare(const Scene& scene, const Camera& camera, u
     m_FrameNormalHistoryWrite = {};
     m_FrameEnvironment = {};
     m_FrameScreenSpaceDebug = {};
+    m_FrameRayTracingTlas = {};
     ConsumeDiagnosticsReadback();
     // These counters feed diagnostics only. Creating three committed readback resources every frame puts descriptor
     // and resource allocation noise directly on the render-submission p95 path. Sample once immediately and then at
@@ -1001,6 +1404,55 @@ bool ModernDeferredPipeline::Prepare(const Scene& scene, const Camera& camera, u
     m_TAAConstants.historyValid = m_HistoryValid ? 1u : 0u;
     m_TAAConstants.historyWeight = settings.taaHistoryWeight;
     m_TAAConstants.historyClipExpansion = settings.taaHistoryClipExpansion;
+    m_RayTracingRequestedMask = (settings.rayTracedShadowReplacement ? ModernRayTracingShadow : 0u) |
+                                (settings.rayTracedAOReplacement ? ModernRayTracingAO : 0u) |
+                                (settings.rayTracedReflectionReplacement ? ModernRayTracingReflection : 0u) |
+                                (settings.rayTracedDiffuseReplacement ? ModernRayTracingDiffuse : 0u);
+    m_RayTracingEffectiveMask = 0;
+    const RHIDeviceCapabilities capabilities = m_Device->GetCapabilities();
+    if (!m_HardwareRayTracingEnabled) {
+        m_RayTracingFallbackReason = "hardware ray tracing is disabled by project settings";
+    } else if (!capabilities.accelerationStructures || !capabilities.inlineRayQueries ||
+               capabilities.rayTracingTier != RHIRayTracingTier::Tier11) {
+        m_RayTracingFallbackReason = "D3D12 DXR 1.1 inline ray queries and Shader Model 6.5 are unavailable";
+    } else if (m_RayTracingPermanentlyUnavailable) {
+        if (m_RayTracingFallbackReason.empty())
+            m_RayTracingFallbackReason = "ray tracing was disabled after an initialization or execution failure";
+    } else if (m_RayTracingRequestedMask == 0) {
+        m_RayTracingFallbackReason = "no ray traced replacement is requested";
+    } else if (!EnsureRayTracingPipelines()) {
+        m_RayTracingFallbackReason = "ray tracing shaders are not ready; using raster and screen-space fallbacks";
+    } else {
+        const uint32_t sourceMask = (settings.ssaoIntensity > 0.0f ? ModernRayTracingAO : 0u) |
+                                    (settings.ssgiEnabled ? ModernRayTracingDiffuse : 0u) |
+                                    (settings.ssrEnabled ? ModernRayTracingReflection : 0u);
+        m_RayTracingEffectiveMask = ResolveModernRayTracingEffectMask(
+            m_RayTracingRequestedMask, m_HardwareRayTracingEnabled, capabilities, sourceMask, m_RayTracingPipelineMask);
+        m_RayTracingFallbackReason = m_RayTracingPipelineMask == m_RayTracingRequestedMask
+                                         ? "ready"
+                                         : "one or more ray tracing shaders are unavailable; using per-effect fallback";
+        if (m_RayTracingEffectiveMask == 0 && (m_RayTracingRequestedMask & ModernRayTracingShadow) == 0)
+            m_RayTracingFallbackReason = "requested source effects are disabled; using raster and screen-space paths";
+        if (!EnsureRayTracingResources())
+            DisableRayTracing("failed to create ray tracing temporal resources");
+    }
+    if ((m_RayTracingEffectiveMask & ~ModernRayTracingShadow) !=
+        (m_CommittedRayTracingEffectiveMask & ~ModernRayTracingShadow))
+        InvalidateTemporalHistory("ray tracing replacement mask changed", false);
+    m_RayTracingConstants.inverseViewProjection = m_ScreenSpaceConstants.inverseViewProjection;
+    m_RayTracingConstants.cameraPositionAmbient = m_ScreenSpaceConstants.cameraPositionAmbient;
+    m_RayTracingConstants.lightDirectionIntensity = m_ClusterConstants.directionalLight;
+    m_RayTracingConstants.lightColor = m_ClusterConstants.directionalColorAmbient;
+    m_RayTracingConstants.fullSize[0] = m_Width;
+    m_RayTracingConstants.fullSize[1] = m_Height;
+    m_RayTracingConstants.effectSize[0] = m_ScreenSpaceConstants.effectSize[0];
+    m_RayTracingConstants.effectSize[1] = m_ScreenSpaceConstants.effectSize[1];
+    m_RayTracingConstants.params0 =
+        Vec4{settings.ssaoRadius, settings.ssaoBias, settings.ssaoPower, settings.ssaoIntensity};
+    m_RayTracingConstants.params1 = Vec4{(std::max)(settings.ssgiMaxDistance, settings.ssrMaxDistance),
+                                         settings.ssrMaxRoughness, 1.0f, static_cast<float>(frameNumber % 1024u)};
+    m_Stats.rayTracingRequestedMask = m_RayTracingRequestedMask;
+    m_Stats.rayTracingEffectiveMask = m_RayTracingEffectiveMask;
     m_Stats.clusterCount = m_ClusterConstants.clusterCount;
     m_Stats.indirectDrawCapacity = m_IndirectCapacity;
     return true;
@@ -1585,7 +2037,18 @@ RGTextureHandle ModernDeferredPipeline::AddScreenSpaceEffects(
     m_EffectsOutputSrv = hdrSrv;
     m_SSGIDebugOutputSrv.reset();
     m_SSRDebugOutputSrv.reset();
-    if (!m_PostSettings.ssgiEnabled && !m_PostSettings.ssrEnabled && !ssaoEnabled)
+    m_RTAODebugOutputSrv.reset();
+    m_RTDiffuseDebugOutputSrv.reset();
+    m_RTReflectionDebugOutputSrv.reset();
+    const bool frameRayTracingReady = m_FrameRayTracingTlas.IsValid() && m_RayTracingTlas;
+    const bool rayTracedAO =
+        frameRayTracingReady && ssaoEnabled && (m_RayTracingEffectiveMask & ModernRayTracingAO) != 0 && m_RTAOPipeline;
+    const bool rayTracedDiffuse = frameRayTracingReady && m_PostSettings.ssgiEnabled &&
+                                  (m_RayTracingEffectiveMask & ModernRayTracingDiffuse) != 0 && m_RTDiffusePipeline;
+    const bool rayTracedReflection = frameRayTracingReady && m_PostSettings.ssrEnabled &&
+                                     (m_RayTracingEffectiveMask & ModernRayTracingReflection) != 0 &&
+                                     m_RTReflectionPipeline;
+    if (!m_PostSettings.ssgiEnabled && !m_PostSettings.ssrEnabled && !ssaoEnabled && !rayTracedAO)
         return hdr;
     const auto import = [&](const char* name, const ComputeTexture& texture, bool initialized) {
         const RHIResourceState initial = initialized ? RHIResourceState::ShaderResource : RHIResourceState::Undefined;
@@ -1614,45 +2077,223 @@ RGTextureHandle ModernDeferredPipeline::AddScreenSpaceEffects(
         ssrFilter0 = import("SSRFilter0", m_SSRFilter[0], m_SSRResourcesInShaderState);
         ssrFilter1 = import("SSRFilter1", m_SSRFilter[1], m_SSRResourcesInShaderState);
     }
+    RGTextureHandle rtaoTrace, rtaoHistoryRead, rtaoHistoryWrite, rtaoFilter0, rtaoFilter1;
+    if (rayTracedAO) {
+        rtaoTrace = import("RTAOTrace", m_RTAOTrace, m_RTAOResourcesInShaderState);
+        rtaoHistoryRead = import("RTAOHistoryRead", m_RTAOHistory[readHistory], m_RTAOResourcesInShaderState);
+        rtaoHistoryWrite = import("RTAOHistoryWrite", m_RTAOHistory[writeHistory], m_RTAOResourcesInShaderState);
+        rtaoFilter0 = import("RTAOFilter0", m_RTAOFilter[0], m_RTAOResourcesInShaderState);
+        rtaoFilter1 = import("RTAOFilter1", m_RTAOFilter[1], m_RTAOResourcesInShaderState);
+    }
     const auto effects = import("ModernEffectsHDR", m_EffectsHdr, m_EffectsResourceInShaderState);
     RGTextureHandle ssgiFinal;
     RGTextureHandle ssrFinal;
     std::shared_ptr<GpuTextureView> ssgiFinalSrv;
     std::shared_ptr<GpuTextureView> ssrFinalSrv;
+    RGTextureHandle effectiveSsao = ssao;
+    std::shared_ptr<GpuTextureView> effectiveSsaoSrv = ssaoSrv;
+    bool effectiveSsaoEnabled = ssaoEnabled;
 
     ScreenSpaceConstants ssgiTemporalConstants = m_ScreenSpaceConstants;
     ssgiTemporalConstants.effectMode = 1u;
     ScreenSpaceConstants ssrTemporalConstants = m_ScreenSpaceConstants;
     ssrTemporalConstants.effectMode = 2u;
-    if (m_PostSettings.ssgiEnabled) {
-        ScreenSpaceConstants ssgiTraceConstants = m_ScreenSpaceConstants;
-        ssgiTraceConstants.effectMode = 1u;
+    if (rayTracedAO) {
+        RayTracingConstants rtaoConstants = m_RayTracingConstants;
+        rtaoConstants.effectSize[0] = m_RTAOWidth;
+        rtaoConstants.effectSize[1] = m_RTAOHeight;
         graph.AddComputePass(
-            "SSGITraceHalfResolution",
-            [sceneDepth, gbufferNormal, hdr, hiz, ssgiTrace](RenderGraphBuilder& builder) {
+            "RTAO",
+            [this, sceneDepth, gbufferNormal, rtaoTrace](RenderGraphBuilder& builder) {
+                builder.ReadAccelerationStructure(m_FrameRayTracingTlas);
                 builder.ReadTexture(sceneDepth);
                 builder.ReadTexture(gbufferNormal);
-                builder.ReadTexture(hdr);
-                builder.ReadTexture(hiz);
-                builder.ReadWriteUAV(ssgiTrace);
+                builder.ReadWriteUAV(rtaoTrace);
             },
-            [this, sceneDepthSrv, gbufferNormalSrv, hdrSrv, ssgiTraceConstants](GpuCommandList& commands,
-                                                                                const RenderGraphResources&) {
-                commands.SetComputePipeline(m_SSGITracePipeline.get());
-                auto bindings = AcquireBindGroup(m_SSGITraceShader);
+            [this, sceneDepthSrv, gbufferNormalSrv, rtaoConstants](GpuCommandList& commands,
+                                                                   const RenderGraphResources&) {
+                commands.SetComputePipeline(m_RTAOPipeline.get());
+                auto bindings = AcquireBindGroup(m_RTAOShader);
                 if (!bindings)
                     return;
-                bindings->SetConstants("ScreenSpaceConstants", &ssgiTraceConstants, sizeof(ssgiTraceConstants));
+                bindings->SetConstants("ModernRayTracingConstants", &rtaoConstants, sizeof(rtaoConstants));
+                bindings->SetAccelerationStructure("g_RTScene", m_RayTracingTlas);
+                bindings->SetTexture("g_RTDepth", sceneDepthSrv);
+                bindings->SetTexture("g_RTNormal", gbufferNormalSrv);
+                bindings->SetBuffer("g_RTVertices", m_GpuScene->GetGeometryArena().GetVertexView());
+                bindings->SetBuffer("g_RTIndices", m_GpuScene->GetGeometryArena().GetIndexView());
+                bindings->SetBuffer("g_RTObjects", m_GpuScene->GetObjectView());
+                bindings->SetBuffer("g_RTMaterials", m_GpuScene->GetMaterialView());
+                bindings->SetSampler("g_RTLinearSampler", m_LinearClampSampler);
+                bindings->SetStorageTexture("g_RTOutput", m_RTAOTrace.uav);
+                if (!BindModernPass(commands, "RTAO", bindings))
+                    return;
+                commands.Dispatch((rtaoConstants.effectSize[0] + 7u) / 8u, (rtaoConstants.effectSize[1] + 7u) / 8u, 1);
+            });
+
+        ScreenSpaceConstants rtaoTemporalConstants = m_ScreenSpaceConstants;
+        rtaoTemporalConstants.effectSize[0] = m_RTAOWidth;
+        rtaoTemporalConstants.effectSize[1] = m_RTAOHeight;
+        rtaoTemporalConstants.effectTexelSize[0] = 1.0f / static_cast<float>(m_RTAOWidth);
+        rtaoTemporalConstants.effectTexelSize[1] = 1.0f / static_cast<float>(m_RTAOHeight);
+        rtaoTemporalConstants.effectMode = 4u;
+        graph.AddComputePass(
+            "RTAOTemporalDenoise",
+            [this, rtaoTrace, rtaoHistoryRead, rtaoHistoryWrite, sceneDepth, gbufferNormal,
+             gbufferVelocity](RenderGraphBuilder& builder) {
+                builder.ReadTexture(rtaoTrace);
+                builder.ReadTexture(rtaoHistoryRead);
+                builder.ReadTexture(sceneDepth);
+                builder.ReadTexture(gbufferNormal);
+                builder.ReadTexture(gbufferVelocity);
+                builder.ReadTexture(m_FrameDepthHistoryRead);
+                builder.ReadTexture(m_FrameNormalHistoryRead);
+                builder.ReadWriteUAV(rtaoHistoryWrite);
+            },
+            [this, sceneDepthSrv, gbufferNormalSrv, gbufferVelocitySrv, readHistory, writeHistory,
+             rtaoTemporalConstants](GpuCommandList& commands, const RenderGraphResources&) {
+                commands.SetComputePipeline(m_TemporalPipeline.get());
+                auto bindings = AcquireBindGroup(m_TemporalShader);
+                if (!bindings)
+                    return;
+                bindings->SetConstants("ScreenSpaceConstants", &rtaoTemporalConstants, sizeof(rtaoTemporalConstants));
+                bindings->SetTexture("g_Current", m_RTAOTrace.srv);
+                bindings->SetTexture("g_History", m_RTAOHistory[readHistory].srv);
                 bindings->SetTexture("g_Depth", sceneDepthSrv);
                 bindings->SetTexture("g_Normal", gbufferNormalSrv);
-                bindings->SetTexture("g_HdrInput", hdrSrv);
-                bindings->SetTexture("g_HiZ", m_HiZSrv);
-                bindings->SetStorageTexture("g_Output", m_SSGITrace.uav);
-                if (!BindModernPass(commands, "SSGITraceHalfResolution", bindings))
+                bindings->SetTexture("g_Velocity", gbufferVelocitySrv);
+                bindings->SetTexture("g_PreviousDepth", m_DepthHistory[readHistory].srv);
+                bindings->SetTexture("g_PreviousNormal", m_NormalHistory[readHistory].srv);
+                bindings->SetSampler("g_LinearSampler", m_LinearClampSampler);
+                bindings->SetSampler("g_PointSampler", m_PointClampSampler);
+                bindings->SetStorageTexture("g_Output", m_RTAOHistory[writeHistory].uav);
+                if (!BindModernPass(commands, "RTAOTemporalDenoise", bindings))
                     return;
-                commands.Dispatch((ssgiTraceConstants.effectSize[0] + 7u) / 8u,
-                                  (ssgiTraceConstants.effectSize[1] + 7u) / 8u, 1);
+                commands.Dispatch((rtaoTemporalConstants.effectSize[0] + 7u) / 8u,
+                                  (rtaoTemporalConstants.effectSize[1] + 7u) / 8u, 1);
             });
+
+        RGTextureHandle rtaoFilterHandles[2] = {rtaoFilter0, rtaoFilter1};
+        RGTextureHandle rtaoInput = rtaoHistoryWrite;
+        std::shared_ptr<GpuTextureView> rtaoInputSrv = m_RTAOHistory[writeHistory].srv;
+        const uint32_t rtaoFilterRounds = m_QualityProfile == QualityProfile::Console ? 1u : 2u;
+        for (uint32_t pass = 0; pass < rtaoFilterRounds * 2u; ++pass) {
+            const uint32_t outputIndex = pass & 1u;
+            const RGTextureHandle outputHandle = rtaoFilterHandles[outputIndex];
+            const std::shared_ptr<GpuTextureView> outputUav = m_RTAOFilter[outputIndex].uav;
+            ScreenSpaceConstants filterConstants = m_ScreenSpaceConstants;
+            filterConstants.effectSize[0] = m_RTAOWidth;
+            filterConstants.effectSize[1] = m_RTAOHeight;
+            filterConstants.effectTexelSize[0] = 1.0f / static_cast<float>(m_RTAOWidth);
+            filterConstants.effectTexelSize[1] = 1.0f / static_cast<float>(m_RTAOHeight);
+            filterConstants.filterStep = pass / 2u;
+            filterConstants.effectMode = pass & 1u;
+            graph.AddComputePass(
+                "RTAOAtrous" + std::to_string(pass),
+                [input = rtaoInput, output = outputHandle, sceneDepth, gbufferNormal,
+                 gbufferMaterial](RenderGraphBuilder& builder) {
+                    builder.ReadTexture(input);
+                    builder.ReadTexture(sceneDepth);
+                    builder.ReadTexture(gbufferNormal);
+                    builder.ReadTexture(gbufferMaterial);
+                    builder.ReadWriteUAV(output);
+                },
+                [this, input = rtaoInputSrv, output = outputUav, sceneDepthSrv, gbufferNormalSrv, gbufferMaterialSrv,
+                 filterConstants](GpuCommandList& commands, const RenderGraphResources&) {
+                    commands.SetComputePipeline(m_AtrousPipeline.get());
+                    auto bindings = AcquireBindGroup(m_AtrousShader);
+                    if (!bindings)
+                        return;
+                    bindings->SetConstants("ScreenSpaceConstants", &filterConstants, sizeof(filterConstants));
+                    bindings->SetTexture("g_Current", input);
+                    bindings->SetTexture("g_Depth", sceneDepthSrv);
+                    bindings->SetTexture("g_Normal", gbufferNormalSrv);
+                    bindings->SetTexture("g_Material", gbufferMaterialSrv);
+                    bindings->SetStorageTexture("g_Output", output);
+                    if (!BindModernPass(commands, "RTAOAtrous", bindings))
+                        return;
+                    commands.Dispatch((filterConstants.effectSize[0] + 7u) / 8u,
+                                      (filterConstants.effectSize[1] + 7u) / 8u, 1);
+                });
+            rtaoInput = outputHandle;
+            rtaoInputSrv = m_RTAOFilter[outputIndex].srv;
+        }
+        effectiveSsao = rtaoInput;
+        effectiveSsaoSrv = rtaoInputSrv;
+        effectiveSsaoEnabled = true;
+        m_RTAODebugOutputSrv = rtaoInputSrv;
+    }
+    if (m_PostSettings.ssgiEnabled) {
+        if (rayTracedDiffuse) {
+            RayTracingConstants diffuseConstants = m_RayTracingConstants;
+            diffuseConstants.params1.x = m_PostSettings.ssgiMaxDistance;
+            graph.AddComputePass(
+                "RTDiffuse",
+                [this, sceneDepth, gbufferNormal, gbufferAlbedo, gbufferMaterial,
+                 ssgiTrace](RenderGraphBuilder& builder) {
+                    builder.ReadAccelerationStructure(m_FrameRayTracingTlas);
+                    builder.ReadTexture(sceneDepth);
+                    builder.ReadTexture(gbufferNormal);
+                    builder.ReadTexture(gbufferAlbedo);
+                    builder.ReadTexture(gbufferMaterial);
+                    if (m_FrameEnvironment.IsValid())
+                        builder.ReadTexture(m_FrameEnvironment);
+                    builder.ReadWriteUAV(ssgiTrace);
+                },
+                [this, sceneDepthSrv, gbufferNormalSrv, gbufferAlbedoSrv, gbufferMaterialSrv,
+                 diffuseConstants](GpuCommandList& commands, const RenderGraphResources&) {
+                    commands.SetComputePipeline(m_RTDiffusePipeline.get());
+                    auto bindings = AcquireBindGroup(m_RTDiffuseShader);
+                    if (!bindings)
+                        return;
+                    bindings->SetConstants("ModernRayTracingConstants", &diffuseConstants, sizeof(diffuseConstants));
+                    bindings->SetAccelerationStructure("g_RTScene", m_RayTracingTlas);
+                    bindings->SetTexture("g_RTDepth", sceneDepthSrv);
+                    bindings->SetTexture("g_RTNormal", gbufferNormalSrv);
+                    bindings->SetTexture("g_RTAlbedo", gbufferAlbedoSrv);
+                    bindings->SetTexture("g_RTMaterialBuffer", gbufferMaterialSrv);
+                    bindings->SetTexture("g_RTEnvironment", m_EnvironmentCubeSrv);
+                    bindings->SetBuffer("g_RTVertices", m_GpuScene->GetGeometryArena().GetVertexView());
+                    bindings->SetBuffer("g_RTIndices", m_GpuScene->GetGeometryArena().GetIndexView());
+                    bindings->SetBuffer("g_RTObjects", m_GpuScene->GetObjectView());
+                    bindings->SetBuffer("g_RTMaterials", m_GpuScene->GetMaterialView());
+                    bindings->SetSampler("g_RTLinearSampler", m_LinearClampSampler);
+                    bindings->SetStorageTexture("g_RTOutput", m_SSGITrace.uav);
+                    if (!BindModernPass(commands, "RTDiffuse", bindings))
+                        return;
+                    commands.Dispatch((diffuseConstants.effectSize[0] + 7u) / 8u,
+                                      (diffuseConstants.effectSize[1] + 7u) / 8u, 1);
+                });
+        } else {
+            ScreenSpaceConstants ssgiTraceConstants = m_ScreenSpaceConstants;
+            ssgiTraceConstants.effectMode = 1u;
+            graph.AddComputePass(
+                "SSGITraceHalfResolution",
+                [sceneDepth, gbufferNormal, hdr, hiz, ssgiTrace](RenderGraphBuilder& builder) {
+                    builder.ReadTexture(sceneDepth);
+                    builder.ReadTexture(gbufferNormal);
+                    builder.ReadTexture(hdr);
+                    builder.ReadTexture(hiz);
+                    builder.ReadWriteUAV(ssgiTrace);
+                },
+                [this, sceneDepthSrv, gbufferNormalSrv, hdrSrv, ssgiTraceConstants](GpuCommandList& commands,
+                                                                                    const RenderGraphResources&) {
+                    commands.SetComputePipeline(m_SSGITracePipeline.get());
+                    auto bindings = AcquireBindGroup(m_SSGITraceShader);
+                    if (!bindings)
+                        return;
+                    bindings->SetConstants("ScreenSpaceConstants", &ssgiTraceConstants, sizeof(ssgiTraceConstants));
+                    bindings->SetTexture("g_Depth", sceneDepthSrv);
+                    bindings->SetTexture("g_Normal", gbufferNormalSrv);
+                    bindings->SetTexture("g_HdrInput", hdrSrv);
+                    bindings->SetTexture("g_HiZ", m_HiZSrv);
+                    bindings->SetStorageTexture("g_Output", m_SSGITrace.uav);
+                    if (!BindModernPass(commands, "SSGITraceHalfResolution", bindings))
+                        return;
+                    commands.Dispatch((ssgiTraceConstants.effectSize[0] + 7u) / 8u,
+                                      (ssgiTraceConstants.effectSize[1] + 7u) / 8u, 1);
+                });
+        }
 
         graph.AddComputePass(
             "SSGITemporalDenoise",
@@ -1735,39 +2376,85 @@ RGTextureHandle ModernDeferredPipeline::AddScreenSpaceEffects(
         }
         ssgiFinal = ssgiInput;
         ssgiFinalSrv = ssgiInputSrv;
+        if (rayTracedDiffuse)
+            m_RTDiffuseDebugOutputSrv = ssgiFinalSrv;
     }
 
     if (m_PostSettings.ssrEnabled) {
-        ScreenSpaceConstants ssrTraceConstants = m_ScreenSpaceConstants;
-        ssrTraceConstants.effectMode = 1u;
-        graph.AddComputePass(
-            "SSRTraceHalfResolution",
-            [sceneDepth, gbufferNormal, gbufferMaterial, hdr, hiz, ssrTrace](RenderGraphBuilder& builder) {
-                builder.ReadTexture(sceneDepth);
-                builder.ReadTexture(gbufferNormal);
-                builder.ReadTexture(gbufferMaterial);
-                builder.ReadTexture(hdr);
-                builder.ReadTexture(hiz);
-                builder.ReadWriteUAV(ssrTrace);
-            },
-            [this, sceneDepthSrv, gbufferNormalSrv, gbufferMaterialSrv, hdrSrv,
-             ssrTraceConstants](GpuCommandList& commands, const RenderGraphResources&) {
-                commands.SetComputePipeline(m_SSRTracePipeline.get());
-                auto bindings = AcquireBindGroup(m_SSRTraceShader);
-                if (!bindings)
-                    return;
-                bindings->SetConstants("ScreenSpaceConstants", &ssrTraceConstants, sizeof(ssrTraceConstants));
-                bindings->SetTexture("g_Depth", sceneDepthSrv);
-                bindings->SetTexture("g_Normal", gbufferNormalSrv);
-                bindings->SetTexture("g_Material", gbufferMaterialSrv);
-                bindings->SetTexture("g_HdrInput", hdrSrv);
-                bindings->SetTexture("g_HiZ", m_HiZSrv);
-                bindings->SetStorageTexture("g_Output", m_SSRTrace.uav);
-                if (!BindModernPass(commands, "SSRTraceHalfResolution", bindings))
-                    return;
-                commands.Dispatch((ssrTraceConstants.effectSize[0] + 7u) / 8u,
-                                  (ssrTraceConstants.effectSize[1] + 7u) / 8u, 1);
-            });
+        if (rayTracedReflection) {
+            RayTracingConstants reflectionConstants = m_RayTracingConstants;
+            reflectionConstants.params1.x = m_PostSettings.ssrMaxDistance;
+            reflectionConstants.params1.y = m_PostSettings.ssrMaxRoughness;
+            graph.AddComputePass(
+                "RTReflection",
+                [this, sceneDepth, gbufferNormal, gbufferAlbedo, gbufferMaterial,
+                 ssrTrace](RenderGraphBuilder& builder) {
+                    builder.ReadAccelerationStructure(m_FrameRayTracingTlas);
+                    builder.ReadTexture(sceneDepth);
+                    builder.ReadTexture(gbufferNormal);
+                    builder.ReadTexture(gbufferAlbedo);
+                    builder.ReadTexture(gbufferMaterial);
+                    if (m_FrameEnvironment.IsValid())
+                        builder.ReadTexture(m_FrameEnvironment);
+                    builder.ReadWriteUAV(ssrTrace);
+                },
+                [this, sceneDepthSrv, gbufferNormalSrv, gbufferAlbedoSrv, gbufferMaterialSrv,
+                 reflectionConstants](GpuCommandList& commands, const RenderGraphResources&) {
+                    commands.SetComputePipeline(m_RTReflectionPipeline.get());
+                    auto bindings = AcquireBindGroup(m_RTReflectionShader);
+                    if (!bindings)
+                        return;
+                    bindings->SetConstants("ModernRayTracingConstants", &reflectionConstants,
+                                           sizeof(reflectionConstants));
+                    bindings->SetAccelerationStructure("g_RTScene", m_RayTracingTlas);
+                    bindings->SetTexture("g_RTDepth", sceneDepthSrv);
+                    bindings->SetTexture("g_RTNormal", gbufferNormalSrv);
+                    bindings->SetTexture("g_RTAlbedo", gbufferAlbedoSrv);
+                    bindings->SetTexture("g_RTMaterialBuffer", gbufferMaterialSrv);
+                    bindings->SetTexture("g_RTEnvironment", m_EnvironmentCubeSrv);
+                    bindings->SetBuffer("g_RTVertices", m_GpuScene->GetGeometryArena().GetVertexView());
+                    bindings->SetBuffer("g_RTIndices", m_GpuScene->GetGeometryArena().GetIndexView());
+                    bindings->SetBuffer("g_RTObjects", m_GpuScene->GetObjectView());
+                    bindings->SetBuffer("g_RTMaterials", m_GpuScene->GetMaterialView());
+                    bindings->SetSampler("g_RTLinearSampler", m_LinearClampSampler);
+                    bindings->SetStorageTexture("g_RTOutput", m_SSRTrace.uav);
+                    if (!BindModernPass(commands, "RTReflection", bindings))
+                        return;
+                    commands.Dispatch((reflectionConstants.effectSize[0] + 7u) / 8u,
+                                      (reflectionConstants.effectSize[1] + 7u) / 8u, 1);
+                });
+        } else {
+            ScreenSpaceConstants ssrTraceConstants = m_ScreenSpaceConstants;
+            ssrTraceConstants.effectMode = 1u;
+            graph.AddComputePass(
+                "SSRTraceHalfResolution",
+                [sceneDepth, gbufferNormal, gbufferMaterial, hdr, hiz, ssrTrace](RenderGraphBuilder& builder) {
+                    builder.ReadTexture(sceneDepth);
+                    builder.ReadTexture(gbufferNormal);
+                    builder.ReadTexture(gbufferMaterial);
+                    builder.ReadTexture(hdr);
+                    builder.ReadTexture(hiz);
+                    builder.ReadWriteUAV(ssrTrace);
+                },
+                [this, sceneDepthSrv, gbufferNormalSrv, gbufferMaterialSrv, hdrSrv,
+                 ssrTraceConstants](GpuCommandList& commands, const RenderGraphResources&) {
+                    commands.SetComputePipeline(m_SSRTracePipeline.get());
+                    auto bindings = AcquireBindGroup(m_SSRTraceShader);
+                    if (!bindings)
+                        return;
+                    bindings->SetConstants("ScreenSpaceConstants", &ssrTraceConstants, sizeof(ssrTraceConstants));
+                    bindings->SetTexture("g_Depth", sceneDepthSrv);
+                    bindings->SetTexture("g_Normal", gbufferNormalSrv);
+                    bindings->SetTexture("g_Material", gbufferMaterialSrv);
+                    bindings->SetTexture("g_HdrInput", hdrSrv);
+                    bindings->SetTexture("g_HiZ", m_HiZSrv);
+                    bindings->SetStorageTexture("g_Output", m_SSRTrace.uav);
+                    if (!BindModernPass(commands, "SSRTraceHalfResolution", bindings))
+                        return;
+                    commands.Dispatch((ssrTraceConstants.effectSize[0] + 7u) / 8u,
+                                      (ssrTraceConstants.effectSize[1] + 7u) / 8u, 1);
+                });
+        }
 
         graph.AddComputePass(
             "SSRTemporalDenoise",
@@ -1850,16 +2537,18 @@ RGTextureHandle ModernDeferredPipeline::AddScreenSpaceEffects(
         }
         ssrFinal = ssrInput;
         ssrFinalSrv = ssrInputSrv;
+        if (rayTracedReflection)
+            m_RTReflectionDebugOutputSrv = ssrFinalSrv;
     }
 
     ScreenSpaceConstants compositeConstants = m_ScreenSpaceConstants;
-    compositeConstants.effectMode =
-        (m_PostSettings.ssgiEnabled ? 1u : 0u) | (m_PostSettings.ssrEnabled ? 2u : 0u) | (ssaoEnabled ? 16u : 0u);
+    compositeConstants.effectMode = (m_PostSettings.ssgiEnabled ? 1u : 0u) | (m_PostSettings.ssrEnabled ? 2u : 0u) |
+                                    (effectiveSsaoEnabled ? 16u : 0u);
     graph.AddComputePass(
         "CompositeSSGIAndSSR",
-        [this, hdr, sceneDepth, gbufferAlbedo, gbufferNormal, gbufferMaterial, ssgiFinal, ssrFinal, ssao, effects,
-         ssgiEnabled = m_PostSettings.ssgiEnabled, ssrEnabled = m_PostSettings.ssrEnabled,
-         ssaoEnabled](RenderGraphBuilder& builder) {
+        [this, hdr, sceneDepth, gbufferAlbedo, gbufferNormal, gbufferMaterial, ssgiFinal, ssrFinal, effectiveSsao,
+         effects, ssgiEnabled = m_PostSettings.ssgiEnabled, ssrEnabled = m_PostSettings.ssrEnabled,
+         effectiveSsaoEnabled](RenderGraphBuilder& builder) {
             builder.ReadTexture(hdr);
             builder.ReadTexture(sceneDepth);
             builder.ReadTexture(gbufferAlbedo);
@@ -1871,12 +2560,13 @@ RGTextureHandle ModernDeferredPipeline::AddScreenSpaceEffects(
                 builder.ReadTexture(ssgiFinal);
             if (ssrEnabled)
                 builder.ReadTexture(ssrFinal);
-            if (ssaoEnabled)
-                builder.ReadTexture(ssao);
+            if (effectiveSsaoEnabled)
+                builder.ReadTexture(effectiveSsao);
             builder.ReadWriteUAV(effects);
         },
         [this, hdrSrv, sceneDepthSrv, gbufferAlbedoSrv, gbufferNormalSrv, gbufferMaterialSrv, ssgiFinalSrv, ssrFinalSrv,
-         ssaoSrv, ssaoEnabled, compositeConstants](GpuCommandList& commands, const RenderGraphResources&) {
+         effectiveSsaoSrv, effectiveSsaoEnabled,
+         compositeConstants](GpuCommandList& commands, const RenderGraphResources&) {
             commands.SetComputePipeline(m_EffectsCompositePipeline.get());
             auto bindings = AcquireBindGroup(m_EffectsCompositeShader);
             if (!bindings)
@@ -1889,7 +2579,7 @@ RGTextureHandle ModernDeferredPipeline::AddScreenSpaceEffects(
             bindings->SetTexture("g_Material", gbufferMaterialSrv);
             bindings->SetTexture("g_SSGI", m_PostSettings.ssgiEnabled ? ssgiFinalSrv : hdrSrv);
             bindings->SetTexture("g_SSR", m_PostSettings.ssrEnabled ? ssrFinalSrv : hdrSrv);
-            bindings->SetTexture("g_SSAO", ssaoEnabled ? ssaoSrv : hdrSrv);
+            bindings->SetTexture("g_SSAO", effectiveSsaoEnabled ? effectiveSsaoSrv : hdrSrv);
             bindings->SetTexture("g_Environment", m_EnvironmentCubeSrv);
             bindings->SetSampler("g_LinearSampler", m_LinearClampSampler);
             bindings->SetStorageTexture("g_Output", m_EffectsHdr.uav);

@@ -27,6 +27,7 @@ struct ProjectGraphicsSettings {
 #endif
     std::string renderPath = "deferred";
     GraphicsDeviceProfile deviceProfile = GraphicsDeviceProfile::Desktop;
+    bool hardwareRayTracing = false;
 };
 
 class ProjectConfig {

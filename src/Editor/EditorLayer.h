@@ -138,6 +138,7 @@ private:
     int m_GraphicsBackendIndex = 0;
     int m_RenderPathIndex = 0;
     int m_DeviceProfileIndex = 0;
+    bool m_HardwareRayTracing = false;
     std::string m_ProjectError;
     std::string m_ProjectResult;
     std::string m_CapturingShortcutAction;

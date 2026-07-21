@@ -378,10 +378,7 @@ public:
             CommitComponentEdit(context, *actor, *light, "shadowIntensity",
                                 [&] { light->SetShadowIntensity(shadowIntensity); });
         }
-        Vec3 direction = light->GetDirection();
-        if (DrawVec3("Direction", direction, 0.02f)) {
-            CommitComponentEdit(context, *actor, *light, "direction", [&] { light->SetDirection(direction); });
-        }
+        ImGui::TextDisabled("Direction follows Transform rotation");
         if (EditorWidgets::IconButton("RemoveLight", "X", "Remove Light"))
             RemoveComponentByType(context, *actor, "Light");
         ImGui::PopID();
@@ -468,6 +465,30 @@ public:
         if (ImGui::DragFloat("Bloom", &bloom, 0.02f, 0.0f, 8.0f)) {
             CommitComponentEdit(context, *actor, *post, "bloomIntensity", [&] { post->SetBloomIntensity(bloom); });
         }
+
+        ImGui::SeparatorText("Hardware Ray Tracing Replacements");
+        bool rayTracedShadow = post->UsesRayTracedShadowReplacement();
+        bool rayTracedAO = post->UsesRayTracedAOReplacement();
+        bool rayTracedDiffuse = post->UsesRayTracedDiffuseReplacement();
+        bool rayTracedReflection = post->UsesRayTracedReflectionReplacement();
+        if (ImGui::Checkbox("Directional Shadow##RT", &rayTracedShadow)) {
+            CommitComponentEdit(context, *actor, *post, "rayTracedShadowReplacement",
+                                [&] { post->SetRayTracedShadowReplacement(rayTracedShadow); });
+        }
+        if (ImGui::Checkbox("Ambient Occlusion##RT", &rayTracedAO)) {
+            CommitComponentEdit(context, *actor, *post, "rayTracedAOReplacement",
+                                [&] { post->SetRayTracedAOReplacement(rayTracedAO); });
+        }
+        if (ImGui::Checkbox("Diffuse GI##RT", &rayTracedDiffuse)) {
+            CommitComponentEdit(context, *actor, *post, "rayTracedDiffuseReplacement",
+                                [&] { post->SetRayTracedDiffuseReplacement(rayTracedDiffuse); });
+        }
+        if (ImGui::Checkbox("Reflections##RT", &rayTracedReflection)) {
+            CommitComponentEdit(context, *actor, *post, "rayTracedReflectionReplacement",
+                                [&] { post->SetRayTracedReflectionReplacement(rayTracedReflection); });
+        }
+        ImGui::TextDisabled("Stored independently; effective only when Modern Deferred, project RT, capability, and "
+                            "the source effect are enabled.");
 
         ImGui::SeparatorText("SSGI");
         bool ssgiEnabled = post->IsSSGIEnabled();
@@ -580,8 +601,7 @@ public:
                 uint32_t mask = probe->GetLayerMask();
                 ImGui::TextDisabled("ID: %s", probe->GetProbeId().c_str());
                 if (DrawVec3("Box Extents", extents, 0.05f))
-                    CommitComponentEdit(context, *actor, *probe, "boxExtents",
-                                        [&] { probe->SetBoxExtents(extents); });
+                    CommitComponentEdit(context, *actor, *probe, "boxExtents", [&] { probe->SetBoxExtents(extents); });
                 if (DrawVec3("Capture Offset", offset, 0.05f))
                     CommitComponentEdit(context, *actor, *probe, "captureOffset",
                                         [&] { probe->SetCaptureOffset(offset); });
@@ -589,14 +609,11 @@ public:
                     CommitComponentEdit(context, *actor, *probe, "blendDistance",
                                         [&] { probe->SetBlendDistance(blend); });
                 if (ImGui::DragInt("Priority", &priority))
-                    CommitComponentEdit(context, *actor, *probe, "priority",
-                                        [&] { probe->SetPriority(priority); });
+                    CommitComponentEdit(context, *actor, *probe, "priority", [&] { probe->SetPriority(priority); });
                 if (ImGui::DragFloat("Intensity", &intensity, 0.05f, 0.0f, 1000.0f))
-                    CommitComponentEdit(context, *actor, *probe, "intensity",
-                                        [&] { probe->SetIntensity(intensity); });
+                    CommitComponentEdit(context, *actor, *probe, "intensity", [&] { probe->SetIntensity(intensity); });
                 if (ImGui::InputScalar("Layer Mask", ImGuiDataType_U32, &mask))
-                    CommitComponentEdit(context, *actor, *probe, "layerMask",
-                                        [&] { probe->SetLayerMask(mask); });
+                    CommitComponentEdit(context, *actor, *probe, "layerMask", [&] { probe->SetLayerMask(mask); });
                 if (ImGui::Button("Bake Selected")) {
                     if (Scene* scene = context.GetInspectorScene())
                         EditorLightingBakeService{}.Bake(context, *scene);
@@ -630,14 +647,12 @@ public:
                     CommitComponentEdit(context, *actor, *volume, "blendDistance",
                                         [&] { volume->SetBlendDistance(blend); });
                 if (ImGui::DragInt("Priority", &priority))
-                    CommitComponentEdit(context, *actor, *volume, "priority",
-                                        [&] { volume->SetPriority(priority); });
+                    CommitComponentEdit(context, *actor, *volume, "priority", [&] { volume->SetPriority(priority); });
                 if (ImGui::DragFloat("Intensity", &intensity, 0.05f, 0.0f, 1000.0f))
                     CommitComponentEdit(context, *actor, *volume, "intensity",
                                         [&] { volume->SetIntensity(intensity); });
                 if (ImGui::InputScalar("Layer Mask", ImGuiDataType_U32, &mask))
-                    CommitComponentEdit(context, *actor, *volume, "layerMask",
-                                        [&] { volume->SetLayerMask(mask); });
+                    CommitComponentEdit(context, *actor, *volume, "layerMask", [&] { volume->SetLayerMask(mask); });
                 if (ImGui::Button("Bake Selected")) {
                     if (Scene* scene = context.GetInspectorScene())
                         EditorLightingBakeService{}.Bake(context, *scene);

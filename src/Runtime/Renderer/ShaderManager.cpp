@@ -118,7 +118,7 @@ std::shared_ptr<GpuShader> ShaderManager::CompileRecord(const ShaderRecord& rec)
         }
     };
     auto applyCookedReflection = [&](const ShaderAsset& cooked, const std::shared_ptr<GpuShader>& shader) {
-        if (!shader || cooked.GetCookedShaderAbiVersion() < ShaderAsset::kCookedShaderAbiVersion)
+        if (!shader || cooked.GetCookedShaderAbiVersion() < ShaderAsset::kPreviousCookedShaderAbiVersion)
             return;
         shader->abiVersion = cooked.GetCookedShaderAbiVersion();
         if (activeBackend == RHIBackend::Vulkan) {
@@ -389,8 +389,8 @@ std::vector<ShaderCacheRequest> ShaderManager::BuildPrewarmRequests(const std::v
         pendingPaths.push_back(path);
         // Resolve aliases while the request is still being assembled on the render/main thread. The filesystem
         // cache batch runs asynchronously and must not consult AssetManager's mutable project/registry state.
-        requests.push_back({std::filesystem::path(AssetManager::Get().ResolvePath(canonicalPath)), {backend},
-                            allowCompile});
+        requests.push_back(
+            {std::filesystem::path(AssetManager::Get().ResolvePath(canonicalPath)), {backend}, allowCompile});
     }
     return requests;
 }

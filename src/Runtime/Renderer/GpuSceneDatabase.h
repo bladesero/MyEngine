@@ -35,6 +35,11 @@ public:
     const GpuGeometryAllocation* Find(const MeshAsset* mesh) const;
     const std::shared_ptr<GpuBuffer>& GetVertexBuffer() const { return m_VertexBuffer; }
     const std::shared_ptr<GpuBuffer>& GetIndexBuffer() const { return m_IndexBuffer; }
+    const std::shared_ptr<GpuBufferView>& GetVertexView() const { return m_VertexView; }
+    const std::shared_ptr<GpuBufferView>& GetIndexView() const { return m_IndexView; }
+    uint32_t GetVertexCount() const { return m_VertexCount; }
+    uint32_t GetIndexCount() const { return m_IndexCount; }
+    uint64_t GetGeneration() const { return m_Generation; }
     uint64_t GetLastUploadBytes() const { return m_LastUploadBytes; }
 
 private:
@@ -49,8 +54,13 @@ private:
     std::vector<MeshAsset*> m_MeshOrder;
     std::shared_ptr<GpuBuffer> m_VertexBuffer;
     std::shared_ptr<GpuBuffer> m_IndexBuffer;
+    std::shared_ptr<GpuBufferView> m_VertexView;
+    std::shared_ptr<GpuBufferView> m_IndexView;
     std::vector<RetiredBuffers> m_Retired;
     uint64_t m_LastUploadBytes = 0;
+    uint64_t m_Generation = 0;
+    uint32_t m_VertexCount = 0;
+    uint32_t m_IndexCount = 0;
 };
 
 struct alignas(16) GpuSceneObjectData {

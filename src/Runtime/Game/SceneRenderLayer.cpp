@@ -140,6 +140,28 @@ GraphicsDeviceProfile SceneRenderLayer::GetDeviceProfile() const {
     return m_DeviceProfile;
 }
 
+void SceneRenderLayer::SetHardwareRayTracingEnabled(bool enabled) {
+    m_Viewport.SetHardwareRayTracingEnabled(enabled);
+    m_GameViewport.SetHardwareRayTracingEnabled(enabled);
+    m_MaterialPreviewViewport.SetHardwareRayTracingEnabled(enabled);
+}
+
+bool SceneRenderLayer::IsHardwareRayTracingEnabled() const {
+    return m_Viewport.IsHardwareRayTracingEnabled();
+}
+
+uint32_t SceneRenderLayer::GetRayTracingRequestedMask() const {
+    return m_Viewport.GetRayTracingRequestedMask();
+}
+
+uint32_t SceneRenderLayer::GetRayTracingEffectiveMask() const {
+    return m_Viewport.GetRayTracingEffectiveMask();
+}
+
+std::string SceneRenderLayer::GetRayTracingFallbackReason() const {
+    return m_Viewport.GetRayTracingFallbackReason();
+}
+
 const RenderPipelineDiagnostics& SceneRenderLayer::GetPipelineDiagnostics() const {
     return m_Viewport.GetPipelineDiagnostics();
 }

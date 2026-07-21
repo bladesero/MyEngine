@@ -48,6 +48,15 @@ PostProcessRuntimeOptions CollectPostProcessOptions(const Scene& scene) {
             return;
         options.ssaoEnabled = post->GetSSAOIntensity() > 0.0f;
         options.ssaoScale = post->GetSSAOScale();
+        options.modern.ssaoRadius = post->GetSSAORadius();
+        options.modern.ssaoBias = post->GetSSAOBias();
+        options.modern.ssaoPower = post->GetSSAOPower();
+        options.modern.ssaoIntensity = post->GetSSAOIntensity();
+        options.modern.ssaoScale = post->GetSSAOScale();
+        options.modern.rayTracedShadowReplacement = post->UsesRayTracedShadowReplacement();
+        options.modern.rayTracedAOReplacement = post->UsesRayTracedAOReplacement();
+        options.modern.rayTracedReflectionReplacement = post->UsesRayTracedReflectionReplacement();
+        options.modern.rayTracedDiffuseReplacement = post->UsesRayTracedDiffuseReplacement();
         options.modern.ssgiEnabled = post->IsSSGIEnabled();
         options.modern.ssrEnabled = post->IsSSREnabled();
         options.modern.taaEnabled = post->IsTAAEnabled();
@@ -189,6 +198,7 @@ void Renderer::EnsureModernPipeline() {
     m_ModernDeferredPipeline = std::make_unique<ModernDeferredPipeline>(m_Device, m_ReadbackService);
     m_ModernImplementationReady = m_ModernDeferredPipeline->IsReady();
     if (m_ModernImplementationReady) {
+        m_ModernDeferredPipeline->SetHardwareRayTracingEnabled(m_HardwareRayTracingEnabled);
         m_ModernDeferredPipeline->SetQualityProfile(m_DeviceProfile == GraphicsDeviceProfile::Console
                                                         ? ModernDeferredPipeline::QualityProfile::Console
                                                         : ModernDeferredPipeline::QualityProfile::Desktop);
@@ -210,6 +220,7 @@ bool Renderer::PrewarmStartupShaders(const Scene& scene) {
     constexpr uint8_t kDeferredCoreShaders = 1u << 1;
     constexpr uint8_t kClassicDeferredEffects = 1u << 2;
     constexpr uint8_t kModernDeferredShaders = 1u << 3;
+    constexpr uint8_t kModernRayTracingShaders = 1u << 4;
     uint8_t required = kCommonShaders;
     if (m_RenderPath == RenderPath::Deferred) {
         // Modern still constructs the Classic compatibility/post-process passes for legacy Code Shaders and the
@@ -218,6 +229,8 @@ bool Renderer::PrewarmStartupShaders(const Scene& scene) {
         if (m_DeviceProfile != GraphicsDeviceProfile::Mobile &&
             HasModernDeferredCapabilities(m_Device->GetBackend(), m_Device->GetCapabilities())) {
             required |= kModernDeferredShaders;
+            if (m_HardwareRayTracingEnabled && m_Device->GetCapabilities().inlineRayQueries)
+                required |= kModernRayTracingShaders;
         }
     }
     const uint8_t missing = required & ~m_ShaderPrewarmMask;
@@ -253,6 +266,10 @@ bool Renderer::PrewarmStartupShaders(const Scene& scene) {
                         EngineShaders::kModernSSGITrace, EngineShaders::kModernSSRTrace, EngineShaders::kModernTemporal,
                         EngineShaders::kModernAtrous, EngineShaders::kModernEffectsComposite, EngineShaders::kModernTAA,
                         EngineShaders::kModernBloomTone});
+    }
+    if ((missing & kModernRayTracingShaders) != 0) {
+        shaders.insert(shaders.end(), {EngineShaders::kModernRTShadow, EngineShaders::kModernRTAO,
+                                       EngineShaders::kModernRTDiffuse, EngineShaders::kModernRTReflection});
     }
     if (!m_SceneShaderPrewarmComplete)
         shaders.insert(shaders.end(), m_SceneShaderPrewarmPaths.begin(), m_SceneShaderPrewarmPaths.end());
@@ -299,6 +316,29 @@ void Renderer::SetDeviceProfile(GraphicsDeviceProfile profile) {
                      ResolvedRenderPipelineName(m_PipelineDiagnostics.resolvedPipeline), ": ",
                      m_PipelineDiagnostics.fallbackReason);
     }
+}
+
+void Renderer::SetHardwareRayTracingEnabled(bool enabled) {
+    if (m_HardwareRayTracingEnabled == enabled)
+        return;
+    m_HardwareRayTracingEnabled = enabled;
+    m_ShaderPrewarmMask &= static_cast<uint8_t>(~(1u << 4u));
+    if (m_ModernDeferredPipeline)
+        m_ModernDeferredPipeline->SetHardwareRayTracingEnabled(enabled);
+    InvalidateTemporalHistory("hardware ray tracing setting changed", false);
+}
+
+uint32_t Renderer::GetRayTracingRequestedMask() const {
+    return m_ModernDeferredPipeline ? m_ModernDeferredPipeline->GetRayTracingRequestedMask() : 0u;
+}
+
+uint32_t Renderer::GetRayTracingEffectiveMask() const {
+    return m_ModernDeferredPipeline ? m_ModernDeferredPipeline->GetRayTracingEffectiveMask() : 0u;
+}
+
+std::string Renderer::GetRayTracingFallbackReason() const {
+    return m_ModernDeferredPipeline ? m_ModernDeferredPipeline->GetRayTracingFallbackReason()
+                                    : "Modern Deferred pipeline is unavailable";
 }
 
 void Renderer::Resize(uint32_t width, uint32_t height) {
@@ -413,7 +453,9 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
     const bool modernRequested =
         useDeferred && m_PipelineDiagnostics.resolvedPipeline == ResolvedRenderPipeline::ModernDeferred;
     const SceneLightData sceneLights = CollectSceneLights(scene);
-    const PostProcessRuntimeOptions postOptions = CollectPostProcessOptions(scene);
+    PostProcessRuntimeOptions postOptions = CollectPostProcessOptions(scene);
+    if (!HasRendererFeature(m_FeatureMask, RendererFeatureMask::SSAO))
+        postOptions.modern.ssaoIntensity = 0.0f;
     bool modernFrameReady = false;
     if (modernRequested) {
         modernFrameReady = m_ModernDeferredPipeline &&
@@ -426,6 +468,7 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
         }
     }
     const bool shadowsEnabled = HasRendererFeature(m_FeatureMask, RendererFeatureMask::Shadows);
+    bool rayTracedDirectionalShadow = false;
     RGTextureHandle directionalShadow;
     RGTextureHandle spotShadow;
     RGTextureHandle pointShadow;
@@ -437,6 +480,9 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
             return;
         }
         const auto shadowResources = m_ShadowPass->GetGraphResources();
+        rayTracedDirectionalShadow =
+            modernFrameReady && m_ModernDeferredPipeline->ConfigureRayTracedShadow(
+                                    m_ShadowPass->IsDirectionalShadowEnabled(), sceneLights.directionalShadowIntensity);
         directionalShadowSrv = shadowResources.directionalSrv;
         const auto importShadowResources = [&]() {
             directionalShadow = m_RenderGraph->ImportTexture(
@@ -453,7 +499,7 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
         const auto addCpuShadowPass = [&](const char* passName) {
             m_RenderGraph->AddPass(
                 passName,
-                [directionalShadow, spotShadow, pointShadow](RenderGraphBuilder& builder) {
+                [directionalShadow, spotShadow, pointShadow, rayTracedDirectionalShadow](RenderGraphBuilder& builder) {
                     for (uint32_t cascade = 0; cascade < 3; ++cascade) {
                         builder.WriteDepth(directionalShadow, RGTextureSubresource{0, 1, cascade, 1}, RHILoadOp::Clear,
                                            RHIStoreOp::Store, 1.0f);
@@ -464,9 +510,9 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
                                            RHIStoreOp::Store, 1.0f);
                     }
                 },
-                [this, &scene](GpuCommandList& commands, const RenderGraphResources&) {
+                [this, &scene, rayTracedDirectionalShadow](GpuCommandList& commands, const RenderGraphResources&) {
                     const auto start = std::chrono::steady_clock::now();
-                    m_ShadowPass->ExecuteGraphManaged(commands, scene);
+                    m_ShadowPass->ExecuteGraphManaged(commands, scene, !rayTracedDirectionalShadow);
                     const auto end = std::chrono::steady_clock::now();
                     RendererFrameStats stats = FrameStatsProvider::GetRendererStats();
                     stats.shadowCpuMs += ElapsedMs(start, end);
@@ -521,13 +567,15 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
                         FrameStatsProvider::SetRendererStats(stats);
                     });
             };
-            if (m_ShadowPass->IsDirectionalShadowEnabled()) {
+            if (m_ShadowPass->IsDirectionalShadowEnabled() && !rayTracedDirectionalShadow) {
                 for (uint32_t cascade = 0; cascade < m_ShadowPass->GetCascadeCount(); ++cascade) {
                     addGpuShadowView("GpuShadowCascade" + std::to_string(cascade), directionalShadow,
                                      RGTextureSubresource{0, 1, cascade, 1}, m_ShadowPass->GetCascadeViewProj(cascade));
                 }
             }
-            for (uint32_t cascade = m_ShadowPass->IsDirectionalShadowEnabled() ? m_ShadowPass->GetCascadeCount() : 0u;
+            for (uint32_t cascade = m_ShadowPass->IsDirectionalShadowEnabled() && !rayTracedDirectionalShadow
+                                        ? m_ShadowPass->GetCascadeCount()
+                                        : 0u;
                  cascade < 3u; ++cascade) {
                 addInactiveShadowClear("GpuShadowCascadeInit" + std::to_string(cascade), directionalShadow,
                                        RGTextureSubresource{0, 1, cascade, 1});
@@ -562,6 +610,8 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
         } else {
             addCpuShadowPass("Shadow");
         }
+    } else if (modernFrameReady) {
+        m_ModernDeferredPipeline->ConfigureRayTracedShadow(false, sceneLights.directionalShadowIntensity);
     }
     const bool environmentGraphReady = m_EnvironmentPass->PrepareGraphResources();
     RGTextureHandle environmentCube;
@@ -606,12 +656,13 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
         cascades[1] = cascadeCount > 1 ? m_ShadowPass->GetCascadeViewProj(1) : cascades[0];
         cascades[2] = cascadeCount > 2 ? m_ShadowPass->GetCascadeViewProj(2) : cascades[0];
         m_MainPass->SetShadowInput(m_ShadowPass->GetLightViewProj(), m_ShadowPass->GetLightDirection(),
-                                   m_ShadowPass->IsDirectionalShadowEnabled(), m_ShadowPass->GetShadowMapTexture(),
-                                   m_ShadowPass->GetSpotLightViewProj(), m_ShadowPass->GetSpotShadowIndex(),
-                                   m_ShadowPass->GetSpotShadowMapTexture(), m_ShadowPass->GetPointShadowPosition(),
-                                   m_ShadowPass->GetPointShadowRange(), m_ShadowPass->GetPointShadowIndex(),
-                                   m_ShadowPass->GetPointShadowMapTexture(), cascadeCount > 0 ? cascades : nullptr,
-                                   cascadeCount, m_ShadowPass->GetCascadeSplits());
+                                   m_ShadowPass->IsDirectionalShadowEnabled() && !rayTracedDirectionalShadow,
+                                   m_ShadowPass->GetShadowMapTexture(), m_ShadowPass->GetSpotLightViewProj(),
+                                   m_ShadowPass->GetSpotShadowIndex(), m_ShadowPass->GetSpotShadowMapTexture(),
+                                   m_ShadowPass->GetPointShadowPosition(), m_ShadowPass->GetPointShadowRange(),
+                                   m_ShadowPass->GetPointShadowIndex(), m_ShadowPass->GetPointShadowMapTexture(),
+                                   cascadeCount > 0 ? cascades : nullptr, cascadeCount,
+                                   m_ShadowPass->GetCascadeSplits());
     } else {
         const Mat4 identity = Mat4::Identity();
         m_MainPass->SetShadowInput(identity, Vec3::Zero(), false, nullptr, identity, -1, nullptr, Vec3::Zero(), 1.0f,
@@ -764,6 +815,7 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
 
             RGTextureHandle modernHiZ;
             if (modernFrameReady) {
+                m_ModernDeferredPipeline->AddRayTracingBuildPass(*m_RenderGraph);
                 m_ModernDeferredPipeline->AddDepthPrepass(*m_RenderGraph, sceneDepth);
                 const Mat4 compatibilityViewProjection = m_ModernDeferredPipeline->GetCurrentViewProjection();
                 const Mat4 compatibilityPreviousViewProjection = m_ModernDeferredPipeline->GetPreviousViewProjection();
@@ -820,19 +872,28 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
                     });
             }
 
-            if (modernFrameReady && frameSsaoEnabled)
+            if (modernFrameReady && frameSsaoEnabled &&
+                (m_ModernDeferredPipeline->GetRayTracingEffectiveMask() & ModernRayTracingAO) == 0)
                 addSsaoPasses();
 
             if (modernFrameReady) {
                 m_ModernDeferredPipeline->SetDirectionalShadowInput(
-                    shadowsEnabled && m_ShadowPass->IsDirectionalShadowEnabled(), directionalShadowSrv,
-                    cascadeCount > 0 ? cascades : nullptr, cascadeCount, m_ShadowPass->GetCascadeSplits(),
-                    sceneLights.directionalShadowIntensity);
+                    shadowsEnabled && m_ShadowPass->IsDirectionalShadowEnabled() && !rayTracedDirectionalShadow,
+                    directionalShadowSrv, cascadeCount > 0 ? cascades : nullptr, cascadeCount,
+                    m_ShadowPass->GetCascadeSplits(), sceneLights.directionalShadowIntensity);
+                RGTextureHandle modernDirectionalShadow = directionalShadow;
+                if (rayTracedDirectionalShadow) {
+                    const auto rtShadow = m_ModernDeferredPipeline->AddRayTracedShadowPass(
+                        *m_RenderGraph, sceneDepth, postResources.sceneDepthSrv, gbufferNormal,
+                        gbufferResources.normalSrv);
+                    if (rtShadow.IsValid())
+                        modernDirectionalShadow = rtShadow;
+                }
                 compositeInput = m_ModernDeferredPipeline->AddClusteredLightingPasses(
                     *m_RenderGraph, camera, gbufferAlbedo, gbufferResources.albedoSrv, gbufferNormal,
                     gbufferResources.normalSrv, gbufferMaterial, gbufferResources.materialSrv, gbufferEmissive,
                     gbufferResources.emissiveSrv, sceneDepth, postResources.sceneDepthSrv, environmentCube,
-                    environmentCubeSrv, environmentSH, environmentSHSrv, directionalShadow);
+                    environmentCubeSrv, environmentSH, environmentSHSrv, modernDirectionalShadow);
                 compositeOverride = m_ModernDeferredPipeline->GetHdrSrv();
                 compositeInput = m_ModernDeferredPipeline->AddScreenSpaceEffects(
                     *m_RenderGraph, compositeInput, compositeOverride, sceneDepth, postResources.sceneDepthSrv,
@@ -1090,6 +1151,14 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
             stats.clusterCount = modern.clusterCount;
             stats.clusterOverflow = modern.clusterOverflow;
             stats.localLightCount = modern.localLights;
+            stats.rayTracingRequestedMask = modern.rayTracingRequestedMask;
+            stats.rayTracingEffectiveMask = modern.rayTracingEffectiveMask;
+            stats.rayTracingBlasCount = modern.rayTracingBlasCount;
+            stats.rayTracingTlasInstanceCount = modern.rayTracingTlasInstanceCount;
+            stats.rayTracingAccelerationStructureBytes = modern.rayTracingAccelerationStructureBytes;
+            stats.rayTracingBuildCpuMs = modern.rayTracingBuildCpuMs;
+            stats.rayTracingTlasUpdated = modern.rayTracingTlasUpdated;
+            stats.rayTracingFallbackReason = m_ModernDeferredPipeline->GetRayTracingFallbackReason();
             stats.bindlessResourcesCapacity = m_Device->GetCapabilities().maxBindlessResources;
             stats.bindlessResourcesUsed = static_cast<uint32_t>(
                 (std::min<uint64_t>)(FrameStatsProvider::GetResourceStats().liveNativeDescriptorSlots, UINT32_MAX));
@@ -1199,6 +1268,19 @@ GpuTextureView* Renderer::GetSceneColorView() const {
             m_ModernDeferredPipeline->GetTAARejectReasonDebugSrv()) {
             return m_ModernDeferredPipeline->GetTAARejectReasonDebugSrv().get();
         }
+        const uint32_t rayTracingMask = m_ModernDeferredPipeline->GetRayTracingEffectiveMask();
+        if (m_DebugView == RendererDebugView::RTShadow && (rayTracingMask & ModernRayTracingShadow) != 0 &&
+            m_ModernDeferredPipeline->GetRTShadowDebugSrv())
+            return m_ModernDeferredPipeline->GetRTShadowDebugSrv().get();
+        if (m_DebugView == RendererDebugView::RTAO && (rayTracingMask & ModernRayTracingAO) != 0 &&
+            m_ModernDeferredPipeline->GetRTAODebugSrv())
+            return m_ModernDeferredPipeline->GetRTAODebugSrv().get();
+        if (m_DebugView == RendererDebugView::RTDiffuse && (rayTracingMask & ModernRayTracingDiffuse) != 0 &&
+            m_ModernDeferredPipeline->GetRTDiffuseDebugSrv())
+            return m_ModernDeferredPipeline->GetRTDiffuseDebugSrv().get();
+        if (m_DebugView == RendererDebugView::RTReflection && (rayTracingMask & ModernRayTracingReflection) != 0 &&
+            m_ModernDeferredPipeline->GetRTReflectionDebugSrv())
+            return m_ModernDeferredPipeline->GetRTReflectionDebugSrv().get();
     }
     return m_PostProcessPass ? m_PostProcessPass->GetSceneColorView() : nullptr;
 }

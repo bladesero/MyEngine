@@ -31,8 +31,7 @@ public:
     float GetOuterConeAngle() const { return m_OuterConeAngle; }
     void SetOuterConeAngle(float angleDegrees);
 
-    const Vec3& GetDirection() const { return m_Direction; }
-    void SetDirection(const Vec3& direction);
+    Vec3 GetDirection() const;
 
     bool CastsShadows() const { return m_CastShadows; }
     void SetCastShadows(bool enabled) { m_CastShadows = enabled; }
@@ -50,7 +49,6 @@ private:
     float m_Range = 8.0f;
     float m_InnerConeAngle = 25.0f;
     float m_OuterConeAngle = 35.0f;
-    Vec3 m_Direction = Vec3{-0.55f, -1.0f, -0.45f}.Normalized();
     bool m_CastShadows = true;
     float m_ShadowIntensity = 1.0f;
 };

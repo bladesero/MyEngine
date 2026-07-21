@@ -186,10 +186,12 @@ float3 EvaluateEnvironmentSH2(float3 direction)
     return max(color, 0.0f);
 }
 
-float SampleDirectionalShadow(float3 worldPosition, float viewDepth, float nDotL)
+float SampleDirectionalShadow(uint2 pixel, float3 worldPosition, float viewDepth, float nDotL)
 {
     if (g_ShadowInfo.x <= 0.5f || g_ShadowInfo.z < 0.5f)
         return 1.0f;
+    if (g_ShadowInfo.w > 0.5f)
+        return g_ShadowMap.Load(int4(pixel, 0, 0));
     uint cascade = 0;
     if (g_ShadowInfo.z > 2.5f && viewDepth > g_CascadeSplits.y)
         cascade = 2;
@@ -246,7 +248,7 @@ void CSDeferredLighting(uint3 dispatchThreadId : SV_DispatchThreadID)
     float roughness = clamp(material.y, 0.04f, 1.0f);
     float ao = max(material.z, 0.0f);
     float nDotL = saturate(dot(normal, sunDirection));
-    float directionalShadow = SampleDirectionalShadow(worldPosition, viewDepth, nDotL);
+    float directionalShadow = SampleDirectionalShadow(pixel, worldPosition, viewDepth, nDotL);
     float3 color = PbrDirectLighting(albedoSample.rgb, metallic, roughness, normal, viewDirection, sunDirection,
                                      g_DirectionalColorAmbient.rgb * max(g_DirectionalLight.w, 0.0f) *
                                          directionalShadow);

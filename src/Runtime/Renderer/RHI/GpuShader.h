@@ -13,7 +13,8 @@ enum class ShaderBindingType : uint8_t {
     Sampler,
     StructuredBuffer,
     StorageBuffer,
-    StorageTexture
+    StorageTexture,
+    AccelerationStructure
 };
 enum ShaderStageMask : uint8_t { ShaderStageVertex = 1, ShaderStagePixel = 2, ShaderStageCompute = 4 };
 

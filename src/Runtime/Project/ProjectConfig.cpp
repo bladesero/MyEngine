@@ -86,6 +86,14 @@ bool ProjectConfig::Open(fs::path projectRoot, bool allowMissing, std::string* e
                 graphics["deviceProfile"] = "desktop";
             return true;
         });
+        migrations.Register(2, [](nlohmann::json& value, std::string*) {
+            auto& graphics = value["graphics"];
+            if (!graphics.is_object())
+                graphics = nlohmann::json::object();
+            if (!graphics.contains("hardwareRayTracing"))
+                graphics["hardwareRayTracing"] = false;
+            return true;
+        });
         if (!migrations.Migrate(json, error))
             return false;
         m_Version = json.value("version", 0);
@@ -111,6 +119,7 @@ bool ProjectConfig::Open(fs::path projectRoot, bool allowMissing, std::string* e
                 SetError(error, "unsupported graphics device profile: " + deviceProfile);
                 return false;
             }
+            m_GraphicsSettings.hardwareRayTracing = graphics->value("hardwareRayTracing", false);
         }
     } catch (const std::exception& exception) {
         SetError(error, "failed to parse project manifest: " + std::string(exception.what()));
@@ -215,6 +224,7 @@ bool ProjectConfig::Save(std::string* error) {
             {"backend", m_GraphicsSettings.backend},
             {"renderPath", m_GraphicsSettings.renderPath},
             {"deviceProfile", GraphicsDeviceProfileName(m_GraphicsSettings.deviceProfile)},
+            {"hardwareRayTracing", m_GraphicsSettings.hardwareRayTracing},
         };
         TransactionalWriteOptions options;
         options.validator = [](const fs::path& candidate, std::string* validationError) {

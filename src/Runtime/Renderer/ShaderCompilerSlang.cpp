@@ -289,9 +289,14 @@ bool ParseReflection(const std::filesystem::path& path, const std::string& entry
                 // fail and can silently eliminate every alpha-tested draw in passes that require it.
                 binding.type = CookedShaderBindingType::Sampler;
             } else if (kind == "shaderResource") {
-                binding.type = shape == "structuredBuffer" || shape == "byteAddressBuffer"
-                                   ? CookedShaderBindingType::StructuredBuffer
-                                   : CookedShaderBindingType::Texture;
+                if (shape == "accelerationStructure")
+                    binding.type = CookedShaderBindingType::AccelerationStructure;
+                else
+                    binding.type = shape == "structuredBuffer" || shape == "byteAddressBuffer"
+                                       ? CookedShaderBindingType::StructuredBuffer
+                                       : CookedShaderBindingType::Texture;
+            } else if (kind == "rayTracingAccelerationStructure") {
+                binding.type = CookedShaderBindingType::AccelerationStructure;
             } else if (kind == "unorderedAccess") {
                 binding.type = shape == "structuredBuffer" || shape == "byteAddressBuffer"
                                    ? CookedShaderBindingType::StorageBuffer

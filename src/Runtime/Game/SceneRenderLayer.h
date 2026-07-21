@@ -34,6 +34,11 @@ public:
     RenderPath GetRenderPath() const;
     void SetDeviceProfile(GraphicsDeviceProfile profile);
     GraphicsDeviceProfile GetDeviceProfile() const;
+    void SetHardwareRayTracingEnabled(bool enabled);
+    bool IsHardwareRayTracingEnabled() const;
+    uint32_t GetRayTracingRequestedMask() const;
+    uint32_t GetRayTracingEffectiveMask() const;
+    std::string GetRayTracingFallbackReason() const;
     const RenderPipelineDiagnostics& GetPipelineDiagnostics() const;
     void SetSceneDebugView(RendererDebugView view) { m_Viewport.SetDebugView(view); }
     RendererDebugView GetSceneDebugView() const { return m_Viewport.GetDebugView(); }

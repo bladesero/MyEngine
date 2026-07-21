@@ -38,7 +38,7 @@ public:
     bool PrepareGraphResources(const Scene& scene, const Camera& camera);
     void ReleaseGraphResources();
     GraphResources GetGraphResources() const;
-    void ExecuteGraphManaged(GpuCommandList& commands, const Scene& scene);
+    void ExecuteGraphManaged(GpuCommandList& commands, const Scene& scene, bool renderDirectional = true);
     void MarkGraphResourcesShaderResource() { m_ShadowResourcesInShaderState = true; }
 
     const Mat4& GetLightViewProj() const { return m_LightViewProj; }

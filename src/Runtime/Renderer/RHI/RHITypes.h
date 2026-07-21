@@ -39,6 +39,8 @@ enum class RHIResourceUsage : uint32_t {
     CopyDestination = 1u << 8,
     Readback = 1u << 9,
     IndirectArguments = 1u << 10,
+    AccelerationStructureBuildInput = 1u << 11,
+    AccelerationStructureStorage = 1u << 12,
 };
 
 inline RHIResourceUsage operator|(RHIResourceUsage a, RHIResourceUsage b) {
@@ -58,6 +60,7 @@ enum class RHIResourceState : uint8_t {
     CopySource,
     CopyDestination,
     IndirectArgument,
+    AccelerationStructure,
     Present,
 };
 
@@ -180,6 +183,8 @@ struct RHITextureSubresourceData {
     uint32_t arrayLayer = 0;
 };
 
+enum class RHIRayTracingTier : uint8_t { None, Tier10, Tier11 };
+
 struct RHIDeviceCapabilities {
     uint32_t maxTextureDimension2D = 0;
     uint32_t maxTextureArrayLayers = 0;
@@ -195,6 +200,9 @@ struct RHIDeviceCapabilities {
     bool bindlessResources = false;
     bool shaderDrawParameters = false;
     bool modernDeferredFormats = false;
+    bool accelerationStructures = false;
+    bool inlineRayQueries = false;
+    RHIRayTracingTier rayTracingTier = RHIRayTracingTier::None;
 };
 
 struct RHIDrawIndirectArgs {

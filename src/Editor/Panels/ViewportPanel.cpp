@@ -189,8 +189,8 @@ bool SceneViewportPanel::DrawSceneViewOverlay(EditorContext& context, SceneViewp
         ImGui::Separator();
         if (SceneRenderLayer* sceneLayer = context.GetSceneLayer()) {
             static constexpr const char* debugViews[] = {
-                "Final", "HDR Lighting",   "HiZ Min/Max",     "Motion Vectors",
-                "SSGI",  "SSR Confidence", "TAA History Age", "TAA Reject Reason"};
+                "Final",           "HDR Lighting",      "HiZ Min/Max", "Motion Vectors", "SSGI",       "SSR Confidence",
+                "TAA History Age", "TAA Reject Reason", "RT Shadow",   "RT AO",          "RT Diffuse", "RT Reflection"};
             int debugView = static_cast<int>(sceneLayer->GetSceneDebugView());
             ImGui::SetNextItemWidth(145.0f);
             if (ImGui::Combo("Debug View", &debugView, debugViews, static_cast<int>(std::size(debugViews))))

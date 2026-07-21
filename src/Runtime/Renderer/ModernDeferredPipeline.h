@@ -30,12 +30,40 @@ struct ModernDeferredFrameStats {
     uint32_t gpuShadowSetupFailures = 0;
     uint32_t retiredShadowStreams = 0;
     bool indirectBudgetExceeded = false;
+    uint32_t rayTracingRequestedMask = 0;
+    uint32_t rayTracingEffectiveMask = 0;
+    uint32_t rayTracingBlasCount = 0;
+    uint32_t rayTracingTlasInstanceCount = 0;
+    uint64_t rayTracingAccelerationStructureBytes = 0;
+    float rayTracingBuildCpuMs = 0.0f;
+    bool rayTracingTlasUpdated = false;
 };
+
+enum ModernRayTracingEffectMask : uint32_t {
+    ModernRayTracingNone = 0,
+    ModernRayTracingShadow = 1u << 0,
+    ModernRayTracingAO = 1u << 1,
+    ModernRayTracingReflection = 1u << 2,
+    ModernRayTracingDiffuse = 1u << 3,
+};
+
+uint32_t ResolveModernRayTracingEffectMask(uint32_t requestedMask, bool projectEnabled,
+                                           const RHIDeviceCapabilities& capabilities, uint32_t sourceEffectMask,
+                                           uint32_t readyPipelineMask);
 
 struct ModernPostProcessSettings {
     bool ssgiEnabled = true;
     bool ssrEnabled = true;
     bool taaEnabled = true;
+    bool rayTracedShadowReplacement = false;
+    bool rayTracedAOReplacement = false;
+    bool rayTracedReflectionReplacement = false;
+    bool rayTracedDiffuseReplacement = false;
+    float ssaoRadius = 1.2f;
+    float ssaoBias = 0.025f;
+    float ssaoPower = 1.5f;
+    float ssaoIntensity = 0.0f;
+    float ssaoScale = 1.0f;
     float ssgiIntensity = 1.0f;
     float ssgiMaxDistance = 10.0f;
     float ssgiHistoryWeight = 0.9f;
@@ -65,6 +93,7 @@ public:
     void Resize(uint32_t width, uint32_t height);
     void InvalidateTemporalHistory(std::string reason, bool resetObjectHistory = false);
     void SetQualityProfile(QualityProfile profile) { m_QualityProfile = profile; }
+    void SetHardwareRayTracingEnabled(bool enabled);
     bool Prepare(const Scene& scene, const Camera& camera, uint64_t frameNumber,
                  const ModernPostProcessSettings& settings = {});
     void CommitTemporalFrame();
@@ -80,6 +109,12 @@ public:
     bool AddGpuDrivenShadowView(RenderGraph& graph, const std::string& name, RGTextureHandle shadowTarget,
                                 RGTextureSubresource subresource, const Mat4& viewProjection);
     void AbortGpuDrivenShadowFrame();
+    void AddRayTracingBuildPass(RenderGraph& graph);
+    bool ConfigureRayTracedShadow(bool directionalShadowEnabled, float intensity);
+    RGTextureHandle AddRayTracedShadowPass(RenderGraph& graph, RGTextureHandle sceneDepth,
+                                           const std::shared_ptr<GpuTextureView>& sceneDepthSrv,
+                                           RGTextureHandle gbufferNormal,
+                                           const std::shared_ptr<GpuTextureView>& gbufferNormalSrv);
     RGTextureHandle AddHiZPasses(RenderGraph& graph, RGTextureHandle sceneDepth,
                                  const std::shared_ptr<GpuTextureView>& sceneDepthSrv);
     void AddHiZOcclusionCulling(RenderGraph& graph, RGTextureHandle hiz);
@@ -115,6 +150,10 @@ public:
     const std::shared_ptr<GpuTextureView>& GetHiZDebugSrv() const { return m_HiZSrv; }
     const std::shared_ptr<GpuTextureView>& GetSSGIDebugSrv() const { return m_SSGIDebugOutputSrv; }
     const std::shared_ptr<GpuTextureView>& GetSSRDebugSrv() const { return m_SSRDebugOutputSrv; }
+    const std::shared_ptr<GpuTextureView>& GetRTShadowDebugSrv() const { return m_RTShadow.srv; }
+    const std::shared_ptr<GpuTextureView>& GetRTAODebugSrv() const { return m_RTAODebugOutputSrv; }
+    const std::shared_ptr<GpuTextureView>& GetRTDiffuseDebugSrv() const { return m_RTDiffuseDebugOutputSrv; }
+    const std::shared_ptr<GpuTextureView>& GetRTReflectionDebugSrv() const { return m_RTReflectionDebugOutputSrv; }
     const std::shared_ptr<GpuTextureView>& GetTAAHistoryAgeDebugSrv() const { return m_TAAHistoryAgeDebugOutputSrv; }
     const std::shared_ptr<GpuTextureView>& GetTAARejectReasonDebugSrv() const {
         return m_TAARejectReasonDebugOutputSrv;
@@ -124,6 +163,9 @@ public:
     bool IsReady() const { return m_Ready; }
     const std::string& GetInitializationError() const { return m_InitializationError; }
     const ModernDeferredFrameStats& GetStats() const { return m_Stats; }
+    uint32_t GetRayTracingRequestedMask() const { return m_RayTracingRequestedMask; }
+    uint32_t GetRayTracingEffectiveMask() const { return m_RayTracingEffectiveMask; }
+    const std::string& GetRayTracingFallbackReason() const { return m_RayTracingFallbackReason; }
     GpuSceneDatabase& GetGpuScene() { return *m_GpuScene; }
     const Mat4& GetCurrentViewProjection() const { return m_GBufferConstants.viewProjection; }
     const Mat4& GetPreviousViewProjection() const { return m_GBufferConstants.previousViewProjection; }
@@ -135,6 +177,10 @@ private:
     bool EnsureHiZResources();
     bool EnsureClusterResources();
     bool EnsureTemporalResources();
+    bool EnsureRayTracingPipelines();
+    bool EnsureRayTracingScene();
+    bool EnsureRayTracingResources();
+    void DisableRayTracing(std::string reason);
     struct ShadowIndirectStream;
     std::shared_ptr<ShadowIndirectStream> EnsureShadowIndirectStream(const std::string& name);
     std::shared_ptr<GpuBindGroup> AcquireBindGroup(const std::shared_ptr<GpuShader>& shader);
@@ -147,6 +193,26 @@ private:
         std::shared_ptr<GpuTextureView> uav;
         std::shared_ptr<GpuTextureView> rtv;
     };
+
+    struct RayTracingBlasEntry {
+        uint32_t firstIndex = 0;
+        uint32_t indexCount = 0;
+        RHIRayTracingGeometryDesc geometry;
+        std::shared_ptr<GpuAccelerationStructure> accelerationStructure;
+        bool built = false;
+    };
+
+    struct RayTracingConstants {
+        Mat4 inverseViewProjection = Mat4::Identity();
+        Vec4 cameraPositionAmbient{};
+        Vec4 lightDirectionIntensity{};
+        Vec4 lightColor{};
+        uint32_t fullSize[2]{};
+        uint32_t effectSize[2]{};
+        Vec4 params0{};
+        Vec4 params1{};
+    };
+    static_assert(sizeof(RayTracingConstants) == 160, "ModernRayTracingConstants ABI changed");
 
     struct ShadowIndirectStream {
         std::shared_ptr<GpuBuffer> args;
@@ -313,6 +379,9 @@ private:
         m_EffectsCompositeShader, m_TAAShader, m_BloomToneShader;
     std::shared_ptr<GpuComputePipeline> m_SSGITracePipeline, m_SSRTracePipeline, m_TemporalPipeline, m_AtrousPipeline,
         m_EffectsCompositePipeline, m_TAAPipeline, m_BloomTonePipeline;
+    std::shared_ptr<ShaderHandle> m_RTShadowHandle, m_RTAOHandle, m_RTDiffuseHandle, m_RTReflectionHandle;
+    std::shared_ptr<GpuShader> m_RTShadowShader, m_RTAOShader, m_RTDiffuseShader, m_RTReflectionShader;
+    std::shared_ptr<GpuComputePipeline> m_RTShadowPipeline, m_RTAOPipeline, m_RTDiffusePipeline, m_RTReflectionPipeline;
     std::array<std::shared_ptr<GpuSampler>, kGpuSceneMaterialSamplerCount> m_MaterialSamplers;
     std::shared_ptr<GpuSampler> m_LinearClampSampler;
     std::shared_ptr<GpuSampler> m_PointClampSampler;
@@ -371,11 +440,20 @@ private:
     ComputeTexture m_SSRTrace;
     ComputeTexture m_SSRHistory[2];
     ComputeTexture m_SSRFilter[2];
+    ComputeTexture m_RTShadow;
+    ComputeTexture m_RTAOTrace;
+    ComputeTexture m_RTAOHistory[2];
+    ComputeTexture m_RTAOFilter[2];
+    uint32_t m_RTAOWidth = 0;
+    uint32_t m_RTAOHeight = 0;
     ComputeTexture m_EffectsHdr;
     ComputeTexture m_ScreenSpaceDebug;
     std::shared_ptr<GpuTextureView> m_EffectsOutputSrv;
     std::shared_ptr<GpuTextureView> m_SSGIDebugOutputSrv;
     std::shared_ptr<GpuTextureView> m_SSRDebugOutputSrv;
+    std::shared_ptr<GpuTextureView> m_RTAODebugOutputSrv;
+    std::shared_ptr<GpuTextureView> m_RTDiffuseDebugOutputSrv;
+    std::shared_ptr<GpuTextureView> m_RTReflectionDebugOutputSrv;
     std::shared_ptr<GpuTextureView> m_TAAHistoryAgeDebugOutputSrv;
     std::shared_ptr<GpuTextureView> m_TAARejectReasonDebugOutputSrv;
     ComputeTexture m_TAAHistory[2];
@@ -388,6 +466,7 @@ private:
     RGTextureHandle m_FrameNormalHistoryWrite;
     RGTextureHandle m_FrameEnvironment;
     RGTextureHandle m_FrameScreenSpaceDebug;
+    RGAccelerationStructureHandle m_FrameRayTracingTlas;
     uint32_t m_IndirectCapacity = 0;
     CullingConstants m_CullingConstants;
     DepthConstants m_DepthConstants;
@@ -395,6 +474,7 @@ private:
     ClusterConstants m_ClusterConstants;
     ScreenSpaceConstants m_ScreenSpaceConstants;
     TemporalAAConstants m_TAAConstants;
+    RayTracingConstants m_RayTracingConstants;
     ModernPostProcessSettings m_PostSettings;
     QualityProfile m_QualityProfile = QualityProfile::Desktop;
     ModernDeferredFrameStats m_Stats;
@@ -423,6 +503,8 @@ private:
     bool m_TAAResourcesInShaderState = false;
     bool m_EffectsResourceInShaderState = false;
     bool m_ScreenSpaceDebugInShaderState = false;
+    bool m_RTShadowInShaderState = false;
+    bool m_RTAOResourcesInShaderState = false;
     bool m_HistoryValid = false;
     uint32_t m_HistoryPing = 0;
     uint32_t m_PendingHistoryPing = 0;
@@ -454,6 +536,23 @@ private:
     ModernPostProcessSettings m_PendingPostSettings;
     std::string m_HistoryResetReason = "first frame";
     std::string m_LastShadowSetupError;
+    std::vector<RayTracingBlasEntry> m_RayTracingBlas;
+    std::vector<RHIRayTracingInstanceDesc> m_RayTracingInstances;
+    std::vector<uint32_t> m_PendingRayTracingBlasBuilds;
+    std::shared_ptr<GpuAccelerationStructure> m_RayTracingTlas;
+    uint64_t m_RayTracingArenaGeneration = 0;
+    uint32_t m_RayTracingTlasCapacity = 0;
+    uint32_t m_PreviousRayTracingInstanceCount = 0;
+    bool m_RayTracingTlasBuilt = false;
+    bool m_PendingRayTracingBuild = false;
+    bool m_HardwareRayTracingEnabled = false;
+    bool m_RayTracingPipelinesReady = false;
+    uint32_t m_RayTracingPipelineMask = 0;
+    bool m_RayTracingPermanentlyUnavailable = false;
+    uint32_t m_RayTracingRequestedMask = 0;
+    uint32_t m_RayTracingEffectiveMask = 0;
+    uint32_t m_CommittedRayTracingEffectiveMask = 0;
+    std::string m_RayTracingFallbackReason = "hardware ray tracing is disabled";
     static constexpr uint64_t kDiagnosticsReadbackInterval = 30;
     static constexpr uint64_t kShadowStreamRetireSubmissions = 3;
 };

@@ -389,6 +389,10 @@ TypeDescriptor PostProcessType() {
         [](const Component& c) { return static_cast<const PostProcessComponent&>(c).GetSSAOScale(); },
         [](Component& c, float v) { static_cast<PostProcessComponent&>(c).SetSSAOScale(v); });
     AddBool(
+        d, "rayTracedAOReplacement", false,
+        [](const Component& c) { return static_cast<const PostProcessComponent&>(c).UsesRayTracedAOReplacement(); },
+        [](Component& c, bool v) { static_cast<PostProcessComponent&>(c).SetRayTracedAOReplacement(v); });
+    AddBool(
         d, "ssgiEnabled", true,
         [](const Component& c) { return static_cast<const PostProcessComponent&>(c).IsSSGIEnabled(); },
         [](Component& c, bool v) { static_cast<PostProcessComponent&>(c).SetSSGIEnabled(v); });
@@ -413,6 +417,12 @@ TypeDescriptor PostProcessType() {
         [](const Component& c) { return static_cast<const PostProcessComponent&>(c).GetSSGIFilterRounds(); },
         [](Component& c, uint32_t v) { static_cast<PostProcessComponent&>(c).SetSSGIFilterRounds(v); });
     AddBool(
+        d, "rayTracedDiffuseReplacement", false,
+        [](const Component& c) {
+            return static_cast<const PostProcessComponent&>(c).UsesRayTracedDiffuseReplacement();
+        },
+        [](Component& c, bool v) { static_cast<PostProcessComponent&>(c).SetRayTracedDiffuseReplacement(v); });
+    AddBool(
         d, "ssrEnabled", true,
         [](const Component& c) { return static_cast<const PostProcessComponent&>(c).IsSSREnabled(); },
         [](Component& c, bool v) { static_cast<PostProcessComponent&>(c).SetSSREnabled(v); });
@@ -436,6 +446,16 @@ TypeDescriptor PostProcessType() {
         d, "ssrFilterRounds", 2u,
         [](const Component& c) { return static_cast<const PostProcessComponent&>(c).GetSSRFilterRounds(); },
         [](Component& c, uint32_t v) { static_cast<PostProcessComponent&>(c).SetSSRFilterRounds(v); });
+    AddBool(
+        d, "rayTracedReflectionReplacement", false,
+        [](const Component& c) {
+            return static_cast<const PostProcessComponent&>(c).UsesRayTracedReflectionReplacement();
+        },
+        [](Component& c, bool v) { static_cast<PostProcessComponent&>(c).SetRayTracedReflectionReplacement(v); });
+    AddBool(
+        d, "rayTracedShadowReplacement", false,
+        [](const Component& c) { return static_cast<const PostProcessComponent&>(c).UsesRayTracedShadowReplacement(); },
+        [](Component& c, bool v) { static_cast<PostProcessComponent&>(c).SetRayTracedShadowReplacement(v); });
     AddBool(
         d, "taaEnabled", true,
         [](const Component& c) { return static_cast<const PostProcessComponent&>(c).IsTAAEnabled(); },

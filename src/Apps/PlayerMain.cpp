@@ -239,6 +239,7 @@ protected:
         sceneLayer->SetRenderPath(m_Project.GetGraphicsSettings().renderPath == "deferred" ? RenderPath::Deferred
                                                                                            : RenderPath::Forward);
         sceneLayer->SetDeviceProfile(m_DeviceProfileOverride.value_or(m_Project.GetGraphicsSettings().deviceProfile));
+        sceneLayer->SetHardwareRayTracingEnabled(m_Project.GetGraphicsSettings().hardwareRayTracing);
         GetEngine().PushLayer(sceneLayer);
         if (!sceneLayer->BeginPlay()) {
             Logger::Error("[Player] Failed to enter Play mode");
@@ -376,27 +377,36 @@ private:
             value["capture"]["renderPipelineReason"] = pipeline.fallbackReason;
         }
         const RendererFrameStats& rendererStats = GetEngine().GetFrameStats().renderer;
-        value["renderer"] = {{"renderSubmissionCpuMs", rendererStats.renderSubmissionCpuMs},
-                             {"renderGraphBuildCpuMs", rendererStats.renderGraphBuildCpuMs},
-                             {"renderGraphPrepareCpuMs", rendererStats.renderGraphPrepareCpuMs},
-                             {"frameWaitCpuMs", rendererStats.frameWaitCpuMs},
-                             {"presentCpuMs", rendererStats.presentCpuMs},
-                             {"gpuScenePrepareCpuMs", rendererStats.gpuScenePrepareCpuMs},
-                             {"gpuSceneMaterialResolves", rendererStats.gpuSceneMaterialResolves},
-                             {"gpuSceneMaterialCacheHits", rendererStats.gpuSceneMaterialCacheHits},
-                             {"gpuSceneTexturedMaterials", rendererStats.gpuSceneTexturedMaterials},
-                             {"renderGraphExecuteCpuMs", rendererStats.renderGraphExecuteCpuMs},
-                             {"gpuSceneUploadBytes", rendererStats.gpuSceneUploadBytes},
-                             {"gpuSceneCandidates", rendererStats.gpuSceneCandidates},
-                             {"gpuFrustumVisible", rendererStats.gpuFrustumVisible},
-                             {"gpuHiZOccluded", rendererStats.gpuHiZOccluded},
-                             {"indirectDrawCount", rendererStats.indirectDrawCount},
-                             {"clusterCount", rendererStats.clusterCount},
-                             {"clusterOverflow", rendererStats.clusterOverflow},
-                             {"localLightCount", rendererStats.localLightCount},
-                             {"bindlessResourcesUsed", rendererStats.bindlessResourcesUsed},
-                             {"bindlessResourcesCapacity", rendererStats.bindlessResourcesCapacity},
-                             {"historyResetReason", rendererStats.historyResetReason}};
+        value["renderer"] = {
+            {"renderSubmissionCpuMs", rendererStats.renderSubmissionCpuMs},
+            {"renderGraphBuildCpuMs", rendererStats.renderGraphBuildCpuMs},
+            {"renderGraphPrepareCpuMs", rendererStats.renderGraphPrepareCpuMs},
+            {"frameWaitCpuMs", rendererStats.frameWaitCpuMs},
+            {"presentCpuMs", rendererStats.presentCpuMs},
+            {"gpuScenePrepareCpuMs", rendererStats.gpuScenePrepareCpuMs},
+            {"gpuSceneMaterialResolves", rendererStats.gpuSceneMaterialResolves},
+            {"gpuSceneMaterialCacheHits", rendererStats.gpuSceneMaterialCacheHits},
+            {"gpuSceneTexturedMaterials", rendererStats.gpuSceneTexturedMaterials},
+            {"renderGraphExecuteCpuMs", rendererStats.renderGraphExecuteCpuMs},
+            {"gpuSceneUploadBytes", rendererStats.gpuSceneUploadBytes},
+            {"gpuSceneCandidates", rendererStats.gpuSceneCandidates},
+            {"gpuFrustumVisible", rendererStats.gpuFrustumVisible},
+            {"gpuHiZOccluded", rendererStats.gpuHiZOccluded},
+            {"indirectDrawCount", rendererStats.indirectDrawCount},
+            {"clusterCount", rendererStats.clusterCount},
+            {"clusterOverflow", rendererStats.clusterOverflow},
+            {"localLightCount", rendererStats.localLightCount},
+            {"bindlessResourcesUsed", rendererStats.bindlessResourcesUsed},
+            {"bindlessResourcesCapacity", rendererStats.bindlessResourcesCapacity},
+            {"rayTracingRequestedMask", rendererStats.rayTracingRequestedMask},
+            {"rayTracingEffectiveMask", rendererStats.rayTracingEffectiveMask},
+            {"rayTracingBlasCount", rendererStats.rayTracingBlasCount},
+            {"rayTracingTlasInstanceCount", rendererStats.rayTracingTlasInstanceCount},
+            {"rayTracingAccelerationStructureBytes", rendererStats.rayTracingAccelerationStructureBytes},
+            {"rayTracingBuildCpuMs", rendererStats.rayTracingBuildCpuMs},
+            {"rayTracingTlasUpdated", rendererStats.rayTracingTlasUpdated},
+            {"rayTracingFallbackReason", rendererStats.rayTracingFallbackReason},
+            {"historyResetReason", rendererStats.historyResetReason}};
         const RHIDeviceIdentity identity = m_RenderContext ? m_RenderContext->GetDeviceIdentity() : RHIDeviceIdentity{};
         value["device"] = {{"adapterName", identity.adapterName},
                            {"driverVersion", identity.driverVersion},

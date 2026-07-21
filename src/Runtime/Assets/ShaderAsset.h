@@ -20,7 +20,8 @@ enum class CookedShaderBindingType : uint8_t {
     Sampler,
     StructuredBuffer,
     StorageBuffer,
-    StorageTexture
+    StorageTexture,
+    AccelerationStructure
 };
 
 struct CookedShaderBinding {
@@ -50,9 +51,10 @@ class ShaderAsset final : public Asset {
 public:
     static constexpr uint32_t kDescriptionVersion = 2;
     static constexpr uint32_t kLegacyDescriptionVersion = 1;
-    static constexpr uint32_t kCookedFormatVersion = 5;
+    static constexpr uint32_t kCookedFormatVersion = 6;
     static constexpr uint32_t kCookedFormatVersionWithReflection = 5;
-    static constexpr uint32_t kCookedShaderAbiVersion = 5;
+    static constexpr uint32_t kCookedShaderAbiVersion = 6;
+    static constexpr uint32_t kPreviousCookedShaderAbiVersion = 5;
     static constexpr uint32_t kCookedFormatVersionWithPasses = 4;
     static constexpr uint32_t kCookedFormatVersionWithVulkan = 3;
     static constexpr uint32_t kCookedFormatVersionWithMetal = 2;

@@ -32,7 +32,11 @@ enum class RendererDebugView : uint8_t {
     SSGI,
     SSRConfidence,
     TAAHistoryAge,
-    TAARejectReason
+    TAARejectReason,
+    RTShadow,
+    RTAO,
+    RTDiffuse,
+    RTReflection
 };
 
 // ============================================================================
@@ -65,6 +69,11 @@ public:
     RenderPath GetRenderPath() const { return m_RenderPath; }
     void SetDeviceProfile(GraphicsDeviceProfile profile);
     GraphicsDeviceProfile GetDeviceProfile() const { return m_DeviceProfile; }
+    void SetHardwareRayTracingEnabled(bool enabled);
+    bool IsHardwareRayTracingEnabled() const { return m_HardwareRayTracingEnabled; }
+    uint32_t GetRayTracingRequestedMask() const;
+    uint32_t GetRayTracingEffectiveMask() const;
+    std::string GetRayTracingFallbackReason() const;
     const RenderPipelineDiagnostics& GetPipelineDiagnostics() const { return m_PipelineDiagnostics; }
     void SetFeatureMask(RendererFeatureMask mask);
     void InvalidateTemporalHistory(const std::string& reason, bool resetObjectHistory = false);
@@ -89,6 +98,7 @@ private:
     RenderPipelineDiagnostics m_PipelineDiagnostics;
     bool m_ModernImplementationReady = false;
     bool m_ModernInitializationAttempted = false;
+    bool m_HardwareRayTracingEnabled = false;
     uint32_t m_Width = 1;
     uint32_t m_Height = 1;
     RendererFeatureMask m_FeatureMask = RendererFeatureMask::All;

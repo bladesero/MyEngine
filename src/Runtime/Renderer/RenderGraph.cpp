@@ -138,6 +138,14 @@ void RenderGraphBuilder::ReadWriteUAV(RGBufferHandle h) {
     if (m_BufferAccesses)
         m_BufferAccesses->push_back({h, RHIResourceState::UnorderedAccess, true, true});
 }
+void RenderGraphBuilder::ReadAccelerationStructure(RGAccelerationStructureHandle h) {
+    if (m_AccelerationStructureAccesses)
+        m_AccelerationStructureAccesses->push_back({h, true, false});
+}
+void RenderGraphBuilder::WriteAccelerationStructure(RGAccelerationStructureHandle h) {
+    if (m_AccelerationStructureAccesses)
+        m_AccelerationStructureAccesses->push_back({h, false, true});
+}
 
 RenderGraph::RenderGraph(IRHIDevice& device) : m_Device(device) {
 }
@@ -264,12 +272,20 @@ RGBufferHandle RenderGraph::CreateBuffer(const std::string& name, const RHIBuffe
     return {static_cast<uint32_t>(m_Buffers.size() - 1)};
 }
 
+RGAccelerationStructureHandle
+RenderGraph::ImportAccelerationStructure(const std::string& name,
+                                         const std::shared_ptr<GpuAccelerationStructure>& accelerationStructure) {
+    m_AccelerationStructures.push_back({name, accelerationStructure});
+    m_Compiled = false;
+    return {static_cast<uint32_t>(m_AccelerationStructures.size() - 1)};
+}
+
 void RenderGraph::AddPass(const std::string& name, SetupCallback setup, ExecuteCallback execute, PassFlags flags) {
     Pass pass;
     pass.name = name;
     pass.execute = std::move(execute);
     pass.flags = flags;
-    RenderGraphBuilder builder(pass.accesses, pass.bufferAccesses);
+    RenderGraphBuilder builder(pass.accesses, pass.bufferAccesses, pass.accelerationStructureAccesses);
     setup(builder);
     m_Passes.push_back(std::move(pass));
     m_Compiled = false;
@@ -282,7 +298,20 @@ void RenderGraph::AddComputePass(const std::string& name, SetupCallback setup, E
     pass.execute = std::move(execute);
     pass.flags = flags;
     pass.type = PassType::Compute;
-    RenderGraphBuilder builder(pass.accesses, pass.bufferAccesses);
+    RenderGraphBuilder builder(pass.accesses, pass.bufferAccesses, pass.accelerationStructureAccesses);
+    setup(builder);
+    m_Passes.push_back(std::move(pass));
+    m_Compiled = false;
+}
+
+void RenderGraph::AddAccelerationStructurePass(const std::string& name, SetupCallback setup, ExecuteCallback execute,
+                                               PassFlags flags) {
+    Pass pass;
+    pass.name = name;
+    pass.execute = std::move(execute);
+    pass.flags = flags;
+    pass.type = PassType::AccelerationStructureBuild;
+    RenderGraphBuilder builder(pass.accesses, pass.bufferAccesses, pass.accelerationStructureAccesses);
     setup(builder);
     m_Passes.push_back(std::move(pass));
     m_Compiled = false;
@@ -389,6 +418,16 @@ bool RenderGraph::ValidateBufferAccess(const Pass& pass, const RenderGraphBuilde
     }
 }
 
+bool RenderGraph::ValidateAccelerationStructureAccess(const Pass& pass,
+                                                      const RenderGraphBuilder::AccelerationStructureAccess& access) {
+    if (!access.handle.IsValid() || access.handle.index >= m_AccelerationStructures.size() ||
+        !m_AccelerationStructures[access.handle.index].accelerationStructure) {
+        return SetError(ErrorCode::InvalidAccelerationStructureHandle,
+                        "RenderGraph pass '" + pass.name + "' references an invalid acceleration structure");
+    }
+    return true;
+}
+
 bool RenderGraph::Compile() {
     m_ResourcesReady = false;
     m_LastError.clear();
@@ -399,6 +438,7 @@ bool RenderGraph::Compile() {
     m_CulledPassNames.clear();
     m_LiveTextures.clear();
     m_LiveBuffers.clear();
+    m_LiveAccelerationStructures.clear();
     const uint32_t passCount = static_cast<uint32_t>(m_Passes.size());
     // The last-writer/open-reader sets encode RAW, WAR, and WAW hazards. A new write must wait for both the previous
     // writer and every reader that still observes that version of the resource.
@@ -408,9 +448,12 @@ bool RenderGraph::Compile() {
     std::vector<std::vector<uint32_t>> readers(m_Textures.size());
     std::vector<int32_t> lastBufferWriter(m_Buffers.size(), -1);
     std::vector<std::vector<uint32_t>> bufferReaders(m_Buffers.size());
+    std::vector<int32_t> lastAccelerationStructureWriter(m_AccelerationStructures.size(), -1);
+    std::vector<std::vector<uint32_t>> accelerationStructureReaders(m_AccelerationStructures.size());
 
     for (uint32_t p = 0; p < passCount; ++p) {
         if (m_Passes[p].accesses.empty() && m_Passes[p].bufferAccesses.empty() &&
+            m_Passes[p].accelerationStructureAccesses.empty() &&
             !HasPassFlag(m_Passes[p].flags, PassFlags::AllowNoResourceAccess)) {
             return SetError(ErrorCode::MissingResourceAccess,
                             "RenderGraph pass '" + m_Passes[p].name + "' declares no resource access");
@@ -533,6 +576,35 @@ bool RenderGraph::Compile() {
             if (access.read && !access.write)
                 bufferReaders[r].push_back(p);
         }
+        std::unordered_set<uint32_t> seenAccelerationStructures;
+        for (const auto& access : m_Passes[p].accelerationStructureAccesses) {
+            if (!ValidateAccelerationStructureAccess(m_Passes[p], access))
+                return false;
+            if (!seenAccelerationStructures.insert(access.handle.index).second) {
+                return SetError(ErrorCode::DuplicateResourceAccess,
+                                "RenderGraph pass '" + m_Passes[p].name +
+                                    "' declares the same acceleration structure more than once");
+            }
+            const uint32_t r = access.handle.index;
+            std::unordered_set<uint32_t> deps;
+            if (access.read && lastAccelerationStructureWriter[r] >= 0)
+                deps.insert(static_cast<uint32_t>(lastAccelerationStructureWriter[r]));
+            if (access.write) {
+                if (lastAccelerationStructureWriter[r] >= 0)
+                    deps.insert(static_cast<uint32_t>(lastAccelerationStructureWriter[r]));
+                deps.insert(accelerationStructureReaders[r].begin(), accelerationStructureReaders[r].end());
+                accelerationStructureReaders[r].clear();
+            }
+            for (uint32_t dep : deps)
+                if (dep != p && std::find(edges[dep].begin(), edges[dep].end(), p) == edges[dep].end()) {
+                    edges[dep].push_back(p);
+                    ++indegree[p];
+                }
+            if (access.write)
+                lastAccelerationStructureWriter[r] = static_cast<int32_t>(p);
+            if (access.read && !access.write)
+                accelerationStructureReaders[r].push_back(p);
+        }
     }
     for (uint32_t i = 0; i < m_Textures.size(); ++i) {
         const auto& resource = m_Textures[i];
@@ -564,6 +636,7 @@ bool RenderGraph::Compile() {
     std::vector<uint8_t> livePass(passCount, 0);
     std::vector<uint8_t> liveTextures(m_Textures.size(), 0);
     std::vector<uint8_t> liveBuffers(m_Buffers.size(), 0);
+    std::vector<uint8_t> liveAccelerationStructures(m_AccelerationStructures.size(), 1);
     for (uint32_t i = 0; i < m_Textures.size(); ++i) {
         liveTextures[i] = m_Textures[i].imported || m_Textures[i].hasFinalState;
     }
@@ -580,6 +653,8 @@ bool RenderGraph::Compile() {
                 hasWrites = hasWrites || access.write;
             for (const auto& access : m_Passes[p].bufferAccesses)
                 hasWrites = hasWrites || access.write;
+            for (const auto& access : m_Passes[p].accelerationStructureAccesses)
+                hasWrites = hasWrites || access.write;
             bool passLive =
                 livePass[p] != 0 || HasPassFlag(m_Passes[p].flags, PassFlags::AllowNoResourceAccess) || !hasWrites;
             for (const auto& access : m_Passes[p].accesses) {
@@ -591,6 +666,14 @@ bool RenderGraph::Compile() {
             if (!passLive) {
                 for (const auto& access : m_Passes[p].bufferAccesses) {
                     if (access.write && liveBuffers[access.handle.index]) {
+                        passLive = true;
+                        break;
+                    }
+                }
+            }
+            if (!passLive) {
+                for (const auto& access : m_Passes[p].accelerationStructureAccesses) {
+                    if (access.write && liveAccelerationStructures[access.handle.index]) {
                         passLive = true;
                         break;
                     }
@@ -614,10 +697,17 @@ bool RenderGraph::Compile() {
                     changed = true;
                 }
             }
+            for (const auto& access : m_Passes[p].accelerationStructureAccesses) {
+                if (access.read && !liveAccelerationStructures[access.handle.index]) {
+                    liveAccelerationStructures[access.handle.index] = 1;
+                    changed = true;
+                }
+            }
         }
     }
     m_LiveTextures = liveTextures;
     m_LiveBuffers = liveBuffers;
+    m_LiveAccelerationStructures = liveAccelerationStructures;
 
     std::vector<uint32_t> liveIndegree(passCount, 0);
     for (uint32_t p = 0; p < passCount; ++p) {
@@ -1047,6 +1137,7 @@ void RenderGraph::Reset() {
         m_ResourceStats.pooledBuffers += static_cast<uint32_t>(pair.second.size());
     m_Textures.clear();
     m_Buffers.clear();
+    m_AccelerationStructures.clear();
     m_Passes.clear();
     m_ExecutionOrder.clear();
     m_ExecutionOrderNames.clear();
@@ -1054,6 +1145,7 @@ void RenderGraph::Reset() {
     m_CulledPassNames.clear();
     m_LiveTextures.clear();
     m_LiveBuffers.clear();
+    m_LiveAccelerationStructures.clear();
     m_LastError.clear();
     m_LastErrorCode = ErrorCode::None;
     m_Compiled = false;
@@ -1085,4 +1177,9 @@ GpuBuffer* RenderGraphResources::GetBuffer(RGBufferHandle h) const {
 }
 GpuBufferView* RenderGraphResources::GetBufferView(RGBufferHandle h) const {
     return h.index < m_Graph.m_Buffers.size() ? m_Graph.m_Buffers[h.index].view.get() : nullptr;
+}
+GpuAccelerationStructure* RenderGraphResources::GetAccelerationStructure(RGAccelerationStructureHandle h) const {
+    return h.index < m_Graph.m_AccelerationStructures.size()
+               ? m_Graph.m_AccelerationStructures[h.index].accelerationStructure.get()
+               : nullptr;
 }

@@ -127,7 +127,8 @@ nlohmann::json SerializeCookedReflection(const ShaderAsset& shader) {
     return entries;
 }
 
-bool ParseCookedReflection(const nlohmann::json& entries, CookedShaderReflectionTable& reflection) {
+bool ParseCookedReflection(const nlohmann::json& entries, CookedShaderReflectionTable& reflection,
+                           uint32_t abiVersion) {
     if (!entries.is_array())
         return false;
     for (const auto& entry : entries) {
@@ -149,7 +150,10 @@ bool ParseCookedReflection(const nlohmann::json& entries, CookedShaderReflection
             return false;
         for (const auto& item : bindings) {
             const uint32_t type = item.value("type", UINT32_MAX);
-            if (!item.is_object() || type > static_cast<uint32_t>(CookedShaderBindingType::StorageTexture))
+            const auto maxType = abiVersion >= ShaderAsset::kCookedShaderAbiVersion
+                                     ? CookedShaderBindingType::AccelerationStructure
+                                     : CookedShaderBindingType::StorageTexture;
+            if (!item.is_object() || type > static_cast<uint32_t>(maxType))
                 return false;
             CookedShaderBinding binding;
             binding.name = item.value("name", std::string{});
@@ -227,10 +231,15 @@ std::shared_ptr<ShaderAsset> LoadCooked(const std::string& path, std::istream& i
         const nlohmann::json json = metadata.empty() ? nlohmann::json::object() : nlohmann::json::parse(metadata);
         if (!ParseShaderProperties(json.value("properties", nlohmann::json::array()), properties))
             return {};
-        if (version >= ShaderAsset::kCookedFormatVersionWithReflection &&
-            (json.value("abiVersion", 0u) != ShaderAsset::kCookedShaderAbiVersion ||
-             !ParseCookedReflection(json.value("reflection", nlohmann::json::array()), reflection)))
-            return {};
+        if (version >= ShaderAsset::kCookedFormatVersionWithReflection) {
+            const uint32_t abiVersion = json.value("abiVersion", 0u);
+            const uint32_t expectedAbi = version >= ShaderAsset::kCookedFormatVersion
+                                             ? ShaderAsset::kCookedShaderAbiVersion
+                                             : ShaderAsset::kPreviousCookedShaderAbiVersion;
+            if (abiVersion != expectedAbi ||
+                !ParseCookedReflection(json.value("reflection", nlohmann::json::array()), reflection, abiVersion))
+                return {};
+        }
     } catch (...) {
         return {};
     }
@@ -257,7 +266,10 @@ std::shared_ptr<ShaderAsset> LoadCooked(const std::string& path, std::istream& i
         passMask, sourceHash, static_cast<ShaderSourceMode>(sourceMode), static_cast<ShaderDomain>(domain),
         static_cast<ShaderShadingModel>(shadingModel), static_cast<ShaderSurfaceType>(surfaceType),
         std::move(properties), std::move(blobs), std::move(reflection),
-        version >= ShaderAsset::kCookedFormatVersionWithReflection ? ShaderAsset::kCookedShaderAbiVersion : 0u);
+        version >= ShaderAsset::kCookedFormatVersion
+            ? ShaderAsset::kCookedShaderAbiVersion
+            : (version >= ShaderAsset::kCookedFormatVersionWithReflection ? ShaderAsset::kPreviousCookedShaderAbiVersion
+                                                                          : 0u));
     asset->MarkReady();
     return asset;
 }

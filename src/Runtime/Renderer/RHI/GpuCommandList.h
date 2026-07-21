@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Renderer/RHI/GpuAccelerationStructure.h"
 #include "Renderer/RHI/GpuBuffer.h"
 #include "Renderer/RHI/GpuShader.h"
 #include "Renderer/RHI/GpuTexture.h"
@@ -9,6 +10,7 @@
 #include "Renderer/RHI/GpuSync.h"
 
 #include <cstdint>
+#include <vector>
 
 enum class GpuBlendMode : uint8_t {
     Opaque,
@@ -91,6 +93,10 @@ public:
     virtual void ResolveTimestamps(GpuTimestampQueryPool*, uint32_t, uint32_t) {}
     virtual void ClearStorageBuffer(GpuBufferView*, uint32_t = 0) {}
     virtual void UAVBarrier(GpuResource*) {}
+    virtual void BuildBottomLevelAccelerationStructure(GpuAccelerationStructure*,
+                                                       const std::vector<RHIRayTracingGeometryDesc>&, bool = false) {}
+    virtual void BuildTopLevelAccelerationStructure(GpuAccelerationStructure*,
+                                                    const std::vector<RHIRayTracingInstanceDesc>&, bool = false) {}
     virtual void BeginDebugEvent(const char*) {}
     virtual void EndDebugEvent() {}
 };

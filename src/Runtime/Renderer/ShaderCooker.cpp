@@ -43,6 +43,10 @@ bool IsModernOnlyShader(const fs::path& source) {
     return stem.rfind("Modern", 0) == 0 || stem.rfind("Cluster", 0) == 0;
 }
 
+bool IsRayTracingOnlyShader(const fs::path& source) {
+    return source.stem().string().rfind("ModernRT", 0) == 0;
+}
+
 bool ValidateShaderIncludes(const fs::path& source, const fs::path& allowedRoot,
                             std::unordered_set<std::string>& visited, std::string* error) {
     std::error_code ec;
@@ -291,8 +295,18 @@ std::string BuildCacheKey(const fs::path& source, const fs::path& allowedRoot,
 ShaderCookResult Cook(const ShaderCookRequest& request, std::string* error) {
     ShaderCookResult result;
     result.artifactPath = request.artifactPath;
-    const std::vector<ShaderBackend> backends =
+    const std::vector<ShaderBackend> requestedBackends =
         request.backends.empty() ? BackendsForTargetPlatform(request.targetPlatform) : request.backends;
+    const bool modernOnly = IsModernOnlyShader(request.sourcePath);
+    const bool rayTracingOnly = IsRayTracingOnlyShader(request.sourcePath);
+    std::vector<ShaderBackend> backends;
+    for (ShaderBackend backend : requestedBackends) {
+        if (rayTracingOnly && backend != ShaderBackend::D3D12)
+            continue;
+        if (modernOnly && backend != ShaderBackend::D3D12 && backend != ShaderBackend::Vulkan)
+            continue;
+        backends.push_back(backend);
+    }
 
     result.cacheKey = BuildCacheKey(request.sourcePath, request.allowedRoot, backends, request.targetPlatform,
                                     request.settingsJson, &result.dependencies, error);
@@ -349,7 +363,6 @@ ShaderCookResult Cook(const ShaderCookRequest& request, std::string* error) {
     constexpr size_t passCount = static_cast<size_t>(ShaderPass::Count);
     std::array<std::array<std::array<std::vector<uint8_t>, kShaderStageCount>, passCount>, kShaderBackendCount> blobs{};
     CookedShaderReflectionTable reflection{};
-    const bool modernOnly = IsModernOnlyShader(request.sourcePath);
     for (size_t passIndex = 0; passIndex < passCount; ++passIndex) {
         const auto pass = static_cast<ShaderPass>(passIndex);
         if (!description->HasPass(pass))
@@ -402,6 +415,8 @@ ShaderCookResult Cook(const ShaderCookRequest& request, std::string* error) {
                 continue;
             const fs::path hlsl = description->IsGraph() ? generatedPath : description->ResolveSource(pass, stage);
             for (ShaderBackend backend : backends) {
+                if (rayTracingOnly && backend != ShaderBackend::D3D12)
+                    continue;
                 if (modernOnly && backend != ShaderBackend::D3D12 && backend != ShaderBackend::Vulkan)
                     continue;
                 if (!CompileShaderStageForBackend(hlsl, sourceStage, stage, backend, description->GetDefines(),

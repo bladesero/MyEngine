@@ -94,6 +94,7 @@ struct MockShader final : GpuShader {};
 struct MockTexture final : GpuTexture {};
 struct MockTextureView final : GpuTextureView {};
 struct MockSampler final : GpuSampler {};
+struct MockAccelerationStructure final : GpuAccelerationStructure {};
 class MockTimestampPool final : public GpuTimestampQueryPool {
 public:
     uint32_t GetCount() const override { return 4; }
@@ -188,6 +189,15 @@ public:
     }
     void WriteTimestamp(GpuTimestampQueryPool*, uint32_t) override { ++timestamps; }
     void ResolveTimestamps(GpuTimestampQueryPool*, uint32_t, uint32_t) override { ++timestampResolves; }
+    void BuildBottomLevelAccelerationStructure(GpuAccelerationStructure*, const std::vector<RHIRayTracingGeometryDesc>&,
+                                               bool) override {
+        ++blasBuilds;
+    }
+    void BuildTopLevelAccelerationStructure(GpuAccelerationStructure*, const std::vector<RHIRayTracingInstanceDesc>&,
+                                            bool update) override {
+        ++tlasBuilds;
+        tlasUpdates += update ? 1 : 0;
+    }
 
     int shaderBinds = 0;
     int vertexBinds = 0;
@@ -215,6 +225,9 @@ public:
     int indirectCountDraws = 0;
     int timestamps = 0;
     int timestampResolves = 0;
+    int blasBuilds = 0;
+    int tlasBuilds = 0;
+    int tlasUpdates = 0;
     RHITextureRegion copiedDst{}, copiedSrc{};
     std::array<uint32_t, 3> dispatchGroups{};
 };
@@ -579,7 +592,8 @@ bool TestExtendedRHIContracts() {
                      context.commands.copiedDst.x == 4 && context.commands.indirectDraws == 2 &&
                      context.commands.timestamps == 1 && context.commands.timestampResolves == 1 && timestamps &&
                      timestamps->ReadResults(0, 1, ticks) && ticks.size() == 1 && caps.maxColorAttachments == 8 &&
-                     caps.indirectDraw && caps.timestampQueries,
+                     caps.indirectDraw && caps.timestampQueries && !caps.accelerationStructures &&
+                     !caps.inlineRayQueries && caps.rayTracingTier == RHIRayTracingTier::None,
                  "extended RHI transfer/query/indirect contracts were not preserved");
 }
 
@@ -788,6 +802,7 @@ bool TestNamedShaderBindings() {
         {"SceneColor", ShaderBindingType::Texture, 0, 1, 0, ShaderStagePixel},
         {"LinearClamp", ShaderBindingType::Sampler, 0, 1, 0, ShaderStagePixel},
         {"EnvironmentSH", ShaderBindingType::StructuredBuffer, 1, 1, 0, ShaderStagePixel},
+        {"SceneAS", ShaderBindingType::AccelerationStructure, 2, 1, 0, ShaderStageCompute},
         {"BindlessTextures", ShaderBindingType::Texture, 0, UINT32_MAX, 0, ShaderStagePixel, 1}};
     GpuBindGroup bindings(shader);
     float constants[4] = {};
@@ -805,9 +820,11 @@ bool TestNamedShaderBindings() {
     view->texture = texture;
     auto sampler = std::make_shared<MockSampler>();
     auto buffer = std::make_shared<MockBufferView>();
+    auto accelerationStructure = std::make_shared<MockAccelerationStructure>();
     return Check(bindings.SetTexture("SceneColor", view) && bindings.SetSampler("LinearClamp", sampler) &&
                      !bindings.SetStorageBuffer("EnvironmentSH", buffer) &&
-                     bindings.SetBuffer("EnvironmentSH", buffer) && bindings.Validate(&error),
+                     bindings.SetBuffer("EnvironmentSH", buffer) && !bindings.SetBuffer("SceneAS", buffer) &&
+                     bindings.SetAccelerationStructure("SceneAS", accelerationStructure) && bindings.Validate(&error),
                  "complete named bind group or implicit bindless table failed validation: " + error);
 }
 
@@ -846,6 +863,35 @@ bool TestRenderGraphComputePassTypeAndUavBarriers() {
                            [&](RenderGraphBuilder& builder) { builder.WriteColor(colorHandle); }, {});
     return Check(!invalid.Compile() && invalid.GetLastErrorCode() == RenderGraph::ErrorCode::ComputeAttachmentAccess,
                  "RenderGraph accepted a raster attachment in a compute pass");
+}
+
+bool TestRenderGraphAccelerationStructureDependencies() {
+    MockRenderContext context;
+    auto accelerationStructure = std::make_shared<MockAccelerationStructure>();
+    accelerationStructure->desc.type = RHIAccelerationStructureType::TopLevel;
+    RenderGraph graph(context);
+    const auto handle = graph.ImportAccelerationStructure("SceneTLAS", accelerationStructure);
+    std::vector<std::string> execution;
+    graph.AddAccelerationStructurePass(
+        "BuildTLAS", [handle](RenderGraphBuilder& builder) { builder.WriteAccelerationStructure(handle); },
+        [&execution, accelerationStructure](GpuCommandList& commands, const RenderGraphResources&) {
+            execution.push_back("build");
+            commands.BuildTopLevelAccelerationStructure(accelerationStructure.get(), {}, false);
+        });
+    graph.AddComputePass(
+        "Trace", [handle](RenderGraphBuilder& builder) { builder.ReadAccelerationStructure(handle); },
+        [&execution](GpuCommandList& commands, const RenderGraphResources&) {
+            execution.push_back("trace");
+            commands.Dispatch(1);
+        });
+    if (!Check(graph.Compile(), "AS RenderGraph compile failed: " + graph.GetLastError()))
+        return false;
+    return Check(graph.GetExecutionPassTypes() ==
+                         std::vector<RenderGraph::PassType>(
+                             {RenderGraph::PassType::AccelerationStructureBuild, RenderGraph::PassType::Compute}) &&
+                     graph.Execute(context.commands) && execution == std::vector<std::string>({"build", "trace"}) &&
+                     context.commands.tlasBuilds == 1 && context.commands.dispatches == 1,
+                 "RenderGraph did not preserve AS build-to-trace ordering");
 }
 
 bool TestGpuSceneDatabaseDirtyUploadAndGeometryArena() {
@@ -2567,15 +2613,17 @@ bool TestModernSsaoCompositeContract() {
     }
     if (!Check(pipelineHeader.find("GetCurrentProjection()const{returnm_ScreenSpaceConstants.projection;}") !=
                        std::string::npos &&
-                   pipelineSource.find("&&!ssaoEnabled)returnhdr") != std::string::npos &&
-                   pipelineSource.find("(ssaoEnabled?16u:0u)") != std::string::npos &&
-                   pipelineSource.find("builder.ReadTexture(ssao)") != std::string::npos &&
-                   pipelineSource.find("SetTexture(\"g_SSAO\",ssaoEnabled?ssaoSrv:hdrSrv)") != std::string::npos,
+                   pipelineSource.find("&&!ssaoEnabled&&!rayTracedAO)returnhdr") != std::string::npos &&
+                   pipelineSource.find("(effectiveSsaoEnabled?16u:0u)") != std::string::npos &&
+                   pipelineSource.find("builder.ReadTexture(effectiveSsao)") != std::string::npos &&
+                   pipelineSource.find("SetTexture(\"g_SSAO\",effectiveSsaoEnabled?effectiveSsaoSrv:hdrSrv)") !=
+                       std::string::npos,
                "Modern screen-space pass does not declare, route, and bind SSAO independently of SSGI/SSR")) {
         return false;
     }
     if (!Check(renderer.find("constboolframeSsaoEnabled=ssaoEnabled") != std::string::npos &&
-                   renderer.find("if(modernFrameReady&&frameSsaoEnabled)addSsaoPasses()") != std::string::npos &&
+                   renderer.find("if(modernFrameReady&&frameSsaoEnabled&&") != std::string::npos &&
+                   renderer.find("ModernRayTracingAO)==0)addSsaoPasses()") != std::string::npos &&
                    renderer.find("modernHiZ,ssao,postResources.ssaoSrv,frameSsaoEnabled") != std::string::npos &&
                    renderer.find("modernFrameReady?&m_ModernDeferredPipeline->GetCurrentProjection():nullptr") !=
                        std::string::npos,
@@ -2690,7 +2738,9 @@ bool TestModernScreenSpacePostProcessTuningContract() {
                    NearlyEqual(post.GetSSRHistoryWeight(), 0.9f) && post.GetSSRStepCount() == 48 &&
                    post.GetSSRFilterRounds() == 2 && post.IsTAAEnabled() &&
                    NearlyEqual(post.GetTAAHistoryWeight(), 0.8f) && NearlyEqual(post.GetTAAJitterSpread(), 1.0f) &&
-                   NearlyEqual(post.GetTAAHistoryClipExpansion(), 0.0f),
+                   NearlyEqual(post.GetTAAHistoryClipExpansion(), 0.0f) && !post.UsesRayTracedShadowReplacement() &&
+                   !post.UsesRayTracedAOReplacement() && !post.UsesRayTracedDiffuseReplacement() &&
+                   !post.UsesRayTracedReflectionReplacement(),
                "PostProcess Modern SSGI/SSR/TAA tuning defaults changed unexpectedly")) {
         return false;
     }
@@ -2913,6 +2963,134 @@ bool TestModernScreenSpaceSlangCompileContracts() {
         }
     }
     return true;
+}
+
+bool TestModernRayTracingSlangCompileContracts() {
+    const std::array<const char*, 4> candidates = {
+        "EngineContent/Shaders/ModernRayTracing.hlsl",
+        "../../../EngineContent/Shaders/ModernRayTracing.hlsl",
+        "../../../../EngineContent/Shaders/ModernRayTracing.hlsl",
+        "../../../../../EngineContent/Shaders/ModernRayTracing.hlsl",
+    };
+    const auto shaderPath = FindRepositoryFile(candidates);
+    if (!Check(!shaderPath.empty(), "Modern ray tracing shader source was not found"))
+        return false;
+    if (!Check(ShaderCompilerSlang::IsAvailable(),
+               "Slang compiler is unavailable; Modern inline ray-query DXIL cannot be validated"))
+        return false;
+
+    struct RayTracingEntryContract {
+        const char* entry;
+        const char* define;
+        const char* output;
+        const char* forbiddenOutput;
+    };
+    const std::array<RayTracingEntryContract, 4> entries = {{
+        {"CSRTShadow", "MYENGINE_RT_SHADOW=1", "g_RTShadowOutput", "g_RTOutput"},
+        {"CSRTAO", "MYENGINE_RT_AO=1", "g_RTOutput", "g_RTShadowOutput"},
+        {"CSRTDiffuse", "MYENGINE_RT_DIFFUSE=1", "g_RTOutput", "g_RTShadowOutput"},
+        {"CSRTReflection", "MYENGINE_RT_REFLECTION=1", "g_RTOutput", "g_RTShadowOutput"},
+    }};
+    for (const auto& candidate : entries) {
+        std::vector<uint8_t> bytecode;
+        CookedShaderStageReflection reflection;
+        std::string error;
+        if (!Check(ShaderCompilerSlang::CompileStageFromFile(shaderPath, candidate.entry, ShaderStage::Compute,
+                                                             ShaderBackend::D3D12, bytecode, {candidate.define}, &error,
+                                                             &reflection),
+                   "ModernRayTracing D3D12 compile failed for " + std::string(candidate.entry) + ": " + error))
+            return false;
+        const auto hasBinding = [&reflection](const char* name, CookedShaderBindingType type, uint32_t space) {
+            return std::any_of(reflection.bindings.begin(), reflection.bindings.end(),
+                               [name, type, space](const CookedShaderBinding& binding) {
+                                   return binding.name == name && binding.type == type && binding.bindSpace == space;
+                               });
+        };
+        const auto outputBindingCount = std::count_if(
+            reflection.bindings.begin(), reflection.bindings.end(), [](const CookedShaderBinding& binding) {
+                return binding.type == CookedShaderBindingType::StorageTexture && binding.bindPoint == 0 &&
+                       binding.bindSpace == 0;
+            });
+        if (!Check(!bytecode.empty() && reflection.threadGroupSize[0] == 8 && reflection.threadGroupSize[1] == 8 &&
+                       reflection.threadGroupSize[2] == 1 &&
+                       hasBinding("g_RTScene", CookedShaderBindingType::AccelerationStructure, 0) &&
+                       hasBinding("g_RTBindlessTextures", CookedShaderBindingType::Texture, 1) &&
+                       hasBinding(candidate.output, CookedShaderBindingType::StorageTexture, 0) &&
+                       !hasBinding(candidate.forbiddenOutput, CookedShaderBindingType::StorageTexture, 0) &&
+                       outputBindingCount == 1,
+                   "ModernRayTracing reflection has invalid AS, bindless, or per-entry output bindings for " +
+                       std::string(candidate.entry)))
+            return false;
+    }
+    return true;
+}
+
+bool TestModernRayTracingCapabilityMatrix() {
+    const uint32_t allEffects =
+        ModernRayTracingShadow | ModernRayTracingAO | ModernRayTracingDiffuse | ModernRayTracingReflection;
+    RHIDeviceCapabilities capabilities;
+    capabilities.accelerationStructures = true;
+    capabilities.inlineRayQueries = true;
+    capabilities.rayTracingTier = RHIRayTracingTier::Tier11;
+    if (!Check(ResolveModernRayTracingEffectMask(allEffects, true, capabilities, allEffects, allEffects) == allEffects,
+               "DXR 1.1 capability matrix rejected valid replacements"))
+        return false;
+    if (!Check(ResolveModernRayTracingEffectMask(allEffects, false, capabilities, allEffects, allEffects) == 0,
+               "project ray tracing master switch did not disable replacements"))
+        return false;
+    capabilities.inlineRayQueries = false;
+    if (!Check(ResolveModernRayTracingEffectMask(allEffects, true, capabilities, allEffects, allEffects) == 0,
+               "capability matrix accepted a device without inline ray queries"))
+        return false;
+    capabilities.inlineRayQueries = true;
+    capabilities.rayTracingTier = RHIRayTracingTier::Tier10;
+    if (!Check(ResolveModernRayTracingEffectMask(allEffects, true, capabilities, allEffects, allEffects) == 0,
+               "capability matrix accepted DXR tier 1.0"))
+        return false;
+    capabilities.rayTracingTier = RHIRayTracingTier::Tier11;
+    const uint32_t sourceEffects = allEffects & ~ModernRayTracingDiffuse;
+    const uint32_t readyPipelines = allEffects & ~ModernRayTracingReflection;
+    return Check(ResolveModernRayTracingEffectMask(allEffects, true, capabilities, sourceEffects, readyPipelines) ==
+                     (ModernRayTracingShadow | ModernRayTracingAO),
+                 "per-effect source and shader readiness did not retain independent fallbacks");
+}
+
+bool TestModernRayTracingSceneAndFallbackContracts() {
+    const std::string pipeline = CompactSource(ReadRepositoryTextFile({
+        "src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+        "../../../src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+        "../../../../src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+        "../../../../../src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+    }));
+    const std::string renderer = CompactSource(ReadRepositoryTextFile({
+        "src/Runtime/Renderer/Renderer.cpp",
+        "../../../src/Runtime/Renderer/Renderer.cpp",
+        "../../../../src/Runtime/Renderer/Renderer.cpp",
+        "../../../../../src/Runtime/Renderer/Renderer.cpp",
+    }));
+    const std::string shader = CompactSource(ReadRepositoryTextFile({
+        "EngineContent/Shaders/ModernRayTracing.hlsli",
+        "../../../EngineContent/Shaders/ModernRayTracing.hlsli",
+        "../../../../EngineContent/Shaders/ModernRayTracing.hlsli",
+        "../../../../../EngineContent/Shaders/ModernRayTracing.hlsli",
+    }));
+    if (!Check(!pipeline.empty() && !renderer.empty() && !shader.empty(),
+               "Modern ray tracing contract sources were not found"))
+        return false;
+    return Check(pipeline.find("m_RayTracingArenaGeneration!=arena.GetGeneration()") != std::string::npos &&
+                     pipeline.find("m_RayTracingBlas.clear()") != std::string::npos &&
+                     pipeline.find("instance.instanceId=objectIndex") != std::string::npos &&
+                     pipeline.find("entry.geometry.opaque=false") != std::string::npos &&
+                     pipeline.find("m_PreviousRayTracingInstanceCount==") != std::string::npos &&
+                     pipeline.find("updateTlas?\"UpdateModernRTTLAS\":\"BuildModernRTAccelerationStructures\"") !=
+                         std::string::npos &&
+                     pipeline.find("builder.ReadAccelerationStructure(m_FrameRayTracingTlas)") != std::string::npos &&
+                     renderer.find("ModernRayTracingAO)==0)addSsaoPasses()") != std::string::npos &&
+                     renderer.find("!rayTracedDirectionalShadow") != std::string::npos &&
+                     shader.find("CANDIDATE_NON_OPAQUE_TRIANGLE") != std::string::npos &&
+                     shader.find("CommitNonOpaqueTriangleHit()") != std::string::npos &&
+                     shader.find("material.material.w") != std::string::npos,
+                 "BLAS cache, TLAS update, alpha-test, graph dependency, or per-effect fallback contract is missing");
 }
 
 bool TestModernHiZOddDimensionReductionContract() {
@@ -4202,6 +4380,8 @@ MYENGINE_REGISTER_TEST("Renderer", "TestRenderGraphValidationAndExecution", Test
 MYENGINE_REGISTER_TEST("Renderer", "TestNamedShaderBindings", TestNamedShaderBindings);
 MYENGINE_REGISTER_TEST("Renderer", "TestRenderGraphComputePassTypeAndUavBarriers",
                        TestRenderGraphComputePassTypeAndUavBarriers);
+MYENGINE_REGISTER_TEST("Renderer", "TestRenderGraphAccelerationStructureDependencies",
+                       TestRenderGraphAccelerationStructureDependencies);
 MYENGINE_REGISTER_TEST("Renderer", "TestGpuSceneDatabaseDirtyUploadAndGeometryArena",
                        TestGpuSceneDatabaseDirtyUploadAndGeometryArena);
 MYENGINE_REGISTER_TEST("Renderer", "TestGpuSceneMaterialBindlessSamplerSelection",
@@ -4260,6 +4440,11 @@ MYENGINE_REGISTER_TEST("Renderer", "TestModernScreenSpaceDebugRoutingContract",
                        TestModernScreenSpaceDebugRoutingContract);
 MYENGINE_REGISTER_TEST("Renderer", "TestModernScreenSpaceSlangCompileContracts",
                        TestModernScreenSpaceSlangCompileContracts);
+MYENGINE_REGISTER_TEST("Renderer", "TestModernRayTracingSlangCompileContracts",
+                       TestModernRayTracingSlangCompileContracts);
+MYENGINE_REGISTER_TEST("Renderer", "TestModernRayTracingCapabilityMatrix", TestModernRayTracingCapabilityMatrix);
+MYENGINE_REGISTER_TEST("Renderer", "TestModernRayTracingSceneAndFallbackContracts",
+                       TestModernRayTracingSceneAndFallbackContracts);
 MYENGINE_REGISTER_TEST("Renderer", "TestModernHiZOddDimensionReductionContract",
                        TestModernHiZOddDimensionReductionContract);
 MYENGINE_REGISTER_TEST("Renderer", "TestModernCompatibilityGBufferPrecedesHiZContract",

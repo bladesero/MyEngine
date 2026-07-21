@@ -46,6 +46,14 @@ struct RendererFrameStats {
     uint32_t localLightCount = 0;
     uint32_t bindlessResourcesUsed = 0;
     uint32_t bindlessResourcesCapacity = 0;
+    uint32_t rayTracingRequestedMask = 0;
+    uint32_t rayTracingEffectiveMask = 0;
+    uint32_t rayTracingBlasCount = 0;
+    uint32_t rayTracingTlasInstanceCount = 0;
+    uint64_t rayTracingAccelerationStructureBytes = 0;
+    float rayTracingBuildCpuMs = 0.0f;
+    bool rayTracingTlasUpdated = false;
+    std::string rayTracingFallbackReason;
     std::string historyResetReason;
 };
 

@@ -70,6 +70,16 @@ void ProfilerPanel::DrawContent() {
         ImGui::Text("Indirect draws %u  local lights %u  clusters %u  overflow %u", renderer.indirectDrawCount,
                     renderer.localLightCount, renderer.clusterCount, renderer.clusterOverflow);
         ImGui::Text("Bindless descriptors %u / %u", renderer.bindlessResourcesUsed, renderer.bindlessResourcesCapacity);
+        if (renderer.rayTracingRequestedMask != 0) {
+            ImGui::Text("RT requested/effective 0x%02X / 0x%02X  BLAS %u  TLAS instances %u",
+                        renderer.rayTracingRequestedMask, renderer.rayTracingEffectiveMask,
+                        renderer.rayTracingBlasCount, renderer.rayTracingTlasInstanceCount);
+            ImGui::Text("RT AS %.2f MB  build/update record %.3f ms  TLAS %s",
+                        static_cast<double>(renderer.rayTracingAccelerationStructureBytes) / (1024.0 * 1024.0),
+                        renderer.rayTracingBuildCpuMs, renderer.rayTracingTlasUpdated ? "update" : "build");
+            if (!renderer.rayTracingFallbackReason.empty())
+                ImGui::TextDisabled("RT status: %s", renderer.rayTracingFallbackReason.c_str());
+        }
         if (!renderer.historyResetReason.empty())
             ImGui::Text("History reset: %s", renderer.historyResetReason.c_str());
     }

@@ -134,6 +134,8 @@ void EditorProjectSettingsController::DrawGraphicsSettingsTab(EditorLayer& layer
     if (layer.m_DeviceProfileIndex < 0 || layer.m_DeviceProfileIndex >= 3)
         layer.m_DeviceProfileIndex = 0;
     ImGui::Combo("Device Profile", &layer.m_DeviceProfileIndex, kDeviceProfiles, 3);
+    if (ImGui::Checkbox("Hardware Ray Tracing", &layer.m_HardwareRayTracing) && layer.m_SceneLayer)
+        layer.m_SceneLayer->SetHardwareRayTracingEnabled(layer.m_HardwareRayTracing);
     const RHIBackend active = layer.m_RenderContext ? layer.m_RenderContext->GetBackend() : RHIBackend::Unknown;
     const RenderBackend activeBackend = active == RHIBackend::Vulkan  ? RenderBackend::Vulkan
                                         : active == RHIBackend::D3D12 ? RenderBackend::D3D12
@@ -147,6 +149,22 @@ void EditorProjectSettingsController::DrawGraphicsSettingsTab(EditorLayer& layer
     ImGui::LabelText("Resolved pipeline", "%s", ResolvedRenderPipelineName(diagnostics.resolvedPipeline));
     if (!diagnostics.fallbackReason.empty())
         ImGui::TextDisabled("Reason: %s", diagnostics.fallbackReason.c_str());
+    const RHIDeviceCapabilities capabilities =
+        layer.m_RenderContext ? layer.m_RenderContext->GetCapabilities() : RHIDeviceCapabilities{};
+    ImGui::LabelText("DXR acceleration structures", "%s",
+                     capabilities.accelerationStructures ? "Available" : "Unavailable");
+    ImGui::LabelText("Inline ray queries", "%s", capabilities.inlineRayQueries ? "Available" : "Unavailable");
+    ImGui::LabelText("Ray tracing tier", "%s",
+                     capabilities.rayTracingTier == RHIRayTracingTier::Tier11   ? "1.1"
+                     : capabilities.rayTracingTier == RHIRayTracingTier::Tier10 ? "1.0"
+                                                                                : "Unsupported");
+    if (layer.m_SceneLayer) {
+        ImGui::LabelText("RT requested/effective", "0x%02X / 0x%02X", layer.m_SceneLayer->GetRayTracingRequestedMask(),
+                         layer.m_SceneLayer->GetRayTracingEffectiveMask());
+        const std::string rayTracingReason = layer.m_SceneLayer->GetRayTracingFallbackReason();
+        if (!rayTracingReason.empty())
+            ImGui::TextDisabled("RT status: %s", rayTracingReason.c_str());
+    }
     ImGui::LabelText("Apply", "%s", "backend next launch, render path immediate");
     if (ImGui::Button("Save Graphics")) {
         auto& editable = layer.m_Project.GetConfig();
@@ -154,17 +172,22 @@ void EditorProjectSettingsController::DrawGraphicsSettingsTab(EditorLayer& layer
         editable.GetGraphicsSettings().backend = RenderBackendToProjectValue(selectedBackend);
         editable.GetGraphicsSettings().renderPath = ProjectValueFromRenderPathIndex(layer.m_RenderPathIndex);
         editable.GetGraphicsSettings().deviceProfile = DeviceProfileFromIndex(layer.m_DeviceProfileIndex);
+        editable.GetGraphicsSettings().hardwareRayTracing = layer.m_HardwareRayTracing;
         std::string error;
         if (editable.Save(&error)) {
             if (layer.m_SceneLayer) {
                 layer.m_SceneLayer->SetRenderPath(
                     RenderPathFromProjectValue(editable.GetGraphicsSettings().renderPath));
                 layer.m_SceneLayer->SetDeviceProfile(editable.GetGraphicsSettings().deviceProfile);
+                layer.m_SceneLayer->SetHardwareRayTracingEnabled(editable.GetGraphicsSettings().hardwareRayTracing);
             }
             Logger::Info("[Editor] Graphics settings saved");
             layer.ShowProjectResult("Graphics settings saved.", false);
         } else {
             editable = previous;
+            layer.m_HardwareRayTracing = previous.GetGraphicsSettings().hardwareRayTracing;
+            if (layer.m_SceneLayer)
+                layer.m_SceneLayer->SetHardwareRayTracingEnabled(layer.m_HardwareRayTracing);
             layer.ShowProjectResult("Failed to save graphics settings: " + error, true);
         }
     }
@@ -287,6 +310,7 @@ void EditorProjectSettingsController::Open(EditorLayer& layer) {
     layer.m_GraphicsBackendIndex = BackendIndexFromProjectValue(config.GetGraphicsSettings().backend);
     layer.m_RenderPathIndex = config.GetGraphicsSettings().renderPath == "deferred" ? 1 : 0;
     layer.m_DeviceProfileIndex = DeviceProfileIndex(config.GetGraphicsSettings().deviceProfile);
+    layer.m_HardwareRayTracing = config.GetGraphicsSettings().hardwareRayTracing;
     layer.m_ProjectSettingsRequested = true;
 }
 

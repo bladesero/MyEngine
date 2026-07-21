@@ -274,8 +274,10 @@ bool TestProjectConfigAndPortableAssetPaths() {
         ("myengine_project_test_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     const auto scenes = root / "Content" / "Scenes";
     const auto meshes = root / "Content" / "Mesh";
+    const auto config = root / "Content" / "Config";
     fs::create_directories(scenes);
     fs::create_directories(meshes);
+    fs::create_directories(config);
 
     Scene startup("Startup");
     Scene alternate("Alternate");
@@ -294,6 +296,7 @@ bool TestProjectConfigAndPortableAssetPaths() {
     project.GetGraphicsSettings().backend = "d3d12";
     project.GetGraphicsSettings().renderPath = "deferred";
     project.GetGraphicsSettings().deviceProfile = GraphicsDeviceProfile::Console;
+    project.GetGraphicsSettings().hardwareRayTracing = true;
     if (!Check(project.SetInputConfigPath("Content/Config/Input.input.json", &error),
                "project input config path save failed: " + error))
         return false;
@@ -309,7 +312,8 @@ bool TestProjectConfigAndPortableAssetPaths() {
                    loaded.GetInputSettings().config == "Content/Config/Input.input.json" &&
                    loaded.GetGraphicsSettings().backend == "d3d12" &&
                    loaded.GetGraphicsSettings().renderPath == "deferred" &&
-                   loaded.GetGraphicsSettings().deviceProfile == GraphicsDeviceProfile::Console,
+                   loaded.GetGraphicsSettings().deviceProfile == GraphicsDeviceProfile::Console &&
+                   loaded.GetGraphicsSettings().hardwareRayTracing,
                "project manifest fields mismatch"))
         return false;
 
@@ -361,11 +365,28 @@ bool TestProjectConfigAndPortableAssetPaths() {
         input >> legacy;
         legacy["version"] = 1;
         legacy["graphics"].erase("deviceProfile");
+        legacy["graphics"].erase("hardwareRayTracing");
         std::ofstream(root / ProjectConfig::kFileName) << legacy.dump(2);
         ProjectConfig migrated;
         if (!Check(migrated.Open(root, false, &error) && migrated.GetVersion() == ProjectConfig::kCurrentVersion &&
-                       migrated.GetGraphicsSettings().deviceProfile == GraphicsDeviceProfile::Desktop,
+                       migrated.GetGraphicsSettings().deviceProfile == GraphicsDeviceProfile::Desktop &&
+                       !migrated.GetGraphicsSettings().hardwareRayTracing,
                    "v1 project graphics profile migration failed: " + error))
+            return false;
+    }
+    {
+        nlohmann::json legacy;
+        std::ifstream input(root / ProjectConfig::kFileName);
+        input >> legacy;
+        legacy["version"] = 2;
+        legacy["graphics"]["deviceProfile"] = "console";
+        legacy["graphics"].erase("hardwareRayTracing");
+        std::ofstream(root / ProjectConfig::kFileName) << legacy.dump(2);
+        ProjectConfig migrated;
+        if (!Check(migrated.Open(root, false, &error) && migrated.GetVersion() == ProjectConfig::kCurrentVersion &&
+                       migrated.GetGraphicsSettings().deviceProfile == GraphicsDeviceProfile::Console &&
+                       !migrated.GetGraphicsSettings().hardwareRayTracing,
+                   "v2 project hardware ray tracing migration failed: " + error))
             return false;
     }
     std::ofstream(root / ProjectConfig::kFileName)
@@ -629,8 +650,8 @@ bool TestWorkspaceCookAndPublish() {
             EngineShaders::kAtmosphereCubemap, EngineShaders::kAtmosphereSH,    EngineShaders::kDeferredLighting,
             EngineShaders::kEnvironmentMipmap, EngineShaders::kGBuffer,         EngineShaders::kMesh,
             EngineShaders::kPostProcessFXAA,   EngineShaders::kPostProcessSSAO, EngineShaders::kPostProcessSSAOBlur,
-            EngineShaders::kProceduralSky,     EngineShaders::kShadowDepth,
-            EngineShaders::kShadowDepthSkinned, EngineShaders::kShadowedMainPass};
+            EngineShaders::kProceduralSky,     EngineShaders::kShadowDepth,     EngineShaders::kShadowDepthSkinned,
+            EngineShaders::kShadowedMainPass};
         for (const char* engineShader : engineShaders) {
             auto assetManagerShader = AssetManager::Get().Load<ShaderAsset>(engineShader);
             if (!Check(assetManagerShader && assetManagerShader->IsCooked(),
@@ -1018,6 +1039,7 @@ bool TestOneClickProjectValidatorDiagnostics() {
     fs::create_directories(root / "Content/Scenes");
     fs::create_directories(root / "Content/Scripts");
     fs::create_directories(root / "Content/Data");
+    fs::create_directories(root / "Content/Config");
     std::ofstream(root / ProjectConfig::kFileName)
         << R"({"version":1,"name":"Validator","projectId":"validator-project","startupScene":"Content/Scenes/Main.scene.json","publish":{"outputDirectory":"Builds","target":"windows-x64"},"input":{"config":"Content/Config/Input.input.json"},"graphics":{"backend":"d3d11","renderPath":"forward"}})";
     std::ofstream(root / "Content/Scenes/Main.scene.json") << R"({"name":"Main","actors":[]})";
@@ -1026,7 +1048,8 @@ bool TestOneClickProjectValidatorDiagnostics() {
 
     ProjectConfig project;
     std::string error;
-    if (!Check(project.Open(root, false, &error), "validator project failed to open: " + error))
+    const bool opened = project.Open(root, false, &error);
+    if (!Check(opened, "validator project failed to open: " + error))
         return false;
     ProjectValidationOptions options;
     options.oversizedAssetWarningBytes = 64;

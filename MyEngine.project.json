@@ -2,6 +2,7 @@
   "graphics": {
     "backend": "d3d12",
     "deviceProfile": "mobile",
+    "hardwareRayTracing": false,
     "renderPath": "deferred"
   },
   "input": {
@@ -14,5 +15,5 @@
     "target": "windows-x64"
   },
   "startupScene": "Content/Scenes/Main.scene.json",
-  "version": 2
+  "version": 3
 }

@@ -95,10 +95,29 @@ bool GpuGeometryArena::EnsureMeshes(const std::vector<MeshAsset*>& meshes, uint6
     auto index = m_Device->CreateIndexBuffer(indices.empty() ? &emptyIndex : indices.data(), indexBytes);
     if (!vertex || !index)
         return false;
+    std::shared_ptr<GpuBufferView> vertexView;
+    std::shared_ptr<GpuBufferView> indexView;
+    if (m_Device->GetCapabilities().inlineRayQueries) {
+        RHIBufferViewDesc vertexViewDesc;
+        vertexViewDesc.elementCount = static_cast<uint32_t>(vertices.size());
+        vertexViewDesc.usage = RHIResourceUsage::ShaderResource;
+        vertexView = m_Device->CreateBufferView(vertex, vertexViewDesc);
+        RHIBufferViewDesc indexViewDesc;
+        indexViewDesc.elementCount = static_cast<uint32_t>(indices.size());
+        indexViewDesc.usage = RHIResourceUsage::ShaderResource;
+        indexView = m_Device->CreateBufferView(index, indexViewDesc);
+        if (!vertexView || !indexView)
+            return false;
+    }
     if (m_VertexBuffer || m_IndexBuffer)
         m_Retired.push_back({frameNumber + 3u, std::move(m_VertexBuffer), std::move(m_IndexBuffer)});
     m_VertexBuffer = std::move(vertex);
     m_IndexBuffer = std::move(index);
+    m_VertexView = std::move(vertexView);
+    m_IndexView = std::move(indexView);
+    m_VertexCount = static_cast<uint32_t>(vertices.size());
+    m_IndexCount = static_cast<uint32_t>(indices.size());
+    ++m_Generation;
     m_LastUploadBytes = static_cast<uint64_t>(vertexBytes) + indexBytes;
     return true;
 }

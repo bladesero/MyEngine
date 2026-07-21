@@ -63,6 +63,26 @@ GraphicsDeviceProfile ViewportRenderExecution::GetDeviceProfile() const {
     return m_Renderer.GetDeviceProfile();
 }
 
+void ViewportRenderExecution::SetHardwareRayTracingEnabled(bool enabled) {
+    m_Renderer.SetHardwareRayTracingEnabled(enabled);
+}
+
+bool ViewportRenderExecution::IsHardwareRayTracingEnabled() const {
+    return m_Renderer.IsHardwareRayTracingEnabled();
+}
+
+uint32_t ViewportRenderExecution::GetRayTracingRequestedMask() const {
+    return m_Renderer.GetRayTracingRequestedMask();
+}
+
+uint32_t ViewportRenderExecution::GetRayTracingEffectiveMask() const {
+    return m_Renderer.GetRayTracingEffectiveMask();
+}
+
+std::string ViewportRenderExecution::GetRayTracingFallbackReason() const {
+    return m_Renderer.GetRayTracingFallbackReason();
+}
+
 const RenderPipelineDiagnostics& ViewportRenderExecution::GetPipelineDiagnostics() const {
     return m_Renderer.GetPipelineDiagnostics();
 }

@@ -699,8 +699,9 @@ headers.
 
 ## Hybrid modern rendering pipeline
 
-Project manifest schema v2 owns `graphics.backend`, `graphics.renderPath`, and
-`graphics.deviceProfile`. Device profiles are quality simulations, not new
+Project manifest schema v3 owns `graphics.backend`, `graphics.renderPath`,
+`graphics.deviceProfile`, and the default-off `graphics.hardwareRayTracing`
+master switch. v1/v2 manifests migrate the switch to disabled. Device profiles are quality simulations, not new
 deployment platforms. Forward always resolves to Forward; mobile deferred
 resolves to Classic Deferred; desktop and console deferred resolve to Modern
 Deferred only when D3D12 or Vulkan exposes compute, storage images, bindless
@@ -708,6 +709,23 @@ sampled textures, shader draw parameters, indirect-count/dispatch, and the
 required HDR/velocity/UAV formats. Resolution records requested and actual
 pipelines plus a stable fallback reason. D3D11 and Metal remain Classic
 Deferred/Forward.
+
+Hardware ray tracing is an optional D3D12 Modern Deferred enhancement and never
+participates in Modern Deferred qualification. The first implementation uses
+DXR 1.1 inline `RayQuery` compute shaders (Shader Model 6.5 or newer), not a
+ray-generation/miss/hit-group pipeline or SBT. `RHIDeviceCapabilities` reports
+acceleration structures, inline ray queries, and the DXR tier independently;
+the RHI exposes BLAS/TLAS sizing, allocation, build/update commands, AS bind
+groups, and RenderGraph AS read/write dependencies. Vulkan Modern Deferred,
+D3D11, Metal, and D3D12 devices below this contract retain their existing
+raster/screen-space paths and expose the fallback reason in Project Settings.
+
+| Backend | Modern Deferred | Inline RT replacements |
+|---|---:|---:|
+| D3D12 with DXR 1.1 + SM 6.5 | Yes | RTShadow, RTAO, RTDiffuse, RTReflection |
+| D3D12 without DXR 1.1 | Yes when normal Modern requirements pass | No; CSM/SSAO/SSGI/SSR |
+| Vulkan | Yes when normal Modern requirements pass | No; SSAO/SSGI/SSR |
+| D3D11 / Metal | Classic Deferred or Forward | No |
 
 Each `ViewportRenderExecution` owns a `Renderer`, visibility buffers, and
 SSGI/SSR/TAA histories. The device-level `GpuSceneDatabase` and geometry arena
@@ -723,21 +741,54 @@ Vulkan skips that word for the native draw arguments and carries the same ID in
 material lookup identical even though the two APIs define base-instance vertex
 semantics differently.
 
-Modern Deferred executes on the graphics queue in this order:
+For standard, non-skinned, non-transparent static submeshes, the shared geometry
+arena also provides shader-readable vertex/index views and AS build inputs.
+Static BLAS entries are cached by arena submesh and invalidated by arena
+generation. Each Modern viewport owns a TLAS whose `InstanceID` is the packed
+GPU Scene object index; an unchanged instance count permits transform-only TLAS
+update. All triangles remain non-opaque candidates so alpha-tested base-color
+alpha can accept or reject the hit, and two-sided instance flags match raster.
+Skinned meshes, Shader Graph/code compatibility materials, and transparent
+objects remain outside the first-version TLAS.
 
-1. immutable scene extraction and incremental GPU Scene upload;
+Modern Deferred executes on the single graphics queue in this order:
+
+1. immutable scene extraction and incremental GPU Scene upload, lazy BLAS cache
+   build, and per-viewport TLAS build/update when an RT replacement is effective;
 2. compute frustum/LOD candidate generation and indirect depth prepass;
 3. compute RG32Float min/max HiZ generation and conservative occlusion culling;
 4. indirect static Standard GBuffer plus a raster compatibility subpass for
    specialized Shader Graph/code and skinned vertex ABIs;
-5. depth-derived SSAO generation and separable blur when the renderer feature
-   and PostProcess intensity enable it;
+5. full-resolution RTShadow before clustered lighting when it replaces the
+   directional-light CSM; local spot/point shadows retain their current path;
 6. 32x32x24 clustered light count, prefix, scatter, and compute deferred
    lighting into RGBA16Float HDR;
-7. half-resolution SSGI/SSR trace, temporal rejection/clamping, bilateral
-   a-trous filtering, and HDR composition with the independent SSAO visibility;
+7. SSAO or RTAO, then SSGI/RTDiffuse and SSR/RTReflection trace, temporal
+   rejection/clamping, bilateral a-trous filtering, and HDR effects composition;
 8. sorted transparent/particle raster, TAA, bloom, ACES tone mapping, color
    adjustment, Runtime UI, and final raster blit.
+
+```mermaid
+flowchart LR
+    GS["GPU Scene upload"] --> AS["BLAS cache and TLAS build/update"]
+    AS --> GB["Depth and GBuffer"]
+    GB --> RTS["RTShadow or CSM"]
+    RTS --> CL["Clustered lighting"]
+    CL --> RTE["RTAO / RTDiffuse / RTReflection or screen-space fallbacks"]
+    RTE --> DN["Temporal and a-trous denoise"]
+    DN --> FX["Effects composite"]
+    FX --> PP["Transparent, TAA, postprocess"]
+```
+
+The four `PostProcessComponent` replacement switches are persisted even when
+unavailable. A replacement becomes effective only with Modern Deferred, the
+project master switch, DXR 1.1 inline capability, its source effect, and its own
+ready shader. RTShadow replaces only directional CSM; RTAO reuses SSAO radius,
+bias, power, intensity, and scale; RTDiffuse reuses SSGI temporal/filter controls;
+RTReflection reuses SSR distance, roughness, temporal, and filter controls.
+Diffuse/reflection shade a primary hit with emissive, environment/probe fallback,
+and directional light plus at most one visibility query; there is no recursion
+or local-light secondary shading. Every effect falls back independently.
 
 Modern TAA is an independently compiled compute pass. Its resolve follows the
 `webgpudemo` reference data flow: a 16-phase Halton(2,3) projection jitter,
@@ -750,17 +801,22 @@ RenderGraph submission.
 
 There is no async-compute queue in this version. RenderGraph represents compute
 and graphics pass types, per-mip UAV accesses, indirect/copy-source buffer
-access, persistent imported histories, automatic transitions, and UAV barriers.
+access, persistent imported histories, acceleration-structure handles with an
+explicit build pass type, automatic transitions, and UAV barriers. Inline trace
+passes remain ordinary compute passes and declare a read dependency on the TLAS.
 History invalidation is explicit for resize, camera cuts/projection changes,
 effect toggles, render-path/profile changes, scene changes, and EditorWorld /
 PlayWorld switches. Editor renders ImGui after the viewport result and presents
 once.
 
-Cooked shader container v5 stores ABI version 5, backend bytecode, reflected
-array/space bindings, constant sizes, and compute thread-group sizes. Windows
+Cooked shader container v6 stores ABI version 6, backend bytecode, reflected
+array/space bindings, acceleration-structure bindings, constant sizes, and
+compute thread-group sizes; v5 reflection containers remain readable. Windows
 packages contain Classic D3D11 and Modern D3D12 variants; Vulkan-enabled builds
 also contain SPIR-V. Modern-only engine shaders are intentionally omitted from
-D3D11/Metal blobs, while legacy v4 cooked containers remain readable.
+D3D11/Metal blobs. `ModernRT*` descriptors produce D3D12 artifacts only and are
+not required by Vulkan/D3D11/Metal packages, while legacy v4 containers remain
+readable.
 
 ## Local lighting probes
 

@@ -4,6 +4,7 @@
 #include "Renderer/RHI/IEditorImGuiRHIInterop.h"
 
 #include <cstddef>
+#include <array>
 
 #include <d3d12.h>
 #include <dxgi1_4.h>
@@ -38,6 +39,17 @@ struct D3D12VertexBuffer : D3D12Buffer {
 
 struct D3D12IndexBuffer : D3D12Buffer {
     DXGI_FORMAT format = DXGI_FORMAT_R32_UINT;
+};
+
+struct D3D12AccelerationStructure : GpuAccelerationStructure {
+    ~D3D12AccelerationStructure() override;
+    ComPtr<ID3D12Resource> result;
+    ComPtr<ID3D12Resource> scratch;
+    std::array<ComPtr<ID3D12Resource>, 2> instanceUploads;
+    D3D12_CPU_DESCRIPTOR_HANDLE srvCpu = {};
+    D3D12_GPU_DESCRIPTOR_HANDLE srvGpu = {};
+    std::shared_ptr<D3D12DescriptorLease> srvLease;
+    std::shared_ptr<D3D12DeferredReleaseQueue> deferredReleaseQueue;
 };
 
 struct D3D12Shader : GpuShader {
@@ -119,6 +131,7 @@ public:
     static constexpr uint32_t kFrameCount = 2;
     static constexpr uint32_t kTextureSlotCount = 16;
     static constexpr uint32_t kIndirectObjectRootParameter = 2 + kTextureSlotCount * 2;
+    static constexpr uint32_t kComputeBindlessRootParameter = 1 + kTextureSlotCount * 2 + 8;
     static constexpr uint32_t kOffscreenRtvCount = 256;
     static constexpr uint32_t kDsvDescriptorCount = 128;
     static constexpr uint32_t kDefaultConstantBufferCapacity = 1024 * 1024;
@@ -160,6 +173,10 @@ public:
     std::shared_ptr<GpuBuffer> CreateBuffer(const RHIBufferDesc& desc, const void* initialData = nullptr) override;
     std::shared_ptr<GpuBufferView> CreateBufferView(const std::shared_ptr<GpuBuffer>& buffer,
                                                     const RHIBufferViewDesc& desc) override;
+    RHIAccelerationStructureBuildSizes
+    GetAccelerationStructureBuildSizes(const RHIAccelerationStructureDesc& desc) const override;
+    std::shared_ptr<GpuAccelerationStructure>
+    CreateAccelerationStructure(const RHIAccelerationStructureDesc& desc) override;
 
     std::shared_ptr<GpuShader> CreateShader(const std::string& hlslSource, const std::string& vsEntry,
                                             const std::string& psEntry, const VertexElement* layout,
@@ -186,6 +203,10 @@ public:
     void DrawIndexedIndirectCount(GpuBuffer* arguments, uint64_t argumentOffset, GpuBuffer* countBuffer,
                                   uint64_t countOffset, uint32_t maxDrawCount, uint32_t stride);
     void DispatchIndirect(GpuBuffer* arguments, uint64_t offset);
+    void BuildBottomLevelAccelerationStructure(GpuAccelerationStructure* accelerationStructure,
+                                               const std::vector<RHIRayTracingGeometryDesc>& geometries, bool update);
+    void BuildTopLevelAccelerationStructure(GpuAccelerationStructure* accelerationStructure,
+                                            const std::vector<RHIRayTracingInstanceDesc>& instances, bool update);
 
     void SetViewport(float x, float y, float w, float h);
 
@@ -339,6 +360,7 @@ private:
     std::shared_ptr<D3D12DescriptorPool> m_DsvDescriptorPool;
 
     ComPtr<ID3D12Device> m_Device;
+    ComPtr<ID3D12Device5> m_RayTracingDevice;
     RHIDeviceIdentity m_DeviceIdentity;
     ComPtr<ID3D12CommandQueue> m_CommandQueue;
     ComPtr<ID3D12CommandSignature> m_DrawIndirectSignature;
@@ -349,6 +371,7 @@ private:
     ComPtr<ID3D12CommandSignature> m_DispatchIndirectSignature;
     ComPtr<IDXGISwapChain3> m_SwapChain;
     ComPtr<ID3D12GraphicsCommandList> m_CommandList;
+    ComPtr<ID3D12GraphicsCommandList4> m_RayTracingCommandList;
 
     ComPtr<ID3D12DescriptorHeap> m_RtvHeap;
     ComPtr<ID3D12DescriptorHeap> m_OffscreenRtvHeap;

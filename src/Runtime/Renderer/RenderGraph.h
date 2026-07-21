@@ -18,6 +18,10 @@ struct RGBufferHandle {
     uint32_t index = UINT32_MAX;
     bool IsValid() const { return index != UINT32_MAX; }
 };
+struct RGAccelerationStructureHandle {
+    uint32_t index = UINT32_MAX;
+    bool IsValid() const { return index != UINT32_MAX; }
+};
 
 struct RenderGraphResourceBudget {
     uint64_t maxTransientBytes = 512ull * 1024ull * 1024ull;
@@ -50,6 +54,7 @@ public:
     GpuTextureView* GetView(RGTextureHandle handle, RGTextureSubresource subresource) const;
     GpuBuffer* GetBuffer(RGBufferHandle handle) const;
     GpuBufferView* GetBufferView(RGBufferHandle handle) const;
+    GpuAccelerationStructure* GetAccelerationStructure(RGAccelerationStructureHandle handle) const;
 
 private:
     friend class RenderGraph;
@@ -75,6 +80,8 @@ public:
     void ReadIndirect(RGBufferHandle handle);
     void ReadCopySource(RGBufferHandle handle);
     void ReadWriteUAV(RGBufferHandle handle);
+    void ReadAccelerationStructure(RGAccelerationStructureHandle handle);
+    void WriteAccelerationStructure(RGAccelerationStructureHandle handle);
 
 private:
     friend class RenderGraph;
@@ -99,16 +106,24 @@ private:
         bool read = false;
         bool write = false;
     };
-    RenderGraphBuilder(std::vector<Access>& accesses, std::vector<BufferAccess>& bufferAccesses)
-        : m_Accesses(accesses), m_BufferAccesses(&bufferAccesses) {}
+    struct AccelerationStructureAccess {
+        RGAccelerationStructureHandle handle;
+        bool read = false;
+        bool write = false;
+    };
+    RenderGraphBuilder(std::vector<Access>& accesses, std::vector<BufferAccess>& bufferAccesses,
+                       std::vector<AccelerationStructureAccess>& accelerationStructureAccesses)
+        : m_Accesses(accesses), m_BufferAccesses(&bufferAccesses),
+          m_AccelerationStructureAccesses(&accelerationStructureAccesses) {}
     std::vector<BufferAccess>* m_BufferAccesses = nullptr;
+    std::vector<AccelerationStructureAccess>* m_AccelerationStructureAccesses = nullptr;
 };
 
 class RenderGraph {
 public:
     using SetupCallback = std::function<void(RenderGraphBuilder&)>;
     using ExecuteCallback = std::function<void(GpuCommandList&, const RenderGraphResources&)>;
-    enum class PassType : uint8_t { Graphics, Compute };
+    enum class PassType : uint8_t { Graphics, Compute, AccelerationStructureBuild };
     enum class PassFlags : uint32_t {
         None = 0,
         AllowNoResourceAccess = 1u << 0,
@@ -119,6 +134,7 @@ public:
         None,
         InvalidTextureHandle,
         InvalidBufferHandle,
+        InvalidAccelerationStructureHandle,
         MissingResourceAccess,
         DuplicateResourceAccess,
         UninitializedTextureRead,
@@ -149,12 +165,17 @@ public:
     RGBufferHandle ImportBuffer(const std::string& name, const std::shared_ptr<GpuBuffer>& buffer,
                                 RHIResourceState initialState, RHIResourceState finalState);
     RGBufferHandle CreateBuffer(const std::string& name, const RHIBufferDesc& desc);
+    RGAccelerationStructureHandle
+    ImportAccelerationStructure(const std::string& name,
+                                const std::shared_ptr<GpuAccelerationStructure>& accelerationStructure);
     void SetFinalState(RGTextureHandle handle, RHIResourceState finalState);
     void SetFinalState(RGBufferHandle handle, RHIResourceState finalState);
     void AddPass(const std::string& name, SetupCallback setup, ExecuteCallback execute,
                  PassFlags flags = PassFlags::None);
     void AddComputePass(const std::string& name, SetupCallback setup, ExecuteCallback execute,
                         PassFlags flags = PassFlags::None);
+    void AddAccelerationStructurePass(const std::string& name, SetupCallback setup, ExecuteCallback execute,
+                                      PassFlags flags = PassFlags::None);
 
     bool Compile();
     bool Prepare();
@@ -188,6 +209,7 @@ private:
         std::string name;
         std::vector<RenderGraphBuilder::Access> accesses;
         std::vector<RenderGraphBuilder::BufferAccess> bufferAccesses;
+        std::vector<RenderGraphBuilder::AccelerationStructureAccess> accelerationStructureAccesses;
         ExecuteCallback execute;
         PassFlags flags = PassFlags::None;
         PassType type = PassType::Graphics;
@@ -214,16 +236,23 @@ private:
         std::shared_ptr<GpuBuffer> buffer;
         std::shared_ptr<GpuBufferView> view;
     };
+    struct AccelerationStructureResource {
+        std::string name;
+        std::shared_ptr<GpuAccelerationStructure> accelerationStructure;
+    };
 
     bool ValidateHandle(RGTextureHandle handle, const std::string& passName);
     bool ValidateTextureAccess(const Pass& pass, const RenderGraphBuilder::Access& access);
     bool ValidateBufferAccess(const Pass& pass, const RenderGraphBuilder::BufferAccess& access);
+    bool ValidateAccelerationStructureAccess(const Pass& pass,
+                                             const RenderGraphBuilder::AccelerationStructureAccess& access);
     bool EnsureResources();
     bool SetError(ErrorCode code, std::string message);
 
     IRHIDevice& m_Device;
     std::vector<TextureResource> m_Textures;
     std::vector<BufferResource> m_Buffers;
+    std::vector<AccelerationStructureResource> m_AccelerationStructures;
     std::vector<Pass> m_Passes;
     std::vector<uint32_t> m_ExecutionOrder;
     std::vector<std::string> m_ExecutionOrderNames;
@@ -231,6 +260,7 @@ private:
     std::vector<std::string> m_CulledPassNames;
     std::vector<uint8_t> m_LiveTextures;
     std::vector<uint8_t> m_LiveBuffers;
+    std::vector<uint8_t> m_LiveAccelerationStructures;
     std::vector<uint8_t> m_TextureUavWriteScratch;
     std::vector<uint8_t> m_BufferUavWriteScratch;
     std::string m_LastError;

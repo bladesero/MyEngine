@@ -793,7 +793,7 @@ void ShadowPass::DrawShadowScene(GpuCommandList& commands, const Scene& scene, c
     });
 }
 
-void ShadowPass::ExecuteGraphManaged(GpuCommandList& commands, const Scene& scene) {
+void ShadowPass::ExecuteGraphManaged(GpuCommandList& commands, const Scene& scene, bool renderDirectional) {
     m_LastStats = {};
     if (!Device() || !m_ShadowPipeline)
         return;
@@ -823,7 +823,7 @@ void ShadowPass::ExecuteGraphManaged(GpuCommandList& commands, const Scene& scen
     // cleared to the fully-lit depth value.
     commands.Transition(m_ShadowMapTexture.get(), before, RHIResourceState::DepthWrite);
     for (uint32_t cascade = 0; cascade < kMaxCascades; ++cascade) {
-        const bool active = m_DirectionalShadowEnabled && cascade < m_CascadeCount;
+        const bool active = renderDirectional && m_DirectionalShadowEnabled && cascade < m_CascadeCount;
         renderDepth(m_ShadowCascadeViews[cascade].get(), active ? m_LightViewProjCascade[cascade] : Mat4::Identity(),
                     active);
     }
@@ -831,14 +831,12 @@ void ShadowPass::ExecuteGraphManaged(GpuCommandList& commands, const Scene& scen
 
     commands.Transition(m_SpotShadowMapTexture.get(), before, RHIResourceState::DepthWrite);
     renderDepth(m_SpotShadowView.get(), m_SpotLightViewProj, m_SpotShadowIndex >= 0);
-    commands.Transition(m_SpotShadowMapTexture.get(), RHIResourceState::DepthWrite,
-                        RHIResourceState::ShaderResource);
+    commands.Transition(m_SpotShadowMapTexture.get(), RHIResourceState::DepthWrite, RHIResourceState::ShaderResource);
 
     commands.Transition(m_PointShadowMapTexture.get(), before, RHIResourceState::DepthWrite);
     for (uint32_t face = 0; face < 6; ++face)
         renderDepth(m_PointShadowViews[face].get(), m_PointLightViewProj[face], m_PointShadowIndex >= 0);
-    commands.Transition(m_PointShadowMapTexture.get(), RHIResourceState::DepthWrite,
-                        RHIResourceState::ShaderResource);
+    commands.Transition(m_PointShadowMapTexture.get(), RHIResourceState::DepthWrite, RHIResourceState::ShaderResource);
     m_ShadowResourcesInShaderState = true;
 }
 
@@ -885,14 +883,12 @@ void ShadowPass::Execute(GpuCommandList& commands, const Scene& scene, const Cam
 
     commands.Transition(m_SpotShadowMapTexture.get(), before, RHIResourceState::DepthWrite);
     renderDepth(m_SpotShadowView.get(), m_SpotLightViewProj, m_SpotShadowIndex >= 0);
-    commands.Transition(m_SpotShadowMapTexture.get(), RHIResourceState::DepthWrite,
-                        RHIResourceState::ShaderResource);
+    commands.Transition(m_SpotShadowMapTexture.get(), RHIResourceState::DepthWrite, RHIResourceState::ShaderResource);
 
     commands.Transition(m_PointShadowMapTexture.get(), before, RHIResourceState::DepthWrite);
     for (uint32_t face = 0; face < 6; ++face)
         renderDepth(m_PointShadowViews[face].get(), m_PointLightViewProj[face], m_PointShadowIndex >= 0);
-    commands.Transition(m_PointShadowMapTexture.get(), RHIResourceState::DepthWrite,
-                        RHIResourceState::ShaderResource);
+    commands.Transition(m_PointShadowMapTexture.get(), RHIResourceState::DepthWrite, RHIResourceState::ShaderResource);
     m_ShadowResourcesInShaderState = true;
     return;
 }

@@ -350,6 +350,26 @@ float4 AccumulateSSRHistory(float4 current, float4 history, int2 pixel, bool val
     return accumulated;
 }
 
+float4 AccumulateAOHistory(float4 current, float4 history, int2 pixel, bool valid)
+{
+    float minimum = 1.0f;
+    float maximum = 0.0f;
+    [unroll]
+    for (int y = -1; y <= 1; ++y)
+    [unroll]
+    for (int x = -1; x <= 1; ++x)
+    {
+        int2 samplePixel = clamp(pixel + int2(x, y), int2(0, 0), int2(g_EffectSize) - 1);
+        float sampleAO = saturate(g_Current.Load(int3(samplePixel, 0)).r);
+        minimum = min(minimum, sampleAO);
+        maximum = max(maximum, sampleAO);
+    }
+    const float currentAO = saturate(current.r);
+    const float historyAO = clamp(history.r, minimum, maximum);
+    const float accumulatedAO = lerp(currentAO, historyAO, valid ? 0.9f : 0.0f);
+    return float4(accumulatedAO.xxx, 1.0f);
+}
+
 [numthreads(8, 8, 1)]
 void CSSSGITrace(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
@@ -525,8 +545,9 @@ void CSTemporal(uint3 dispatchThreadId : SV_DispatchThreadID)
     float3 historyNormal =
         DecodeWorldNormal(g_PreviousNormal.SampleLevel(g_PointSampler, previousGeometryUv, 0.0f).xyz);
     valid = valid && dot(currentNormal, historyNormal) > 0.9f;
-    g_Output[pixel] = g_EffectMode == 1u ? AccumulateSSGIHistory(current, history, int2(pixel), valid)
-                                         : AccumulateSSRHistory(current, history, int2(pixel), valid);
+    g_Output[pixel] = g_EffectMode == 1u   ? AccumulateSSGIHistory(current, history, int2(pixel), valid)
+                         : g_EffectMode == 4u ? AccumulateAOHistory(current, history, int2(pixel), valid)
+                                              : AccumulateSSRHistory(current, history, int2(pixel), valid);
 }
 
 [numthreads(8, 8, 1)]

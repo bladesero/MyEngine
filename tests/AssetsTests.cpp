@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstring>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
@@ -223,6 +224,7 @@ bool TestSurfaceShaderGraphV2Contract() {
                   [static_cast<size_t>(ShaderStage::Pixel)];
     pixelReflection.bindings.push_back({"g_BaseColor", CookedShaderBindingType::Texture, 0, 0, 1, 0});
     pixelReflection.bindings.push_back({"g_BindlessTextures", CookedShaderBindingType::Texture, 0, 1, UINT32_MAX, 0});
+    pixelReflection.bindings.push_back({"g_SceneAS", CookedShaderBindingType::AccelerationStructure, 2, 0, 1, 0});
     cooked.SetCookedPasses(1u << static_cast<uint32_t>(ShaderPass::Forward), 99, ShaderSourceMode::Graph,
                            ShaderDomain::Surface, ShaderShadingModel::Unlit, ShaderSurfaceType::Transparent,
                            shader->GetProperties(), std::move(blobs), std::move(reflection));
@@ -237,12 +239,45 @@ bool TestSurfaceShaderGraphV2Contract() {
         loadedCooked->GetBytecode(ShaderBackend::D3D12, ShaderPass::Forward, ShaderStage::Pixel).size() == 2 &&
         loadedCooked->GetCookedShaderAbiVersion() == ShaderAsset::kCookedShaderAbiVersion &&
         loadedCooked->GetReflection(ShaderBackend::D3D12, ShaderPass::Forward, ShaderStage::Pixel).bindings.size() ==
-            2 &&
+            3 &&
         loadedCooked->GetReflection(ShaderBackend::D3D12, ShaderPass::Forward, ShaderStage::Pixel)
                 .bindings.back()
-                .bindCount == UINT32_MAX;
+                .type == CookedShaderBindingType::AccelerationStructure;
+    std::array<std::array<std::array<std::vector<uint8_t>, kShaderStageCount>, static_cast<size_t>(ShaderPass::Count)>,
+               kShaderBackendCount>
+        v5Blobs{};
+    v5Blobs[static_cast<size_t>(ShaderBackend::D3D12)][static_cast<size_t>(ShaderPass::Forward)]
+           [static_cast<size_t>(ShaderStage::Pixel)] = {9, 8, 7};
+    CookedShaderReflectionTable v5Reflection{};
+    v5Reflection[static_cast<size_t>(ShaderBackend::D3D12)][static_cast<size_t>(ShaderPass::Forward)]
+                [static_cast<size_t>(ShaderStage::Pixel)]
+                    .bindings.push_back({"g_BaseColor", CookedShaderBindingType::Texture, 0, 0, 1, 0});
+    ShaderAsset cookedV5(path.string());
+    cookedV5.SetCookedPasses(1u << static_cast<uint32_t>(ShaderPass::Forward), 100, ShaderSourceMode::Code,
+                             ShaderDomain::Graphics, ShaderShadingModel::Lit, ShaderSurfaceType::Opaque, {},
+                             std::move(v5Blobs), std::move(v5Reflection));
+    const fs::path v5Path = root / "CookedV5.shader";
+    if (!Check(SaveCookedShaderAsset(cookedV5, v5Path, &error), error))
+        return false;
+    std::ifstream v5Input(v5Path, std::ios::binary);
+    std::string v5Bytes((std::istreambuf_iterator<char>(v5Input)), std::istreambuf_iterator<char>());
+    const uint32_t v5Version = ShaderAsset::kCookedFormatVersionWithReflection;
+    if (!Check(v5Bytes.size() > 12, "cooked v5 fixture is truncated"))
+        return false;
+    std::memcpy(v5Bytes.data() + 8, &v5Version, sizeof(v5Version));
+    const size_t abiMarker = v5Bytes.find("\"abiVersion\":6");
+    if (!Check(abiMarker != std::string::npos, "cooked v6 ABI marker was not found"))
+        return false;
+    v5Bytes[abiMarker + std::string("\"abiVersion\":").size()] = '5';
+    std::ofstream(v5Path, std::ios::binary | std::ios::trunc)
+        .write(v5Bytes.data(), static_cast<std::streamsize>(v5Bytes.size()));
+    const auto loadedV5 = LoadShaderAssetFromFile(v5Path.string());
+    const bool v5Ok =
+        loadedV5 && loadedV5->IsCooked() &&
+        loadedV5->GetCookedShaderAbiVersion() == ShaderAsset::kPreviousCookedShaderAbiVersion &&
+        loadedV5->GetReflection(ShaderBackend::D3D12, ShaderPass::Forward, ShaderStage::Pixel).bindings.size() == 1;
     fs::remove_all(root, ec);
-    return Check(cookedOk, "cooked backend/pass/stage shader container round-trip failed");
+    return Check(cookedOk && v5Ok, "cooked v5/v6 backend/pass/stage shader container round-trip failed");
 }
 
 bool TestShaderGraphReachableTimeDetection() {
@@ -411,6 +446,70 @@ bool TestShaderGraphCookerCompilesWindowsBackends() {
                        !artifact->GetBytecode(ShaderBackend::D3D12, ShaderPass::Forward, ShaderStage::Pixel).empty();
     fs::remove_all(root, ec);
     return Check(valid, error.empty() ? "graph cooker did not emit D3D11/D3D12 Forward bytecode" : error);
+#endif
+}
+
+bool TestModernRayTracingCookIsD3D12Only() {
+#ifndef MYENGINE_PLATFORM_WINDOWS
+    return true;
+#else
+    if (!Check(ShaderCompilerSlang::IsAvailable(), "Slang compiler is unavailable for RT artifact cook test"))
+        return false;
+    namespace fs = std::filesystem;
+    const fs::path root = fs::current_path();
+    struct RayTracingCookContract {
+        const char* descriptor;
+        const char* outputBinding;
+        const char* forbiddenOutputBinding;
+    };
+    const std::array<RayTracingCookContract, 4> contracts = {{
+        {"ModernRTShadow.shader", "g_RTShadowOutput", "g_RTOutput"},
+        {"ModernRTAO.shader", "g_RTOutput", "g_RTShadowOutput"},
+        {"ModernRTDiffuse.shader", "g_RTOutput", "g_RTShadowOutput"},
+        {"ModernRTReflection.shader", "g_RTOutput", "g_RTShadowOutput"},
+    }};
+    std::error_code ec;
+    for (const auto& contract : contracts) {
+        const fs::path source = root / "EngineContent" / "Shaders" / contract.descriptor;
+        const fs::path output =
+            fs::temp_directory_path() /
+            (std::string("myengine_") + fs::path(contract.descriptor).stem().string() + "_d3d12_only.shaderbin");
+        fs::remove(output, ec);
+        ShaderCookRequest request;
+        request.sourcePath = source;
+        request.artifactPath = output;
+        request.allowedRoot = root / "EngineContent";
+        request.backends = {ShaderBackend::D3D11, ShaderBackend::D3D12, ShaderBackend::Metal, ShaderBackend::Vulkan};
+        std::string error;
+        const ShaderCookResult result = ShaderCooker::Cook(request, &error);
+        const auto cooked = result.succeeded ? LoadShaderAssetFromFile(output.string()) : nullptr;
+        const auto& reflection =
+            cooked ? cooked->GetReflection(ShaderBackend::D3D12, ShaderPass::Default, ShaderStage::Compute)
+                   : CookedShaderStageReflection{};
+        const auto hasBinding = [&reflection](const char* name) {
+            return std::any_of(
+                reflection.bindings.begin(), reflection.bindings.end(), [name](const CookedShaderBinding& binding) {
+                    return binding.name == name && binding.type == CookedShaderBindingType::StorageTexture &&
+                           binding.bindPoint == 0 && binding.bindSpace == 0;
+                });
+        };
+        const auto outputBindingCount = std::count_if(
+            reflection.bindings.begin(), reflection.bindings.end(), [](const CookedShaderBinding& binding) {
+                return binding.type == CookedShaderBindingType::StorageTexture && binding.bindPoint == 0 &&
+                       binding.bindSpace == 0;
+            });
+        const bool valid = cooked && !cooked->GetBytecode(ShaderBackend::D3D12, ShaderStage::Compute).empty() &&
+                           cooked->GetBytecode(ShaderBackend::D3D11, ShaderStage::Compute).empty() &&
+                           cooked->GetBytecode(ShaderBackend::Metal, ShaderStage::Compute).empty() &&
+                           cooked->GetBytecode(ShaderBackend::Vulkan, ShaderStage::Compute).empty() &&
+                           hasBinding(contract.outputBinding) && !hasBinding(contract.forbiddenOutputBinding) &&
+                           outputBindingCount == 1;
+        fs::remove(output, ec);
+        if (!Check(valid, std::string(contract.descriptor) +
+                              " was not D3D12-only or retained an aliased output binding: " + error))
+            return false;
+    }
+    return true;
 #endif
 }
 
@@ -1878,6 +1977,7 @@ MYENGINE_REGISTER_TEST("Assets", "TestShaderGraphNodeLibraryAndStableCodeGenerat
                        TestShaderGraphNodeLibraryAndStableCodeGeneration);
 MYENGINE_REGISTER_TEST("Assets", "TestShaderGraphCookerCompilesWindowsBackends",
                        TestShaderGraphCookerCompilesWindowsBackends);
+MYENGINE_REGISTER_TEST("Assets", "TestModernRayTracingCookIsD3D12Only", TestModernRayTracingCookIsD3D12Only);
 MYENGINE_REGISTER_TEST("Assets", "TestPbrMaterialParameters", TestPbrMaterialParameters);
 MYENGINE_REGISTER_TEST("Assets", "TestMaterialAssetFileRoundTrip", TestMaterialAssetFileRoundTrip);
 MYENGINE_REGISTER_TEST("Assets", "TestMaterialV2InheritanceAndLegacyMigration",
