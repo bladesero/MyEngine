@@ -1,7 +1,7 @@
 {
   "graphics": {
     "backend": "d3d12",
-    "deviceProfile": "console",
+    "deviceProfile": "mobile",
     "renderPath": "deferred"
   },
   "input": {

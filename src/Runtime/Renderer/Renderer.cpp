@@ -631,9 +631,9 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
         const auto sceneDepth =
             m_RenderGraph->ImportTexture("SceneDepth", postResources.sceneDepth, postResources.sceneDepthDsv,
                                          postResources.sceneDepthState, RHIResourceState::ShaderResource);
-        // SSGI supplies the Modern ambient-occlusion/indirect term. Running the Classic SSAO composite on top of it
-        // double-darkens geometry; retain SSAO only as the documented fallback when SSGI is disabled.
-        const bool frameSsaoEnabled = ssaoEnabled && (!modernFrameReady || !postOptions.modern.ssgiEnabled);
+        // SSGI contributes indirect radiance; it does not produce an ambient-visibility term. Keep SSAO independent
+        // and let Modern composite it into HDR before transparent rendering and temporal post-processing.
+        const bool frameSsaoEnabled = ssaoEnabled;
         m_PostProcessPass->SetSSAOEnabled(frameSsaoEnabled);
         m_PostProcessPass->SetInputPreprocessed(modernFrameReady);
         RGTextureHandle ssao;
@@ -644,6 +644,55 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
             ssaoBlur = m_RenderGraph->ImportTexture("SSAOBlur", postResources.ssaoBlur, postResources.ssaoBlurRtv,
                                                     postResources.ssaoBlurState, RHIResourceState::ShaderResource);
         }
+        const auto addSsaoPasses = [&]() {
+            m_RenderGraph->AddPass(
+                "SSAO",
+                [sceneDepth, ssao](RenderGraphBuilder& builder) {
+                    builder.ReadTexture(sceneDepth);
+                    builder.WriteColor(ssao, RHILoadOp::Clear, RHIStoreOp::Store, {1, 1, 1, 1});
+                },
+                [this, &scene, &camera, modernFrameReady](GpuCommandList& commands, const RenderGraphResources&) {
+                    const auto start = std::chrono::steady_clock::now();
+                    const Mat4* projection =
+                        modernFrameReady ? &m_ModernDeferredPipeline->GetCurrentProjection() : nullptr;
+                    m_PostProcessPass->DrawSSAOOcclusion(commands, scene, camera, projection);
+                    const auto end = std::chrono::steady_clock::now();
+                    RendererFrameStats stats = FrameStatsProvider::GetRendererStats();
+                    stats.ssaoCpuMs += ElapsedMs(start, end);
+                    ++stats.fullscreenDrawCalls;
+                    FrameStatsProvider::SetRendererStats(stats);
+                });
+            m_RenderGraph->AddPass(
+                "SSAOBlurH",
+                [ssao, ssaoBlur](RenderGraphBuilder& builder) {
+                    builder.ReadTexture(ssao);
+                    builder.WriteColor(ssaoBlur, RHILoadOp::Clear, RHIStoreOp::Store, {1, 1, 1, 1});
+                },
+                [this](GpuCommandList& commands, const RenderGraphResources&) {
+                    const auto start = std::chrono::steady_clock::now();
+                    m_PostProcessPass->DrawSSAOBlurHorizontal(commands);
+                    const auto end = std::chrono::steady_clock::now();
+                    RendererFrameStats stats = FrameStatsProvider::GetRendererStats();
+                    stats.ssaoCpuMs += ElapsedMs(start, end);
+                    ++stats.fullscreenDrawCalls;
+                    FrameStatsProvider::SetRendererStats(stats);
+                });
+            m_RenderGraph->AddPass(
+                "SSAOBlurV",
+                [ssaoBlur, ssao](RenderGraphBuilder& builder) {
+                    builder.ReadTexture(ssaoBlur);
+                    builder.WriteColor(ssao, RHILoadOp::Clear, RHIStoreOp::Store, {1, 1, 1, 1});
+                },
+                [this](GpuCommandList& commands, const RenderGraphResources&) {
+                    const auto start = std::chrono::steady_clock::now();
+                    m_PostProcessPass->DrawSSAOBlurVertical(commands);
+                    const auto end = std::chrono::steady_clock::now();
+                    RendererFrameStats stats = FrameStatsProvider::GetRendererStats();
+                    stats.ssaoCpuMs += ElapsedMs(start, end);
+                    ++stats.fullscreenDrawCalls;
+                    FrameStatsProvider::SetRendererStats(stats);
+                });
+        };
         RGTextureHandle composite;
         const bool compositeToBackbuffer = m_PostProcessPass->IsCompositeToBackbuffer();
         RGTextureHandle backBuffer;
@@ -771,6 +820,9 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
                     });
             }
 
+            if (modernFrameReady && frameSsaoEnabled)
+                addSsaoPasses();
+
             if (modernFrameReady) {
                 m_ModernDeferredPipeline->SetDirectionalShadowInput(
                     shadowsEnabled && m_ShadowPass->IsDirectionalShadowEnabled(), directionalShadowSrv,
@@ -786,7 +838,8 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
                     *m_RenderGraph, compositeInput, compositeOverride, sceneDepth, postResources.sceneDepthSrv,
                     gbufferAlbedo, gbufferResources.albedoSrv, gbufferNormal, gbufferResources.normalSrv,
                     gbufferMaterial, gbufferResources.materialSrv, gbufferVelocity, gbufferResources.velocitySrv,
-                    modernHiZ, ResolveModernScreenSpaceDebugMode(m_DebugView));
+                    modernHiZ, ssao, postResources.ssaoSrv, frameSsaoEnabled,
+                    ResolveModernScreenSpaceDebugMode(m_DebugView));
                 compositeOverride = m_ModernDeferredPipeline->GetEffectsHdrSrv();
             } else {
                 m_RenderGraph->AddPass(
@@ -895,59 +948,15 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
                     FrameStatsProvider::SetRendererStats(stats);
                 });
         }
-        if (frameSsaoEnabled) {
-            m_RenderGraph->AddPass(
-                "SSAO",
-                [sceneDepth, ssao](RenderGraphBuilder& builder) {
-                    builder.ReadTexture(sceneDepth);
-                    builder.WriteColor(ssao, RHILoadOp::Clear, RHIStoreOp::Store, {1, 1, 1, 1});
-                },
-                [this, &scene, &camera](GpuCommandList& commands, const RenderGraphResources&) {
-                    const auto start = std::chrono::steady_clock::now();
-                    m_PostProcessPass->DrawSSAOOcclusion(commands, scene, camera);
-                    const auto end = std::chrono::steady_clock::now();
-                    RendererFrameStats stats = FrameStatsProvider::GetRendererStats();
-                    stats.ssaoCpuMs += ElapsedMs(start, end);
-                    ++stats.fullscreenDrawCalls;
-                    FrameStatsProvider::SetRendererStats(stats);
-                });
-            m_RenderGraph->AddPass(
-                "SSAOBlurH",
-                [ssao, ssaoBlur](RenderGraphBuilder& builder) {
-                    builder.ReadTexture(ssao);
-                    builder.WriteColor(ssaoBlur, RHILoadOp::Clear, RHIStoreOp::Store, {1, 1, 1, 1});
-                },
-                [this](GpuCommandList& commands, const RenderGraphResources&) {
-                    const auto start = std::chrono::steady_clock::now();
-                    m_PostProcessPass->DrawSSAOBlurHorizontal(commands);
-                    const auto end = std::chrono::steady_clock::now();
-                    RendererFrameStats stats = FrameStatsProvider::GetRendererStats();
-                    stats.ssaoCpuMs += ElapsedMs(start, end);
-                    ++stats.fullscreenDrawCalls;
-                    FrameStatsProvider::SetRendererStats(stats);
-                });
-            m_RenderGraph->AddPass(
-                "SSAOBlurV",
-                [ssaoBlur, ssao](RenderGraphBuilder& builder) {
-                    builder.ReadTexture(ssaoBlur);
-                    builder.WriteColor(ssao, RHILoadOp::Clear, RHIStoreOp::Store, {1, 1, 1, 1});
-                },
-                [this](GpuCommandList& commands, const RenderGraphResources&) {
-                    const auto start = std::chrono::steady_clock::now();
-                    m_PostProcessPass->DrawSSAOBlurVertical(commands);
-                    const auto end = std::chrono::steady_clock::now();
-                    RendererFrameStats stats = FrameStatsProvider::GetRendererStats();
-                    stats.ssaoCpuMs += ElapsedMs(start, end);
-                    ++stats.fullscreenDrawCalls;
-                    FrameStatsProvider::SetRendererStats(stats);
-                });
-        }
+        if (!modernFrameReady && frameSsaoEnabled)
+            addSsaoPasses();
+        const bool compositeSsaoEnabled = frameSsaoEnabled && !modernFrameReady;
         m_RenderGraph->AddPass(
             "Composite",
-            [compositeInput, ssao, frameSsaoEnabled, compositeToBackbuffer, composite,
+            [compositeInput, ssao, compositeSsaoEnabled, compositeToBackbuffer, composite,
              backBuffer](RenderGraphBuilder& builder) {
                 builder.ReadTexture(compositeInput);
-                if (frameSsaoEnabled)
+                if (compositeSsaoEnabled)
                     builder.ReadTexture(ssao);
                 if (compositeToBackbuffer) {
                     builder.WriteColor(backBuffer, RHILoadOp::Clear, RHIStoreOp::Store, {0, 0, 0, 1});

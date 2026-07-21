@@ -152,6 +152,7 @@ void ModernDeferredPipeline::CommitTemporalFrame() {
         return;
     m_HistoryPing = m_PendingHistoryPing;
     m_PreviousViewProjection = m_PendingViewProjection;
+    m_PreviousUnjitteredViewProjection = m_PendingUnjitteredViewProjection;
     m_HasPreviousViewProjection = true;
     m_PreviousCameraPosition = m_PendingCameraPosition;
     m_PreviousCameraForward = m_PendingCameraForward;
@@ -305,6 +306,8 @@ void ModernDeferredPipeline::Resize(uint32_t width, uint32_t height) {
     m_HasCommittedFrameNumber = false;
     m_HasPreviousViewProjection = false;
     m_HasPreviousProjection = false;
+    m_PreviousUnjitteredViewProjection = Mat4::Identity();
+    m_PendingUnjitteredViewProjection = Mat4::Identity();
     m_JitterSequenceIndex = 0;
     m_PendingJitterSequenceIndex = 0;
     m_HistoryValid = false;
@@ -897,6 +900,7 @@ bool ModernDeferredPipeline::Prepare(const Scene& scene, const Camera& camera, u
         }
     }
     m_PendingJitterSequenceIndex = m_JitterSequenceIndex + (settings.taaEnabled ? 1u : 0u);
+    const Mat4 unjitteredViewProjection = view * projection;
     const Mat4 jitteredViewProjection = view * jitteredProjection;
     m_CullingConstants.viewProjection = camera.GetViewProj();
     m_CullingConstants.objectCount = sceneStats.candidateObjects;
@@ -908,6 +912,7 @@ bool ModernDeferredPipeline::Prepare(const Scene& scene, const Camera& camera, u
     m_GBufferConstants.previousViewProjection =
         m_HasPreviousViewProjection ? m_PreviousViewProjection : m_GBufferConstants.viewProjection;
     m_PendingViewProjection = m_GBufferConstants.viewProjection;
+    m_PendingUnjitteredViewProjection = unjitteredViewProjection;
     m_ClusterConstants.view = camera.GetView();
     // Depth and GBuffer were rasterized with the jittered projection. Reconstructing positions with the unjittered
     // inverse shifts every sample by the TAA jitter and corrupts cluster selection, SSGI and SSR inputs.
@@ -975,8 +980,6 @@ bool ModernDeferredPipeline::Prepare(const Scene& scene, const Camera& camera, u
     m_ScreenSpaceConstants.ssrMaxDistance = settings.ssrMaxDistance;
     m_ScreenSpaceConstants.ssrMaxRoughness = settings.ssrMaxRoughness;
     m_ScreenSpaceConstants.ssrHistoryWeight = settings.ssrHistoryWeight;
-    m_ScreenSpaceConstants.taaHistoryWeight = settings.taaHistoryWeight;
-    m_ScreenSpaceConstants.taaHistoryClipExpansion = settings.taaHistoryClipExpansion;
     m_ScreenSpaceConstants.exposure = settings.exposure;
     m_ScreenSpaceConstants.gamma = settings.gamma;
     m_ScreenSpaceConstants.bloomThreshold = settings.bloomThreshold;
@@ -986,6 +989,18 @@ bool ModernDeferredPipeline::Prepare(const Scene& scene, const Camera& camera, u
         consoleQuality ? (std::min)(settings.ssgiStepCount, 16u) : settings.ssgiStepCount;
     m_ScreenSpaceConstants.ssrStepCount =
         consoleQuality ? (std::min)(settings.ssrStepCount, 24u) : settings.ssrStepCount;
+    m_TAAConstants.inverseJitteredViewProjection = m_ScreenSpaceConstants.inverseViewProjection;
+    m_TAAConstants.previousUnjitteredViewProjection =
+        m_HasPreviousViewProjection ? m_PreviousUnjitteredViewProjection : unjitteredViewProjection;
+    m_TAAConstants.renderSize[0] = m_Width;
+    m_TAAConstants.renderSize[1] = m_Height;
+    m_TAAConstants.texelSize[0] = 1.0f / static_cast<float>(m_Width);
+    m_TAAConstants.texelSize[1] = 1.0f / static_cast<float>(m_Height);
+    m_TAAConstants.currentJitterUv[0] = jitterUv[0];
+    m_TAAConstants.currentJitterUv[1] = jitterUv[1];
+    m_TAAConstants.historyValid = m_HistoryValid ? 1u : 0u;
+    m_TAAConstants.historyWeight = settings.taaHistoryWeight;
+    m_TAAConstants.historyClipExpansion = settings.taaHistoryClipExpansion;
     m_Stats.clusterCount = m_ClusterConstants.clusterCount;
     m_Stats.indirectDrawCapacity = m_IndirectCapacity;
     return true;
@@ -1565,11 +1580,12 @@ RGTextureHandle ModernDeferredPipeline::AddScreenSpaceEffects(
     const std::shared_ptr<GpuTextureView>& gbufferAlbedoSrv, RGTextureHandle gbufferNormal,
     const std::shared_ptr<GpuTextureView>& gbufferNormalSrv, RGTextureHandle gbufferMaterial,
     const std::shared_ptr<GpuTextureView>& gbufferMaterialSrv, RGTextureHandle gbufferVelocity,
-    const std::shared_ptr<GpuTextureView>& gbufferVelocitySrv, RGTextureHandle hiz, ScreenSpaceDebugMode debugMode) {
+    const std::shared_ptr<GpuTextureView>& gbufferVelocitySrv, RGTextureHandle hiz, RGTextureHandle ssao,
+    const std::shared_ptr<GpuTextureView>& ssaoSrv, bool ssaoEnabled, ScreenSpaceDebugMode debugMode) {
     m_EffectsOutputSrv = hdrSrv;
     m_SSGIDebugOutputSrv.reset();
     m_SSRDebugOutputSrv.reset();
-    if (!m_PostSettings.ssgiEnabled && !m_PostSettings.ssrEnabled)
+    if (!m_PostSettings.ssgiEnabled && !m_PostSettings.ssrEnabled && !ssaoEnabled)
         return hdr;
     const auto import = [&](const char* name, const ComputeTexture& texture, bool initialized) {
         const RHIResourceState initial = initialized ? RHIResourceState::ShaderResource : RHIResourceState::Undefined;
@@ -1837,12 +1853,13 @@ RGTextureHandle ModernDeferredPipeline::AddScreenSpaceEffects(
     }
 
     ScreenSpaceConstants compositeConstants = m_ScreenSpaceConstants;
-    compositeConstants.effectMode = (m_PostSettings.ssgiEnabled ? 1u : 0u) | (m_PostSettings.ssrEnabled ? 2u : 0u);
+    compositeConstants.effectMode =
+        (m_PostSettings.ssgiEnabled ? 1u : 0u) | (m_PostSettings.ssrEnabled ? 2u : 0u) | (ssaoEnabled ? 16u : 0u);
     graph.AddComputePass(
         "CompositeSSGIAndSSR",
-        [this, hdr, sceneDepth, gbufferAlbedo, gbufferNormal, gbufferMaterial, ssgiFinal, ssrFinal, effects,
-         ssgiEnabled = m_PostSettings.ssgiEnabled,
-         ssrEnabled = m_PostSettings.ssrEnabled](RenderGraphBuilder& builder) {
+        [this, hdr, sceneDepth, gbufferAlbedo, gbufferNormal, gbufferMaterial, ssgiFinal, ssrFinal, ssao, effects,
+         ssgiEnabled = m_PostSettings.ssgiEnabled, ssrEnabled = m_PostSettings.ssrEnabled,
+         ssaoEnabled](RenderGraphBuilder& builder) {
             builder.ReadTexture(hdr);
             builder.ReadTexture(sceneDepth);
             builder.ReadTexture(gbufferAlbedo);
@@ -1854,10 +1871,12 @@ RGTextureHandle ModernDeferredPipeline::AddScreenSpaceEffects(
                 builder.ReadTexture(ssgiFinal);
             if (ssrEnabled)
                 builder.ReadTexture(ssrFinal);
+            if (ssaoEnabled)
+                builder.ReadTexture(ssao);
             builder.ReadWriteUAV(effects);
         },
         [this, hdrSrv, sceneDepthSrv, gbufferAlbedoSrv, gbufferNormalSrv, gbufferMaterialSrv, ssgiFinalSrv, ssrFinalSrv,
-         compositeConstants](GpuCommandList& commands, const RenderGraphResources&) {
+         ssaoSrv, ssaoEnabled, compositeConstants](GpuCommandList& commands, const RenderGraphResources&) {
             commands.SetComputePipeline(m_EffectsCompositePipeline.get());
             auto bindings = AcquireBindGroup(m_EffectsCompositeShader);
             if (!bindings)
@@ -1870,6 +1889,7 @@ RGTextureHandle ModernDeferredPipeline::AddScreenSpaceEffects(
             bindings->SetTexture("g_Material", gbufferMaterialSrv);
             bindings->SetTexture("g_SSGI", m_PostSettings.ssgiEnabled ? ssgiFinalSrv : hdrSrv);
             bindings->SetTexture("g_SSR", m_PostSettings.ssrEnabled ? ssrFinalSrv : hdrSrv);
+            bindings->SetTexture("g_SSAO", ssaoEnabled ? ssaoSrv : hdrSrv);
             bindings->SetTexture("g_Environment", m_EnvironmentCubeSrv);
             bindings->SetSampler("g_LinearSampler", m_LinearClampSampler);
             bindings->SetStorageTexture("g_Output", m_EffectsHdr.uav);
@@ -1910,7 +1930,8 @@ RGTextureHandle ModernDeferredPipeline::AddScreenSpaceEffects(
                 builder.ReadWriteUAV(debugOutput);
             },
             [this, hdrSrv, sceneDepthSrv, gbufferAlbedoSrv, gbufferNormalSrv, gbufferMaterialSrv, ssgiFinalSrv,
-             ssrFinalSrv, debugConstants, debugSSGI](GpuCommandList& commands, const RenderGraphResources&) {
+             ssrFinalSrv, ssaoSrv, ssaoEnabled, debugConstants,
+             debugSSGI](GpuCommandList& commands, const RenderGraphResources&) {
                 commands.SetComputePipeline(m_EffectsCompositePipeline.get());
                 auto bindings = AcquireBindGroup(m_EffectsCompositeShader);
                 if (!bindings)
@@ -1923,6 +1944,7 @@ RGTextureHandle ModernDeferredPipeline::AddScreenSpaceEffects(
                 bindings->SetTexture("g_Material", gbufferMaterialSrv);
                 bindings->SetTexture("g_SSGI", debugSSGI ? ssgiFinalSrv : hdrSrv);
                 bindings->SetTexture("g_SSR", debugSSGI ? hdrSrv : ssrFinalSrv);
+                bindings->SetTexture("g_SSAO", ssaoEnabled ? ssaoSrv : hdrSrv);
                 bindings->SetTexture("g_Environment", m_EnvironmentCubeSrv);
                 bindings->SetSampler("g_LinearSampler", m_LinearClampSampler);
                 bindings->SetStorageTexture("g_Output", m_ScreenSpaceDebug.uav);
@@ -1943,6 +1965,10 @@ RGTextureHandle ModernDeferredPipeline::AddTemporalPostProcess(
     RGTextureHandle sceneDepth, const std::shared_ptr<GpuTextureView>& sceneDepthSrv, RGTextureHandle gbufferNormal,
     const std::shared_ptr<GpuTextureView>& gbufferNormalSrv, RGTextureHandle gbufferVelocity,
     const std::shared_ptr<GpuTextureView>& gbufferVelocitySrv, ScreenSpaceDebugMode debugMode) {
+    (void)gbufferNormal;
+    (void)gbufferNormalSrv;
+    (void)gbufferVelocity;
+    (void)gbufferVelocitySrv;
     m_TAAHistoryAgeDebugOutputSrv.reset();
     m_TAARejectReasonDebugOutputSrv.reset();
     const uint32_t readHistory = m_HistoryPing;
@@ -1985,42 +2011,31 @@ RGTextureHandle ModernDeferredPipeline::AddTemporalPostProcess(
                 graph.ImportTexture("ModernScreenSpaceDebug", m_ScreenSpaceDebug.texture, m_ScreenSpaceDebug.srv,
                                     debugInitial, RHIResourceState::ShaderResource);
         }
-        ScreenSpaceConstants taaConstants = m_ScreenSpaceConstants;
-        taaConstants.effectSize[0] = m_Width;
-        taaConstants.effectSize[1] = m_Height;
+        TemporalAAConstants taaConstants = m_TAAConstants;
         if (debugMode == ScreenSpaceDebugMode::TAAHistoryAge)
-            taaConstants.effectMode = 16u;
+            taaConstants.debugMode = 16u;
         else if (debugMode == ScreenSpaceDebugMode::TAARejectReason)
-            taaConstants.effectMode = 32u;
+            taaConstants.debugMode = 32u;
         graph.AddComputePass(
             "TemporalAntiAliasing",
-            [this, input, taaRead, taaWrite, sceneDepth, gbufferNormal, gbufferVelocity](RenderGraphBuilder& builder) {
+            [this, input, taaRead, taaWrite, sceneDepth](RenderGraphBuilder& builder) {
                 builder.ReadTexture(input);
                 builder.ReadTexture(taaRead);
                 builder.ReadTexture(sceneDepth);
-                builder.ReadTexture(gbufferNormal);
-                builder.ReadTexture(gbufferVelocity);
-                builder.ReadTexture(m_FrameDepthHistoryRead);
-                builder.ReadTexture(m_FrameNormalHistoryRead);
                 builder.ReadWriteUAV(taaWrite);
                 builder.ReadWriteUAV(m_FrameScreenSpaceDebug);
             },
-            [this, inputSrv, sceneDepthSrv, gbufferNormalSrv, gbufferVelocitySrv, readHistory, writeHistory,
-             taaConstants](GpuCommandList& commands, const RenderGraphResources&) {
+            [this, inputSrv, sceneDepthSrv, readHistory, writeHistory, taaConstants](GpuCommandList& commands,
+                                                                                     const RenderGraphResources&) {
                 commands.SetComputePipeline(m_TAAPipeline.get());
                 auto bindings = AcquireBindGroup(m_TAAShader);
                 if (!bindings)
                     return;
-                bindings->SetConstants("ScreenSpaceConstants", &taaConstants, sizeof(taaConstants));
+                bindings->SetConstants("TemporalAAConstants", &taaConstants, sizeof(taaConstants));
                 bindings->SetTexture("g_Current", inputSrv);
                 bindings->SetTexture("g_History", m_TAAHistory[readHistory].srv);
                 bindings->SetTexture("g_Depth", sceneDepthSrv);
-                bindings->SetTexture("g_Normal", gbufferNormalSrv);
-                bindings->SetTexture("g_Velocity", gbufferVelocitySrv);
-                bindings->SetTexture("g_PreviousDepth", m_DepthHistory[readHistory].srv);
-                bindings->SetTexture("g_PreviousNormal", m_NormalHistory[readHistory].srv);
                 bindings->SetSampler("g_LinearSampler", m_LinearClampSampler);
-                bindings->SetSampler("g_PointSampler", m_PointClampSampler);
                 bindings->SetStorageTexture("g_Output", m_TAAHistory[writeHistory].uav);
                 bindings->SetStorageTexture("g_TAADebugOutput", m_ScreenSpaceDebug.uav);
                 if (!BindModernPass(commands, "ModernTAA", bindings))

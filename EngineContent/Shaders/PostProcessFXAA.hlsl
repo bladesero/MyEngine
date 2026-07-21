@@ -10,7 +10,7 @@ cbuffer PostProcessParams : register(b0)
     float4 g_Params;        // exposure, gamma, toneMapping, vignette
     float4 g_Params2;       // saturation, contrast, fxaaEnabled, fxaaQuality
     float4 g_ScreenSize;    // 1/w, 1/h, w, h
-    float4 g_Params3;       // x: input already tone-mapped by Modern compute post
+    float4 g_Params3;       // x: input already tone-mapped by Modern compute post; y: composite SSAO enabled
 };
 
 struct VSOut
@@ -98,9 +98,8 @@ float4 PSMain(VSOut input) : SV_TARGET
     if (g_Params2.z > 0.5f)
         color = lerp(sceneColor, FxaaPass(input.uv, g_ScreenSize.xy, g_Params2.w), saturate(g_Params2.w));
 
-    // Apply SSAO
-    float ao = g_SSAOMap.Sample(g_SSAOSampler, input.uv).r;
-    color *= ao;
+    if (g_Params3.y > 0.5f)
+        color *= g_SSAOMap.Sample(g_SSAOSampler, input.uv).r;
 
     // Exposure
     color *= max(g_Params.x, 0.0f);

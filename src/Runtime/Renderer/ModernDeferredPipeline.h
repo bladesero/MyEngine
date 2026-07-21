@@ -46,7 +46,7 @@ struct ModernPostProcessSettings {
     float ssrHistoryWeight = 0.9f;
     uint32_t ssrStepCount = 48;
     uint32_t ssrFilterRounds = 2;
-    float taaHistoryWeight = 0.9f;
+    float taaHistoryWeight = 0.8f;
     float taaJitterSpread = 1.0f;
     float taaHistoryClipExpansion = 0.0f;
     float exposure = 1.0f;
@@ -102,7 +102,8 @@ public:
                           RGTextureHandle gbufferNormal, const std::shared_ptr<GpuTextureView>& gbufferNormalSrv,
                           RGTextureHandle gbufferMaterial, const std::shared_ptr<GpuTextureView>& gbufferMaterialSrv,
                           RGTextureHandle gbufferVelocity, const std::shared_ptr<GpuTextureView>& gbufferVelocitySrv,
-                          RGTextureHandle hiz, ScreenSpaceDebugMode debugMode = ScreenSpaceDebugMode::None);
+                          RGTextureHandle hiz, RGTextureHandle ssao, const std::shared_ptr<GpuTextureView>& ssaoSrv,
+                          bool ssaoEnabled, ScreenSpaceDebugMode debugMode = ScreenSpaceDebugMode::None);
     RGTextureHandle
     AddTemporalPostProcess(RenderGraph& graph, RGTextureHandle input, const std::shared_ptr<GpuTextureView>& inputSrv,
                            RGTextureHandle sceneDepth, const std::shared_ptr<GpuTextureView>& sceneDepthSrv,
@@ -126,6 +127,7 @@ public:
     GpuSceneDatabase& GetGpuScene() { return *m_GpuScene; }
     const Mat4& GetCurrentViewProjection() const { return m_GBufferConstants.viewProjection; }
     const Mat4& GetPreviousViewProjection() const { return m_GBufferConstants.previousViewProjection; }
+    const Mat4& GetCurrentProjection() const { return m_ScreenSpaceConstants.projection; }
 
 private:
     bool EnsurePipelines();
@@ -227,15 +229,13 @@ private:
         float ssrMaxDistance = 10.0f;
         float ssrMaxRoughness = 0.8f;
         float ssrHistoryWeight = 0.9f;
-        float taaHistoryWeight = 0.9f;
-        float taaHistoryClipExpansion = 0.0f;
         float exposure = 1.0f;
         float gamma = 2.2f;
         float bloomThreshold = 1.0f;
         float bloomIntensity = 0.0f;
         uint32_t ssgiStepCount = 32;
         uint32_t ssrStepCount = 48;
-        uint32_t padding[2]{};
+        uint32_t padding[4]{};
     };
     static_assert(sizeof(ScreenSpaceConstants) == 544, "ScreenSpaceConstants size must match ModernScreenSpace.hlsl");
     static_assert(offsetof(ScreenSpaceConstants, currentJitterUv) == 448,
@@ -246,12 +246,28 @@ private:
                   "ScreenSpaceConstants SSGI tuning offset changed");
     static_assert(offsetof(ScreenSpaceConstants, ssrMaxRoughness) == 496,
                   "ScreenSpaceConstants SSR tuning offset changed");
-    static_assert(offsetof(ScreenSpaceConstants, taaHistoryClipExpansion) == 508,
-                  "ScreenSpaceConstants TAA tuning offset changed");
-    static_assert(offsetof(ScreenSpaceConstants, gamma) == 516,
+    static_assert(offsetof(ScreenSpaceConstants, gamma) == 508,
                   "ScreenSpaceConstants post-process tuning offset changed");
-    static_assert(offsetof(ScreenSpaceConstants, ssrStepCount) == 532,
+    static_assert(offsetof(ScreenSpaceConstants, ssrStepCount) == 524,
                   "ScreenSpaceConstants step-count offset changed");
+
+    struct TemporalAAConstants {
+        Mat4 inverseJitteredViewProjection = Mat4::Identity();
+        Mat4 previousUnjitteredViewProjection = Mat4::Identity();
+        uint32_t renderSize[2]{};
+        float texelSize[2]{};
+        float currentJitterUv[2]{};
+        uint32_t historyValid = 0;
+        uint32_t debugMode = 0;
+        float historyWeight = 0.8f;
+        float historyClipExpansion = 0.0f;
+        float padding[2]{};
+    };
+    static_assert(sizeof(TemporalAAConstants) == 176, "TemporalAAConstants size must match ModernTAA.hlsl");
+    static_assert(offsetof(TemporalAAConstants, renderSize) == 128, "TemporalAAConstants render-size offset changed");
+    static_assert(offsetof(TemporalAAConstants, currentJitterUv) == 144, "TemporalAAConstants jitter offset changed");
+    static_assert(offsetof(TemporalAAConstants, historyWeight) == 160,
+                  "TemporalAAConstants history-weight offset changed");
 
     IRHIDevice* m_Device = nullptr;
     IRHIReadbackService* m_ReadbackService = nullptr;
@@ -378,6 +394,7 @@ private:
     ModernGBufferConstants m_GBufferConstants;
     ClusterConstants m_ClusterConstants;
     ScreenSpaceConstants m_ScreenSpaceConstants;
+    TemporalAAConstants m_TAAConstants;
     ModernPostProcessSettings m_PostSettings;
     QualityProfile m_QualityProfile = QualityProfile::Desktop;
     ModernDeferredFrameStats m_Stats;
@@ -416,6 +433,8 @@ private:
     bool m_TemporalFramePending = false;
     Mat4 m_PreviousViewProjection = Mat4::Identity();
     Mat4 m_PendingViewProjection = Mat4::Identity();
+    Mat4 m_PreviousUnjitteredViewProjection = Mat4::Identity();
+    Mat4 m_PendingUnjitteredViewProjection = Mat4::Identity();
     bool m_HasPreviousViewProjection = false;
     uint64_t m_CurrentFrameNumber = 0;
     uint64_t m_LastCommittedFrameNumber = 0;

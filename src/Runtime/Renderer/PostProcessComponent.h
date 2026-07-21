@@ -120,7 +120,7 @@ private:
     uint32_t m_SSRStepCount = 48;
     uint32_t m_SSRFilterRounds = 2;
     bool m_TAAEnabled = true;
-    float m_TAAHistoryWeight = 0.9f;
+    float m_TAAHistoryWeight = 0.8f;
     float m_TAAJitterSpread = 1.0f;
     float m_TAAHistoryClipExpansion = 0.0f;
 };

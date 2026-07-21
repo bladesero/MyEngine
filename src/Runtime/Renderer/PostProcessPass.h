@@ -19,6 +19,7 @@ public:
         std::shared_ptr<GpuTextureView> sceneDepthSrv;
         std::shared_ptr<GpuTexture> ssao;
         std::shared_ptr<GpuTextureView> ssaoRtv;
+        std::shared_ptr<GpuTextureView> ssaoSrv;
         std::shared_ptr<GpuTexture> ssaoBlur;
         std::shared_ptr<GpuTextureView> ssaoBlurRtv;
         std::shared_ptr<GpuTexture> composite;
@@ -41,7 +42,8 @@ public:
     void RenderSSAO(GpuCommandList& commands, const Scene& scene, const Camera& camera);
     void RenderBloom(GpuCommandList& commands, const Scene& scene);
     void EndOffscreenAndComposite(GpuCommandList& commands, const Scene& scene, GpuTextureView* backBufferView);
-    void DrawSSAOOcclusion(GpuCommandList& commands, const Scene& scene, const Camera& camera);
+    void DrawSSAOOcclusion(GpuCommandList& commands, const Scene& scene, const Camera& camera,
+                           const Mat4* projectionOverride = nullptr);
     void DrawSSAOBlurHorizontal(GpuCommandList& commands);
     void DrawSSAOBlurVertical(GpuCommandList& commands);
     void DrawCompositeOffscreen(GpuCommandList& commands, const Scene& scene);

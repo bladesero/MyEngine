@@ -169,7 +169,7 @@ void PostProcessComponent::Deserialize(const nlohmann::json& data) {
     SetSSRStepCount(data.value("ssrStepCount", 48u));
     SetSSRFilterRounds(data.value("ssrFilterRounds", 2u));
     SetTAAEnabled(data.value("taaEnabled", true));
-    SetTAAHistoryWeight(data.value("taaHistoryWeight", 0.9f));
+    SetTAAHistoryWeight(data.value("taaHistoryWeight", 0.8f));
     SetTAAJitterSpread(data.value("taaJitterSpread", 1.0f));
     SetTAAHistoryClipExpansion(data.value("taaHistoryClipExpansion", 0.0f));
 }

@@ -64,11 +64,13 @@ PostProcessConstants CollectPostProcessParams(const Scene& scene, uint32_t width
     return out;
 }
 
-SSAOConstants BuildSSAOConstants(const Scene& scene, const Camera& camera, uint32_t width, uint32_t height) {
+SSAOConstants BuildSSAOConstants(const Scene& scene, const Camera& camera, uint32_t width, uint32_t height,
+                                 const Mat4* projectionOverride) {
     SSAOConstants out{};
-    std::memcpy(out.projection, camera.GetProj().Data(), sizeof(out.projection));
+    const Mat4& projection = projectionOverride ? *projectionOverride : camera.GetProj();
+    std::memcpy(out.projection, projection.Data(), sizeof(out.projection));
     Mat4 inverse;
-    Mat4Invert(camera.GetProj(), inverse);
+    Mat4Invert(projection, inverse);
     std::memcpy(out.invProjection, inverse.Data(), sizeof(out.invProjection));
     out.screenSize[0] = 1.0f / width;
     out.screenSize[1] = 1.0f / height;
@@ -225,9 +227,9 @@ bool PostProcessPass::EnsureResources() {
                 pipeline.depthStencil.depthWriteEnable = false;
                 pipeline.rasterizer.cullMode = RHICullMode::None;
                 const RHIBackend backend = device->GetBackend();
-                const RHIFormat backbufferFormat =
-                    backend == RHIBackend::Metal || backend == RHIBackend::Vulkan ? RHIFormat::BGRA8UNorm
-                                                                                 : RHIFormat::RGBA8UNorm;
+                const RHIFormat backbufferFormat = backend == RHIBackend::Metal || backend == RHIBackend::Vulkan
+                                                       ? RHIFormat::BGRA8UNorm
+                                                       : RHIFormat::RGBA8UNorm;
                 pipeline.shader = m_FXAAShader;
                 pipeline.colorFormats = {backbufferFormat};
                 m_FXAABackbufferPipeline = device->CreateGraphicsPipeline(pipeline);
@@ -365,8 +367,7 @@ bool PostProcessPass::EnsureResources() {
     pipeline.rasterizer.cullMode = RHICullMode::None;
     const RHIBackend backend = device->GetBackend();
     const RHIFormat backbufferFormat =
-        backend == RHIBackend::Metal || backend == RHIBackend::Vulkan ? RHIFormat::BGRA8UNorm
-                                                                     : RHIFormat::RGBA8UNorm;
+        backend == RHIBackend::Metal || backend == RHIBackend::Vulkan ? RHIFormat::BGRA8UNorm : RHIFormat::RGBA8UNorm;
     pipeline.shader = m_FXAAShader;
     pipeline.colorFormats = {backbufferFormat};
     m_FXAABackbufferPipeline = device->CreateGraphicsPipeline(pipeline);
@@ -415,6 +416,7 @@ PostProcessPass::GraphResources PostProcessPass::GetGraphResources() const {
     out.sceneDepthSrv = m_SceneDepthSrv;
     out.ssao = m_SSAO;
     out.ssaoRtv = m_SSAORtv;
+    out.ssaoSrv = m_SSAOSrv;
     out.ssaoBlur = m_SSAOBlur;
     out.ssaoBlurRtv = m_SSAOBlurRtv;
     out.composite = m_Composite;
@@ -498,13 +500,14 @@ void PostProcessPass::RenderSSAO(GpuCommandList& commands, const Scene& scene, c
     DrawSSAOBlurVertical(commands);
 }
 
-void PostProcessPass::DrawSSAOOcclusion(GpuCommandList& commands, const Scene& scene, const Camera& camera) {
+void PostProcessPass::DrawSSAOOcclusion(GpuCommandList& commands, const Scene& scene, const Camera& camera,
+                                        const Mat4* projectionOverride) {
     if (!m_SSAOEnabled || !m_SSAOPipeline || !m_SSAOShader)
         return;
     auto ssaoBindings = Device()->CreateBindGroup(m_SSAOShader);
     if (!ssaoBindings)
         return;
-    SSAOConstants constants = BuildSSAOConstants(scene, camera, m_SSAOWidth, m_SSAOHeight);
+    SSAOConstants constants = BuildSSAOConstants(scene, camera, m_SSAOWidth, m_SSAOHeight, projectionOverride);
     ssaoBindings->SetConstants("SSAOParams", &constants, sizeof(constants));
     ssaoBindings->SetTexture("g_DepthTex", m_SceneDepthSrv);
     ssaoBindings->SetSampler("g_DepthSampler", m_PointClamp);
@@ -564,6 +567,7 @@ void PostProcessPass::EndOffscreenAndComposite(GpuCommandList& commands, const S
         auto bindings = Device()->CreateBindGroup(m_FXAAShader);
         PostProcessConstants constants = CollectPostProcessParams(scene, m_Width, m_Height);
         constants.params3[0] = m_InputPreprocessed ? 1.0f : 0.0f;
+        constants.params3[1] = m_SSAOEnabled && !m_InputPreprocessed ? 1.0f : 0.0f;
         if (!bindings || !bindings->SetConstants("PostProcessParams", &constants, sizeof(constants))) {
             if (!m_LoggedCompositeBindingFailure) {
                 Logger::Error("[PostProcessPass] PostProcessParams does not match shader reflection");
@@ -592,6 +596,7 @@ void PostProcessPass::DrawCompositeOffscreen(GpuCommandList& commands, const Sce
         return;
     PostProcessConstants constants = CollectPostProcessParams(scene, m_Width, m_Height);
     constants.params3[0] = m_InputPreprocessed ? 1.0f : 0.0f;
+    constants.params3[1] = m_SSAOEnabled && !m_InputPreprocessed ? 1.0f : 0.0f;
     if (!bindings->SetConstants("PostProcessParams", &constants, sizeof(constants))) {
         if (!m_LoggedCompositeBindingFailure) {
             Logger::Error("[PostProcessPass] PostProcessParams does not match shader reflection");
@@ -635,6 +640,7 @@ void PostProcessPass::DrawCompositeToCurrentTarget(GpuCommandList& commands, con
         return;
     PostProcessConstants constants = CollectPostProcessParams(scene, m_Width, m_Height);
     constants.params3[0] = m_InputPreprocessed ? 1.0f : 0.0f;
+    constants.params3[1] = m_SSAOEnabled && !m_InputPreprocessed ? 1.0f : 0.0f;
     if (!bindings->SetConstants("PostProcessParams", &constants, sizeof(constants))) {
         if (!m_LoggedCompositeBindingFailure) {
             Logger::Error("[PostProcessPass] PostProcessParams does not match shader reflection");

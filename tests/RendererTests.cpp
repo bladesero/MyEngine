@@ -2339,26 +2339,14 @@ bool TestModernTemporalReprojectionShaderContract() {
                    source.find("row_major float4x4 g_PreviousViewProjection;") != std::string::npos &&
                    source.find("float4 g_PreviousCameraPosition;") != std::string::npos &&
                    CountOccurrences(source, "ReconstructWorldPositionUv(previousGeometryUv, previousDepth") >= 1 &&
-                   CountOccurrences(source, "ReconstructWorldPositionUv(sampleUv, previousDepth") >= 1 &&
-                   CountOccurrences(source, "g_PreviousInverseViewProjection") >= 3,
-               "SSGI/SSR temporal and TAA paths do not reproject previous depth in previous-world space")) {
+                   CountOccurrences(source, "g_PreviousInverseViewProjection") >= 2,
+               "SSGI/SSR temporal paths do not reproject previous depth in previous-world space")) {
         return false;
     }
-    if (!Check(CountOccurrences(source, "SampleLevel(g_PointSampler, historyUv, 0.0f)") >= 1 &&
-                   CountOccurrences(source, "SampleLevel(g_PointSampler, previousGeometryUv, 0.0f)") >= 2 &&
-                   CountOccurrences(source, "SampleLevel(g_PointSampler, sampleUv, 0.0f)") >= 2,
+    if (!Check(CountOccurrences(source, "SampleLevel(g_PointSampler, previousGeometryUv, 0.0f)") >= 2,
                "temporal rejection does not point-sample full-resolution previous depth and normal histories")) {
         return false;
     }
-    if (!Check(source.find("bool ReprojectBackgroundUv(float2 currentUv, out float2 previousUv)") !=
-                       std::string::npos &&
-                   source.find("g_PreviousCameraPosition.xyz + cameraRay") != std::string::npos &&
-                   source.find("currentBackground") != std::string::npos &&
-                   source.find("previousDepth >= 0.999999f") != std::string::npos,
-               "TAA does not camera-reproject background history without GBuffer velocity")) {
-        return false;
-    }
-
     const std::string compact = CompactSource(source);
     return Check(
         compact.find("currentEffectUv=(float2(pixel)+0.5f)*g_EffectTexelSize") != std::string::npos &&
@@ -2372,10 +2360,10 @@ bool TestModernTemporalReprojectionShaderContract() {
 
 bool TestModernTaaCameraJitterStabilityContract() {
     const std::string shader = CompactSource(ReadRepositoryTextFile({
-        "EngineContent/Shaders/ModernScreenSpace.hlsl",
-        "../../../EngineContent/Shaders/ModernScreenSpace.hlsl",
-        "../../../../EngineContent/Shaders/ModernScreenSpace.hlsl",
-        "../../../../../EngineContent/Shaders/ModernScreenSpace.hlsl",
+        "EngineContent/Shaders/ModernTAA.hlsl",
+        "../../../EngineContent/Shaders/ModernTAA.hlsl",
+        "../../../../EngineContent/Shaders/ModernTAA.hlsl",
+        "../../../../../EngineContent/Shaders/ModernTAA.hlsl",
     }));
     const std::string pipelineHeader = CompactSource(ReadRepositoryTextFile({
         "src/Runtime/Renderer/ModernDeferredPipeline.h",
@@ -2415,95 +2403,61 @@ bool TestModernTaaCameraJitterStabilityContract() {
     }));
     if (!Check(!shader.empty() && !pipelineHeader.empty() && !pipelineSource.empty() && !forwardSource.empty() &&
                    !mainPassSource.empty() && !rendererSource.empty() && !postCompositeShader.empty(),
-               "Modern TAA camera-jitter contract sources were not found")) {
+               "Modern TAA reference-rewrite contract sources were not found")) {
         return false;
     }
-    if (!Check(shader.find("float2g_CurrentJitterUv") != std::string::npos &&
-                   shader.find("float2g_PreviousJitterUv") != std::string::npos &&
-                   shader.find("returncurrentUv-(rasterVelocity-JitterDeltaUv())") != std::string::npos &&
-                   shader.find("previousGeometryUv=currentUv-rasterVelocity") != std::string::npos &&
-                   shader.find("historyUv=currentBackground?previousGeometryUv+JitterDeltaUv()") != std::string::npos &&
-                   shader.find("centerNonJitterMotionPixels=length((currentUv-historyUv)*float2(g_FullSize))") !=
+    if (!Check(shader.find("cbufferTemporalAAConstants:register(b0)") != std::string::npos &&
+                   shader.find("row_majorfloat4x4g_InverseJitteredViewProjection") != std::string::npos &&
+                   shader.find("row_majorfloat4x4g_PreviousUnjitteredViewProjection") != std::string::npos &&
+                   shader.find("unjitteredUv=currentUv+g_CurrentJitterUv") != std::string::npos &&
+                   shader.find("mul(float4(currentNdc,depth,1.0f),g_InverseJitteredViewProjection)") !=
                        std::string::npos &&
-                   shader.find("localMaximumMotionPixels=max(localMaximumMotionPixels,"
-                               "TAANonJitterMotionPixels(samplePixel,sampleDepth))") != std::string::npos &&
-                   shader.find("centerNonJitterMotionPixels<0.01f&&localMaximumMotionPixels<0.01f") !=
+                   shader.find("mul(float4(worldPosition,1.0f),g_PreviousUnjitteredViewProjection)") !=
                        std::string::npos &&
-                   shader.find("luminanceStability=jitterOnlySurface?1.0f:saturate(1.0f-luminanceDelta)") !=
+                   shader.find("previousUv=float2(previousNdc.x*0.5f+0.5f,0.5f-previousNdc.y*0.5f)") !=
                        std::string::npos &&
-                   shader.find("convergenceWeight=previousAge/max(previousAge+1.0f,1.0f)") != std::string::npos &&
-                   shader.find("TAAWorldPixelFootprint(currentUv,currentDepth,currentWorld)") != std::string::npos &&
-                   shader.find("TAAAnalyzeCurrentSurface(int2(pixel),currentBackground") != std::string::npos &&
-                   shader.find("TAAFindNeighborhoodSurfaceMatch(") != std::string::npos &&
-                   shader.find("establishedHistory=previousAge>=4.0f") != std::string::npos &&
-                   shader.find("jitterOnlySurface&&centerMatchLevel==1u&&establishedHistory") != std::string::npos &&
-                   shader.find("jitterOnlySurface&&(coverageEdge||normalGradient>0.01f)") != std::string::npos &&
-                   shader.find("TAA_HISTORY_COVERAGE_RESCUE") != std::string::npos &&
-                   shader.find("TAA_HISTORY_RETAINED") != std::string::npos &&
-                   shader.find("TAASurfaceAwareStatistics(int2(pixel),currentBackground") != std::string::npos &&
-                   shader.find("stableVariance=neighborhoodVariance+ageRamp*classFactor*temporalDelta*temporalDelta") !=
-                       std::string::npos &&
-                   shader.find("jitterOnlySurface&&historyClass==TAA_HISTORY_COVERAGE_RESCUE") != std::string::npos &&
-                   shader.find("clipExtent=max(clipExtent,abs(temporalDelta))") != std::string::npos &&
-                   shader.find("clipExtent*=1.0f+max(g_TAAHistoryClipExpansion,0.0f)") != std::string::npos &&
-                   shader.find("TAAClipHistoryToAabb(historyYCoCg,clipCenter,clipExtent)") != std::string::npos &&
-                   shader.find("adaptiveWeight=historyValid?"
-                               "(jitterOnlySurface?stationaryHistoryWeight:movingHistoryWeight)*"
-                               "(1.0f-reactive):0.0f") != std::string::npos &&
-                   shader.find("historyAgeAdvances=historyValid&&jitterOnlySurface&&reactive<0.01f") !=
-                       std::string::npos &&
-                   shader.find("highFrequencyStatic") == std::string::npos &&
-                   shader.find("classifiedStaticEdge") == std::string::npos &&
-                   shader.find("useConvergingWeight") == std::string::npos &&
-                   shader.find("historyConfidence") == std::string::npos &&
-                   shader.find("age120=saturate(historyAge/120.0f)") != std::string::npos &&
-                   shader.find("g_EffectMode==16u") != std::string::npos &&
-                   shader.find("g_EffectMode==32u") != std::string::npos &&
-                   shader.find("reason==10u") != std::string::npos &&
-                   shader.find("TAARejectReasonDebugColor(rejectReason,adaptiveWeight)") != std::string::npos &&
-                   shader.find("EncodeTaaMetadata(nextAge,currentReactive)") != std::string::npos &&
-                   shader.find("g_TAAMetadata") == std::string::npos &&
-                   pipelineSource.find("TAAMetadata") == std::string::npos &&
-                   pipelineSource.find("createTexture(\"TAAHistory0\",m_Width,m_Height,false,m_TAAHistory[0])") !=
-                       std::string::npos &&
-                   pipelineSource.find("createTexture(\"TAAHistory1\",m_Width,m_Height,false,m_TAAHistory[1])") !=
-                       std::string::npos &&
-                   shader.find("historyUv=currentUv-rasterVelocity") == std::string::npos,
-               "TAA history validity, stable weighting, surface-aware clipping, or zero-resource contract regressed")) {
-        return false;
-    }
-    if (!Check(shader.find("pixelFootprint*(jitterOnlySurface?0.75f:0.5f)") != std::string::npos &&
-                   shader.find("pixelFootprint*(jitterOnlySurface?1.75f:1.0f)") != std::string::npos &&
-                   shader.find("jitterOnlySurface?(normalDot>=strongNormalThreshold||strongConeValid):"
-                               "normalDot>=0.90f") != std::string::npos &&
-                   shader.find("returnjitterOnlySurface&&retainedDepthValid&&retainedNormalValid?1u:0u") !=
+                   shader.find("currentSamplePixel=min(uint2(clampedUnjitteredUv*float2(g_RenderSize)),"
+                               "g_RenderSize-1u)") != std::string::npos &&
+                   shader.find("ReprojectToPreviousFrame(clampedUnjitteredUv,currentDepth,previousUv)") !=
                        std::string::npos,
-               "TAA real-motion history validation is not restricted to the strict center witness")) {
+               "TAA does not follow the WebGPU unjitter and depth-reprojection data flow")) {
         return false;
     }
-    if (!Check(shader.find("weightedNormal+=sampleNormal*spatialWeight") != std::string::npos &&
-                   shader.find("weightedNormalLengthSquared=dot(weightedNormal,weightedNormal)") != std::string::npos &&
-                   shader.find("normalWeight>0.0f&&weightedNormalLengthSquared>1e-8f?"
-                               "weightedNormal*rsqrt(weightedNormalLengthSquared):currentNormal") !=
-                       std::string::npos &&
-                   shader.find("normalConeCosine=min(normalConeCosine,dot(normalConeAxis,sampleNormal))") !=
-                       std::string::npos &&
-                   shader.find("normalGradient=saturate(1.0f-minimumConnectedNormalDot)") != std::string::npos &&
-                   shader.find("normalConeCosine>=0.75f") != std::string::npos &&
-                   shader.find("normalConeCosine-0.03f") != std::string::npos &&
-                   shader.find("normalConeCosine-0.08f") != std::string::npos &&
-                   shader.find("normalVarianceFactor=saturate(normalGradient/0.08f)") != std::string::npos &&
-                   shader.find("classFactor=jitterOnlySurface?max(classFactor,normalVarianceFactor):0.0f") !=
-                       std::string::npos,
-               "TAA stationary normal-cone validation or gradient-stable clipping regressed")) {
+    if (!Check(shader.find("CurrentNeighborhoodMoments(clampedUnjitteredUv,neighborhoodMean,"
+                           "neighborhoodVariance)") != std::string::npos &&
+                   shader.find("mean/=9.0f") != std::string::npos &&
+                   shader.find("variance=max(secondMoment-mean*mean,0.0f.xxx)") != std::string::npos &&
+                   shader.find("clipSigma=1.5f*(1.0f+max(g_HistoryClipExpansion,0.0f))") != std::string::npos &&
+                   shader.find("historyYCoCg=clamp(historyYCoCg,neighborhoodMean-clipSigma*standardDeviation,"
+                               "neighborhoodMean+clipSigma*standardDeviation)") != std::string::npos &&
+                   shader.find("historyWeight=historyValid?saturate(g_HistoryWeight):0.0f") != std::string::npos &&
+                   shader.find("resolved=lerp(current.rgb,history.rgb,historyWeight)") != std::string::npos,
+               "TAA YCoCg 3x3 variance clipping or reference blend contract regressed")) {
         return false;
     }
-    if (!Check(pipelineHeader.find("floatcurrentJitterUv[2]") != std::string::npos &&
-                   pipelineHeader.find("floatpreviousJitterUv[2]") != std::string::npos &&
-                   pipelineHeader.find("sizeof(ScreenSpaceConstants)==544") != std::string::npos &&
-                   pipelineSource.find("m_PendingJitterUv),std::begin(m_PreviousJitterUv)") != std::string::npos &&
-                   pipelineSource.find("m_PendingJitterUv[0]=jitterUv[0]") != std::string::npos,
-               "Modern Deferred does not commit current/previous jitter with the displayed temporal frame")) {
+    if (!Check(shader.find("g_HistoryValid!=0u&&reprojectionValid") != std::string::npos &&
+                   shader.find("nextHistoryAge=historyValid?min(max(history.a,0.0f)+1.0f,127.0f):1.0f") !=
+                       std::string::npos &&
+                   shader.find("g_DebugMode==16u") != std::string::npos &&
+                   shader.find("g_DebugMode==32u") != std::string::npos &&
+                   shader.find("g_Velocity") == std::string::npos &&
+                   shader.find("g_PreviousDepth") == std::string::npos &&
+                   shader.find("g_PreviousNormal") == std::string::npos,
+               "TAA history validity, diagnostics, or isolated resource contract regressed")) {
+        return false;
+    }
+    if (!Check(pipelineHeader.find("structTemporalAAConstants") != std::string::npos &&
+                   pipelineHeader.find("sizeof(TemporalAAConstants)==176") != std::string::npos &&
+                   pipelineHeader.find("floattaaHistoryWeight=0.8f") != std::string::npos &&
+                   pipelineHeader.find("Mat4m_PreviousUnjitteredViewProjection=Mat4::Identity()") !=
+                       std::string::npos &&
+                   pipelineSource.find("m_PreviousUnjitteredViewProjection=m_PendingUnjitteredViewProjection") !=
+                       std::string::npos &&
+                   pipelineSource.find("m_PendingUnjitteredViewProjection=unjitteredViewProjection") !=
+                       std::string::npos &&
+                   pipelineSource.find("SetConstants(\"TemporalAAConstants\",&taaConstants,"
+                                       "sizeof(taaConstants))") != std::string::npos,
+               "Modern Deferred does not commit or bind the independent TAA reference constants")) {
         return false;
     }
     return Check(
@@ -2561,6 +2515,77 @@ bool TestModernScreenSpaceCompositeShaderContract() {
     return Check(source.find("hdr + gi + specularCorrection") != std::string::npos &&
                      source.find("hdr + gi + reflection") == std::string::npos,
                  "SSR composite still adds a second specular lobe on top of environment lighting");
+}
+
+bool TestModernSsaoCompositeContract() {
+    const std::string screenSpace = CompactSource(ReadRepositoryTextFile({
+        "EngineContent/Shaders/ModernScreenSpace.hlsl",
+        "../../../EngineContent/Shaders/ModernScreenSpace.hlsl",
+        "../../../../EngineContent/Shaders/ModernScreenSpace.hlsl",
+        "../../../../../EngineContent/Shaders/ModernScreenSpace.hlsl",
+    }));
+    const std::string pipelineHeader = CompactSource(ReadRepositoryTextFile({
+        "src/Runtime/Renderer/ModernDeferredPipeline.h",
+        "../../../src/Runtime/Renderer/ModernDeferredPipeline.h",
+        "../../../../src/Runtime/Renderer/ModernDeferredPipeline.h",
+        "../../../../../src/Runtime/Renderer/ModernDeferredPipeline.h",
+    }));
+    const std::string pipelineSource = CompactSource(ReadRepositoryTextFile({
+        "src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+        "../../../src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+        "../../../../src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+        "../../../../../src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+    }));
+    const std::string renderer = CompactSource(ReadRepositoryTextFile({
+        "src/Runtime/Renderer/Renderer.cpp",
+        "../../../src/Runtime/Renderer/Renderer.cpp",
+        "../../../../src/Runtime/Renderer/Renderer.cpp",
+        "../../../../../src/Runtime/Renderer/Renderer.cpp",
+    }));
+    const std::string postProcess = CompactSource(ReadRepositoryTextFile({
+        "src/Runtime/Renderer/PostProcessPass.cpp",
+        "../../../src/Runtime/Renderer/PostProcessPass.cpp",
+        "../../../../src/Runtime/Renderer/PostProcessPass.cpp",
+        "../../../../../src/Runtime/Renderer/PostProcessPass.cpp",
+    }));
+    const std::string finalComposite = CompactSource(ReadRepositoryTextFile({
+        "EngineContent/Shaders/PostProcessFXAA.hlsl",
+        "../../../EngineContent/Shaders/PostProcessFXAA.hlsl",
+        "../../../../EngineContent/Shaders/PostProcessFXAA.hlsl",
+        "../../../../../EngineContent/Shaders/PostProcessFXAA.hlsl",
+    }));
+    if (!Check(!screenSpace.empty() && !pipelineHeader.empty() && !pipelineSource.empty() && !renderer.empty() &&
+                   !postProcess.empty() && !finalComposite.empty(),
+               "Modern SSAO contract sources were not found")) {
+        return false;
+    }
+    if (!Check(screenSpace.find("Texture2D<float>g_SSAO:register(t13)") != std::string::npos &&
+                   screenSpace.find("(g_EffectMode&16u)!=0?") != std::string::npos &&
+                   screenSpace.find("(hdr+gi+specularCorrection)*screenSpaceAO") != std::string::npos,
+               "Modern HDR effects composite does not apply the SSAO visibility texture")) {
+        return false;
+    }
+    if (!Check(pipelineHeader.find("GetCurrentProjection()const{returnm_ScreenSpaceConstants.projection;}") !=
+                       std::string::npos &&
+                   pipelineSource.find("&&!ssaoEnabled)returnhdr") != std::string::npos &&
+                   pipelineSource.find("(ssaoEnabled?16u:0u)") != std::string::npos &&
+                   pipelineSource.find("builder.ReadTexture(ssao)") != std::string::npos &&
+                   pipelineSource.find("SetTexture(\"g_SSAO\",ssaoEnabled?ssaoSrv:hdrSrv)") != std::string::npos,
+               "Modern screen-space pass does not declare, route, and bind SSAO independently of SSGI/SSR")) {
+        return false;
+    }
+    if (!Check(renderer.find("constboolframeSsaoEnabled=ssaoEnabled") != std::string::npos &&
+                   renderer.find("if(modernFrameReady&&frameSsaoEnabled)addSsaoPasses()") != std::string::npos &&
+                   renderer.find("modernHiZ,ssao,postResources.ssaoSrv,frameSsaoEnabled") != std::string::npos &&
+                   renderer.find("modernFrameReady?&m_ModernDeferredPipeline->GetCurrentProjection():nullptr") !=
+                       std::string::npos,
+               "Renderer still suppresses Modern SSAO or does not use its jittered projection")) {
+        return false;
+    }
+    return Check(postProcess.find("constants.params3[1]=m_SSAOEnabled&&!m_InputPreprocessed?1.0f:0.0f") !=
+                         std::string::npos &&
+                     finalComposite.find("if(g_Params3.y>0.5f)color*=g_SSAOMap.Sample") != std::string::npos,
+                 "final composite does not explicitly gate Classic SSAO and can apply an invalid fallback texture");
 }
 
 bool TestModernScreenSpaceSamplingAndConfidenceContracts() {
@@ -2653,14 +2678,9 @@ bool TestModernScreenSpaceSamplingAndConfidenceContracts() {
                "SSGI and SSR confidence debug modes do not visualize the final half-resolution data explicitly")) {
         return false;
     }
-    return Check(
-        compact.find("currentReactive=GatherReactiveMask(int2(pixel))") != std::string::npos &&
-            compact.find("1.0f-saturate(g_Current.Load(int3(samplePixel,0)).a)") != std::string::npos &&
-            compact.find("DecodeTaaMetadata(historyMetadata,previousAge,previousReactive)") != std::string::npos &&
-            compact.find("reactive=max(currentReactive,historyValid?previousReactive:0.0f)") != std::string::npos &&
-            compact.find("*(1.0f-reactive)") != std::string::npos &&
-            compact.find("EncodeTaaMetadata(nextAge,currentReactive)") != std::string::npos,
-        "TAA does not consume, persist, and dilate transparent coverage as a reactive mask");
+    return Check(compact.find("voidCSTAA") == std::string::npos &&
+                     compact.find("g_TAADebugOutput") == std::string::npos,
+                 "ModernScreenSpace still embeds the independently compiled TAA resolve");
 }
 
 bool TestModernScreenSpacePostProcessTuningContract() {
@@ -2669,7 +2689,7 @@ bool TestModernScreenSpacePostProcessTuningContract() {
                    post.GetSSGIFilterRounds() == 3 && NearlyEqual(post.GetSSRMaxDistance(), 10.0f) &&
                    NearlyEqual(post.GetSSRHistoryWeight(), 0.9f) && post.GetSSRStepCount() == 48 &&
                    post.GetSSRFilterRounds() == 2 && post.IsTAAEnabled() &&
-                   NearlyEqual(post.GetTAAHistoryWeight(), 0.9f) && NearlyEqual(post.GetTAAJitterSpread(), 1.0f) &&
+                   NearlyEqual(post.GetTAAHistoryWeight(), 0.8f) && NearlyEqual(post.GetTAAJitterSpread(), 1.0f) &&
                    NearlyEqual(post.GetTAAHistoryClipExpansion(), 0.0f),
                "PostProcess Modern SSGI/SSR/TAA tuning defaults changed unexpectedly")) {
         return false;
@@ -2699,6 +2719,12 @@ bool TestModernScreenSpacePostProcessTuningContract() {
         "../../../../EngineContent/Shaders/ModernScreenSpace.hlsl",
         "../../../../../EngineContent/Shaders/ModernScreenSpace.hlsl",
     }));
+    const std::string taaShader = CompactSource(ReadRepositoryTextFile({
+        "EngineContent/Shaders/ModernTAA.hlsl",
+        "../../../EngineContent/Shaders/ModernTAA.hlsl",
+        "../../../../EngineContent/Shaders/ModernTAA.hlsl",
+        "../../../../../EngineContent/Shaders/ModernTAA.hlsl",
+    }));
     const std::string pipeline = CompactSource(ReadRepositoryTextFile({
         "src/Runtime/Renderer/ModernDeferredPipeline.cpp",
         "../../../src/Runtime/Renderer/ModernDeferredPipeline.cpp",
@@ -2711,29 +2737,31 @@ bool TestModernScreenSpacePostProcessTuningContract() {
         "../../../../src/Runtime/Renderer/Renderer.cpp",
         "../../../../../src/Runtime/Renderer/Renderer.cpp",
     }));
-    if (!Check(!shader.empty() && !pipeline.empty() && !renderer.empty(),
+    if (!Check(!shader.empty() && !taaShader.empty() && !pipeline.empty() && !renderer.empty(),
                "Modern post-process tuning contract sources were not found")) {
         return false;
     }
     if (!Check(shader.find("g_SSGIHistoryWeight") != std::string::npos &&
                    shader.find("g_SSRHistoryWeight") != std::string::npos &&
-                   shader.find("g_TAAHistoryWeight") != std::string::npos &&
-                   shader.find("g_TAAHistoryClipExpansion") != std::string::npos &&
-                   shader.find("clipExtent*=1.0f+max(g_TAAHistoryClipExpansion,0.0f)") != std::string::npos &&
                    shader.find("max(g_SSGIMaxDistance,0.1f)") != std::string::npos &&
                    shader.find("max(g_SSRMaxDistance,0.1f)") != std::string::npos &&
                    shader.find("g_MaxDistance") == std::string::npos &&
-                   shader.find("g_HistoryWeight") == std::string::npos,
-               "SSGI, SSR, and TAA still share screen-space distance or temporal tuning constants")) {
+                   shader.find("g_HistoryWeight") == std::string::npos &&
+                   shader.find("g_TAAHistoryWeight") == std::string::npos &&
+                   taaShader.find("g_HistoryWeight") != std::string::npos &&
+                   taaShader.find("g_HistoryClipExpansion") != std::string::npos &&
+                   taaShader.find("clipSigma=1.5f*(1.0f+max(g_HistoryClipExpansion,0.0f))") != std::string::npos &&
+                   taaShader.find("g_SSGIHistoryWeight") == std::string::npos &&
+                   taaShader.find("g_SSRHistoryWeight") == std::string::npos,
+               "TAA tuning is not isolated from the SSGI/SSR screen-space constant contract")) {
         return false;
     }
     if (!Check(
             pipeline.find("m_ScreenSpaceConstants.ssgiHistoryWeight=settings.ssgiHistoryWeight") != std::string::npos &&
                 pipeline.find("m_ScreenSpaceConstants.ssrHistoryWeight=settings.ssrHistoryWeight") !=
                     std::string::npos &&
-                pipeline.find("m_ScreenSpaceConstants.taaHistoryWeight=settings.taaHistoryWeight") !=
-                    std::string::npos &&
-                pipeline.find("m_ScreenSpaceConstants.taaHistoryClipExpansion=settings.taaHistoryClipExpansion") !=
+                pipeline.find("m_TAAConstants.historyWeight=settings.taaHistoryWeight") != std::string::npos &&
+                pipeline.find("m_TAAConstants.historyClipExpansion=settings.taaHistoryClipExpansion") !=
                     std::string::npos &&
                 pipeline.find("*jitterSpread") != std::string::npos &&
                 pipeline.find("settings.taaJitterSpread,m_PreviousPostSettings.taaJitterSpread") != std::string::npos &&
@@ -2806,8 +2834,8 @@ bool TestModernScreenSpaceDebugRoutingContract() {
                    pipeline.find("debugSSGI?\"VisualizeSSGI\":\"VisualizeSSRConfidence\"") != std::string::npos &&
                    pipeline.find("m_SSGIDebugOutputSrv=m_ScreenSpaceDebug.srv") != std::string::npos &&
                    pipeline.find("m_SSRDebugOutputSrv=m_ScreenSpaceDebug.srv") != std::string::npos &&
-                   pipeline.find("taaConstants.effectMode=16u") != std::string::npos &&
-                   pipeline.find("taaConstants.effectMode=32u") != std::string::npos &&
+                   pipeline.find("taaConstants.debugMode=16u") != std::string::npos &&
+                   pipeline.find("taaConstants.debugMode=32u") != std::string::npos &&
                    pipeline.find("SetStorageTexture(\"g_TAADebugOutput\",m_ScreenSpaceDebug.uav)") !=
                        std::string::npos &&
                    pipeline.find("builder.ReadWriteUAV(m_FrameScreenSpaceDebug)") != std::string::npos,
@@ -2833,15 +2861,22 @@ bool TestModernScreenSpaceSlangCompileContracts() {
         "../../../../../EngineContent/Shaders/ModernScreenSpace.hlsl",
     };
     const auto shaderPath = FindRepositoryFile(candidates);
-    if (!Check(!shaderPath.empty(), "ModernScreenSpace shader source was not found"))
+    const std::array<const char*, 4> taaCandidates = {
+        "EngineContent/Shaders/ModernTAA.hlsl",
+        "../../../EngineContent/Shaders/ModernTAA.hlsl",
+        "../../../../EngineContent/Shaders/ModernTAA.hlsl",
+        "../../../../../EngineContent/Shaders/ModernTAA.hlsl",
+    };
+    const auto taaShaderPath = FindRepositoryFile(taaCandidates);
+    if (!Check(!shaderPath.empty() && !taaShaderPath.empty(), "Modern screen-space or TAA shader source was not found"))
         return false;
     if (!Check(ShaderCompilerSlang::IsAvailable(),
                "Slang compiler is unavailable; Modern screen-space DXIL/SPIR-V cannot be validated")) {
         return false;
     }
 
-    const std::array<const char*, 7> entries = {
-        "CSSSGITrace", "CSSSRTrace", "CSTemporal", "CSAtrous", "CSEffectsComposite", "CSTAA", "CSBloomTone",
+    const std::array<const char*, 6> entries = {
+        "CSSSGITrace", "CSSSRTrace", "CSTemporal", "CSAtrous", "CSEffectsComposite", "CSBloomTone",
     };
     const std::array<ShaderBackend, 2> backends = {ShaderBackend::D3D12, ShaderBackend::Vulkan};
     for (ShaderBackend backend : backends) {
@@ -2861,6 +2896,20 @@ bool TestModernScreenSpaceSlangCompileContracts() {
                            entry)) {
                 return false;
             }
+        }
+        std::vector<uint8_t> taaBytecode;
+        CookedShaderStageReflection taaReflection;
+        std::string taaError;
+        const std::string backendName = backend == ShaderBackend::D3D12 ? "D3D12" : "Vulkan";
+        if (!Check(ShaderCompilerSlang::CompileStageFromFile(taaShaderPath, "CSTAA", ShaderStage::Compute, backend,
+                                                             taaBytecode, {}, &taaError, &taaReflection),
+                   "ModernTAA " + backendName + " compile failed: " + taaError)) {
+            return false;
+        }
+        if (!Check(!taaBytecode.empty() && taaReflection.threadGroupSize[0] == 8 &&
+                       taaReflection.threadGroupSize[1] == 8 && taaReflection.threadGroupSize[2] == 1,
+                   "ModernTAA reflection has an invalid thread-group ABI for " + backendName)) {
+            return false;
         }
     }
     return true;
@@ -4202,6 +4251,7 @@ MYENGINE_REGISTER_TEST("Renderer", "TestModernTaaCameraJitterStabilityContract",
                        TestModernTaaCameraJitterStabilityContract);
 MYENGINE_REGISTER_TEST("Renderer", "TestModernScreenSpaceCompositeShaderContract",
                        TestModernScreenSpaceCompositeShaderContract);
+MYENGINE_REGISTER_TEST("Renderer", "TestModernSsaoCompositeContract", TestModernSsaoCompositeContract);
 MYENGINE_REGISTER_TEST("Renderer", "TestModernScreenSpaceSamplingAndConfidenceContracts",
                        TestModernScreenSpaceSamplingAndConfidenceContracts);
 MYENGINE_REGISTER_TEST("Renderer", "TestModernScreenSpacePostProcessTuningContract",

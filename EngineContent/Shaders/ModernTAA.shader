@@ -1,1 +1,1 @@
-{"type":"Shader","version":1,"stages":{"compute":{"source":"ModernScreenSpace.hlsl","entry":"CSTAA"}},"defines":[]}
+{"type":"Shader","version":1,"stages":{"compute":{"source":"ModernTAA.hlsl","entry":"CSTAA"}},"defines":[]}

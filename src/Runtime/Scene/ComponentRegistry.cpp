@@ -441,7 +441,7 @@ TypeDescriptor PostProcessType() {
         [](const Component& c) { return static_cast<const PostProcessComponent&>(c).IsTAAEnabled(); },
         [](Component& c, bool v) { static_cast<PostProcessComponent&>(c).SetTAAEnabled(v); });
     AddFloat(
-        d, "taaHistoryWeight", 0.9f,
+        d, "taaHistoryWeight", 0.8f,
         [](const Component& c) { return static_cast<const PostProcessComponent&>(c).GetTAAHistoryWeight(); },
         [](Component& c, float v) { static_cast<PostProcessComponent&>(c).SetTAAHistoryWeight(v); });
     AddFloat(

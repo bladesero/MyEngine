@@ -730,12 +730,23 @@ Modern Deferred executes on the graphics queue in this order:
 3. compute RG32Float min/max HiZ generation and conservative occlusion culling;
 4. indirect static Standard GBuffer plus a raster compatibility subpass for
    specialized Shader Graph/code and skinned vertex ABIs;
-5. 32x32x24 clustered light count, prefix, scatter, and compute deferred
+5. depth-derived SSAO generation and separable blur when the renderer feature
+   and PostProcess intensity enable it;
+6. 32x32x24 clustered light count, prefix, scatter, and compute deferred
    lighting into RGBA16Float HDR;
-6. half-resolution SSGI/SSR trace, temporal rejection/clamping, bilateral
-   a-trous filtering, and composition;
-7. sorted transparent/particle raster, TAA, bloom, ACES tone mapping, color
+7. half-resolution SSGI/SSR trace, temporal rejection/clamping, bilateral
+   a-trous filtering, and HDR composition with the independent SSAO visibility;
+8. sorted transparent/particle raster, TAA, bloom, ACES tone mapping, color
    adjustment, Runtime UI, and final raster blit.
+
+Modern TAA is an independently compiled compute pass. Its resolve follows the
+`webgpudemo` reference data flow: a 16-phase Halton(2,3) projection jitter,
+current-color unjittering, depth reconstruction with the current jittered
+inverse view-projection, reprojection through the previous successful frame's
+unjittered view-projection, 3x3 YCoCg variance clipping, and a default 80%
+history blend. MyEngine additionally rejects unavailable/out-of-bounds history
+and advances both the Halton phase and previous matrix only after a successful
+RenderGraph submission.
 
 There is no async-compute queue in this version. RenderGraph represents compute
 and graphics pass types, per-mip UAV accesses, indirect/copy-source buffer
