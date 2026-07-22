@@ -61,6 +61,7 @@ private:
 class SceneViewportPanel final : public EditorPanel {
 public:
     explicit SceneViewportPanel(std::shared_ptr<EditorGizmoState> state);
+    void OnUpdate(float deltaSeconds) override;
 
 protected:
     void DrawContent() override;
@@ -76,6 +77,7 @@ private:
     std::shared_ptr<EditorGizmoState> m_State;
     EditorPickingController m_PickingController;
     EditorGizmoController m_GizmoController;
+    EditorLightGizmoController m_LightGizmoController;
 };
 class GameViewportPanel final : public EditorPanel {
 public:

@@ -34,6 +34,7 @@ void ViewportRenderExecution::Render(Scene& scene, Camera& camera, const RenderV
     ResizeIfNeeded(w, h);
     SetCommandViewport(viewport, presentToSwapchain);
     m_Renderer.SetOutputOffscreen(!presentToSwapchain);
+    m_Renderer.SetDebugDrawViewMask(viewport.GetDebugDrawViewMask());
     m_Renderer.SetUIDrawList(uiDrawList);
     m_Renderer.RenderScene(scene, camera, presentToSwapchain);
     m_Renderer.SetUIDrawList(nullptr);

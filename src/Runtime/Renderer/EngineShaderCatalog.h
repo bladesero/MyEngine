@@ -4,6 +4,7 @@ namespace EngineShaders {
 inline constexpr const char* kAtmosphereCubemap = "Content/Engine/Shaders/AtmosphereCubemap.shader";
 inline constexpr const char* kAtmosphereSH = "Content/Engine/Shaders/AtmosphereSH.shader";
 inline constexpr const char* kDeferredLighting = "Content/Engine/Shaders/DeferredLightingPass.shader";
+inline constexpr const char* kDebugDraw = "Content/Engine/Shaders/DebugDraw.shader";
 inline constexpr const char* kEnvironmentMipmap = "Content/Engine/Shaders/EnvironmentMipmap.shader";
 inline constexpr const char* kGBuffer = "Content/Engine/Shaders/GBufferPass.shader";
 inline constexpr const char* kMesh = "Content/Engine/Shaders/Mesh.shader";

@@ -35,6 +35,7 @@
 #include "Assets/AssetDatabase.h"
 #include "Assets/MaterialAsset.h"
 #include "Assets/PrefabAsset.h"
+#include "DebugDraw/DebugDrawService.h"
 #include "Game/SceneRenderLayer.h"
 #include "Assets/AssetMeta.h"
 #include "Camera/CameraComponent.h"
@@ -51,7 +52,9 @@
 #include "UI/Core/UIComponents.h"
 
 #include <algorithm>
+#include <cfloat>
 #include <chrono>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <imgui.h>
@@ -1395,6 +1398,168 @@ bool TestEditorGizmoRowVectorLocalConversion() {
         }
     }
     return true;
+}
+
+bool TestEditorLightGizmoGeometryAndSubmission() {
+    DebugDrawService& debugDraw = DebugDrawService::Get();
+    debugDraw.Clear();
+    SceneRenderLayer layer(nullptr, 800, 600);
+    layer.SetSceneViewportActive(true);
+    SceneViewport* viewport = layer.GetSceneViewport();
+    viewport->SetViewportRect(0, 0, 800, 600);
+    EditorContext context(&layer, nullptr, nullptr, nullptr);
+    Scene& scene = layer.GetEditorScene();
+
+    Actor* directionalActor = scene.CreateActor("DirectionalGizmo");
+    directionalActor->GetTransform().position = {1.0f, 0.0f, 0.0f};
+    auto* directional = directionalActor->AddComponent<LightComponent>();
+    directional->SetLightType(LightType::Directional);
+
+    Actor* pointActor = scene.CreateActor("PointGizmo");
+    pointActor->GetTransform().position = {-1.0f, 0.0f, 0.0f};
+    auto* point = pointActor->AddComponent<LightComponent>();
+    point->SetLightType(LightType::Point);
+    point->SetRange(4.0f);
+
+    Actor* parent = scene.CreateActor("SpotParent");
+    parent->GetTransform().rotation = {0.0f, 90.0f, 0.0f};
+    parent->GetTransform().scale = {4.0f, 0.25f, 2.0f};
+    Actor* spotActor = scene.CreateActor("SpotGizmo");
+    spotActor->SetParent(parent);
+    auto* spot = spotActor->AddComponent<LightComponent>();
+    spot->SetLightType(LightType::Spot);
+    spot->SetRange(6.0f);
+    spot->SetOuterConeAngle(30.0f);
+
+    Actor* disabledActor = scene.CreateActor("DisabledLightGizmo");
+    auto* disabled = disabledActor->AddComponent<LightComponent>();
+    disabled->SetLightType(LightType::Point);
+    disabled->SetEnabled(false);
+    Actor* inactiveActor = scene.CreateActor("InactiveLightGizmo");
+    inactiveActor->AddComponent<LightComponent>()->SetLightType(LightType::Point);
+    inactiveActor->SetActive(false);
+
+    if (!Check(viewport->GetDebugDrawViewMask() == DebugDrawViewMask::Authoring &&
+                   layer.GetGameViewport()->GetDebugDrawViewMask() == DebugDrawViewMask::Runtime,
+               "Scene/Game viewports do not isolate authoring DebugDraw commands")) {
+        return false;
+    }
+
+    Camera scaleCamera;
+    scaleCamera.LookAt({0.0f, 0.0f, -4.0f}, Vec3::Zero());
+    scaleCamera.SetPerspective(60.0f, 4.0f / 3.0f, 0.1f, 100.0f);
+    const float nearUnits = EditorLightGizmoController::WorldUnitsPerPixel(scaleCamera, Vec3::Zero(), 600);
+    const float farUnits = EditorLightGizmoController::WorldUnitsPerPixel(scaleCamera, {0.0f, 0.0f, 4.0f}, 600);
+    scaleCamera.SetOrtho(8.0f, 6.0f, -10.0f, 10.0f);
+    const float orthoUnits = EditorLightGizmoController::WorldUnitsPerPixel(scaleCamera, Vec3::Zero(), 600);
+    const Mat4 verticalBasis =
+        EditorLightGizmoController::BuildAxialTransform({2.0f, 3.0f, 4.0f}, Vec3::Up(), 2.0f, 5.0f);
+    if (!Check(nearUnits > 0.0f && NearlyEqual(farUnits, nearUnits * 2.0f, 1e-4f) &&
+                   NearlyEqual(orthoUnits, 0.01f, 1e-5f) &&
+                   (verticalBasis.TransformPoint(Vec3::Zero()) - Vec3{2.0f, 3.0f, 4.0f}).Length() < 1e-4f &&
+                   (verticalBasis.TransformDir(Vec3::Forward()).Normalized() - Vec3::Up()).Length() < 1e-4f &&
+                   NearlyEqual(verticalBasis.TransformDir(Vec3::Right()).Length(), 2.0f),
+               "Light gizmo screen scaling or axial basis is incorrect")) {
+        return false;
+    }
+
+    context.GetSelection().Select(EditorSelectObject::MakeActor(pointActor->GetHandle(), pointActor->GetID()));
+    EditorLightGizmoController controller;
+    if (!Check(controller.Submit(context) == 7u, "selected point light emitted an unexpected gizmo command count"))
+        return false;
+    const auto pointSnapshot = debugDraw.SnapshotForScene(scene, 900, 1.0f);
+    size_t pointRangeCommands = 0u;
+    bool allAuthoring = pointSnapshot && pointSnapshot->size() == 7u;
+    for (const DebugDrawCommand& command : *pointSnapshot) {
+        allAuthoring = allAuthoring && command.viewMask == DebugDrawViewMask::Authoring;
+        if (command.geometry == DebugDrawGeometryKind::Sphere &&
+            (command.transform.TransformPoint(Vec3::Zero()) - pointActor->GetWorldPosition()).Length() < 1e-4f &&
+            NearlyEqual(command.transform.TransformDir(Vec3::Right()).Length(), point->GetRange(), 1e-3f)) {
+            ++pointRangeCommands;
+        }
+    }
+    if (!Check(allAuthoring && pointRangeCommands == 2u,
+               "point light selection did not emit authoring-only depth/xray range spheres")) {
+        return false;
+    }
+
+    debugDraw.Clear();
+    context.GetSelection().Select(EditorSelectObject::MakeActor(spotActor->GetHandle(), spotActor->GetID()));
+    if (!Check(controller.Submit(context) == 7u, "selected spot light emitted an unexpected gizmo command count"))
+        return false;
+    const auto spotSnapshot = debugDraw.SnapshotForScene(scene, 901, 2.0f);
+    const Vec3 spotDirection = spot->GetDirection();
+    const float expectedRadius = spot->GetRange() * std::tan(spot->GetOuterConeAngle() * kDeg2Rad);
+    size_t spotRangeCommands = 0u;
+    for (const DebugDrawCommand& command : *spotSnapshot) {
+        if (command.geometry != DebugDrawGeometryKind::ProceduralMesh ||
+            !NearlyEqual(command.transform.TransformDir(Vec3::Forward()).Length(), spot->GetRange(), 1e-3f)) {
+            continue;
+        }
+        ++spotRangeCommands;
+        if (!Check((command.transform.TransformDir(Vec3::Forward()).Normalized() - spotDirection).Length() < 1e-4f &&
+                       NearlyEqual(command.transform.TransformDir(Vec3::Right()).Length(), expectedRadius, 1e-3f),
+                   "spot range cone did not follow rotation-only +Z direction and outer angle")) {
+            return false;
+        }
+    }
+    debugDraw.Clear();
+    return Check(spotRangeCommands == 2u && (spotDirection - Vec3::Right()).Length() < 1e-4f,
+                 "spot light did not emit exactly one depth/xray cone pair or inherited actor scale");
+}
+
+bool TestEditorLightGizmoPicking() {
+    SceneRenderLayer layer(nullptr, 800, 600);
+    layer.SetSceneViewportActive(true);
+    layer.GetSceneViewport()->SetViewportRect(0, 0, 800, 600);
+    EditorContext context(&layer, nullptr, nullptr, nullptr);
+    Scene& scene = layer.GetEditorScene();
+    Actor* lightActor = scene.CreateActor("PickablePointLight");
+    auto* light = lightActor->AddComponent<LightComponent>();
+    light->SetLightType(LightType::Point);
+    light->SetRange(5.0f);
+
+    EditorPickingController picker;
+    picker.Pick(context, 400.0f, 300.0f);
+    if (!Check(context.GetSelection().ResolveActor(scene) == lightActor,
+               "component-only point light could not be selected through its Scene View gizmo")) {
+        return false;
+    }
+
+    Ray rangeOnlyRay{{1.0f, 0.0f, -4.0f}, Vec3::Forward()};
+    Actor* hitActor = nullptr;
+    float hitDistance = FLT_MAX;
+    if (!Check(!EditorLightGizmoController::FindClosestLightHit(context, rangeOnlyRay, hitActor, hitDistance),
+               "point light range sphere incorrectly participated in viewport picking")) {
+        return false;
+    }
+
+    light->SetLightType(LightType::Directional);
+    Ray centerRay{{0.0f, 0.0f, -4.0f}, Vec3::Forward()};
+    hitActor = nullptr;
+    hitDistance = FLT_MAX;
+    float sphereDistance = 0.0f;
+    float capsuleDistance = 0.0f;
+    if (!Check(EditorLightGizmoController::FindClosestLightHit(context, centerRay, hitActor, hitDistance) &&
+                   hitActor == lightActor &&
+                   EditorLightGizmoController::RaySphereHit(centerRay, Vec3::Zero(), 0.25f, sphereDistance) &&
+                   EditorLightGizmoController::RayCapsuleHit(centerRay, Vec3::Zero(), Vec3::Forward(), 0.1f,
+                                                             capsuleDistance) &&
+                   sphereDistance > 0.0f && capsuleDistance > 0.0f,
+               "direction arrow capsule proxy or primitive gizmo hit tests failed")) {
+        return false;
+    }
+
+    light->SetLightType(LightType::Point);
+    layer.BeginPlay();
+    context.SetSceneViewMode(EditorWorldViewMode::PlayWorldInspect);
+    context.GetSelection().Clear();
+    picker.Pick(context, 400.0f, 300.0f);
+    const EditorSelectObject& selected = context.GetSelection().GetPrimaryObject();
+    const bool playWorldSelected = selected.IsActor() && selected.GetWorldKind() == EditorSelectionWorldKind::Play &&
+                                   layer.GetPlayScene() && context.GetSelection().ResolveActor(*layer.GetPlayScene());
+    layer.StopPlay();
+    return Check(playWorldSelected, "PlayWorldInspect light gizmo picking did not preserve read-only world identity");
 }
 
 bool TestEditorServiceActionAndInspectorRegistries() {
@@ -5719,6 +5884,9 @@ MYENGINE_REGISTER_TEST("Editor", "TestEditorMoveActorCommandUndoRedo", TestEdito
 MYENGINE_REGISTER_TEST("Editor", "TestEditorContextWorldRouting", TestEditorContextWorldRouting);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorViewportOperatorFrameSelected", TestEditorViewportOperatorFrameSelected);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorGizmoRowVectorLocalConversion", TestEditorGizmoRowVectorLocalConversion);
+MYENGINE_REGISTER_TEST("Editor", "TestEditorLightGizmoGeometryAndSubmission",
+                       TestEditorLightGizmoGeometryAndSubmission);
+MYENGINE_REGISTER_TEST("Editor", "TestEditorLightGizmoPicking", TestEditorLightGizmoPicking);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorServiceActionAndInspectorRegistries",
                        TestEditorServiceActionAndInspectorRegistries);
 MYENGINE_REGISTER_TEST("Editor", "TestEditorShortcutMapAndWorkspacePersistence",

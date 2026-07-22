@@ -6,6 +6,8 @@
 #include "Core/EngineTime.h"
 #include "Core/FrameStats.h"
 #include "Core/Logger.h"
+#include "DebugDraw/DebugDrawService.h"
+#include "Renderer/DebugDrawPass.h"
 #include "Renderer/EnvironmentPass.h"
 #include "Renderer/DeferredLightingPass.h"
 #include "Renderer/EngineShaderCatalog.h"
@@ -166,7 +168,7 @@ Renderer::Renderer(IRHIDevice* device, IRHIFrameContext* frameContext, IRHIReadb
       m_MainPass(std::make_unique<MainPass>(device)), m_GBufferPass(std::make_unique<GBufferPass>(device)),
       m_DeferredLightingPass(std::make_unique<DeferredLightingPass>(device)),
       m_PostProcessPass(std::make_unique<PostProcessPass>(device)),
-      m_ScreenUIPass(std::make_unique<ScreenUIPass>(device)),
+      m_DebugDrawPass(std::make_unique<DebugDrawPass>(device)), m_ScreenUIPass(std::make_unique<ScreenUIPass>(device)),
       m_ProbeLightingSystem(std::make_unique<ProbeLightingSystem>(device)),
       m_RenderGraph(device ? std::make_unique<RenderGraph>(*device) : nullptr) {
     ShaderManager::Get().SetDevice(device);
@@ -249,11 +251,11 @@ bool Renderer::PrewarmStartupShaders(const Scene& scene) {
 
     std::vector<std::string> shaders;
     if ((missing & kCommonShaders) != 0) {
-        shaders.insert(shaders.end(),
-                       {EngineShaders::kShadowDepth, EngineShaders::kShadowDepthSkinned,
-                        EngineShaders::kAtmosphereCubemap, EngineShaders::kEnvironmentMipmap,
-                        EngineShaders::kAtmosphereSH, EngineShaders::kShadowedMainPass, EngineShaders::kPostProcessFXAA,
-                        EngineShaders::kProceduralSky, EngineShaders::kScreenUI, EngineShaders::kMesh});
+        shaders.insert(shaders.end(), {EngineShaders::kShadowDepth, EngineShaders::kShadowDepthSkinned,
+                                       EngineShaders::kAtmosphereCubemap, EngineShaders::kEnvironmentMipmap,
+                                       EngineShaders::kAtmosphereSH, EngineShaders::kShadowedMainPass,
+                                       EngineShaders::kPostProcessFXAA, EngineShaders::kProceduralSky,
+                                       EngineShaders::kScreenUI, EngineShaders::kDebugDraw, EngineShaders::kMesh});
     }
     if ((missing & kDeferredCoreShaders) != 0) {
         shaders.insert(shaders.end(), {EngineShaders::kGBuffer, EngineShaders::kDeferredLighting});
@@ -1077,6 +1079,29 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
                 ++stats.fullscreenDrawCalls;
                 FrameStatsProvider::SetRendererStats(stats);
             });
+        const auto debugDrawCommands =
+            DebugDrawService::Get().SnapshotForScene(scene, Time::FrameCount(), Time::TotalSeconds());
+        const RHIFormat debugDrawColorFormat =
+            compositeToBackbuffer ? backBufferView->texture->desc.format : postResources.composite->desc.format;
+        const bool debugDrawReady =
+            debugDrawCommands && !debugDrawCommands->empty() && m_DebugDrawPass &&
+            m_DebugDrawPass->Prepare(*debugDrawCommands, debugDrawColorFormat, postResources.sceneDepth->desc.format,
+                                     m_DebugDrawViewMask);
+        if (debugDrawReady) {
+            m_RenderGraph->AddPass(
+                "DebugDraw",
+                [compositeToBackbuffer, composite, backBuffer, sceneDepth](RenderGraphBuilder& builder) {
+                    if (compositeToBackbuffer) {
+                        builder.WriteColor(backBuffer, RHILoadOp::Load, RHIStoreOp::Store);
+                    } else {
+                        builder.WriteColor(composite, RHILoadOp::Load, RHIStoreOp::Store);
+                    }
+                    builder.WriteDepth(sceneDepth, RHILoadOp::Load, RHIStoreOp::Store, 1.0f);
+                },
+                [this, &camera](GpuCommandList& commands, const RenderGraphResources&) {
+                    m_DebugDrawPass->ExecutePrepared(commands, camera);
+                });
+        }
         const bool screenUIRequested =
             HasRendererFeature(m_FeatureMask, RendererFeatureMask::ScreenUI) && m_UIDrawList && !m_UIDrawList->Empty();
         const RHIFormat screenUIColorFormat =

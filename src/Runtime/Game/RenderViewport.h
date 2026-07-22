@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Camera/Camera.h"
+#include "DebugDraw/DebugDrawCommand.h"
 #include "Game/ViewportRenderExecution.h"
 #include "Math/Ray.h"
 #include "Renderer/RenderPath.h"
@@ -43,6 +44,8 @@ public:
     RendererFeatureMask GetFeatureMask() const;
     void SetDebugView(RendererDebugView view);
     RendererDebugView GetDebugView() const;
+    void SetDebugDrawViewMask(DebugDrawViewMask mask) { m_DebugDrawViewMask = mask; }
+    DebugDrawViewMask GetDebugDrawViewMask() const { return m_DebugDrawViewMask; }
     void InvalidateTemporalHistory(const std::string& reason, bool resetObjectHistory = false);
 
     virtual Camera& GetCamera() = 0;
@@ -63,4 +66,5 @@ private:
     int m_VpH = 0;
     bool m_UseExternalViewportRect = false;
     bool m_InputEnabled = true;
+    DebugDrawViewMask m_DebugDrawViewMask = DebugDrawViewMask::All;
 };

@@ -1735,7 +1735,7 @@ bool TestParallelStartupShaderCachePrewarm() {
     std::error_code ec;
     fs::remove_all(root, ec);
     const fs::path shaderRoot = fs::current_path() / "EngineContent" / "Shaders";
-    const std::array<const char*, 31> descriptors = {
+    const std::array<const char*, 32> descriptors = {
         "ShadowDepth.shader",
         "ShadowDepthSkinned.shader",
         "AtmosphereCubemap.shader",
@@ -1745,6 +1745,7 @@ bool TestParallelStartupShaderCachePrewarm() {
         "PostProcessFXAA.shader",
         "ProceduralSky.shader",
         "ScreenUI.shader",
+        "DebugDraw.shader",
         "Mesh.shader",
         "PostProcessSSAO.shader",
         "PostProcessSSAOBlur.shader",

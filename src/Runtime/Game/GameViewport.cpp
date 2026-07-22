@@ -6,6 +6,7 @@
 
 GameViewport::GameViewport(IRHIDevice* device, IRHIFrameContext* frameContext, IRHIReadbackService* readbackService)
     : RenderViewport(device, frameContext, readbackService) {
+    SetDebugDrawViewMask(DebugDrawViewMask::Runtime);
 }
 
 void GameViewport::Initialize(int width, int height) {

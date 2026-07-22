@@ -11,6 +11,7 @@
 #include "Input/Input.h"
 #include "Core/Logger.h"
 #include "Core/FrameStats.h"
+#include "DebugDraw/DebugDraw.h"
 #include "Physics/CharacterControllerComponent.h"
 #include "Physics/BoxColliderComponent.h"
 #include "Physics/CapsuleColliderComponent.h"
@@ -2125,9 +2126,13 @@ void DebugLogThrottle(const std::string& key, const std::string& message, float 
     g_DebugThrottleTimes[key] = now;
     DebugLog(message);
 }
-void DebugDrawLine(const Vec3&, const Vec3&, const Vec3&, float) {
+void DebugDrawLine(const Vec3& start, const Vec3& end, const Vec3& color, float duration) {
+    if (Scene* scene = ActiveScene())
+        DebugDraw::DrawLine(*scene, start, end, {color.x, color.y, color.z, 1.0f}, duration);
 }
-void DebugDrawSphere(const Vec3&, float, const Vec3&, float) {
+void DebugDrawSphere(const Vec3& center, float radius, const Vec3& color, float duration) {
+    if (Scene* scene = ActiveScene())
+        DebugDraw::DrawSphere(*scene, center, radius, {color.x, color.y, color.z, 1.0f}, duration);
 }
 void DebugDrawText(const Vec3&, const std::string&, const Vec3&, float) {
 }

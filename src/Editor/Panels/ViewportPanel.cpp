@@ -127,6 +127,13 @@ SceneViewportPanel::SceneViewportPanel(std::shared_ptr<EditorGizmoState> state)
     : EditorPanel("viewport", "Scene View"), m_State(std::move(state)) {
 }
 
+void SceneViewportPanel::OnUpdate(float) {
+    EditorContext* context = GetContext();
+    auto* layer = context ? context->GetSceneLayer() : nullptr;
+    if (context && layer && layer->IsSceneViewportActive())
+        m_LightGizmoController.Submit(*context);
+}
+
 int SceneViewportPanel::GetWindowFlags() const {
 #if defined(MYENGINE_ENABLE_IMGUI)
     return ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoBackground;

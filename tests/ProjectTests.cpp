@@ -646,12 +646,20 @@ bool TestWorkspaceCookAndPublish() {
         AssetManager::Get().Clear();
         AssetManager::Get().SetProjectRoot(report.outputDirectory);
         AssetManager::Get().SetEngineContentRoot(std::filesystem::current_path() / "EngineContent");
-        const char* engineShaders[] = {
-            EngineShaders::kAtmosphereCubemap, EngineShaders::kAtmosphereSH,    EngineShaders::kDeferredLighting,
-            EngineShaders::kEnvironmentMipmap, EngineShaders::kGBuffer,         EngineShaders::kMesh,
-            EngineShaders::kPostProcessFXAA,   EngineShaders::kPostProcessSSAO, EngineShaders::kPostProcessSSAOBlur,
-            EngineShaders::kProceduralSky,     EngineShaders::kShadowDepth,     EngineShaders::kShadowDepthSkinned,
-            EngineShaders::kShadowedMainPass};
+        const char* engineShaders[] = {EngineShaders::kAtmosphereCubemap,
+                                       EngineShaders::kAtmosphereSH,
+                                       EngineShaders::kDebugDraw,
+                                       EngineShaders::kDeferredLighting,
+                                       EngineShaders::kEnvironmentMipmap,
+                                       EngineShaders::kGBuffer,
+                                       EngineShaders::kMesh,
+                                       EngineShaders::kPostProcessFXAA,
+                                       EngineShaders::kPostProcessSSAO,
+                                       EngineShaders::kPostProcessSSAOBlur,
+                                       EngineShaders::kProceduralSky,
+                                       EngineShaders::kShadowDepth,
+                                       EngineShaders::kShadowDepthSkinned,
+                                       EngineShaders::kShadowedMainPass};
         for (const char* engineShader : engineShaders) {
             auto assetManagerShader = AssetManager::Get().Load<ShaderAsset>(engineShader);
             if (!Check(assetManagerShader && assetManagerShader->IsCooked(),
@@ -755,33 +763,42 @@ bool TestWorkspaceCookAndPublish() {
                    fs::is_regular_file(extracted / "Content/Scripts/main.as") &&
                    !fs::exists(extracted / "Content/Editor/Scripts/tool.lua") &&
                    fs::is_regular_file(extracted / "Content/Engine/Shaders/Mesh.shader") &&
-                   !fs::exists(extracted / "Content/Engine/Shaders/Mesh.hlsl"),
+                   fs::is_regular_file(extracted / "Content/Engine/Shaders/DebugDraw.shader") &&
+                   !fs::exists(extracted / "Content/Engine/Shaders/Mesh.hlsl") &&
+                   !fs::exists(extracted / "Content/Engine/Shaders/DebugDraw.hlsl"),
                "cooked Content files were not restored"))
         return false;
     auto cookedShader = LoadShaderAssetFromFile((extracted / "Content/Engine/Shaders/Mesh.shader").string());
+    auto cookedDebugDraw = LoadShaderAssetFromFile((extracted / "Content/Engine/Shaders/DebugDraw.shader").string());
 #if defined(__APPLE__)
-    if (!Check(cookedShader && cookedShader->IsCooked() &&
+    if (!Check(cookedShader && cookedShader->IsCooked() && cookedDebugDraw && cookedDebugDraw->IsCooked() &&
                    cookedShader->GetBytecode(ShaderBackend::D3D11, ShaderStage::Vertex).empty() &&
                    cookedShader->GetBytecode(ShaderBackend::D3D12, ShaderStage::Pixel).empty() &&
                    !cookedShader->GetBytecode(ShaderBackend::Metal, ShaderStage::Vertex).empty() &&
-                   cookedShader->GetBytecode(ShaderBackend::Vulkan, ShaderStage::Vertex).empty(),
+                   cookedShader->GetBytecode(ShaderBackend::Vulkan, ShaderStage::Vertex).empty() &&
+                   !cookedDebugDraw->GetBytecode(ShaderBackend::Metal, ShaderStage::Vertex).empty(),
                "published macOS shader does not contain the expected Metal backend"))
         return false;
 #else
 #if defined(MYENGINE_ENABLE_VULKAN)
-    if (!Check(cookedShader && cookedShader->IsCooked() &&
+    if (!Check(cookedShader && cookedShader->IsCooked() && cookedDebugDraw && cookedDebugDraw->IsCooked() &&
                    !cookedShader->GetBytecode(ShaderBackend::D3D11, ShaderStage::Vertex).empty() &&
                    !cookedShader->GetBytecode(ShaderBackend::D3D12, ShaderStage::Pixel).empty() &&
                    !cookedShader->GetBytecode(ShaderBackend::Vulkan, ShaderStage::Vertex).empty() &&
-                   cookedShader->GetBytecode(ShaderBackend::Metal, ShaderStage::Vertex).empty(),
+                   cookedShader->GetBytecode(ShaderBackend::Metal, ShaderStage::Vertex).empty() &&
+                   !cookedDebugDraw->GetBytecode(ShaderBackend::D3D11, ShaderStage::Vertex).empty() &&
+                   !cookedDebugDraw->GetBytecode(ShaderBackend::D3D12, ShaderStage::Pixel).empty() &&
+                   !cookedDebugDraw->GetBytecode(ShaderBackend::Vulkan, ShaderStage::Vertex).empty(),
                "published Windows shader does not contain the expected D3D/Vulkan backends"))
         return false;
 #else
-    if (!Check(cookedShader && cookedShader->IsCooked() &&
+    if (!Check(cookedShader && cookedShader->IsCooked() && cookedDebugDraw && cookedDebugDraw->IsCooked() &&
                    !cookedShader->GetBytecode(ShaderBackend::D3D11, ShaderStage::Vertex).empty() &&
                    !cookedShader->GetBytecode(ShaderBackend::D3D12, ShaderStage::Pixel).empty() &&
                    cookedShader->GetBytecode(ShaderBackend::Vulkan, ShaderStage::Vertex).empty() &&
-                   cookedShader->GetBytecode(ShaderBackend::Metal, ShaderStage::Vertex).empty(),
+                   cookedShader->GetBytecode(ShaderBackend::Metal, ShaderStage::Vertex).empty() &&
+                   !cookedDebugDraw->GetBytecode(ShaderBackend::D3D11, ShaderStage::Vertex).empty() &&
+                   !cookedDebugDraw->GetBytecode(ShaderBackend::D3D12, ShaderStage::Pixel).empty(),
                "published Windows shader does not contain the expected D3D-only backends"))
         return false;
 #endif

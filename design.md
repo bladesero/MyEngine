@@ -382,6 +382,43 @@ offscreen viewport target. Editor remains ImGui-based and only exposes runtime
 UI assets/components for authoring through Scene Outliner creation menus and
 Inspector sections.
 
+## Runtime debug draw
+
+Runtime, AngelScript, and Editor C++ callers share the public immediate-mode API in
+`Runtime/DebugDraw/DebugDraw.h`. Every line, primitive, collider, asset mesh, or
+procedural mesh request is normalized into a `DebugDrawCommand`; Renderer and RHI
+never depend on Editor code.
+
+```mermaid
+flowchart LR
+    API["DebugDraw immediate API"] --> Command["DebugDrawCommand"]
+    Command --> Service["DebugDrawService"]
+    Service --> Snapshot["Immutable per-engine-frame scene snapshot"]
+    Snapshot --> Pass["Renderer DebugDrawPass"]
+    Pass --> RHI["Instanced LineList RHI draws"]
+```
+
+`DebugDrawService` is the process-wide, mutex-protected submission owner. Commands
+carry a `SceneLifetimeToken` and its unique generation, so EditorWorld and PlayWorld
+remain isolated and destroyed scenes are reclaimed automatically. The first Renderer
+request in an engine frame seals pending commands; every Scene/Game viewport in that
+frame reads the same immutable snapshot, while later submissions start next frame.
+Zero duration means one visible sealed frame, positive duration starts when the
+command first enters a snapshot, and both pending and active storage are capped at
+65,536 commands with cumulative dropped statistics.
+
+`DebugDrawPass` owns cached built-in wireframes and versioned MeshAsset/procedural
+mesh edge buffers. It groups geometry by depth mode and target format, submits at
+most 64 instances per draw, enables alpha blending, and always disables depth writes.
+Commands also carry a `DebugDrawViewMask`: existing Runtime and scripting calls
+default to `All`, authoring-only overlays target `Authoring`, `SceneViewport`
+consumes the authoring channel, and `GameViewport`/Player consume the runtime
+channel. Filtering happens while preparing the existing pass, so Scene and Game
+viewports can render the same Scene without leaking Editor gizmos into Game View.
+The RenderGraph schedules `DebugDraw` after final `Composite` and before `ScreenUI`;
+Editor ImGui is submitted later by the Editor layer. This placement avoids temporal
+history/TAA ghosting while preserving UI coverage.
+
 ## 9. Project startup flow
 
 - `ProjectConfig` is a Runtime service shared by Editor and Player. It reads
@@ -453,7 +490,7 @@ flowchart LR
 - **Panels**：Toolbar、Scene Hierarchy、Scene View、Game View、Inspector、Asset Browser、Log 都继承 `EditorPanel`。默认布局由 `EditorLayoutManager` 从 `Config/EditorLayout.default.json` 构建 ImGui DockSpace；用户调整后的 dock/float/window 状态保存到 editor state，不写入 scene。
 - **Inspector**：组件 UI 实现为独立 `EditorInspectorSection`，由 `EditorInspectorRegistry` 按 order 稳定排序。连续属性拖动通过 scene transaction 合并为一次撤销记录。
 - **Actions and commands**：按钮通过 `EditorActionRegistry` 调度；会修改场景的操作进入 `EditorCommandStack`。事务按执行顺序 redo、逆序 undo，新命令会清空 redo。
-- **Viewport controllers**：Scene View 使用 `SceneViewport` 的 EditorCamera 进行自由飞行、screen ray/AABB picking 和 ImGuizmo；Scene View overlay 承载 EditorWorld/PlayWorldInspect 单按钮切换、transform 工具选择、3D axis gizmo 固定方向 framing、绕当前 focus 拖拽旋转和透视/正交切换；Game View 使用主 `CameraComponent` 预览运行时相机，不处理编辑 picking/gizmo。父子局部矩阵遵守行向量关系 `world = local * parentWorld`，因此 `local = world * inverse(parentWorld)`。
+- **Viewport controllers**：Scene View 使用 `SceneViewport` 的 EditorCamera 进行自由飞行、screen ray/AABB picking 和 ImGuizmo；Scene View panel 在 Runtime render 前提交单帧、`Authoring`-only 的 Light gizmo，所有有效 Light 显示屏幕恒定标记，选中 Point/Spot 分别显示范围球/外锥，紧凑标记也作为无 Mesh Actor 的 picking proxy。Scene View overlay 承载 EditorWorld/PlayWorldInspect 单按钮切换、transform 工具选择、3D axis gizmo 固定方向 framing、绕当前 focus 拖拽旋转和透视/正交切换；Game View 使用主 `CameraComponent` 预览运行时相机，不处理编辑 picking/gizmo。父子局部矩阵遵守行向量关系 `world = local * parentWorld`，因此 `local = world * inverse(parentWorld)`。
 - **Dependency rule**：依赖方向只能是 `Editor -> Game/Scene/Assets/Renderer public APIs`。Runtime、Renderer 和 RHI 不允许反向包含 Editor 头文件。
 **Editor UI foundation**: `EditorUIScaleManager` owns platform DPI and user UI
 scale; `EditorFontManager` owns ImGui font-atlas rebuilds and role fonts

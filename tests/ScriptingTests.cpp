@@ -1,5 +1,6 @@
 #include "Assets/AssetManager.h"
 #include "Assets/ScriptAsset.h"
+#include "DebugDraw/DebugDrawService.h"
 #include "Physics/CharacterControllerComponent.h"
 #include "Physics/RigidBodyComponent.h"
 #include "Physics/SphereColliderComponent.h"
@@ -232,6 +233,30 @@ bool TestAngelScriptSaveDataTaskAndDebug() {
     return Check(ok, "SaveData/Task/Debug scripting behavior failed: " + script->GetLastError());
 }
 
+bool TestAngelScriptDebugDrawUsesActiveScene() {
+    DebugDrawService& service = DebugDrawService::Get();
+    service.Clear();
+    Scene scene("ScriptDebugDraw");
+    Actor* actor = scene.CreateActor("DebugDrawer");
+    auto* script = actor->AddComponent<ScriptComponent>();
+    script->SetSource("class Script {\n"
+                      "  void Start() {\n"
+                      "    Debug::DrawLine(Vec3(1, 2, 3), Vec3(4, 5, 6), Vec3(0.1f, 0.2f, 0.3f), 2.0f);\n"
+                      "    Debug::DrawSphere(Vec3(7, 8, 9), 1.5f, Vec3(0.4f, 0.5f, 0.6f), 0.0f);\n"
+                      "  }\n"
+                      "}\n");
+    if (!Check(script->IsCompiled(), "DebugDraw script should compile: " + script->GetLastError()))
+        return false;
+    scene.OnUpdate(1.0f / 60.0f);
+    const auto snapshot = service.SnapshotForScene(scene, 500, 10.0f);
+    const bool valid = snapshot && snapshot->size() == 2 && (*snapshot)[0].geometry == DebugDrawGeometryKind::Line &&
+                       (*snapshot)[1].geometry == DebugDrawGeometryKind::Sphere &&
+                       NearlyEqual((*snapshot)[0].color.r, 0.1f) && NearlyEqual((*snapshot)[0].durationSeconds, 2.0f) &&
+                       NearlyEqual((*snapshot)[1].transform.TransformPoint(Vec3::Zero()).x, 7.0f);
+    service.Clear();
+    return Check(valid, "AngelScript Debug::DrawLine/DrawSphere did not submit to ActiveScene");
+}
+
 bool TestAngelScriptSceneTagsTransformProfilerAndDiagnostics() {
     ScriptProfiler::Reset();
     Scene scene("TagsTransform");
@@ -349,6 +374,7 @@ MYENGINE_REGISTER_TEST("Scripting", "TestAngelScriptIncludesAndDependencyHotRelo
 MYENGINE_REGISTER_TEST("Scripting", "TestAngelScriptSceneAndComponentFacadeV3",
                        TestAngelScriptSceneAndComponentFacadeV3);
 MYENGINE_REGISTER_TEST("Scripting", "TestAngelScriptSaveDataTaskAndDebug", TestAngelScriptSaveDataTaskAndDebug);
+MYENGINE_REGISTER_TEST("Scripting", "TestAngelScriptDebugDrawUsesActiveScene", TestAngelScriptDebugDrawUsesActiveScene);
 MYENGINE_REGISTER_TEST("Scripting", "TestAngelScriptSceneTagsTransformProfilerAndDiagnostics",
                        TestAngelScriptSceneTagsTransformProfilerAndDiagnostics);
 MYENGINE_REGISTER_TEST("Scripting", "TestAngelScriptSubtitleFacade", TestAngelScriptSubtitleFacade);

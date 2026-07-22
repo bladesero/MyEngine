@@ -1,5 +1,6 @@
 #pragma once
 
+#include "DebugDraw/DebugDrawCommand.h"
 #include "Renderer/RHI/IRHIDevice.h"
 #include "Renderer/RHI/IRHIFrameContext.h"
 #include "Renderer/RHI/IRHIReadbackService.h"
@@ -18,6 +19,7 @@ class MainPass;
 class EnvironmentPass;
 class GBufferPass;
 class DeferredLightingPass;
+class DebugDrawPass;
 class ScreenUIPass;
 class ModernDeferredPipeline;
 class ProbeLightingSystem;
@@ -59,6 +61,8 @@ public:
     // (useful for editor overlays like ImGui).
     void RenderScene(const Scene& scene, const Camera& camera, bool present = true);
     void SetUIDrawList(const UIDrawList* drawList) { m_UIDrawList = drawList; }
+    void SetDebugDrawViewMask(DebugDrawViewMask mask) { m_DebugDrawViewMask = mask; }
+    DebugDrawViewMask GetDebugDrawViewMask() const { return m_DebugDrawViewMask; }
 
     void SetOutputOffscreen(bool enabled);
     GpuTextureView* GetSceneColorView() const;
@@ -93,6 +97,7 @@ private:
     std::unique_ptr<GBufferPass> m_GBufferPass;
     std::unique_ptr<DeferredLightingPass> m_DeferredLightingPass;
     std::unique_ptr<PostProcessPass> m_PostProcessPass;
+    std::unique_ptr<DebugDrawPass> m_DebugDrawPass;
     std::unique_ptr<ScreenUIPass> m_ScreenUIPass;
     std::unique_ptr<ModernDeferredPipeline> m_ModernDeferredPipeline;
     bool m_SkylightConflictLogged = false;
@@ -111,6 +116,7 @@ private:
     bool m_StaticGeometryOnly = false;
     bool m_LocalLightingProbesEnabled = true;
     const UIDrawList* m_UIDrawList = nullptr;
+    DebugDrawViewMask m_DebugDrawViewMask = DebugDrawViewMask::All;
     RendererDebugView m_DebugView = RendererDebugView::Final;
     std::array<std::shared_ptr<GpuTimestampQueryPool>, 3> m_FrameTimestampPools{};
     std::array<bool, 3> m_FrameTimestampRecorded{};

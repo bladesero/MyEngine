@@ -188,6 +188,8 @@ target("MyEngineRuntime")
         "src/Runtime/Core/RuntimeAccessibility.cpp",
         "src/Runtime/Core/RuntimeQualityDegradation.cpp",
         "src/Runtime/Core/TaskService.cpp",
+        "src/Runtime/DebugDraw/DebugDraw.cpp",
+        "src/Runtime/DebugDraw/DebugDrawService.cpp",
         "src/Runtime/Scripting/ScriptComponent.cpp",
         "src/Runtime/Physics/RigidBodyComponent.cpp",
         "src/Runtime/Physics/BoxColliderComponent.cpp",
@@ -217,6 +219,7 @@ target("MyEngineRuntime")
         "src/Runtime/Navigation/NavigationWorld.cpp",
         "src/Runtime/Navigation/NavAgentComponent.cpp",
         "src/Runtime/Renderer/Renderer.cpp",
+        "src/Runtime/Renderer/DebugDrawPass.cpp",
         "src/Runtime/Renderer/RenderGraph.cpp",
         "src/Runtime/Renderer/RHIConformance.cpp",
         "src/Runtime/Renderer/RHI/ShaderReflection.cpp",
@@ -486,6 +489,7 @@ target("MyEngineTests")
     add_rules("copy_game_content", "copy_slang_tool", "copy_runtime_library")
     add_files(
         "tests/AssetsTests.cpp",
+        "tests/DebugDrawTests.cpp",
         "tests/EditorSourceContractTests.cpp",
         "tests/EditorTests.cpp",
         "tests/EngineTests.cpp",

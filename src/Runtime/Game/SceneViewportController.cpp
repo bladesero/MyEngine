@@ -19,6 +19,7 @@ constexpr float kSceneViewOrthoFar = 1000.0f;
 
 SceneViewport::SceneViewport(IRHIDevice* device, IRHIFrameContext* frameContext, IRHIReadbackService* readbackService)
     : RenderViewport(device, frameContext, readbackService) {
+    SetDebugDrawViewMask(DebugDrawViewMask::Authoring);
 }
 
 void SceneViewport::Initialize(int width, int height) {

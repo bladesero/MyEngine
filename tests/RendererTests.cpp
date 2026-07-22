@@ -6,10 +6,12 @@
 #include "Camera/Camera.h"
 #include "Core/FrameStats.h"
 #include "Core/RuntimeQualityDegradation.h"
+#include "DebugDraw/DebugDrawCommand.h"
 #include "Game/SceneRenderLayer.h"
 #include "Math/Mat4Inverse.h"
 #include "Renderer/EnvironmentPass.h"
 #include "Renderer/DeferredLightingPass.h"
+#include "Renderer/DebugDrawPass.h"
 #include "Renderer/EngineShaderCatalog.h"
 #include "Renderer/GBufferPass.h"
 #include "Renderer/GpuUploadQueue.h"
@@ -27,6 +29,7 @@
 #include "Renderer/Renderer.h"
 #include "Renderer/ShaderCompilerSlang.h"
 #include "Renderer/ShaderCacheService.h"
+#include "Renderer/ShaderCooker.h"
 #include "Renderer/ShaderGraphCompiler.h"
 #include "Renderer/ShaderManager.h"
 #include "Renderer/SceneLighting.h"
@@ -101,6 +104,11 @@ struct MockTexture final : GpuTexture {};
 struct MockTextureView final : GpuTextureView {};
 struct MockSampler final : GpuSampler {};
 struct MockAccelerationStructure final : GpuAccelerationStructure {};
+class VersionedDebugMesh final : public MeshAsset {
+public:
+    explicit VersionedDebugMesh(const std::string& path) : MeshAsset(path) {}
+    void BumpVersion() { IncrementVersion(); }
+};
 class MockTimestampPool final : public GpuTimestampQueryPool {
 public:
     uint32_t GetCount() const override { return 4; }
@@ -169,7 +177,9 @@ public:
         ++pipelineBinds;
         pipelineBlendEnabled.push_back(pipeline && !pipeline->desc.blend.attachments.empty() &&
                                        pipeline->desc.blend.attachments[0].blendEnable);
+        pipelineDepthTestEnabled.push_back(pipeline && pipeline->desc.depthStencil.depthTestEnable);
         pipelineDepthWriteEnabled.push_back(pipeline && pipeline->desc.depthStencil.depthWriteEnable);
+        pipelineDepthCompareOps.push_back(pipeline ? pipeline->desc.depthStencil.depthCompareOp : RHICompareOp::Always);
     }
     void SetComputePipeline(GpuComputePipeline*) override { ++computePipelineBinds; }
     void SetBindGroup(uint32_t, GpuBindGroup* bindings) override {
@@ -218,7 +228,9 @@ public:
     int renderingBeginCalls = 0;
     int pipelineBinds = 0;
     std::vector<bool> pipelineBlendEnabled;
+    std::vector<bool> pipelineDepthTestEnabled;
     std::vector<bool> pipelineDepthWriteEnabled;
+    std::vector<RHICompareOp> pipelineDepthCompareOps;
     int computePipelineBinds = 0;
     int bindGroupBinds = 0;
     bool captureBindGroupConstants = false;
@@ -2425,6 +2437,154 @@ bool TestSkinnedGBufferMotionUsesPreviousBonePalette() {
                  "Shader Graph GBuffer motion ABI or cache version omitted previous bone poses");
 }
 
+bool TestDebugDrawPassInstancingAndShaderContracts() {
+    const std::array<const char*, 4> shaderCandidates = {
+        "EngineContent/Shaders/DebugDraw.hlsl",
+        "../../../EngineContent/Shaders/DebugDraw.hlsl",
+        "../../../../EngineContent/Shaders/DebugDraw.hlsl",
+        "../../../../../EngineContent/Shaders/DebugDraw.hlsl",
+    };
+    const auto shaderPath = FindRepositoryFile(shaderCandidates);
+    if (!Check(!shaderPath.empty(), "DebugDraw shader source was not found"))
+        return false;
+    if (!Check(ShaderCompilerSlang::IsAvailable(),
+               "Slang compiler is unavailable; DebugDraw cross-backend shader contracts cannot be validated")) {
+        return false;
+    }
+
+    bool allBackendsCompiled = true;
+    std::string compileDiagnostic;
+    for (ShaderBackend backend :
+         {ShaderBackend::D3D11, ShaderBackend::D3D12, ShaderBackend::Vulkan, ShaderBackend::Metal}) {
+        for (const auto& stage : {std::pair{ShaderStage::Vertex, "VSMain"}, std::pair{ShaderStage::Pixel, "PSMain"}}) {
+            std::vector<uint8_t> bytecode;
+            std::string error;
+            if (!ShaderCompilerSlang::CompileStageFromFile(shaderPath, stage.second, stage.first, backend, bytecode, {},
+                                                           &error) ||
+                bytecode.empty()) {
+                allBackendsCompiled = false;
+                compileDiagnostic += std::string(ShaderCooker::BackendName(backend)) + ": " + error + "; ";
+            }
+        }
+    }
+    if (!Check(allBackendsCompiled, "DebugDraw shader cross-backend compile failed: " + compileDiagnostic))
+        return false;
+
+    const std::array<const char*, 4> rendererCandidates = {
+        "src/Runtime/Renderer/Renderer.cpp",
+        "../../../src/Runtime/Renderer/Renderer.cpp",
+        "../../../../src/Runtime/Renderer/Renderer.cpp",
+        "../../../../../src/Runtime/Renderer/Renderer.cpp",
+    };
+    const std::string renderer = ReadRepositoryTextFile(rendererCandidates);
+    const size_t composite = renderer.find("\"Composite\"");
+    const size_t debugDraw = renderer.find("\"DebugDraw\"", composite);
+    const size_t screenUI = renderer.find("\"ScreenUI\"", debugDraw);
+    if (!Check(composite != std::string::npos && debugDraw != std::string::npos && screenUI != std::string::npos &&
+                   composite < debugDraw && debugDraw < screenUI &&
+                   renderer.find("EngineShaders::kDebugDraw") != std::string::npos,
+               "Renderer does not schedule/prewarm DebugDraw after Composite and before ScreenUI")) {
+        return false;
+    }
+
+    AssetManager::Get().Clear();
+    AssetManager::Get().SetProjectRoot(std::filesystem::current_path());
+    AssetManager::Get().SetEngineContentRoot(std::filesystem::current_path() / "EngineContent");
+    ShaderManager::Get().Clear();
+    ShaderManager::Get().SetShaderCacheMode(ShaderCacheMode::EditorOnDemandCompile);
+    ShaderCacheService::Get().SetResolver([](const ShaderCacheRequest&) { return ShaderCacheResult{}; });
+    MockRenderContext context;
+    context.backend = RHIBackend::D3D11;
+    ShaderManager::Get().SetDevice(&context);
+
+    std::vector<DebugDrawCommand> commands(66);
+    for (size_t index = 0; index < commands.size(); ++index) {
+        commands[index].geometry = DebugDrawGeometryKind::Line;
+        commands[index].transform = Mat4::Translation({static_cast<float>(index), 0.0f, 0.0f});
+        commands[index].color = {1.0f, 0.25f, 0.5f, 0.5f};
+        commands[index].depthMode =
+            index == commands.size() - 1 ? DebugDrawDepthMode::Always : DebugDrawDepthMode::Test;
+    }
+
+    bool prepared = false;
+    size_t preparedCommands = 0;
+    size_t preparedDraws = 0;
+    bool meshCacheInvalidated = false;
+    bool viewMasksFiltered = false;
+    {
+        DebugDrawPass pass(&context);
+        prepared = pass.Prepare(commands, RHIFormat::RGBA8UNorm, RHIFormat::D32Float);
+        preparedCommands = pass.GetPreparedCommandCount();
+        preparedDraws = pass.GetPreparedDrawCount();
+        Camera camera;
+        pass.ExecutePrepared(context.commands, camera);
+
+        auto mesh = std::make_shared<VersionedDebugMesh>("__test__/VersionedDebugDrawMesh");
+        std::vector<MeshVertex> vertices(3);
+        vertices[0].position = {0.0f, 0.0f, 0.0f};
+        vertices[1].position = {1.0f, 0.0f, 0.0f};
+        vertices[2].position = {0.0f, 1.0f, 0.0f};
+        mesh->SetGeometry(std::move(vertices), {0, 1, 2}, {});
+        DebugDrawCommand meshCommand;
+        meshCommand.geometry = DebugDrawGeometryKind::MeshAsset;
+        meshCommand.mesh = MeshHandle(mesh);
+        const int uploadsBeforeMesh = context.vertexUploads;
+        const bool firstMeshPrepare = pass.Prepare({meshCommand}, RHIFormat::RGBA8UNorm, RHIFormat::D32Float);
+        const int uploadsAfterFirst = context.vertexUploads;
+        const bool cachedMeshPrepare = pass.Prepare({meshCommand}, RHIFormat::RGBA8UNorm, RHIFormat::D32Float);
+        const int uploadsAfterCached = context.vertexUploads;
+        mesh->BumpVersion();
+        const bool reloadedMeshPrepare = pass.Prepare({meshCommand}, RHIFormat::RGBA8UNorm, RHIFormat::D32Float);
+        meshCacheInvalidated = firstMeshPrepare && cachedMeshPrepare && reloadedMeshPrepare &&
+                               uploadsAfterFirst == uploadsBeforeMesh + 1 && uploadsAfterCached == uploadsAfterFirst &&
+                               context.vertexUploads == uploadsAfterFirst + 1;
+
+        DebugDrawCommand authoringCommand;
+        authoringCommand.geometry = DebugDrawGeometryKind::Line;
+        authoringCommand.viewMask = DebugDrawViewMask::Authoring;
+        DebugDrawCommand runtimeCommand = authoringCommand;
+        runtimeCommand.viewMask = DebugDrawViewMask::Runtime;
+        const bool authoringPrepared = pass.Prepare({authoringCommand, runtimeCommand}, RHIFormat::RGBA8UNorm,
+                                                    RHIFormat::D32Float, DebugDrawViewMask::Authoring) &&
+                                       pass.GetPreparedCommandCount() == 1;
+        const bool runtimePrepared = pass.Prepare({authoringCommand, runtimeCommand}, RHIFormat::RGBA8UNorm,
+                                                  RHIFormat::D32Float, DebugDrawViewMask::Runtime) &&
+                                     pass.GetPreparedCommandCount() == 1;
+        const bool noMatchingCommands =
+            !pass.Prepare({authoringCommand}, RHIFormat::RGBA8UNorm, RHIFormat::D32Float, DebugDrawViewMask::Runtime) &&
+            pass.GetPreparedCommandCount() == 0;
+        viewMasksFiltered = authoringPrepared && runtimePrepared && noMatchingCommands;
+    }
+
+    const bool sawDepthTest =
+        std::find(context.commands.pipelineDepthTestEnabled.begin(), context.commands.pipelineDepthTestEnabled.end(),
+                  true) != context.commands.pipelineDepthTestEnabled.end();
+    const bool sawAlways =
+        std::find(context.commands.pipelineDepthTestEnabled.begin(), context.commands.pipelineDepthTestEnabled.end(),
+                  false) != context.commands.pipelineDepthTestEnabled.end();
+    const bool allBlended =
+        std::all_of(context.commands.pipelineBlendEnabled.begin(), context.commands.pipelineBlendEnabled.end(),
+                    [](bool enabled) { return enabled; });
+    const bool noDepthWrites =
+        std::none_of(context.commands.pipelineDepthWriteEnabled.begin(),
+                     context.commands.pipelineDepthWriteEnabled.end(), [](bool enabled) { return enabled; });
+    const bool lessEqual =
+        std::find(context.commands.pipelineDepthCompareOps.begin(), context.commands.pipelineDepthCompareOps.end(),
+                  RHICompareOp::LessEqual) != context.commands.pipelineDepthCompareOps.end();
+    const bool valid = prepared && preparedCommands == commands.size() && preparedDraws == 3 && meshCacheInvalidated &&
+                       viewMasksFiltered && context.commands.drawCalls == 3 &&
+                       context.commands.submittedInstances == 66 && context.commands.bindGroupBinds == 3 &&
+                       sawDepthTest && sawAlways && allBlended && noDepthWrites && lessEqual;
+
+    ShaderManager::Get().Clear();
+    ShaderManager::Get().SetDevice(nullptr);
+    ShaderCacheService::Get().ClearResolver();
+    AssetManager::Get().Clear();
+    AssetManager::Get().SetProjectRoot(std::filesystem::current_path());
+    AssetManager::Get().SetEngineContentRoot(std::filesystem::current_path() / "EngineContent");
+    return Check(valid, "DebugDraw pass did not batch 64 instances or preserve blend/depth pipeline state");
+}
+
 bool TestSlangReflectionPreservesSamplerStateBindings() {
     const std::array<const char*, 4> shaderCandidates = {
         "EngineContent/Shaders/ShadowDepth.hlsl",
@@ -4396,7 +4556,7 @@ bool TestRendererStartsShaderPrewarmOffRenderThread() {
     while (batchEntries.load() == 0 && std::chrono::steady_clock::now() < deadline)
         std::this_thread::yield();
     const bool valid = cookedSaved && sceneShader.IsValid() && sceneShader->IsCooked() && renderMs < 100.0 &&
-                       batchEntries.load() == 1 && batchArtifacts.load() == 32 && sawSceneSource.load() &&
+                       batchEntries.load() == 1 && batchArtifacts.load() == 33 && sawSceneSource.load() &&
                        !sawLibraryPath.load();
     releaseWorkers.set_value();
     ShaderManager::Get().Clear();
@@ -5076,6 +5236,8 @@ MYENGINE_REGISTER_TEST("Renderer", "TestShaderGraphMaskedAlphaTestIncludesVertex
                        TestShaderGraphMaskedAlphaTestIncludesVertexAlpha);
 MYENGINE_REGISTER_TEST("Renderer", "TestSkinnedGBufferMotionUsesPreviousBonePalette",
                        TestSkinnedGBufferMotionUsesPreviousBonePalette);
+MYENGINE_REGISTER_TEST("Renderer", "TestDebugDrawPassInstancingAndShaderContracts",
+                       TestDebugDrawPassInstancingAndShaderContracts);
 MYENGINE_REGISTER_TEST("Renderer", "TestSlangReflectionPreservesSamplerStateBindings",
                        TestSlangReflectionPreservesSamplerStateBindings);
 MYENGINE_REGISTER_TEST("Renderer", "TestVulkanStructuredBufferAndScreenUIBindingContracts",
