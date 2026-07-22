@@ -937,6 +937,34 @@ bool TestEditorOperatorsSelectionAndCommands() {
             "post process SSGI"))
         return false;
     if (!verifyPropertyEdit(
+            *post, "PostProcess", "ssgiEnabled", [&] { post->SetSSGIEnabled(false); },
+            [&] { return !post->IsSSGIEnabled(); }, [&] { return post->IsSSGIEnabled(); }, "post process SSGI enabled"))
+        return false;
+    if (!verifyPropertyEdit(
+            *post, "PostProcess", "ssgiHalfResolution", [&] { post->SetSSGIHalfResolution(false); },
+            [&] { return !post->IsSSGIHalfResolution(); }, [&] { return post->IsSSGIHalfResolution(); },
+            "post process SSGI resolution"))
+        return false;
+    if (!verifyPropertyEdit(
+            *post, "PostProcess", "ssrEnabled", [&] { post->SetSSREnabled(false); },
+            [&] { return !post->IsSSREnabled(); }, [&] { return post->IsSSREnabled(); }, "post process SSR enabled"))
+        return false;
+    if (!verifyPropertyEdit(
+            *post, "PostProcess", "ssrHalfResolution", [&] { post->SetSSRHalfResolution(false); },
+            [&] { return !post->IsSSRHalfResolution(); }, [&] { return post->IsSSRHalfResolution(); },
+            "post process SSR resolution"))
+        return false;
+    if (!verifyPropertyEdit(
+            *post, "PostProcess", "ssaoSampleCount", [&] { post->SetSSAOSampleCount(32); },
+            [&] { return post->GetSSAOSampleCount() == 32; }, [&] { return post->GetSSAOSampleCount() == 16; },
+            "post process SSAO samples"))
+        return false;
+    if (!verifyPropertyEdit(
+            *post, "PostProcess", "ssaoHalfResolution", [&] { post->SetSSAOHalfResolution(true); },
+            [&] { return post->IsSSAOHalfResolution(); }, [&] { return !post->IsSSAOHalfResolution(); },
+            "post process SSAO resolution"))
+        return false;
+    if (!verifyPropertyEdit(
             *post, "PostProcess", "ssrHistoryWeight", [&] { post->SetSSRHistoryWeight(0.72f); },
             [&] { return NearlyEqual(post->GetSSRHistoryWeight(), 0.72f); },
             [&] { return NearlyEqual(post->GetSSRHistoryWeight(), 0.9f); }, "post process SSR"))
@@ -2370,6 +2398,12 @@ bool TestEditorProfilerBufferAndSourceContracts() {
                    profilerPanel.find("renderer.mainGpuMs") != std::string::npos &&
                    profilerPanel.find("renderer.ssaoGpuMs") != std::string::npos &&
                    profilerPanel.find("renderer.compositeGpuMs") != std::string::npos &&
+                   profilerPanel.find("renderer.pipelinePrepareCpuMs") != std::string::npos &&
+                   profilerPanel.find("renderer.renderGraphAddPassCpuMs") != std::string::npos &&
+                   profilerPanel.find("renderer.renderGraphCompileCpuMs") != std::string::npos &&
+                   profilerPanel.find("renderer.renderGraphEnsureResourcesCpuMs") != std::string::npos &&
+                   profilerPanel.find("renderer.renderGraphTopologyCacheHit") != std::string::npos &&
+                   profilerPanel.find("renderer.renderGraphPassGpuTimings") != std::string::npos &&
                    profilerPanel.find("renderer.subMeshCount") != std::string::npos &&
                    profilerPanel.find("renderer.textureUploadBytes") != std::string::npos,
                "profiler panel is missing frame or renderer performance data"))

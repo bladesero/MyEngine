@@ -272,6 +272,7 @@ bool TestEditorOperatorSourceContracts() {
         root / "src/Editor/InspectorSectionsTransformRender.cpp",
         root / "src/Editor/InspectorSectionsUI.cpp",
     });
+    const std::string compactInspectorSections = compactSource(inspectorSections);
     const std::string editorCommand = readSource(root / "src/Editor/EditorCommand.cpp");
     const std::string compactEditorCommand = compactSource(editorCommand);
     const std::string editorLayer = readSource(root / "src/Editor/EditorLayer.cpp");
@@ -948,6 +949,30 @@ bool TestEditorOperatorSourceContracts() {
                    inspectorSections.find("\"taaJitterSpread\"") != std::string::npos &&
                    inspectorSections.find("\"taaHistoryClipExpansion\"") != std::string::npos,
                "Post Process Inspector does not expose the Modern TAA switch and tuning parameters"))
+        return false;
+    if (!Check(inspectorSections.find("PropertyKind::UInt32") != std::string::npos &&
+                   inspectorSections.find("ImGuiDataType_U32") != std::string::npos &&
+                   inspectorSections.find("BuildInspectorPropertyGroups") != std::string::npos &&
+                   inspectorSections.find("property.hints.group") != std::string::npos &&
+                   inspectorSections.find("property.hints.order") != std::string::npos &&
+                   inspectorSections.find("property.hints.hasRange") != std::string::npos &&
+                   compactInspectorSections.find("std::clamp(v,minimum,maximum)") != std::string::npos,
+               "metadata Inspector does not support UInt32, grouped ordering, or bounded ranges"))
+        return false;
+    if (!Check(inspectorSections.find("ImGui::SeparatorText(\"SSAO\")") != std::string::npos &&
+                   inspectorSections.find("Intensity##SSAO") != std::string::npos &&
+                   inspectorSections.find("Sample Radius##SSAO") != std::string::npos &&
+                   inspectorSections.find("Sample Count##SSAO") != std::string::npos &&
+                   inspectorSections.find("Half Resolution##SSAO") != std::string::npos &&
+                   inspectorSections.find("Half Resolution##SSGI") != std::string::npos &&
+                   inspectorSections.find("Half Resolution##SSR") != std::string::npos &&
+                   inspectorSections.find("\"ssaoSampleCount\"") != std::string::npos &&
+                   inspectorSections.find("\"ssaoHalfResolution\"") != std::string::npos &&
+                   inspectorSections.find("\"ssgiHalfResolution\"") != std::string::npos &&
+                   inspectorSections.find("\"ssrHalfResolution\"") != std::string::npos &&
+                   inspectorSections.find("AO Half Resolution##RTAO") == std::string::npos &&
+                   inspectorSections.find("\"rtaoHalfResolution\"") == std::string::npos,
+               "Post Process Inspector does not expose the SSAO module or still exposes a separate RTAO resolution"))
         return false;
     if (!Check(
             viewportPolicy.find("ImGui::GetMainViewport()") != std::string::npos &&

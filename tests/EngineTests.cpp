@@ -315,16 +315,20 @@ bool TestSceneSerializationRegression() {
     post->SetToneMappingEnabled(false);
     post->SetAntiAliasingStrength(0.6f);
     post->SetSSAORadius(2.4f);
+    post->SetSSAOSampleCount(24);
     post->SetSSAOBias(0.04f);
     post->SetSSAOPower(2.2f);
     post->SetSSAOIntensity(0.75f);
+    post->SetSSAOHalfResolution(true);
     post->SetSSGIEnabled(false);
+    post->SetSSGIHalfResolution(false);
     post->SetSSGIIntensity(1.7f);
     post->SetSSGIMaxDistance(24.0f);
     post->SetSSGIHistoryWeight(0.77f);
     post->SetSSGIStepCount(40);
     post->SetSSGIFilterRounds(4);
     post->SetSSREnabled(false);
+    post->SetSSRHalfResolution(false);
     post->SetSSRMaxDistance(37.0f);
     post->SetSSRMaxRoughness(0.62f);
     post->SetSSRHistoryWeight(0.73f);
@@ -359,7 +363,9 @@ bool TestSceneSerializationRegression() {
     const auto& savedPostData = (*savedPost)["data"];
     const auto& savedPostProperties =
         savedPostData.contains("properties") ? savedPostData["properties"] : savedPostData;
-    if (!Check(savedPostProperties.value("rayTracedShadowReplacement", false) &&
+    if (!Check(savedPostProperties.value("ssaoSampleCount", 0u) == 24u &&
+                   !savedPostProperties.contains("rtaoHalfResolution") &&
+                   savedPostProperties.value("rayTracedShadowReplacement", false) &&
                    savedPostProperties.value("rayTracedAOReplacement", false) &&
                    savedPostProperties.value("rayTracedDiffuseReplacement", false) &&
                    savedPostProperties.value("rayTracedReflectionReplacement", false),
@@ -418,23 +424,25 @@ bool TestSceneSerializationRegression() {
                    loadedPost->UsesRayTracedDiffuseReplacement() && loadedPost->UsesRayTracedReflectionReplacement(),
                "PostProcess ray tracing replacement fields mismatch after deserialize"))
         return false;
-    if (!Check(
-            !loadedPost->IsToneMappingEnabled() && NearlyEqual(loadedPost->GetExposure(), 1.4f) &&
-                NearlyEqual(loadedPost->GetGamma(), 2.0f) && NearlyEqual(loadedPost->GetAntiAliasingStrength(), 0.6f) &&
-                NearlyEqual(loadedPost->GetSSAORadius(), 2.4f) && NearlyEqual(loadedPost->GetSSAOBias(), 0.04f) &&
-                NearlyEqual(loadedPost->GetSSAOPower(), 2.2f) && NearlyEqual(loadedPost->GetSSAOIntensity(), 0.75f) &&
-                !loadedPost->IsSSGIEnabled() && NearlyEqual(loadedPost->GetSSGIIntensity(), 1.7f) &&
-                NearlyEqual(loadedPost->GetSSGIMaxDistance(), 24.0f) &&
-                NearlyEqual(loadedPost->GetSSGIHistoryWeight(), 0.77f) && loadedPost->GetSSGIStepCount() == 40 &&
-                loadedPost->GetSSGIFilterRounds() == 4 && !loadedPost->IsSSREnabled() &&
-                NearlyEqual(loadedPost->GetSSRMaxDistance(), 37.0f) &&
-                NearlyEqual(loadedPost->GetSSRMaxRoughness(), 0.62f) &&
-                NearlyEqual(loadedPost->GetSSRHistoryWeight(), 0.73f) && loadedPost->GetSSRStepCount() == 56 &&
-                loadedPost->GetSSRFilterRounds() == 1 && !loadedPost->IsTAAEnabled() &&
-                NearlyEqual(loadedPost->GetTAAHistoryWeight(), 0.84f) &&
-                NearlyEqual(loadedPost->GetTAAJitterSpread(), 0.65f) &&
-                NearlyEqual(loadedPost->GetTAAHistoryClipExpansion(), 1.25f),
-            "PostProcess fields mismatch after deserialize"))
+    if (!Check(!loadedPost->IsToneMappingEnabled() && NearlyEqual(loadedPost->GetExposure(), 1.4f) &&
+                   NearlyEqual(loadedPost->GetGamma(), 2.0f) &&
+                   NearlyEqual(loadedPost->GetAntiAliasingStrength(), 0.6f) &&
+                   NearlyEqual(loadedPost->GetSSAORadius(), 2.4f) && loadedPost->GetSSAOSampleCount() == 24 &&
+                   NearlyEqual(loadedPost->GetSSAOBias(), 0.04f) && NearlyEqual(loadedPost->GetSSAOPower(), 2.2f) &&
+                   NearlyEqual(loadedPost->GetSSAOIntensity(), 0.75f) && loadedPost->IsSSAOHalfResolution() &&
+                   !loadedPost->IsSSGIEnabled() && !loadedPost->IsSSGIHalfResolution() &&
+                   NearlyEqual(loadedPost->GetSSGIIntensity(), 1.7f) &&
+                   NearlyEqual(loadedPost->GetSSGIMaxDistance(), 24.0f) &&
+                   NearlyEqual(loadedPost->GetSSGIHistoryWeight(), 0.77f) && loadedPost->GetSSGIStepCount() == 40 &&
+                   loadedPost->GetSSGIFilterRounds() == 4 && !loadedPost->IsSSREnabled() &&
+                   !loadedPost->IsSSRHalfResolution() && NearlyEqual(loadedPost->GetSSRMaxDistance(), 37.0f) &&
+                   NearlyEqual(loadedPost->GetSSRMaxRoughness(), 0.62f) &&
+                   NearlyEqual(loadedPost->GetSSRHistoryWeight(), 0.73f) && loadedPost->GetSSRStepCount() == 56 &&
+                   loadedPost->GetSSRFilterRounds() == 1 && !loadedPost->IsTAAEnabled() &&
+                   NearlyEqual(loadedPost->GetTAAHistoryWeight(), 0.84f) &&
+                   NearlyEqual(loadedPost->GetTAAJitterSpread(), 0.65f) &&
+                   NearlyEqual(loadedPost->GetTAAHistoryClipExpansion(), 1.25f),
+               "PostProcess fields mismatch after deserialize"))
         return false;
 
     return true;
@@ -2316,6 +2324,18 @@ bool TestTypeRegistryMetadataAndWorldScheduler() {
         postProcessType ? TypeRegistry::Get().FindProperty(*postProcessType, "ssgiStepCount") : nullptr;
     const PropertyDescriptor* ssrMaxDistance =
         postProcessType ? TypeRegistry::Get().FindProperty(*postProcessType, "ssrMaxDistance") : nullptr;
+    const PropertyDescriptor* ssgiHalfResolution =
+        postProcessType ? TypeRegistry::Get().FindProperty(*postProcessType, "ssgiHalfResolution") : nullptr;
+    const PropertyDescriptor* ssrHalfResolution =
+        postProcessType ? TypeRegistry::Get().FindProperty(*postProcessType, "ssrHalfResolution") : nullptr;
+    const PropertyDescriptor* ssaoHalfResolution =
+        postProcessType ? TypeRegistry::Get().FindProperty(*postProcessType, "ssaoHalfResolution") : nullptr;
+    const PropertyDescriptor* ssaoSampleCount =
+        postProcessType ? TypeRegistry::Get().FindProperty(*postProcessType, "ssaoSampleCount") : nullptr;
+    const PropertyDescriptor* ssgiEnabled =
+        postProcessType ? TypeRegistry::Get().FindProperty(*postProcessType, "ssgiEnabled") : nullptr;
+    const PropertyDescriptor* ssrEnabled =
+        postProcessType ? TypeRegistry::Get().FindProperty(*postProcessType, "ssrEnabled") : nullptr;
     const PropertyDescriptor* rayTracedAO =
         postProcessType ? TypeRegistry::Get().FindProperty(*postProcessType, "rayTracedAOReplacement") : nullptr;
     const PropertyDescriptor* rayTracedDiffuse =
@@ -2329,7 +2349,13 @@ bool TestTypeRegistryMetadataAndWorldScheduler() {
                    ssrMaxDistance->kind == PropertyKind::Float && rayTracedAO && rayTracedDiffuse &&
                    rayTracedReflection && rayTracedShadow && rayTracedAO->kind == PropertyKind::Bool &&
                    rayTracedDiffuse->kind == PropertyKind::Bool && rayTracedReflection->kind == PropertyKind::Bool &&
-                   rayTracedShadow->kind == PropertyKind::Bool,
+                   rayTracedShadow->kind == PropertyKind::Bool && ssgiHalfResolution && ssrHalfResolution &&
+                   ssaoHalfResolution && ssaoSampleCount && ssgiEnabled && ssrEnabled &&
+                   ssgiHalfResolution->kind == PropertyKind::Bool && ssrHalfResolution->kind == PropertyKind::Bool &&
+                   ssaoHalfResolution->kind == PropertyKind::Bool && ssaoSampleCount->kind == PropertyKind::UInt32 &&
+                   ssgiEnabled->kind == PropertyKind::Bool && ssrEnabled->kind == PropertyKind::Bool &&
+                   !TypeRegistry::Get().FindProperty(*postProcessType, "ssaoScale") &&
+                   !TypeRegistry::Get().FindProperty(*postProcessType, "rtaoHalfResolution"),
                "PostProcess SSGI/SSR/RT metadata is missing or has the wrong type"))
         return false;
     for (const char* migrated : {"Camera", "Light", "PostProcess", "RigidBody", "BoxCollider", "SphereCollider",
@@ -6635,7 +6661,12 @@ bool TestRuntimePerformanceBudgetEvaluation() {
     budget.maxDroppedFixedTicks = 0;
     RuntimePerformanceGate gate(budget);
     for (uint64_t i = 0; i < 10; ++i) {
-        gate.AddSample({10.0 + static_cast<double>(i), 2.0, 5.0, 8.0, 100 + i * 4, 0, true});
+        RuntimePerformanceSample sample{10.0 + static_cast<double>(i), 2.0, 5.0, 8.0, 100 + i * 4, 0, true};
+        sample.pipelinePrepareMs = 1.0 + static_cast<double>(i) * 0.1;
+        sample.renderGraphAddPassMs = 2.0 + static_cast<double>(i) * 0.1;
+        sample.renderGraphCompileMs = 3.0 + static_cast<double>(i) * 0.1;
+        sample.renderGraphEnsureResourcesMs = 4.0 + static_cast<double>(i) * 0.1;
+        gate.AddSample(sample);
     }
     const RuntimePerformanceReport passing = gate.Evaluate();
     if (!Check(passing.passed && passing.summary.sampleCount == 8 && passing.summary.p50FrameMs > 14.0 &&
@@ -6645,7 +6676,15 @@ bool TestRuntimePerformanceBudgetEvaluation() {
         return false;
     const nlohmann::json json = nlohmann::json::parse(passing.ToJson());
     if (!Check(json.value("passed", false) && json["summary"].value("sampleCount", 0) == 8 &&
-                   json["samples"].size() == 8 && json["samples"][0].value("workingSetBytes", 0ull) == 108,
+                   json["summary"].value("p95PipelinePrepareMs", 0.0) > 0.0 &&
+                   json["summary"].value("p95RenderGraphAddPassMs", 0.0) > 0.0 &&
+                   json["summary"].value("p95RenderGraphCompileMs", 0.0) > 0.0 &&
+                   json["summary"].value("p95RenderGraphEnsureResourcesMs", 0.0) > 0.0 && json["samples"].size() == 8 &&
+                   json["samples"][0].value("workingSetBytes", 0ull) == 108 &&
+                   json["samples"][0].value("pipelinePrepareMs", 0.0) == 1.2 &&
+                   json["samples"][0].value("renderGraphAddPassMs", 0.0) == 2.2 &&
+                   json["samples"][0].value("renderGraphCompileMs", 0.0) == 3.2 &&
+                   json["samples"][0].value("renderGraphEnsureResourcesMs", 0.0) == 4.2,
                "runtime performance report JSON lost summary data"))
         return false;
 #if defined(MYENGINE_PLATFORM_WINDOWS)

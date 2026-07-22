@@ -2,12 +2,22 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
+
+struct RenderGraphPassGpuTiming {
+    std::string name;
+    float gpuMs = 0.0f;
+};
 
 struct RendererFrameStats {
     float renderSubmissionCpuMs = 0.0f;
     float renderGraphBuildCpuMs = 0.0f;
     float renderGraphExecuteCpuMs = 0.0f;
     float renderGraphPrepareCpuMs = 0.0f;
+    float pipelinePrepareCpuMs = 0.0f;
+    float renderGraphAddPassCpuMs = 0.0f;
+    float renderGraphCompileCpuMs = 0.0f;
+    float renderGraphEnsureResourcesCpuMs = 0.0f;
     float frameWaitCpuMs = 0.0f;
     float presentCpuMs = 0.0f;
     float shadowCpuMs = 0.0f;
@@ -28,6 +38,10 @@ struct RendererFrameStats {
     uint64_t textureUploadBytes = 0;
     float textureUploadMs = 0.0f;
     bool gpuTimingAvailable = false;
+    bool renderGraphTopologyCacheHit = false;
+    uint64_t renderGraphTopologyCacheHits = 0;
+    uint64_t renderGraphTopologyCacheMisses = 0;
+    std::vector<RenderGraphPassGpuTiming> renderGraphPassGpuTimings;
     uint64_t transientRequestedBytes = 0, transientAllocatedBytes = 0, transientReusedBytes = 0;
     uint64_t renderGraphPooledBytes = 0, renderGraphPoolEvictedBytes = 0;
     uint32_t transientResources = 0, transientDescriptors = 0, renderGraphPoolEvictions = 0;

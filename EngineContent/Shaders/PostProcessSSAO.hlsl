@@ -12,6 +12,7 @@ cbuffer SSAOParams : register(b0)
     row_major float4x4 g_InvProjection;
     float4   g_ScreenSize;      // (1/w, 1/h, w, h)
     float4   g_SSAOParams;      // (radius, bias, power, intensity)
+    float4   g_SSAOOptions;     // (sample count, unused, unused, unused)
     float4   g_Samples[64];     // hemisphere kernel (xyz, 0)
 };
 
@@ -87,10 +88,10 @@ float4 PSMain(VSOut input) : SV_TARGET
     float3 B = cross(normal, T);
 
     float occ = 0.0f;
-    const int K = 16;
+    const uint sampleCount = clamp((uint)round(g_SSAOOptions.x), 1u, 64u);
 
-    [unroll]
-    for (int i = 0; i < K; ++i)
+    [loop]
+    for (uint i = 0; i < sampleCount; ++i)
     {
         // tangent-space sample -> view-space offset
         float3 dir    = g_Samples[i].xyz;
@@ -115,7 +116,7 @@ float4 PSMain(VSOut input) : SV_TARGET
         occ += rangeW * occluded;
     }
 
-    occ  = 1.0f - occ / float(K);            // visibility: 1=open, 0=blocked
+    occ  = 1.0f - occ / float(sampleCount);   // visibility: 1=open, 0=blocked
     occ  = pow(max(occ, 0.0f), g_SSAOParams.z); // sharpen
     occ  = lerp(1.0f, occ, saturate(g_SSAOParams.w));
 

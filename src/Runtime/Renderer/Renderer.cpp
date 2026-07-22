@@ -33,7 +33,7 @@
 namespace {
 struct PostProcessRuntimeOptions {
     bool ssaoEnabled = false;
-    float ssaoScale = 1.0f;
+    bool ssaoHalfResolution = false;
     ModernPostProcessSettings modern;
 };
 
@@ -47,18 +47,20 @@ PostProcessRuntimeOptions CollectPostProcessOptions(const Scene& scene) {
         if (!post || !post->IsEnabled())
             return;
         options.ssaoEnabled = post->GetSSAOIntensity() > 0.0f;
-        options.ssaoScale = post->GetSSAOScale();
+        options.ssaoHalfResolution = post->IsSSAOHalfResolution();
         options.modern.ssaoRadius = post->GetSSAORadius();
         options.modern.ssaoBias = post->GetSSAOBias();
         options.modern.ssaoPower = post->GetSSAOPower();
         options.modern.ssaoIntensity = post->GetSSAOIntensity();
-        options.modern.ssaoScale = post->GetSSAOScale();
+        options.modern.ssaoHalfResolution = post->IsSSAOHalfResolution();
         options.modern.rayTracedShadowReplacement = post->UsesRayTracedShadowReplacement();
         options.modern.rayTracedAOReplacement = post->UsesRayTracedAOReplacement();
         options.modern.rayTracedReflectionReplacement = post->UsesRayTracedReflectionReplacement();
         options.modern.rayTracedDiffuseReplacement = post->UsesRayTracedDiffuseReplacement();
         options.modern.ssgiEnabled = post->IsSSGIEnabled();
+        options.modern.ssgiHalfResolution = post->IsSSGIHalfResolution();
         options.modern.ssrEnabled = post->IsSSREnabled();
+        options.modern.ssrHalfResolution = post->IsSSRHalfResolution();
         options.modern.taaEnabled = post->IsTAAEnabled();
         options.modern.ssgiIntensity = post->GetSSGIIntensity();
         options.modern.ssgiMaxDistance = post->GetSSGIMaxDistance();
@@ -403,23 +405,32 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
 
     const uint32_t timestampSlot = m_FrameContext->GetFrameIndex() % m_FrameTimestampPools.size();
     auto& timestampPool = m_FrameTimestampPools[timestampSlot];
-    if (!timestampPool && m_Device->GetCapabilities().timestampQueries)
-        timestampPool = m_Device->CreateTimestampQueryPool(2);
+    auto& timestampPassNames = m_FrameTimestampPassNames[timestampSlot];
     if (timestampPool && m_FrameTimestampRecorded[timestampSlot]) {
         std::vector<uint64_t> ticks;
-        if (timestampPool->ReadResults(0, 2, ticks) && ticks.size() == 2 && ticks[1] >= ticks[0] &&
+        const uint32_t queryCount = 2u + static_cast<uint32_t>(timestampPassNames.size()) * 2u;
+        if (timestampPool->ReadResults(0, queryCount, ticks) && ticks.size() == queryCount && ticks[1] >= ticks[0] &&
             timestampPool->GetFrequency() > 0) {
             RendererFrameStats stats = FrameStatsProvider::GetRendererStats();
             stats.mainGpuMs = static_cast<float>(static_cast<double>(ticks[1] - ticks[0]) * 1000.0 /
                                                  static_cast<double>(timestampPool->GetFrequency()));
+            stats.renderGraphPassGpuTimings.clear();
+            stats.renderGraphPassGpuTimings.reserve(timestampPassNames.size());
+            for (uint32_t pass = 0; pass < timestampPassNames.size(); ++pass) {
+                const uint32_t firstQuery = 2u + pass * 2u;
+                if (ticks[firstQuery + 1u] < ticks[firstQuery])
+                    continue;
+                const float gpuMs = static_cast<float>(static_cast<double>(ticks[firstQuery + 1u] - ticks[firstQuery]) *
+                                                       1000.0 / static_cast<double>(timestampPool->GetFrequency()));
+                stats.renderGraphPassGpuTimings.push_back({timestampPassNames[pass], gpuMs});
+            }
             stats.gpuTimingAvailable = true;
             FrameStatsProvider::SetRendererStats(stats);
         }
     }
-    if (timestampPool)
-        commandList->WriteTimestamp(timestampPool.get(), 0);
+    m_FrameTimestampRecorded[timestampSlot] = false;
 
-    m_RenderGraph->Reset();
+    m_RenderGraph->BeginFrame();
     if (m_LocalLightingProbesEnabled && m_ProbeLightingSystem && !m_ProbeLightingSystem->Prepare(scene) &&
         !m_ProbeLightingSystem->GetLastError().empty())
         Logger::Warn("[Renderer] local lighting probes unavailable; using global environment: ",
@@ -471,8 +482,12 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
         postOptions.modern.ssaoIntensity = 0.0f;
     bool modernFrameReady = false;
     if (modernRequested) {
+        const auto pipelinePrepareStart = std::chrono::steady_clock::now();
         modernFrameReady = m_ModernDeferredPipeline &&
                            m_ModernDeferredPipeline->Prepare(scene, camera, Time::FrameCount(), postOptions.modern);
+        RendererFrameStats stats = FrameStatsProvider::GetRendererStats();
+        stats.pipelinePrepareCpuMs = ElapsedMs(pipelinePrepareStart, std::chrono::steady_clock::now());
+        FrameStatsProvider::SetRendererStats(stats);
         if (!modernFrameReady) {
             Logger::Warn("[Renderer] Modern Deferred frame preparation failed; using Classic Deferred for this "
                          "frame: ",
@@ -616,7 +631,7 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
                 // Shadows are the first graph workload. Rebuild this portion so no already-staged GPU pass can clear
                 // an atlas or commit an indirect-buffer state after one of the later views failed validation.
                 m_ModernDeferredPipeline->AbortGpuDrivenShadowFrame();
-                m_RenderGraph->Reset();
+                m_RenderGraph->BeginFrame();
                 importShadowResources();
                 addCpuShadowPass("ShadowFallback");
             }
@@ -660,7 +675,7 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
     m_MainPass->SetHdrPassthrough(useOffscreen);
     const bool ssaoEnabled = HasRendererFeature(m_FeatureMask, RendererFeatureMask::SSAO) && postOptions.ssaoEnabled;
     m_PostProcessPass->SetSSAOEnabled(ssaoEnabled);
-    m_PostProcessPass->SetSSAOScale(postOptions.ssaoScale);
+    m_PostProcessPass->SetSSAOScale(postOptions.ssaoHalfResolution ? 0.5f : 1.0f);
     uint32_t cascadeCount = 0;
     Mat4 cascades[3] = {Mat4::Identity(), Mat4::Identity(), Mat4::Identity()};
     if (shadowsEnabled) {
@@ -1147,6 +1162,13 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
         stats.transientDescriptors = graph.transientDescriptors;
         stats.renderGraphPoolEvictions = graph.poolEvictions;
         stats.transientBudgetExceeded = graph.transientBudgetExceeded;
+        const auto& cpu = m_RenderGraph->GetCpuTimings();
+        stats.renderGraphAddPassCpuMs = cpu.addPassCpuMs;
+        stats.renderGraphCompileCpuMs = cpu.compileCpuMs;
+        stats.renderGraphEnsureResourcesCpuMs = cpu.ensureResourcesCpuMs;
+        stats.renderGraphTopologyCacheHit = cpu.topologyCacheHit;
+        stats.renderGraphTopologyCacheHits = cpu.topologyCacheHits;
+        stats.renderGraphTopologyCacheMisses = cpu.topologyCacheMisses;
         if (m_PipelineDiagnostics.resolvedPipeline == ResolvedRenderPipeline::ModernDeferred &&
             m_ModernDeferredPipeline) {
             const auto& modern = m_ModernDeferredPipeline->GetStats();
@@ -1191,7 +1213,14 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
     graphTimingStats.renderGraphPrepareCpuMs = ElapsedMs(graphPrepareStart, graphExecuteStart);
     graphTimingStats.renderGraphBuildCpuMs = ElapsedMs(submissionStart, graphExecuteStart);
     FrameStatsProvider::SetRendererStats(graphTimingStats);
-    if (!m_RenderGraph->Execute(*commandList)) {
+    timestampPassNames = m_RenderGraph->GetExecutionOrder();
+    const uint32_t timestampQueryCount = 2u + static_cast<uint32_t>(timestampPassNames.size()) * 2u;
+    if (m_Device->GetCapabilities().timestampQueries &&
+        (!timestampPool || timestampPool->GetCount() != timestampQueryCount))
+        timestampPool = m_Device->CreateTimestampQueryPool(timestampQueryCount);
+    if (timestampPool)
+        commandList->WriteTimestamp(timestampPool.get(), 0);
+    if (!m_RenderGraph->Execute(*commandList, timestampPool.get(), 2u)) {
         publishGraphStats();
         Logger::Error("[Renderer] RenderGraph execution failed: ", m_RenderGraph->GetLastError());
         endFrameOnFailure();
@@ -1204,7 +1233,7 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
     FrameStatsProvider::SetRendererStats(graphTimingStats);
     if (timestampPool) {
         commandList->WriteTimestamp(timestampPool.get(), 1);
-        commandList->ResolveTimestamps(timestampPool.get(), 0, 2);
+        commandList->ResolveTimestamps(timestampPool.get(), 0, timestampQueryCount);
         m_FrameTimestampRecorded[timestampSlot] = true;
     }
     publishGraphStats();

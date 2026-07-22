@@ -114,6 +114,7 @@ private:
     RendererDebugView m_DebugView = RendererDebugView::Final;
     std::array<std::shared_ptr<GpuTimestampQueryPool>, 3> m_FrameTimestampPools{};
     std::array<bool, 3> m_FrameTimestampRecorded{};
+    std::array<std::vector<std::string>, 3> m_FrameTimestampPassNames{};
     uint8_t m_ShaderPrewarmMask = 0;
     uint64_t m_ShaderPrewarmSceneGeneration = 0;
     bool m_SceneShaderPrewarmComplete = false;

@@ -73,6 +73,10 @@ RuntimePerformanceReport RuntimePerformanceGate::Evaluate() const {
     std::vector<double> mainCpuTimes;
     std::vector<double> renderGraphBuildTimes;
     std::vector<double> renderGraphPrepareTimes;
+    std::vector<double> pipelinePrepareTimes;
+    std::vector<double> renderGraphAddPassTimes;
+    std::vector<double> renderGraphCompileTimes;
+    std::vector<double> renderGraphEnsureResourcesTimes;
     std::vector<double> gpuScenePrepareTimes;
     frameTimes.reserve(count);
     gpuTimes.reserve(count);
@@ -81,6 +85,10 @@ RuntimePerformanceReport RuntimePerformanceGate::Evaluate() const {
     mainCpuTimes.reserve(count);
     renderGraphBuildTimes.reserve(count);
     renderGraphPrepareTimes.reserve(count);
+    pipelinePrepareTimes.reserve(count);
+    renderGraphAddPassTimes.reserve(count);
+    renderGraphCompileTimes.reserve(count);
+    renderGraphEnsureResourcesTimes.reserve(count);
     gpuScenePrepareTimes.reserve(count);
     const uint64_t baselineWorkingSet = begin->workingSetBytes;
     uint64_t maxWorkingSet = 0;
@@ -97,6 +105,10 @@ RuntimePerformanceReport RuntimePerformanceGate::Evaluate() const {
         mainCpuTimes.push_back(it->mainCpuMs);
         renderGraphBuildTimes.push_back(it->renderGraphBuildMs);
         renderGraphPrepareTimes.push_back(it->renderGraphPrepareMs);
+        pipelinePrepareTimes.push_back(it->pipelinePrepareMs);
+        renderGraphAddPassTimes.push_back(it->renderGraphAddPassMs);
+        renderGraphCompileTimes.push_back(it->renderGraphCompileMs);
+        renderGraphEnsureResourcesTimes.push_back(it->renderGraphEnsureResourcesMs);
         gpuScenePrepareTimes.push_back(it->gpuScenePrepareMs);
         maxWorkingSet = std::max(maxWorkingSet, it->workingSetBytes);
         report.summary.droppedFixedTicks += it->droppedFixedTicks;
@@ -117,6 +129,10 @@ RuntimePerformanceReport RuntimePerformanceGate::Evaluate() const {
     report.summary.p95MainCpuMs = Percentile(mainCpuTimes, 0.95);
     report.summary.p95RenderGraphBuildMs = Percentile(renderGraphBuildTimes, 0.95);
     report.summary.p95RenderGraphPrepareMs = Percentile(renderGraphPrepareTimes, 0.95);
+    report.summary.p95PipelinePrepareMs = Percentile(pipelinePrepareTimes, 0.95);
+    report.summary.p95RenderGraphAddPassMs = Percentile(renderGraphAddPassTimes, 0.95);
+    report.summary.p95RenderGraphCompileMs = Percentile(renderGraphCompileTimes, 0.95);
+    report.summary.p95RenderGraphEnsureResourcesMs = Percentile(renderGraphEnsureResourcesTimes, 0.95);
     report.summary.p95GpuScenePrepareMs = Percentile(gpuScenePrepareTimes, 0.95);
     report.summary.workingSetGrowthBytes = maxWorkingSet >= baselineWorkingSet ? maxWorkingSet - baselineWorkingSet : 0;
 
@@ -154,6 +170,10 @@ std::string RuntimePerformanceReport::ToJson() const {
                               {"p95MainCpuMs", summary.p95MainCpuMs},
                               {"p95RenderGraphBuildMs", summary.p95RenderGraphBuildMs},
                               {"p95RenderGraphPrepareMs", summary.p95RenderGraphPrepareMs},
+                              {"p95PipelinePrepareMs", summary.p95PipelinePrepareMs},
+                              {"p95RenderGraphAddPassMs", summary.p95RenderGraphAddPassMs},
+                              {"p95RenderGraphCompileMs", summary.p95RenderGraphCompileMs},
+                              {"p95RenderGraphEnsureResourcesMs", summary.p95RenderGraphEnsureResourcesMs},
                               {"p95GpuScenePrepareMs", summary.p95GpuScenePrepareMs},
                               {"gpuSampleCount", summary.gpuSampleCount},
                               {"workingSetGrowthBytes", summary.workingSetGrowthBytes},
@@ -171,6 +191,10 @@ std::string RuntimePerformanceReport::ToJson() const {
                                     {"compositeCpuMs", sample.compositeCpuMs},
                                     {"renderGraphBuildMs", sample.renderGraphBuildMs},
                                     {"renderGraphPrepareMs", sample.renderGraphPrepareMs},
+                                    {"pipelinePrepareMs", sample.pipelinePrepareMs},
+                                    {"renderGraphAddPassMs", sample.renderGraphAddPassMs},
+                                    {"renderGraphCompileMs", sample.renderGraphCompileMs},
+                                    {"renderGraphEnsureResourcesMs", sample.renderGraphEnsureResourcesMs},
                                     {"gpuScenePrepareMs", sample.gpuScenePrepareMs},
                                     {"frameWaitMs", sample.frameWaitMs},
                                     {"presentMs", sample.presentMs},

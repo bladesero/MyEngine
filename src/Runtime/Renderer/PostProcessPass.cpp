@@ -25,11 +25,17 @@ struct SSAOConstants {
     float invProjection[16];
     float screenSize[4];
     float ssaoParams[4];
+    float ssaoOptions[4];
     float samples[64][4];
 };
+static_assert(sizeof(SSAOConstants) == 1200, "SSAOConstants must match PostProcessSSAO.hlsl");
 struct SSAOBlurConstants {
     float texelSize[4];
 };
+
+uint32_t SSAODimension(uint32_t fullResolution, float scale) {
+    return scale < 1.0f ? (std::max)(1u, (fullResolution + 1u) / 2u) : fullResolution;
+}
 
 PostProcessConstants CollectPostProcessParams(const Scene& scene, uint32_t width, uint32_t height) {
     PostProcessConstants out{};
@@ -79,6 +85,7 @@ SSAOConstants BuildSSAOConstants(const Scene& scene, const Camera& camera, uint3
     out.ssaoParams[0] = 1.2f;
     out.ssaoParams[1] = 0.025f;
     out.ssaoParams[2] = 1.5f;
+    uint32_t sampleCount = 16;
     bool found = false;
     scene.ForEach([&](Actor& actor) {
         if (found || !actor.IsActive())
@@ -90,13 +97,17 @@ SSAOConstants BuildSSAOConstants(const Scene& scene, const Camera& camera, uint3
         out.ssaoParams[1] = post->GetSSAOBias();
         out.ssaoParams[2] = post->GetSSAOPower();
         out.ssaoParams[3] = post->GetSSAOIntensity();
+        sampleCount = post->GetSSAOSampleCount();
         found = true;
     });
+    out.ssaoOptions[0] = static_cast<float>(sampleCount);
     std::mt19937 rng(42);
     std::uniform_real_distribution<float> dist(0.0f, 1.0f);
-    for (uint32_t i = 0; i < 16; ++i) {
+    for (uint32_t i = 0; i < sampleCount; ++i) {
         const float u1 = dist(rng), u2 = dist(rng), r = std::sqrt(u1);
-        const float theta = 6.2831853f * u2, scale = 0.1f + (i / 16.0f) * (i / 16.0f) * 0.9f;
+        const float theta = 6.2831853f * u2;
+        const float normalizedIndex = static_cast<float>(i) / static_cast<float>(sampleCount);
+        const float scale = 0.1f + normalizedIndex * normalizedIndex * 0.9f;
         out.samples[i][0] = r * std::cos(theta) * scale;
         out.samples[i][1] = r * std::sin(theta) * scale;
         out.samples[i][2] = std::sqrt((std::max)(0.0f, 1.0f - u1)) * scale;
@@ -115,8 +126,8 @@ void PostProcessPass::Resize(uint32_t width, uint32_t height) {
         return;
     m_Width = width;
     m_Height = height;
-    m_SSAOWidth = (std::max)(1u, static_cast<uint32_t>(m_Width * m_SSAOScale));
-    m_SSAOHeight = (std::max)(1u, static_cast<uint32_t>(m_Height * m_SSAOScale));
+    m_SSAOWidth = SSAODimension(m_Width, m_SSAOScale);
+    m_SSAOHeight = SSAODimension(m_Height, m_SSAOScale);
     m_SceneColor.reset();
     m_SceneDepth.reset();
     m_SSAO.reset();
@@ -157,8 +168,8 @@ void PostProcessPass::SetSSAOScale(float scale) {
     if (std::abs(m_SSAOScale - normalized) < 0.001f)
         return;
     m_SSAOScale = normalized;
-    m_SSAOWidth = (std::max)(1u, static_cast<uint32_t>(m_Width * m_SSAOScale));
-    m_SSAOHeight = (std::max)(1u, static_cast<uint32_t>(m_Height * m_SSAOScale));
+    m_SSAOWidth = SSAODimension(m_Width, m_SSAOScale);
+    m_SSAOHeight = SSAODimension(m_Height, m_SSAOScale);
     m_SSAO.reset();
     m_SSAOBlur.reset();
     m_SSAORtv.reset();

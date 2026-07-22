@@ -53,7 +53,9 @@ uint32_t ResolveModernRayTracingEffectMask(uint32_t requestedMask, bool projectE
 
 struct ModernPostProcessSettings {
     bool ssgiEnabled = true;
+    bool ssgiHalfResolution = true;
     bool ssrEnabled = true;
+    bool ssrHalfResolution = true;
     bool taaEnabled = true;
     bool rayTracedShadowReplacement = false;
     bool rayTracedAOReplacement = false;
@@ -63,7 +65,7 @@ struct ModernPostProcessSettings {
     float ssaoBias = 0.025f;
     float ssaoPower = 1.5f;
     float ssaoIntensity = 0.0f;
-    float ssaoScale = 1.0f;
+    bool ssaoHalfResolution = false;
     float ssgiIntensity = 1.0f;
     float ssgiMaxDistance = 10.0f;
     float ssgiHistoryWeight = 0.9f;
@@ -172,11 +174,13 @@ public:
     const Mat4& GetCurrentProjection() const { return m_ScreenSpaceConstants.projection; }
 
 private:
+    struct ScreenSpaceConstants;
     bool EnsurePipelines();
     bool EnsureIndirectBuffers(uint32_t candidateCount);
     bool EnsureHiZResources();
     bool EnsureClusterResources();
-    bool EnsureTemporalResources();
+    bool EnsureTemporalResources(const ModernPostProcessSettings& settings);
+    ScreenSpaceConstants MakeEffectConstants(uint32_t width, uint32_t height) const;
     bool EnsureRayTracingPipelines();
     bool EnsureRayTracingScene();
     bool EnsureRayTracingResources();
@@ -455,9 +459,13 @@ private:
     ComputeTexture m_SSGITrace;
     ComputeTexture m_SSGIHistory[2];
     ComputeTexture m_SSGIFilter[2];
+    uint32_t m_SSGIWidth = 0;
+    uint32_t m_SSGIHeight = 0;
     ComputeTexture m_SSRTrace;
     ComputeTexture m_SSRHistory[2];
     ComputeTexture m_SSRFilter[2];
+    uint32_t m_SSRWidth = 0;
+    uint32_t m_SSRHeight = 0;
     ComputeTexture m_RTShadow;
     ComputeTexture m_RTAOTrace;
     ComputeTexture m_RTAOHistory[2];

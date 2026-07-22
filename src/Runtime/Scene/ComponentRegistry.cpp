@@ -390,6 +390,10 @@ TypeDescriptor PostProcessType() {
         d, "ssaoRadius", 1.2f,
         [](const Component& c) { return static_cast<const PostProcessComponent&>(c).GetSSAORadius(); },
         [](Component& c, float v) { static_cast<PostProcessComponent&>(c).SetSSAORadius(v); });
+    AddUInt(
+        d, "ssaoSampleCount", 16u,
+        [](const Component& c) { return static_cast<const PostProcessComponent&>(c).GetSSAOSampleCount(); },
+        [](Component& c, uint32_t v) { static_cast<PostProcessComponent&>(c).SetSSAOSampleCount(v); });
     AddFloat(
         d, "ssaoBias", 0.025f,
         [](const Component& c) { return static_cast<const PostProcessComponent&>(c).GetSSAOBias(); },
@@ -402,10 +406,10 @@ TypeDescriptor PostProcessType() {
         d, "ssaoIntensity", 0.0f,
         [](const Component& c) { return static_cast<const PostProcessComponent&>(c).GetSSAOIntensity(); },
         [](Component& c, float v) { static_cast<PostProcessComponent&>(c).SetSSAOIntensity(v); });
-    AddFloat(
-        d, "ssaoScale", 1.0f,
-        [](const Component& c) { return static_cast<const PostProcessComponent&>(c).GetSSAOScale(); },
-        [](Component& c, float v) { static_cast<PostProcessComponent&>(c).SetSSAOScale(v); });
+    AddBool(
+        d, "ssaoHalfResolution", false,
+        [](const Component& c) { return static_cast<const PostProcessComponent&>(c).IsSSAOHalfResolution(); },
+        [](Component& c, bool v) { static_cast<PostProcessComponent&>(c).SetSSAOHalfResolution(v); });
     AddBool(
         d, "rayTracedAOReplacement", false,
         [](const Component& c) { return static_cast<const PostProcessComponent&>(c).UsesRayTracedAOReplacement(); },
@@ -414,6 +418,10 @@ TypeDescriptor PostProcessType() {
         d, "ssgiEnabled", true,
         [](const Component& c) { return static_cast<const PostProcessComponent&>(c).IsSSGIEnabled(); },
         [](Component& c, bool v) { static_cast<PostProcessComponent&>(c).SetSSGIEnabled(v); });
+    AddBool(
+        d, "ssgiHalfResolution", true,
+        [](const Component& c) { return static_cast<const PostProcessComponent&>(c).IsSSGIHalfResolution(); },
+        [](Component& c, bool v) { static_cast<PostProcessComponent&>(c).SetSSGIHalfResolution(v); });
     AddFloat(
         d, "ssgiIntensity", 1.0f,
         [](const Component& c) { return static_cast<const PostProcessComponent&>(c).GetSSGIIntensity(); },
@@ -444,6 +452,10 @@ TypeDescriptor PostProcessType() {
         d, "ssrEnabled", true,
         [](const Component& c) { return static_cast<const PostProcessComponent&>(c).IsSSREnabled(); },
         [](Component& c, bool v) { static_cast<PostProcessComponent&>(c).SetSSREnabled(v); });
+    AddBool(
+        d, "ssrHalfResolution", true,
+        [](const Component& c) { return static_cast<const PostProcessComponent&>(c).IsSSRHalfResolution(); },
+        [](Component& c, bool v) { static_cast<PostProcessComponent&>(c).SetSSRHalfResolution(v); });
     AddFloat(
         d, "ssrMaxDistance", 10.0f,
         [](const Component& c) { return static_cast<const PostProcessComponent&>(c).GetSSRMaxDistance(); },

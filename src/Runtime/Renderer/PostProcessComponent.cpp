@@ -38,6 +38,10 @@ void PostProcessComponent::SetSSAORadius(float radius) {
     m_SSAORadius = std::clamp(radius, 0.01f, 10.0f);
 }
 
+void PostProcessComponent::SetSSAOSampleCount(uint32_t sampleCount) {
+    m_SSAOSampleCount = std::clamp(sampleCount, 1u, 64u);
+}
+
 void PostProcessComponent::SetSSAOBias(float bias) {
     m_SSAOBias = std::clamp(bias, 0.0f, 0.5f);
 }
@@ -118,12 +122,15 @@ void PostProcessComponent::Serialize(nlohmann::json& data) const {
     data["bloomThreshold"] = m_BloomThreshold;
     data["bloomIntensity"] = m_BloomIntensity;
     data["ssaoRadius"] = m_SSAORadius;
+    data["ssaoSampleCount"] = m_SSAOSampleCount;
     data["ssaoBias"] = m_SSAOBias;
     data["ssaoPower"] = m_SSAOPower;
     data["ssaoIntensity"] = m_SSAOIntensity;
     data["ssaoScale"] = m_SSAOScale;
+    data["ssaoHalfResolution"] = IsSSAOHalfResolution();
     data["rayTracedAOReplacement"] = m_RayTracedAOReplacement;
     data["ssgiEnabled"] = m_SSGIEnabled;
+    data["ssgiHalfResolution"] = m_SSGIHalfResolution;
     data["ssgiIntensity"] = m_SSGIIntensity;
     data["ssgiMaxDistance"] = m_SSGIMaxDistance;
     data["ssgiHistoryWeight"] = m_SSGIHistoryWeight;
@@ -131,6 +138,7 @@ void PostProcessComponent::Serialize(nlohmann::json& data) const {
     data["ssgiFilterRounds"] = m_SSGIFilterRounds;
     data["rayTracedDiffuseReplacement"] = m_RayTracedDiffuseReplacement;
     data["ssrEnabled"] = m_SSREnabled;
+    data["ssrHalfResolution"] = m_SSRHalfResolution;
     data["ssrMaxDistance"] = m_SSRMaxDistance;
     data["ssrMaxRoughness"] = m_SSRMaxRoughness;
     data["ssrHistoryWeight"] = m_SSRHistoryWeight;
@@ -156,12 +164,15 @@ void PostProcessComponent::Deserialize(const nlohmann::json& data) {
     SetBloomThreshold(data.value("bloomThreshold", 1.0f));
     SetBloomIntensity(data.value("bloomIntensity", 0.0f));
     SetSSAORadius(data.value("ssaoRadius", 1.2f));
+    SetSSAOSampleCount(data.value("ssaoSampleCount", 16u));
     SetSSAOBias(data.value("ssaoBias", 0.025f));
     SetSSAOPower(data.value("ssaoPower", 1.5f));
     SetSSAOIntensity(data.value("ssaoIntensity", 0.0f));
     SetSSAOScale(data.value("ssaoScale", 1.0f));
+    SetSSAOHalfResolution(data.value("ssaoHalfResolution", IsSSAOHalfResolution()));
     SetRayTracedAOReplacement(data.value("rayTracedAOReplacement", false));
     SetSSGIEnabled(data.value("ssgiEnabled", true));
+    SetSSGIHalfResolution(data.value("ssgiHalfResolution", true));
     SetSSGIIntensity(data.value("ssgiIntensity", 1.0f));
     SetSSGIMaxDistance(data.value("ssgiMaxDistance", 10.0f));
     SetSSGIHistoryWeight(data.value("ssgiHistoryWeight", 0.9f));
@@ -169,6 +180,7 @@ void PostProcessComponent::Deserialize(const nlohmann::json& data) {
     SetSSGIFilterRounds(data.value("ssgiFilterRounds", 3u));
     SetRayTracedDiffuseReplacement(data.value("rayTracedDiffuseReplacement", false));
     SetSSREnabled(data.value("ssrEnabled", true));
+    SetSSRHalfResolution(data.value("ssrHalfResolution", true));
     SetSSRMaxDistance(data.value("ssrMaxDistance", 10.0f));
     SetSSRMaxRoughness(data.value("ssrMaxRoughness", 0.8f));
     SetSSRHistoryWeight(data.value("ssrHistoryWeight", 0.9f));

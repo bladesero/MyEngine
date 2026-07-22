@@ -38,6 +38,15 @@ struct RenderGraphResourceStats {
     bool transientBudgetExceeded = false;
 };
 
+struct RenderGraphCpuTimings {
+    float addPassCpuMs = 0.0f;
+    float compileCpuMs = 0.0f;
+    float ensureResourcesCpuMs = 0.0f;
+    bool topologyCacheHit = false;
+    uint64_t topologyCacheHits = 0;
+    uint64_t topologyCacheMisses = 0;
+};
+
 struct RGTextureSubresource {
     uint32_t firstMip = 0;
     uint32_t mipCount = 1;
@@ -179,7 +188,9 @@ public:
 
     bool Compile();
     bool Prepare();
-    bool Execute(GpuCommandList& commandList);
+    bool Execute(GpuCommandList& commandList, GpuTimestampQueryPool* timestampPool = nullptr,
+                 uint32_t firstTimestampQuery = 0);
+    void BeginFrame();
     void Reset();
     const std::string& GetLastError() const { return m_LastError; }
     ErrorCode GetLastErrorCode() const { return m_LastErrorCode; }
@@ -189,6 +200,7 @@ public:
     bool SetResourceBudget(const RenderGraphResourceBudget&, std::string* error = nullptr);
     const RenderGraphResourceBudget& GetResourceBudget() const { return m_ResourceBudget; }
     const RenderGraphResourceStats& GetResourceStats() const { return m_ResourceStats; }
+    const RenderGraphCpuTimings& GetCpuTimings() const { return m_CpuTimings; }
 
 private:
     friend class RenderGraphResources;
@@ -247,6 +259,15 @@ private:
     bool ValidateAccelerationStructureAccess(const Pass& pass,
                                              const RenderGraphBuilder::AccelerationStructureAccess& access);
     bool EnsureResources();
+    void AddPassInternal(const std::string& name, SetupCallback setup, ExecuteCallback execute, PassFlags flags,
+                         PassType type);
+    bool FinalizeFrameRecording();
+    bool FrameTopologyMatches() const;
+    void MergeRecordedFrame();
+    void AdoptRecordedFrame();
+    void RecycleActiveTransientResources();
+    void AcquirePooledResources();
+    void TrimResourcePool();
     bool SetError(ErrorCode code, std::string message);
 
     IRHIDevice& m_Device;
@@ -254,6 +275,10 @@ private:
     std::vector<BufferResource> m_Buffers;
     std::vector<AccelerationStructureResource> m_AccelerationStructures;
     std::vector<Pass> m_Passes;
+    std::vector<TextureResource> m_RecordedTextures;
+    std::vector<BufferResource> m_RecordedBuffers;
+    std::vector<AccelerationStructureResource> m_RecordedAccelerationStructures;
+    std::vector<Pass> m_RecordedPasses;
     std::vector<uint32_t> m_ExecutionOrder;
     std::vector<std::string> m_ExecutionOrderNames;
     std::vector<PassType> m_ExecutionPassTypes;
@@ -271,6 +296,8 @@ private:
     std::unordered_map<std::string, std::vector<PooledBuffer>> m_BufferPool;
     RenderGraphResourceBudget m_ResourceBudget;
     RenderGraphResourceStats m_ResourceStats;
+    RenderGraphCpuTimings m_CpuTimings;
+    bool m_FrameRecording = false;
 };
 
 inline RenderGraph::PassFlags operator|(RenderGraph::PassFlags a, RenderGraph::PassFlags b) {

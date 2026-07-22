@@ -20,6 +20,10 @@ struct RuntimePerformanceSample {
     double compositeCpuMs = 0.0;
     double renderGraphBuildMs = 0.0;
     double renderGraphPrepareMs = 0.0;
+    double pipelinePrepareMs = 0.0;
+    double renderGraphAddPassMs = 0.0;
+    double renderGraphCompileMs = 0.0;
+    double renderGraphEnsureResourcesMs = 0.0;
     double gpuScenePrepareMs = 0.0;
     double frameWaitMs = 0.0;
     double presentMs = 0.0;
@@ -48,6 +52,10 @@ struct RuntimePerformanceSummary {
     double p95MainCpuMs = 0.0;
     double p95RenderGraphBuildMs = 0.0;
     double p95RenderGraphPrepareMs = 0.0;
+    double p95PipelinePrepareMs = 0.0;
+    double p95RenderGraphAddPassMs = 0.0;
+    double p95RenderGraphCompileMs = 0.0;
+    double p95RenderGraphEnsureResourcesMs = 0.0;
     double p95GpuScenePrepareMs = 0.0;
     size_t gpuSampleCount = 0;
     uint64_t workingSetGrowthBytes = 0;

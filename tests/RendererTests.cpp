@@ -807,6 +807,97 @@ bool TestRenderGraphValidationAndExecution() {
                  "RenderGraph accepted more color attachments than the device supports");
 }
 
+bool TestRenderGraphTopologyCacheAndPerPassTimestamps() {
+    MockRenderContext context;
+    RenderGraph graph(context);
+    RHITextureDesc desc;
+    desc.width = 32;
+    desc.height = 32;
+    desc.format = RHIFormat::RGBA8UNorm;
+    desc.usage = RHIResourceUsage::ShaderResource | RHIResourceUsage::RenderTarget;
+    std::vector<int> execution;
+    const auto recordFrame = [&](int marker) {
+        graph.BeginFrame();
+        const RGTextureHandle first = graph.CreateTexture("TopologyFirst", desc);
+        const RGTextureHandle second = graph.CreateTexture("TopologySecond", desc);
+        graph.AddPass(
+            "TopologyProduce", [first](RenderGraphBuilder& builder) { builder.WriteColor(first, RHILoadOp::Clear); },
+            [&, marker](GpuCommandList&, const RenderGraphResources&) { execution.push_back(marker * 10 + 1); });
+        graph.AddPass(
+            "TopologyConsume",
+            [first, second](RenderGraphBuilder& builder) {
+                builder.ReadTexture(first);
+                builder.WriteColor(second, RHILoadOp::Clear);
+            },
+            [&, marker](GpuCommandList&, const RenderGraphResources&) { execution.push_back(marker * 10 + 2); });
+        graph.SetFinalState(second, RHIResourceState::ShaderResource);
+    };
+
+    recordFrame(1);
+    MockTimestampPool timestamps;
+    if (!Check(graph.Execute(context.commands, &timestamps, 0),
+               "initial cached RenderGraph frame failed: " + graph.GetLastError()))
+        return false;
+    if (!Check(!graph.GetCpuTimings().topologyCacheHit && graph.GetCpuTimings().topologyCacheMisses == 1 &&
+                   context.graphTextureCreates == 2 && context.commands.timestamps == 4 &&
+                   execution == std::vector<int>({11, 12}),
+               "initial RenderGraph frame did not compile, allocate, execute, and timestamp each pass"))
+        return false;
+
+    context.commands.timestamps = 0;
+    execution.clear();
+    recordFrame(2);
+    if (!Check(graph.Execute(context.commands, &timestamps, 0),
+               "topology-cache RenderGraph frame failed: " + graph.GetLastError()))
+        return false;
+    const RenderGraphCpuTimings& cached = graph.GetCpuTimings();
+    if (!Check(cached.topologyCacheHit && cached.topologyCacheHits == 1 && cached.topologyCacheMisses == 1 &&
+                   cached.compileCpuMs == 0.0f && cached.ensureResourcesCpuMs == 0.0f &&
+                   context.graphTextureCreates == 2 && context.commands.timestamps == 4 &&
+                   execution == std::vector<int>({21, 22}),
+               "unchanged RenderGraph topology did not reuse compilation/resources or refresh pass callbacks"))
+        return false;
+
+    graph.BeginFrame();
+    const RGTextureHandle changed = graph.CreateTexture("TopologyChanged", desc);
+    graph.AddPass("ChangedPass", [changed](RenderGraphBuilder& builder) { builder.WriteColor(changed); }, {});
+    graph.SetFinalState(changed, RHIResourceState::ShaderResource);
+    if (!Check(graph.Execute(context.commands), "changed-topology RenderGraph frame failed: " + graph.GetLastError()))
+        return false;
+    if (!Check(!graph.GetCpuTimings().topologyCacheHit && graph.GetCpuTimings().topologyCacheHits == 1 &&
+                   graph.GetCpuTimings().topologyCacheMisses == 2 &&
+                   graph.GetExecutionOrder() == std::vector<std::string>({"ChangedPass"}),
+               "changed RenderGraph topology did not invalidate and rebuild the compiled graph"))
+        return false;
+
+    MockRenderContext importedContext;
+    RenderGraph importedGraph(importedContext);
+    auto firstImport = std::make_shared<MockTexture>();
+    auto secondImport = std::make_shared<MockTexture>();
+    firstImport->desc = desc;
+    secondImport->desc = desc;
+    GpuTexture* observedImport = nullptr;
+    const auto recordImportedFrame = [&](const std::shared_ptr<GpuTexture>& texture) {
+        importedGraph.BeginFrame();
+        const RGTextureHandle imported = importedGraph.ImportTexture(
+            "ChangingImport", texture, RHIResourceState::ShaderResource, RHIResourceState::ShaderResource);
+        importedGraph.AddPass(
+            "WriteChangingImport", [imported](RenderGraphBuilder& builder) { builder.WriteColor(imported); },
+            [&, imported](GpuCommandList&, const RenderGraphResources& resources) {
+                observedImport = resources.GetTexture(imported);
+            });
+    };
+    recordImportedFrame(firstImport);
+    if (!Check(importedGraph.Execute(importedContext.commands) && observedImport == firstImport.get(),
+               "initial imported RenderGraph resource was not visible to the pass callback"))
+        return false;
+    observedImport = nullptr;
+    recordImportedFrame(secondImport);
+    return Check(importedGraph.Execute(importedContext.commands) && importedGraph.GetCpuTimings().topologyCacheHit &&
+                     importedGraph.GetCpuTimings().compileCpuMs == 0.0f && observedImport == secondImport.get(),
+                 "topology-cache hit retained a stale imported resource pointer");
+}
+
 bool TestNamedShaderBindings() {
     auto shader = std::make_shared<MockShader>();
     shader->reflection.bindings = {
@@ -2489,11 +2580,11 @@ bool TestGpuDrivenShadowSetupFailureFallsBackBeforeGraphMutation() {
 
     const size_t checkedAdd = renderer.find("if(!m_ModernDeferredPipeline->AddGpuDrivenShadowView(");
     const size_t abortShadow = renderer.find("m_ModernDeferredPipeline->AbortGpuDrivenShadowFrame();", checkedAdd);
-    const size_t resetGraph = renderer.find("m_RenderGraph->Reset();", abortShadow);
-    const size_t cpuFallback = renderer.find("addCpuShadowPass(\"ShadowFallback\");", resetGraph);
+    const size_t restartGraph = renderer.find("m_RenderGraph->BeginFrame();", abortShadow);
+    const size_t cpuFallback = renderer.find("addCpuShadowPass(\"ShadowFallback\");", restartGraph);
     return Check(checkedAdd != std::string::npos && abortShadow != std::string::npos &&
-                     resetGraph != std::string::npos && cpuFallback != std::string::npos && checkedAdd < abortShadow &&
-                     abortShadow < resetGraph && resetGraph < cpuFallback,
+                     restartGraph != std::string::npos && cpuFallback != std::string::npos &&
+                     checkedAdd < abortShadow && abortShadow < restartGraph && restartGraph < cpuFallback,
                  "Renderer does not rebuild failed GPU shadows with the CPU fallback pass");
 }
 
@@ -2783,6 +2874,12 @@ bool TestModernSsaoCompositeContract() {
         "../../../../src/Runtime/Renderer/PostProcessPass.cpp",
         "../../../../../src/Runtime/Renderer/PostProcessPass.cpp",
     }));
+    const std::string ssaoShader = CompactSource(ReadRepositoryTextFile({
+        "EngineContent/Shaders/PostProcessSSAO.hlsl",
+        "../../../EngineContent/Shaders/PostProcessSSAO.hlsl",
+        "../../../../EngineContent/Shaders/PostProcessSSAO.hlsl",
+        "../../../../../EngineContent/Shaders/PostProcessSSAO.hlsl",
+    }));
     const std::string finalComposite = CompactSource(ReadRepositoryTextFile({
         "EngineContent/Shaders/PostProcessFXAA.hlsl",
         "../../../EngineContent/Shaders/PostProcessFXAA.hlsl",
@@ -2790,7 +2887,7 @@ bool TestModernSsaoCompositeContract() {
         "../../../../../EngineContent/Shaders/PostProcessFXAA.hlsl",
     }));
     if (!Check(!screenSpace.empty() && !pipelineHeader.empty() && !pipelineSource.empty() && !renderer.empty() &&
-                   !postProcess.empty() && !finalComposite.empty(),
+                   !postProcess.empty() && !ssaoShader.empty() && !finalComposite.empty(),
                "Modern SSAO contract sources were not found")) {
         return false;
     }
@@ -2811,6 +2908,7 @@ bool TestModernSsaoCompositeContract() {
         return false;
     }
     if (!Check(renderer.find("constboolframeSsaoEnabled=ssaoEnabled") != std::string::npos &&
+                   renderer.find("SetSSAOScale(postOptions.ssaoHalfResolution?0.5f:1.0f)") != std::string::npos &&
                    renderer.find("if(modernFrameReady&&frameSsaoEnabled&&") != std::string::npos &&
                    renderer.find("ModernRayTracingAO)==0)addSsaoPasses()") != std::string::npos &&
                    renderer.find("modernHiZ,ssao,postResources.ssaoSrv,frameSsaoEnabled") != std::string::npos &&
@@ -2819,10 +2917,18 @@ bool TestModernSsaoCompositeContract() {
                "Renderer still suppresses Modern SSAO or does not use its jittered projection")) {
         return false;
     }
-    return Check(postProcess.find("constants.params3[1]=m_SSAOEnabled&&!m_InputPreprocessed?1.0f:0.0f") !=
+    return Check(postProcess.find("SSAODimension(uint32_tfullResolution,floatscale)") != std::string::npos &&
+                     postProcess.find("(fullResolution+1u)/2u") != std::string::npos &&
+                     postProcess.find("m_SSAOWidth=SSAODimension(m_Width,m_SSAOScale)") != std::string::npos &&
+                     postProcess.find("sampleCount=post->GetSSAOSampleCount()") != std::string::npos &&
+                     postProcess.find("for(uint32_ti=0;i<sampleCount;++i)") != std::string::npos &&
+                     ssaoShader.find("g_SSAOOptions") != std::string::npos &&
+                     ssaoShader.find("for(uinti=0;i<sampleCount;++i)") != std::string::npos &&
+                     ssaoShader.find("occ/float(sampleCount)") != std::string::npos &&
+                     postProcess.find("constants.params3[1]=m_SSAOEnabled&&!m_InputPreprocessed?1.0f:0.0f") !=
                          std::string::npos &&
                      finalComposite.find("if(g_Params3.y>0.5f)color*=g_SSAOMap.Sample") != std::string::npos,
-                 "final composite does not explicitly gate Classic SSAO and can apply an invalid fallback texture");
+                 "SSAO sampling, half-resolution sizing, or final-composite gating regressed");
 }
 
 bool TestModernScreenSpaceSamplingAndConfidenceContracts() {
@@ -2836,9 +2942,10 @@ bool TestModernScreenSpaceSamplingAndConfidenceContracts() {
     if (!Check(!source.empty(), "ModernScreenSpace shader source was not found"))
         return false;
     const std::string compact = CompactSource(source);
-    if (!Check(compact.find("EffectPixelToFullPixel(uint2pixel)") != std::string::npos &&
-                   compact.find("float2(g_FullSize)/float2(g_EffectSize)") != std::string::npos,
-               "half-resolution effects do not use render-size-aware representative pixels")) {
+    if (!Check(compact.find("EffectPixelToFullPixelForSize(uint2pixel,uint2effectSize)") != std::string::npos &&
+                   compact.find("float2(g_FullSize)/float2(effectSize)") != std::string::npos &&
+                   compact.find("source.GetDimensions(sourceWidth,sourceHeight)") != std::string::npos,
+               "full/half-resolution effects do not use source-size-aware representative pixels")) {
         return false;
     }
     if (!Check(compact.find("g_HiZ.GetDimensions(0,baseWidth,baseHeight,levelCount)") != std::string::npos &&
@@ -2928,7 +3035,9 @@ bool TestModernScreenSpaceSamplingAndConfidenceContracts() {
 
 bool TestModernScreenSpacePostProcessTuningContract() {
     PostProcessComponent post;
-    if (!Check(NearlyEqual(post.GetSSGIHistoryWeight(), 0.9f) && post.GetSSGIStepCount() == 32 &&
+    if (!Check(post.IsSSGIEnabled() && post.IsSSREnabled() && post.IsSSGIHalfResolution() &&
+                   post.IsSSRHalfResolution() && !post.IsSSAOHalfResolution() && post.GetSSAOSampleCount() == 16 &&
+                   NearlyEqual(post.GetSSGIHistoryWeight(), 0.9f) && post.GetSSGIStepCount() == 32 &&
                    post.GetSSGIFilterRounds() == 3 && NearlyEqual(post.GetSSRMaxDistance(), 10.0f) &&
                    NearlyEqual(post.GetSSRHistoryWeight(), 0.9f) && post.GetSSRStepCount() == 48 &&
                    post.GetSSRFilterRounds() == 2 && post.IsTAAEnabled() &&
@@ -2939,6 +3048,16 @@ bool TestModernScreenSpacePostProcessTuningContract() {
                "PostProcess Modern SSGI/SSR/TAA tuning defaults changed unexpectedly")) {
         return false;
     }
+    PostProcessComponent legacyAOResolution;
+    legacyAOResolution.Deserialize(nlohmann::json{{"ssaoScale", 0.5f}});
+    if (!Check(legacyAOResolution.IsSSAOHalfResolution(),
+               "legacy PostProcess ssaoScale did not migrate to the shared AO half-resolution switch")) {
+        return false;
+    }
+    post.SetSSAOSampleCount(0);
+    if (!Check(post.GetSSAOSampleCount() == 1, "PostProcess SSAO sample count lower bound is not enforced"))
+        return false;
+    post.SetSSAOSampleCount(128);
     post.SetSSGIHistoryWeight(2.0f);
     post.SetSSGIStepCount(0);
     post.SetSSGIFilterRounds(9);
@@ -2949,11 +3068,12 @@ bool TestModernScreenSpacePostProcessTuningContract() {
     post.SetTAAHistoryWeight(2.0f);
     post.SetTAAJitterSpread(3.0f);
     post.SetTAAHistoryClipExpansion(9.0f);
-    if (!Check(NearlyEqual(post.GetSSGIHistoryWeight(), 0.99f) && post.GetSSGIStepCount() == 1 &&
-                   post.GetSSGIFilterRounds() == 4 && NearlyEqual(post.GetSSRMaxDistance(), 0.1f) &&
-                   NearlyEqual(post.GetSSRHistoryWeight(), 0.0f) && post.GetSSRStepCount() == 128 &&
-                   post.GetSSRFilterRounds() == 4 && NearlyEqual(post.GetTAAHistoryWeight(), 0.99f) &&
-                   NearlyEqual(post.GetTAAJitterSpread(), 2.0f) && NearlyEqual(post.GetTAAHistoryClipExpansion(), 4.0f),
+    if (!Check(post.GetSSAOSampleCount() == 64 && NearlyEqual(post.GetSSGIHistoryWeight(), 0.99f) &&
+                   post.GetSSGIStepCount() == 1 && post.GetSSGIFilterRounds() == 4 &&
+                   NearlyEqual(post.GetSSRMaxDistance(), 0.1f) && NearlyEqual(post.GetSSRHistoryWeight(), 0.0f) &&
+                   post.GetSSRStepCount() == 128 && post.GetSSRFilterRounds() == 4 &&
+                   NearlyEqual(post.GetTAAHistoryWeight(), 0.99f) && NearlyEqual(post.GetTAAJitterSpread(), 2.0f) &&
+                   NearlyEqual(post.GetTAAHistoryClipExpansion(), 4.0f),
                "PostProcess Modern SSGI/SSR/TAA tuning ranges are not bounded")) {
         return false;
     }
@@ -3011,6 +3131,13 @@ bool TestModernScreenSpacePostProcessTuningContract() {
                 pipeline.find("*jitterSpread") != std::string::npos &&
                 pipeline.find("settings.taaJitterSpread,m_PreviousPostSettings.taaJitterSpread") != std::string::npos &&
                 pipeline.find("m_PostSettings.ssgiFilterRounds") != std::string::npos &&
+                pipeline.find("MakeEffectConstants(m_SSGIWidth,m_SSGIHeight)") != std::string::npos &&
+                pipeline.find("MakeEffectConstants(m_SSRWidth,m_SSRHeight)") != std::string::npos &&
+                pipeline.find("m_PostSettings.ssaoHalfResolution?(std::max)(1u,(m_Width+1u)/2u):m_Width") !=
+                    std::string::npos &&
+                pipeline.find("m_PostSettings.ssaoHalfResolution?\"RTAOHalfResolution\":\"RTAOFullResolution\"") !=
+                    std::string::npos &&
+                pipeline.find("rtaoHalfResolution") == std::string::npos &&
                 pipeline.find("FloatsNearlyEqual(settings.ssgiIntensity") == std::string::npos &&
                 pipeline.find("m_PostSettings.ssrFilterRounds") != std::string::npos,
             "Modern pipeline does not consume independent SSGI/SSR trace, temporal, and filter settings")) {
@@ -3018,10 +3145,15 @@ bool TestModernScreenSpacePostProcessTuningContract() {
     }
     return Check(
         renderer.find("options.modern.ssgiHistoryWeight=post->GetSSGIHistoryWeight()") != std::string::npos &&
+            renderer.find("options.ssaoHalfResolution=post->IsSSAOHalfResolution()") != std::string::npos &&
+            renderer.find("options.modern.ssaoHalfResolution=post->IsSSAOHalfResolution()") != std::string::npos &&
+            renderer.find("IsRTAOHalfResolution") == std::string::npos &&
+            renderer.find("options.modern.ssgiHalfResolution=post->IsSSGIHalfResolution()") != std::string::npos &&
             renderer.find("options.modern.ssgiStepCount=post->GetSSGIStepCount()") != std::string::npos &&
             renderer.find("options.modern.ssgiFilterRounds=post->GetSSGIFilterRounds()") != std::string::npos &&
             renderer.find("options.modern.ssrMaxDistance=post->GetSSRMaxDistance()") != std::string::npos &&
             renderer.find("options.modern.ssrHistoryWeight=post->GetSSRHistoryWeight()") != std::string::npos &&
+            renderer.find("options.modern.ssrHalfResolution=post->IsSSRHalfResolution()") != std::string::npos &&
             renderer.find("options.modern.ssrStepCount=post->GetSSRStepCount()") != std::string::npos &&
             renderer.find("options.modern.ssrFilterRounds=post->GetSSRFilterRounds()") != std::string::npos &&
             renderer.find("options.modern.taaEnabled=post->IsTAAEnabled()") != std::string::npos &&
@@ -4811,6 +4943,8 @@ MYENGINE_REGISTER_TEST("Renderer", "TestMaterialResourceCacheGpuResidencyEvictio
 MYENGINE_REGISTER_TEST("Renderer", "TestMaterialResourceCacheMeshResidencyAndQualityDegradation",
                        TestMaterialResourceCacheMeshResidencyAndQualityDegradation);
 MYENGINE_REGISTER_TEST("Renderer", "TestRenderGraphValidationAndExecution", TestRenderGraphValidationAndExecution);
+MYENGINE_REGISTER_TEST("Renderer", "TestRenderGraphTopologyCacheAndPerPassTimestamps",
+                       TestRenderGraphTopologyCacheAndPerPassTimestamps);
 MYENGINE_REGISTER_TEST("Renderer", "TestNamedShaderBindings", TestNamedShaderBindings);
 MYENGINE_REGISTER_TEST("Renderer", "TestRenderGraphComputePassTypeAndUavBarriers",
                        TestRenderGraphComputePassTypeAndUavBarriers);

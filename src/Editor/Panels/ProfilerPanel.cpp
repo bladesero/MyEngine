@@ -44,11 +44,22 @@ void ProfilerPanel::DrawContent() {
     }
     ImGui::Text("CPU submission %.2f ms  Graph build %.2f  Execute %.2f", renderer.renderSubmissionCpuMs,
                 renderer.renderGraphBuildCpuMs, renderer.renderGraphExecuteCpuMs);
+    ImGui::Text("Graph CPU: Pipeline %.2f  AddPass %.2f  Compile %.2f  Ensure %.2f", renderer.pipelinePrepareCpuMs,
+                renderer.renderGraphAddPassCpuMs, renderer.renderGraphCompileCpuMs,
+                renderer.renderGraphEnsureResourcesCpuMs);
+    ImGui::Text("Topology cache %s  hits %llu  misses %llu", renderer.renderGraphTopologyCacheHit ? "hit" : "miss",
+                static_cast<unsigned long long>(renderer.renderGraphTopologyCacheHits),
+                static_cast<unsigned long long>(renderer.renderGraphTopologyCacheMisses));
     ImGui::Text("Render pass CPU: Shadow %.2f  Main %.2f  SSAO %.2f  Composite %.2f", renderer.shadowCpuMs,
                 renderer.mainCpuMs, renderer.ssaoCpuMs, renderer.compositeCpuMs);
     if (renderer.gpuTimingAvailable) {
         ImGui::Text("Render pass GPU: Shadow %.2f  Main %.2f  SSAO %.2f  Composite %.2f", renderer.shadowGpuMs,
                     renderer.mainGpuMs, renderer.ssaoGpuMs, renderer.compositeGpuMs);
+        if (!renderer.renderGraphPassGpuTimings.empty() && ImGui::TreeNode("RenderGraph GPU passes")) {
+            for (const RenderGraphPassGpuTiming& pass : renderer.renderGraphPassGpuTimings)
+                ImGui::Text("%s  %.3f ms", pass.name.c_str(), pass.gpuMs);
+            ImGui::TreePop();
+        }
     } else {
         ImGui::TextDisabled("Render pass GPU timing unavailable");
     }

@@ -509,16 +509,12 @@ public:
         }
         float exposure = post->GetExposure();
         float gamma = post->GetGamma();
-        float ssao = post->GetSSAOIntensity();
         float bloom = post->GetBloomIntensity();
         if (ImGui::DragFloat("Exposure", &exposure, 0.02f, 0.0f, 16.0f)) {
             CommitComponentEdit(context, *actor, *post, "exposure", [&] { post->SetExposure(exposure); });
         }
         if (ImGui::DragFloat("Gamma", &gamma, 0.01f, 0.1f, 8.0f)) {
             CommitComponentEdit(context, *actor, *post, "gamma", [&] { post->SetGamma(gamma); });
-        }
-        if (ImGui::DragFloat("SSAO", &ssao, 0.02f, 0.0f, 4.0f)) {
-            CommitComponentEdit(context, *actor, *post, "ssaoIntensity", [&] { post->SetSSAOIntensity(ssao); });
         }
         if (ImGui::DragFloat("Bloom", &bloom, 0.02f, 0.0f, 8.0f)) {
             CommitComponentEdit(context, *actor, *post, "bloomIntensity", [&] { post->SetBloomIntensity(bloom); });
@@ -548,8 +544,30 @@ public:
         ImGui::TextDisabled("Stored independently; effective only when Modern Deferred, project RT, capability, and "
                             "the source effect are enabled.");
 
+        ImGui::SeparatorText("SSAO");
+        float ssaoIntensity = post->GetSSAOIntensity();
+        float ssaoRadius = post->GetSSAORadius();
+        int ssaoSampleCount = static_cast<int>(post->GetSSAOSampleCount());
+        bool ssaoHalfResolution = post->IsSSAOHalfResolution();
+        if (ImGui::DragFloat("Intensity##SSAO", &ssaoIntensity, 0.02f, 0.0f, 4.0f)) {
+            CommitComponentEdit(context, *actor, *post, "ssaoIntensity",
+                                [&] { post->SetSSAOIntensity(ssaoIntensity); });
+        }
+        if (ImGui::DragFloat("Sample Radius##SSAO", &ssaoRadius, 0.02f, 0.01f, 10.0f)) {
+            CommitComponentEdit(context, *actor, *post, "ssaoRadius", [&] { post->SetSSAORadius(ssaoRadius); });
+        }
+        if (ImGui::DragInt("Sample Count##SSAO", &ssaoSampleCount, 1.0f, 1, 64)) {
+            CommitComponentEdit(context, *actor, *post, "ssaoSampleCount",
+                                [&] { post->SetSSAOSampleCount(static_cast<uint32_t>(ssaoSampleCount)); });
+        }
+        if (ImGui::Checkbox("Half Resolution##SSAO", &ssaoHalfResolution)) {
+            CommitComponentEdit(context, *actor, *post, "ssaoHalfResolution",
+                                [&] { post->SetSSAOHalfResolution(ssaoHalfResolution); });
+        }
+
         ImGui::SeparatorText("SSGI");
         bool ssgiEnabled = post->IsSSGIEnabled();
+        bool ssgiHalfResolution = post->IsSSGIHalfResolution();
         float ssgiIntensity = post->GetSSGIIntensity();
         float ssgiMaxDistance = post->GetSSGIMaxDistance();
         float ssgiHistoryWeight = post->GetSSGIHistoryWeight();
@@ -557,6 +575,10 @@ public:
         int ssgiFilterRounds = static_cast<int>(post->GetSSGIFilterRounds());
         if (ImGui::Checkbox("Enabled##SSGI", &ssgiEnabled)) {
             CommitComponentEdit(context, *actor, *post, "ssgiEnabled", [&] { post->SetSSGIEnabled(ssgiEnabled); });
+        }
+        if (ImGui::Checkbox("Half Resolution##SSGI", &ssgiHalfResolution)) {
+            CommitComponentEdit(context, *actor, *post, "ssgiHalfResolution",
+                                [&] { post->SetSSGIHalfResolution(ssgiHalfResolution); });
         }
         if (ImGui::DragFloat("Intensity##SSGI", &ssgiIntensity, 0.02f, 0.0f, 4.0f)) {
             CommitComponentEdit(context, *actor, *post, "ssgiIntensity",
@@ -581,6 +603,7 @@ public:
 
         ImGui::SeparatorText("SSR");
         bool ssrEnabled = post->IsSSREnabled();
+        bool ssrHalfResolution = post->IsSSRHalfResolution();
         float ssrMaxDistance = post->GetSSRMaxDistance();
         float ssrMaxRoughness = post->GetSSRMaxRoughness();
         float ssrHistoryWeight = post->GetSSRHistoryWeight();
@@ -588,6 +611,10 @@ public:
         int ssrFilterRounds = static_cast<int>(post->GetSSRFilterRounds());
         if (ImGui::Checkbox("Enabled##SSR", &ssrEnabled)) {
             CommitComponentEdit(context, *actor, *post, "ssrEnabled", [&] { post->SetSSREnabled(ssrEnabled); });
+        }
+        if (ImGui::Checkbox("Half Resolution##SSR", &ssrHalfResolution)) {
+            CommitComponentEdit(context, *actor, *post, "ssrHalfResolution",
+                                [&] { post->SetSSRHalfResolution(ssrHalfResolution); });
         }
         if (ImGui::DragFloat("Max Distance##SSR", &ssrMaxDistance, 0.1f, 0.1f, 100.0f)) {
             CommitComponentEdit(context, *actor, *post, "ssrMaxDistance",

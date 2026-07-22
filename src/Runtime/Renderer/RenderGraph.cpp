@@ -3,12 +3,23 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <sstream>
 #include <queue>
 #include <cmath>
 #include <unordered_set>
 
 namespace {
+struct ScopedCpuTimer {
+    explicit ScopedCpuTimer(float& destination) : output(destination), start(std::chrono::steady_clock::now()) {}
+    ~ScopedCpuTimer() {
+        output += static_cast<float>(
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
+    }
+    float& output;
+    std::chrono::steady_clock::time_point start;
+};
+
 bool IsDepthFormat(RHIFormat format) {
     return format == RHIFormat::D24S8 || format == RHIFormat::D32Float;
 }
@@ -177,6 +188,7 @@ RGTextureHandle RenderGraph::ImportTexture(const std::string& name, const std::s
 RGTextureHandle RenderGraph::ImportTexture(const std::string& name, const std::shared_ptr<GpuTexture>& texture,
                                            const std::shared_ptr<GpuTextureView>& view, RHIResourceState initialState,
                                            RHIResourceState finalState) {
+    auto& textures = m_FrameRecording ? m_RecordedTextures : m_Textures;
     TextureResource resource;
     resource.name = name;
     resource.texture = texture;
@@ -188,29 +200,34 @@ RGTextureHandle RenderGraph::ImportTexture(const std::string& name, const std::s
     resource.finalState = finalState;
     resource.hasFinalState = finalState != RHIResourceState::Undefined;
     resource.imported = true;
-    m_Textures.push_back(std::move(resource));
-    m_Compiled = false;
-    return {static_cast<uint32_t>(m_Textures.size() - 1)};
+    textures.push_back(std::move(resource));
+    if (!m_FrameRecording)
+        m_Compiled = false;
+    return {static_cast<uint32_t>(textures.size() - 1)};
 }
 
 RGTextureHandle RenderGraph::CreateTexture(const std::string& name, const RHITextureDesc& desc) {
+    auto& textures = m_FrameRecording ? m_RecordedTextures : m_Textures;
     TextureResource resource;
     resource.name = name;
     resource.desc = desc;
     resource.desc.debugName = name;
-    auto pooled = m_TexturePool.find(TexturePoolKey(desc));
-    if (pooled != m_TexturePool.end() && !pooled->second.empty()) {
-        auto reusable = std::move(pooled->second.back());
-        pooled->second.pop_back();
-        resource.texture = std::move(reusable.texture);
-        resource.view = std::move(reusable.view);
-        resource.reusedFromPool = true;
-        if (pooled->second.empty())
-            m_TexturePool.erase(pooled);
+    if (!m_FrameRecording) {
+        auto pooled = m_TexturePool.find(TexturePoolKey(desc));
+        if (pooled != m_TexturePool.end() && !pooled->second.empty()) {
+            auto reusable = std::move(pooled->second.back());
+            pooled->second.pop_back();
+            resource.texture = std::move(reusable.texture);
+            resource.view = std::move(reusable.view);
+            resource.reusedFromPool = true;
+            if (pooled->second.empty())
+                m_TexturePool.erase(pooled);
+        }
     }
-    m_Textures.push_back(std::move(resource));
-    m_Compiled = false;
-    return {static_cast<uint32_t>(m_Textures.size() - 1)};
+    textures.push_back(std::move(resource));
+    if (!m_FrameRecording)
+        m_Compiled = false;
+    return {static_cast<uint32_t>(textures.size() - 1)};
 }
 
 RGBufferHandle RenderGraph::ImportBuffer(const std::string& name, const std::shared_ptr<GpuBuffer>& buffer,
@@ -220,6 +237,7 @@ RGBufferHandle RenderGraph::ImportBuffer(const std::string& name, const std::sha
 
 RGBufferHandle RenderGraph::ImportBuffer(const std::string& name, const std::shared_ptr<GpuBuffer>& buffer,
                                          RHIResourceState initialState, RHIResourceState finalState) {
+    auto& buffers = m_FrameRecording ? m_RecordedBuffers : m_Buffers;
     BufferResource resource;
     resource.name = name;
     resource.buffer = buffer;
@@ -229,36 +247,284 @@ RGBufferHandle RenderGraph::ImportBuffer(const std::string& name, const std::sha
     resource.finalState = finalState;
     resource.hasFinalState = finalState != RHIResourceState::Undefined;
     resource.imported = true;
-    m_Buffers.push_back(std::move(resource));
-    m_Compiled = false;
-    return {static_cast<uint32_t>(m_Buffers.size() - 1)};
+    buffers.push_back(std::move(resource));
+    if (!m_FrameRecording)
+        m_Compiled = false;
+    return {static_cast<uint32_t>(buffers.size() - 1)};
 }
 
 void RenderGraph::SetFinalState(RGTextureHandle handle, RHIResourceState finalState) {
-    if (!handle.IsValid() || handle.index >= m_Textures.size())
+    auto& textures = m_FrameRecording ? m_RecordedTextures : m_Textures;
+    if (!handle.IsValid() || handle.index >= textures.size())
         return;
-    auto& resource = m_Textures[handle.index];
+    auto& resource = textures[handle.index];
     resource.finalState = finalState;
     resource.hasFinalState = finalState != RHIResourceState::Undefined;
-    m_Compiled = false;
+    if (!m_FrameRecording)
+        m_Compiled = false;
 }
 
 void RenderGraph::SetFinalState(RGBufferHandle handle, RHIResourceState finalState) {
-    if (!handle.IsValid() || handle.index >= m_Buffers.size())
+    auto& buffers = m_FrameRecording ? m_RecordedBuffers : m_Buffers;
+    if (!handle.IsValid() || handle.index >= buffers.size())
         return;
-    auto& resource = m_Buffers[handle.index];
+    auto& resource = buffers[handle.index];
     resource.finalState = finalState;
     resource.hasFinalState = finalState != RHIResourceState::Undefined;
-    m_Compiled = false;
+    if (!m_FrameRecording)
+        m_Compiled = false;
 }
 
 RGBufferHandle RenderGraph::CreateBuffer(const std::string& name, const RHIBufferDesc& desc) {
+    auto& buffers = m_FrameRecording ? m_RecordedBuffers : m_Buffers;
     BufferResource resource;
     resource.name = name;
     resource.desc = desc;
     resource.desc.debugName = name;
-    auto pooled = m_BufferPool.find(BufferPoolKey(desc));
-    if (pooled != m_BufferPool.end() && !pooled->second.empty()) {
+    if (!m_FrameRecording) {
+        auto pooled = m_BufferPool.find(BufferPoolKey(desc));
+        if (pooled != m_BufferPool.end() && !pooled->second.empty()) {
+            auto reusable = std::move(pooled->second.back());
+            pooled->second.pop_back();
+            resource.buffer = std::move(reusable.buffer);
+            resource.view = std::move(reusable.view);
+            resource.reusedFromPool = true;
+            if (pooled->second.empty())
+                m_BufferPool.erase(pooled);
+        }
+    }
+    buffers.push_back(std::move(resource));
+    if (!m_FrameRecording)
+        m_Compiled = false;
+    return {static_cast<uint32_t>(buffers.size() - 1)};
+}
+
+RGAccelerationStructureHandle
+RenderGraph::ImportAccelerationStructure(const std::string& name,
+                                         const std::shared_ptr<GpuAccelerationStructure>& accelerationStructure) {
+    auto& accelerationStructures = m_FrameRecording ? m_RecordedAccelerationStructures : m_AccelerationStructures;
+    accelerationStructures.push_back({name, accelerationStructure});
+    if (!m_FrameRecording)
+        m_Compiled = false;
+    return {static_cast<uint32_t>(accelerationStructures.size() - 1)};
+}
+
+void RenderGraph::AddPass(const std::string& name, SetupCallback setup, ExecuteCallback execute, PassFlags flags) {
+    AddPassInternal(name, std::move(setup), std::move(execute), flags, PassType::Graphics);
+}
+
+void RenderGraph::AddComputePass(const std::string& name, SetupCallback setup, ExecuteCallback execute,
+                                 PassFlags flags) {
+    AddPassInternal(name, std::move(setup), std::move(execute), flags, PassType::Compute);
+}
+
+void RenderGraph::AddAccelerationStructurePass(const std::string& name, SetupCallback setup, ExecuteCallback execute,
+                                               PassFlags flags) {
+    AddPassInternal(name, std::move(setup), std::move(execute), flags, PassType::AccelerationStructureBuild);
+}
+
+void RenderGraph::AddPassInternal(const std::string& name, SetupCallback setup, ExecuteCallback execute,
+                                  PassFlags flags, PassType type) {
+    ScopedCpuTimer timer(m_CpuTimings.addPassCpuMs);
+    auto& passes = m_FrameRecording ? m_RecordedPasses : m_Passes;
+    Pass pass;
+    pass.name = name;
+    pass.execute = std::move(execute);
+    pass.flags = flags;
+    pass.type = type;
+    RenderGraphBuilder builder(pass.accesses, pass.bufferAccesses, pass.accelerationStructureAccesses);
+    setup(builder);
+    passes.push_back(std::move(pass));
+    if (!m_FrameRecording)
+        m_Compiled = false;
+}
+
+bool RenderGraph::SetError(ErrorCode code, std::string message) {
+    m_LastErrorCode = code;
+    m_LastError = std::move(message);
+    return false;
+}
+
+void RenderGraph::BeginFrame() {
+    m_RecordedTextures.clear();
+    m_RecordedBuffers.clear();
+    m_RecordedAccelerationStructures.clear();
+    m_RecordedPasses.clear();
+    m_FrameRecording = true;
+    const uint64_t cacheHits = m_CpuTimings.topologyCacheHits;
+    const uint64_t cacheMisses = m_CpuTimings.topologyCacheMisses;
+    m_CpuTimings = {};
+    m_CpuTimings.topologyCacheHits = cacheHits;
+    m_CpuTimings.topologyCacheMisses = cacheMisses;
+    m_ResourceStats.transientAllocatedBytes = 0;
+    m_ResourceStats.transientReusedBytes = 0;
+    m_ResourceStats.poolEvictions = 0;
+    m_ResourceStats.poolEvictedBytes = 0;
+    m_LastError.clear();
+    m_LastErrorCode = ErrorCode::None;
+}
+
+bool RenderGraph::FrameTopologyMatches() const {
+    if (!m_Compiled || m_RecordedTextures.size() != m_Textures.size() || m_RecordedBuffers.size() != m_Buffers.size() ||
+        m_RecordedAccelerationStructures.size() != m_AccelerationStructures.size() ||
+        m_RecordedPasses.size() != m_Passes.size())
+        return false;
+    for (size_t i = 0; i < m_Textures.size(); ++i) {
+        const auto& cached = m_Textures[i];
+        const auto& recorded = m_RecordedTextures[i];
+        if (cached.name != recorded.name || cached.imported != recorded.imported ||
+            cached.hasFinalState != recorded.hasFinalState || cached.finalState != recorded.finalState ||
+            TexturePoolKey(cached.desc) != TexturePoolKey(recorded.desc))
+            return false;
+    }
+    for (size_t i = 0; i < m_Buffers.size(); ++i) {
+        const auto& cached = m_Buffers[i];
+        const auto& recorded = m_RecordedBuffers[i];
+        if (cached.name != recorded.name || cached.imported != recorded.imported ||
+            cached.hasFinalState != recorded.hasFinalState || cached.finalState != recorded.finalState ||
+            BufferPoolKey(cached.desc) != BufferPoolKey(recorded.desc))
+            return false;
+    }
+    for (size_t i = 0; i < m_AccelerationStructures.size(); ++i)
+        if (m_AccelerationStructures[i].name != m_RecordedAccelerationStructures[i].name)
+            return false;
+    const auto sameTextureAccess = [](const RenderGraphBuilder::Access& a, const RenderGraphBuilder::Access& b) {
+        return a.handle.index == b.handle.index && a.state == b.state && a.read == b.read && a.write == b.write &&
+               a.hasViewDesc == b.hasViewDesc && (!a.hasViewDesc || SameSubresourceView(a.viewDesc, b.viewDesc));
+    };
+    const auto sameBufferAccess = [](const RenderGraphBuilder::BufferAccess& a,
+                                     const RenderGraphBuilder::BufferAccess& b) {
+        return a.handle.index == b.handle.index && a.state == b.state && a.read == b.read && a.write == b.write;
+    };
+    const auto sameAccelerationStructureAccess = [](const RenderGraphBuilder::AccelerationStructureAccess& a,
+                                                    const RenderGraphBuilder::AccelerationStructureAccess& b) {
+        return a.handle.index == b.handle.index && a.read == b.read && a.write == b.write;
+    };
+    for (size_t i = 0; i < m_Passes.size(); ++i) {
+        const auto& cached = m_Passes[i];
+        const auto& recorded = m_RecordedPasses[i];
+        if (cached.name != recorded.name || cached.flags != recorded.flags || cached.type != recorded.type ||
+            cached.accesses.size() != recorded.accesses.size() ||
+            cached.bufferAccesses.size() != recorded.bufferAccesses.size() ||
+            cached.accelerationStructureAccesses.size() != recorded.accelerationStructureAccesses.size())
+            return false;
+        for (size_t access = 0; access < cached.accesses.size(); ++access)
+            if (!sameTextureAccess(cached.accesses[access], recorded.accesses[access]))
+                return false;
+        for (size_t access = 0; access < cached.bufferAccesses.size(); ++access)
+            if (!sameBufferAccess(cached.bufferAccesses[access], recorded.bufferAccesses[access]))
+                return false;
+        for (size_t access = 0; access < cached.accelerationStructureAccesses.size(); ++access)
+            if (!sameAccelerationStructureAccess(cached.accelerationStructureAccesses[access],
+                                                 recorded.accelerationStructureAccesses[access]))
+                return false;
+    }
+    return true;
+}
+
+void RenderGraph::MergeRecordedFrame() {
+    bool resourcesReady = m_ResourcesReady;
+    std::vector<uint8_t> textureChanged(m_Textures.size(), 0);
+    for (size_t i = 0; i < m_Textures.size(); ++i) {
+        auto recorded = std::move(m_RecordedTextures[i]);
+        auto& cached = m_Textures[i];
+        if (recorded.imported) {
+            textureChanged[i] = cached.texture != recorded.texture;
+            if (!recorded.view && !textureChanged[i])
+                recorded.view = cached.view;
+            if (!recorded.view)
+                resourcesReady = false;
+        } else {
+            recorded.texture = std::move(cached.texture);
+            recorded.view = std::move(cached.view);
+            recorded.reusedFromPool = false;
+            if (!recorded.texture || !recorded.view)
+                resourcesReady = false;
+        }
+        recorded.currentState = recorded.initialState;
+        recorded.subresourceStates.assign(recorded.desc.mipLevels * recorded.desc.arrayLayers, recorded.initialState);
+        cached = std::move(recorded);
+    }
+    for (size_t i = 0; i < m_Buffers.size(); ++i) {
+        auto recorded = std::move(m_RecordedBuffers[i]);
+        auto& cached = m_Buffers[i];
+        if (recorded.imported) {
+            const bool changed = cached.buffer != recorded.buffer;
+            if (!recorded.view && !changed)
+                recorded.view = cached.view;
+            if (recorded.desc.stride > 0 &&
+                (HasUsage(recorded.desc.usage, RHIResourceUsage::ShaderResource) ||
+                 HasUsage(recorded.desc.usage, RHIResourceUsage::UnorderedAccess)) &&
+                !recorded.view)
+                resourcesReady = false;
+        } else {
+            recorded.buffer = std::move(cached.buffer);
+            recorded.view = std::move(cached.view);
+            recorded.reusedFromPool = false;
+            if (!recorded.buffer)
+                resourcesReady = false;
+        }
+        recorded.currentState = recorded.initialState;
+        cached = std::move(recorded);
+    }
+    m_AccelerationStructures = std::move(m_RecordedAccelerationStructures);
+    for (size_t i = 0; i < m_Passes.size(); ++i) {
+        auto recorded = std::move(m_RecordedPasses[i]);
+        auto& cached = m_Passes[i];
+        for (size_t access = 0; access < recorded.accesses.size(); ++access) {
+            auto& nextAccess = recorded.accesses[access];
+            if (!nextAccess.hasViewDesc)
+                continue;
+            if (!textureChanged[nextAccess.handle.index])
+                nextAccess.view = std::move(cached.accesses[access].view);
+            if (!nextAccess.view && !(HasPassFlag(recorded.flags, PassFlags::ManualRenderingScope) &&
+                                      (nextAccess.state == RHIResourceState::RenderTarget ||
+                                       nextAccess.state == RHIResourceState::DepthWrite)))
+                resourcesReady = false;
+        }
+        cached = std::move(recorded);
+    }
+    m_ResourcesReady = resourcesReady;
+    m_CpuTimings.topologyCacheHit = true;
+    ++m_CpuTimings.topologyCacheHits;
+}
+
+void RenderGraph::RecycleActiveTransientResources() {
+    for (uint32_t index = 0; index < m_Textures.size(); ++index) {
+        auto& resource = m_Textures[index];
+        if (!resource.imported && resource.texture && (index >= m_LiveTextures.size() || m_LiveTextures[index]))
+            m_TexturePool[TexturePoolKey(resource.desc)].push_back(
+                {resource.desc, std::move(resource.texture), std::move(resource.view)});
+    }
+    for (uint32_t index = 0; index < m_Buffers.size(); ++index) {
+        auto& resource = m_Buffers[index];
+        if (!resource.imported && resource.buffer && (index >= m_LiveBuffers.size() || m_LiveBuffers[index]))
+            m_BufferPool[BufferPoolKey(resource.desc)].push_back(
+                {resource.desc, std::move(resource.buffer), std::move(resource.view)});
+    }
+}
+
+void RenderGraph::AcquirePooledResources() {
+    for (auto& resource : m_Textures) {
+        if (resource.imported || resource.texture)
+            continue;
+        auto pooled = m_TexturePool.find(TexturePoolKey(resource.desc));
+        if (pooled == m_TexturePool.end() || pooled->second.empty())
+            continue;
+        auto reusable = std::move(pooled->second.back());
+        pooled->second.pop_back();
+        resource.texture = std::move(reusable.texture);
+        resource.view = std::move(reusable.view);
+        resource.reusedFromPool = true;
+        if (pooled->second.empty())
+            m_TexturePool.erase(pooled);
+    }
+    for (auto& resource : m_Buffers) {
+        if (resource.imported || resource.buffer)
+            continue;
+        auto pooled = m_BufferPool.find(BufferPoolKey(resource.desc));
+        if (pooled == m_BufferPool.end() || pooled->second.empty())
+            continue;
         auto reusable = std::move(pooled->second.back());
         pooled->second.pop_back();
         resource.buffer = std::move(reusable.buffer);
@@ -267,60 +533,98 @@ RGBufferHandle RenderGraph::CreateBuffer(const std::string& name, const RHIBuffe
         if (pooled->second.empty())
             m_BufferPool.erase(pooled);
     }
-    m_Buffers.push_back(std::move(resource));
-    m_Compiled = false;
-    return {static_cast<uint32_t>(m_Buffers.size() - 1)};
 }
 
-RGAccelerationStructureHandle
-RenderGraph::ImportAccelerationStructure(const std::string& name,
-                                         const std::shared_ptr<GpuAccelerationStructure>& accelerationStructure) {
-    m_AccelerationStructures.push_back({name, accelerationStructure});
+void RenderGraph::AdoptRecordedFrame() {
+    RecycleActiveTransientResources();
+    m_Textures = std::move(m_RecordedTextures);
+    m_Buffers = std::move(m_RecordedBuffers);
+    m_AccelerationStructures = std::move(m_RecordedAccelerationStructures);
+    m_Passes = std::move(m_RecordedPasses);
+    m_ExecutionOrder.clear();
+    m_ExecutionOrderNames.clear();
+    m_ExecutionPassTypes.clear();
+    m_CulledPassNames.clear();
+    m_LiveTextures.clear();
+    m_LiveBuffers.clear();
+    m_LiveAccelerationStructures.clear();
     m_Compiled = false;
-    return {static_cast<uint32_t>(m_AccelerationStructures.size() - 1)};
+    m_ResourcesReady = false;
+    m_CpuTimings.topologyCacheHit = false;
+    ++m_CpuTimings.topologyCacheMisses;
+    AcquirePooledResources();
+    TrimResourcePool();
 }
 
-void RenderGraph::AddPass(const std::string& name, SetupCallback setup, ExecuteCallback execute, PassFlags flags) {
-    Pass pass;
-    pass.name = name;
-    pass.execute = std::move(execute);
-    pass.flags = flags;
-    RenderGraphBuilder builder(pass.accesses, pass.bufferAccesses, pass.accelerationStructureAccesses);
-    setup(builder);
-    m_Passes.push_back(std::move(pass));
-    m_Compiled = false;
+bool RenderGraph::FinalizeFrameRecording() {
+    if (!m_FrameRecording)
+        return true;
+    if (FrameTopologyMatches())
+        MergeRecordedFrame();
+    else
+        AdoptRecordedFrame();
+    m_RecordedTextures.clear();
+    m_RecordedBuffers.clear();
+    m_RecordedAccelerationStructures.clear();
+    m_RecordedPasses.clear();
+    m_FrameRecording = false;
+    return true;
 }
 
-void RenderGraph::AddComputePass(const std::string& name, SetupCallback setup, ExecuteCallback execute,
-                                 PassFlags flags) {
-    Pass pass;
-    pass.name = name;
-    pass.execute = std::move(execute);
-    pass.flags = flags;
-    pass.type = PassType::Compute;
-    RenderGraphBuilder builder(pass.accesses, pass.bufferAccesses, pass.accelerationStructureAccesses);
-    setup(builder);
-    m_Passes.push_back(std::move(pass));
-    m_Compiled = false;
-}
-
-void RenderGraph::AddAccelerationStructurePass(const std::string& name, SetupCallback setup, ExecuteCallback execute,
-                                               PassFlags flags) {
-    Pass pass;
-    pass.name = name;
-    pass.execute = std::move(execute);
-    pass.flags = flags;
-    pass.type = PassType::AccelerationStructureBuild;
-    RenderGraphBuilder builder(pass.accesses, pass.bufferAccesses, pass.accelerationStructureAccesses);
-    setup(builder);
-    m_Passes.push_back(std::move(pass));
-    m_Compiled = false;
-}
-
-bool RenderGraph::SetError(ErrorCode code, std::string message) {
-    m_LastErrorCode = code;
-    m_LastError = std::move(message);
-    return false;
+void RenderGraph::TrimResourcePool() {
+    auto poolBytes = [&]() {
+        uint64_t total = 0;
+        for (const auto& pair : m_TexturePool)
+            for (const auto& item : pair.second)
+                total += EstimateRHITextureBytes(item.desc);
+        for (const auto& pair : m_BufferPool)
+            for (const auto& item : pair.second)
+                total += item.desc.size;
+        return total;
+    };
+    uint64_t total = poolBytes();
+    if (total > m_ResourceBudget.maxPooledBytes) {
+        const uint64_t target =
+            static_cast<uint64_t>(m_ResourceBudget.maxPooledBytes * m_ResourceBudget.poolLowWatermarkRatio);
+        std::vector<std::string> textureKeys, bufferKeys;
+        for (const auto& pair : m_TexturePool)
+            textureKeys.push_back(pair.first);
+        for (const auto& pair : m_BufferPool)
+            bufferKeys.push_back(pair.first);
+        std::sort(textureKeys.begin(), textureKeys.end());
+        std::sort(bufferKeys.begin(), bufferKeys.end());
+        for (const auto& key : textureKeys) {
+            auto found = m_TexturePool.find(key);
+            while (found != m_TexturePool.end() && !found->second.empty() && total > target) {
+                const uint64_t bytes = EstimateRHITextureBytes(found->second.back().desc);
+                found->second.pop_back();
+                total = total >= bytes ? total - bytes : 0;
+                ++m_ResourceStats.poolEvictions;
+                m_ResourceStats.poolEvictedBytes += bytes;
+            }
+            if (found != m_TexturePool.end() && found->second.empty())
+                m_TexturePool.erase(found);
+        }
+        for (const auto& key : bufferKeys) {
+            auto found = m_BufferPool.find(key);
+            while (found != m_BufferPool.end() && !found->second.empty() && total > target) {
+                const uint64_t bytes = found->second.back().desc.size;
+                found->second.pop_back();
+                total = total >= bytes ? total - bytes : 0;
+                ++m_ResourceStats.poolEvictions;
+                m_ResourceStats.poolEvictedBytes += bytes;
+            }
+            if (found != m_BufferPool.end() && found->second.empty())
+                m_BufferPool.erase(found);
+        }
+    }
+    m_ResourceStats.pooledBytes = total;
+    m_ResourceStats.pooledTextures = 0;
+    m_ResourceStats.pooledBuffers = 0;
+    for (const auto& pair : m_TexturePool)
+        m_ResourceStats.pooledTextures += static_cast<uint32_t>(pair.second.size());
+    for (const auto& pair : m_BufferPool)
+        m_ResourceStats.pooledBuffers += static_cast<uint32_t>(pair.second.size());
 }
 
 bool RenderGraph::ValidateHandle(RGTextureHandle handle, const std::string& passName) {
@@ -429,6 +733,10 @@ bool RenderGraph::ValidateAccelerationStructureAccess(const Pass& pass,
 }
 
 bool RenderGraph::Compile() {
+    if (!FinalizeFrameRecording())
+        return false;
+    m_CpuTimings.compileCpuMs = 0.0f;
+    ScopedCpuTimer timer(m_CpuTimings.compileCpuMs);
     m_ResourcesReady = false;
     m_LastError.clear();
     m_LastErrorCode = ErrorCode::None;
@@ -748,6 +1056,8 @@ bool RenderGraph::Compile() {
 }
 
 bool RenderGraph::EnsureResources() {
+    m_CpuTimings.ensureResourcesCpuMs = 0.0f;
+    ScopedCpuTimer timer(m_CpuTimings.ensureResourcesCpuMs);
     m_ResourceStats.transientRequestedBytes = 0;
     m_ResourceStats.transientAllocatedBytes = 0;
     m_ResourceStats.transientReusedBytes = 0;
@@ -867,6 +1177,8 @@ bool RenderGraph::EnsureResources() {
 }
 
 bool RenderGraph::Prepare() {
+    if (!FinalizeFrameRecording())
+        return false;
     if (!m_Compiled && !Compile())
         return false;
     if (m_ResourcesReady)
@@ -875,16 +1187,22 @@ bool RenderGraph::Prepare() {
     return m_ResourcesReady;
 }
 
-bool RenderGraph::Execute(GpuCommandList& commandList) {
+bool RenderGraph::Execute(GpuCommandList& commandList, GpuTimestampQueryPool* timestampPool,
+                          uint32_t firstTimestampQuery) {
     if (!Prepare())
         return false;
+    const bool recordPassTimestamps =
+        timestampPool && firstTimestampQuery + m_ExecutionOrder.size() * 2u <= timestampPool->GetCount();
     RenderGraphResources resources(*this);
     m_TextureUavWriteScratch.assign(m_Textures.size(), 0);
     m_BufferUavWriteScratch.assign(m_Buffers.size(), 0);
     auto& textureUavWrites = m_TextureUavWriteScratch;
     auto& bufferUavWrites = m_BufferUavWriteScratch;
+    uint32_t executionIndex = 0;
     for (uint32_t passIndex : m_ExecutionOrder) {
         Pass& pass = m_Passes[passIndex];
+        if (recordPassTimestamps)
+            commandList.WriteTimestamp(timestampPool, firstTimestampQuery + executionIndex * 2u);
         std::array<RenderingAttachment, 8> colors{};
         uint32_t colorCount = 0;
         RenderingAttachment depth;
@@ -1016,6 +1334,9 @@ bool RenderGraph::Execute(GpuCommandList& commandList) {
         if (rendering)
             commandList.EndRendering();
         commandList.EndDebugEvent();
+        if (recordPassTimestamps)
+            commandList.WriteTimestamp(timestampPool, firstTimestampQuery + executionIndex * 2u + 1u);
+        ++executionIndex;
     }
     for (auto& resource : m_Textures) {
         if (resource.hasFinalState &&
@@ -1062,79 +1383,10 @@ bool RenderGraph::Execute(GpuCommandList& commandList) {
 void RenderGraph::Reset() {
     m_ResourceStats.poolEvictions = 0;
     m_ResourceStats.poolEvictedBytes = 0;
-    // Pool by descriptor rather than debug name so equivalent transient resources can be reused across frames without
-    // coupling allocation lifetime to a particular pass name.
-    for (uint32_t index = 0; index < m_Textures.size(); ++index) {
-        auto& resource = m_Textures[index];
-        if (!resource.imported && resource.texture) {
-            if (index >= m_LiveTextures.size() || m_LiveTextures[index]) {
-                m_TexturePool[TexturePoolKey(resource.desc)].push_back(
-                    {resource.desc, std::move(resource.texture), std::move(resource.view)});
-            }
-        }
-    }
-    for (uint32_t index = 0; index < m_Buffers.size(); ++index) {
-        auto& resource = m_Buffers[index];
-        if (!resource.imported && resource.buffer) {
-            if (index >= m_LiveBuffers.size() || m_LiveBuffers[index]) {
-                m_BufferPool[BufferPoolKey(resource.desc)].push_back(
-                    {resource.desc, std::move(resource.buffer), std::move(resource.view)});
-            }
-        }
-    }
-    auto poolBytes = [&]() {
-        uint64_t total = 0;
-        for (const auto& pair : m_TexturePool)
-            for (const auto& item : pair.second)
-                total += EstimateRHITextureBytes(item.desc);
-        for (const auto& pair : m_BufferPool)
-            for (const auto& item : pair.second)
-                total += item.desc.size;
-        return total;
-    };
-    uint64_t total = poolBytes();
-    if (total > m_ResourceBudget.maxPooledBytes) {
-        const uint64_t target =
-            static_cast<uint64_t>(m_ResourceBudget.maxPooledBytes * m_ResourceBudget.poolLowWatermarkRatio);
-        std::vector<std::string> textureKeys, bufferKeys;
-        for (const auto& pair : m_TexturePool)
-            textureKeys.push_back(pair.first);
-        for (const auto& pair : m_BufferPool)
-            bufferKeys.push_back(pair.first);
-        std::sort(textureKeys.begin(), textureKeys.end());
-        std::sort(bufferKeys.begin(), bufferKeys.end());
-        for (const auto& key : textureKeys) {
-            auto found = m_TexturePool.find(key);
-            while (found != m_TexturePool.end() && !found->second.empty() && total > target) {
-                const uint64_t bytes = EstimateRHITextureBytes(found->second.back().desc);
-                found->second.pop_back();
-                total = total >= bytes ? total - bytes : 0;
-                ++m_ResourceStats.poolEvictions;
-                m_ResourceStats.poolEvictedBytes += bytes;
-            }
-            if (found != m_TexturePool.end() && found->second.empty())
-                m_TexturePool.erase(found);
-        }
-        for (const auto& key : bufferKeys) {
-            auto found = m_BufferPool.find(key);
-            while (found != m_BufferPool.end() && !found->second.empty() && total > target) {
-                const uint64_t bytes = found->second.back().desc.size;
-                found->second.pop_back();
-                total = total >= bytes ? total - bytes : 0;
-                ++m_ResourceStats.poolEvictions;
-                m_ResourceStats.poolEvictedBytes += bytes;
-            }
-            if (found != m_BufferPool.end() && found->second.empty())
-                m_BufferPool.erase(found);
-        }
-    }
-    m_ResourceStats.pooledBytes = total;
-    m_ResourceStats.pooledTextures = 0;
-    m_ResourceStats.pooledBuffers = 0;
-    for (const auto& pair : m_TexturePool)
-        m_ResourceStats.pooledTextures += static_cast<uint32_t>(pair.second.size());
-    for (const auto& pair : m_BufferPool)
-        m_ResourceStats.pooledBuffers += static_cast<uint32_t>(pair.second.size());
+    // A full reset is reserved for renderer release/abort. Normal frames use BeginFrame(), which keeps the compiled
+    // active topology and transient allocations alive while recording a lightweight candidate graph.
+    RecycleActiveTransientResources();
+    TrimResourcePool();
     m_Textures.clear();
     m_Buffers.clear();
     m_AccelerationStructures.clear();
@@ -1146,6 +1398,11 @@ void RenderGraph::Reset() {
     m_LiveTextures.clear();
     m_LiveBuffers.clear();
     m_LiveAccelerationStructures.clear();
+    m_RecordedTextures.clear();
+    m_RecordedBuffers.clear();
+    m_RecordedAccelerationStructures.clear();
+    m_RecordedPasses.clear();
+    m_FrameRecording = false;
     m_LastError.clear();
     m_LastErrorCode = ErrorCode::None;
     m_Compiled = false;

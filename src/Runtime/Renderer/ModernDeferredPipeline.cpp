@@ -344,11 +344,15 @@ void ModernDeferredPipeline::Resize(uint32_t width, uint32_t height) {
     m_SSGIHistory[1] = {};
     m_SSGIFilter[0] = {};
     m_SSGIFilter[1] = {};
+    m_SSGIWidth = 0;
+    m_SSGIHeight = 0;
     m_SSRTrace = {};
     m_SSRHistory[0] = {};
     m_SSRHistory[1] = {};
     m_SSRFilter[0] = {};
     m_SSRFilter[1] = {};
+    m_SSRWidth = 0;
+    m_SSRHeight = 0;
     m_RTShadow = {};
     m_RTAOTrace = {};
     m_RTAOHistory[0] = {};
@@ -699,13 +703,13 @@ bool ModernDeferredPipeline::EnsureClusterResources() {
     return m_Hdr && m_HdrRtv && m_HdrSrv && m_HdrUav;
 }
 
-bool ModernDeferredPipeline::EnsureTemporalResources() {
-    if (m_PostColor.texture)
-        return true;
-    const uint32_t halfWidth = (std::max)(1u, (m_Width + 1u) / 2u);
-    const uint32_t halfHeight = (std::max)(1u, (m_Height + 1u) / 2u);
+bool ModernDeferredPipeline::EnsureTemporalResources(const ModernPostProcessSettings& settings) {
     const auto createTexture = [&](const char* name, uint32_t width, uint32_t height, bool renderTarget,
                                    ComputeTexture& output, RHIFormat format = RHIFormat::RGBA16Float) {
+        if (output.texture && output.texture->desc.width == width && output.texture->desc.height == height &&
+            output.texture->desc.format == format && output.srv && output.uav && (!renderTarget || output.rtv))
+            return true;
+        output = {};
         RHITextureDesc desc;
         desc.width = width;
         desc.height = height;
@@ -728,16 +732,53 @@ bool ModernDeferredPipeline::EnsureTemporalResources() {
         }
         return output.texture && output.srv && output.uav && (!renderTarget || output.rtv);
     };
-    return createTexture("SSGITrace", halfWidth, halfHeight, false, m_SSGITrace) &&
-           createTexture("SSGIHistory0", halfWidth, halfHeight, false, m_SSGIHistory[0]) &&
-           createTexture("SSGIHistory1", halfWidth, halfHeight, false, m_SSGIHistory[1]) &&
-           createTexture("SSGIFilter0", halfWidth, halfHeight, false, m_SSGIFilter[0]) &&
-           createTexture("SSGIFilter1", halfWidth, halfHeight, false, m_SSGIFilter[1]) &&
-           createTexture("SSRTrace", halfWidth, halfHeight, false, m_SSRTrace) &&
-           createTexture("SSRHistory0", halfWidth, halfHeight, false, m_SSRHistory[0]) &&
-           createTexture("SSRHistory1", halfWidth, halfHeight, false, m_SSRHistory[1]) &&
-           createTexture("SSRFilter0", halfWidth, halfHeight, false, m_SSRFilter[0]) &&
-           createTexture("SSRFilter1", halfWidth, halfHeight, false, m_SSRFilter[1]) &&
+    const auto effectDimension = [](uint32_t full, bool halfResolution) {
+        return halfResolution ? (std::max)(1u, (full + 1u) / 2u) : full;
+    };
+    const uint32_t ssgiWidth = effectDimension(m_Width, settings.ssgiHalfResolution);
+    const uint32_t ssgiHeight = effectDimension(m_Height, settings.ssgiHalfResolution);
+    const uint32_t ssrWidth = effectDimension(m_Width, settings.ssrHalfResolution);
+    const uint32_t ssrHeight = effectDimension(m_Height, settings.ssrHalfResolution);
+    const bool ssgiResolutionChanged = m_SSGIWidth != 0 && (m_SSGIWidth != ssgiWidth || m_SSGIHeight != ssgiHeight);
+    const bool ssrResolutionChanged = m_SSRWidth != 0 && (m_SSRWidth != ssrWidth || m_SSRHeight != ssrHeight);
+    if (ssgiResolutionChanged) {
+        m_SSGITrace = {};
+        m_SSGIHistory[0] = {};
+        m_SSGIHistory[1] = {};
+        m_SSGIFilter[0] = {};
+        m_SSGIFilter[1] = {};
+        m_SSGIResourcesInShaderState = false;
+        m_SSGIDebugOutputSrv.reset();
+        m_RTDiffuseDebugOutputSrv.reset();
+    }
+    if (ssrResolutionChanged) {
+        m_SSRTrace = {};
+        m_SSRHistory[0] = {};
+        m_SSRHistory[1] = {};
+        m_SSRFilter[0] = {};
+        m_SSRFilter[1] = {};
+        m_SSRResourcesInShaderState = false;
+        m_SSRDebugOutputSrv.reset();
+        m_RTReflectionDebugOutputSrv.reset();
+    }
+    if (ssgiResolutionChanged || ssrResolutionChanged) {
+        m_HistoryValid = false;
+        m_HistoryResetReason = "screen-space effect resolution changed";
+    }
+    m_SSGIWidth = ssgiWidth;
+    m_SSGIHeight = ssgiHeight;
+    m_SSRWidth = ssrWidth;
+    m_SSRHeight = ssrHeight;
+    return createTexture("SSGITrace", ssgiWidth, ssgiHeight, false, m_SSGITrace) &&
+           createTexture("SSGIHistory0", ssgiWidth, ssgiHeight, false, m_SSGIHistory[0]) &&
+           createTexture("SSGIHistory1", ssgiWidth, ssgiHeight, false, m_SSGIHistory[1]) &&
+           createTexture("SSGIFilter0", ssgiWidth, ssgiHeight, false, m_SSGIFilter[0]) &&
+           createTexture("SSGIFilter1", ssgiWidth, ssgiHeight, false, m_SSGIFilter[1]) &&
+           createTexture("SSRTrace", ssrWidth, ssrHeight, false, m_SSRTrace) &&
+           createTexture("SSRHistory0", ssrWidth, ssrHeight, false, m_SSRHistory[0]) &&
+           createTexture("SSRHistory1", ssrWidth, ssrHeight, false, m_SSRHistory[1]) &&
+           createTexture("SSRFilter0", ssrWidth, ssrHeight, false, m_SSRFilter[0]) &&
+           createTexture("SSRFilter1", ssrWidth, ssrHeight, false, m_SSRFilter[1]) &&
            createTexture("ModernEffectsHDR", m_Width, m_Height, true, m_EffectsHdr) &&
            createTexture("ModernScreenSpaceDebug", m_Width, m_Height, false, m_ScreenSpaceDebug) &&
            createTexture("TAAHistory0", m_Width, m_Height, false, m_TAAHistory[0]) &&
@@ -747,6 +788,16 @@ bool ModernDeferredPipeline::EnsureTemporalResources() {
            createTexture("NormalHistory0", m_Width, m_Height, false, m_NormalHistory[0], RHIFormat::RGBA8UNorm) &&
            createTexture("NormalHistory1", m_Width, m_Height, false, m_NormalHistory[1], RHIFormat::RGBA8UNorm) &&
            createTexture("ModernPostColor", m_Width, m_Height, true, m_PostColor);
+}
+
+ModernDeferredPipeline::ScreenSpaceConstants ModernDeferredPipeline::MakeEffectConstants(uint32_t width,
+                                                                                         uint32_t height) const {
+    ScreenSpaceConstants constants = m_ScreenSpaceConstants;
+    constants.effectSize[0] = (std::max)(width, 1u);
+    constants.effectSize[1] = (std::max)(height, 1u);
+    constants.effectTexelSize[0] = 1.0f / static_cast<float>(constants.effectSize[0]);
+    constants.effectTexelSize[1] = 1.0f / static_cast<float>(constants.effectSize[1]);
+    return constants;
 }
 
 bool ModernDeferredPipeline::EnsureRayTracingPipelines() {
@@ -805,9 +856,8 @@ bool ModernDeferredPipeline::EnsureRayTracingResources() {
     };
     if ((m_RayTracingEffectiveMask & ModernRayTracingAO) == 0)
         return true;
-    const float scale = m_PostSettings.ssaoScale <= 0.75f ? 0.5f : 1.0f;
-    const uint32_t width = (std::max)(1u, static_cast<uint32_t>(static_cast<float>(m_Width) * scale));
-    const uint32_t height = (std::max)(1u, static_cast<uint32_t>(static_cast<float>(m_Height) * scale));
+    const uint32_t width = m_PostSettings.ssaoHalfResolution ? (std::max)(1u, (m_Width + 1u) / 2u) : m_Width;
+    const uint32_t height = m_PostSettings.ssaoHalfResolution ? (std::max)(1u, (m_Height + 1u) / 2u) : m_Height;
     if (m_RTAOTrace.texture && (m_RTAOWidth != width || m_RTAOHeight != height)) {
         m_RTAOTrace = {};
         m_RTAOHistory[0] = {};
@@ -1073,7 +1123,10 @@ void ModernDeferredPipeline::UpdateHistoryValidity(const Camera& camera, const M
     else if (!MatricesNearlyEqual(projection, m_PreviousProjection))
         reason = "camera projection changed";
     else if (settings.ssgiEnabled != m_PreviousPostSettings.ssgiEnabled ||
+             settings.ssgiHalfResolution != m_PreviousPostSettings.ssgiHalfResolution ||
              settings.ssrEnabled != m_PreviousPostSettings.ssrEnabled ||
+             settings.ssrHalfResolution != m_PreviousPostSettings.ssrHalfResolution ||
+             settings.ssaoHalfResolution != m_PreviousPostSettings.ssaoHalfResolution ||
              settings.taaEnabled != m_PreviousPostSettings.taaEnabled ||
              settings.rayTracedShadowReplacement != m_PreviousPostSettings.rayTracedShadowReplacement ||
              settings.rayTracedAOReplacement != m_PreviousPostSettings.rayTracedAOReplacement ||
@@ -1277,7 +1330,7 @@ bool ModernDeferredPipeline::Prepare(const Scene& scene, const Camera& camera, u
     m_Stats.localLights = sceneStats.localLights;
     m_Stats.gpuSceneUploadBytes = sceneStats.uploadBytes + sceneStats.geometryUploadBytes;
     if (!EnsureIndirectBuffers(sceneStats.candidateObjects) || !EnsureHiZResources() || !EnsureClusterResources() ||
-        !EnsureTemporalResources())
+        !EnsureTemporalResources(settings))
         return false;
     UpdateHistoryValidity(camera, settings);
     if (m_HasCommittedFrameNumber && frameNumber != m_LastCommittedFrameNumber + 1u) {
@@ -1360,8 +1413,8 @@ bool ModernDeferredPipeline::Prepare(const Scene& scene, const Camera& camera, u
     m_PostSettings = settings;
     m_ScreenSpaceConstants.fullSize[0] = m_Width;
     m_ScreenSpaceConstants.fullSize[1] = m_Height;
-    m_ScreenSpaceConstants.effectSize[0] = (std::max)(1u, (m_Width + 1u) / 2u);
-    m_ScreenSpaceConstants.effectSize[1] = (std::max)(1u, (m_Height + 1u) / 2u);
+    m_ScreenSpaceConstants.effectSize[0] = m_SSGIWidth;
+    m_ScreenSpaceConstants.effectSize[1] = m_SSGIHeight;
     m_ScreenSpaceConstants.fullTexelSize[0] = 1.0f / m_Width;
     m_ScreenSpaceConstants.fullTexelSize[1] = 1.0f / m_Height;
     m_ScreenSpaceConstants.effectTexelSize[0] = 1.0f / m_ScreenSpaceConstants.effectSize[0];
@@ -2116,16 +2169,16 @@ RGTextureHandle ModernDeferredPipeline::AddScreenSpaceEffects(
     std::shared_ptr<GpuTextureView> effectiveSsaoSrv = ssaoSrv;
     bool effectiveSsaoEnabled = ssaoEnabled;
 
-    ScreenSpaceConstants ssgiTemporalConstants = m_ScreenSpaceConstants;
+    ScreenSpaceConstants ssgiTemporalConstants = MakeEffectConstants(m_SSGIWidth, m_SSGIHeight);
     ssgiTemporalConstants.effectMode = 1u;
-    ScreenSpaceConstants ssrTemporalConstants = m_ScreenSpaceConstants;
+    ScreenSpaceConstants ssrTemporalConstants = MakeEffectConstants(m_SSRWidth, m_SSRHeight);
     ssrTemporalConstants.effectMode = 2u;
     if (rayTracedAO) {
         RayTracingConstants rtaoConstants = m_RayTracingConstants;
         rtaoConstants.effectSize[0] = m_RTAOWidth;
         rtaoConstants.effectSize[1] = m_RTAOHeight;
         graph.AddComputePass(
-            "RTAO",
+            m_PostSettings.ssaoHalfResolution ? "RTAOHalfResolution" : "RTAOFullResolution",
             [this, sceneDepth, gbufferNormal, rtaoTrace](RenderGraphBuilder& builder) {
                 builder.ReadAccelerationStructure(m_FrameRayTracingTlas);
                 builder.ReadTexture(sceneDepth);
@@ -2248,6 +2301,8 @@ RGTextureHandle ModernDeferredPipeline::AddScreenSpaceEffects(
     if (m_PostSettings.ssgiEnabled) {
         if (rayTracedDiffuse) {
             RayTracingConstants diffuseConstants = m_RayTracingConstants;
+            diffuseConstants.effectSize[0] = m_SSGIWidth;
+            diffuseConstants.effectSize[1] = m_SSGIHeight;
             diffuseConstants.params1.x = m_PostSettings.ssgiMaxDistance;
             graph.AddComputePass(
                 "RTDiffuse",
@@ -2295,10 +2350,10 @@ RGTextureHandle ModernDeferredPipeline::AddScreenSpaceEffects(
                                       (diffuseConstants.effectSize[1] + 7u) / 8u, 1);
                 });
         } else {
-            ScreenSpaceConstants ssgiTraceConstants = m_ScreenSpaceConstants;
+            ScreenSpaceConstants ssgiTraceConstants = MakeEffectConstants(m_SSGIWidth, m_SSGIHeight);
             ssgiTraceConstants.effectMode = 1u;
             graph.AddComputePass(
-                "SSGITraceHalfResolution",
+                m_PostSettings.ssgiHalfResolution ? "SSGITraceHalfResolution" : "SSGITraceFullResolution",
                 [sceneDepth, gbufferNormal, hdr, hiz, ssgiTrace](RenderGraphBuilder& builder) {
                     builder.ReadTexture(sceneDepth);
                     builder.ReadTexture(gbufferNormal);
@@ -2371,7 +2426,7 @@ RGTextureHandle ModernDeferredPipeline::AddScreenSpaceEffects(
             const uint32_t outputIndex = pass & 1u;
             const RGTextureHandle outputHandle = ssgiFilterHandles[outputIndex];
             const std::shared_ptr<GpuTextureView> outputUav = m_SSGIFilter[outputIndex].uav;
-            ScreenSpaceConstants filterConstants = m_ScreenSpaceConstants;
+            ScreenSpaceConstants filterConstants = MakeEffectConstants(m_SSGIWidth, m_SSGIHeight);
             filterConstants.filterStep = pass / 2u;
             filterConstants.effectMode = pass & 1u;
             graph.AddComputePass(
@@ -2413,6 +2468,8 @@ RGTextureHandle ModernDeferredPipeline::AddScreenSpaceEffects(
     if (m_PostSettings.ssrEnabled) {
         if (rayTracedReflection) {
             RayTracingConstants reflectionConstants = m_RayTracingConstants;
+            reflectionConstants.effectSize[0] = m_SSRWidth;
+            reflectionConstants.effectSize[1] = m_SSRHeight;
             reflectionConstants.params1.x = m_PostSettings.ssrMaxDistance;
             reflectionConstants.params1.y = m_PostSettings.ssrMaxRoughness;
             graph.AddComputePass(
@@ -2454,10 +2511,10 @@ RGTextureHandle ModernDeferredPipeline::AddScreenSpaceEffects(
                                       (reflectionConstants.effectSize[1] + 7u) / 8u, 1);
                 });
         } else {
-            ScreenSpaceConstants ssrTraceConstants = m_ScreenSpaceConstants;
+            ScreenSpaceConstants ssrTraceConstants = MakeEffectConstants(m_SSRWidth, m_SSRHeight);
             ssrTraceConstants.effectMode = 1u;
             graph.AddComputePass(
-                "SSRTraceHalfResolution",
+                m_PostSettings.ssrHalfResolution ? "SSRTraceHalfResolution" : "SSRTraceFullResolution",
                 [sceneDepth, gbufferNormal, gbufferMaterial, hdr, hiz, ssrTrace](RenderGraphBuilder& builder) {
                     builder.ReadTexture(sceneDepth);
                     builder.ReadTexture(gbufferNormal);
@@ -2532,7 +2589,7 @@ RGTextureHandle ModernDeferredPipeline::AddScreenSpaceEffects(
             const uint32_t outputIndex = pass & 1u;
             const RGTextureHandle outputHandle = ssrFilterHandles[outputIndex];
             const std::shared_ptr<GpuTextureView> outputUav = m_SSRFilter[outputIndex].uav;
-            ScreenSpaceConstants filterConstants = m_ScreenSpaceConstants;
+            ScreenSpaceConstants filterConstants = MakeEffectConstants(m_SSRWidth, m_SSRHeight);
             filterConstants.filterStep = pass / 2u;
             filterConstants.effectMode = (pass & 1u) | 2u;
             graph.AddComputePass(

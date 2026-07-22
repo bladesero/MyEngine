@@ -98,12 +98,17 @@ float2 StableHistoryUv(float2 currentUv, float2 rasterVelocity)
     return currentUv - (rasterVelocity - JitterDeltaUv());
 }
 
+uint2 EffectPixelToFullPixelForSize(uint2 pixel, uint2 effectSize)
+{
+    // Derive the representative full-resolution pixel from normalized coordinates. This is shared by full- and
+    // half-resolution effects and keeps odd-sized render targets centered.
+    float2 fullPosition = (float2(pixel) + 0.5f) * float2(g_FullSize) / float2(effectSize);
+    return min((uint2)fullPosition, g_FullSize - 1);
+}
+
 uint2 EffectPixelToFullPixel(uint2 pixel)
 {
-    // The effect buffer uses ceil(fullSize / 2). Deriving the representative pixel from normalized coordinates keeps
-    // odd-sized render targets centered; pixel * 2 + 1 biases every sample toward the lower-right edge.
-    float2 fullPosition = (float2(pixel) + 0.5f) * float2(g_FullSize) / float2(g_EffectSize);
-    return min((uint2)fullPosition, g_FullSize - 1);
+    return EffectPixelToFullPixelForSize(pixel, g_EffectSize);
 }
 
 float3 DecodeWorldNormal(float3 encodedNormal)
@@ -626,12 +631,15 @@ void CSAtrous(uint3 dispatchThreadId : SV_DispatchThreadID)
 
 float4 BilateralUpsample(Texture2D<float4> source, uint2 pixel)
 {
+    uint sourceWidth, sourceHeight;
+    source.GetDimensions(sourceWidth, sourceHeight);
+    const uint2 sourceSize = uint2(sourceWidth, sourceHeight);
     float depth = g_Depth.Load(int3(pixel, 0));
     if (depth >= 0.999999f)
         return 0.0f;
     float3 centerPosition = ReconstructViewPosition(pixel, depth);
     float3 centerNormal = DecodeWorldNormal(g_Normal.Load(int3(pixel, 0)).xyz);
-    float2 effectPosition = (float2(pixel) + 0.5f) * float2(g_EffectSize) / float2(g_FullSize) - 0.5f;
+    float2 effectPosition = (float2(pixel) + 0.5f) * float2(sourceSize) / float2(g_FullSize) - 0.5f;
     int2 basePixel = int2(floor(effectPosition));
     float2 fraction = frac(effectPosition);
     float4 sum = 0.0f;
@@ -641,8 +649,8 @@ float4 BilateralUpsample(Texture2D<float4> source, uint2 pixel)
     [unroll]
     for (int x = 0; x < 2; ++x)
     {
-        int2 effectPixel = clamp(basePixel + int2(x, y), int2(0, 0), int2(g_EffectSize) - 1);
-        uint2 representative = EffectPixelToFullPixel(uint2(effectPixel));
+        int2 effectPixel = clamp(basePixel + int2(x, y), int2(0, 0), int2(sourceSize) - 1);
+        uint2 representative = EffectPixelToFullPixelForSize(uint2(effectPixel), sourceSize);
         float sampleDepth = g_Depth.Load(int3(representative, 0));
         if (sampleDepth >= 0.999999f)
             continue;
@@ -659,7 +667,7 @@ float4 BilateralUpsample(Texture2D<float4> source, uint2 pixel)
     }
     if (weightSum <= 1e-5f)
     {
-        int2 nearest = clamp(int2(round(effectPosition)), int2(0, 0), int2(g_EffectSize) - 1);
+        int2 nearest = clamp(int2(round(effectPosition)), int2(0, 0), int2(sourceSize) - 1);
         return source.Load(int3(nearest, 0));
     }
     return sum / weightSum;
@@ -684,9 +692,9 @@ void CSEffectsComposite(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
     uint2 pixel = dispatchThreadId.xy;
     if (any(pixel >= g_FullSize)) return;
-    // Debug views are explicit full-resolution visualizations. The working SSGI/SSR buffers are half-resolution
-    // linear-HDR data, and SSR stores confidence in alpha, so exposing those SRVs directly produces a misleading
-    // black/grey viewport and never shows the requested confidence channel.
+    // Debug views are explicit full-resolution visualizations. The working SSGI/SSR buffers may be full- or
+    // half-resolution linear-HDR data, and SSR stores confidence in alpha, so exposing those SRVs directly produces
+    // a misleading black/grey viewport and never shows the requested confidence channel.
     if ((g_EffectMode & 4u) != 0)
     {
         float3 radiance = max(BilateralUpsample(g_SSGI, pixel).rgb, 0.0f);

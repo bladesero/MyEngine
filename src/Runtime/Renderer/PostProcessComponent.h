@@ -40,6 +40,8 @@ public:
 
     float GetSSAORadius() const { return m_SSAORadius; }
     void SetSSAORadius(float radius);
+    uint32_t GetSSAOSampleCount() const { return m_SSAOSampleCount; }
+    void SetSSAOSampleCount(uint32_t sampleCount);
 
     float GetSSAOBias() const { return m_SSAOBias; }
     void SetSSAOBias(float bias);
@@ -52,11 +54,15 @@ public:
 
     float GetSSAOScale() const { return m_SSAOScale; }
     void SetSSAOScale(float scale);
+    bool IsSSAOHalfResolution() const { return m_SSAOScale <= 0.75f; }
+    void SetSSAOHalfResolution(bool enabled) { m_SSAOScale = enabled ? 0.5f : 1.0f; }
     bool UsesRayTracedAOReplacement() const { return m_RayTracedAOReplacement; }
     void SetRayTracedAOReplacement(bool enabled) { m_RayTracedAOReplacement = enabled; }
 
     bool IsSSGIEnabled() const { return m_SSGIEnabled; }
     void SetSSGIEnabled(bool enabled) { m_SSGIEnabled = enabled; }
+    bool IsSSGIHalfResolution() const { return m_SSGIHalfResolution; }
+    void SetSSGIHalfResolution(bool enabled) { m_SSGIHalfResolution = enabled; }
     float GetSSGIIntensity() const { return m_SSGIIntensity; }
     void SetSSGIIntensity(float intensity);
     float GetSSGIMaxDistance() const { return m_SSGIMaxDistance; }
@@ -72,6 +78,8 @@ public:
 
     bool IsSSREnabled() const { return m_SSREnabled; }
     void SetSSREnabled(bool enabled) { m_SSREnabled = enabled; }
+    bool IsSSRHalfResolution() const { return m_SSRHalfResolution; }
+    void SetSSRHalfResolution(bool enabled) { m_SSRHalfResolution = enabled; }
     float GetSSRMaxDistance() const { return m_SSRMaxDistance; }
     void SetSSRMaxDistance(float distance);
     float GetSSRMaxRoughness() const { return m_SSRMaxRoughness; }
@@ -112,12 +120,14 @@ private:
     float m_BloomThreshold = 1.0f;
     float m_BloomIntensity = 0.0f;
     float m_SSAORadius = 1.2f;
+    uint32_t m_SSAOSampleCount = 16;
     float m_SSAOBias = 0.025f;
     float m_SSAOPower = 1.5f;
     float m_SSAOIntensity = 0.0f;
     float m_SSAOScale = 1.0f;
     bool m_RayTracedAOReplacement = false;
     bool m_SSGIEnabled = true;
+    bool m_SSGIHalfResolution = true;
     float m_SSGIIntensity = 1.0f;
     float m_SSGIMaxDistance = 10.0f;
     float m_SSGIHistoryWeight = 0.9f;
@@ -125,6 +135,7 @@ private:
     uint32_t m_SSGIFilterRounds = 3;
     bool m_RayTracedDiffuseReplacement = false;
     bool m_SSREnabled = true;
+    bool m_SSRHalfResolution = true;
     float m_SSRMaxDistance = 10.0f;
     float m_SSRMaxRoughness = 0.8f;
     float m_SSRHistoryWeight = 0.9f;

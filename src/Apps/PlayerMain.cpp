@@ -343,6 +343,10 @@ private:
         sample.compositeCpuMs = renderer.compositeCpuMs;
         sample.renderGraphBuildMs = renderer.renderGraphBuildCpuMs;
         sample.renderGraphPrepareMs = renderer.renderGraphPrepareCpuMs;
+        sample.pipelinePrepareMs = renderer.pipelinePrepareCpuMs;
+        sample.renderGraphAddPassMs = renderer.renderGraphAddPassCpuMs;
+        sample.renderGraphCompileMs = renderer.renderGraphCompileCpuMs;
+        sample.renderGraphEnsureResourcesMs = renderer.renderGraphEnsureResourcesCpuMs;
         sample.gpuScenePrepareMs = renderer.gpuScenePrepareCpuMs;
         sample.frameWaitMs = renderer.frameWaitCpuMs;
         sample.presentMs = renderer.presentCpuMs;
@@ -381,6 +385,13 @@ private:
             {"renderSubmissionCpuMs", rendererStats.renderSubmissionCpuMs},
             {"renderGraphBuildCpuMs", rendererStats.renderGraphBuildCpuMs},
             {"renderGraphPrepareCpuMs", rendererStats.renderGraphPrepareCpuMs},
+            {"pipelinePrepareCpuMs", rendererStats.pipelinePrepareCpuMs},
+            {"renderGraphAddPassCpuMs", rendererStats.renderGraphAddPassCpuMs},
+            {"renderGraphCompileCpuMs", rendererStats.renderGraphCompileCpuMs},
+            {"renderGraphEnsureResourcesCpuMs", rendererStats.renderGraphEnsureResourcesCpuMs},
+            {"renderGraphTopologyCacheHit", rendererStats.renderGraphTopologyCacheHit},
+            {"renderGraphTopologyCacheHits", rendererStats.renderGraphTopologyCacheHits},
+            {"renderGraphTopologyCacheMisses", rendererStats.renderGraphTopologyCacheMisses},
             {"frameWaitCpuMs", rendererStats.frameWaitCpuMs},
             {"presentCpuMs", rendererStats.presentCpuMs},
             {"gpuScenePrepareCpuMs", rendererStats.gpuScenePrepareCpuMs},
@@ -407,6 +418,9 @@ private:
             {"rayTracingTlasUpdated", rendererStats.rayTracingTlasUpdated},
             {"rayTracingFallbackReason", rendererStats.rayTracingFallbackReason},
             {"historyResetReason", rendererStats.historyResetReason}};
+        value["renderer"]["renderGraphPassGpuTimings"] = nlohmann::json::array();
+        for (const RenderGraphPassGpuTiming& pass : rendererStats.renderGraphPassGpuTimings)
+            value["renderer"]["renderGraphPassGpuTimings"].push_back({{"name", pass.name}, {"gpuMs", pass.gpuMs}});
         const RHIDeviceIdentity identity = m_RenderContext ? m_RenderContext->GetDeviceIdentity() : RHIDeviceIdentity{};
         value["device"] = {{"adapterName", identity.adapterName},
                            {"driverVersion", identity.driverVersion},

@@ -565,6 +565,14 @@ imported/final-state resources and read-only side-effect passes stay live.
 Transient resource reuse is descriptor-keyed rather than debug-name-keyed, so
 same-desc resources can be recycled across frames without tying reuse to pass
 or resource names.
+Normal renderer frames use a persistent active RenderGraph plus a recorded
+candidate graph. When resource descriptors, pass names/types, and declared
+access topology match, the graph refreshes imported resources, clear values,
+and execute callbacks in place while reusing the compiled order, liveness data,
+transient allocations, and subresource views. Topology changes fall back to a
+full compile/resource-ensure path. CPU diagnostics report Pipeline Prepare,
+AddPass, Compile, and EnsureResources independently; timestamp-capable backends
+also record a begin/end query pair for every live RenderGraph pass.
 
 ## 11. Physics backend boundary
 
@@ -791,8 +799,18 @@ The four `PostProcessComponent` replacement switches are persisted even when
 unavailable. A replacement becomes effective only with Modern Deferred, the
 project master switch, DXR 1.1 inline capability, its source effect, and its own
 ready shader. RTShadow replaces only directional CSM; RTAO reuses SSAO radius,
-bias, power, intensity, and scale; RTDiffuse reuses SSGI temporal/filter controls;
+bias, power, intensity, and half-resolution selection; RTDiffuse reuses SSGI temporal/filter controls;
 RTReflection reuses SSR distance, roughness, temporal, and filter controls.
+SSAO exposes intensity, sample radius, a bounded 1-64 sample count, and its
+shared raster/RTAO half-resolution selection in one Inspector section.
+SSAO, SSGI, and SSR persist half-resolution switches. RTAO follows the SSAO
+selection instead of storing a duplicate setting. SSGI/SSR default to half
+resolution, while SSAO/RTAO preserve the previous full-resolution default;
+legacy `ssaoScale` values still migrate to the shared AO switch. Switching SSAO
+recreates its raster occlusion/blur targets and, when RTAO is active, its trace,
+history, and filter chain. Switching SSGI or SSR recreates that effect's trace,
+history, and filter chain and invalidates temporal history. RTDiffuse and
+RTReflection follow their source effect's selected resolution.
 Diffuse/reflection shade a primary hit with emissive, environment/probe fallback,
 and directional light plus at most one visibility query; there is no recursion
 or local-light secondary shading. Every effect falls back independently.
