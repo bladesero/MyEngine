@@ -2739,9 +2739,12 @@ bool TestModernScreenSpaceCompositeShaderContract() {
                "Modern effects composite does not bind the clustered local-reflection probe contract")) {
         return false;
     }
-    if (!Check(compact.find("gi=BilateralUpsample(g_SSGI,pixel).rgb*diffuseResponse*max(g_SSGIIntensity,0.0f)") !=
-                   std::string::npos,
-               "SSGI intensity is not applied where indirect radiance reaches the final material composite")) {
+    if (!Check(compact.find("staticconstfloatGI_REFERENCE_SCALE=2.0f") != std::string::npos &&
+                   compact.find("gi=BilateralUpsample(g_SSGI,pixel).rgb*diffuseResponse*GI_REFERENCE_SCALE*"
+                                "max(g_SSGIIntensity,0.0f)") != std::string::npos &&
+                   CountOccurrences(source, "g_SSGIIntensity") == 2 &&
+                   source.find("g_DiffuseRadiance") == std::string::npos,
+               "SSGI/RTGI do not share the single final-composite reference scale and intensity contract")) {
         return false;
     }
     return Check(source.find("hdr + gi + specularCorrection") != std::string::npos &&
@@ -2859,20 +2862,26 @@ bool TestModernScreenSpaceSamplingAndConfidenceContracts() {
                "SSGI composite does not apply the receiver diffuse material response")) {
         return false;
     }
+    const size_t ssgiTraceBegin = compact.find("voidCSSSGITrace");
+    const size_t ssgiTraceEnd = compact.find("voidCSSSRTrace", ssgiTraceBegin);
+    if (!Check(ssgiTraceBegin != std::string::npos && ssgiTraceEnd != std::string::npos,
+               "SSGI trace shader section was not found")) {
+        return false;
+    }
+    const std::string ssgiTrace = compact.substr(ssgiTraceBegin, ssgiTraceEnd - ssgiTraceBegin);
     if (!Check(compact.find("RefineRayDepthCrossing(float3rayOrigin") != std::string::npos &&
                    CountOccurrences(compact, "RefineRayDepthCrossing(rayOrigin,direction,previousDistance,distance") ==
                        2 &&
                    CountOccurrences(compact, "previousViewDelta<-0.002f&&viewDelta>=-0.002f") == 2 &&
-                   compact.find("hitWeight=saturate(1.0f-hitDistance/") != std::string::npos &&
-                   compact.find("hitWeight=hitFacing*") == std::string::npos,
-               "SSGI/SSR still accept self-overlaps, skip thin depth crossings, or double-attenuate cosine samples")) {
+                   ssgiTrace.find("indirect=g_HdrInput.Load(int3(hitPixel,0)).rgb") != std::string::npos &&
+                   ssgiTrace.find("radiance=indirect") != std::string::npos &&
+                   ssgiTrace.find("hitWeight") == std::string::npos &&
+                   ssgiTrace.find("hitDistance/max(g_SSGIMaxDistance") == std::string::npos,
+               "SSGI still rejects valid crossings or attenuates sampled HDR radiance by trace distance")) {
         return false;
     }
-    const size_t ssgiTraceBegin = compact.find("voidCSSSGITrace");
-    const size_t ssgiTraceEnd = compact.find("voidCSSSRTrace", ssgiTraceBegin);
     if (!Check(ssgiTraceBegin != std::string::npos && ssgiTraceEnd != std::string::npos &&
-                   compact.substr(ssgiTraceBegin, ssgiTraceEnd - ssgiTraceBegin).find("g_SSGIIntensity") ==
-                       std::string::npos,
+                   ssgiTrace.find("g_SSGIIntensity") == std::string::npos,
                "SSGI trace history is still intensity-scaled before final composition")) {
         return false;
     }
@@ -3167,7 +3176,26 @@ bool TestModernRayTracingSlangCompileContracts() {
     };
     const std::string shaderSource = CompactSource(ReadRepositoryTextFile(candidates));
     const std::string includeSource = CompactSource(ReadRepositoryTextFile(includeCandidates));
-    if (!Check(!shaderPath.empty() && !shaderSource.empty() && !includeSource.empty(),
+    const std::string pbrSource = CompactSource(ReadRepositoryTextFile({
+        "EngineContent/Shaders/PBR_BRDF.hlsli",
+        "../../../EngineContent/Shaders/PBR_BRDF.hlsli",
+        "../../../../EngineContent/Shaders/PBR_BRDF.hlsli",
+        "../../../../../EngineContent/Shaders/PBR_BRDF.hlsli",
+    }));
+    const std::string pipelineHeader = CompactSource(ReadRepositoryTextFile({
+        "src/Runtime/Renderer/ModernDeferredPipeline.h",
+        "../../../src/Runtime/Renderer/ModernDeferredPipeline.h",
+        "../../../../src/Runtime/Renderer/ModernDeferredPipeline.h",
+        "../../../../../src/Runtime/Renderer/ModernDeferredPipeline.h",
+    }));
+    const std::string pipelineSource = CompactSource(ReadRepositoryTextFile({
+        "src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+        "../../../src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+        "../../../../src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+        "../../../../../src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+    }));
+    if (!Check(!shaderPath.empty() && !shaderSource.empty() && !includeSource.empty() && !pbrSource.empty() &&
+                   !pipelineHeader.empty() && !pipelineSource.empty(),
                "Modern ray tracing shader source was not found"))
         return false;
     if (!Check(includeSource.find("float2ModernRTSample2D(uint2pixel,uintframeIndex,uintstream)") !=
@@ -3178,6 +3206,57 @@ bool TestModernRayTracingSlangCompileContracts() {
                    shaderSource.find("float4(nonNegativeRadiance,luminance*luminance)") != std::string::npos,
                "Modern RT sampling regressed to a translated noise field or lost the diffuse second-moment ABI"))
         return false;
+    const size_t diffuseBegin = shaderSource.find("voidCSRTDiffuse");
+    const size_t reflectionBegin = shaderSource.find("voidCSRTReflection", diffuseBegin);
+    if (!Check(diffuseBegin != std::string::npos && reflectionBegin != std::string::npos,
+               "Modern RT diffuse/reflection shader sections were not found")) {
+        return false;
+    }
+    const std::string diffuseSource = shaderSource.substr(diffuseBegin, reflectionBegin - diffuseBegin);
+    const std::string reflectionSource = shaderSource.substr(reflectionBegin);
+    if (!Check(diffuseSource.find("ModernRTSurfaceGiRadiance(instanceId,primitiveIndex,barycentrics,-direction)") !=
+                       std::string::npos &&
+                   diffuseSource.find(":0.0f") != std::string::npos &&
+                   reflectionSource.find("ModernRTSurfaceRadiance(instanceId,primitiveIndex,barycentrics)") !=
+                       std::string::npos &&
+                   reflectionSource.find("ModernRTSurfaceGiRadiance") == std::string::npos,
+               "RTDiffuse does not use zero-miss GI shading or RTReflection changed to the GI hit contract")) {
+        return false;
+    }
+    if (!Check(includeSource.find("float3ModernRTSurfaceGiRadiance(") != std::string::npos &&
+                   includeSource.find("PbrDirectLighting(baseColor,metallic,roughness,normal,viewDirection,") !=
+                       std::string::npos &&
+                   includeSource.find("PbrEnvironmentLighting(baseColor,metallic,roughness,ao,normal,viewDirection,") !=
+                       std::string::npos &&
+                   includeSource.find("ModernRTSampleGiMaterial(material.textureIndices0.z,") != std::string::npos &&
+                   includeSource.find("ModernRTSampleGiMaterial(material.textureIndices0.w,") != std::string::npos &&
+                   includeSource.find("ModernRTSampleGiMaterial(material.textureIndex4,") != std::string::npos &&
+                   includeSource.find("EvaluateLocalSHVolumes(g_RTLocalSHProbeVolumes,g_RTLocalSHCoefficients,") !=
+                       std::string::npos &&
+                   includeSource.find("SampleLocalReflectionsAuto(g_RTLocalReflectionProbes,g_RTLinearSampler,") !=
+                       std::string::npos &&
+                   pbrSource.find("kD*albedo/BRDF_PI+specular") != std::string::npos,
+               "RTDiffuse GI hit radiance is missing material textures, normalized PBR, or probe lighting")) {
+        return false;
+    }
+    if (!Check(pipelineHeader.find("sizeof(RayTracingConstants)==192") != std::string::npos &&
+                   pipelineHeader.find("offsetof(RayTracingConstants,localReflectionProbeCount)==176") !=
+                       std::string::npos &&
+                   pipelineHeader.find("offsetof(RayTracingConstants,localReflectionMipCount)==184") !=
+                       std::string::npos &&
+                   pipelineSource.find("SetBuffer(\"g_RTEnvironmentSH2\",m_EnvironmentSHSrv)") != std::string::npos &&
+                   pipelineSource.find("SetTexture(\"g_RTLocalReflectionProbes\",m_ProbeReflectionAtlas)") !=
+                       std::string::npos &&
+                   pipelineSource.find("SetBuffer(\"g_RTLocalReflectionProbeData\",m_ProbeReflectionMetadata)") !=
+                       std::string::npos &&
+                   pipelineSource.find("SetBuffer(\"g_RTLocalSHProbeVolumes\",m_ProbeSHVolumeMetadata)") !=
+                       std::string::npos &&
+                   pipelineSource.find("SetBuffer(\"g_RTLocalSHCoefficients\",m_ProbeSHCoefficients)") !=
+                       std::string::npos &&
+                   pipelineSource.find("SetMaterialSamplerTable(bindings,m_MaterialSamplers)") != std::string::npos,
+               "RTDiffuse C++/HLSL probe ABI or material/probe bindings are incomplete")) {
+        return false;
+    }
     if (!Check(ShaderCompilerSlang::IsAvailable(),
                "Slang compiler is unavailable; Modern inline ray-query DXIL cannot be validated"))
         return false;
@@ -3224,6 +3303,17 @@ bool TestModernRayTracingSlangCompileContracts() {
                    "ModernRayTracing reflection has invalid AS, bindless, or per-entry output bindings for " +
                        std::string(candidate.entry)))
             return false;
+        if (std::string(candidate.entry) == "CSRTDiffuse" &&
+            !Check(hasBinding("g_RTEnvironmentSH2", CookedShaderBindingType::StructuredBuffer, 0) &&
+                       hasBinding("g_RTLocalReflectionProbes", CookedShaderBindingType::Texture, 0) &&
+                       hasBinding("g_RTLocalReflectionProbeData", CookedShaderBindingType::StructuredBuffer, 0) &&
+                       hasBinding("g_RTLocalSHProbeVolumes", CookedShaderBindingType::StructuredBuffer, 0) &&
+                       hasBinding("g_RTLocalSHCoefficients", CookedShaderBindingType::StructuredBuffer, 0) &&
+                       hasBinding("g_LinearRepeatSampler", CookedShaderBindingType::Sampler, 0) &&
+                       hasBinding("g_PointClampSampler", CookedShaderBindingType::Sampler, 0),
+                   "RTDiffuse reflection is missing probe or eight-sampler material bindings")) {
+            return false;
+        }
     }
     return true;
 }

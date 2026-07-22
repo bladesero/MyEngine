@@ -277,7 +277,7 @@
                             "ssgiEnabled": true,
                             "ssgiFilterRounds": 3,
                             "ssgiHistoryWeight": 0.8999999761581421,
-                            "ssgiIntensity": 0.4000000059604645,
+                            "ssgiIntensity": 1.0,
                             "ssgiMaxDistance": 10.0,
                             "ssgiStepCount": 32,
                             "ssrEnabled": true,

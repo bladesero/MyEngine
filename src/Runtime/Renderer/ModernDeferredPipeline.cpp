@@ -378,6 +378,7 @@ void ModernDeferredPipeline::Resize(uint32_t width, uint32_t height) {
     m_FrameNormalHistoryRead = {};
     m_FrameNormalHistoryWrite = {};
     m_FrameEnvironment = {};
+    m_FrameEnvironmentSH = {};
     m_FrameScreenSpaceDebug = {};
     m_FrameRayTracingTlas = {};
     m_GeometryHistoryInShaderState = false;
@@ -485,6 +486,7 @@ bool ModernDeferredPipeline::EnsurePipelines() {
     environmentSHFallbackSrv.elementCount = 9;
     environmentSHFallbackSrv.usage = RHIResourceUsage::ShaderResource;
     m_EnvironmentSHFallbackSrv = m_Device->CreateBufferView(m_EnvironmentSHFallback, environmentSHFallbackSrv);
+    m_EnvironmentSHSrv = m_EnvironmentSHFallbackSrv;
 
     RHITextureDesc probeReflectionFallback;
     probeReflectionFallback.width = probeReflectionFallback.height = 1;
@@ -1240,6 +1242,7 @@ bool ModernDeferredPipeline::Prepare(const Scene& scene, const Camera& camera, u
     m_FrameNormalHistoryRead = {};
     m_FrameNormalHistoryWrite = {};
     m_FrameEnvironment = {};
+    m_FrameEnvironmentSH = {};
     m_FrameScreenSpaceDebug = {};
     m_FrameRayTracingTlas = {};
     ConsumeDiagnosticsReadback();
@@ -1463,6 +1466,11 @@ bool ModernDeferredPipeline::Prepare(const Scene& scene, const Camera& camera, u
         Vec4{settings.ssaoRadius, settings.ssaoBias, settings.ssaoPower, settings.ssaoIntensity};
     m_RayTracingConstants.params1 = Vec4{(std::max)(settings.ssgiMaxDistance, settings.ssrMaxDistance),
                                          settings.ssrMaxRoughness, 1.0f, static_cast<float>(frameNumber % 1024u)};
+    m_RayTracingConstants.localReflectionProbeCount =
+        m_ProbeReflectionAtlas && m_ProbeReflectionMetadata ? m_ProbeReflectionCount : 0u;
+    m_RayTracingConstants.localSHProbeVolumeCount =
+        m_ProbeSHVolumeMetadata && m_ProbeSHCoefficients ? m_ProbeSHVolumeCount : 0u;
+    m_RayTracingConstants.localReflectionMipCount = static_cast<float>((std::max)(m_ProbeReflectionMipCount, 1u));
     m_Stats.rayTracingRequestedMask = m_RayTracingRequestedMask;
     m_Stats.rayTracingEffectiveMask = m_RayTracingEffectiveMask;
     m_Stats.clusterCount = m_ClusterConstants.clusterCount;
@@ -1871,7 +1879,9 @@ RGTextureHandle ModernDeferredPipeline::AddClusteredLightingPasses(
         lightingEnvironmentSHSrv = m_EnvironmentSHFallbackSrv;
     }
     m_FrameEnvironment = lightingEnvironment;
+    m_FrameEnvironmentSH = lightingEnvironmentSH;
     m_EnvironmentCubeSrv = lightingEnvironmentSrv;
+    m_EnvironmentSHSrv = lightingEnvironmentSHSrv;
     // CreateBuffer initializes ShaderResource|UnorderedAccess buffers in UAV state. Importing the first frame as
     // Undefined would record a COMMON->UAV barrier whose before-state does not match the native D3D12 resource.
     const RHIResourceState clusterInitial =
@@ -2250,6 +2260,8 @@ RGTextureHandle ModernDeferredPipeline::AddScreenSpaceEffects(
                     builder.ReadTexture(gbufferMaterial);
                     if (m_FrameEnvironment.IsValid())
                         builder.ReadTexture(m_FrameEnvironment);
+                    if (m_FrameEnvironmentSH.IsValid())
+                        builder.ReadBuffer(m_FrameEnvironmentSH);
                     builder.ReadWriteUAV(ssgiTrace);
                 },
                 [this, sceneDepthSrv, gbufferNormalSrv, gbufferAlbedoSrv, gbufferMaterialSrv,
@@ -2269,6 +2281,12 @@ RGTextureHandle ModernDeferredPipeline::AddScreenSpaceEffects(
                     bindings->SetBuffer("g_RTIndices", m_GpuScene->GetGeometryArena().GetIndexView());
                     bindings->SetBuffer("g_RTObjects", m_GpuScene->GetObjectView());
                     bindings->SetBuffer("g_RTMaterials", m_GpuScene->GetMaterialView());
+                    bindings->SetBuffer("g_RTEnvironmentSH2", m_EnvironmentSHSrv);
+                    bindings->SetTexture("g_RTLocalReflectionProbes", m_ProbeReflectionAtlas);
+                    bindings->SetBuffer("g_RTLocalReflectionProbeData", m_ProbeReflectionMetadata);
+                    bindings->SetBuffer("g_RTLocalSHProbeVolumes", m_ProbeSHVolumeMetadata);
+                    bindings->SetBuffer("g_RTLocalSHCoefficients", m_ProbeSHCoefficients);
+                    SetMaterialSamplerTable(bindings, m_MaterialSamplers);
                     bindings->SetSampler("g_RTLinearSampler", m_LinearClampSampler);
                     bindings->SetStorageTexture("g_RTOutput", m_SSGITrace.uav);
                     if (!BindModernPass(commands, "RTDiffuse", bindings))

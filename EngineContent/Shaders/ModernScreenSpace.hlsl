@@ -39,6 +39,8 @@ cbuffer ScreenSpaceConstants : register(b0)
 #include "ModernReflection.hlsli"
 #include "ProbeLighting.hlsli"
 
+static const float GI_REFERENCE_SCALE = 2.0f;
+
 Texture2D<float> g_Depth : register(t0);
 Texture2D<float4> g_Normal : register(t1);
 Texture2D<float4> g_Material : register(t2);
@@ -395,7 +397,6 @@ void CSSSGITrace(uint3 dispatchThreadId : SV_DispatchThreadID)
     float3 direction = normalize(normal * sqrt(saturate(1.0f - radial * radial)) +
                                  (tangent * cos(angle) + bitangent * sin(angle)) * radial);
     float3 indirect = 0.0f;
-    float hitWeight = 0.0f;
     const float3 rayOrigin = origin + normal * 0.03f;
     float previousDistance = 0.0f;
     float previousViewDelta = -0.03f;
@@ -437,7 +438,6 @@ void CSSSGITrace(uint3 dispatchThreadId : SV_DispatchThreadID)
                 indirect = g_HdrInput.Load(int3(hitPixel, 0)).rgb;
                 // Rays are cosine-weighted already. hitFacing only rejects back-facing geometry; multiplying it into
                 // the estimate applies an extra cosine term and makes valid indirect lighting systematically dark.
-                hitWeight = saturate(1.0f - hitDistance / max(g_SSGIMaxDistance, 0.1f));
                 break;
             }
             previousViewDelta = viewDelta;
@@ -445,8 +445,8 @@ void CSSSGITrace(uint3 dispatchThreadId : SV_DispatchThreadID)
         }
     }
     // The traced HDR value is incident radiance; the receiver BRDF is applied during full-resolution composition.
-    // Keep the single-ray estimate energy-bounded before temporal accumulation.
-    float3 radiance = indirect * hitWeight;
+    // A valid hit retains the complete HDR radiance; max distance controls reach, not energy.
+    float3 radiance = indirect;
     float luminance = Luminance(radiance);
     g_Output[pixel] = float4(radiance, luminance * luminance);
 }
@@ -725,7 +725,8 @@ void CSEffectsComposite(uint3 dispatchThreadId : SV_DispatchThreadID)
             float3 diffuseResponse = (1.0f - fresnel) * (1.0f - metallic) * albedo * ao;
             // Keep temporal history in unscaled radiance space. The art-directed intensity belongs at the final
             // material composition point so changing it is immediate and does not invalidate accumulated history.
-            gi = BilateralUpsample(g_SSGI, pixel).rgb * diffuseResponse * max(g_SSGIIntensity, 0.0f);
+            gi = BilateralUpsample(g_SSGI, pixel).rgb * diffuseResponse * GI_REFERENCE_SCALE *
+                 max(g_SSGIIntensity, 0.0f);
         }
         if ((g_EffectMode & 2u) != 0 && reflection.a > 0.0f)
         {

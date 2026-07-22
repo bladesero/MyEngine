@@ -212,8 +212,16 @@ private:
         uint32_t effectSize[2]{};
         Vec4 params0{};
         Vec4 params1{};
+        uint32_t localReflectionProbeCount = 0;
+        uint32_t localSHProbeVolumeCount = 0;
+        float localReflectionMipCount = 1.0f;
+        float probeLightingPadding = 0.0f;
     };
-    static_assert(sizeof(RayTracingConstants) == 176, "ModernRayTracingConstants ABI changed");
+    static_assert(sizeof(RayTracingConstants) == 192, "ModernRayTracingConstants ABI changed");
+    static_assert(offsetof(RayTracingConstants, localReflectionProbeCount) == 176,
+                  "ModernRayTracingConstants probe-count offset changed");
+    static_assert(offsetof(RayTracingConstants, localReflectionMipCount) == 184,
+                  "ModernRayTracingConstants probe-mip offset changed");
 
     struct ShadowIndirectStream {
         std::shared_ptr<GpuBuffer> args;
@@ -410,6 +418,7 @@ private:
     std::shared_ptr<GpuBuffer> m_ProbeSHCoefficientFallback;
     std::shared_ptr<GpuBufferView> m_ProbeSHCoefficientFallbackSrv;
     std::shared_ptr<GpuTextureView> m_EnvironmentCubeSrv;
+    std::shared_ptr<GpuBufferView> m_EnvironmentSHSrv;
     std::shared_ptr<GpuTextureView> m_ProbeReflectionAtlas;
     std::shared_ptr<GpuBufferView> m_ProbeReflectionMetadata;
     std::shared_ptr<GpuBufferView> m_ProbeSHVolumeMetadata;
@@ -474,6 +483,7 @@ private:
     RGTextureHandle m_FrameNormalHistoryRead;
     RGTextureHandle m_FrameNormalHistoryWrite;
     RGTextureHandle m_FrameEnvironment;
+    RGBufferHandle m_FrameEnvironmentSH;
     RGTextureHandle m_FrameScreenSpaceDebug;
     RGAccelerationStructureHandle m_FrameRayTracingTlas;
     uint32_t m_IndirectCapacity = 0;
