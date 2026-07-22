@@ -493,7 +493,7 @@ void MainPass::Execute(GpuCommandList& commands, const Scene& scene, const Camer
     }
 
     m_ResourceCache.ResetFrameStats();
-    const SceneRenderCollection collection = m_SceneCollector.Collect(scene, camera);
+    const SceneRenderCollection collection = m_SceneCollector.Collect(scene, camera, m_StaticGeometryOnly);
     m_LastStats.submittedSubMeshes = collection.submittedSubMeshes;
     m_LastStats.culledSubMeshes = collection.culledSubMeshes;
 
@@ -531,7 +531,7 @@ void MainPass::ExecuteTransparentOnly(GpuCommandList& commands, const Scene& sce
     const ScenePostProcessData postProcess = CollectScenePostProcessData(scene);
 
     m_ResourceCache.ResetFrameStats();
-    const SceneRenderCollection collection = m_SceneCollector.Collect(scene, camera);
+    const SceneRenderCollection collection = m_SceneCollector.Collect(scene, camera, m_StaticGeometryOnly);
     m_LastStats.submittedSubMeshes = collection.submittedSubMeshes;
     m_LastStats.culledSubMeshes = collection.culledSubMeshes;
 

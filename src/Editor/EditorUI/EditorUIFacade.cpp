@@ -24,6 +24,7 @@
 #include "Scene/ComponentRegistry.h"
 #include "Scene/Scene.h"
 #include "Scene/SceneSerializer.h"
+#include "Scene/TypeRegistry.h"
 
 #include <angelscript.h>
 #include <scriptstdstring.h>
@@ -141,19 +142,8 @@ EditorAssetType ParseAssetType(const std::string& type) {
 }
 
 std::string ComponentCategory(const std::string& type) {
-    if (type.find("Renderer") != std::string::npos || type == "CameraComponent" || type == "LightComponent" ||
-        type == "Skylight" || type == "PostProcessComponent")
-        return "Rendering";
-    if (type.find("Audio") != std::string::npos)
-        return "Audio";
-    if (type.find("RigidBody") != std::string::npos || type.find("Collider") != std::string::npos ||
-        type.find("CharacterController") != std::string::npos)
-        return "Physics";
-    if (type.find("Script") != std::string::npos)
-        return "Scripting";
-    if (type.rfind("UI", 0) == 0)
-        return "UI";
-    return "Gameplay";
+    const TypeDescriptor* descriptor = TypeRegistry::Get().Find(type);
+    return descriptor && !descriptor->category.empty() ? descriptor->category : "Gameplay";
 }
 
 std::string DisplayNameFromType(std::string type) {

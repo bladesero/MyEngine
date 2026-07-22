@@ -304,7 +304,9 @@ private:
         float bloomIntensity = 0.0f;
         uint32_t ssgiStepCount = 32;
         uint32_t ssrStepCount = 48;
-        uint32_t padding[4]{};
+        uint32_t localReflectionProbeCount = 0;
+        float localReflectionMipCount = 1.0f;
+        uint32_t padding[2]{};
     };
     static_assert(sizeof(ScreenSpaceConstants) == 560, "ScreenSpaceConstants size must match ModernScreenSpace.hlsl");
     static_assert(offsetof(ScreenSpaceConstants, currentJitterUv) == 464,
@@ -319,6 +321,10 @@ private:
                   "ScreenSpaceConstants post-process tuning offset changed");
     static_assert(offsetof(ScreenSpaceConstants, ssrStepCount) == 540,
                   "ScreenSpaceConstants step-count offset changed");
+    static_assert(offsetof(ScreenSpaceConstants, localReflectionProbeCount) == 544,
+                  "ScreenSpaceConstants reflection-probe count offset changed");
+    static_assert(offsetof(ScreenSpaceConstants, localReflectionMipCount) == 548,
+                  "ScreenSpaceConstants reflection-probe mip-count offset changed");
 
     struct TemporalAAConstants {
         Mat4 inverseJitteredViewProjection = Mat4::Identity();

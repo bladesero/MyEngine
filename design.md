@@ -836,3 +836,10 @@ back to the scene environment cubemap and SH whenever a local probe is absent or
 its asset cannot be loaded. Asset loading and rendering remain Runtime-owned;
 `EditorLightingBakeService` is the Editor-only authoring boundary and writes the
 transactional bake output tracked by `CookDependencyGraph`.
+
+Reflection captures default to 256x256 per cube face. The Editor queues a D3D11
+or D3D12 GPU bake outside the active viewport frame: the Forward renderer draws
+static geometry for all six faces with a 512 shadow atlas, then the readback
+service returns HDR faces for CPU octahedral packing, mip generation, and RGBM
+encoding. Existing probe assets remain readable, but a changed bake dependency
+marker requires rebaking them before the higher resolution is used.

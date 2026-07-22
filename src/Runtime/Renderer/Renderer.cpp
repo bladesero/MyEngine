@@ -420,7 +420,7 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
         commandList->WriteTimestamp(timestampPool.get(), 0);
 
     m_RenderGraph->Reset();
-    if (m_ProbeLightingSystem && !m_ProbeLightingSystem->Prepare(scene) &&
+    if (m_LocalLightingProbesEnabled && m_ProbeLightingSystem && !m_ProbeLightingSystem->Prepare(scene) &&
         !m_ProbeLightingSystem->GetLastError().empty())
         Logger::Warn("[Renderer] local lighting probes unavailable; using global environment: ",
                      m_ProbeLightingSystem->GetLastError());
@@ -1242,6 +1242,19 @@ void Renderer::SetOutputOffscreen(bool enabled) {
     }
 }
 
+void Renderer::SetStaticGeometryOnly(bool enabled) {
+    m_StaticGeometryOnly = enabled;
+    if (m_MainPass)
+        m_MainPass->SetStaticGeometryOnly(enabled);
+    if (m_ShadowPass)
+        m_ShadowPass->SetStaticGeometryOnly(enabled);
+}
+
+void Renderer::SetShadowMapResolution(uint32_t resolution) {
+    if (m_ShadowPass)
+        m_ShadowPass->SetShadowMapSize(resolution);
+}
+
 void Renderer::SetFeatureMask(RendererFeatureMask mask) {
     if (m_FeatureMask == mask)
         return;
@@ -1296,4 +1309,12 @@ GpuTextureView* Renderer::GetSceneColorView() const {
             return m_ModernDeferredPipeline->GetRTReflectionDebugSrv().get();
     }
     return m_PostProcessPass ? m_PostProcessPass->GetSceneColorView() : nullptr;
+}
+
+GpuTextureView* Renderer::GetHdrSceneColorView() const {
+    if (m_PipelineDiagnostics.resolvedPipeline == ResolvedRenderPipeline::ModernDeferred && m_ModernDeferredPipeline)
+        return m_ModernDeferredPipeline->GetHdrSrv().get();
+    if (!m_PostProcessPass)
+        return nullptr;
+    return m_PostProcessPass->GetGraphResources().sceneColorSrv.get();
 }

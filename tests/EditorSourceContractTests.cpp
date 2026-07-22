@@ -260,6 +260,7 @@ bool TestEditorOperatorSourceContracts() {
     const std::string viewportPanel = readSource(root / "src/Editor/Panels/ViewportPanel.cpp");
     const std::string inspectorPanel = readSource(root / "src/Editor/Panels/InspectorPanel.cpp");
     const std::string compactInspectorPanel = compactSource(inspectorPanel);
+    const std::string componentRegistry = readSource(root / "src/Runtime/Scene/ComponentRegistry.cpp");
     const std::string inspectorSections = readSources({
         root / "src/Editor/InspectorSections.cpp",
         root / "src/Editor/InspectorSectionShared.h",
@@ -930,10 +931,10 @@ bool TestEditorOperatorSourceContracts() {
                    inspectorSections.find("EditorViewportPolicy::BindNextPopupToCurrentViewport()") !=
                        std::string::npos &&
                    inspectorSections.find("ImGui::BeginCombo(\"##AddComponent\"") != std::string::npos &&
-                   inspectorSections.find("ImGui::BeginMenu(category)") != std::string::npos &&
+                   inspectorSections.find("ImGui::BeginMenu(category.c_str())") != std::string::npos &&
                    inspectorPanel.find("EditorViewportPolicy::BindNextPopupToCurrentViewport()") != std::string::npos &&
                    inspectorPanel.find("ImGui::BeginCombo(\"##MultiAddComponent\"") != std::string::npos &&
-                   inspectorPanel.find("ImGui::BeginMenu(category)") != std::string::npos &&
+                   inspectorPanel.find("ImGui::BeginMenu(category.c_str())") != std::string::npos &&
                    inspectorSections.find("std::make_unique<SetComponentPropertyCommand>") == std::string::npos &&
                    inspectorSections.find("context.MarkSceneDirty()") == std::string::npos &&
                    inspectorSections.find("std::make_unique<AddComponentCommand>") == std::string::npos &&
@@ -1212,6 +1213,14 @@ bool TestEditorOperatorSourceContracts() {
                    uiFacade.find("operators->Commands().SetActorLayer") != std::string::npos &&
                    uiFacade.find("context->GetSelection().SelectActorID(actorID)") == std::string::npos,
                "AngelScript facade does not route command/selection bindings through operators")) {
+        return false;
+    }
+    if (!Check(inspectorPanel.find("TypeRegistry::Get().Find(type)") != std::string::npos &&
+                   inspectorSections.find("TypeRegistry::Get().Find(type)") != std::string::npos &&
+                   uiFacade.find("TypeRegistry::Get().Find(type)") != std::string::npos &&
+                   componentRegistry.find("Reflection Probe\", \"Rendering\"") != std::string::npos &&
+                   componentRegistry.find("SH Probe Volume\", \"Rendering\"") != std::string::npos,
+               "probe component categories are not sourced from Rendering metadata across Editor surfaces")) {
         return false;
     }
     return true;

@@ -30,5 +30,5 @@ struct SceneRenderCollection {
 
 class SceneRenderCollector {
 public:
-    SceneRenderCollection Collect(const Scene& scene, const Camera& camera) const;
+    SceneRenderCollection Collect(const Scene& scene, const Camera& camera, bool staticGeometryOnly = false) const;
 };

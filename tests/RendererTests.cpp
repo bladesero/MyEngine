@@ -20,6 +20,7 @@
 #include "Renderer/ParticleSystemComponent.h"
 #include "Renderer/ProbeBakeRenderer.h"
 #include "Renderer/ProbeComponents.h"
+#include "Renderer/ProbeLightingSystem.h"
 #include "Renderer/PostProcessComponent.h"
 #include "Renderer/RHI/RHIResourceStats.h"
 #include "Renderer/RenderGraph.h"
@@ -305,6 +306,11 @@ public:
         uploadedSubresourceCounts.push_back(count);
         for (uint32_t i = 0; data && i < count; ++i) {
             uploadedSubresources.push_back(data[i]);
+            uploadedSubresourceBytes.emplace_back();
+            if (data[i].data && data[i].slicePitch > 0) {
+                const auto* bytes = static_cast<const uint8_t*>(data[i].data);
+                uploadedSubresourceBytes.back().assign(bytes, bytes + data[i].slicePitch);
+            }
         }
         auto texture = std::make_shared<MockTexture>();
         texture->desc = desc;
@@ -409,6 +415,7 @@ public:
     std::vector<RHITextureDesc> uploadedTextureDescs;
     std::vector<uint32_t> uploadedSubresourceCounts;
     std::vector<RHITextureSubresourceData> uploadedSubresources;
+    std::vector<std::vector<uint8_t>> uploadedSubresourceBytes;
     int graphTextureCreates = 0;
     int textureViewCreates = 0;
     std::vector<RHITextureViewDesc> textureViewDescs;
@@ -2076,44 +2083,79 @@ bool TestRendererSynchronizesEnvironmentSunBeforePrepare() {
                  "renderer does not synchronize sun direction before preparing environment graph resources");
 }
 
-bool TestShadowedMainPassDirectShadowVisibilityContract() {
-    const char* candidates[] = {
+bool TestDirectShadowsOccludeSpecularAcrossPipelines() {
+    const std::string forward = ReadRepositoryTextFile({
         "EngineContent/Shaders/ShadowedMainPass.hlsl",
         "../../../EngineContent/Shaders/ShadowedMainPass.hlsl",
         "../../../../EngineContent/Shaders/ShadowedMainPass.hlsl",
         "../../../../../EngineContent/Shaders/ShadowedMainPass.hlsl",
+    });
+    const std::string deferred = ReadRepositoryTextFile({
+        "EngineContent/Shaders/DeferredLightingPass.hlsl",
+        "../../../EngineContent/Shaders/DeferredLightingPass.hlsl",
+        "../../../../EngineContent/Shaders/DeferredLightingPass.hlsl",
+        "../../../../../EngineContent/Shaders/DeferredLightingPass.hlsl",
+    });
+    const std::string modern = ReadRepositoryTextFile({
+        "EngineContent/Shaders/ClusteredDeferred.hlsl",
+        "../../../EngineContent/Shaders/ClusteredDeferred.hlsl",
+        "../../../../EngineContent/Shaders/ClusteredDeferred.hlsl",
+        "../../../../../EngineContent/Shaders/ClusteredDeferred.hlsl",
+    });
+    const std::string pbr = ReadRepositoryTextFile({
+        "EngineContent/Shaders/PBR_BRDF.hlsli",
+        "../../../EngineContent/Shaders/PBR_BRDF.hlsli",
+        "../../../../EngineContent/Shaders/PBR_BRDF.hlsli",
+        "../../../../../EngineContent/Shaders/PBR_BRDF.hlsli",
+    });
+    if (!Check(!forward.empty() && !deferred.empty() && !modern.empty() && !pbr.empty(),
+               "directional CSM direct-light contract sources were not found")) {
+        return false;
+    }
+
+    const auto extract = [](const std::string& source, const char* beginMarker, const char* endMarker) {
+        const size_t begin = source.find(beginMarker);
+        const size_t end = begin == std::string::npos ? std::string::npos : source.find(endMarker, begin);
+        return begin != std::string::npos && end != std::string::npos && begin < end
+                   ? CompactSource(source.substr(begin, end - begin))
+                   : std::string{};
     };
-    std::string source;
-    for (const char* path : candidates) {
-        std::ifstream file(path, std::ios::binary);
-        if (!file)
-            continue;
-        std::ostringstream contents;
-        contents << file.rdbuf();
-        source = contents.str();
-        break;
-    }
-    if (!Check(!source.empty(), "ShadowedMainPass shader source was not found")) {
+    const std::string forwardCsm = extract(forward, "float SampleDirectionalCascade", "float SampleDirectionalShadow");
+    const std::string deferredCsm =
+        extract(deferred, "float SampleDirectionalCascade", "float SampleDirectionalShadow");
+    const std::string modernCsm = extract(modern, "float SampleDirectionalShadow", "[numthreads(8, 8, 1)]");
+    if (!Check(forwardCsm.find("returnshadow/9.0f") != std::string::npos &&
+                   deferredCsm.find("returnshadow/9.0f") != std::string::npos &&
+                   modernCsm.find("returnlerp(1.0f,visibility,saturate(g_ShadowInfo.y))") != std::string::npos &&
+                   forwardCsm.find("DIRECT_SHADOW_MIN_VISIBILITY") == std::string::npos &&
+                   deferredCsm.find("DIRECT_SHADOW_MIN_VISIBILITY") == std::string::npos &&
+                   modernCsm.find("lerp(0.08f,1.0f,visibility)") == std::string::npos,
+               "fully occluded CSM samples still preserve direct-light visibility")) {
         return false;
     }
-    if (!Check(source.find("DIRECT_SHADOW_MIN_VISIBILITY = 0.03f") != std::string::npos,
-               "direct shadow minimum visibility should stay near fully occluded")) {
+
+    const std::string forwardCompact = CompactSource(forward);
+    const std::string deferredCompact = CompactSource(deferred);
+    const std::string modernCompact = CompactSource(modern);
+    const std::string pbrCompact = CompactSource(pbr);
+    if (!Check(forwardCompact.find("DIRECT_SHADOW_MIN_VISIBILITY=0.0f") != std::string::npos &&
+                   deferredCompact.find("DIRECT_SHADOW_MIN_VISIBILITY=0.0f") != std::string::npos &&
+                   CountOccurrences(forwardCompact, "?1.0f:DIRECT_SHADOW_MIN_VISIBILITY") >= 2 &&
+                   CountOccurrences(deferredCompact, "?1.0f:DIRECT_SHADOW_MIN_VISIBILITY") >= 2 &&
+                   forwardCompact.find("g_LightColor.rgb*max(g_LightDirection.w,0.0f)*shadow") != std::string::npos &&
+                   deferredCompact.find("g_LightColor.rgb*max(g_LightDirection.w,0.0f)*shadow") != std::string::npos &&
+                   modernCompact.find("g_DirectionalColorAmbient.rgb*max(g_DirectionalLight.w,0.0f)*"
+                                      "directionalShadow") != std::string::npos &&
+                   pbrCompact.find("return(kD*albedo/BRDF_PI+specular)*NdotL*radiance") != std::string::npos,
+               "directional, point, or spot shadows preserve visibility or fail to scale the complete direct BRDF")) {
         return false;
     }
-    if (!Check(source.find("? 1.0f : 0.35f") == std::string::npos &&
-                   source.find("lerp(0.35f, 1.0f") == std::string::npos,
-               "direct shadows still preserve 35 percent direct lighting")) {
-        return false;
-    }
-    if (!Check(source.find("float4 g_ShadowIntensity;") != std::string::npos &&
-                   source.find("saturate(g_ShadowIntensity.x)") != std::string::npos &&
-                   source.find("saturate(g_ShadowIntensity.y)") != std::string::npos &&
-                   source.find("saturate(g_ShadowIntensity.z)") != std::string::npos,
-               "shadowed shader does not expose per-light shadow intensity")) {
-        return false;
-    }
-    return Check(source.find("g_LightColor.rgb * max(g_LightDirection.w, 0.0f) * shadow") != std::string::npos,
-                 "directional direct light is not multiplied by shadow visibility");
+
+    return Check(forward.find("float4 g_ShadowIntensity;") != std::string::npos &&
+                     forward.find("saturate(g_ShadowIntensity.x)") != std::string::npos &&
+                     forward.find("saturate(g_ShadowIntensity.y)") != std::string::npos &&
+                     forward.find("saturate(g_ShadowIntensity.z)") != std::string::npos,
+                 "shadowed shader does not expose per-light shadow intensity");
 }
 
 bool TestShadowDepthAlphaTestIncludesVertexAlpha() {
@@ -2640,7 +2682,20 @@ bool TestModernScreenSpaceCompositeShaderContract() {
         "../../../../../EngineContent/Shaders/ModernScreenSpace.hlsl",
     };
     const std::string source = ReadRepositoryTextFile(candidates);
-    if (!Check(!source.empty(), "ModernScreenSpace shader source was not found"))
+    const std::string pipelineHeader = CompactSource(ReadRepositoryTextFile({
+        "src/Runtime/Renderer/ModernDeferredPipeline.h",
+        "../../../src/Runtime/Renderer/ModernDeferredPipeline.h",
+        "../../../../src/Runtime/Renderer/ModernDeferredPipeline.h",
+        "../../../../../src/Runtime/Renderer/ModernDeferredPipeline.h",
+    }));
+    const std::string pipelineSource = CompactSource(ReadRepositoryTextFile({
+        "src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+        "../../../src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+        "../../../../src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+        "../../../../../src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+    }));
+    if (!Check(!source.empty() && !pipelineHeader.empty() && !pipelineSource.empty(),
+               "ModernScreenSpace composite contract sources were not found"))
         return false;
     if (!Check(source.find("float4 BilateralUpsample(Texture2D<float4> source, uint2 pixel)") != std::string::npos &&
                    source.find("BilateralUpsample(g_SSGI, pixel)") != std::string::npos &&
@@ -2661,12 +2716,29 @@ bool TestModernScreenSpaceCompositeShaderContract() {
                "SSR trace confidence is still coupled to material metallic/F0")) {
         return false;
     }
-    if (!Check(source.find("g_Environment.SampleLevel(g_LinearSampler, reflectionDirection") != std::string::npos &&
-                   source.find("specularCorrection = (reflection.rgb - environmentRadiance)") != std::string::npos,
-               "SSR composite does not replace the clustered environment reflection")) {
+    const std::string compact = CompactSource(source);
+    if (!Check(compact.find("globalEnvironmentRadiance=g_Environment.SampleLevel(g_LinearSampler,"
+                            "reflectionDirection,roughness*6.0f).rgb") != std::string::npos &&
+                   compact.find("environmentRadiance=SampleLocalReflectionsAuto(g_LocalReflectionProbes,"
+                                "g_LinearSampler,g_LocalReflectionProbeData,g_LocalReflectionProbeCount,"
+                                "worldPosition,reflectionDirection,roughness,g_LocalReflectionMipCount,"
+                                "globalEnvironmentRadiance)") != std::string::npos &&
+                   compact.find("specularCorrection=(reflection.rgb-environmentRadiance)*brdfFactor*"
+                                "saturate(reflection.a)") != std::string::npos &&
+                   compact.find("floatroughness=clamp(material.y,0.04f,1.0f)") != std::string::npos,
+               "SSR composite does not replace the same local-probe fallback used by clustered lighting")) {
         return false;
     }
-    const std::string compact = CompactSource(source);
+    if (!Check(pipelineHeader.find("uint32_tlocalReflectionProbeCount=0") != std::string::npos &&
+                   pipelineHeader.find("floatlocalReflectionMipCount=1.0f") != std::string::npos &&
+                   pipelineHeader.find("sizeof(ScreenSpaceConstants)==560") != std::string::npos &&
+                   pipelineSource.find("localReflectionProbeCount=localReflectionsReady?m_ProbeReflectionCount:0u") !=
+                       std::string::npos &&
+                   pipelineSource.find("SetTexture(\"g_LocalReflectionProbes\"") != std::string::npos &&
+                   pipelineSource.find("SetBuffer(\"g_LocalReflectionProbeData\"") != std::string::npos,
+               "Modern effects composite does not bind the clustered local-reflection probe contract")) {
+        return false;
+    }
     if (!Check(compact.find("gi=BilateralUpsample(g_SSGI,pixel).rgb*diffuseResponse*max(g_SSGIIntensity,0.0f)") !=
                    std::string::npos,
                "SSGI intensity is not applied where indirect radiance reaches the final material composite")) {
@@ -3087,7 +3159,24 @@ bool TestModernRayTracingSlangCompileContracts() {
         "../../../../../EngineContent/Shaders/ModernRayTracing.hlsl",
     };
     const auto shaderPath = FindRepositoryFile(candidates);
-    if (!Check(!shaderPath.empty(), "Modern ray tracing shader source was not found"))
+    const std::array<const char*, 4> includeCandidates = {
+        "EngineContent/Shaders/ModernRayTracing.hlsli",
+        "../../../EngineContent/Shaders/ModernRayTracing.hlsli",
+        "../../../../EngineContent/Shaders/ModernRayTracing.hlsli",
+        "../../../../../EngineContent/Shaders/ModernRayTracing.hlsli",
+    };
+    const std::string shaderSource = CompactSource(ReadRepositoryTextFile(candidates));
+    const std::string includeSource = CompactSource(ReadRepositoryTextFile(includeCandidates));
+    if (!Check(!shaderPath.empty() && !shaderSource.empty() && !includeSource.empty(),
+               "Modern ray tracing shader source was not found"))
+        return false;
+    if (!Check(includeSource.find("float2ModernRTSample2D(uint2pixel,uintframeIndex,uintstream)") !=
+                       std::string::npos &&
+                   includeSource.find("float2(0.754877666f,0.569840291f)") != std::string::npos &&
+                   CountOccurrences(shaderSource, "ModernRTSample2D(pixel,(uint)g_RTParams1.w,") == 3 &&
+                   shaderSource.find("ModernRTHash(float2(pixel)+g_RTParams1.w)") == std::string::npos &&
+                   shaderSource.find("float4(nonNegativeRadiance,luminance*luminance)") != std::string::npos,
+               "Modern RT sampling regressed to a translated noise field or lost the diffuse second-moment ABI"))
         return false;
     if (!Check(ShaderCompilerSlang::IsAvailable(),
                "Slang compiler is unavailable; Modern inline ray-query DXIL cannot be validated"))
@@ -4442,8 +4531,6 @@ bool TestLightingProbeComponentAndAssetRoundTrip() {
 bool TestLightingProbeBakeAndShaderContracts() {
     Scene scene("ProbeBake");
     scene.SetLightingProbeBakeSettings({64, 16.0f});
-    Actor* reflectionActor = scene.CreateActor("Reflection");
-    reflectionActor->AddComponent<ReflectionProbeComponent>()->SetBoxExtents({2.0f, 2.0f, 2.0f});
     Actor* volumeActor = scene.CreateActor("SHVolume");
     auto* volume = volumeActor->AddComponent<SHProbeVolumeComponent>();
     volume->SetBoxExtents({0.2f, 0.2f, 0.2f});
@@ -4464,9 +4551,13 @@ bool TestLightingProbeBakeAndShaderContracts() {
     const std::string d3d12Context = ReadRepositoryTextFile(
         {"src/Runtime/Renderer/D3D12Context.h", "../src/Runtime/Renderer/D3D12Context.h",
          "../../../src/Runtime/Renderer/D3D12Context.h", "../../../../src/Runtime/Renderer/D3D12Context.h"});
-    return Check(result.succeeded && result.reflectionProbeCount == 1 && result.shVolumeCount == 1 &&
-                     result.shSampleCount == 8 &&
-                     asset.GetReflectionPixels().size() == asset.GetBytesPerReflectionProbe() &&
+    Scene reflectionScene("GpuProbeRequired");
+    reflectionScene.CreateActor("Reflection")->AddComponent<ReflectionProbeComponent>();
+    LightingProbeAsset reflectionAsset("GpuProbeRequired.lightprobes");
+    const ProbeBakeResult cpuOnlyResult = ProbeBakeRenderer{}.Bake(reflectionScene, reflectionAsset);
+    return Check(result.succeeded && result.reflectionProbeCount == 0 && result.shVolumeCount == 1 &&
+                     result.shSampleCount == 8 && asset.GetReflectionPixels().empty() && !cpuOnlyResult.succeeded &&
+                     cpuOnlyResult.error.find("GPU bake path") != std::string::npos &&
                      asset.GetSHCoefficients().size() == 8 * LightingProbeAsset::SHCoefficientCount &&
                      forward.find("SampleLocalReflectionsAuto") != std::string::npos &&
                      deferred.find("EvaluateLocalSHVolumes") != std::string::npos &&
@@ -4478,9 +4569,147 @@ bool TestLightingProbeBakeAndShaderContracts() {
                  "lighting probe bake or all-pipeline shader contract is incomplete");
 }
 
+bool TestReflectionProbeRgbmUploadsAsLinearSingleLayerArray() {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "myengine_reflection_probe_linear_upload_test";
+    std::error_code ec;
+    fs::remove_all(root, ec);
+    fs::create_directories(root, ec);
+    const fs::path path = root / "LinearUpload.lightprobes";
+
+    constexpr float rgbmRange = 8.0f;
+    const std::string probeId = "linear-upload-probe";
+    LightingProbeAsset asset(path.string());
+    asset.SetSceneGuid("linear-upload-scene");
+    asset.SetDependencyHash(1);
+    asset.SetReflectionResolution(64);
+    asset.ReflectionProbes().push_back({probeId, Vec3::Zero(), {5.0f, 5.0f, 5.0f}, rgbmRange, 0});
+    asset.ReflectionPixels().resize(asset.GetBytesPerReflectionProbe());
+    for (size_t pixel = 0; pixel < asset.ReflectionPixels().size(); pixel += 4u) {
+        asset.ReflectionPixels()[pixel] = 128;
+        asset.ReflectionPixels()[pixel + 1u] = 64;
+        asset.ReflectionPixels()[pixel + 2u] = 32;
+        asset.ReflectionPixels()[pixel + 3u] = 128;
+    }
+    asset.MarkReady();
+    std::string error;
+    if (!Check(SaveLightingProbeAssetToFile(asset, path.string(), &error),
+               "failed to save reflection probe upload fixture: " + error)) {
+        fs::remove_all(root, ec);
+        return false;
+    }
+
+    Scene scene("LinearProbeUpload");
+    scene.SetLightingProbeAssetPath(path.string());
+    auto* probe = scene.CreateActor("ReflectionProbe")->AddComponent<ReflectionProbeComponent>();
+    probe->SetProbeId(probeId);
+
+    MockRenderContext context;
+    ProbeLightingSystem lighting(&context);
+    context.uploadedTextureDescs.clear();
+    context.uploadedSubresourceCounts.clear();
+    context.uploadedSubresources.clear();
+    context.uploadedSubresourceBytes.clear();
+    const bool prepared = lighting.Prepare(scene);
+
+    bool decoded = false;
+    if (!context.uploadedSubresourceBytes.empty() && context.uploadedSubresourceBytes.front().size() >= 8u) {
+        std::array<uint16_t, 4> halfPixel{};
+        std::memcpy(halfPixel.data(), context.uploadedSubresourceBytes.front().data(), sizeof(halfPixel));
+        const float multiplier = 128.0f / 255.0f;
+        const float expectedRed = 128.0f / 255.0f * multiplier * rgbmRange;
+        const float expectedGreen = 64.0f / 255.0f * multiplier * rgbmRange;
+        const float expectedBlue = 32.0f / 255.0f * multiplier * rgbmRange;
+        decoded = std::abs(LightingProbeHalfToFloat(halfPixel[0]) - expectedRed) < 0.01f &&
+                  std::abs(LightingProbeHalfToFloat(halfPixel[1]) - expectedGreen) < 0.01f &&
+                  std::abs(LightingProbeHalfToFloat(halfPixel[2]) - expectedBlue) < 0.01f &&
+                  LightingProbeHalfToFloat(halfPixel[3]) == 1.0f;
+    }
+    const bool textureContract = !context.uploadedTextureDescs.empty() &&
+                                 context.uploadedTextureDescs.front().format == RHIFormat::RGBA16Float &&
+                                 context.uploadedTextureDescs.front().array &&
+                                 context.uploadedTextureDescs.front().arrayLayers == 1 &&
+                                 !context.uploadedSubresourceCounts.empty() &&
+                                 context.uploadedSubresourceCounts.front() == asset.GetReflectionMipCount();
+
+    const std::string shader = CompactSource(ReadRepositoryTextFile(
+        {"EngineContent/Shaders/ProbeLighting.hlsli", "../EngineContent/Shaders/ProbeLighting.hlsli",
+         "../../EngineContent/Shaders/ProbeLighting.hlsli", "../../../EngineContent/Shaders/ProbeLighting.hlsli"}));
+    const std::string d3d11 = CompactSource(ReadRepositoryTextFile(
+        {"src/Runtime/Renderer/D3D11Context.cpp", "../src/Runtime/Renderer/D3D11Context.cpp",
+         "../../../src/Runtime/Renderer/D3D11Context.cpp", "../../../../src/Runtime/Renderer/D3D11Context.cpp"}));
+    const std::string d3d12 = CompactSource(ReadRepositoryTextFile(
+        {"src/Runtime/Renderer/D3D12Context.cpp", "../src/Runtime/Renderer/D3D12Context.cpp",
+         "../../../src/Runtime/Renderer/D3D12Context.cpp", "../../../../src/Runtime/Renderer/D3D12Context.cpp"}));
+    const std::string vulkan = CompactSource(ReadRepositoryTextFile(
+        {"src/Runtime/Renderer/VulkanContext.cpp", "../src/Runtime/Renderer/VulkanContext.cpp",
+         "../../../src/Runtime/Renderer/VulkanContext.cpp", "../../../../src/Runtime/Renderer/VulkanContext.cpp"}));
+    const std::string metal = CompactSource(ReadRepositoryTextFile(
+        {"src/Runtime/Renderer/MetalContext.mm", "../src/Runtime/Renderer/MetalContext.mm",
+         "../../../src/Runtime/Renderer/MetalContext.mm", "../../../../src/Runtime/Renderer/MetalContext.mm"}));
+    const bool sourceContract = shader.find("SampleLinearProbeReflection") != std::string::npos &&
+                                shader.find("atlas.GetDimensions") != std::string::npos &&
+                                shader.find("encoded.rgb*encoded.a*probe.positionRange.w") == std::string::npos &&
+                                d3d11.find("td.array||td.arrayLayers>1") != std::string::npos &&
+                                d3d12.find("td.array||td.arrayLayers>1") != std::string::npos &&
+                                vulkan.find("texture.array||view.layerCount>1") != std::string::npos &&
+                                metal.find("desc.array||desc.arrayLayers>1") != std::string::npos;
+
+    AssetManager::Get().Unload(path.string());
+    fs::remove_all(root, ec);
+    return Check(prepared && textureContract && decoded && sourceContract,
+                 "reflection probe RGBM was not decoded to a linear single-layer array across the RHI chain: " +
+                     lighting.GetLastError());
+}
+
+bool TestReflectionProbeGpuBakeUsesRendererReadbackAndFastShadows() {
+    Scene defaults;
+    LightingProbeAsset defaultAsset("DefaultProbe.lightprobes");
+    defaults.SetLightingProbeBakeSettings({7, 64.0f});
+    defaultAsset.SetReflectionResolution(7);
+
+    const std::string bake = CompactSource(ReadRepositoryTextFile(
+        {"src/Runtime/Renderer/ProbeBakeRenderer.cpp", "../src/Runtime/Renderer/ProbeBakeRenderer.cpp",
+         "../../../src/Runtime/Renderer/ProbeBakeRenderer.cpp",
+         "../../../../src/Runtime/Renderer/ProbeBakeRenderer.cpp"}));
+    const std::string renderer = CompactSource(ReadRepositoryTextFile(
+        {"src/Runtime/Renderer/Renderer.h", "../src/Runtime/Renderer/Renderer.h",
+         "../../../src/Runtime/Renderer/Renderer.h", "../../../../src/Runtime/Renderer/Renderer.h"}));
+    const std::string collector = CompactSource(ReadRepositoryTextFile(
+        {"src/Runtime/Renderer/SceneRenderCollector.cpp", "../src/Runtime/Renderer/SceneRenderCollector.cpp",
+         "../../../src/Runtime/Renderer/SceneRenderCollector.cpp",
+         "../../../../src/Runtime/Renderer/SceneRenderCollector.cpp"}));
+    const std::string shadow = CompactSource(ReadRepositoryTextFile(
+        {"src/Runtime/Renderer/ShadowPass.cpp", "../src/Runtime/Renderer/ShadowPass.cpp",
+         "../../../src/Runtime/Renderer/ShadowPass.cpp", "../../../../src/Runtime/Renderer/ShadowPass.cpp"}));
+
+    const bool defaultsContract = defaults.GetLightingProbeBakeSettings().reflectionResolution == 256 &&
+                                  defaultAsset.GetReflectionResolution() == 256 &&
+                                  defaultAsset.GetReflectionMipCount() == 9;
+    const bool gpuCaptureContract =
+        bake.find("CaptureSceneGpu") != std::string::npos &&
+        bake.find("Rendererrenderer(device,frameContext,readbackService)") != std::string::npos &&
+        bake.find("ReadbackTextureAsync") != std::string::npos &&
+        bake.find("SetShadowMapResolution(512)") != std::string::npos &&
+        bake.find("SetStaticGeometryOnly(true)") != std::string::npos &&
+        bake.find("RasterizeTriangle") == std::string::npos && bake.find("CaptureScene(") == std::string::npos;
+    const bool rendererContract = renderer.find("GetHdrSceneColorView") != std::string::npos;
+    const bool staticFilterContract = collector.find("staticGeometryOnly&&!actor.IsStatic()") != std::string::npos &&
+                                      shadow.find("m_StaticGeometryOnly&&!actor.IsStatic()") != std::string::npos;
+
+    return Check(defaultsContract && gpuCaptureContract && rendererContract && staticFilterContract,
+                 "reflection probe GPU bake contract failed: defaults=" + std::to_string(defaultsContract) +
+                     " gpuCapture=" + std::to_string(gpuCaptureContract) + " renderer=" +
+                     std::to_string(rendererContract) + " staticFilter=" + std::to_string(staticFilterContract));
+}
+
 MYENGINE_REGISTER_TEST("Renderer", "TestLightingProbeComponentAndAssetRoundTrip",
                        TestLightingProbeComponentAndAssetRoundTrip);
 MYENGINE_REGISTER_TEST("Renderer", "TestLightingProbeBakeAndShaderContracts", TestLightingProbeBakeAndShaderContracts);
+MYENGINE_REGISTER_TEST("Renderer", "TestReflectionProbeRgbmUploadsAsLinearSingleLayerArray",
+                       TestReflectionProbeRgbmUploadsAsLinearSingleLayerArray);
+MYENGINE_REGISTER_TEST("Renderer", "TestReflectionProbeGpuBakeUsesRendererReadbackAndFastShadows",
+                       TestReflectionProbeGpuBakeUsesRendererReadbackAndFastShadows);
 MYENGINE_REGISTER_TEST("Renderer", "TestExtendedRHIContracts", TestExtendedRHIContracts);
 MYENGINE_REGISTER_TEST("Renderer", "TestStableRHIDeviceLossContract", TestStableRHIDeviceLossContract);
 MYENGINE_REGISTER_TEST("Renderer", "TestMaterialResourceCacheUploadsBc3WhenSupported",
@@ -4527,8 +4756,8 @@ MYENGINE_REGISTER_TEST("Renderer", "TestEnvironmentPassSunDirectionDirtyState",
                        TestEnvironmentPassSunDirectionDirtyState);
 MYENGINE_REGISTER_TEST("Renderer", "TestRendererSynchronizesEnvironmentSunBeforePrepare",
                        TestRendererSynchronizesEnvironmentSunBeforePrepare);
-MYENGINE_REGISTER_TEST("Renderer", "TestShadowedMainPassDirectShadowVisibilityContract",
-                       TestShadowedMainPassDirectShadowVisibilityContract);
+MYENGINE_REGISTER_TEST("Renderer", "TestDirectShadowsOccludeSpecularAcrossPipelines",
+                       TestDirectShadowsOccludeSpecularAcrossPipelines);
 MYENGINE_REGISTER_TEST("Renderer", "TestShadowDepthAlphaTestIncludesVertexAlpha",
                        TestShadowDepthAlphaTestIncludesVertexAlpha);
 MYENGINE_REGISTER_TEST("Renderer", "TestShaderGraphMaskedAlphaTestIncludesVertexAlpha",

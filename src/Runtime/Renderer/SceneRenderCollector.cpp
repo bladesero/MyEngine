@@ -13,7 +13,8 @@
 #include <algorithm>
 #include <unordered_map>
 
-SceneRenderCollection SceneRenderCollector::Collect(const Scene& scene, const Camera& camera) const {
+SceneRenderCollection SceneRenderCollector::Collect(const Scene& scene, const Camera& camera,
+                                                    bool staticGeometryOnly) const {
     SceneRenderCollection collection;
     MaterialSystem materialSystem;
     std::unordered_map<MaterialAsset*, BlendMode> resolvedBlendModes;
@@ -51,7 +52,7 @@ SceneRenderCollection SceneRenderCollector::Collect(const Scene& scene, const Ca
     };
 
     scene.ForEach([&](Actor& actor) {
-        if (!actor.IsActive())
+        if (!actor.IsActive() || (staticGeometryOnly && !actor.IsStatic()))
             return;
         if (auto* particles = actor.GetComponent<ParticleSystemComponent>()) {
             if (particles->IsEnabled() && particles->GetAliveCount() > 0) {

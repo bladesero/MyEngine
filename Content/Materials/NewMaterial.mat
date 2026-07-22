@@ -1,32 +1,37 @@
 {
-  "alphaThreshold": 0.5,
-  "blendMode": "Opaque",
   "name": "NewMaterial",
-  "params": {
-    "BaseColor": {
-      "data": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ],
-      "type": "Vec4"
+  "overrides": {
+    "properties": {
+      "BaseColor": {
+        "data": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "type": "Vec4"
+      },
+      "Metallic": {
+        "data": [
+          0.8799999952316284
+        ],
+        "type": "Float"
+      },
+      "Roughness": {
+        "data": [
+          0.10000000149011612
+        ],
+        "type": "Float"
+      }
     },
-    "Metallic": {
-      "data": [
-        1.090000033378601
-      ],
-      "type": "Float"
-    },
-    "Roughness": {
-      "data": [
-        0.3499999940395355
-      ],
-      "type": "Float"
-    }
+    "textures": {}
   },
-  "textures": {},
-  "twoSided": false,
+  "surface": {
+    "alphaThreshold": 0.5,
+    "blendMode": "Opaque",
+    "twoSided": false,
+    "wireframe": false
+  },
   "type": "Material",
-  "wireframe": false
+  "version": 2
 }

@@ -60,11 +60,11 @@ bool ReadVec3(const std::vector<uint8_t>& bytes, size_t& cursor, Vec3& value) {
 }
 
 uint32_t FullMipCount(uint32_t resolution) {
-    uint32_t count = 0;
-    do {
+    uint32_t count = 1;
+    while (resolution > 1u) {
         ++count;
         resolution = (std::max)(1u, resolution / 2u);
-    } while (resolution > 1u);
+    }
     return count;
 }
 } // namespace
@@ -83,8 +83,7 @@ uint16_t LightingProbeFloatToHalf(float value) {
     }
     if (exponent >= 31)
         return static_cast<uint16_t>(sign | 0x7c00u);
-    return static_cast<uint16_t>(sign | (static_cast<uint32_t>(exponent) << 10u) |
-                                 ((mantissa + 0x1000u) >> 13u));
+    return static_cast<uint16_t>(sign | (static_cast<uint32_t>(exponent) << 10u) | ((mantissa + 0x1000u) >> 13u));
 }
 
 float LightingProbeHalfToFloat(uint16_t value) {
@@ -116,7 +115,7 @@ float LightingProbeHalfToFloat(uint16_t value) {
 
 void LightingProbeAsset::SetReflectionResolution(uint32_t value) {
     if (value != 64 && value != 128 && value != 256)
-        value = 128;
+        value = 256;
     m_ReflectionResolution = value;
     m_ReflectionMipCount = FullMipCount(value);
 }

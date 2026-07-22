@@ -215,7 +215,9 @@ float SampleDirectionalShadow(uint2 pixel, float3 worldPosition, float viewDepth
         visibility += g_ShadowMap.SampleCmpLevelZero(
             g_ShadowSampler, float3(uv + float2(x, y) * texelSize, (float)cascade), compareDepth);
     visibility /= 9.0f;
-    return lerp(1.0f, lerp(0.08f, 1.0f, visibility), saturate(g_ShadowInfo.y));
+    // Preserve the authored shadow intensity, but let fully occluded CSM samples remove the complete directional
+    // direct-light BRDF. Environment lighting remains independent and supplies the intended shadow fill.
+    return lerp(1.0f, visibility, saturate(g_ShadowInfo.y));
 }
 
 [numthreads(8, 8, 1)]

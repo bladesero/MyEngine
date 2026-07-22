@@ -636,6 +636,8 @@ std::optional<TextureBlockLayout> GetTextureBlockLayout(RHIFormat format) {
     switch (format) {
     case RHIFormat::RGBA8UNorm:
         return TextureBlockLayout{1, 1, 4};
+    case RHIFormat::RGBA16Float:
+        return TextureBlockLayout{1, 1, 8};
     case RHIFormat::D32Float:
         return TextureBlockLayout{1, 1, sizeof(float)};
     case RHIFormat::BC1UNorm:
@@ -1000,7 +1002,7 @@ VkImageViewType ToVulkanImageViewType(const RHITextureDesc& texture, const RHITe
                            view.firstLayer == 0 && view.layerCount == 6;
     if (wholeCube)
         return VK_IMAGE_VIEW_TYPE_CUBE;
-    return view.layerCount > 1 ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : VK_IMAGE_VIEW_TYPE_2D;
+    return texture.array || view.layerCount > 1 ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : VK_IMAGE_VIEW_TYPE_2D;
 }
 
 uint32_t SpirvStringWordCount(const uint32_t* words, uint32_t wordCount, std::string& out) {
@@ -2877,7 +2879,7 @@ std::shared_ptr<GpuTexture> VulkanContext::UploadTexture(const RHITextureDesc& d
     const auto blockLayout = GetTextureBlockLayout(desc.format);
     if (!m_Impl || !m_Impl->device || !data || subresourceCount == 0 || !data[0].data || !blockLayout ||
         subresourceCount != desc.mipLevels * desc.arrayLayers) {
-        Logger::Warn("[Vulkan] UploadTexture requires complete RGBA8/BC1/BC3/D32 mip and array-layer data");
+        Logger::Warn("[Vulkan] UploadTexture requires a supported format and complete mip/array-layer data");
         return nullptr;
     }
     RHITextureDesc uploadDesc = desc;

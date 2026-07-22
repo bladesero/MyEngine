@@ -489,10 +489,12 @@ bool ModernDeferredPipeline::EnsurePipelines() {
     RHITextureDesc probeReflectionFallback;
     probeReflectionFallback.width = probeReflectionFallback.height = 1;
     probeReflectionFallback.arrayLayers = 1;
-    probeReflectionFallback.format = RHIFormat::RGBA8UNorm;
+    probeReflectionFallback.format = RHIFormat::RGBA16Float;
     probeReflectionFallback.usage = RHIResourceUsage::ShaderResource | RHIResourceUsage::CopyDestination;
+    probeReflectionFallback.array = true;
     probeReflectionFallback.debugName = "ModernProbeReflectionFallback";
-    const RHITextureSubresourceData probePixel{blackPixel.data(), 4, 4, 0, 0};
+    const std::array<uint16_t, 4> probeBlackPixel = {0, 0, 0, 0x3c00u};
+    const RHITextureSubresourceData probePixel{probeBlackPixel.data(), 8, 8, 0, 0};
     m_ProbeReflectionFallback = m_Device->UploadTexture(probeReflectionFallback, &probePixel, 1);
     RHITextureViewDesc probeReflectionView;
     probeReflectionView.layerCount = 1;
@@ -1398,6 +1400,9 @@ bool ModernDeferredPipeline::Prepare(const Scene& scene, const Camera& camera, u
         consoleQuality ? (std::min)(settings.ssgiStepCount, 16u) : settings.ssgiStepCount;
     m_ScreenSpaceConstants.ssrStepCount =
         consoleQuality ? (std::min)(settings.ssrStepCount, 24u) : settings.ssrStepCount;
+    const bool localReflectionsReady = m_ProbeReflectionAtlas && m_ProbeReflectionMetadata;
+    m_ScreenSpaceConstants.localReflectionProbeCount = localReflectionsReady ? m_ProbeReflectionCount : 0u;
+    m_ScreenSpaceConstants.localReflectionMipCount = static_cast<float>((std::max)(m_ProbeReflectionMipCount, 1u));
     m_TAAConstants.inverseJitteredViewProjection = m_ScreenSpaceConstants.inverseViewProjection;
     m_TAAConstants.previousUnjitteredViewProjection =
         m_HasPreviousViewProjection ? m_PreviousUnjitteredViewProjection : unjitteredViewProjection;
@@ -2588,6 +2593,11 @@ RGTextureHandle ModernDeferredPipeline::AddScreenSpaceEffects(
             bindings->SetTexture("g_SSR", m_PostSettings.ssrEnabled ? ssrFinalSrv : hdrSrv);
             bindings->SetTexture("g_SSAO", effectiveSsaoEnabled ? effectiveSsaoSrv : hdrSrv);
             bindings->SetTexture("g_Environment", m_EnvironmentCubeSrv);
+            bindings->SetTexture("g_LocalReflectionProbes",
+                                 m_ProbeReflectionAtlas ? m_ProbeReflectionAtlas : m_ProbeReflectionFallbackSrv);
+            bindings->SetBuffer("g_LocalReflectionProbeData", m_ProbeReflectionMetadata
+                                                                  ? m_ProbeReflectionMetadata
+                                                                  : m_ProbeReflectionMetadataFallbackSrv);
             bindings->SetSampler("g_LinearSampler", m_LinearClampSampler);
             bindings->SetStorageTexture("g_Output", m_EffectsHdr.uav);
             if (!BindModernPass(commands, "ModernEffectsComposite", bindings))
@@ -2643,6 +2653,11 @@ RGTextureHandle ModernDeferredPipeline::AddScreenSpaceEffects(
                 bindings->SetTexture("g_SSR", debugSSGI ? hdrSrv : ssrFinalSrv);
                 bindings->SetTexture("g_SSAO", ssaoEnabled ? ssaoSrv : hdrSrv);
                 bindings->SetTexture("g_Environment", m_EnvironmentCubeSrv);
+                bindings->SetTexture("g_LocalReflectionProbes",
+                                     m_ProbeReflectionAtlas ? m_ProbeReflectionAtlas : m_ProbeReflectionFallbackSrv);
+                bindings->SetBuffer("g_LocalReflectionProbeData", m_ProbeReflectionMetadata
+                                                                      ? m_ProbeReflectionMetadata
+                                                                      : m_ProbeReflectionMetadataFallbackSrv);
                 bindings->SetSampler("g_LinearSampler", m_LinearClampSampler);
                 bindings->SetStorageTexture("g_Output", m_ScreenSpaceDebug.uav);
                 if (!BindModernPass(commands, debugSSGI ? "VisualizeSSGI" : "VisualizeSSRConfidence", bindings))

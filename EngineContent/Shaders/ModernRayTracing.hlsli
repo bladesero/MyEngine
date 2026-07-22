@@ -72,11 +72,33 @@ SamplerState g_RTLinearSampler : register(s0);
 static const uint MODERN_RT_ALPHA_TEST_BIT = 1u << 8u;
 static const uint MODERN_RT_BASE_COLOR_TEXTURE_BIT = 1u << 0u;
 
-float ModernRTHash(float2 value)
+uint ModernRTHash32(uint value)
 {
-    float3 p = frac(float3(value.xyx) * 0.1031f);
-    p += dot(p, p.yzx + 33.33f);
-    return frac((p.x + p.y) * p.z);
+    value ^= value >> 16u;
+    value *= 0x7feb352du;
+    value ^= value >> 15u;
+    value *= 0x846ca68bu;
+    value ^= value >> 16u;
+    return value;
+}
+
+float ModernRTUnitFloat(uint value)
+{
+    // Retain the high 24 bits so conversion to float cannot round UINT_MAX to 1.0.
+    return float(value >> 8u) * (1.0f / 16777216.0f);
+}
+
+float2 ModernRTSample2D(uint2 pixel, uint frameIndex, uint stream)
+{
+    // A stable per-pixel scramble combined with an R2 additive recurrence gives every pixel a low-discrepancy
+    // temporal sequence. Hash(pixel + frameIndex) must not be used here: it makes frame N+1 at pixel P identical to
+    // frame N at P+(1,1), translating the complete noise field toward the upper-left every frame.
+    const uint pixelKey = ModernRTHash32(pixel.x ^ (pixel.y * 0x9e3779b9u) ^ (stream * 0x85ebca6bu));
+    const float2 scramble =
+        float2(ModernRTUnitFloat(ModernRTHash32(pixelKey ^ 0x68bc21ebu)),
+               ModernRTUnitFloat(ModernRTHash32(pixelKey ^ 0x02e5be93u)));
+    const float sampleNumber = float(frameIndex + 1u);
+    return frac(scramble + sampleNumber * float2(0.754877666f, 0.569840291f));
 }
 
 float3 ModernRTDecodeNormal(float3 encoded)

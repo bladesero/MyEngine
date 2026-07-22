@@ -36,8 +36,8 @@ float BoundaryWeight(const Vec3& local, const Vec3& extents, float blendDistance
         return 0.0f;
     if (blendDistance <= 0.0001f)
         return 1.0f;
-    const float edge = (std::min)({extents.x - std::abs(local.x), extents.y - std::abs(local.y),
-                                   extents.z - std::abs(local.z)});
+    const float edge =
+        (std::min)({extents.x - std::abs(local.x), extents.y - std::abs(local.y), extents.z - std::abs(local.z)});
     return std::clamp(edge / blendDistance, 0.0f, 1.0f);
 }
 
@@ -105,12 +105,13 @@ bool ProbeLightingSystem::LoadAsset(const std::string& path) {
 bool ProbeLightingSystem::UploadFallbackResources() {
     if (!m_Device)
         return false;
-    const std::array<uint8_t, 4> black = {0, 0, 0, 0};
+    const std::array<uint16_t, 4> black = {0, 0, 0, LightingProbeFloatToHalf(1.0f)};
     RHITextureDesc textureDesc;
-    textureDesc.format = RHIFormat::RGBA8UNorm;
+    textureDesc.format = RHIFormat::RGBA16Float;
     textureDesc.usage = RHIResourceUsage::ShaderResource;
+    textureDesc.array = true;
     textureDesc.debugName = "LocalReflectionProbeFallback";
-    const RHITextureSubresourceData subresource{black.data(), 4, 4, 0, 0};
+    const RHITextureSubresourceData subresource{black.data(), 8, 8, 0, 0};
     m_ReflectionTexture = m_Device->UploadTexture(textureDesc, &subresource, 1);
     if (!m_ReflectionTexture)
         return false;
@@ -121,8 +122,8 @@ bool ProbeLightingSystem::UploadFallbackResources() {
     std::vector<GpuSHVolumeData> volumes;
     std::vector<SHCoefficient> coefficients;
     return m_ReflectionTextureView &&
-           UploadStructuredBuffer(m_Device, reflections, "LocalReflectionProbeMetadataFallback",
-                                  m_ReflectionMetadata, m_ReflectionMetadataView) &&
+           UploadStructuredBuffer(m_Device, reflections, "LocalReflectionProbeMetadataFallback", m_ReflectionMetadata,
+                                  m_ReflectionMetadataView) &&
            UploadStructuredBuffer(m_Device, volumes, "LocalSHVolumeMetadataFallback", m_SHVolumeMetadata,
                                   m_SHVolumeMetadataView) &&
            UploadStructuredBuffer(m_Device, coefficients, "LocalProbeSHCoefficientsFallback", m_SHCoefficients,
@@ -140,27 +141,46 @@ bool ProbeLightingSystem::UploadAsset() {
         desc.height = resolution;
         desc.mipLevels = m_Asset->GetReflectionMipCount();
         desc.arrayLayers = static_cast<uint32_t>(probes.size());
-        desc.format = RHIFormat::RGBA8UNorm;
+        desc.format = RHIFormat::RGBA16Float;
         desc.usage = RHIResourceUsage::ShaderResource;
+        desc.array = true;
         desc.debugName = "LocalReflectionProbeAtlas";
+        const auto& encodedPixels = m_Asset->GetReflectionPixels();
+        std::vector<uint16_t> linearPixels(encodedPixels.size());
         std::vector<RHITextureSubresourceData> subresources;
         size_t offset = 0;
         for (uint32_t layer = 0; layer < desc.arrayLayers; ++layer) {
             uint32_t size = resolution;
             for (uint32_t mip = 0; mip < desc.mipLevels; ++mip) {
-                const uint32_t slicePitch = size * size * 4u;
-                if (offset + slicePitch > m_Asset->GetReflectionPixels().size()) {
+                const uint32_t channelCount = size * size * 4u;
+                if (offset + channelCount > encodedPixels.size()) {
                     m_LastError = "reflection probe atlas payload is truncated";
                     return false;
                 }
-                subresources.push_back({m_Asset->GetReflectionPixels().data() + offset, size * 4u, slicePitch, mip,
-                                        layer});
-                offset += slicePitch;
+                for (uint32_t channel = 0; channel < channelCount; channel += 4u) {
+                    const float multiplier = encodedPixels[offset + channel + 3u] / 255.0f;
+                    const float decodeScale = multiplier * probes[layer].rgbmRange / 255.0f;
+                    linearPixels[offset + channel] =
+                        LightingProbeFloatToHalf(encodedPixels[offset + channel] * decodeScale);
+                    linearPixels[offset + channel + 1u] =
+                        LightingProbeFloatToHalf(encodedPixels[offset + channel + 1u] * decodeScale);
+                    linearPixels[offset + channel + 2u] =
+                        LightingProbeFloatToHalf(encodedPixels[offset + channel + 2u] * decodeScale);
+                    linearPixels[offset + channel + 3u] = LightingProbeFloatToHalf(1.0f);
+                }
+                const uint32_t rowPitch = size * 4u * static_cast<uint32_t>(sizeof(uint16_t));
+                const uint32_t slicePitch = rowPitch * size;
+                subresources.push_back({linearPixels.data() + offset, rowPitch, slicePitch, mip, layer});
+                offset += channelCount;
                 size = (std::max)(1u, size / 2u);
             }
         }
-        m_ReflectionTexture = m_Device->UploadTexture(desc, subresources.data(),
-                                                      static_cast<uint32_t>(subresources.size()));
+        if (offset != encodedPixels.size()) {
+            m_LastError = "reflection probe atlas payload size does not match its metadata";
+            return false;
+        }
+        m_ReflectionTexture =
+            m_Device->UploadTexture(desc, subresources.data(), static_cast<uint32_t>(subresources.size()));
         if (!m_ReflectionTexture) {
             m_LastError = "RHI failed to upload the local reflection probe atlas";
             return false;
@@ -236,14 +256,9 @@ bool ProbeLightingSystem::UpdateSceneMetadata(const Scene& scene) {
                 gpu.blendInfo[0] = component->GetBlendDistance();
                 gpu.blendInfo[1] = static_cast<float>(component->GetPriority());
                 reflectionGpu.push_back(gpu);
-                m_CpuReflectionProbes.push_back({inverse,
-                                                component->GetBoxExtents(),
-                                                component->GetBlendDistance(),
-                                                component->GetIntensity(),
-                                                baked->rgbmRange,
-                                                component->GetPriority(),
-                                                component->GetLayerMask(),
-                                                baked->arrayLayer});
+                m_CpuReflectionProbes.push_back({inverse, component->GetBoxExtents(), component->GetBlendDistance(),
+                                                 component->GetIntensity(), baked->rgbmRange, component->GetPriority(),
+                                                 component->GetLayerMask(), baked->arrayLayer});
             }
         }
         if (const auto* component = actor.GetComponent<SHProbeVolumeComponent>()) {
@@ -293,14 +308,14 @@ ProbeSelection ProbeLightingSystem::SelectReflectionProbes(const Vec3& worldPosi
         const auto& probe = m_CpuReflectionProbes[index];
         if ((probe.layerMask & layerMask) == 0)
             continue;
-        const float weight = BoundaryWeight(probe.worldToLocal.TransformPoint(worldPosition), probe.extents,
-                                            probe.blendDistance);
+        const float weight =
+            BoundaryWeight(probe.worldToLocal.TransformPoint(worldPosition), probe.extents, probe.blendDistance);
         if (weight <= 0.0f)
             continue;
         Candidate candidate{static_cast<uint8_t>(index), probe.priority, weight};
         const auto better = [](const Candidate& a, const Candidate& b) {
-            return a.index != 255 && (b.index == 255 || a.priority > b.priority ||
-                                      (a.priority == b.priority && a.weight > b.weight));
+            return a.index != 255 &&
+                   (b.index == 255 || a.priority > b.priority || (a.priority == b.priority && a.weight > b.weight));
         };
         if (better(candidate, best[0])) {
             best[1] = best[0];

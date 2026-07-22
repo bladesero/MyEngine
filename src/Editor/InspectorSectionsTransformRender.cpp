@@ -674,7 +674,8 @@ public:
                     CommitComponentEdit(context, *actor, *probe, "layerMask", [&] { probe->SetLayerMask(mask); });
                 if (ImGui::Button("Bake Selected")) {
                     if (Scene* scene = context.GetInspectorScene())
-                        EditorLightingBakeService{}.Bake(context, *scene);
+                        if (auto* service = context.GetService<EditorLightingBakeService>())
+                            service->RequestBake(*scene);
                 }
                 ImGui::SameLine();
                 ImGui::TextDisabled("updates the unified scene asset");
@@ -713,7 +714,8 @@ public:
                     CommitComponentEdit(context, *actor, *volume, "layerMask", [&] { volume->SetLayerMask(mask); });
                 if (ImGui::Button("Bake Selected")) {
                     if (Scene* scene = context.GetInspectorScene())
-                        EditorLightingBakeService{}.Bake(context, *scene);
+                        if (auto* service = context.GetService<EditorLightingBakeService>())
+                            service->RequestBake(*scene);
                 }
                 ImGui::SameLine();
                 ImGui::TextDisabled("updates the unified scene asset");

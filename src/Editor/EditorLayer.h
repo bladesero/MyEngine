@@ -10,6 +10,7 @@
 #include "Editor/EditorImportService.h"
 #include "Editor/EditorLogService.h"
 #include "Editor/EditorLayoutManager.h"
+#include "Editor/EditorLightingBakeService.h"
 #include "Editor/EditorLuaScriptService.h"
 #include "Editor/EditorOperators.h"
 #include "Editor/EditorProfiler.h"
@@ -110,6 +111,7 @@ private:
     EditorAssetRegistry m_AssetRegistry;
     EditorProject m_Project;
     EditorRecoveryService m_RecoveryService;
+    EditorLightingBakeService m_LightingBakeService;
     EditorWorkspace m_Workspace;
     EditorLogService m_LogService;
     EditorDialogService m_DialogService;

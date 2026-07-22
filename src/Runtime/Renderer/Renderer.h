@@ -62,6 +62,10 @@ public:
 
     void SetOutputOffscreen(bool enabled);
     GpuTextureView* GetSceneColorView() const;
+    GpuTextureView* GetHdrSceneColorView() const;
+    void SetStaticGeometryOnly(bool enabled);
+    void SetLocalLightingProbesEnabled(bool enabled) { m_LocalLightingProbesEnabled = enabled; }
+    void SetShadowMapResolution(uint32_t resolution);
     void SetDebugView(RendererDebugView view) { m_DebugView = view; }
     RendererDebugView GetDebugView() const { return m_DebugView; }
     void ReleaseFrameResources();
@@ -104,6 +108,8 @@ private:
     uint32_t m_Height = 1;
     RendererFeatureMask m_FeatureMask = RendererFeatureMask::All;
     bool m_OutputOffscreen = false;
+    bool m_StaticGeometryOnly = false;
+    bool m_LocalLightingProbesEnabled = true;
     const UIDrawList* m_UIDrawList = nullptr;
     RendererDebugView m_DebugView = RendererDebugView::Final;
     std::array<std::shared_ptr<GpuTimestampQueryPool>, 3> m_FrameTimestampPools{};

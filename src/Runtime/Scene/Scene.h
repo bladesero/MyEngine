@@ -106,7 +106,7 @@ struct WorldZoneStats {
 };
 
 struct LightingProbeBakeSettings {
-    uint32_t reflectionResolution = 128;
+    uint32_t reflectionResolution = 256;
     float rgbmMaximumRange = 64.0f;
 };
 

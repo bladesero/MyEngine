@@ -53,15 +53,19 @@ float3 ProbeBoxProjectedDirection(float3 worldPosition, float3 reflectionDirecti
     return normalize(worldHit - probe.positionRange.xyz);
 }
 
-float3 SampleRgbmReflection(Texture2DArray<float4> atlas, SamplerState atlasSampler,
-                            ReflectionProbeGpuData probe, float3 worldPosition,
-                            float3 reflectionDirection, float roughness, float mipCount)
+float3 SampleLinearProbeReflection(Texture2DArray<float4> atlas, SamplerState atlasSampler,
+                                   ReflectionProbeGpuData probe, float3 worldPosition,
+                                   float3 reflectionDirection, float roughness, float mipCount)
 {
     float3 projected = ProbeBoxProjectedDirection(worldPosition, reflectionDirection, probe);
-    float4 encoded = atlas.SampleLevel(atlasSampler,
-        float3(ProbeDirectionToOctaUv(projected), probe.layerPriority.x),
-        saturate(roughness) * max(mipCount - 1.0f, 0.0f));
-    return encoded.rgb * encoded.a * probe.positionRange.w * probe.extentsIntensity.w;
+    uint width, height, layers, levels;
+    atlas.GetDimensions(0, width, height, layers, levels);
+    float2 halfTexel = 0.5f / max(float2(width, height), 1.0f);
+    float2 uv = clamp(ProbeDirectionToOctaUv(projected), halfTexel, 1.0f - halfTexel);
+    float3 radiance = atlas.SampleLevel(atlasSampler,
+        float3(uv, probe.layerPriority.x),
+        saturate(roughness) * max(mipCount - 1.0f, 0.0f)).rgb;
+    return max(radiance, 0.0f) * probe.extentsIntensity.w;
 }
 
 float3 EvaluateProbeSHBasis(StructuredBuffer<float4> coefficients, uint offset, float3 direction)
@@ -166,12 +170,12 @@ float3 SampleLocalReflectionsAuto(Texture2DArray<float4> atlas, SamplerState atl
     }
     if (best0 == 0xffffffffu)
         return fallback;
-    float3 first = SampleRgbmReflection(atlas, atlasSampler, probes[best0], worldPosition,
-                                        reflectionDirection, roughness, mipCount);
+    float3 first = SampleLinearProbeReflection(atlas, atlasSampler, probes[best0], worldPosition,
+                                               reflectionDirection, roughness, mipCount);
     if (best1 == 0xffffffffu || priority1 != priority0)
         return first;
-    float3 second = SampleRgbmReflection(atlas, atlasSampler, probes[best1], worldPosition,
-                                         reflectionDirection, roughness, mipCount);
+    float3 second = SampleLinearProbeReflection(atlas, atlasSampler, probes[best1], worldPosition,
+                                                reflectionDirection, roughness, mipCount);
     return lerp(first, second, weight1 / max(weight0 + weight1, 1e-5f));
 }
 

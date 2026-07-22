@@ -40,6 +40,8 @@ public:
     GraphResources GetGraphResources() const;
     void ExecuteGraphManaged(GpuCommandList& commands, const Scene& scene, bool renderDirectional = true);
     void MarkGraphResourcesShaderResource() { m_ShadowResourcesInShaderState = true; }
+    void SetStaticGeometryOnly(bool enabled) { m_StaticGeometryOnly = enabled; }
+    void SetShadowMapSize(uint32_t size);
 
     const Mat4& GetLightViewProj() const { return m_LightViewProj; }
     const Vec3& GetLightDirection() const { return m_LightDirection; }
@@ -112,5 +114,6 @@ private:
     std::shared_ptr<GpuTextureView> m_SpotShadowView;
     std::shared_ptr<GpuTextureView> m_PointShadowViews[6];
     bool m_ShadowResourcesInShaderState = false;
+    bool m_StaticGeometryOnly = false;
     Stats m_LastStats;
 };

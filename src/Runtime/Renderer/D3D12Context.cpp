@@ -4179,6 +4179,7 @@ std::shared_ptr<GpuTextureView> D3D12Context::CreateTextureView(const std::share
     view->texture = texture;
     view->desc = desc;
     const RHITextureDesc& td = nativeTexture->desc;
+    const bool arrayTexture = td.array || td.arrayLayers > 1;
     if (HasUsage(desc.usage, RHIResourceUsage::ShaderResource)) {
         view->srvCpu = AllocSrvSlot(view->srvGpu, &view->srvLease);
         if (view->srvCpu.ptr == 0 || view->srvGpu.ptr == 0)
@@ -4190,7 +4191,7 @@ std::shared_ptr<GpuTextureView> D3D12Context::CreateTextureView(const std::share
                    : td.format == RHIFormat::D32Float ? DXGI_FORMAT_R32_FLOAT
                                                       : ToDxgiRHIFormat(td.format);
         d.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-        if (td.sampleCount > 1 && td.arrayLayers > 1) {
+        if (td.sampleCount > 1 && arrayTexture) {
             d.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2DMSARRAY;
             d.Texture2DMSArray.FirstArraySlice = desc.firstLayer;
             d.Texture2DMSArray.ArraySize = desc.layerCount;
@@ -4200,7 +4201,7 @@ std::shared_ptr<GpuTextureView> D3D12Context::CreateTextureView(const std::share
             d.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBE;
             d.TextureCube.MostDetailedMip = desc.firstMip;
             d.TextureCube.MipLevels = desc.mipCount;
-        } else if (td.arrayLayers > 1) {
+        } else if (arrayTexture) {
             d.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2DARRAY;
             d.Texture2DArray.MostDetailedMip = desc.firstMip;
             d.Texture2DArray.MipLevels = desc.mipCount;
@@ -4219,13 +4220,13 @@ std::shared_ptr<GpuTextureView> D3D12Context::CreateTextureView(const std::share
             return nullptr;
         D3D12_RENDER_TARGET_VIEW_DESC d{};
         d.Format = ToDxgiRHIFormat(td.format);
-        if (td.sampleCount > 1 && td.arrayLayers > 1) {
+        if (td.sampleCount > 1 && arrayTexture) {
             d.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DMSARRAY;
             d.Texture2DMSArray.FirstArraySlice = desc.firstLayer;
             d.Texture2DMSArray.ArraySize = desc.layerCount;
         } else if (td.sampleCount > 1) {
             d.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DMS;
-        } else if (td.arrayLayers > 1) {
+        } else if (arrayTexture) {
             d.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DARRAY;
             d.Texture2DArray.MipSlice = desc.firstMip;
             d.Texture2DArray.FirstArraySlice = desc.firstLayer;
@@ -4242,13 +4243,13 @@ std::shared_ptr<GpuTextureView> D3D12Context::CreateTextureView(const std::share
             return nullptr;
         D3D12_DEPTH_STENCIL_VIEW_DESC d{};
         d.Format = ToDxgiRHIFormat(td.format);
-        if (td.sampleCount > 1 && td.arrayLayers > 1) {
+        if (td.sampleCount > 1 && arrayTexture) {
             d.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2DMSARRAY;
             d.Texture2DMSArray.FirstArraySlice = desc.firstLayer;
             d.Texture2DMSArray.ArraySize = desc.layerCount;
         } else if (td.sampleCount > 1) {
             d.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2DMS;
-        } else if (td.arrayLayers > 1) {
+        } else if (arrayTexture) {
             d.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2DARRAY;
             d.Texture2DArray.MipSlice = desc.firstMip;
             d.Texture2DArray.FirstArraySlice = desc.firstLayer;
@@ -4267,8 +4268,15 @@ std::shared_ptr<GpuTextureView> D3D12Context::CreateTextureView(const std::share
             return nullptr;
         D3D12_UNORDERED_ACCESS_VIEW_DESC d{};
         d.Format = ToDxgiRHIFormat(td.format);
-        d.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
-        d.Texture2D.MipSlice = desc.firstMip;
+        if (arrayTexture) {
+            d.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2DARRAY;
+            d.Texture2DArray.MipSlice = desc.firstMip;
+            d.Texture2DArray.FirstArraySlice = desc.firstLayer;
+            d.Texture2DArray.ArraySize = desc.layerCount;
+        } else {
+            d.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+            d.Texture2D.MipSlice = desc.firstMip;
+        }
         m_Device->CreateUnorderedAccessView(nativeTexture->resource.Get(), nullptr, &d, view->uavCpu);
     }
     return view;

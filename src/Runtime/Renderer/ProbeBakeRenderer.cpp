@@ -1,13 +1,16 @@
 #include "Renderer/ProbeBakeRenderer.h"
 
 #include "Assets/LightingProbeAsset.h"
-#include "Assets/MaterialAsset.h"
-#include "Assets/MeshAsset.h"
-#include "Math/Mat4Inverse.h"
+#include "Camera/Camera.h"
 #include "Renderer/ProbeComponents.h"
+#include "Renderer/Renderer.h"
+#include "Renderer/RHI/GpuReadback.h"
+#include "Renderer/RHI/GpuTextureView.h"
+#include "Renderer/RHI/IRHIDevice.h"
+#include "Renderer/RHI/IRHIFrameContext.h"
+#include "Renderer/RHI/IRHIReadbackService.h"
 #include "Renderer/SceneLighting.h"
 #include "Scene/Actor.h"
-#include "Scene/MeshRendererComponent.h"
 #include "Scene/Scene.h"
 #include "Scene/SceneSerializer.h"
 
@@ -15,9 +18,11 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <thread>
 #include <unordered_set>
 #include <vector>
 
@@ -31,11 +36,6 @@ struct FloatImage {
     uint32_t width = 0;
     uint32_t height = 0;
     std::vector<Vec3> pixels;
-};
-
-struct CubeFace {
-    FloatImage color;
-    std::vector<float> depth;
 };
 
 struct FaceBasis {
@@ -75,165 +75,121 @@ Vec3 SkyRadiance(Vec3 direction, Vec3 sunDirection, const SceneLightData& lights
     return ground * (1.0f - sky) + zenith * sky + horizonColor * horizon + solar * sun;
 }
 
-Vec3 ShadeSurface(const Vec3& worldPosition, Vec3 normal, const Vec3& baseColor, const Vec3& emissive,
-                  const SceneLightData& lights) {
-    normal = normal.LengthSq() > 1e-8f ? normal.Normalized() : Vec3::Up();
-    const Vec3 environment = Multiply(SkyRadiance(normal, -lights.direction, lights), lights.environmentColor);
-    Vec3 color = Multiply(baseColor, environment) * (0.18f * lights.ambientIntensity);
-    const Vec3 directional = (-lights.direction).Normalized();
-    color +=
-        Multiply(baseColor, lights.color) * ((std::max)(0.0f, normal.Dot(directional)) * lights.directionalIntensity);
-    for (const ScenePointLight& light : lights.pointLights) {
-        const Vec3 delta = light.position - worldPosition;
-        const float distance = delta.Length();
-        if (distance >= light.range || distance <= 1e-5f)
-            continue;
-        const float attenuation = std::pow(1.0f - distance / light.range, 2.0f);
-        color += Multiply(baseColor, light.color) *
-                 ((std::max)(0.0f, normal.Dot(delta / distance)) * light.intensity * attenuation);
-    }
-    for (const SceneSpotLight& light : lights.spotLights) {
-        const Vec3 delta = light.position - worldPosition;
-        const float distance = delta.Length();
-        if (distance >= light.range || distance <= 1e-5f)
-            continue;
-        const Vec3 toLight = delta / distance;
-        const float cone = std::clamp(((-toLight).Dot(light.direction) - light.outerConeCos) /
-                                          (std::max)(light.innerConeCos - light.outerConeCos, 1e-5f),
-                                      0.0f, 1.0f);
-        const float attenuation = std::pow(1.0f - distance / light.range, 2.0f) * cone;
-        color +=
-            Multiply(baseColor, light.color) * ((std::max)(0.0f, normal.Dot(toLight)) * light.intensity * attenuation);
-    }
-    return ClampPositive(color + emissive);
-}
-
-bool ProjectVertex(const Vec3& position, const Vec3& capture, const FaceBasis& face, uint32_t resolution,
-                   Vec3& projected) {
-    const Vec3 delta = position - capture;
-    const float depth = delta.Dot(face.forward);
-    if (depth <= 0.01f)
+bool DecodeGpuFace(const std::shared_ptr<GpuTextureReadbackTicket>& ticket, FloatImage& output, std::string& error) {
+    if (!ticket || !ticket->IsReady()) {
+        error = "GPU reflection probe readback did not complete";
         return false;
-    const float x = delta.Dot(face.right) / depth;
-    const float y = delta.Dot(face.up) / depth;
-    projected = {(x * 0.5f + 0.5f) * static_cast<float>(resolution), (0.5f - y * 0.5f) * static_cast<float>(resolution),
-                 depth};
+    }
+    std::vector<uint8_t> bytes;
+    if (!ticket->Read(bytes)) {
+        error = "GPU reflection probe readback failed";
+        return false;
+    }
+    const uint32_t width = ticket->GetWidth();
+    const uint32_t height = ticket->GetHeight();
+    const uint32_t rowPitch = ticket->GetRowPitch();
+    if (width == 0 || height == 0 || bytes.size() < static_cast<size_t>(rowPitch) * height) {
+        error = "GPU reflection probe readback payload is truncated";
+        return false;
+    }
+    output = {width, height, {}};
+    output.pixels.resize(static_cast<size_t>(width) * height);
+    const RHIFormat format = ticket->GetFormat();
+    for (uint32_t y = 0; y < height; ++y) {
+        const uint8_t* row = bytes.data() + static_cast<size_t>(y) * rowPitch;
+        for (uint32_t x = 0; x < width; ++x) {
+            Vec3 color = Vec3::Zero();
+            if (format == RHIFormat::RGBA16Float) {
+                uint16_t channels[4]{};
+                std::memcpy(channels, row + static_cast<size_t>(x) * sizeof(channels), sizeof(channels));
+                color = {LightingProbeHalfToFloat(channels[0]), LightingProbeHalfToFloat(channels[1]),
+                         LightingProbeHalfToFloat(channels[2])};
+            } else if (format == RHIFormat::RGBA32Float) {
+                float channels[4]{};
+                std::memcpy(channels, row + static_cast<size_t>(x) * sizeof(channels), sizeof(channels));
+                color = {channels[0], channels[1], channels[2]};
+            } else if (format == RHIFormat::RGBA8UNorm || format == RHIFormat::BGRA8UNorm) {
+                const uint8_t* channels = row + static_cast<size_t>(x) * 4u;
+                constexpr float inverseByte = 1.0f / 255.0f;
+                color = format == RHIFormat::BGRA8UNorm
+                            ? Vec3{channels[2] * inverseByte, channels[1] * inverseByte, channels[0] * inverseByte}
+                            : Vec3{channels[0] * inverseByte, channels[1] * inverseByte, channels[2] * inverseByte};
+            } else {
+                error = "GPU reflection probe readback returned an unsupported texture format";
+                return false;
+            }
+            output.pixels[static_cast<size_t>(y) * width + x] = ClampPositive(color);
+        }
+    }
     return true;
 }
 
-float Edge(const Vec3& a, const Vec3& b, float x, float y) {
-    return (x - a.x) * (b.y - a.y) - (y - a.y) * (b.x - a.x);
-}
-
-void RasterizeTriangle(CubeFace& target, const Vec3 projected[3], const Vec3 world[3], const Vec3 normal[3],
-                       const Vec3& baseColor, const Vec3& emissive, const SceneLightData& lights) {
-    const float area = Edge(projected[0], projected[1], projected[2].x, projected[2].y);
-    if (std::abs(area) < 1e-6f)
-        return;
-    const int maxXLimit = static_cast<int>(target.color.width) - 1;
-    const int maxYLimit = static_cast<int>(target.color.height) - 1;
-    const int minX = std::clamp(
-        static_cast<int>(std::floor((std::min)({projected[0].x, projected[1].x, projected[2].x}))), 0, maxXLimit);
-    const int maxX = std::clamp(
-        static_cast<int>(std::ceil((std::max)({projected[0].x, projected[1].x, projected[2].x}))), 0, maxXLimit);
-    const int minY = std::clamp(
-        static_cast<int>(std::floor((std::min)({projected[0].y, projected[1].y, projected[2].y}))), 0, maxYLimit);
-    const int maxY = std::clamp(
-        static_cast<int>(std::ceil((std::max)({projected[0].y, projected[1].y, projected[2].y}))), 0, maxYLimit);
-    for (int y = minY; y <= maxY; ++y)
-        for (int x = minX; x <= maxX; ++x) {
-            const float px = static_cast<float>(x) + 0.5f;
-            const float py = static_cast<float>(y) + 0.5f;
-            const float w0 = Edge(projected[1], projected[2], px, py) / area;
-            const float w1 = Edge(projected[2], projected[0], px, py) / area;
-            const float w2 = 1.0f - w0 - w1;
-            if (w0 < 0.0f || w1 < 0.0f || w2 < 0.0f)
-                continue;
-            const float invDepth = w0 / projected[0].z + w1 / projected[1].z + w2 / projected[2].z;
-            if (invDepth <= 0.0f)
-                continue;
-            const float depth = 1.0f / invDepth;
-            const size_t pixel = static_cast<size_t>(y) * target.color.width + x;
-            if (depth >= target.depth[pixel])
-                continue;
-            const float p0 = w0 / projected[0].z * depth;
-            const float p1 = w1 / projected[1].z * depth;
-            const float p2 = w2 / projected[2].z * depth;
-            target.depth[pixel] = depth;
-            const Vec3 worldPosition = world[0] * p0 + world[1] * p1 + world[2] * p2;
-            const Vec3 worldNormal = normal[0] * p0 + normal[1] * p1 + normal[2] * p2;
-            target.color.pixels[pixel] = ShadeSurface(worldPosition, worldNormal, baseColor, emissive, lights);
-        }
-}
-
-std::array<CubeFace, 6> CaptureScene(const Scene& scene, const Vec3& capture, uint32_t resolution,
-                                     const SceneLightData& lights) {
-    std::array<CubeFace, 6> faces;
-    for (uint32_t faceIndex = 0; faceIndex < 6; ++faceIndex) {
-        auto& face = faces[faceIndex];
-        face.color.width = face.color.height = resolution;
-        face.color.pixels.resize(static_cast<size_t>(resolution) * resolution);
-        face.depth.assign(face.color.pixels.size(), std::numeric_limits<float>::infinity());
-        for (uint32_t y = 0; y < resolution; ++y)
-            for (uint32_t x = 0; x < resolution; ++x) {
-                const float sx = (static_cast<float>(x) + 0.5f) / resolution * 2.0f - 1.0f;
-                const float sy = 1.0f - (static_cast<float>(y) + 0.5f) / resolution * 2.0f;
-                const Vec3 direction =
-                    (kFaces[faceIndex].forward + kFaces[faceIndex].right * sx + kFaces[faceIndex].up * sy).Normalized();
-                face.color.pixels[static_cast<size_t>(y) * resolution + x] =
-                    SkyRadiance(direction, -lights.direction, lights);
-            }
+bool CaptureSceneGpu(IRHIDevice* device, IRHIFrameContext* frameContext, IRHIReadbackService* readbackService,
+                     const Scene& scene, const Vec3& capture, uint32_t resolution, float farPlane,
+                     std::array<FloatImage, 6>& faces, std::string& error) {
+    if (!device || !frameContext || !readbackService) {
+        error = "reflection probe baking requires GPU device, frame, and readback services";
+        return false;
     }
-    scene.ForEach([&](Actor& actor) {
-        if (!actor.IsStatic())
-            return;
-        const auto* renderer = actor.GetComponent<MeshRendererComponent>();
-        if (!renderer || !renderer->GetMesh().IsValid())
-            return;
-        const MeshAsset& mesh = *renderer->GetMesh();
-        const auto& vertices = mesh.GetVertices();
-        const auto& indices = mesh.GetIndices();
-        const Mat4 worldMatrix = actor.GetWorldMatrix();
-        Mat4 normalMatrix = Mat4::Identity();
-        if (Mat4Invert(worldMatrix, normalMatrix))
-            normalMatrix = normalMatrix.Transposed();
-        for (const SubMesh& subMesh : mesh.GetSubMeshes()) {
-            MaterialHandle material = renderer->GetMaterialForSlot(subMesh.materialSlot);
-            if (!material.IsValid() || material->GetBlendMode() == BlendMode::Transparent)
-                continue;
-            const Vec3 baseColor = material->GetColor("BaseColor", Vec3::One());
-            const Vec3 emissive =
-                material->GetColor("EmissiveColor", Vec3::Zero()) * material->GetFloat("EmissiveIntensity", 1.0f);
-            for (uint32_t index = 0; index + 2 < subMesh.indexCount; index += 3) {
-                uint32_t vertexIndices[3]{};
-                for (uint32_t corner = 0; corner < 3; ++corner) {
-                    const uint32_t source = subMesh.indexOffset + index + corner;
-                    vertexIndices[corner] = indices.empty() ? source : indices[source];
-                    vertexIndices[corner] += subMesh.vertexOffset;
-                }
-                if (vertexIndices[0] >= vertices.size() || vertexIndices[1] >= vertices.size() ||
-                    vertexIndices[2] >= vertices.size())
-                    continue;
-                Vec3 world[3], normals[3];
-                for (uint32_t corner = 0; corner < 3; ++corner) {
-                    world[corner] = worldMatrix.TransformPoint(vertices[vertexIndices[corner]].position);
-                    normals[corner] = normalMatrix.TransformDir(vertices[vertexIndices[corner]].normal).Normalized();
-                }
-                for (uint32_t faceIndex = 0; faceIndex < 6; ++faceIndex) {
-                    Vec3 projected[3];
-                    if (!ProjectVertex(world[0], capture, kFaces[faceIndex], resolution, projected[0]) ||
-                        !ProjectVertex(world[1], capture, kFaces[faceIndex], resolution, projected[1]) ||
-                        !ProjectVertex(world[2], capture, kFaces[faceIndex], resolution, projected[2]))
-                        continue;
-                    RasterizeTriangle(faces[faceIndex], projected, world, normals, baseColor, emissive, lights);
-                }
-            }
+    if (device->GetBackend() != RHIBackend::D3D11 && device->GetBackend() != RHIBackend::D3D12) {
+        error = "GPU reflection probe baking currently supports D3D11 and D3D12";
+        return false;
+    }
+
+    Renderer renderer(device, frameContext, readbackService);
+    renderer.SetRenderPath(RenderPath::Forward);
+    renderer.SetOutputOffscreen(true);
+    renderer.SetFeatureMask(RendererFeatureMask::Shadows);
+    renderer.SetStaticGeometryOnly(true);
+    renderer.SetLocalLightingProbesEnabled(false);
+    renderer.Resize(resolution, resolution);
+    // Probe bakes use one-tap runtime shadow sampling, but a smaller shadow atlas avoids paying the full viewport
+    // quality cost six times per probe.
+    renderer.SetShadowMapResolution(512);
+
+    std::array<std::shared_ptr<GpuTextureReadbackTicket>, 6> tickets;
+    bool frameOpened = false;
+    for (uint32_t faceIndex = 0; faceIndex < kFaces.size(); ++faceIndex) {
+        Camera camera;
+        camera.LookAt(capture, capture + kFaces[faceIndex].forward, kFaces[faceIndex].up);
+        camera.SetPerspective(90.0f, 1.0f, 0.05f, (std::max)(farPlane, 10.0f));
+        renderer.RenderScene(scene, camera, false);
+        frameOpened = true;
+        GpuTextureView* output = renderer.GetHdrSceneColorView();
+        if (!output || !output->texture) {
+            error = "GPU reflection probe renderer did not produce an HDR target";
+            break;
         }
-    });
-    return faces;
+        RHITextureRegion region{};
+        region.width = resolution;
+        region.height = resolution;
+        tickets[faceIndex] = readbackService->ReadbackTextureAsync(output->texture, region);
+        if (!tickets[faceIndex]) {
+            error = "GPU reflection probe renderer could not queue texture readback";
+            break;
+        }
+    }
+    if (frameOpened)
+        frameContext->EndFrame();
+    if (!error.empty())
+        return false;
+
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    for (const auto& ticket : tickets) {
+        while (ticket && !ticket->IsReady() && std::chrono::steady_clock::now() < deadline)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        if (!ticket || !ticket->IsReady()) {
+            error = "GPU reflection probe readback timed out";
+            return false;
+        }
+    }
+    for (uint32_t faceIndex = 0; faceIndex < tickets.size(); ++faceIndex)
+        if (!DecodeGpuFace(tickets[faceIndex], faces[faceIndex], error))
+            return false;
+    return true;
 }
 
-Vec3 SampleCube(const std::array<CubeFace, 6>& faces, Vec3 direction) {
+Vec3 SampleCube(const std::array<FloatImage, 6>& faces, Vec3 direction) {
     direction = direction.Normalized();
     uint32_t faceIndex = 0;
     const Vec3 absolute{std::abs(direction.x), std::abs(direction.y), std::abs(direction.z)};
@@ -247,11 +203,11 @@ Vec3 SampleCube(const std::array<CubeFace, 6>& faces, Vec3 direction) {
     const float depth = (std::max)(direction.Dot(face.forward), 1e-5f);
     const float u = direction.Dot(face.right) / depth * 0.5f + 0.5f;
     const float v = 0.5f - direction.Dot(face.up) / depth * 0.5f;
-    const uint32_t x = (std::min)(static_cast<uint32_t>(std::clamp(u, 0.0f, 0.999999f) * faces[faceIndex].color.width),
-                                  faces[faceIndex].color.width - 1u);
-    const uint32_t y = (std::min)(static_cast<uint32_t>(std::clamp(v, 0.0f, 0.999999f) * faces[faceIndex].color.height),
-                                  faces[faceIndex].color.height - 1u);
-    return faces[faceIndex].color.pixels[static_cast<size_t>(y) * faces[faceIndex].color.width + x];
+    const uint32_t x = (std::min)(static_cast<uint32_t>(std::clamp(u, 0.0f, 0.999999f) * faces[faceIndex].width),
+                                  faces[faceIndex].width - 1u);
+    const uint32_t y = (std::min)(static_cast<uint32_t>(std::clamp(v, 0.0f, 0.999999f) * faces[faceIndex].height),
+                                  faces[faceIndex].height - 1u);
+    return faces[faceIndex].pixels[static_cast<size_t>(y) * faces[faceIndex].width + x];
 }
 
 Vec3 OctaDirection(float u, float v) {
@@ -265,7 +221,7 @@ Vec3 OctaDirection(float u, float v) {
     return direction.Normalized();
 }
 
-FloatImage CubeToOcta(const std::array<CubeFace, 6>& faces, uint32_t resolution) {
+FloatImage CubeToOcta(const std::array<FloatImage, 6>& faces, uint32_t resolution) {
     FloatImage result{resolution, resolution, {}};
     result.pixels.resize(static_cast<size_t>(resolution) * resolution);
     for (uint32_t y = 0; y < resolution; ++y)
@@ -381,7 +337,7 @@ uint64_t ProbeBakeRenderer::ComputeDependencyHash(const Scene& scene) {
         hash ^= value;
         hash *= 1099511628211ull;
     }
-    static constexpr char version[] = "ProbeBakeRenderer-v1";
+    static constexpr char version[] = "ProbeBakeRenderer-gpu-v4";
     for (unsigned char value : version) {
         hash ^= value;
         hash *= 1099511628211ull;
@@ -449,14 +405,23 @@ ProbeBakeResult ProbeBakeRenderer::Bake(const Scene& scene, LightingProbeAsset& 
     output.SetDependencyHash(ComputeDependencyHash(scene));
     output.SetSceneGuid(scene.GetName());
     const SceneLightData lights = CollectSceneLights(scene);
+    if (!reflections.empty() && (!m_Device || !m_FrameContext || !m_ReadbackService)) {
+        result.error = "reflection probes require the GPU bake path";
+        return result;
+    }
     for (const auto& source : reflections) {
         if (cancellation && cancellation->load()) {
             result.cancelled = true;
             return result;
         }
-        report("Capturing reflection probe");
+        report("GPU capturing reflection probe with fast shadows");
         const Vec3 capture = source.actor->GetWorldMatrix().TransformPoint(source.component->GetCaptureOffset());
-        auto faces = CaptureScene(scene, capture, output.GetReflectionResolution(), lights);
+        std::array<FloatImage, 6> faces;
+        const Vec3 extents = source.component->GetBoxExtents();
+        const float farPlane = (std::max)(100.0f, extents.Length() * 4.0f);
+        if (!CaptureSceneGpu(m_Device, m_FrameContext, m_ReadbackService, scene, capture,
+                             output.GetReflectionResolution(), farPlane, faces, result.error))
+            return result;
         FloatImage mip = CubeToOcta(faces, output.GetReflectionResolution());
         bool clipped = false;
         const float range = SelectRgbmRange(mip, scene.GetLightingProbeBakeSettings().rgbmMaximumRange, clipped);

@@ -72,24 +72,21 @@ public:
             ImGui::Separator();
         }
 
-        constexpr std::array<const char*, 6> kCategories = {"Rendering", "Physics", "Audio",
-                                                            "Scripting", "UI",      "Gameplay"};
-        for (const char* category : kCategories) {
+        const std::vector<std::string> categories = OrderedComponentCategories(types);
+        for (const std::string& category : categories) {
             bool hasVisible = false;
             for (const std::string& type : types) {
-                if (std::strcmp(ComponentCategory(type), category) == 0 &&
-                    ComponentMatchesFilter(type, m_ComponentSearch)) {
+                if (ComponentCategory(type) == category && ComponentMatchesFilter(type, m_ComponentSearch)) {
                     hasVisible = true;
                     break;
                 }
             }
             if (!hasVisible)
                 continue;
-            if (!ImGui::BeginMenu(category))
+            if (!ImGui::BeginMenu(category.c_str()))
                 continue;
             for (const std::string& type : types) {
-                if (std::strcmp(ComponentCategory(type), category) != 0 ||
-                    !ComponentMatchesFilter(type, m_ComponentSearch)) {
+                if (ComponentCategory(type) != category || !ComponentMatchesFilter(type, m_ComponentSearch)) {
                     continue;
                 }
                 addRegisteredComponent(type);

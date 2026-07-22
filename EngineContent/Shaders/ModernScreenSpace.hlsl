@@ -31,10 +31,13 @@ cbuffer ScreenSpaceConstants : register(b0)
     float g_BloomIntensity;
     uint g_SSGIStepCount;
     uint g_SSRStepCount;
-    uint4 g_ScreenSpacePadding;
+    uint g_LocalReflectionProbeCount;
+    float g_LocalReflectionMipCount;
+    uint2 g_ScreenSpacePadding;
 };
 
 #include "ModernReflection.hlsli"
+#include "ProbeLighting.hlsli"
 
 Texture2D<float> g_Depth : register(t0);
 Texture2D<float4> g_Normal : register(t1);
@@ -50,6 +53,8 @@ Texture2D<float> g_PreviousDepth : register(t10);
 Texture2D<float4> g_PreviousNormal : register(t11);
 TextureCube<float4> g_Environment : register(t12);
 Texture2D<float> g_SSAO : register(t13);
+Texture2DArray<float4> g_LocalReflectionProbes : register(t14);
+StructuredBuffer<ReflectionProbeGpuData> g_LocalReflectionProbeData : register(t15);
 SamplerState g_LinearSampler : register(s0);
 SamplerState g_PointSampler : register(s1);
 RWTexture2D<float4> g_Output : register(u0);
@@ -699,9 +704,9 @@ void CSEffectsComposite(uint3 dispatchThreadId : SV_DispatchThreadID)
     float3 normal = DecodeWorldNormal(g_Normal.Load(int3(pixel, 0)).xyz);
     float4 reflection = (g_EffectMode & 2u) != 0 ? BilateralUpsample(g_SSR, pixel) : 0.0f;
     float4 material = g_Material.Load(int3(pixel, 0));
-    float roughness = saturate(material.y);
+    float roughness = clamp(material.y, 0.04f, 1.0f);
     float metallic = saturate(material.x);
-    float ao = saturate(material.z);
+    float ao = max(material.z, 0.0f);
     float3 gi = 0.0f;
     float3 specularCorrection = 0.0f;
     float depth = g_Depth.Load(int3(pixel, 0));
@@ -730,11 +735,16 @@ void CSEffectsComposite(uint3 dispatchThreadId : SV_DispatchThreadID)
                 max(g_EnvironmentColor.rgb, 0.0f);
             float3 reflectionDirection =
                 ModernWorldReflectionDirection(worldPosition, g_CameraPositionAmbient.xyz, normal);
-            float3 environmentRadiance =
+            float3 globalEnvironmentRadiance =
                 g_Environment.SampleLevel(g_LinearSampler, reflectionDirection, roughness * 6.0f).rgb;
-            // Clustered lighting already contains this environment term. Replace it with the confident screen hit
-            // instead of adding a second specular lobe; confidence naturally preserves the environment fallback.
-            specularCorrection = (reflection.rgb - environmentRadiance) * brdfFactor * saturate(reflection.a);
+            float3 environmentRadiance = SampleLocalReflectionsAuto(
+                g_LocalReflectionProbes, g_LinearSampler, g_LocalReflectionProbeData,
+                g_LocalReflectionProbeCount, worldPosition, reflectionDirection, roughness,
+                g_LocalReflectionMipCount, globalEnvironmentRadiance);
+            // Clustered lighting already contains this exact local-probe-or-global fallback. Replace it with the
+            // confident screen hit instead of subtracting a global cubemap term that may not be present in the HDR.
+            specularCorrection =
+                (reflection.rgb - environmentRadiance) * brdfFactor * saturate(reflection.a);
         }
     }
     const float screenSpaceAO =

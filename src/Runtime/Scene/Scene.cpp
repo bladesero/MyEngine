@@ -682,7 +682,7 @@ void Scene::SetLightingProbeBakeSettings(const LightingProbeBakeSettings& value)
     if (m_LightingProbeBakeSettings.reflectionResolution != 64 &&
         m_LightingProbeBakeSettings.reflectionResolution != 128 &&
         m_LightingProbeBakeSettings.reflectionResolution != 256)
-        m_LightingProbeBakeSettings.reflectionResolution = 128;
+        m_LightingProbeBakeSettings.reflectionResolution = 256;
     m_LightingProbeBakeSettings.rgbmMaximumRange =
         std::clamp(m_LightingProbeBakeSettings.rgbmMaximumRange, 4.0f, 64.0f);
 }

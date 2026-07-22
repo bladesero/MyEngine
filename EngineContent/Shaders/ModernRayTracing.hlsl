@@ -44,8 +44,8 @@ void CSRTAO(uint3 dispatchThreadId : SV_DispatchThreadID)
     }
     float3 normal = ModernRTDecodeNormal(g_RTNormal.Load(int3(fullPixel, 0)).xyz);
     float3 origin = ModernRTReconstructWorldPosition(fullPixel, depth) + normal * max(g_RTParams0.y, 0.001f);
-    float seed = ModernRTHash(float2(pixel) + g_RTParams1.w);
-    float3 direction = ModernRTCosineDirection(normal, float2(seed, ModernRTHash(float2(seed, pixel.x + pixel.y))));
+    const float2 randomValue = ModernRTSample2D(pixel, (uint)g_RTParams1.w, 0u);
+    float3 direction = ModernRTCosineDirection(normal, randomValue);
     uint instanceId;
     uint primitiveIndex;
     float2 barycentrics;
@@ -75,8 +75,8 @@ void CSRTDiffuse(uint3 dispatchThreadId : SV_DispatchThreadID)
     }
     float3 normal = ModernRTDecodeNormal(g_RTNormal.Load(int3(fullPixel, 0)).xyz);
     float3 origin = ModernRTReconstructWorldPosition(fullPixel, depth) + normal * 0.002f;
-    float seed = ModernRTHash(float2(pixel) + g_RTParams1.w);
-    float3 direction = ModernRTCosineDirection(normal, float2(seed, ModernRTHash(float2(seed, pixel.y))));
+    const float2 randomValue = ModernRTSample2D(pixel, (uint)g_RTParams1.w, 1u);
+    float3 direction = ModernRTCosineDirection(normal, randomValue);
     uint instanceId;
     uint primitiveIndex;
     float2 barycentrics;
@@ -87,7 +87,10 @@ void CSRTDiffuse(uint3 dispatchThreadId : SV_DispatchThreadID)
                           : g_RTEnvironment.SampleLevel(g_RTLinearSampler, direction, 6.0f).rgb *
                                 max(g_RTCameraPositionAmbient.w, 0.0f) * max(g_RTEnvironmentColor.rgb, 0.0f);
     // Keep temporal history in unscaled incoming-radiance space; the shared effects composite applies SSGI intensity.
-    g_RTOutput[pixel] = float4(max(radiance, 0.0f), 1.0f);
+    // Alpha follows the SSGI trace ABI and stores the luminance second moment used by temporal variance clipping.
+    const float3 nonNegativeRadiance = max(radiance, 0.0f);
+    const float luminance = dot(nonNegativeRadiance, float3(0.2126f, 0.7152f, 0.0722f));
+    g_RTOutput[pixel] = float4(nonNegativeRadiance, luminance * luminance);
 }
 
 #elif defined(MYENGINE_RT_REFLECTION)
@@ -113,9 +116,8 @@ void CSRTReflection(uint3 dispatchThreadId : SV_DispatchThreadID)
         return;
     }
     float3 viewDirection = normalize(g_RTCameraPositionAmbient.xyz - worldPosition);
-    float seed = ModernRTHash(float2(pixel) + g_RTParams1.w);
-    float3 direction = ModernRTGGXReflectionDirection(
-        normal, viewDirection, roughness, float2(seed, ModernRTHash(float2(pixel.yx) + seed)));
+    const float2 randomValue = ModernRTSample2D(pixel, (uint)g_RTParams1.w, 2u);
+    float3 direction = ModernRTGGXReflectionDirection(normal, viewDirection, roughness, randomValue);
     uint instanceId;
     uint primitiveIndex;
     float2 barycentrics;

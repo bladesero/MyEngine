@@ -22,24 +22,49 @@ std::string SanitizeAssetName(std::string name) {
 }
 } // namespace
 
-ProbeBakeResult EditorLightingBakeService::Bake(EditorContext& context, Scene& scene) const {
+bool EditorLightingBakeService::RequestBake(Scene& scene) {
+    if (m_PendingScene || m_ActiveScene)
+        return false;
+    m_PendingScene = &scene;
+    m_LastResult = {};
+    Logger::Info("[LightingBake] queued GPU reflection probe bake for ", scene.GetName());
+    return true;
+}
+
+void EditorLightingBakeService::OnUpdate(float deltaSeconds) {
+    (void)deltaSeconds;
+    EditorContext* context = GetContext();
+    if (!context || !m_PendingScene)
+        return;
+    m_ActiveScene = m_PendingScene;
+    m_PendingScene = nullptr;
+    m_LastResult = ExecuteBake(*context, *m_ActiveScene);
+    m_ActiveScene = nullptr;
+}
+
+void EditorLightingBakeService::OnDetach() {
+    m_PendingScene = nullptr;
+    m_ActiveScene = nullptr;
+    EditorService::OnDetach();
+}
+
+ProbeBakeResult EditorLightingBakeService::ExecuteBake(EditorContext& context, Scene& scene) const {
     ProbeBakeResult result;
     IRenderContext* renderContext = context.GetRenderContext();
-    if (!renderContext || (renderContext->GetBackend() != RHIBackend::D3D11 &&
-                           renderContext->GetBackend() != RHIBackend::D3D12)) {
+    if (!renderContext ||
+        (renderContext->GetBackend() != RHIBackend::D3D11 && renderContext->GetBackend() != RHIBackend::D3D12)) {
         result.error = "lighting probes can be baked only with the D3D11 or D3D12 Editor backend";
         Logger::Error("[LightingBake] ", result.error);
         return result;
     }
-    const std::filesystem::path relative = std::filesystem::path("Content") / "Lighting" /
-                                           (SanitizeAssetName(scene.GetName()) + ".lightprobes");
+    const std::filesystem::path relative =
+        std::filesystem::path("Content") / "Lighting" / (SanitizeAssetName(scene.GetName()) + ".lightprobes");
     const std::filesystem::path absolute = AssetManager::Get().GetProjectRoot() / relative;
     LightingProbeAsset asset(absolute.string());
-    ProbeBakeRenderer baker;
+    ProbeBakeRenderer baker(renderContext, renderContext, renderContext);
     result = baker.Bake(scene, asset, [](const ProbeBakeProgress& progress) {
         if (progress.completedSteps == 0 || progress.completedSteps == progress.totalSteps)
-            Logger::Info("[LightingBake] ", progress.stage, " ", progress.completedSteps, "/",
-                         progress.totalSteps);
+            Logger::Info("[LightingBake] ", progress.stage, " ", progress.completedSteps, "/", progress.totalSteps);
     });
     if (!result.succeeded) {
         if (!result.cancelled)
@@ -57,13 +82,14 @@ ProbeBakeResult EditorLightingBakeService::Bake(EditorContext& context, Scene& s
     AssetManager::Get().Unload(relative.generic_string());
     if (auto* layer = context.GetSceneLayer())
         layer->MarkDirty();
-    Logger::Info("[LightingBake] baked ", result.reflectionProbeCount, " reflection probes, ",
-                 result.shVolumeCount, " SH volumes and ", result.shSampleCount, " SH samples to ",
-                 relative.generic_string());
+    Logger::Info("[LightingBake] baked ", result.reflectionProbeCount, " reflection probes, ", result.shVolumeCount,
+                 " SH volumes and ", result.shSampleCount, " SH samples to ", relative.generic_string());
     return result;
 }
 
 bool EditorLightingBakeService::IsBakeCurrent(const Scene& scene) const {
+    if (IsBakePending(scene))
+        return false;
     if (scene.GetLightingProbeAssetPath().empty())
         return false;
     auto asset = AssetManager::Get().Load<LightingProbeAsset>(scene.GetLightingProbeAssetPath());

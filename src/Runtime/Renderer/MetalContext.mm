@@ -1273,7 +1273,10 @@ std::shared_ptr<GpuTexture> MetalContext::UploadTexture2D(const void* rgba8Data,
 std::shared_ptr<GpuTexture> MetalContext::UploadTexture(const RHITextureDesc& desc,
                                                         const RHITextureSubresourceData* data,
                                                         uint32_t subresourceCount) {
-    if (!data || subresourceCount == 0 || !m_Impl || !m_Impl->device || desc.format != RHIFormat::RGBA8UNorm ||
+    const uint32_t bytesPerPixel = desc.format == RHIFormat::RGBA8UNorm    ? 4u
+                                   : desc.format == RHIFormat::RGBA16Float ? 8u
+                                                                           : 0u;
+    if (!data || subresourceCount == 0 || !m_Impl || !m_Impl->device || bytesPerPixel == 0 ||
         subresourceCount != desc.mipLevels * desc.arrayLayers) {
         return nullptr;
     }
@@ -1287,8 +1290,8 @@ std::shared_ptr<GpuTexture> MetalContext::UploadTexture(const RHITextureDesc& de
         }
         const uint32_t mipWidth = (std::max)(1u, desc.width >> src.mipLevel);
         const uint32_t mipHeight = (std::max)(1u, desc.height >> src.mipLevel);
-        const uint32_t rowPitch = src.rowPitch ? src.rowPitch : mipWidth * 4;
-        if (rowPitch < mipWidth * 4)
+        const uint32_t rowPitch = src.rowPitch ? src.rowPitch : mipWidth * bytesPerPixel;
+        if (rowPitch < mipWidth * bytesPerPixel)
             return nullptr;
         MTLRegion region = MTLRegionMake2D(0, 0, mipWidth, mipHeight);
         [texture->texture
@@ -1315,7 +1318,7 @@ std::shared_ptr<GpuTexture> MetalContext::CreateTexture(const RHITextureDesc& de
     native.storageMode = MTLStorageModeShared;
     if (desc.cube)
         native.textureType = MTLTextureTypeCube;
-    else if (desc.arrayLayers > 1)
+    else if (desc.array || desc.arrayLayers > 1)
         native.textureType = MTLTextureType2DArray;
 
     auto result = std::make_shared<MetalGpuTexture>();
@@ -1349,7 +1352,7 @@ std::shared_ptr<GpuTextureView> MetalContext::CreateTextureView(const std::share
         viewType = MTLTextureTypeCube;
         firstSlice = 0;
         sliceCount = 6;
-    } else if (sliceCount > 1) {
+    } else if (nativeTexture->desc.array || sliceCount > 1) {
         viewType = MTLTextureType2DArray;
     } else {
         viewType = MTLTextureType2D;

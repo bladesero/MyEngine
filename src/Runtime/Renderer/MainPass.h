@@ -57,6 +57,7 @@ public:
                        std::shared_ptr<GpuBufferView> shVolumeMetadata, std::shared_ptr<GpuBufferView> shCoefficients,
                        uint32_t reflectionCount, uint32_t shVolumeCount, uint32_t reflectionMipCount);
     void SetSunDirection(const Vec3& direction);
+    void SetStaticGeometryOnly(bool enabled) { m_StaticGeometryOnly = enabled; }
     const Stats& GetLastStats() const { return m_LastStats; }
 
 private:
@@ -126,6 +127,7 @@ private:
     uint32_t m_ProbeReflectionCount = 0;
     uint32_t m_ProbeSHVolumeCount = 0;
     uint32_t m_ProbeReflectionMipCount = 1;
+    bool m_StaticGeometryOnly = false;
     float m_EnvironmentSH2[9][4] = {};
     SceneEnvironmentData m_EnvironmentSettings;
     bool m_LoggedEnvironmentState = false;

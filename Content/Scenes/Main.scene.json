@@ -6,85 +6,99 @@
                 {
                     "data": {
                         "material": "__builtin__/Default",
+                        "materials": [
+                            "__builtin__/Default"
+                        ],
                         "mesh": "__builtin__/Cube"
                     },
                     "enabled": true,
-                    "type": "MeshRenderer"
+                    "type": "MeshRenderer",
+                    "version": 1
                 },
                 {
                     "data": {
-                        "className": "RotatingCube",
-                        "language": "angelscript",
                         "properties": {
-                            "axis": [
+                            "className": "RotatingCube",
+                            "language": "angelscript",
+                            "properties": {
+                                "axis": [
+                                    0.0,
+                                    1.0,
+                                    0.0
+                                ],
+                                "speed": 35.0
+                            },
+                            "scriptPath": "Content/Scripts/RotatingCube.as",
+                            "state": {}
+                        }
+                    },
+                    "enabled": true,
+                    "type": "Script",
+                    "version": 1
+                },
+                {
+                    "data": {
+                        "properties": {
+                            "halfExtents": [
+                                0.5,
+                                0.5,
+                                0.5
+                            ],
+                            "isTrigger": false,
+                            "layer": 1,
+                            "layerMask": 4294967295
+                        }
+                    },
+                    "enabled": true,
+                    "type": "BoxCollider",
+                    "version": 1
+                },
+                {
+                    "data": {
+                        "properties": {
+                            "angularAxisLocks": [
                                 0.0,
-                                1.0,
+                                0.0,
                                 0.0
                             ],
-                            "speed": 35.0
-                        },
-                        "scriptPath": "Content/Scripts/RotatingCube.as",
-                        "state": {}
+                            "angularDamping": 0.05000000074505806,
+                            "angularVelocity": [
+                                0.0,
+                                0.0,
+                                0.0
+                            ],
+                            "bodyType": 1,
+                            "collisionDetection": 0,
+                            "friction": 0.6000000238418579,
+                            "linearAxisLocks": [
+                                0.0,
+                                0.0,
+                                0.0
+                            ],
+                            "linearDamping": 0.05000000074505806,
+                            "mass": 1.0,
+                            "restitution": 0.10000000149011612,
+                            "useGravity": true,
+                            "velocity": [
+                                0.0,
+                                0.0,
+                                0.0
+                            ]
+                        }
                     },
                     "enabled": true,
-                    "type": "Script"
-                },
-                {
-                    "data": {
-                        "halfExtents": [
-                            0.5,
-                            0.5,
-                            0.5
-                        ],
-                        "isTrigger": false,
-                        "layer": 1,
-                        "layerMask": 4294967295
-                    },
-                    "enabled": true,
-                    "type": "BoxCollider"
-                },
-                {
-                    "data": {
-                        "angularAxisLocks": [
-                            0.0,
-                            0.0,
-                            0.0
-                        ],
-                        "angularDamping": 0.05000000074505806,
-                        "angularVelocity": [
-                            0.0,
-                            0.0,
-                            0.0
-                        ],
-                        "bodyType": "dynamic",
-                        "collisionDetection": "discrete",
-                        "friction": 0.6000000238418579,
-                        "linearAxisLocks": [
-                            0.0,
-                            0.0,
-                            0.0
-                        ],
-                        "linearDamping": 0.05000000074505806,
-                        "mass": 1.0,
-                        "restitution": 0.10000000149011612,
-                        "useGravity": true,
-                        "velocity": [
-                            0.0,
-                            0.0,
-                            0.0
-                        ]
-                    },
-                    "enabled": true,
-                    "type": "RigidBody"
+                    "type": "RigidBody",
+                    "version": 1
                 }
             ],
+            "editorFlags": 1,
             "id": 1,
             "name": "Actor",
             "parentID": 0,
             "transform": {
                 "position": [
                     0.0,
-                    0.08203548192977905,
+                    0.09178465604782104,
                     0.0
                 ],
                 "rotation": [
@@ -104,20 +118,24 @@
             "components": [
                 {
                     "data": {
-                        "castShadows": true,
-                        "color": [
-                            0.9851190447807312,
-                            0.9177376627922058,
-                            0.6948607563972473
-                        ],
-                        "innerConeAngle": 25.0,
-                        "intensity": 3.0,
-                        "outerConeAngle": 35.0,
-                        "range": 8.0,
-                        "type": "directional"
+                        "properties": {
+                            "castsShadows": true,
+                            "color": [
+                                0.9851190447807312,
+                                0.9177376627922058,
+                                0.6948607563972473
+                            ],
+                            "innerConeAngle": 25.0,
+                            "intensity": 3.0,
+                            "outerConeAngle": 35.0,
+                            "range": 8.0,
+                            "shadowIntensity": 1.0,
+                            "type": 0
+                        }
                     },
                     "enabled": true,
-                    "type": "Light"
+                    "type": "Light",
+                    "version": 1
                 }
             ],
             "id": 2,
@@ -130,8 +148,8 @@
                     0.0
                 ],
                 "rotation": [
-                    -65.7722553788582,
-                    -153.363631768364,
+                    -65.77225494384766,
+                    -153.36363220214844,
                     0.0
                 ],
                 "scale": [
@@ -147,60 +165,71 @@
                 {
                     "data": {
                         "material": "__builtin__/Default",
+                        "materials": [
+                            "__builtin__/Default"
+                        ],
                         "mesh": "__builtin__/Cube"
                     },
                     "enabled": true,
-                    "type": "MeshRenderer"
+                    "type": "MeshRenderer",
+                    "version": 1
                 },
                 {
                     "data": {
-                        "halfExtents": [
-                            0.5,
-                            0.5,
-                            0.5
-                        ],
-                        "isTrigger": false,
-                        "layer": 1,
-                        "layerMask": 4294967295
+                        "properties": {
+                            "halfExtents": [
+                                0.5,
+                                0.5,
+                                0.5
+                            ],
+                            "isTrigger": false,
+                            "layer": 1,
+                            "layerMask": 4294967295
+                        }
                     },
                     "enabled": true,
-                    "type": "BoxCollider"
+                    "type": "BoxCollider",
+                    "version": 1
                 },
                 {
                     "data": {
-                        "angularAxisLocks": [
-                            0.0,
-                            0.0,
-                            0.0
-                        ],
-                        "angularDamping": 0.05000000074505806,
-                        "angularVelocity": [
-                            0.0,
-                            0.0,
-                            0.0
-                        ],
-                        "bodyType": "static",
-                        "collisionDetection": "discrete",
-                        "friction": 0.6000000238418579,
-                        "linearAxisLocks": [
-                            0.0,
-                            0.0,
-                            0.0
-                        ],
-                        "linearDamping": 0.05000000074505806,
-                        "mass": 1.0,
-                        "restitution": 0.10000000149011612,
-                        "useGravity": true,
-                        "velocity": [
-                            0.0,
-                            0.0,
-                            0.0
-                        ]
+                        "properties": {
+                            "angularAxisLocks": [
+                                0.0,
+                                0.0,
+                                0.0
+                            ],
+                            "angularDamping": 0.05000000074505806,
+                            "angularVelocity": [
+                                0.0,
+                                0.0,
+                                0.0
+                            ],
+                            "bodyType": 0,
+                            "collisionDetection": 0,
+                            "friction": 0.6000000238418579,
+                            "linearAxisLocks": [
+                                0.0,
+                                0.0,
+                                0.0
+                            ],
+                            "linearDamping": 0.05000000074505806,
+                            "mass": 1.0,
+                            "restitution": 0.10000000149011612,
+                            "useGravity": true,
+                            "velocity": [
+                                0.0,
+                                0.0,
+                                0.0
+                            ]
+                        }
                     },
                     "enabled": true,
-                    "type": "RigidBody"
+                    "type": "RigidBody",
+                    "version": 1
                 }
             ],
+            "editorFlags": 1,
             "id": 4,
             "name": "ground",
             "parentID": 0,
@@ -227,23 +256,47 @@
             "components": [
                 {
                     "data": {
-                        "antiAliasingStrength": 0.0,
-                        "bloomEnabled": false,
-                        "bloomIntensity": 0.0,
-                        "bloomThreshold": 1.0,
-                        "contrast": 1.0,
-                        "exposure": 1.0,
-                        "gamma": 2.200000047683716,
-                        "saturation": 1.0,
-                        "ssaoBias": 0.02500000037252903,
-                        "ssaoIntensity": 1.8600000143051147,
-                        "ssaoPower": 1.5,
-                        "ssaoRadius": 1.2000000476837158,
-                        "toneMapping": true,
-                        "vignette": 0.0
+                        "properties": {
+                            "antiAliasingStrength": 0.0,
+                            "bloomEnabled": false,
+                            "bloomIntensity": 0.0,
+                            "bloomThreshold": 1.0,
+                            "contrast": 1.0,
+                            "exposure": 1.0,
+                            "gamma": 2.200000047683716,
+                            "rayTracedAOReplacement": false,
+                            "rayTracedDiffuseReplacement": false,
+                            "rayTracedReflectionReplacement": false,
+                            "rayTracedShadowReplacement": false,
+                            "saturation": 1.0,
+                            "ssaoBias": 0.02500000037252903,
+                            "ssaoIntensity": 1.8600000143051147,
+                            "ssaoPower": 1.5,
+                            "ssaoRadius": 1.2000000476837158,
+                            "ssaoScale": 1.0,
+                            "ssgiEnabled": true,
+                            "ssgiFilterRounds": 3,
+                            "ssgiHistoryWeight": 0.8999999761581421,
+                            "ssgiIntensity": 0.4000000059604645,
+                            "ssgiMaxDistance": 10.0,
+                            "ssgiStepCount": 32,
+                            "ssrEnabled": true,
+                            "ssrFilterRounds": 2,
+                            "ssrHistoryWeight": 0.8999999761581421,
+                            "ssrMaxDistance": 10.0,
+                            "ssrMaxRoughness": 0.800000011920929,
+                            "ssrStepCount": 48,
+                            "taaEnabled": true,
+                            "taaHistoryClipExpansion": 0.0,
+                            "taaHistoryWeight": 0.800000011920929,
+                            "taaJitterSpread": 1.0,
+                            "toneMapping": true,
+                            "vignette": 0.0
+                        }
                     },
                     "enabled": true,
-                    "type": "PostProcess"
+                    "type": "PostProcess",
+                    "version": 1
                 }
             ],
             "id": 5,
@@ -272,18 +325,21 @@
             "components": [
                 {
                     "data": {
-                        "clearColor": [
-                            0.11999999731779099,
-                            0.11999999731779099,
-                            0.18000000715255737
-                        ],
-                        "farClip": 1000.0,
-                        "fovYDegrees": 60.0,
-                        "isMainCamera": true,
-                        "nearClip": 0.10000000149011612
+                        "properties": {
+                            "clearColor": [
+                                0.11999999731779099,
+                                0.11999999731779099,
+                                0.18000000715255737
+                            ],
+                            "farClip": 1000.0,
+                            "fovYDegrees": 60.0,
+                            "mainCamera": true,
+                            "nearClip": 0.10000000149011612
+                        }
                     },
                     "enabled": true,
-                    "type": "Camera"
+                    "type": "Camera",
+                    "version": 1
                 }
             ],
             "id": 6,
@@ -312,24 +368,27 @@
             "components": [
                 {
                     "data": {
-                        "canvasSpace": "Screen",
-                        "defaultFontPaths": [
-                            "Content/UI/Fonts/LatoLatin-Regular.ttf",
-                            "Content/UI/Fonts/LatoLatin-Bold.ttf"
-                        ],
-                        "documentPath": "Content/UI/RmlExample.rml",
-                        "generatedStylePaths": [],
-                        "inputMode": "GameAndUI",
-                        "interactive": true,
-                        "sortOrder": 0,
-                        "sourceMode": "AssetDocument",
-                        "stylePaths": [
-                            "Content/UI/RmlExample.rcss"
-                        ],
-                        "visible": false
+                        "properties": {
+                            "canvasSpace": "Screen",
+                            "defaultFontPaths": [
+                                "Content/UI/Fonts/LatoLatin-Regular.ttf",
+                                "Content/UI/Fonts/LatoLatin-Bold.ttf"
+                            ],
+                            "documentPath": "Content/UI/RmlExample.rml",
+                            "generatedStylePaths": [],
+                            "inputMode": "GameAndUI",
+                            "interactive": true,
+                            "sortOrder": 0,
+                            "sourceMode": "AssetDocument",
+                            "stylePaths": [
+                                "Content/UI/RmlExample.rcss"
+                            ],
+                            "visible": false
+                        }
                     },
                     "enabled": true,
-                    "type": "UICanvas"
+                    "type": "UICanvas",
+                    "version": 1
                 }
             ],
             "id": 7,
@@ -358,49 +417,55 @@
             "components": [
                 {
                     "data": {
-                        "canvasSpace": "Screen",
-                        "defaultFontPaths": [
-                            "Content/UI/Fonts/LatoLatin-Regular.ttf"
-                        ],
-                        "documentPath": "",
-                        "generatedStylePaths": [
-                            "Content/UI/RmlExample.rcss"
-                        ],
-                        "inputMode": "GameAndUI",
-                        "interactive": true,
-                        "sortOrder": 1,
-                        "sourceMode": "ActorTree",
-                        "stylePaths": [],
-                        "visible": false
+                        "properties": {
+                            "canvasSpace": "Screen",
+                            "defaultFontPaths": [
+                                "Content/UI/Fonts/LatoLatin-Regular.ttf"
+                            ],
+                            "documentPath": "",
+                            "generatedStylePaths": [
+                                "Content/UI/RmlExample.rcss"
+                            ],
+                            "inputMode": "GameAndUI",
+                            "interactive": true,
+                            "sortOrder": 1,
+                            "sourceMode": "ActorTree",
+                            "stylePaths": [],
+                            "visible": false
+                        }
                     },
                     "enabled": true,
-                    "type": "UICanvas"
+                    "type": "UICanvas",
+                    "version": 1
                 },
                 {
                     "data": {
-                        "anchorMax": [
-                            1.0,
-                            1.0
-                        ],
-                        "anchorMin": [
-                            0.0,
-                            0.0
-                        ],
-                        "offsetMax": [
-                            0.0,
-                            0.0
-                        ],
-                        "offsetMin": [
-                            0.0,
-                            0.0
-                        ],
-                        "pivot": [
-                            0.5,
-                            0.5
-                        ]
+                        "properties": {
+                            "anchorMax": [
+                                1.0,
+                                1.0
+                            ],
+                            "anchorMin": [
+                                0.0,
+                                0.0
+                            ],
+                            "offsetMax": [
+                                0.0,
+                                0.0
+                            ],
+                            "offsetMin": [
+                                0.0,
+                                0.0
+                            ],
+                            "pivot": [
+                                0.5,
+                                0.5
+                            ]
+                        }
                     },
                     "enabled": true,
-                    "type": "UIRectTransform"
+                    "type": "UIRectTransform",
+                    "version": 1
                 }
             ],
             "id": 8,
@@ -429,41 +494,47 @@
             "components": [
                 {
                     "data": {
-                        "alignItems": "flex-start",
-                        "className": "ui-layout-vertical",
-                        "elementId": "actor_tree_panel",
-                        "justifyContent": "flex-start",
-                        "padding": 18.0,
-                        "spacing": 2.0
+                        "properties": {
+                            "alignItems": "flex-start",
+                            "className": "ui-layout-vertical",
+                            "elementId": "actor_tree_panel",
+                            "justifyContent": "flex-start",
+                            "padding": 18.0,
+                            "spacing": 2.0
+                        }
                     },
                     "enabled": true,
-                    "type": "UIVerticalLayout"
+                    "type": "UIVerticalLayout",
+                    "version": 1
                 },
                 {
                     "data": {
-                        "anchorMax": [
-                            0.0,
-                            0.0
-                        ],
-                        "anchorMin": [
-                            0.0,
-                            0.0
-                        ],
-                        "offsetMax": [
-                            420.0,
-                            300.0
-                        ],
-                        "offsetMin": [
-                            32.0,
-                            96.0
-                        ],
-                        "pivot": [
-                            0.5,
-                            0.5
-                        ]
+                        "properties": {
+                            "anchorMax": [
+                                0.0,
+                                0.0
+                            ],
+                            "anchorMin": [
+                                0.0,
+                                0.0
+                            ],
+                            "offsetMax": [
+                                420.0,
+                                300.0
+                            ],
+                            "offsetMin": [
+                                32.0,
+                                96.0
+                            ],
+                            "pivot": [
+                                0.5,
+                                0.5
+                            ]
+                        }
                     },
                     "enabled": true,
-                    "type": "UIRectTransform"
+                    "type": "UIRectTransform",
+                    "version": 1
                 }
             ],
             "id": 9,
@@ -492,19 +563,22 @@
             "components": [
                 {
                     "data": {
-                        "className": "",
-                        "color": [
-                            1.0,
-                            1.0,
-                            1.0,
-                            1.0
-                        ],
-                        "elementId": "actor_tree_title",
-                        "fontSize": 26.0,
-                        "text": "ActorTree UI"
+                        "properties": {
+                            "className": "",
+                            "color": [
+                                1.0,
+                                1.0,
+                                1.0,
+                                1.0
+                            ],
+                            "elementId": "actor_tree_title",
+                            "fontSize": 26.0,
+                            "text": "ActorTree UI"
+                        }
                     },
                     "enabled": true,
-                    "type": "UIText"
+                    "type": "UIText",
+                    "version": 1
                 }
             ],
             "id": 10,
@@ -533,13 +607,16 @@
             "components": [
                 {
                     "data": {
-                        "className": "",
-                        "disabled": false,
-                        "elementId": "actor_tree_button",
-                        "text": "Built in Editor"
+                        "properties": {
+                            "className": "",
+                            "disabled": false,
+                            "elementId": "actor_tree_button",
+                            "text": "Built in Editor"
+                        }
                     },
                     "enabled": true,
-                    "type": "UIButton"
+                    "type": "UIButton",
+                    "version": 1
                 }
             ],
             "id": 11,
@@ -568,19 +645,22 @@
             "components": [
                 {
                     "data": {
-                        "className": "",
-                        "color": [
-                            1.0,
-                            1.0,
-                            1.0,
-                            1.0
-                        ],
-                        "elementId": "",
-                        "fontSize": 24.0,
-                        "text": "Text"
+                        "properties": {
+                            "className": "",
+                            "color": [
+                                1.0,
+                                1.0,
+                                1.0,
+                                1.0
+                            ],
+                            "elementId": "",
+                            "fontSize": 24.0,
+                            "text": "Text"
+                        }
                     },
                     "enabled": true,
-                    "type": "UIText"
+                    "type": "UIText",
+                    "version": 1
                 }
             ],
             "id": 12,
@@ -609,16 +689,19 @@
             "components": [
                 {
                     "data": {
-                        "className": "",
-                        "dataBinding": "",
-                        "elementId": "",
-                        "max": 1.0,
-                        "min": 0.0,
-                        "step": 0.009999999776482582,
-                        "value": 0.49000000953674316
+                        "properties": {
+                            "className": "",
+                            "dataBinding": "",
+                            "elementId": "",
+                            "max": 1.0,
+                            "min": 0.0,
+                            "step": 0.009999999776482582,
+                            "value": 0.49000000953674316
+                        }
                     },
                     "enabled": true,
-                    "type": "UISlider"
+                    "type": "UISlider",
+                    "version": 1
                 }
             ],
             "id": 13,
@@ -647,13 +730,16 @@
             "components": [
                 {
                     "data": {
-                        "className": "",
-                        "elementId": "",
-                        "max": 1.0,
-                        "value": 0.5199999809265137
+                        "properties": {
+                            "className": "",
+                            "elementId": "",
+                            "max": 1.0,
+                            "value": 0.5199999809265137
+                        }
                     },
                     "enabled": true,
-                    "type": "UIProgressBar"
+                    "type": "UIProgressBar",
+                    "version": 1
                 }
             ],
             "id": 14,
@@ -683,10 +769,14 @@
                 {
                     "data": {
                         "material": "Content/Materials/NewMaterial.mat",
+                        "materials": [
+                            "Content/Materials/NewMaterial.mat"
+                        ],
                         "mesh": "Content/Mesh/monkey.obj#mesh"
                     },
                     "enabled": true,
-                    "type": "MeshRenderer"
+                    "type": "MeshRenderer",
+                    "version": 1
                 }
             ],
             "id": 15,
@@ -695,8 +785,57 @@
             "transform": {
                 "position": [
                     -1.9829041957855225,
-                    -0.8556805849075317,
+                    -0.7460243701934814,
                     -0.38024741411209106
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    -0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            }
+        },
+        {
+            "active": true,
+            "components": [
+                {
+                    "data": {
+                        "properties": {
+                            "blendDistance": 1.0,
+                            "boxExtents": [
+                                100.0,
+                                100.0,
+                                100.0
+                            ],
+                            "captureOffset": [
+                                0.0,
+                                0.0,
+                                0.0
+                            ],
+                            "intensity": 1.0,
+                            "layerMask": 4294967295,
+                            "priority": 0,
+                            "probeId": "98f656c34cfe00e9b9ff04b52814e170"
+                        }
+                    },
+                    "enabled": true,
+                    "type": "ReflectionProbe",
+                    "version": 1
+                }
+            ],
+            "id": 16,
+            "name": "probe",
+            "parentID": 0,
+            "transform": {
+                "position": [
+                    -0.06183171272277832,
+                    6.85322380065918,
+                    0.024792123585939407
                 ],
                 "rotation": [
                     0.0,
@@ -711,6 +850,12 @@
             }
         }
     ],
+    "lightingProbeAsset": "Content/Lighting/Untitled.lightprobes",
+    "lightingProbeBakeSettings": {
+        "reflectionResolution": 256,
+        "rgbmMaximumRange": 64.0
+    },
     "name": "Untitled",
-    "nextID": 16
+    "nextID": 17,
+    "version": 1
 }

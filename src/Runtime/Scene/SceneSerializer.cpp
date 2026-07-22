@@ -79,7 +79,7 @@ static Json SceneToJson(const Scene& scene) {
         root["lightingProbeAsset"] = scene.GetLightingProbeAssetPath();
     const LightingProbeBakeSettings& probeSettings = scene.GetLightingProbeBakeSettings();
     root["lightingProbeBakeSettings"] = {{"reflectionResolution", probeSettings.reflectionResolution},
-                                          {"rgbmMaximumRange", probeSettings.rgbmMaximumRange}};
+                                         {"rgbmMaximumRange", probeSettings.rgbmMaximumRange}};
     if (!scene.GetPreloadAssets().empty())
         root["preloadAssets"] = scene.GetPreloadAssets();
 
@@ -168,8 +168,8 @@ static bool JsonToScene(const Json& root, Scene& scene) {
         scene.SetLightingProbeAssetPath(root.value("lightingProbeAsset", std::string{}));
         if (root.contains("lightingProbeBakeSettings") && root["lightingProbeBakeSettings"].is_object()) {
             const auto& settings = root["lightingProbeBakeSettings"];
-            scene.SetLightingProbeBakeSettings({settings.value("reflectionResolution", 128u),
-                                                 settings.value("rgbmMaximumRange", 64.0f)});
+            scene.SetLightingProbeBakeSettings(
+                {settings.value("reflectionResolution", 256u), settings.value("rgbmMaximumRange", 64.0f)});
         }
         scene.SetPreloadAssets(root.value("preloadAssets", std::vector<std::string>{}));
         if (!scene.GetNavMeshAssetPath().empty()) {
@@ -411,11 +411,10 @@ bool SceneSerializer::InstantiateLoadPlan(Scene& scene, const SceneLoadPlan& pla
             scene.SetAmbientIntensity(plan.root.value("ambientIntensity", 1.0f));
             scene.SetNavMeshAssetPath(plan.root.value("navMeshAsset", std::string{}));
             scene.SetLightingProbeAssetPath(plan.root.value("lightingProbeAsset", std::string{}));
-            if (plan.root.contains("lightingProbeBakeSettings") &&
-                plan.root["lightingProbeBakeSettings"].is_object()) {
+            if (plan.root.contains("lightingProbeBakeSettings") && plan.root["lightingProbeBakeSettings"].is_object()) {
                 const auto& settings = plan.root["lightingProbeBakeSettings"];
-                scene.SetLightingProbeBakeSettings({settings.value("reflectionResolution", 128u),
-                                                     settings.value("rgbmMaximumRange", 64.0f)});
+                scene.SetLightingProbeBakeSettings(
+                    {settings.value("reflectionResolution", 256u), settings.value("rgbmMaximumRange", 64.0f)});
             }
             scene.SetPreloadAssets(plan.root.value("preloadAssets", std::vector<std::string>{}));
             if (plan.root.contains("nextID"))

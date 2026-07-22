@@ -1588,12 +1588,13 @@ std::shared_ptr<GpuTextureView> D3D11Context::CreateTextureView(const std::share
     view->texture = texture;
     view->desc = desc;
     const RHITextureDesc& td = nativeTexture->desc;
+    const bool arrayTexture = td.array || td.arrayLayers > 1;
     if (HasUsage(desc.usage, RHIResourceUsage::ShaderResource)) {
         D3D11_SHADER_RESOURCE_VIEW_DESC d{};
         d.Format = td.format == RHIFormat::D24S8      ? DXGI_FORMAT_R24_UNORM_X8_TYPELESS
                    : td.format == RHIFormat::D32Float ? DXGI_FORMAT_R32_FLOAT
                                                       : ToDxgiFormat(td.format);
-        if (td.sampleCount > 1 && td.arrayLayers > 1) {
+        if (td.sampleCount > 1 && arrayTexture) {
             d.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DMSARRAY;
             d.Texture2DMSArray.FirstArraySlice = desc.firstLayer;
             d.Texture2DMSArray.ArraySize = desc.layerCount;
@@ -1603,7 +1604,7 @@ std::shared_ptr<GpuTextureView> D3D11Context::CreateTextureView(const std::share
             d.ViewDimension = D3D11_SRV_DIMENSION_TEXTURECUBE;
             d.TextureCube.MostDetailedMip = desc.firstMip;
             d.TextureCube.MipLevels = desc.mipCount;
-        } else if (td.arrayLayers > 1) {
+        } else if (arrayTexture) {
             d.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DARRAY;
             d.Texture2DArray.MostDetailedMip = desc.firstMip;
             d.Texture2DArray.MipLevels = desc.mipCount;
@@ -1620,13 +1621,13 @@ std::shared_ptr<GpuTextureView> D3D11Context::CreateTextureView(const std::share
     if (HasUsage(desc.usage, RHIResourceUsage::RenderTarget)) {
         D3D11_RENDER_TARGET_VIEW_DESC d{};
         d.Format = ToDxgiFormat(td.format);
-        if (td.sampleCount > 1 && td.arrayLayers > 1) {
+        if (td.sampleCount > 1 && arrayTexture) {
             d.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2DMSARRAY;
             d.Texture2DMSArray.FirstArraySlice = desc.firstLayer;
             d.Texture2DMSArray.ArraySize = desc.layerCount;
         } else if (td.sampleCount > 1) {
             d.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2DMS;
-        } else if (td.arrayLayers > 1) {
+        } else if (arrayTexture) {
             d.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2DARRAY;
             d.Texture2DArray.MipSlice = desc.firstMip;
             d.Texture2DArray.FirstArraySlice = desc.firstLayer;
@@ -1641,13 +1642,13 @@ std::shared_ptr<GpuTextureView> D3D11Context::CreateTextureView(const std::share
     if (HasUsage(desc.usage, RHIResourceUsage::DepthStencil)) {
         D3D11_DEPTH_STENCIL_VIEW_DESC d{};
         d.Format = ToDxgiFormat(td.format);
-        if (td.sampleCount > 1 && td.arrayLayers > 1) {
+        if (td.sampleCount > 1 && arrayTexture) {
             d.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2DMSARRAY;
             d.Texture2DMSArray.FirstArraySlice = desc.firstLayer;
             d.Texture2DMSArray.ArraySize = desc.layerCount;
         } else if (td.sampleCount > 1) {
             d.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2DMS;
-        } else if (td.arrayLayers > 1) {
+        } else if (arrayTexture) {
             d.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2DARRAY;
             d.Texture2DArray.MipSlice = desc.firstMip;
             d.Texture2DArray.FirstArraySlice = desc.firstLayer;
@@ -1664,8 +1665,15 @@ std::shared_ptr<GpuTextureView> D3D11Context::CreateTextureView(const std::share
             return nullptr;
         D3D11_UNORDERED_ACCESS_VIEW_DESC d{};
         d.Format = ToDxgiFormat(td.format);
-        d.ViewDimension = D3D11_UAV_DIMENSION_TEXTURE2D;
-        d.Texture2D.MipSlice = desc.firstMip;
+        if (arrayTexture) {
+            d.ViewDimension = D3D11_UAV_DIMENSION_TEXTURE2DARRAY;
+            d.Texture2DArray.MipSlice = desc.firstMip;
+            d.Texture2DArray.FirstArraySlice = desc.firstLayer;
+            d.Texture2DArray.ArraySize = desc.layerCount;
+        } else {
+            d.ViewDimension = D3D11_UAV_DIMENSION_TEXTURE2D;
+            d.Texture2D.MipSlice = desc.firstMip;
+        }
         if (FAILED(m_Device->CreateUnorderedAccessView(nativeTexture->texture.Get(), &d, &view->uav)))
             return nullptr;
     }

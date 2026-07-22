@@ -60,8 +60,8 @@ public:
 private:
     std::string m_SceneGuid;
     uint64_t m_DependencyHash = 0;
-    uint32_t m_ReflectionResolution = 128;
-    uint32_t m_ReflectionMipCount = 8;
+    uint32_t m_ReflectionResolution = 256;
+    uint32_t m_ReflectionMipCount = 9;
     std::vector<BakedReflectionProbe> m_ReflectionProbes;
     std::vector<BakedSHProbeVolume> m_SHVolumes;
     std::vector<uint8_t> m_ReflectionPixels;
@@ -74,7 +74,7 @@ using LightingProbeHandle = AssetHandle<LightingProbeAsset>;
 
 std::shared_ptr<LightingProbeAsset> LoadLightingProbeAssetFromFile(const std::string& path);
 bool SaveLightingProbeAssetToFile(const LightingProbeAsset& asset, const std::string& path,
-                                 std::string* error = nullptr);
+                                  std::string* error = nullptr);
 
 uint16_t LightingProbeFloatToHalf(float value);
 float LightingProbeHalfToFloat(uint16_t value);

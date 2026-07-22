@@ -190,6 +190,14 @@ void ShadowPass::Resize(uint32_t width, uint32_t height) {
     ReleaseGraphResources();
 }
 
+void ShadowPass::SetShadowMapSize(uint32_t size) {
+    const uint32_t target = std::clamp(size, 128u, 4096u);
+    if (target == m_ShadowMapSize)
+        return;
+    m_ShadowMapSize = target;
+    ReleaseGraphResources();
+}
+
 void ShadowPass::ReleaseGraphResources() {
     m_ShadowMapTexture.reset();
     m_SpotShadowMapTexture.reset();
@@ -606,7 +614,7 @@ void ShadowPass::DrawShadowScene(GpuCommandList& commands, const Scene& scene, c
     m_ResourceCache.SetDevice(Device());
     m_ResourceCache.EnsureNamedBindingDefaults();
     scene.ForEach([&](Actor& actor) {
-        if (!actor.IsActive())
+        if (!actor.IsActive() || (m_StaticGeometryOnly && !actor.IsStatic()))
             return;
         SkinnedMeshRendererComponent* skin = nullptr;
         MeshAsset* mesh = nullptr;

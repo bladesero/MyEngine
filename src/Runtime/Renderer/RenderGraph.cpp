@@ -69,7 +69,7 @@ std::string TexturePoolKey(const RHITextureDesc& desc) {
     std::ostringstream out;
     out << desc.width << 'x' << desc.height << ":m" << desc.mipLevels << ":l" << desc.arrayLayers << ":s"
         << desc.sampleCount << ":q" << desc.sampleQuality << ":f" << static_cast<int>(desc.format) << ":u"
-        << static_cast<uint32_t>(desc.usage) << ":c" << desc.cube;
+        << static_cast<uint32_t>(desc.usage) << ":a" << desc.array << ":c" << desc.cube;
     return out.str();
 }
 

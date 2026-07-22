@@ -13,6 +13,7 @@
 #include "Scene/Scene.h"
 #include "Scene/SceneSerializer.h"
 #include "Scene/PrefabSystem.h"
+#include "Scene/TypeRegistry.h"
 
 #if defined(MYENGINE_ENABLE_IMGUI)
 #include <imgui.h>
@@ -68,22 +69,27 @@ std::string ComponentDisplayName(std::string type) {
     return result.empty() ? type : result;
 }
 
-const char* ComponentCategory(const std::string& type) {
-    if (type == "MeshRenderer" || type == "SkinnedMeshRenderer" || type == "Camera" || type == "Light" ||
-        type == "Skylight" || type == "PostProcess") {
-        return "Rendering";
+std::string ComponentCategory(const std::string& type) {
+    const TypeDescriptor* descriptor = TypeRegistry::Get().Find(type);
+    return descriptor && !descriptor->category.empty() ? descriptor->category : "Gameplay";
+}
+
+std::vector<std::string> OrderedComponentCategories(const std::vector<std::string>& types) {
+    constexpr std::array<const char*, 9> kPreferredOrder = {
+        "Rendering", "Camera", "Animation", "Physics", "Audio", "Navigation", "Scripting", "UI", "Gameplay",
+    };
+    std::set<std::string> remaining;
+    for (const std::string& type : types)
+        remaining.insert(ComponentCategory(type));
+
+    std::vector<std::string> categories;
+    categories.reserve(remaining.size());
+    for (const char* category : kPreferredOrder) {
+        if (remaining.erase(category) > 0)
+            categories.emplace_back(category);
     }
-    if (type == "AudioSource")
-        return "Audio";
-    if (type == "RigidBody" || type == "BoxCollider" || type == "SphereCollider" || type == "CapsuleCollider" ||
-        type == "CharacterController") {
-        return "Physics";
-    }
-    if (type == "Script")
-        return "Scripting";
-    if (type.rfind("UI", 0) == 0)
-        return "UI";
-    return "Gameplay";
+    categories.insert(categories.end(), remaining.begin(), remaining.end());
+    return categories;
 }
 
 bool SceneHasComponentType(const Scene& scene, const std::string& typeName) {
@@ -651,21 +657,20 @@ void InspectorPanel::DrawContent() {
                 return ComponentDisplayName(left) < ComponentDisplayName(right);
             });
 
-            constexpr std::array<const char*, 6> kCategories = {"Rendering", "Physics", "Audio",
-                                                                "Scripting", "UI",      "Gameplay"};
-            for (const char* category : kCategories) {
+            const std::vector<std::string> categories = OrderedComponentCategories(types);
+            for (const std::string& category : categories) {
                 bool hasVisible = false;
                 for (const std::string& type : types) {
-                    if (std::strcmp(ComponentCategory(type), category) == 0 &&
+                    if (ComponentCategory(type) == category &&
                         ComponentMatchesFilter(type, m_MultiAddComponentSearch)) {
                         hasVisible = true;
                         break;
                     }
                 }
-                if (!hasVisible || !ImGui::BeginMenu(category))
+                if (!hasVisible || !ImGui::BeginMenu(category.c_str()))
                     continue;
                 for (const std::string& type : types) {
-                    if (std::strcmp(ComponentCategory(type), category) != 0 ||
+                    if (ComponentCategory(type) != category ||
                         !ComponentMatchesFilter(type, m_MultiAddComponentSearch)) {
                         continue;
                     }

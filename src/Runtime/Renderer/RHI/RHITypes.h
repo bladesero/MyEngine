@@ -152,6 +152,7 @@ struct RHITextureDesc {
     uint32_t sampleQuality = 0;
     RHIFormat format = RHIFormat::RGBA8UNorm;
     RHIResourceUsage usage = RHIResourceUsage::ShaderResource;
+    bool array = false;
     bool cube = false;
     std::string debugName;
 };

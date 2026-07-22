@@ -333,6 +333,7 @@ void EditorLayer::RegisterServices() {
     if (m_ServicesRegistered)
         return;
     m_ServiceCollection.Add(m_LogService);
+    m_ServiceCollection.Add(m_LightingBakeService);
     m_ServiceCollection.Add(m_DialogService);
     m_ServiceCollection.Add(m_ImportService);
     m_ServiceCollection.Add(m_LuaScriptService);

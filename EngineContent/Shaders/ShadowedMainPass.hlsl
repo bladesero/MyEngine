@@ -72,7 +72,7 @@ StructuredBuffer<float4> g_LocalSHCoefficients : register(t13);
 #include "PBR_BRDF.hlsli"
 #include "EnvironmentRadiance.hlsli"
 
-static const float DIRECT_SHADOW_MIN_VISIBILITY = 0.03f;
+static const float DIRECT_SHADOW_MIN_VISIBILITY = 0.0f;
 
 struct VSIn
 {
@@ -195,7 +195,9 @@ float SampleDirectionalCascade(float3 worldPos, float nDotL, uint cascade)
                 g_ShadowSampler, float3(offsetUv, (float)cascade), compareDepth);
         }
     }
-    return lerp(DIRECT_SHADOW_MIN_VISIBILITY, 1.0f, shadow / 9.0f);
+    // CSM visibility scales the complete direct-light BRDF, including specular. A non-zero floor leaks bright
+    // LightComponent highlights through fully occluded pixels; ambient/environment lighting is added separately.
+    return shadow / 9.0f;
 }
 
 float SampleDirectionalShadow(float3 worldPos, float nDotL)

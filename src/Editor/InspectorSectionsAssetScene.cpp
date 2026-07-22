@@ -103,14 +103,19 @@ public:
         if (lightingSettingsChanged) {
             CommitLightingProbeBakeSettingsEdit(context, *scene, lightingSettings);
         }
-        const bool bakeCurrent = EditorLightingBakeService{}.IsBakeCurrent(*scene);
-        ImGui::Text("Status: %s", scene->GetLightingProbeAssetPath().empty() ? "Not baked"
-                                  : bakeCurrent                              ? "Baked"
-                                                                             : "Stale");
+        EditorLightingBakeService* bakeService = context.GetService<EditorLightingBakeService>();
+        const bool bakePending = bakeService && bakeService->IsBakePending(*scene);
+        const bool bakeCurrent = bakeService && bakeService->IsBakeCurrent(*scene);
+        ImGui::Text("Status: %s", bakePending                                  ? "GPU bake queued"
+                                  : scene->GetLightingProbeAssetPath().empty() ? "Not baked"
+                                  : bakeCurrent                                ? "Baked"
+                                                                               : "Stale");
         if (!scene->GetLightingProbeAssetPath().empty())
             ImGui::TextWrapped("Asset: %s", scene->GetLightingProbeAssetPath().c_str());
+        ImGui::BeginDisabled(!bakeService || bakePending);
         if (ImGui::Button("Bake All Lighting Probes"))
-            EditorLightingBakeService{}.Bake(context, *scene);
+            bakeService->RequestBake(*scene);
+        ImGui::EndDisabled();
     }
 };
 
