@@ -72,6 +72,8 @@ PostProcessRuntimeOptions CollectPostProcessOptions(const Scene& scene) {
         options.modern.ssrHistoryWeight = post->GetSSRHistoryWeight();
         options.modern.ssrStepCount = post->GetSSRStepCount();
         options.modern.ssrFilterRounds = post->GetSSRFilterRounds();
+        options.modern.rtReflectionIntensityClamp = post->GetRTReflectionIntensityClamp();
+        options.modern.rtReflectionAtrousRadiusScale = post->GetRTReflectionAtrousRadiusScale();
         options.modern.taaHistoryWeight = post->GetTAAHistoryWeight();
         options.modern.taaJitterSpread = post->GetTAAJitterSpread();
         options.modern.taaHistoryClipExpansion = post->GetTAAHistoryClipExpansion();

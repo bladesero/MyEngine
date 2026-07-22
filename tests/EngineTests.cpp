@@ -334,6 +334,8 @@ bool TestSceneSerializationRegression() {
     post->SetSSRHistoryWeight(0.73f);
     post->SetSSRStepCount(56);
     post->SetSSRFilterRounds(1);
+    post->SetRTReflectionIntensityClamp(12.5f);
+    post->SetRTReflectionAtrousRadiusScale(2.75f);
     post->SetTAAEnabled(false);
     post->SetTAAHistoryWeight(0.84f);
     post->SetTAAJitterSpread(0.65f);
@@ -366,9 +368,11 @@ bool TestSceneSerializationRegression() {
     if (!Check(savedPostProperties.value("ssaoSampleCount", 0u) == 24u &&
                    !savedPostProperties.contains("rtaoHalfResolution") &&
                    savedPostProperties.value("rayTracedShadowReplacement", false) &&
-                   savedPostProperties.value("rayTracedAOReplacement", false) &&
-                   savedPostProperties.value("rayTracedDiffuseReplacement", false) &&
-                   savedPostProperties.value("rayTracedReflectionReplacement", false),
+                    savedPostProperties.value("rayTracedAOReplacement", false) &&
+                    savedPostProperties.value("rayTracedDiffuseReplacement", false) &&
+                    savedPostProperties.value("rayTracedReflectionReplacement", false) &&
+                    NearlyEqual(savedPostProperties.value("rtReflectionIntensityClamp", 0.0f), 12.5f) &&
+                    NearlyEqual(savedPostProperties.value("rtReflectionAtrousRadiusScale", 0.0f), 2.75f),
                "PostProcess ray tracing replacement fields were not serialized as true"))
         return false;
 
@@ -436,9 +440,12 @@ bool TestSceneSerializationRegression() {
                    NearlyEqual(loadedPost->GetSSGIHistoryWeight(), 0.77f) && loadedPost->GetSSGIStepCount() == 40 &&
                    loadedPost->GetSSGIFilterRounds() == 4 && !loadedPost->IsSSREnabled() &&
                    !loadedPost->IsSSRHalfResolution() && NearlyEqual(loadedPost->GetSSRMaxDistance(), 37.0f) &&
-                   NearlyEqual(loadedPost->GetSSRMaxRoughness(), 0.62f) &&
-                   NearlyEqual(loadedPost->GetSSRHistoryWeight(), 0.73f) && loadedPost->GetSSRStepCount() == 56 &&
-                   loadedPost->GetSSRFilterRounds() == 1 && !loadedPost->IsTAAEnabled() &&
+                    NearlyEqual(loadedPost->GetSSRMaxRoughness(), 0.62f) &&
+                    NearlyEqual(loadedPost->GetSSRHistoryWeight(), 0.73f) && loadedPost->GetSSRStepCount() == 56 &&
+                    loadedPost->GetSSRFilterRounds() == 1 &&
+                    NearlyEqual(loadedPost->GetRTReflectionIntensityClamp(), 12.5f) &&
+                    NearlyEqual(loadedPost->GetRTReflectionAtrousRadiusScale(), 2.75f) &&
+                    !loadedPost->IsTAAEnabled() &&
                    NearlyEqual(loadedPost->GetTAAHistoryWeight(), 0.84f) &&
                    NearlyEqual(loadedPost->GetTAAJitterSpread(), 0.65f) &&
                    NearlyEqual(loadedPost->GetTAAHistoryClipExpansion(), 1.25f),
@@ -2343,13 +2350,21 @@ bool TestTypeRegistryMetadataAndWorldScheduler() {
     const PropertyDescriptor* rayTracedReflection =
         postProcessType ? TypeRegistry::Get().FindProperty(*postProcessType, "rayTracedReflectionReplacement")
                         : nullptr;
+    const PropertyDescriptor* rtReflectionIntensityClamp =
+        postProcessType ? TypeRegistry::Get().FindProperty(*postProcessType, "rtReflectionIntensityClamp") : nullptr;
+    const PropertyDescriptor* rtReflectionAtrousRadiusScale =
+        postProcessType ? TypeRegistry::Get().FindProperty(*postProcessType, "rtReflectionAtrousRadiusScale")
+                        : nullptr;
     const PropertyDescriptor* rayTracedShadow =
         postProcessType ? TypeRegistry::Get().FindProperty(*postProcessType, "rayTracedShadowReplacement") : nullptr;
     if (!Check(ssgiStepCount && ssgiStepCount->kind == PropertyKind::UInt32 && ssrMaxDistance &&
                    ssrMaxDistance->kind == PropertyKind::Float && rayTracedAO && rayTracedDiffuse &&
-                   rayTracedReflection && rayTracedShadow && rayTracedAO->kind == PropertyKind::Bool &&
-                   rayTracedDiffuse->kind == PropertyKind::Bool && rayTracedReflection->kind == PropertyKind::Bool &&
-                   rayTracedShadow->kind == PropertyKind::Bool && ssgiHalfResolution && ssrHalfResolution &&
+                    rayTracedReflection && rayTracedShadow && rayTracedAO->kind == PropertyKind::Bool &&
+                    rayTracedDiffuse->kind == PropertyKind::Bool && rayTracedReflection->kind == PropertyKind::Bool &&
+                    rayTracedShadow->kind == PropertyKind::Bool && rtReflectionIntensityClamp &&
+                    rtReflectionAtrousRadiusScale && rtReflectionIntensityClamp->kind == PropertyKind::Float &&
+                    rtReflectionAtrousRadiusScale->kind == PropertyKind::Float && ssgiHalfResolution &&
+                    ssrHalfResolution &&
                    ssaoHalfResolution && ssaoSampleCount && ssgiEnabled && ssrEnabled &&
                    ssgiHalfResolution->kind == PropertyKind::Bool && ssrHalfResolution->kind == PropertyKind::Bool &&
                    ssaoHalfResolution->kind == PropertyKind::Bool && ssaoSampleCount->kind == PropertyKind::UInt32 &&

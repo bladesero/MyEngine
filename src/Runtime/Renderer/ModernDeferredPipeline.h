@@ -76,6 +76,8 @@ struct ModernPostProcessSettings {
     float ssrHistoryWeight = 0.9f;
     uint32_t ssrStepCount = 48;
     uint32_t ssrFilterRounds = 2;
+    float rtReflectionIntensityClamp = 10.0f;
+    float rtReflectionAtrousRadiusScale = 2.0f;
     float taaHistoryWeight = 0.8f;
     float taaJitterSpread = 1.0f;
     float taaHistoryClipExpansion = 0.0f;
@@ -318,7 +320,8 @@ private:
         uint32_t ssrStepCount = 48;
         uint32_t localReflectionProbeCount = 0;
         float localReflectionMipCount = 1.0f;
-        uint32_t padding[2]{};
+        float rtReflectionAtrousRadiusScale = 2.0f;
+        uint32_t padding = 0;
     };
     static_assert(sizeof(ScreenSpaceConstants) == 560, "ScreenSpaceConstants size must match ModernScreenSpace.hlsl");
     static_assert(offsetof(ScreenSpaceConstants, currentJitterUv) == 464,
@@ -337,6 +340,8 @@ private:
                   "ScreenSpaceConstants reflection-probe count offset changed");
     static_assert(offsetof(ScreenSpaceConstants, localReflectionMipCount) == 548,
                   "ScreenSpaceConstants reflection-probe mip-count offset changed");
+    static_assert(offsetof(ScreenSpaceConstants, rtReflectionAtrousRadiusScale) == 552,
+                  "ScreenSpaceConstants RT reflection radius offset changed");
 
     struct TemporalAAConstants {
         Mat4 inverseJitteredViewProjection = Mat4::Identity();

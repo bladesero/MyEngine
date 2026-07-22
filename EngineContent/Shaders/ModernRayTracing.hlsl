@@ -93,6 +93,14 @@ void CSRTDiffuse(uint3 dispatchThreadId : SV_DispatchThreadID)
 }
 
 #elif defined(MYENGINE_RT_REFLECTION)
+float3 ModernRTClampReflectionRadiance(float3 radiance, float intensityClamp)
+{
+    const float3 nonNegativeRadiance = max(radiance, 0.0f);
+    const float luminance = dot(nonNegativeRadiance, float3(0.2126f, 0.7152f, 0.0722f));
+    const float scale = min(1.0f, max(intensityClamp, 0.1f) / max(luminance, 1e-6f));
+    return nonNegativeRadiance * scale;
+}
+
 [numthreads(8, 8, 1)]
 void CSRTReflection(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
@@ -125,6 +133,8 @@ void CSRTReflection(uint3 dispatchThreadId : SV_DispatchThreadID)
                                     max(g_RTParams1.x, 0.1f), instanceId, primitiveIndex, barycentrics, hitDistance)
                           ? ModernRTSurfaceRadiance(instanceId, primitiveIndex, barycentrics)
                           : g_RTEnvironment.SampleLevel(g_RTLinearSampler, direction, roughness * 6.0f).rgb;
-    g_RTOutput[pixel] = float4(max(radiance, 0.0f), 1.0f - roughness);
+    const float3 clampedRadiance = ModernRTClampReflectionRadiance(radiance, g_RTParams0.x);
+    const float luminance = dot(clampedRadiance, float3(0.2126f, 0.7152f, 0.0722f));
+    g_RTOutput[pixel] = float4(clampedRadiance, luminance * luminance);
 }
 #endif

@@ -98,6 +98,14 @@ void PostProcessComponent::SetSSRFilterRounds(uint32_t rounds) {
     m_SSRFilterRounds = std::clamp(rounds, 0u, 4u);
 }
 
+void PostProcessComponent::SetRTReflectionIntensityClamp(float intensity) {
+    m_RTReflectionIntensityClamp = std::clamp(intensity, 0.1f, 64.0f);
+}
+
+void PostProcessComponent::SetRTReflectionAtrousRadiusScale(float scale) {
+    m_RTReflectionAtrousRadiusScale = std::clamp(scale, 1.0f, 4.0f);
+}
+
 void PostProcessComponent::SetTAAHistoryWeight(float weight) {
     m_TAAHistoryWeight = std::clamp(weight, 0.0f, 0.99f);
 }
@@ -145,6 +153,8 @@ void PostProcessComponent::Serialize(nlohmann::json& data) const {
     data["ssrStepCount"] = m_SSRStepCount;
     data["ssrFilterRounds"] = m_SSRFilterRounds;
     data["rayTracedReflectionReplacement"] = m_RayTracedReflectionReplacement;
+    data["rtReflectionIntensityClamp"] = m_RTReflectionIntensityClamp;
+    data["rtReflectionAtrousRadiusScale"] = m_RTReflectionAtrousRadiusScale;
     data["rayTracedShadowReplacement"] = m_RayTracedShadowReplacement;
     data["taaEnabled"] = m_TAAEnabled;
     data["taaHistoryWeight"] = m_TAAHistoryWeight;
@@ -187,6 +197,8 @@ void PostProcessComponent::Deserialize(const nlohmann::json& data) {
     SetSSRStepCount(data.value("ssrStepCount", 48u));
     SetSSRFilterRounds(data.value("ssrFilterRounds", 2u));
     SetRayTracedReflectionReplacement(data.value("rayTracedReflectionReplacement", false));
+    SetRTReflectionIntensityClamp(data.value("rtReflectionIntensityClamp", 10.0f));
+    SetRTReflectionAtrousRadiusScale(data.value("rtReflectionAtrousRadiusScale", 2.0f));
     SetRayTracedShadowReplacement(data.value("rayTracedShadowReplacement", false));
     SetTAAEnabled(data.value("taaEnabled", true));
     SetTAAHistoryWeight(data.value("taaHistoryWeight", 0.8f));

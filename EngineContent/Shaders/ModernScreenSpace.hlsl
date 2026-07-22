@@ -33,13 +33,18 @@ cbuffer ScreenSpaceConstants : register(b0)
     uint g_SSRStepCount;
     uint g_LocalReflectionProbeCount;
     float g_LocalReflectionMipCount;
-    uint2 g_ScreenSpacePadding;
+    float g_RTReflectionAtrousRadiusScale;
+    uint g_ScreenSpacePadding;
 };
 
 #include "ModernReflection.hlsli"
 #include "ProbeLighting.hlsli"
 
 static const float GI_REFERENCE_SCALE = 2.0f;
+static const uint SCREEN_EFFECT_SSGI = 1u;
+static const uint SCREEN_EFFECT_REFLECTION = 2u;
+static const uint SCREEN_EFFECT_AO = 4u;
+static const uint SCREEN_EFFECT_RT_REFLECTION = 32u;
 
 Texture2D<float> g_Depth : register(t0);
 Texture2D<float4> g_Normal : register(t1);
@@ -295,8 +300,8 @@ float NeighborhoodMaxAlpha(Texture2D<float4> source, int2 pixel, uint2 size)
     return maximum;
 }
 
-void SSGINeighborhoodStatistics(Texture2D<float4> source, int2 pixel, uint2 size, out float3 minimum,
-                                out float3 maximum, out float meanLuminance, out float secondMoment)
+void RadianceNeighborhoodStatistics(Texture2D<float4> source, int2 pixel, uint2 size, out float3 minimum,
+                                    out float3 maximum, out float meanLuminance, out float secondMoment)
 {
     minimum = 1e30f.xxx;
     maximum = -1e30f.xxx;
@@ -324,8 +329,8 @@ float4 AccumulateSSGIHistory(float4 current, float4 history, int2 pixel, bool va
 {
     float3 minimum, maximum;
     float currentMeanLuminance, currentSecondMomentMean;
-    SSGINeighborhoodStatistics(g_Current, pixel, g_EffectSize, minimum, maximum, currentMeanLuminance,
-                               currentSecondMomentMean);
+    RadianceNeighborhoodStatistics(g_Current, pixel, g_EffectSize, minimum, maximum, currentMeanLuminance,
+                                   currentSecondMomentMean);
 
     float historyLuminance = Luminance(history.rgb);
     float historyVariance = max(history.a - historyLuminance * historyLuminance, 0.0f);
@@ -360,6 +365,33 @@ float4 AccumulateSSRHistory(float4 current, float4 history, int2 pixel, bool val
     float weight = valid ? saturate(g_SSRHistoryWeight) * saturate(1.0f - luminanceDelta) : 0.0f;
     float4 accumulated = lerp(current, history, weight);
     accumulated.a = saturate(accumulated.a);
+    return accumulated;
+}
+
+float4 AccumulateRTReflectionHistory(float4 current, float4 history, int2 pixel, bool valid)
+{
+    float3 minimum, maximum;
+    float currentMeanLuminance, currentSecondMomentMean;
+    RadianceNeighborhoodStatistics(g_Current, pixel, g_EffectSize, minimum, maximum, currentMeanLuminance,
+                                   currentSecondMomentMean);
+
+    const float historyLuminance = Luminance(history.rgb);
+    const float historyVariance = max(history.a - historyLuminance * historyLuminance, 0.0f);
+    const float currentVariance = max(currentSecondMomentMean - currentMeanLuminance * currentMeanLuminance, 0.0f);
+    const float weight = valid ? saturate(g_SSRHistoryWeight) : 0.0f;
+    const float meanDifference = historyLuminance - currentMeanLuminance;
+    const float temporalVariance = lerp(currentVariance, historyVariance, weight) +
+                                   weight * (1.0f - weight) * meanDifference * meanDifference;
+    const float luminanceRadius = 3.0f * sqrt(max(temporalVariance, 0.0f)) + 0.02f;
+    const float3 clippingRadius = float3(luminanceRadius, luminanceRadius * 0.5f, luminanceRadius * 0.5f);
+    history.rgb = YCoCgToRGB(clamp(RGBToYCoCg(history.rgb), minimum - clippingRadius, maximum + clippingRadius));
+
+    const float clampedHistoryLuminance = Luminance(history.rgb);
+    history.a = clampedHistoryLuminance * clampedHistoryLuminance + historyVariance;
+    float4 accumulated = lerp(current, history, weight);
+    const float currentLuminance = Luminance(current.rgb);
+    const float currentSecondMoment = max(current.a, currentLuminance * currentLuminance);
+    accumulated.a = lerp(currentSecondMoment, history.a, weight);
     return accumulated;
 }
 
@@ -556,9 +588,13 @@ void CSTemporal(uint3 dispatchThreadId : SV_DispatchThreadID)
     float3 historyNormal =
         DecodeWorldNormal(g_PreviousNormal.SampleLevel(g_PointSampler, previousGeometryUv, 0.0f).xyz);
     valid = valid && dot(currentNormal, historyNormal) > 0.9f;
-    g_Output[pixel] = g_EffectMode == 1u   ? AccumulateSSGIHistory(current, history, int2(pixel), valid)
-                         : g_EffectMode == 4u ? AccumulateAOHistory(current, history, int2(pixel), valid)
-                                              : AccumulateSSRHistory(current, history, int2(pixel), valid);
+    g_Output[pixel] = (g_EffectMode & SCREEN_EFFECT_RT_REFLECTION) != 0u
+                          ? AccumulateRTReflectionHistory(current, history, int2(pixel), valid)
+                      : g_EffectMode == SCREEN_EFFECT_SSGI
+                          ? AccumulateSSGIHistory(current, history, int2(pixel), valid)
+                      : g_EffectMode == SCREEN_EFFECT_AO
+                          ? AccumulateAOHistory(current, history, int2(pixel), valid)
+                          : AccumulateSSRHistory(current, history, int2(pixel), valid);
 }
 
 [numthreads(8, 8, 1)]
@@ -578,8 +614,19 @@ void CSAtrous(uint3 dispatchThreadId : SV_DispatchThreadID)
     float3 confidenceWeightedColor = 0.0f;
     float confidenceSum = 0.0f;
     float weightSum = 0.0f;
-    int stepWidth = 1 << g_FilterStep;
-    bool ssrFilter = (g_EffectMode & 2u) != 0;
+    const int baseStepWidth = 1 << g_FilterStep;
+    const bool rtReflectionFilter = (g_EffectMode & SCREEN_EFFECT_RT_REFLECTION) != 0u;
+    const bool ssrFilter = (g_EffectMode & SCREEN_EFFECT_REFLECTION) != 0u && !rtReflectionFilter;
+    int stepWidth = baseStepWidth;
+    if (rtReflectionFilter)
+    {
+        const float relativeSigma = sqrt(centerVariance) / max(centerLuminance, 0.1f);
+        const float varianceFactor = saturate(relativeSigma / 0.5f);
+        const float roughnessFactor = saturate(centerRoughness / max(g_SSRMaxRoughness, 0.04f));
+        const float radiusScale = lerp(1.0f, max(g_RTReflectionAtrousRadiusScale, 1.0f),
+                                       varianceFactor * roughnessFactor);
+        stepWidth = max(1, (int)round((float)baseStepWidth * radiusScale));
+    }
     [unroll]
     for (int tap = -2; tap <= 2; ++tap)
     {
@@ -593,10 +640,17 @@ void CSAtrous(uint3 dispatchThreadId : SV_DispatchThreadID)
         float bilateral = exp(-abs(qViewDepth - centerViewDepth) / max(abs(centerViewDepth) * 0.02f, 0.05f)) *
                           pow(saturate(dot(centerNormal, qNormal)), 16.0f);
         float4 sampleValue = g_Current.Load(int3(q, 0));
-        if (ssrFilter)
+        if (ssrFilter || rtReflectionFilter)
         {
             float qRoughness = g_Material.Load(int3(qFull, 0)).y;
             bilateral *= exp(-abs(qRoughness - centerRoughness) * 12.0f);
+            if (rtReflectionFilter)
+            {
+                const float qLuminance = Luminance(sampleValue.rgb);
+                const float qVariance = max(sampleValue.a - qLuminance * qLuminance, 0.0f);
+                const float luminanceSigma = max(sqrt(max(centerVariance, qVariance)) * 4.0f, 0.04f);
+                bilateral *= exp(-abs(qLuminance - centerLuminance) / luminanceSigma);
+            }
         }
         else
         {
@@ -703,7 +757,14 @@ void CSEffectsComposite(uint3 dispatchThreadId : SV_DispatchThreadID)
     }
     if ((g_EffectMode & 8u) != 0)
     {
-        float confidence = saturate(BilateralUpsample(g_SSR, pixel).a);
+        const float depth = g_Depth.Load(int3(pixel, 0));
+        const float roughness = saturate(g_Material.Load(int3(pixel, 0)).y);
+        const float storedConfidence = saturate(BilateralUpsample(g_SSR, pixel).a);
+        const float confidence = (g_EffectMode & SCREEN_EFFECT_RT_REFLECTION) != 0u
+                                     ? (depth < 0.999999f && roughness <= g_SSRMaxRoughness
+                                            ? saturate(1.0f - roughness)
+                                            : 0.0f)
+                                     : storedConfidence;
         g_Output[pixel] = float4(confidence.xxx, 1.0f);
         return;
     }
@@ -712,12 +773,18 @@ void CSEffectsComposite(uint3 dispatchThreadId : SV_DispatchThreadID)
     float3 normal = DecodeWorldNormal(g_Normal.Load(int3(pixel, 0)).xyz);
     float4 reflection = (g_EffectMode & 2u) != 0 ? BilateralUpsample(g_SSR, pixel) : 0.0f;
     float4 material = g_Material.Load(int3(pixel, 0));
-    float roughness = clamp(material.y, 0.04f, 1.0f);
+    const float reflectionRoughness = saturate(material.y);
+    float roughness = clamp(reflectionRoughness, 0.04f, 1.0f);
     float metallic = saturate(material.x);
     float ao = max(material.z, 0.0f);
     float3 gi = 0.0f;
     float3 specularCorrection = 0.0f;
     float depth = g_Depth.Load(int3(pixel, 0));
+    const float reflectionConfidence = (g_EffectMode & SCREEN_EFFECT_RT_REFLECTION) != 0u
+                                           ? (depth < 0.999999f && reflectionRoughness <= g_SSRMaxRoughness
+                                                  ? saturate(1.0f - reflectionRoughness)
+                                                  : 0.0f)
+                                           : saturate(reflection.a);
     if (depth < 0.999999f)
     {
         float3 worldPosition =
@@ -736,7 +803,7 @@ void CSEffectsComposite(uint3 dispatchThreadId : SV_DispatchThreadID)
             gi = BilateralUpsample(g_SSGI, pixel).rgb * diffuseResponse * GI_REFERENCE_SCALE *
                  max(g_SSGIIntensity, 0.0f);
         }
-        if ((g_EffectMode & 2u) != 0 && reflection.a > 0.0f)
+        if ((g_EffectMode & SCREEN_EFFECT_REFLECTION) != 0u && reflectionConfidence > 0.0f)
         {
             float2 brdf = EnvBrdfApproxScreen(roughness, nDotV);
             float3 brdfFactor =
@@ -753,7 +820,7 @@ void CSEffectsComposite(uint3 dispatchThreadId : SV_DispatchThreadID)
             // Clustered lighting already contains this exact local-probe-or-global fallback. Replace it with the
             // confident screen hit instead of subtracting a global cubemap term that may not be present in the HDR.
             specularCorrection =
-                (reflection.rgb - environmentRadiance) * brdfFactor * saturate(reflection.a);
+                (reflection.rgb - environmentRadiance) * brdfFactor * reflectionConfidence;
         }
     }
     const float screenSpaceAO =

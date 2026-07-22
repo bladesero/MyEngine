@@ -29,6 +29,13 @@ constexpr std::array<const char*, kGpuSceneMaterialSamplerCount> kMaterialSample
     "g_PointClampURepeatVSampler", "g_LinearRepeatUClampVSampler", "g_PointRepeatUClampVSampler",
     "g_LinearClampSampler",        "g_PointClampSampler",
 };
+constexpr uint32_t kScreenEffectSSGI = 1u;
+constexpr uint32_t kScreenEffectReflection = 2u;
+constexpr uint32_t kScreenEffectAO = 4u;
+constexpr uint32_t kScreenEffectDebugSSGI = 4u;
+constexpr uint32_t kScreenEffectDebugReflectionConfidence = 8u;
+constexpr uint32_t kScreenEffectAOComposite = 16u;
+constexpr uint32_t kScreenEffectRTReflection = 32u;
 
 std::shared_ptr<GpuSceneDatabase> AcquireGpuScene(IRHIDevice* device) {
     std::lock_guard<std::mutex> lock(g_GpuSceneRegistryMutex);
@@ -1136,6 +1143,9 @@ void ModernDeferredPipeline::UpdateHistoryValidity(const Camera& camera, const M
     else if (settings.taaEnabled &&
              !FloatsNearlyEqual(settings.taaJitterSpread, m_PreviousPostSettings.taaJitterSpread))
         reason = "TAA jitter spread changed";
+    else if ((m_CommittedRayTracingEffectiveMask & ModernRayTracingReflection) != 0u &&
+             !FloatsNearlyEqual(settings.rtReflectionIntensityClamp, m_PreviousPostSettings.rtReflectionIntensityClamp))
+        reason = "RT reflection intensity clamp changed";
     else if (!FloatsNearlyEqual(settings.ssgiMaxDistance, m_PreviousPostSettings.ssgiMaxDistance) ||
              settings.ssgiStepCount != m_PreviousPostSettings.ssgiStepCount ||
              !FloatsNearlyEqual(settings.ssrMaxDistance, m_PreviousPostSettings.ssrMaxDistance) ||
@@ -1459,6 +1469,7 @@ bool ModernDeferredPipeline::Prepare(const Scene& scene, const Camera& camera, u
     const bool localReflectionsReady = m_ProbeReflectionAtlas && m_ProbeReflectionMetadata;
     m_ScreenSpaceConstants.localReflectionProbeCount = localReflectionsReady ? m_ProbeReflectionCount : 0u;
     m_ScreenSpaceConstants.localReflectionMipCount = static_cast<float>((std::max)(m_ProbeReflectionMipCount, 1u));
+    m_ScreenSpaceConstants.rtReflectionAtrousRadiusScale = settings.rtReflectionAtrousRadiusScale;
     m_TAAConstants.inverseJitteredViewProjection = m_ScreenSpaceConstants.inverseViewProjection;
     m_TAAConstants.previousUnjitteredViewProjection =
         m_HasPreviousViewProjection ? m_PreviousUnjitteredViewProjection : unjitteredViewProjection;
@@ -2170,9 +2181,9 @@ RGTextureHandle ModernDeferredPipeline::AddScreenSpaceEffects(
     bool effectiveSsaoEnabled = ssaoEnabled;
 
     ScreenSpaceConstants ssgiTemporalConstants = MakeEffectConstants(m_SSGIWidth, m_SSGIHeight);
-    ssgiTemporalConstants.effectMode = 1u;
+    ssgiTemporalConstants.effectMode = kScreenEffectSSGI;
     ScreenSpaceConstants ssrTemporalConstants = MakeEffectConstants(m_SSRWidth, m_SSRHeight);
-    ssrTemporalConstants.effectMode = 2u;
+    ssrTemporalConstants.effectMode = kScreenEffectReflection | (rayTracedReflection ? kScreenEffectRTReflection : 0u);
     if (rayTracedAO) {
         RayTracingConstants rtaoConstants = m_RayTracingConstants;
         rtaoConstants.effectSize[0] = m_RTAOWidth;
@@ -2211,7 +2222,7 @@ RGTextureHandle ModernDeferredPipeline::AddScreenSpaceEffects(
         rtaoTemporalConstants.effectSize[1] = m_RTAOHeight;
         rtaoTemporalConstants.effectTexelSize[0] = 1.0f / static_cast<float>(m_RTAOWidth);
         rtaoTemporalConstants.effectTexelSize[1] = 1.0f / static_cast<float>(m_RTAOHeight);
-        rtaoTemporalConstants.effectMode = 4u;
+        rtaoTemporalConstants.effectMode = kScreenEffectAO;
         graph.AddComputePass(
             "RTAOTemporalDenoise",
             [this, rtaoTrace, rtaoHistoryRead, rtaoHistoryWrite, sceneDepth, gbufferNormal,
@@ -2470,6 +2481,7 @@ RGTextureHandle ModernDeferredPipeline::AddScreenSpaceEffects(
             RayTracingConstants reflectionConstants = m_RayTracingConstants;
             reflectionConstants.effectSize[0] = m_SSRWidth;
             reflectionConstants.effectSize[1] = m_SSRHeight;
+            reflectionConstants.params0.x = m_PostSettings.rtReflectionIntensityClamp;
             reflectionConstants.params1.x = m_PostSettings.ssrMaxDistance;
             reflectionConstants.params1.y = m_PostSettings.ssrMaxRoughness;
             graph.AddComputePass(
@@ -2544,7 +2556,7 @@ RGTextureHandle ModernDeferredPipeline::AddScreenSpaceEffects(
         }
 
         graph.AddComputePass(
-            "SSRTemporalDenoise",
+            rayTracedReflection ? "RTReflectionTemporalDenoise" : "SSRTemporalDenoise",
             [this, ssrTrace, ssrHistoryRead, ssrHistoryWrite, sceneDepth, gbufferNormal,
              gbufferVelocity](RenderGraphBuilder& builder) {
                 builder.ReadTexture(ssrTrace);
@@ -2556,8 +2568,8 @@ RGTextureHandle ModernDeferredPipeline::AddScreenSpaceEffects(
                 builder.ReadTexture(m_FrameNormalHistoryRead);
                 builder.ReadWriteUAV(ssrHistoryWrite);
             },
-            [this, sceneDepthSrv, gbufferNormalSrv, gbufferVelocitySrv, readHistory, writeHistory,
-             ssrTemporalConstants](GpuCommandList& commands, const RenderGraphResources&) {
+            [this, sceneDepthSrv, gbufferNormalSrv, gbufferVelocitySrv, readHistory, writeHistory, ssrTemporalConstants,
+             rayTracedReflection](GpuCommandList& commands, const RenderGraphResources&) {
                 commands.SetComputePipeline(m_TemporalPipeline.get());
                 auto bindings = AcquireBindGroup(m_TemporalShader);
                 if (!bindings)
@@ -2573,7 +2585,8 @@ RGTextureHandle ModernDeferredPipeline::AddScreenSpaceEffects(
                 bindings->SetSampler("g_LinearSampler", m_LinearClampSampler);
                 bindings->SetSampler("g_PointSampler", m_PointClampSampler);
                 bindings->SetStorageTexture("g_Output", m_SSRHistory[writeHistory].uav);
-                if (!BindModernPass(commands, "SSRTemporalDenoise", bindings))
+                if (!BindModernPass(
+                        commands, rayTracedReflection ? "RTReflectionTemporalDenoise" : "SSRTemporalDenoise", bindings))
                     return;
                 commands.Dispatch((ssrTemporalConstants.effectSize[0] + 7u) / 8u,
                                   (ssrTemporalConstants.effectSize[1] + 7u) / 8u, 1);
@@ -2591,9 +2604,10 @@ RGTextureHandle ModernDeferredPipeline::AddScreenSpaceEffects(
             const std::shared_ptr<GpuTextureView> outputUav = m_SSRFilter[outputIndex].uav;
             ScreenSpaceConstants filterConstants = MakeEffectConstants(m_SSRWidth, m_SSRHeight);
             filterConstants.filterStep = pass / 2u;
-            filterConstants.effectMode = (pass & 1u) | 2u;
+            filterConstants.effectMode =
+                (pass & 1u) | kScreenEffectReflection | (rayTracedReflection ? kScreenEffectRTReflection : 0u);
             graph.AddComputePass(
-                "SSRSpatialFilter" + std::to_string(pass),
+                (rayTracedReflection ? "RTReflectionAtrous" : "SSRSpatialFilter") + std::to_string(pass),
                 [input = ssrInput, output = outputHandle, sceneDepth, gbufferNormal,
                  gbufferMaterial](RenderGraphBuilder& builder) {
                     builder.ReadTexture(input);
@@ -2603,7 +2617,7 @@ RGTextureHandle ModernDeferredPipeline::AddScreenSpaceEffects(
                     builder.ReadWriteUAV(output);
                 },
                 [this, input = ssrInputSrv, output = outputUav, sceneDepthSrv, gbufferNormalSrv, gbufferMaterialSrv,
-                 filterConstants](GpuCommandList& commands, const RenderGraphResources&) {
+                 filterConstants, rayTracedReflection](GpuCommandList& commands, const RenderGraphResources&) {
                     commands.SetComputePipeline(m_AtrousPipeline.get());
                     auto bindings = AcquireBindGroup(m_AtrousShader);
                     if (!bindings)
@@ -2614,7 +2628,8 @@ RGTextureHandle ModernDeferredPipeline::AddScreenSpaceEffects(
                     bindings->SetTexture("g_Normal", gbufferNormalSrv);
                     bindings->SetTexture("g_Material", gbufferMaterialSrv);
                     bindings->SetStorageTexture("g_Output", output);
-                    if (!BindModernPass(commands, "SSRBilateral", bindings))
+                    if (!BindModernPass(commands, rayTracedReflection ? "RTReflectionAtrous" : "SSRBilateral",
+                                        bindings))
                         return;
                     commands.Dispatch((filterConstants.effectSize[0] + 7u) / 8u,
                                       (filterConstants.effectSize[1] + 7u) / 8u, 1);
@@ -2629,8 +2644,10 @@ RGTextureHandle ModernDeferredPipeline::AddScreenSpaceEffects(
     }
 
     ScreenSpaceConstants compositeConstants = m_ScreenSpaceConstants;
-    compositeConstants.effectMode = (m_PostSettings.ssgiEnabled ? 1u : 0u) | (m_PostSettings.ssrEnabled ? 2u : 0u) |
-                                    (effectiveSsaoEnabled ? 16u : 0u);
+    compositeConstants.effectMode = (m_PostSettings.ssgiEnabled ? kScreenEffectSSGI : 0u) |
+                                    (m_PostSettings.ssrEnabled ? kScreenEffectReflection : 0u) |
+                                    (effectiveSsaoEnabled ? kScreenEffectAOComposite : 0u) |
+                                    (rayTracedReflection ? kScreenEffectRTReflection : 0u);
     graph.AddComputePass(
         "CompositeSSGIAndSSR",
         [this, hdr, sceneDepth, gbufferAlbedo, gbufferNormal, gbufferMaterial, ssgiFinal, ssrFinal, effectiveSsao,
@@ -2693,7 +2710,9 @@ RGTextureHandle ModernDeferredPipeline::AddScreenSpaceEffects(
         }
         const RGTextureHandle debugOutput = m_FrameScreenSpaceDebug;
         ScreenSpaceConstants debugConstants = m_ScreenSpaceConstants;
-        debugConstants.effectMode = debugSSGI ? 4u : 8u;
+        debugConstants.effectMode = debugSSGI ? kScreenEffectDebugSSGI : kScreenEffectDebugReflectionConfidence;
+        if (debugSSR && rayTracedReflection)
+            debugConstants.effectMode |= kScreenEffectRTReflection;
         graph.AddComputePass(
             debugSSGI ? "VisualizeSSGI" : "VisualizeSSRConfidence",
             [this, hdr, sceneDepth, gbufferAlbedo, gbufferNormal, gbufferMaterial, ssgiFinal, ssrFinal, debugOutput,

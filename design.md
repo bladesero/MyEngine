@@ -800,7 +800,8 @@ unavailable. A replacement becomes effective only with Modern Deferred, the
 project master switch, DXR 1.1 inline capability, its source effect, and its own
 ready shader. RTShadow replaces only directional CSM; RTAO reuses SSAO radius,
 bias, power, intensity, and half-resolution selection; RTDiffuse reuses SSGI temporal/filter controls;
-RTReflection reuses SSR distance, roughness, temporal, and filter controls.
+RTReflection reuses SSR distance, roughness, history weight, resolution, and filter-round controls, while owning a
+linear-HDR ray-intensity clamp and a roughness/variance-adaptive a-trous radius scale.
 SSAO exposes intensity, sample radius, a bounded 1-64 sample count, and its
 shared raster/RTAO half-resolution selection in one Inspector section.
 SSAO, SSGI, and SSR persist half-resolution switches. RTAO follows the SSAO

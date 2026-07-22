@@ -92,6 +92,10 @@ public:
     void SetSSRFilterRounds(uint32_t rounds);
     bool UsesRayTracedReflectionReplacement() const { return m_RayTracedReflectionReplacement; }
     void SetRayTracedReflectionReplacement(bool enabled) { m_RayTracedReflectionReplacement = enabled; }
+    float GetRTReflectionIntensityClamp() const { return m_RTReflectionIntensityClamp; }
+    void SetRTReflectionIntensityClamp(float intensity);
+    float GetRTReflectionAtrousRadiusScale() const { return m_RTReflectionAtrousRadiusScale; }
+    void SetRTReflectionAtrousRadiusScale(float scale);
 
     bool UsesRayTracedShadowReplacement() const { return m_RayTracedShadowReplacement; }
     void SetRayTracedShadowReplacement(bool enabled) { m_RayTracedShadowReplacement = enabled; }
@@ -142,6 +146,8 @@ private:
     uint32_t m_SSRStepCount = 48;
     uint32_t m_SSRFilterRounds = 2;
     bool m_RayTracedReflectionReplacement = false;
+    float m_RTReflectionIntensityClamp = 10.0f;
+    float m_RTReflectionAtrousRadiusScale = 2.0f;
     bool m_RayTracedShadowReplacement = false;
     bool m_TAAEnabled = true;
     float m_TAAHistoryWeight = 0.8f;

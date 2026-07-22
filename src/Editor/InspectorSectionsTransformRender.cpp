@@ -525,6 +525,8 @@ public:
         bool rayTracedAO = post->UsesRayTracedAOReplacement();
         bool rayTracedDiffuse = post->UsesRayTracedDiffuseReplacement();
         bool rayTracedReflection = post->UsesRayTracedReflectionReplacement();
+        float rtReflectionIntensityClamp = post->GetRTReflectionIntensityClamp();
+        float rtReflectionAtrousRadiusScale = post->GetRTReflectionAtrousRadiusScale();
         if (ImGui::Checkbox("Directional Shadow##RT", &rayTracedShadow)) {
             CommitComponentEdit(context, *actor, *post, "rayTracedShadowReplacement",
                                 [&] { post->SetRayTracedShadowReplacement(rayTracedShadow); });
@@ -540,6 +542,15 @@ public:
         if (ImGui::Checkbox("Reflections##RT", &rayTracedReflection)) {
             CommitComponentEdit(context, *actor, *post, "rayTracedReflectionReplacement",
                                 [&] { post->SetRayTracedReflectionReplacement(rayTracedReflection); });
+        }
+        if (ImGui::DragFloat("Reflection Intensity Clamp##RT", &rtReflectionIntensityClamp, 0.1f, 0.1f, 64.0f)) {
+            CommitComponentEdit(context, *actor, *post, "rtReflectionIntensityClamp",
+                                [&] { post->SetRTReflectionIntensityClamp(rtReflectionIntensityClamp); });
+        }
+        if (ImGui::DragFloat("Reflection A-trous Radius Scale##RT", &rtReflectionAtrousRadiusScale, 0.05f, 1.0f,
+                             4.0f)) {
+            CommitComponentEdit(context, *actor, *post, "rtReflectionAtrousRadiusScale",
+                                [&] { post->SetRTReflectionAtrousRadiusScale(rtReflectionAtrousRadiusScale); });
         }
         ImGui::TextDisabled("Stored independently; effective only when Modern Deferred, project RT, capability, and "
                             "the source effect are enabled.");

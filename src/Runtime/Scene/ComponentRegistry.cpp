@@ -482,6 +482,16 @@ TypeDescriptor PostProcessType() {
             return static_cast<const PostProcessComponent&>(c).UsesRayTracedReflectionReplacement();
         },
         [](Component& c, bool v) { static_cast<PostProcessComponent&>(c).SetRayTracedReflectionReplacement(v); });
+    AddFloat(
+        d, "rtReflectionIntensityClamp", 10.0f,
+        [](const Component& c) { return static_cast<const PostProcessComponent&>(c).GetRTReflectionIntensityClamp(); },
+        [](Component& c, float v) { static_cast<PostProcessComponent&>(c).SetRTReflectionIntensityClamp(v); });
+    AddFloat(
+        d, "rtReflectionAtrousRadiusScale", 2.0f,
+        [](const Component& c) {
+            return static_cast<const PostProcessComponent&>(c).GetRTReflectionAtrousRadiusScale();
+        },
+        [](Component& c, float v) { static_cast<PostProcessComponent&>(c).SetRTReflectionAtrousRadiusScale(v); });
     AddBool(
         d, "rayTracedShadowReplacement", false,
         [](const Component& c) { return static_cast<const PostProcessComponent&>(c).UsesRayTracedShadowReplacement(); },
