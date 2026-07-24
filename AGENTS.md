@@ -7,7 +7,7 @@
 ## What this is
 
 - **C++17** game/engine codebase: **SDL3** windowing and events, **ImGui** + **ImGuizmo** editor UI, scene graph (**Scene** / **Actor** / components), **JSON** scene serialization (**nlohmann_json**), rendering via **IRenderContext** (D3D11/D3D12 on Windows, Metal on macOS).
-- **Shared runtime library** `MyEngineRuntime` (`runtime` basename) contains Runtime code only. `MyEngineEditor` and `MyEngineTests` link the runtime DLL and compile the shared Editor source list from `xmake.lua`; `MyEnginePlayer` stays runtime-only.
+- The build produces three engine libraries: `MyEngine.ThirdParty` (static), `MyEngineRuntime` (shared, `runtime` basename), and `MyEngine.Editor` (static). Runtime sources compile directly into the DLL; Editor, Cooking, and Editor backends compile once into the Editor library.
 
 ---
 
@@ -64,7 +64,7 @@ in `MyEngine.project.json`. The package contains Player/runtime binaries,
 the manifest and archive, then atomically installs or repairs a hash-versioned
 runtime cache. Publishing currently supports Windows x64 only.
 
-- **Windows GPU backend** (Editor/Player): optional ` --backend d3d11` or ` --backend d3d12` (see `src/Apps/EditorMain.cpp` / `src/Apps/PlayerMain.cpp`).
+- **Windows GPU backend** (Editor/Player): optional `--backend d3d11`, `--backend d3d12`, or `--backend vulkan` when configured with `xmake f --vulkan=y` (see `src/Apps/Editor/EditorMain.cpp` / `src/Apps/Player/PlayerMain.cpp`).
 
 ---
 
@@ -73,22 +73,24 @@ runtime cache. Publishing currently supports Windows x64 only.
 | Topic | Location |
 |--------|----------|
 | Full layout, targets, dependency layers | [`design.md`](./design.md) |
-| Targets, packages, file lists, defines | `xmake.lua` |
-| App loop and layers | `src/Runtime/Core/Application.cpp`, `Engine.cpp` |
+| Build rules, packages, architecture checks | `xmake/`; the three library declarations live in `thirdparty/xmake.lua`, `src/Runtime/xmake.lua`, and `src/Editor/xmake.lua` |
+| App loop and layers | `src/Runtime/RuntimeModule/Application.cpp`, `Engine.cpp` |
 | Scene + rendering | `src/Runtime/Game/SceneRenderLayer.*`, `src/Runtime/Renderer/` |
 | Editor UI | `src/Editor/EditorLayer.*` |
-| Entry points | `src/Apps/EditorMain.cpp` (editor), `src/Apps/PlayerMain.cpp` (player) |
+| Entry points | `src/Apps/Editor/EditorMain.cpp` (editor), `src/Apps/Player/PlayerMain.cpp` (player) |
 
 ---
 
 ## Conventions for changes
 
-1. **New `.cpp` files** under `src/Runtime/` must be added to **`xmake.lua`** → target `MyEngineRuntime` → `add_files(...)`, unless they are header-only. **New Editor `.cpp` files** under `src/Editor/` must be added once to the shared `editor_sources` list in `xmake.lua`.
-2. **Public headers** for consumers of the DLL: under `src/Runtime/`; `add_headerfiles` already globs `src/Runtime/(**.h)`.
-3. **Dependency direction**: prefer **Core → Scene/Assets/Camera → Renderer → Game**; **do not** make `Renderer` depend on `Editor`. Editor sits beside Game and uses `SceneRenderLayer*`.
-4. **Math**: row-major `Mat4`, left-handed, Y-up; align with `EngineMath.h` and existing shaders.
-5. **Resources**: `Content/` is copied next to binaries (`copy_game_content`); keep paths consistent with `AssetManager` / serialization.
-6. **SDL3**: package must stay **shared** (`add_requireconfs` for libsdl3) to avoid duplicate SDL symbols with ImGui.
+1. **Put source in its owning directory.** `myengine.module` recursively discovers source/header files for Runtime, Editor, ThirdParty, Apps, and Tests. Never add a hand-written source array or a nested library target for an internal Runtime/Editor directory.
+2. The compiled-library DAG is `MyEngine.Editor -> MyEngineRuntime -> MyEngine.ThirdParty`; Editor may also directly depend on ThirdParty. Runtime and ThirdParty must never depend on Editor. Scripting files under `Bindings/` remain fragments included exactly once by `AngelScriptRuntime.cpp`.
+3. The three library scripts own package visibility and platform syslinks/frameworks. `add_requires` belongs only in `xmake/packages.lua`; central `MYENGINE_*` defines belong in `MyEngine.BuildConfig` or `MyEngine.Editor.API`.
+4. **Public Runtime ABI** stays under `src/Runtime/` and uses `MYENGINE_RUNTIME_API` from `API/RuntimeApi.h`. Build `MyEngineRuntimeLinkProbe` after changing DLL-facing declarations; intentional Windows ABI changes require reviewing and updating the sorted baseline under `xmake/abi/`.
+5. Keep the three-library DAG in `design.md`; Runtime must not depend on Editor/Apps/Tests, and native backend headers stay under backend directories. Run `xmake build MyEngine.Architecture` after changing build boundaries; product targets and `tools/smoke.ps1` run the same stamped gate.
+6. **Math**: row-major `Mat4`, left-handed, Y-up; align with `EngineMath.h` and existing shaders.
+7. **Resources**: `Content/` is copied next to binaries (`copy_game_content`); keep paths consistent with `AssetManager` / serialization.
+8. **SDL3**: package must stay **shared** (`add_requireconfs` for libsdl3) to avoid duplicate SDL symbols with ImGui.
 
 ---
 
@@ -102,14 +104,14 @@ runtime cache. Publishing currently supports Windows x64 only.
 
 ## Editor vs Player (rendering)
 
-- **Editor** (`src/Apps/EditorMain.cpp`): pushes `SceneRenderLayer` then `EditorLayer`; `SceneRenderLayer::SetPresentEnabled(false)` so **ImGui draws after** the 3D pass and presentation happens once.
-- **Player** (`src/Apps/PlayerMain.cpp`): only `SceneRenderLayer` with `SetPresentEnabled(true)`.
+- **Editor** (`src/Apps/Editor/EditorMain.cpp`): pushes `SceneRenderLayer` then `EditorLayer`; `SceneRenderLayer::SetPresentEnabled(false)` so **ImGui draws after** the 3D pass and presentation happens once.
+- **Player** (`src/Apps/Player/PlayerMain.cpp`): only `SceneRenderLayer` with `SetPresentEnabled(true)`.
 
 ---
 
 ## Testing
 
-- Add or extend tests under `tests/`; run `xmake run MyEngineTests`. Tests link `MyEngineRuntime` and compile the shared Editor source list when editor coverage needs it.
+- Add or extend tests under `tests/`; run `xmake run MyEngineTests`. Tests link `MyEngineRuntime` and `MyEngine.Editor`; Editor and Cooking sources are not recompiled by the test target.
 
 ---
 

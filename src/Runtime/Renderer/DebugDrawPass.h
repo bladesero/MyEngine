@@ -1,5 +1,7 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include "DebugDraw/DebugDrawCommand.h"
 #include "Renderer/RenderPass.h"
 
@@ -7,7 +9,7 @@
 #include <memory>
 #include <vector>
 
-class DebugDrawPass final : public RenderPass {
+class MYENGINE_RUNTIME_API DebugDrawPass final : public RenderPass {
 public:
     explicit DebugDrawPass(IRHIDevice* device);
     ~DebugDrawPass() override;

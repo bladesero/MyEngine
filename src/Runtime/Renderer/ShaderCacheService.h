@@ -1,5 +1,7 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include "Assets/ShaderAsset.h"
 
 #include <atomic>
@@ -38,7 +40,7 @@ private:
     std::atomic_bool m_CancelRequested{false};
 };
 
-class ShaderCacheService {
+class MYENGINE_RUNTIME_API ShaderCacheService {
 public:
     using Resolver = std::function<ShaderCacheResult(const ShaderCacheRequest&)>;
     using BatchResolver = std::function<std::vector<ShaderCacheResult>(const std::vector<ShaderCacheRequest>&)>;

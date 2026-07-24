@@ -1,5 +1,7 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include <cstdint>
 #include <vector>
 
@@ -28,7 +30,7 @@ struct SceneRenderCollection {
     uint32_t culledSubMeshes = 0;
 };
 
-class SceneRenderCollector {
+class MYENGINE_RUNTIME_API SceneRenderCollector {
 public:
     SceneRenderCollection Collect(const Scene& scene, const Camera& camera, bool staticGeometryOnly = false) const;
 };

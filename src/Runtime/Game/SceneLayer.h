@@ -1,5 +1,9 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
+#include "API/RuntimeApi.h"
+
 #include "Core/Layer.h"
 #include "Scene/Scene.h"
 #include "Scene/SceneSerializer.h"
@@ -24,7 +28,7 @@ enum class SceneRunState {
     Pause,
 };
 
-class SceneLayer : public Layer {
+class MYENGINE_RUNTIME_API SceneLayer : public Layer {
 public:
     explicit SceneLayer(const std::string& layerName = "SceneLayer");
 

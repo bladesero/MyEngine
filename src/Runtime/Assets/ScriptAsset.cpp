@@ -1,10 +1,19 @@
 #include "Assets/ScriptAsset.h"
 
 #include "Core/RuntimeFileSystem.h"
-#include "Scripting/AngelScriptRuntime.h"
 
 #include <fstream>
 #include <sstream>
+
+namespace {
+ScriptAssetPreprocessCallback g_Preprocess = nullptr;
+ScriptAssetDiscoverCallback g_Discover = nullptr;
+}
+
+void SetScriptAssetProcessor(ScriptAssetPreprocessCallback preprocess, ScriptAssetDiscoverCallback discover) {
+    g_Preprocess = preprocess;
+    g_Discover = discover;
+}
 
 ScriptAsset::ScriptAsset(const std::string& path) : Asset(AssetType::Script, path) {
 }
@@ -61,12 +70,17 @@ std::shared_ptr<ScriptAsset> LoadScriptAssetFromFile(const std::string& path) {
     std::string error;
     std::string expandedSource;
     std::vector<std::string> dependencies;
-    if (!AngelScriptRuntime::PreprocessSource(asset->GetSource(), path, expandedSource, &dependencies, error)) {
+    if (!g_Preprocess || !g_Discover) {
+        asset->SetDependencies({});
+        asset->SetClasses({});
+        return asset;
+    }
+    if (!g_Preprocess(asset->GetSource(), path, expandedSource, &dependencies, error)) {
         asset->SetLastError(std::move(error));
         return asset;
     }
     asset->SetDependencies(std::move(dependencies));
-    asset->SetClasses(AngelScriptRuntime::DiscoverClasses(expandedSource, path, error));
+    asset->SetClasses(g_Discover(expandedSource, path, error));
     if (!error.empty())
         asset->SetLastError(std::move(error));
     return asset;

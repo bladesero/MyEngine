@@ -1,37 +1,27 @@
 #pragma once
 
-#include "Core/EngineMath.h"
-#include "Scene/ActorHandle.h"
+#include "Scene/SceneSubsystems.h"
 
 #include <cstdint>
 #include <memory>
 #include <vector>
 
-class Scene;
-class Actor;
-
-struct RaycastHit {
-    Actor* actor = nullptr;
-    Vec3 point = Vec3::Zero();
-    Vec3 normal = Vec3::Up();
-    float distance = 0.0f;
-};
-
-class PhysicsWorld {
+class PhysicsWorld final : public IScenePhysicsSubsystem {
 public:
     PhysicsWorld();
     ~PhysicsWorld();
     PhysicsWorld(const PhysicsWorld&) = delete;
     PhysicsWorld& operator=(const PhysicsWorld&) = delete;
 
-    void SetGravity(const Vec3& gravity);
-    const Vec3& GetGravity() const { return m_Gravity; }
-    void Clear();
-    void Step(Scene& scene, float deltaSeconds);
-    void StepFixed(Scene& scene, float fixedDeltaSeconds);
-    bool Raycast(const Scene& scene, const Ray& ray, float maxDistance, uint32_t layerMask, RaycastHit& hit) const;
+    void SetGravity(const Vec3& gravity) override;
+    const Vec3& GetGravity() const override { return m_Gravity; }
+    void Clear() override;
+    void Step(Scene& scene, float deltaSeconds) override;
+    void StepFixed(Scene& scene, float fixedDeltaSeconds) override;
+    bool Raycast(const Scene& scene, const Ray& ray, float maxDistance, uint32_t layerMask,
+                 RaycastHit& hit) const override;
     bool OverlapSphere(const Scene& scene, const Vec3& center, float radius, uint32_t layerMask,
-                       std::vector<ActorHandle>& outActors) const;
+                       std::vector<ActorHandle>& outActors) const override;
 
 private:
     class Impl;

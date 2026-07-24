@@ -1,5 +1,9 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
+#include "API/RuntimeApi.h"
+
 #include "Core/EngineMath.h"
 
 #include <cstdint>
@@ -12,8 +16,8 @@ class AudioClipAsset;
 
 enum class AudioBus : uint8_t { Music, Effects, Voice, UI, Count };
 
-const char* AudioBusName(AudioBus bus);
-bool ParseAudioBus(const std::string& value, AudioBus& bus);
+MYENGINE_RUNTIME_API const char* AudioBusName(AudioBus bus);
+MYENGINE_RUNTIME_API bool ParseAudioBus(const std::string& value, AudioBus& bus);
 
 struct AudioDiagnostics {
     uint32_t activeVoices = 0;
@@ -52,7 +56,7 @@ struct AudioPlayDesc {
     bool stream = false;
 };
 
-class AudioEngine {
+class MYENGINE_RUNTIME_API AudioEngine {
 public:
     using SoundID = uint64_t;
 

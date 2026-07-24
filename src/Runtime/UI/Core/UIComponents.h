@@ -1,12 +1,14 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include "Core/EngineMath.h"
 #include "Scene/Component.h"
 #include "UI/Core/RectTransform.h"
 
 #include <string>
 
-class UIElementComponent : public Component {
+class MYENGINE_RUNTIME_API UIElementComponent : public Component {
 public:
     const std::string& GetElementID() const { return m_ElementID; }
     void SetElementID(std::string id) { m_ElementID = std::move(id); }
@@ -21,7 +23,7 @@ protected:
     std::string m_ClassName;
 };
 
-class UIRectTransformComponent final : public Component {
+class MYENGINE_RUNTIME_API UIRectTransformComponent final : public Component {
 public:
     const char* GetTypeName() const override { return "UIRectTransform"; }
 
@@ -34,7 +36,7 @@ public:
     RectTransform rect;
 };
 
-class UITextComponent final : public UIElementComponent {
+class MYENGINE_RUNTIME_API UITextComponent final : public UIElementComponent {
 public:
     const char* GetTypeName() const override { return "UIText"; }
 
@@ -46,7 +48,7 @@ public:
     Color color{1.0f, 1.0f, 1.0f, 1.0f};
 };
 
-class UIImageComponent final : public UIElementComponent {
+class MYENGINE_RUNTIME_API UIImageComponent final : public UIElementComponent {
 public:
     const char* GetTypeName() const override { return "UIImage"; }
 
@@ -57,7 +59,7 @@ public:
     Color tint{1.0f, 1.0f, 1.0f, 1.0f};
 };
 
-class UIButtonComponent final : public UIElementComponent {
+class MYENGINE_RUNTIME_API UIButtonComponent final : public UIElementComponent {
 public:
     const char* GetTypeName() const override { return "UIButton"; }
 
@@ -68,7 +70,7 @@ public:
     bool disabled = false;
 };
 
-class UISliderComponent final : public UIElementComponent {
+class MYENGINE_RUNTIME_API UISliderComponent final : public UIElementComponent {
 public:
     const char* GetTypeName() const override { return "UISlider"; }
 
@@ -82,7 +84,7 @@ public:
     std::string dataBinding;
 };
 
-class UIProgressBarComponent final : public UIElementComponent {
+class MYENGINE_RUNTIME_API UIProgressBarComponent final : public UIElementComponent {
 public:
     const char* GetTypeName() const override { return "UIProgressBar"; }
 
@@ -93,7 +95,7 @@ public:
     float max = 1.0f;
 };
 
-class UIScrollViewComponent final : public UIElementComponent {
+class MYENGINE_RUNTIME_API UIScrollViewComponent final : public UIElementComponent {
 public:
     const char* GetTypeName() const override { return "UIScrollView"; }
 
@@ -104,7 +106,7 @@ public:
     bool vertical = true;
 };
 
-class UILayoutGroupComponent : public UIElementComponent {
+class MYENGINE_RUNTIME_API UILayoutGroupComponent : public UIElementComponent {
 public:
     float spacing = 8.0f;
     float padding = 0.0f;
@@ -125,7 +127,7 @@ public:
     const char* GetTypeName() const override { return "UIHorizontalLayout"; }
 };
 
-class UIGridLayoutComponent final : public UILayoutGroupComponent {
+class MYENGINE_RUNTIME_API UIGridLayoutComponent final : public UILayoutGroupComponent {
 public:
     const char* GetTypeName() const override { return "UIGridLayout"; }
 

@@ -1,5 +1,9 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
+#include "API/RuntimeApi.h"
+
 #include "Animation/AnimationData.h"
 
 #include <nlohmann/json.hpp>
@@ -45,7 +49,7 @@ struct AnimatorState {
     float speed = 1.0f;
 };
 
-class AnimatorController {
+class MYENGINE_RUNTIME_API AnimatorController {
 public:
     void SetEntryState(std::string state) { m_EntryState = std::move(state); }
     const std::string& GetEntryState() const { return m_EntryState; }

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include "Renderer/GpuSceneDatabase.h"
 #include "Renderer/RenderGraph.h"
 #include "Renderer/RHI/IRHIReadbackService.h"
@@ -47,7 +49,7 @@ enum ModernRayTracingEffectMask : uint32_t {
     ModernRayTracingDiffuse = 1u << 3,
 };
 
-uint32_t ResolveModernRayTracingEffectMask(uint32_t requestedMask, bool projectEnabled,
+MYENGINE_RUNTIME_API uint32_t ResolveModernRayTracingEffectMask(uint32_t requestedMask, bool projectEnabled,
                                            const RHIDeviceCapabilities& capabilities, uint32_t sourceEffectMask,
                                            uint32_t readyPipelineMask);
 
@@ -87,7 +89,7 @@ struct ModernPostProcessSettings {
     float bloomIntensity = 0.0f;
 };
 
-class ModernDeferredPipeline {
+class MYENGINE_RUNTIME_API ModernDeferredPipeline {
 public:
     enum class QualityProfile { Desktop, Console };
     enum class ScreenSpaceDebugMode { None, SSGI, SSRConfidence, TAAHistoryAge, TAARejectReason };

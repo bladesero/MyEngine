@@ -1,5 +1,7 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include "Assets/MaterialAsset.h"
 #include "Assets/MeshAsset.h"
 #include "Assets/ParticleAsset.h"
@@ -10,7 +12,7 @@
 
 class Camera;
 
-class ParticleSystemComponent final : public Component {
+class MYENGINE_RUNTIME_API ParticleSystemComponent final : public Component {
 public:
     const char* GetTypeName() const override { return "ParticleSystem"; }
     void OnBeginPlay() override;

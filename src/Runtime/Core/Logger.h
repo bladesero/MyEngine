@@ -1,5 +1,7 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include "Core/Platform.h"
 #include <chrono>
 #include <functional>
@@ -9,7 +11,7 @@
 #include <sstream>
 #include <string>
 
-class Logger {
+class MYENGINE_RUNTIME_API Logger {
 public:
     using LogSink = std::function<void(const std::string&)>;
 

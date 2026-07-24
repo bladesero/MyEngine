@@ -1,5 +1,7 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include "Project/FormatVersions.h"
 
 #include <nlohmann/json_fwd.hpp>
@@ -16,7 +18,7 @@ struct RuntimeUIScreenOverride {
     std::unordered_map<std::string, std::string> actionLabels;
 };
 
-class RuntimeUIScreenConfig {
+class MYENGINE_RUNTIME_API RuntimeUIScreenConfig {
 public:
     static constexpr uint32_t CurrentVersion = FormatVersions::RuntimeUIScreenConfig;
     static constexpr const char* DefaultPath = "Content/Config/RuntimeScreens.ui.json";

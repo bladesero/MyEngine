@@ -1,0 +1,7 @@
+includes("options.lua")
+includes("package_catalog.lua")
+includes("packages.lua")
+includes("rules.lua")
+includes("architecture.lua")
+includes("module.lua")
+includes("build_config.lua")

@@ -1,8 +1,10 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include <string>
 
-class CrashHandler {
+class MYENGINE_RUNTIME_API CrashHandler {
 public:
     static void Install(const std::string& applicationName);
     static void Uninstall();

@@ -1,10 +1,14 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
+#include "API/RuntimeApi.h"
+
 #include "Core/EngineMath.h"
 #include "Physics/CollisionShapes.h"
 #include "Physics/ColliderComponent.h"
 
-class BoxColliderComponent final : public ColliderComponent {
+class MYENGINE_RUNTIME_API BoxColliderComponent final : public ColliderComponent {
 public:
     const char* GetTypeName() const override { return "BoxCollider"; }
 

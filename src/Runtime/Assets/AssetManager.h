@@ -1,5 +1,9 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
+#include "API/RuntimeApi.h"
+
 #include "Assets/Asset.h"
 #include "Assets/TextureAsset.h"
 #include "Assets/MeshAsset.h"
@@ -12,7 +16,7 @@
 #include "Assets/NavMeshAsset.h"
 #include "Assets/LightingProbeAsset.h"
 #include "Assets/ParticleAsset.h"
-#include "Audio/AudioClipAsset.h"
+#include "Assets/AudioClipAsset.h"
 #include "Core/Logger.h"
 #include "Core/TaskService.h"
 
@@ -78,9 +82,9 @@ using AssetLoaderFn = std::function<std::shared_ptr<Asset>(const std::string& pa
 std::shared_ptr<TextureAsset> LoadTextureAssetFromFile(const std::string& path);
 std::shared_ptr<ModelAsset> LoadModelAssetFromObj(const std::string& path);
 std::shared_ptr<ModelAsset> LoadModelAssetFromGltf(const std::string& path);
-std::shared_ptr<ScriptAsset> LoadScriptAssetFromFile(const std::string& path);
+MYENGINE_RUNTIME_API std::shared_ptr<ScriptAsset> LoadScriptAssetFromFile(const std::string& path);
 
-class AssetManager {
+class MYENGINE_RUNTIME_API AssetManager {
 public:
     using AssetChangedCallback = std::function<void(const AssetChangedEvent&)>;
     using ListenerID = uint64_t;

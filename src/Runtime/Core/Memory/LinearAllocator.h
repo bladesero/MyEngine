@@ -1,10 +1,12 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include <cstddef>
 #include <cstdint>
 
 // Bump-pointer arena: Reset() per frame (or phase). Individual frees are not supported.
-class LinearAllocator {
+class MYENGINE_RUNTIME_API LinearAllocator {
 public:
     LinearAllocator() = default;
     ~LinearAllocator();

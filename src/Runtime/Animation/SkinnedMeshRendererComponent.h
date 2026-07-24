@@ -1,5 +1,9 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
+#include "API/RuntimeApi.h"
+
 #include "Assets/MaterialAsset.h"
 #include "Assets/MeshAsset.h"
 #include "Animation/AnimationData.h"
@@ -8,7 +12,7 @@
 #include <string>
 #include <vector>
 
-class SkinnedMeshRendererComponent final : public Component {
+class MYENGINE_RUNTIME_API SkinnedMeshRendererComponent final : public Component {
 public:
     const char* GetTypeName() const override { return "SkinnedMeshRenderer"; }
     void OnUpdate(float deltaSeconds) override;

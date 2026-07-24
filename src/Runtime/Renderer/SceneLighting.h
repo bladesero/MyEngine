@@ -1,5 +1,7 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include "Core/EngineMath.h"
 
 #include <cstdint>
@@ -64,7 +66,7 @@ struct ScenePostProcessData {
     float antiAliasingStrength = 0.0f;
 };
 
-SceneEnvironmentData CollectSceneEnvironmentData(const Scene& scene);
-SceneLightData CollectSceneLights(const Scene& scene);
-SceneLightData CollectSceneLights(const Scene& scene, const SceneEnvironmentData& environment);
+MYENGINE_RUNTIME_API SceneEnvironmentData CollectSceneEnvironmentData(const Scene& scene);
+MYENGINE_RUNTIME_API SceneLightData CollectSceneLights(const Scene& scene);
+MYENGINE_RUNTIME_API SceneLightData CollectSceneLights(const Scene& scene, const SceneEnvironmentData& environment);
 ScenePostProcessData CollectScenePostProcessData(const Scene& scene);

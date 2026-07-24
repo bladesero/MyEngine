@@ -1,5 +1,9 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
+#include "API/RuntimeApi.h"
+
 #include "Game/RenderViewport.h"
 
 class CameraComponent;
@@ -8,7 +12,7 @@ class IRHIFrameContext;
 class IRHIReadbackService;
 class Scene;
 
-class GameViewport final : public RenderViewport {
+class MYENGINE_RUNTIME_API GameViewport final : public RenderViewport {
 public:
     GameViewport(IRHIDevice* device, IRHIFrameContext* frameContext, IRHIReadbackService* readbackService);
 

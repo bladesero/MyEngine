@@ -1,7 +1,8 @@
 param(
     [string]$Output = (Join-Path (Resolve-Path (Join-Path $PSScriptRoot "..")).Path "Builds\MyEngineEditor-windows-x64"),
     [ValidateSet("debug", "release")]
-    [string]$Mode = "release"
+    [string]$Mode = "release",
+    [switch]$Vulkan
 )
 
 $ErrorActionPreference = "Stop"
@@ -13,7 +14,8 @@ if (-not $xmake) {
     throw "xmake was not found on PATH."
 }
 
-& $xmake.Source f -m $Mode
+$vulkanOption = if ($Vulkan) { "--vulkan=y" } else { "--vulkan=n" }
+& $xmake.Source f -y -m $Mode $vulkanOption
 if ($LASTEXITCODE -ne 0) { throw "xmake configure failed." }
 
 & $xmake.Source build MyEngineEditor

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include "Transform.h"
 #include "Component.h"
 #include "ActorHandle.h"
@@ -21,7 +23,7 @@
 
 class Scene;
 
-class Actor {
+class MYENGINE_RUNTIME_API Actor {
 public:
     // -----------------------------------------------------------------------
     // 构造 / 析构

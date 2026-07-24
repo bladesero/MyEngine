@@ -1,4 +1,8 @@
 #pragma once
+
+#include "API/RuntimeApi.h"
+
+#include "API/RuntimeApi.h"
 #include "Project/FormatVersions.h"
 
 #include <filesystem>
@@ -33,7 +37,7 @@ struct AssetDatabaseValidationIssue {
     std::string message;
 };
 
-struct AssetDatabaseValidationReport {
+struct MYENGINE_RUNTIME_API AssetDatabaseValidationReport {
     std::vector<AssetDatabaseValidationIssue> issues;
     bool Passed() const { return issues.empty(); }
     std::string Summary() const;
@@ -55,7 +59,7 @@ struct AssetRecord {
     bool alwaysCook = false;
 };
 
-class AssetDatabase {
+class MYENGINE_RUNTIME_API AssetDatabase {
 public:
     static constexpr uint32_t kVersion = FormatVersions::AssetDatabase;
 

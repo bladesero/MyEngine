@@ -1,5 +1,7 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include "Scene/Component.h"
 #include "Assets/MeshAsset.h"
 #include "Assets/MaterialAsset.h"
@@ -13,7 +15,7 @@
 // 绘制该网格。序列化时保存 mesh/material 路径，反序列化时通过 AssetManager 解析。
 // ==========================================================================
 
-class MeshRendererComponent : public Component {
+class MYENGINE_RUNTIME_API MeshRendererComponent : public Component {
 public:
     MeshHandle GetMesh() const { return m_Mesh; }
     MaterialHandle GetMaterial() const { return GetMaterialForSlot(0); }

@@ -8,7 +8,6 @@ option("mem_stats", function()
     set_showmenu(true)
     set_category("memory")
     set_description("MYENGINE_MEM_STATS: per-tag bytes / live counts / lifetime calls")
-    add_defines("MYENGINE_MEM_STATS")
 end)
 
 option("mem_tracking", function()
@@ -16,7 +15,6 @@ option("mem_tracking", function()
     set_showmenu(true)
     set_category("memory")
     set_description("MYENGINE_MEM_TRACKING: live allocation map + leak dump with file:line")
-    add_defines("MYENGINE_MEM_TRACKING")
 end)
 
 option("mem_guard", function()
@@ -24,7 +22,6 @@ option("mem_guard", function()
     set_showmenu(true)
     set_category("memory")
     set_description("MYENGINE_MEM_GUARD: allocation poison fill + tail canaries")
-    add_defines("MYENGINE_MEM_GUARD")
 end)
 
 option("vulkan", function()
@@ -36,4 +33,20 @@ end)
 
 function myengine_enable_vulkan()
     return is_plat("windows") and has_config("vulkan")
+end
+
+function myengine_feature_state()
+    return {
+        mem_stats = has_config("mem_stats"),
+        mem_tracking = has_config("mem_tracking"),
+        mem_guard = has_config("mem_guard"),
+        vulkan = myengine_enable_vulkan()
+    }
+end
+
+function myengine_feature_key()
+    local state = myengine_feature_state()
+    return string.format("mem_stats=%s;mem_tracking=%s;mem_guard=%s;vulkan=%s",
+                         tostring(state.mem_stats), tostring(state.mem_tracking),
+                         tostring(state.mem_guard), tostring(state.vulkan))
 end

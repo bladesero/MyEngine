@@ -136,24 +136,31 @@ bool TestEditorPlatformViewportDpiContract() {
         return false;
 
     const std::string packages = readSource(root / "xmake/packages.lua");
+    const std::string packageCatalog = readSource(root / "xmake/package_catalog.lua");
     const std::string imnodesPackage = readSource(root / "packages/i/imnodes/xmake.lua");
     const std::string imnodesPatch = readSource(root / "packages/i/imnodes/patches/v0.5-imgui-1.92.patch");
     const std::string window = readSource(root / "src/Runtime/Core/Window.cpp");
     const std::string windowHeader = readSource(root / "src/Runtime/Core/Window.h");
     const std::string eventHeader = readSource(root / "src/Runtime/Core/Event.h");
-    const std::string engine = readSource(root / "src/Runtime/Core/Engine.cpp");
+    const std::string engine = readSource(root / "src/Runtime/RuntimeModule/Engine.cpp");
     const std::string sceneRenderLayer = readSource(root / "src/Runtime/Game/SceneRenderLayer.cpp");
-    const std::string d3d11 = readSource(root / "src/Runtime/Renderer/D3D11Context.cpp");
-    const std::string d3d12 = readSource(root / "src/Runtime/Renderer/D3D12Context.cpp");
-    const std::string vulkan = readSource(root / "src/Runtime/Renderer/VulkanContext.cpp");
-    const std::string metal = readSource(root / "src/Runtime/Renderer/MetalContext.mm");
+    const std::string d3d11 =
+        readSource(root / "src/Runtime/Renderer/Backends/D3D11/D3D11Context.cpp");
+    const std::string d3d12 =
+        readSource(root / "src/Runtime/Renderer/Backends/D3D12/D3D12Context.cpp");
+    const std::string vulkan =
+        readSource(root / "src/Runtime/Renderer/Backends/Vulkan/VulkanContext.cpp");
+    const std::string metal =
+        readSource(root / "src/Runtime/Renderer/Backends/Metal/MetalContext.mm");
     const std::string manifest = readSource(root / "src/Runtime/Miscs/Resources/MyEngineEditor.manifest");
-    const std::string resource = readSource(root / "src/Runtime/Miscs/Resources/MyEngineEditor.rc");
-    const std::string backend = readSource(root / "src/Editor/EditorImGuiBackend.cpp");
+    const std::string resource = readSource(root / "src/Apps/Editor/MyEngineEditor.rc");
+    const std::string backend =
+        readSource(root / "src/Editor/Backends/ImGui/EditorImGuiBackend.cpp");
     const std::string graphPanel = readSource(root / "src/Editor/Panels/ShaderGraphPanel.cpp");
 
-    if (!Check(packages.find("v1.92.7-docking") != std::string::npos &&
-                   packages.find("v1.91.3-docking") == std::string::npos,
+    if (!Check(packageCatalog.find("version = \"v1.92.7-docking\"") != std::string::npos &&
+                   packageCatalog.find("v1.91.3-docking") == std::string::npos &&
+                   packages.find("packages.imgui.version") != std::string::npos,
                "Editor and imnodes are not pinned to the ImGui 1.92.7 docking ABI"))
         return false;
     if (!Check(packages.find("myengine_imgui_192 = true") != std::string::npos &&
@@ -260,7 +267,8 @@ bool TestEditorOperatorSourceContracts() {
     const std::string viewportPanel = readSource(root / "src/Editor/Panels/ViewportPanel.cpp");
     const std::string inspectorPanel = readSource(root / "src/Editor/Panels/InspectorPanel.cpp");
     const std::string compactInspectorPanel = compactSource(inspectorPanel);
-    const std::string componentRegistry = readSource(root / "src/Runtime/Scene/ComponentRegistry.cpp");
+    const std::string componentRegistry =
+        readSource(root / "src/Runtime/RuntimeModule/RuntimeComponentRegistration.cpp");
     const std::string inspectorSections = readSources({
         root / "src/Editor/InspectorSections.cpp",
         root / "src/Editor/InspectorSectionShared.h",
@@ -279,10 +287,12 @@ bool TestEditorOperatorSourceContracts() {
     const std::string compactEditorLayer = compactSource(editorLayer);
     const std::string projectSettings = readSource(root / "src/Editor/EditorProjectSettingsController.cpp");
     const std::string viewportPolicy = readSource(root / "src/Editor/UI/EditorViewportPolicy.h");
-    const std::string imguiBackend = readSource(root / "src/Editor/EditorImGuiBackend.cpp");
-    const std::string engineSource = readSource(root / "src/Runtime/Core/Engine.cpp");
+    const std::string imguiBackend =
+        readSource(root / "src/Editor/Backends/ImGui/EditorImGuiBackend.cpp");
+    const std::string engineSource = readSource(root / "src/Runtime/RuntimeModule/Engine.cpp");
     const std::string compactEngineSource = compactSource(engineSource);
-    const std::string d3d11Context = readSource(root / "src/Runtime/Renderer/D3D11Context.cpp");
+    const std::string d3d11Context =
+        readSource(root / "src/Runtime/Renderer/Backends/D3D11/D3D11Context.cpp");
     const std::string editorWorkspace = readSource(root / "src/Editor/EditorWorkspace.cpp");
     const std::string shortcutMap = readSource(root / "src/Editor/EditorShortcutMap.cpp");
     const std::string sceneViewportHeader = readSource(root / "src/Runtime/Game/SceneViewportController.h");

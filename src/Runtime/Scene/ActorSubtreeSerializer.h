@@ -1,5 +1,7 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include "Assets/PrefabAsset.h"
 
 #include <unordered_map>
@@ -7,7 +9,7 @@
 
 class Actor;
 
-class ActorSubtreeSerializer {
+class MYENGINE_RUNTIME_API ActorSubtreeSerializer {
 public:
     static bool Serialize(const Actor& root, std::vector<PrefabNode>& nodes, std::string* error = nullptr,
                           const std::unordered_set<const Actor*>* excludedRoots = nullptr,

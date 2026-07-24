@@ -1,5 +1,9 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
+#include "API/RuntimeApi.h"
+
 #include "Assets/AssetManager.h"
 #include "Renderer/GpuUploadQueue.h"
 #include "Renderer/RHI/RHIResourceStats.h"
@@ -53,7 +57,7 @@ struct RuntimeResourceBudgetReport {
     std::vector<std::string> violations;
 };
 
-class RuntimeResourceBudgetController {
+class MYENGINE_RUNTIME_API RuntimeResourceBudgetController {
 public:
     bool Configure(const RuntimeResourceBudgetConfig&, std::string* error = nullptr);
     const RuntimeResourceBudgetConfig& GetConfig() const { return m_Config; }

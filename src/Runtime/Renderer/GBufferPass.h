@@ -1,5 +1,7 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include "Renderer/MaterialResourceCache.h"
 #include "Renderer/MaterialSystem.h"
 #include "Renderer/RenderPass.h"
@@ -13,7 +15,7 @@
 struct ShaderHandle;
 class MaterialAsset;
 
-class GBufferPass final : public RenderPass {
+class MYENGINE_RUNTIME_API GBufferPass final : public RenderPass {
 public:
     struct GraphResources {
         std::shared_ptr<GpuTexture> albedo;

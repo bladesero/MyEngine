@@ -1,5 +1,9 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
+#include "API/RuntimeApi.h"
+
 #include "Input/InputActionMap.h"
 #include "Input/InputGlyphAtlas.h"
 
@@ -19,7 +23,7 @@ enum class InputDeviceKind { KeyboardMouse, Gamepad };
 //   if (Input::IsKeyDown(SDL_SCANCODE_W)) ...
 // without coupling to SDL elsewhere.
 // --------------------------------------------------------------------------
-class Input {
+class MYENGINE_RUNTIME_API Input {
 public:
     static constexpr int k_MaxKeys = 512;
     static constexpr int k_MaxButtons = 8; // mouse buttons
@@ -121,7 +125,10 @@ private:
     static std::array<bool, k_MaxKeys> s_KeysPrev;
     static std::array<bool, k_MaxButtons> s_Mouse;
     static std::array<bool, k_MaxButtons> s_MousePrev;
-    static int s_MouseX, s_MouseY, s_MouseRelX, s_MouseRelY;
+    static int s_MouseX;
+    static int s_MouseY;
+    static int s_MouseRelX;
+    static int s_MouseRelY;
     static std::array<GamepadState, k_MaxGamepads> s_Gamepads;
     static InputActionMap s_ActionMap;
     static InputActionMap s_BaseActionMap;

@@ -1,9 +1,13 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
+#include "API/RuntimeApi.h"
+
 #include "Core/EngineMath.h"
 #include "Scene/Component.h"
 
-class CharacterControllerComponent final : public Component {
+class MYENGINE_RUNTIME_API CharacterControllerComponent final : public Component {
 public:
     const char* GetTypeName() const override { return "CharacterController"; }
 

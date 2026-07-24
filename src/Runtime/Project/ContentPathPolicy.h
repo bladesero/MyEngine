@@ -1,5 +1,7 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include <cstdint>
 #include <filesystem>
 #include <string>
@@ -17,7 +19,7 @@ struct ContentLimits {
     uint32_t maxFiles = 1000000;
 };
 
-class ContentPathPolicy {
+class MYENGINE_RUNTIME_API ContentPathPolicy {
 public:
     static bool ResolveContained(const std::filesystem::path& root, const std::filesystem::path& candidate,
                                  std::filesystem::path& resolved, std::string* error = nullptr,

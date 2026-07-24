@@ -117,7 +117,11 @@ bool AssetImportService::OpenProject(const std::filesystem::path& projectRoot, s
         RegisterImporter(CreateShaderAssetImporter());
         RegisterImporter(CreatePassthroughAssetImporter());
     }
-    if (!m_Database.Open(m_ProjectRoot / ".myengine/AssetDatabase.json", error))
+    const std::filesystem::path databasePath = m_ProjectRoot / ".myengine/AssetDatabase.json";
+    const bool createDatabase = !std::filesystem::exists(databasePath);
+    if (!m_Database.Open(databasePath, error))
+        return false;
+    if (createDatabase && !m_Database.Save(error))
         return false;
     RefreshValidation();
     return true;

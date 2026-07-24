@@ -47,7 +47,8 @@ bool EditorNavigationBakeService::Bake(EditorContext& context, Scene& scene) con
         std::filesystem::path("Content") / "Navigation" / (SanitizeNavigationAssetName(scene.GetName()) + ".navmesh");
     const std::filesystem::path absolute = AssetManager::Get().GetProjectRoot() / relative;
     NavMeshAsset asset(absolute.string());
-    asset.Capture(scene.GetNavigationWorld());
+    asset.SetBakedData(scene.GetNavigationWorld().GetSettings(), scene.GetNavigationWorld().GetWidth(),
+                       scene.GetNavigationWorld().GetHeight(), scene.GetNavigationWorld().GetCells());
     if (!SaveNavMeshAssetToFile(asset, absolute.string()))
         return false;
 

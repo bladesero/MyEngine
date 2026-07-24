@@ -1,8 +1,9 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include "Scene/Actor.h"
-#include "Physics/PhysicsWorld.h"
-#include "Navigation/NavigationWorld.h"
+#include "Scene/SceneSubsystems.h"
 #include "Scene/WorldFrameScheduler.h"
 #include "Core/TaskService.h"
 
@@ -16,13 +17,6 @@
 #include <type_traits>
 #include <unordered_map>
 #include <vector>
-
-struct ComponentCreateDesc {
-    ComponentTypeID type;
-    bool enabled = true;
-    nlohmann::json data = nlohmann::json::object();
-    uint32_t version = 0;
-};
 
 struct ActorCreateDesc {
     std::string name = "Actor";
@@ -110,7 +104,7 @@ struct LightingProbeBakeSettings {
     float rgbmMaximumRange = 64.0f;
 };
 
-class Scene {
+class MYENGINE_RUNTIME_API Scene {
 public:
     explicit Scene(std::string name = "Scene");
     ~Scene();
@@ -206,10 +200,10 @@ public:
     WorldFrameScheduler& GetFrameScheduler() { return m_FrameScheduler; }
     const WorldFrameScheduler& GetFrameScheduler() const { return m_FrameScheduler; }
 
-    PhysicsWorld& GetPhysicsWorld() { return m_PhysicsWorld; }
-    const PhysicsWorld& GetPhysicsWorld() const { return m_PhysicsWorld; }
-    NavigationWorld& GetNavigationWorld() { return m_NavigationWorld; }
-    const NavigationWorld& GetNavigationWorld() const { return m_NavigationWorld; }
+    IScenePhysicsSubsystem& GetPhysicsWorld() { return *m_PhysicsWorld; }
+    const IScenePhysicsSubsystem& GetPhysicsWorld() const { return *m_PhysicsWorld; }
+    ISceneNavigationSubsystem& GetNavigationWorld() { return *m_NavigationWorld; }
+    const ISceneNavigationSubsystem& GetNavigationWorld() const { return *m_NavigationWorld; }
     void SetNavMeshAssetPath(std::string path) { m_NavMeshAssetPath = std::move(path); }
     const std::string& GetNavMeshAssetPath() const { return m_NavMeshAssetPath; }
     void SetLightingProbeAssetPath(std::string path) { m_LightingProbeAssetPath = std::move(path); }
@@ -286,8 +280,8 @@ private:
     std::vector<Slot> m_Slots;
     std::vector<PendingCreate> m_PendingCreates;
     std::vector<Command> m_Commands;
-    PhysicsWorld m_PhysicsWorld;
-    NavigationWorld m_NavigationWorld;
+    std::unique_ptr<IScenePhysicsSubsystem> m_PhysicsWorld;
+    std::unique_ptr<ISceneNavigationSubsystem> m_NavigationWorld;
     WorldFrameScheduler m_FrameScheduler;
     std::string m_NavMeshAssetPath;
     std::string m_LightingProbeAssetPath;

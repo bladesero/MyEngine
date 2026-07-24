@@ -4,7 +4,7 @@
 #include "Assets/MeshAsset.h"
 #include "Assets/MaterialAsset.h"
 #include "Core/EngineMath.h"
-#include "Animation/AnimationData.h"
+#include "Assets/AnimationData.h"
 #include <vector>
 #include <string>
 

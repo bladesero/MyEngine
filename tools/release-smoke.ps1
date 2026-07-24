@@ -183,7 +183,7 @@ try {
     if (-not $xmake) { throw "xmake was not found on PATH." }
 
     Write-Output "==> Configure and build release Player/Cooker"
-    $configureArgs = @("f", "-m", "release", ("--vulkan=" + ($(if ($Vulkan) { "y" } else { "n" }))))
+    $configureArgs = @("f", "-y", "-m", "release", ("--vulkan=" + ($(if ($Vulkan) { "y" } else { "n" }))))
     & $xmake.Source @configureArgs
     if ($LASTEXITCODE -ne 0) { throw "xmake release configure failed." }
     # Public Runtime headers define C++ layouts consumed across runtime.dll and
@@ -192,6 +192,10 @@ try {
     # Rebuild the DLL first so this release gate always validates one coherent ABI.
     & $xmake.Source build -r MyEngineRuntime
     if ($LASTEXITCODE -ne 0) { throw "release Runtime rebuild failed." }
+    & $xmake.Source build MyEngineRuntimeLinkProbe
+    if ($LASTEXITCODE -ne 0) { throw "release Runtime ABI link probe build failed." }
+    & $xmake.Source run MyEngineRuntimeLinkProbe
+    if ($LASTEXITCODE -ne 0) { throw "release Runtime ABI link probe failed." }
     # Build the runtime-linked icon generator first.  A stale tool can otherwise
     # be launched by a dependent target after runtime.dll has changed ABI.
     & $xmake.Source build MyEngineIconTool

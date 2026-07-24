@@ -67,17 +67,9 @@ Fix the local xmake install/cache, then retry:
     $output | ForEach-Object { Write-Host $_ }
 }
 
-Invoke-Step "Check RHI boundaries" {
-    & powershell -NoProfile -ExecutionPolicy Bypass -File `
-        (Join-Path $PSScriptRoot "check-rhi-boundaries.ps1")
-    if ($LASTEXITCODE -ne 0) {
-        Fail-Smoke "RHI boundary check failed."
-    }
-}
-
 if (-not $SkipBuild) {
     Invoke-Step "Configure ($Mode)" {
-        $configureArgs = @("f", "-m", $Mode, ("--vulkan=" + ($(if ($Vulkan) { "y" } else { "n" }))))
+        $configureArgs = @("f", "-y", "-m", $Mode, ("--vulkan=" + ($(if ($Vulkan) { "y" } else { "n" }))))
         & $xmake.Source @configureArgs
         if ($LASTEXITCODE -ne 0) {
             Fail-Smoke "xmake configure failed."
@@ -93,6 +85,26 @@ if (-not $SkipBuild) {
         }
         if ($LASTEXITCODE -ne 0) {
             Fail-Smoke "xmake build failed."
+        }
+    }
+}
+
+Invoke-Step "Check build architecture" {
+    & $xmake.Source build MyEngine.Architecture
+    if ($LASTEXITCODE -ne 0) {
+        Fail-Smoke "Build architecture check failed."
+    }
+}
+
+if (-not $SkipBuild) {
+    Invoke-Step "Run Runtime ABI link probe" {
+        & $xmake.Source build MyEngineRuntimeLinkProbe
+        if ($LASTEXITCODE -ne 0) {
+            Fail-Smoke "MyEngineRuntimeLinkProbe build failed."
+        }
+        & $xmake.Source run MyEngineRuntimeLinkProbe
+        if ($LASTEXITCODE -ne 0) {
+            Fail-Smoke "MyEngineRuntimeLinkProbe failed."
         }
     }
 }

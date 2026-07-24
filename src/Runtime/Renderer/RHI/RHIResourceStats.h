@@ -1,5 +1,7 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include "Renderer/RHI/RHITypes.h"
 
 #include <cstdint>
@@ -20,7 +22,7 @@ struct RHIResourceStats {
     uint64_t failedNativeDescriptorAllocations = 0;
 };
 
-class RHIResourceStatsProvider {
+class MYENGINE_RUNTIME_API RHIResourceStatsProvider {
 public:
     static RHIResourceStats GetStats();
     static void ResetPeaksAndTotals();
@@ -36,5 +38,5 @@ public:
 };
 
 uint64_t EstimateRHITextureBytes(const RHITextureDesc& desc);
-void CommitRHIResourceAccounting(const std::shared_ptr<GpuBuffer>& resource);
-void CommitRHIResourceAccounting(const std::shared_ptr<GpuTexture>& resource);
+MYENGINE_RUNTIME_API void CommitRHIResourceAccounting(const std::shared_ptr<GpuBuffer>& resource);
+MYENGINE_RUNTIME_API void CommitRHIResourceAccounting(const std::shared_ptr<GpuTexture>& resource);

@@ -1,12 +1,14 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include <array>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <string>
 
-class Sha256 {
+class MYENGINE_RUNTIME_API Sha256 {
 public:
     using Digest = std::array<uint8_t, 32>;
     void Update(const void* data, size_t size);

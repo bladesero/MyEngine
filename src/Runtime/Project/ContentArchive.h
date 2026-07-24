@@ -1,5 +1,7 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include "Core/RuntimeFileSystem.h"
 
 #include <cstdint>
@@ -15,7 +17,7 @@ struct CookedContentEntry {
     std::string hash;
 };
 
-class ContentArchive {
+class MYENGINE_RUNTIME_API ContentArchive {
 public:
     static constexpr const char* kFileName = "Content.pak";
 
@@ -28,7 +30,7 @@ public:
 
 struct CookManifest;
 
-class ContentArchiveReader {
+class MYENGINE_RUNTIME_API ContentArchiveReader {
 public:
     bool Open(const std::filesystem::path& archivePath, std::string* error = nullptr);
     bool Exists(const std::string& path) const;
@@ -58,7 +60,7 @@ private:
     uint64_t m_ContentBytes = 0;
 };
 
-class PakFileSystem final : public IReadOnlyFileSystem {
+class MYENGINE_RUNTIME_API PakFileSystem final : public IReadOnlyFileSystem {
 public:
     explicit PakFileSystem(std::shared_ptr<ContentArchiveReader> reader);
 

@@ -1,5 +1,9 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
+#include "API/RuntimeApi.h"
+
 #include "Core/EngineMath.h"
 
 #include <array>
@@ -31,9 +35,9 @@ AABB ComputeBounds(const OrientedBox& box);
 AABB ComputeBounds(const SphereShape& sphere);
 AABB ComputeBounds(const CapsuleShape& capsule);
 
-bool Collide(const OrientedBox& a, const OrientedBox& b, ContactManifold& contact);
-bool Collide(const SphereShape& a, const SphereShape& b, ContactManifold& contact);
-bool Collide(const SphereShape& sphere, const OrientedBox& box, ContactManifold& contact);
-bool Collide(const CapsuleShape& a, const CapsuleShape& b, ContactManifold& contact);
-bool Collide(const CapsuleShape& capsule, const SphereShape& sphere, ContactManifold& contact);
-bool Collide(const CapsuleShape& capsule, const OrientedBox& box, ContactManifold& contact);
+MYENGINE_RUNTIME_API bool Collide(const OrientedBox& a, const OrientedBox& b, ContactManifold& contact);
+MYENGINE_RUNTIME_API bool Collide(const SphereShape& a, const SphereShape& b, ContactManifold& contact);
+MYENGINE_RUNTIME_API bool Collide(const SphereShape& sphere, const OrientedBox& box, ContactManifold& contact);
+MYENGINE_RUNTIME_API bool Collide(const CapsuleShape& a, const CapsuleShape& b, ContactManifold& contact);
+MYENGINE_RUNTIME_API bool Collide(const CapsuleShape& capsule, const SphereShape& sphere, ContactManifold& contact);
+MYENGINE_RUNTIME_API bool Collide(const CapsuleShape& capsule, const OrientedBox& box, ContactManifold& contact);

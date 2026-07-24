@@ -1,10 +1,14 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
+#include "API/RuntimeApi.h"
+
 #include "Assets/Asset.h"
 #include "Assets/TextureAsset.h"
 #include "Assets/ShaderAsset.h"
 #include "Core/EngineMath.h"
-#include "Renderer/IRenderContext.h"
+#include "Renderer/RHI/IRenderContext.h"
 #include <nlohmann/json.hpp>
 #include <string>
 #include <unordered_map>
@@ -223,8 +227,10 @@ public:
     }
 
 private:
-    friend std::shared_ptr<MaterialAsset> LoadMaterialAssetFromFile(const std::string& path);
-    friend bool SaveMaterialAssetToFile(const MaterialAsset& material, const std::string& path);
+    friend MYENGINE_RUNTIME_API std::shared_ptr<MaterialAsset>
+    LoadMaterialAssetFromFile(const std::string& path);
+    friend MYENGINE_RUNTIME_API bool SaveMaterialAssetToFile(const MaterialAsset& material,
+                                                             const std::string& path);
 
     uint32_t m_FormatVersion = kVersion;
     bool m_LoadedFromLegacyFormat = false;
@@ -244,7 +250,7 @@ private:
 
 using MaterialHandle = AssetHandle<MaterialAsset>;
 
-std::shared_ptr<MaterialAsset> LoadMaterialAssetFromFile(const std::string& path);
-bool SaveMaterialAssetToFile(const MaterialAsset& material, const std::string& path);
+MYENGINE_RUNTIME_API std::shared_ptr<MaterialAsset> LoadMaterialAssetFromFile(const std::string& path);
+MYENGINE_RUNTIME_API bool SaveMaterialAssetToFile(const MaterialAsset& material, const std::string& path);
 void SerializeMaterialAssetForScene(const MaterialAsset& material, nlohmann::json& data);
 std::shared_ptr<MaterialAsset> LoadMaterialAssetFromScene(const nlohmann::json& data, const std::string& path);

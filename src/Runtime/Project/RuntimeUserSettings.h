@@ -1,5 +1,7 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include "Project/FormatVersions.h"
 
 #include <filesystem>
@@ -57,7 +59,7 @@ struct RuntimeUserSettings {
     UserAccessibilitySettings accessibility;
 };
 
-class RuntimeUserSettingsStore {
+class MYENGINE_RUNTIME_API RuntimeUserSettingsStore {
 public:
     static RuntimeUserSettings Defaults();
     static bool Validate(const RuntimeUserSettings& settings, std::string* error = nullptr);

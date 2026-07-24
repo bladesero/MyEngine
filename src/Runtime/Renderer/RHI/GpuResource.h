@@ -1,11 +1,13 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include <cstdint>
 
 enum class GpuResourceAccountingClass : uint8_t { None, Buffer, Texture, Descriptor };
 
 // Base class for all GPU-side opaque resources.
-struct GpuResource {
+struct MYENGINE_RUNTIME_API GpuResource {
     GpuResource() = default;
     GpuResource(const GpuResource&) = delete;
     GpuResource& operator=(const GpuResource&) = delete;

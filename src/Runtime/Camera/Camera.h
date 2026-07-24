@@ -1,5 +1,9 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
+#include "API/RuntimeApi.h"
+
 #include "../Core/EngineMath.h"
 
 // ==========================================================================
@@ -16,7 +20,7 @@
 enum class ProjectionMode { Perspective, Orthographic };
 enum class CameraMode { Orbit, Fly };
 
-class Camera {
+class MYENGINE_RUNTIME_API Camera {
 public:
     // -----------------------------------------------------------------------
     // LookAt / position

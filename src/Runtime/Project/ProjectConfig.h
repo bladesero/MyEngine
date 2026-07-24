@@ -1,5 +1,7 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include "Project/PublishTargets.h"
 #include "Project/FormatVersions.h"
 #include "Project/GraphicsDeviceProfile.h"
@@ -30,7 +32,7 @@ struct ProjectGraphicsSettings {
     bool hardwareRayTracing = false;
 };
 
-class ProjectConfig {
+class MYENGINE_RUNTIME_API ProjectConfig {
 public:
     static constexpr int kCurrentVersion = FormatVersions::Project;
     static constexpr const char* kFileName = "MyEngine.project.json";

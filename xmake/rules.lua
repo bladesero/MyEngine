@@ -21,25 +21,40 @@ function add_vulkan_loader_link()
     end
 end
 
+rule("myengine.app_icons")
+    before_build(function(target)
+        local icon_tool = target:dep("MyEngineIconTool")
+        if not icon_tool then
+            raise(target:name() .. " uses myengine.app_icons without MyEngineIconTool")
+        end
+        local app_icons = import("scripts.app_icons",
+                                 {rootdir = path.join(os.projectdir(), "xmake")})
+        app_icons.generate(icon_tool:targetfile())
+    end)
+rule_end()
+
 -- Must live in rule after_build: root xmake.lua locals use project-scope `os` (no os.cp).
 rule("copy_game_content")
     after_build(function (target)
+        local incremental_files = import("scripts.incremental_files",
+                                         {rootdir = path.join(os.projectdir(), "xmake")})
         local destdir = target:targetdir()
+        local roots = {}
         for _, name in ipairs({"Content", "EngineContent", "ProjectTemplates"}) do
             local src = path.absolute(path.join(os.projectdir(), name))
             if os.isdir(src) then
-                local dest = path.join(destdir, name)
-                if os.isdir(dest) then
-                    os.rm(dest)
-                end
-                os.cp(src, destdir)
+                table.insert(roots, {source = src, destination = name})
             end
         end
+        local manifest = path.join(destdir, ".myengine", "content.manifest")
+        incremental_files.sync_managed_directories(roots, destdir, manifest)
     end)
 rule_end()
 
 rule("copy_slang_tool")
     after_build(function (target)
+        local incremental_files = import("scripts.incremental_files",
+                                         {rootdir = path.join(os.projectdir(), "xmake")})
         local exe = is_plat("windows") and "slangc.exe" or "slangc"
         local slangc = os.getenv("MYENGINE_SLANGC")
         if not slangc or slangc == "" then
@@ -57,19 +72,21 @@ rule("copy_slang_tool")
             return
         end
         local destdir = target:targetdir()
-        os.cp(slangc, destdir)
+        incremental_files.copy_if_changed(slangc, path.join(destdir, path.filename(slangc)))
         local bindir = path.directory(slangc)
         local installdir = path.directory(bindir)
         if is_plat("windows") then
             for _, dll in ipairs(os.files(path.join(bindir, "*.dll"))) do
-                os.cp(dll, destdir)
+                incremental_files.copy_if_changed(dll, path.join(destdir, path.filename(dll)))
             end
         elseif is_plat("macosx") then
             for _, dylib in ipairs(os.files(path.join(installdir, "lib", "*.dylib"))) do
-                os.cp(dylib, destdir)
+                incremental_files.copy_if_changed(dylib,
+                                                  path.join(destdir, path.filename(dylib)))
             end
             for _, dylib in ipairs(os.files(path.join(bindir, "*.dylib"))) do
-                os.cp(dylib, destdir)
+                incremental_files.copy_if_changed(dylib,
+                                                  path.join(destdir, path.filename(dylib)))
             end
         end
     end)
@@ -77,6 +94,8 @@ rule_end()
 
 rule("copy_sdl_runtime")
     after_build(function (target)
+        local incremental_files = import("scripts.incremental_files",
+                                         {rootdir = path.join(os.projectdir(), "xmake")})
         local pkg = target:pkg("libsdl3")
         if not pkg then
             return
@@ -86,14 +105,16 @@ rule("copy_sdl_runtime")
             local bindir = path.join(pkg:installdir(), "bin")
             if os.isdir(bindir) then
                 for _, dll in ipairs(os.files(path.join(bindir, "*.dll"))) do
-                    os.cp(dll, destdir)
+                    incremental_files.copy_if_changed(
+                        dll, path.join(destdir, path.filename(dll)))
                 end
             end
         elseif is_plat("macosx") then
             local libdir = path.join(pkg:installdir(), "lib")
             if os.isdir(libdir) then
                 for _, dylib in ipairs(os.files(path.join(libdir, "libSDL3*.dylib"))) do
-                    os.cp(dylib, destdir)
+                    incremental_files.copy_if_changed(
+                        dylib, path.join(destdir, path.filename(dylib)))
                 end
             end
         end
@@ -102,6 +123,8 @@ rule_end()
 
 rule("copy_runtime_library")
     after_build(function (target)
+        local incremental_files = import("scripts.incremental_files",
+                                         {rootdir = path.join(os.projectdir(), "xmake")})
         local rt = target:dep("MyEngineRuntime")
         if not rt then
             return
@@ -114,7 +137,7 @@ rule("copy_runtime_library")
         local dest = path.join(destdir, path.filename(runtime))
         -- Same output dir as MyEngineRuntime: copying onto itself fails.
         if path.normalize(path.absolute(runtime)) ~= path.normalize(path.absolute(dest)) then
-            os.cp(runtime, destdir)
+            incremental_files.copy_if_changed(runtime, dest)
         end
     end)
 rule_end()

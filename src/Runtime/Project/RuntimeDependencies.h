@@ -1,4 +1,6 @@
 #pragma once
+
+#include "API/RuntimeApi.h"
 #include "Project/FormatVersions.h"
 
 #include <cstdint>
@@ -12,7 +14,7 @@ struct RuntimeDependencyEntry {
     uint64_t size = 0;
     std::string hash;
 };
-struct RuntimeDependencyManifest {
+struct MYENGINE_RUNTIME_API RuntimeDependencyManifest {
     static constexpr int kVersion = FormatVersions::RuntimeDependencies;
     static constexpr const char* kFileName = "RuntimeDependencies.json";
     std::vector<RuntimeDependencyEntry> files;
@@ -22,7 +24,7 @@ struct RuntimeDependencyManifest {
     static bool ValidatePackage(const std::filesystem::path& packageRoot, std::string* error = nullptr);
 };
 
-class WindowsRuntimeDependencyCollector {
+class MYENGINE_RUNTIME_API WindowsRuntimeDependencyCollector {
 public:
     static bool Collect(const std::filesystem::path& binaryDirectory, const std::filesystem::path& stagingDirectory,
                         RuntimeDependencyManifest& manifest, const std::vector<std::string>& executableNames,

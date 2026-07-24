@@ -1,5 +1,7 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include "Core/EngineMath.h"
 
 #include <cstddef>
@@ -55,7 +57,7 @@ struct WorldZoneStreamerStats {
     uint64_t actorBudgetBlockedFrames = 0;
 };
 
-class WorldZoneStreamer {
+class MYENGINE_RUNTIME_API WorldZoneStreamer {
 public:
     WorldZoneStreamer();
     ~WorldZoneStreamer();

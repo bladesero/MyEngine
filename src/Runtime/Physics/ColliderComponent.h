@@ -1,15 +1,20 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
+#include "API/RuntimeApi.h"
+
 #include "Scene/Component.h"
 
 #include <cstdint>
 
-class ColliderComponent : public Component {
+class MYENGINE_RUNTIME_API ColliderComponent : public Component {
 public:
     bool IsTrigger() const { return m_IsTrigger; }
     void SetTrigger(bool trigger) { m_IsTrigger = trigger; }
     uint32_t GetLayer() const { return m_Layer; }
     void SetLayer(uint32_t layer) { m_Layer = layer ? layer : 1u; }
+    void OnOwnerLayerChanged(uint32_t layer) override { SetLayer(layer); }
     uint32_t GetLayerMask() const { return m_LayerMask; }
     void SetLayerMask(uint32_t mask) { m_LayerMask = mask; }
 

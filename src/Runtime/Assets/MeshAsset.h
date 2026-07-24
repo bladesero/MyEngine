@@ -1,8 +1,12 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
+#include "API/RuntimeApi.h"
+
 #include "Assets/Asset.h"
 #include "Core/EngineMath.h"
-#include "Renderer/IRenderContext.h"
+#include "Renderer/RHI/IRenderContext.h"
 #include <vector>
 #include <string>
 
@@ -53,7 +57,7 @@ struct MeshColliderData {
 // --------------------------------------------------------------------------
 // MeshAsset
 // --------------------------------------------------------------------------
-class MeshAsset : public Asset {
+class MYENGINE_RUNTIME_API MeshAsset : public Asset {
 public:
     explicit MeshAsset(const std::string& path) : Asset(AssetType::Mesh, path) {}
 
@@ -76,13 +80,7 @@ public:
     const AABB& GetAABB() const { return m_AABB; }
     const std::vector<MeshLod>& GetLods() const { return m_Lods; }
     const MeshColliderData& GetColliderData() const { return m_ColliderData; }
-    const MeshLod& GetLod(size_t level) const {
-        static const MeshLod empty;
-        if (m_Lods.empty())
-            return empty;
-        const size_t clampedLevel = level < m_Lods.size() ? level : m_Lods.size() - 1;
-        return m_Lods[clampedLevel];
-    }
+    const MeshLod& GetLod(size_t level) const;
 
     bool HasIndices() const { return !m_Indices.empty(); }
     uint32_t VertexCount() const { return static_cast<uint32_t>(m_Vertices.size()); }

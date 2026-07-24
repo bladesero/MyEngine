@@ -1,5 +1,7 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include <cstdint>
 #include <filesystem>
 #include <istream>
@@ -14,7 +16,7 @@ struct FileStat {
     std::string normalizedPath;
 };
 
-class IReadOnlyFileSystem {
+class MYENGINE_RUNTIME_API IReadOnlyFileSystem {
 public:
     virtual ~IReadOnlyFileSystem() = default;
     virtual bool Exists(const std::string& path) const = 0;
@@ -38,7 +40,7 @@ public:
     std::unique_ptr<std::istream> OpenRead(const std::string& path, std::string* error = nullptr) const override;
 };
 
-class PackageRootFileSystem final : public IReadOnlyFileSystem {
+class MYENGINE_RUNTIME_API PackageRootFileSystem final : public IReadOnlyFileSystem {
 public:
     explicit PackageRootFileSystem(std::filesystem::path root);
 
@@ -55,7 +57,7 @@ private:
     std::filesystem::path m_Root;
 };
 
-class MountedFileSystem final : public IReadOnlyFileSystem {
+class MYENGINE_RUNTIME_API MountedFileSystem final : public IReadOnlyFileSystem {
 public:
     void SetProjectRoot(std::filesystem::path root);
     void AddMount(std::shared_ptr<IReadOnlyFileSystem> mount);
@@ -74,7 +76,7 @@ private:
     std::vector<std::shared_ptr<IReadOnlyFileSystem>> m_Mounts;
 };
 
-class RuntimeFileSystem {
+class MYENGINE_RUNTIME_API RuntimeFileSystem {
 public:
     static void Set(std::shared_ptr<IReadOnlyFileSystem> fileSystem);
     static std::shared_ptr<IReadOnlyFileSystem> GetShared();

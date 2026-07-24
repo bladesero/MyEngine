@@ -1,12 +1,14 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include "Core/EngineMath.h"
 #include "Scene/Component.h"
 
 #include <cstdint>
 #include <string>
 
-class ReflectionProbeComponent final : public Component {
+class MYENGINE_RUNTIME_API ReflectionProbeComponent final : public Component {
 public:
     ReflectionProbeComponent();
 
@@ -42,7 +44,7 @@ private:
     uint32_t m_LayerMask = ~uint32_t{0};
 };
 
-class SHProbeVolumeComponent final : public Component {
+class MYENGINE_RUNTIME_API SHProbeVolumeComponent final : public Component {
 public:
     SHProbeVolumeComponent();
 

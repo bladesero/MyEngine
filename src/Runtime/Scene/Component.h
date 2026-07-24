@@ -1,8 +1,10 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include <string>
 #include <nlohmann/json.hpp>
-#include "Physics/CollisionEvent.h"
+#include "Scene/CollisionEvent.h"
 
 // Forward declaration
 class Actor;
@@ -17,7 +19,7 @@ struct AnimationEventData {
 // 挂载到 Actor 后，生命周期由 Actor 管理。
 // ==========================================================================
 
-class Component {
+class MYENGINE_RUNTIME_API Component {
 public:
     virtual ~Component() = default;
 
@@ -32,6 +34,7 @@ public:
     virtual void OnLateUpdate(float deltaSeconds) { (void)deltaSeconds; }
     virtual void OnCollisionEvent(const CollisionEvent& event) { (void)event; }
     virtual void OnAnimationEvent(const AnimationEventData& event) { (void)event; }
+    virtual void OnOwnerLayerChanged(uint32_t layer) { (void)layer; }
     virtual void OnDisable() {}
     virtual void OnEndPlay() {}
     virtual void OnDetach() {}

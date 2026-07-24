@@ -1,5 +1,7 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include <filesystem>
 #include <string>
 
@@ -8,7 +10,7 @@ struct CookedProjectMount {
     bool rebuilt = false;
 };
 
-class CookedProjectCache {
+class MYENGINE_RUNTIME_API CookedProjectCache {
 public:
     static std::filesystem::path DefaultRoot();
 

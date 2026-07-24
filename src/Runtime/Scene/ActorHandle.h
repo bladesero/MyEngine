@@ -1,8 +1,9 @@
 #pragma once
 
+#include "Assets/SceneData.h"
+
 #include <cstdint>
 #include <limits>
-#include <string>
 
 struct ActorHandle {
     static constexpr uint32_t InvalidIndex = (std::numeric_limits<uint32_t>::max)();
@@ -19,8 +20,6 @@ struct ActorHandle {
     friend bool operator==(ActorHandle a, ActorHandle b) { return a.index == b.index && a.generation == b.generation; }
     friend bool operator!=(ActorHandle a, ActorHandle b) { return !(a == b); }
 };
-
-using ComponentTypeID = std::string;
 
 struct ComponentHandle {
     ActorHandle actor;

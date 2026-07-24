@@ -1,5 +1,7 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include <atomic>
 #include <cstdint>
 #include <functional>
@@ -27,7 +29,7 @@ struct ProbeBakeResult {
     std::string error;
 };
 
-class ProbeBakeRenderer {
+class MYENGINE_RUNTIME_API ProbeBakeRenderer {
 public:
     using ProgressCallback = std::function<void(const ProbeBakeProgress&)>;
 

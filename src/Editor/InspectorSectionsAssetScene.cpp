@@ -77,7 +77,7 @@ public:
         }
         ImGui::Separator();
         ImGui::TextUnformatted("Navigation");
-        const NavigationWorld& navigation = scene->GetNavigationWorld();
+        const ISceneNavigationSubsystem& navigation = scene->GetNavigationWorld();
         ImGui::Text("Status: %s", navigation.IsBaked() ? "Baked" : "Not baked");
         if (navigation.IsBaked()) {
             ImGui::Text("Grid: %u x %u", navigation.GetWidth(), navigation.GetHeight());

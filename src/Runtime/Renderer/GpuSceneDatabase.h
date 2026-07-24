@@ -1,5 +1,7 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include "Assets/MaterialAsset.h"
 #include "Assets/TextureAsset.h"
 #include "Core/EngineMath.h"
@@ -165,7 +167,7 @@ struct GpuSceneDatabaseStats {
     bool lightBudgetExceeded = false;
 };
 
-class GpuSceneDatabase {
+class MYENGINE_RUNTIME_API GpuSceneDatabase {
 public:
     static constexpr uint32_t kMaxCandidateObjects = 65536;
     static constexpr uint32_t kMaxLocalLights = 4096;

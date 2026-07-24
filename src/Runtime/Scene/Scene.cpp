@@ -3,7 +3,6 @@
 #include "Assets/AssetManager.h"
 #include "Core/Logger.h"
 #include "Core/Memory/MemoryService.h"
-#include "Physics/ColliderComponent.h"
 #include "Scene/ComponentRegistry.h"
 #include "Scene/TypeRegistry.h"
 #include "Scene/WorldZoneStreamer.h"
@@ -19,8 +18,11 @@ std::atomic<uint64_t> g_NextZoneLifetimeGeneration{1};
 }
 
 Scene::Scene(std::string name)
-    : m_Name(std::move(name)), m_Lifetime(std::make_shared<SceneLifetimeState>()),
+    : m_Name(std::move(name)), m_PhysicsWorld(CreateScenePhysicsSubsystem()),
+      m_NavigationWorld(CreateSceneNavigationSubsystem()), m_Lifetime(std::make_shared<SceneLifetimeState>()),
       m_ZoneStreamer(std::make_unique<WorldZoneStreamer>()) {
+    if (!m_PhysicsWorld || !m_NavigationWorld)
+        throw std::logic_error("Runtime scene subsystems were not attached by the composition root");
     m_Lifetime->generation = g_NextSceneLifetimeGeneration.fetch_add(1, std::memory_order_relaxed);
 }
 Scene::~Scene() {
@@ -132,9 +134,7 @@ namespace {
 void ApplyActorLayer(Actor& actor, uint32_t layer) {
     actor.SetLayer(layer);
     actor.ForEachComponent([&](Component& component) {
-        if (auto* collider = dynamic_cast<ColliderComponent*>(&component)) {
-            collider->SetLayer(layer);
-        }
+        component.OnOwnerLayerChanged(layer);
     });
 }
 } // namespace
@@ -653,8 +653,8 @@ void Scene::Clear() {
     if (m_ZoneStreamer)
         m_ZoneStreamer->Reset(*this);
     DestroyAllZones();
-    m_PhysicsWorld.Clear();
-    m_NavigationWorld.Clear();
+    m_PhysicsWorld->Clear();
+    m_NavigationWorld->Clear();
     m_NavMeshAssetPath.clear();
     m_LightingProbeAssetPath.clear();
     m_LightingProbeBakeSettings = {};

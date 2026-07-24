@@ -1,5 +1,7 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include <cstdint>
 
 struct RuntimeQualityDegradationState {
@@ -9,7 +11,7 @@ struct RuntimeQualityDegradationState {
     uint64_t healthyFrames = 0;
 };
 
-class RuntimeQualityDegradation {
+class MYENGINE_RUNTIME_API RuntimeQualityDegradation {
 public:
     static RuntimeQualityDegradationState Get();
     static void SetLevel(uint32_t level);

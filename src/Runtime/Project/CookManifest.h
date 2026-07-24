@@ -1,5 +1,7 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include "Project/ContentArchive.h"
 #include "Project/PublishTargets.h"
 #include "Project/FormatVersions.h"
@@ -10,7 +12,7 @@
 #include <string>
 #include <vector>
 
-struct CookManifest {
+struct MYENGINE_RUNTIME_API CookManifest {
     static constexpr int kCurrentVersion = FormatVersions::CookManifest;
     static constexpr const char* kFileName = "CookManifest.json";
 

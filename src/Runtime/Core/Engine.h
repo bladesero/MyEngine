@@ -1,5 +1,7 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include "Event.h"
 #include "LayerStack.h"
 #include "PlatformEventBridge.h"
@@ -20,7 +22,7 @@ struct EngineConfig {
     float autoQuitAfterSeconds = -1.0f; // negative = run forever
 };
 
-class Engine {
+class MYENGINE_RUNTIME_API Engine {
 public:
     explicit Engine(EngineConfig config);
 

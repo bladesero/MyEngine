@@ -1,5 +1,7 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include <functional>
 #include <memory>
 #include <string>
@@ -8,7 +10,7 @@
 class Actor;
 class Component;
 
-class ComponentRegistry {
+class MYENGINE_RUNTIME_API ComponentRegistry {
 public:
     using Factory = std::function<std::unique_ptr<Component>()>;
 

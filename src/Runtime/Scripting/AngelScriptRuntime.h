@@ -1,5 +1,9 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
+#include "API/RuntimeApi.h"
+
 #include "Physics/CollisionEvent.h"
 #include "Scripting/ScriptReflection.h"
 
@@ -12,7 +16,7 @@ class ScriptComponent;
 class UIEventBridge;
 class UISystem;
 
-class AngelScriptRuntime {
+class MYENGINE_RUNTIME_API AngelScriptRuntime {
 public:
     explicit AngelScriptRuntime(ScriptComponent& component);
     ~AngelScriptRuntime();

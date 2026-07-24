@@ -23,6 +23,7 @@
 #include "Game/GameFlowController.h"
 #include "Project/SaveGame.h"
 #include "Navigation/NavAgentComponent.h"
+#include "Navigation/NavigationWorld.h"
 #include "Assets/NavMeshAsset.h"
 #include "Game/DefaultSceneFactory.h"
 #include "Game/GameViewport.h"
@@ -50,6 +51,7 @@
 #include "Scene/TypeRegistry.h"
 #include "Scene/WorldFrameScheduler.h"
 #include "Scene/WorldZoneStreamer.h"
+#include "RuntimeModule/RuntimeModule.h"
 #include "Scripting/ScriptComponent.h"
 #include "Assets/ScriptAsset.h"
 #include "Renderer/Renderer.h"
@@ -57,6 +59,7 @@
 #include "Renderer/RenderGraph.h"
 #include "Renderer/GpuUploadQueue.h"
 #include "Renderer/RHI/RHIResourceStats.h"
+#include "Renderer/RHI/PlatformShaderCompiler.h"
 #include "Renderer/LightComponent.h"
 #include "Renderer/PostProcessComponent.h"
 #include "Renderer/ParticleSystemComponent.h"
@@ -1463,6 +1466,30 @@ bool TestComponentRegistry() {
     return Check(!actor->HasComponentType("Script"), "actor type-name component remove left component behind");
 }
 
+bool TestRuntimeModuleBootstrapIsIdempotent() {
+    InitializeMyEngineRuntimeModules();
+    InitializeMyEngineRuntimeModules();
+    if (!Check(GetMyEngineRuntimeInitializationCount() == 1,
+               "Runtime composition root initialized more than once"))
+        return false;
+    if (!Check(HasScenePhysicsSubsystemFactory() && HasSceneNavigationSubsystemFactory(),
+               "Runtime composition root did not attach Scene subsystem factories"))
+        return false;
+#if defined(MYENGINE_PLATFORM_WINDOWS)
+    if (!Check(HasD3DShaderStageCompiler(),
+               "Runtime composition root did not register the D3D shader compiler"))
+        return false;
+#endif
+
+    Scene scene("Bootstrap");
+    scene.GetPhysicsWorld().SetGravity({0.0f, -3.0f, 0.0f});
+    if (!Check(NearlyEqual(scene.GetPhysicsWorld().GetGravity().y, -3.0f),
+               "direct Scene construction did not receive Physics service"))
+        return false;
+    return Check(!scene.GetNavigationWorld().IsBaked(),
+                 "direct Scene construction did not receive a clean Navigation service");
+}
+
 bool TestSceneRunStates() {
     SceneLayer layer("RunStateTest");
     Scene* editorScene = &layer.GetEditorScene();
@@ -2658,12 +2685,16 @@ bool TestNavigationPerceptionAndEnemyStateMachine() {
         return false;
     const std::filesystem::path navPath = std::filesystem::temp_directory_path() / "myengine_navigation_test.navmesh";
     NavMeshAsset baked(navPath.string());
-    baked.Capture(scene.GetNavigationWorld());
+    baked.SetBakedData(scene.GetNavigationWorld().GetSettings(), scene.GetNavigationWorld().GetWidth(),
+                       scene.GetNavigationWorld().GetHeight(), scene.GetNavigationWorld().GetCells());
     if (!Check(SaveNavMeshAssetToFile(baked, navPath.string()), "navmesh asset save failed"))
         return false;
     auto loadedNav = LoadNavMeshAssetFromFile(navPath.string());
     NavigationWorld restored;
-    if (!Check(loadedNav && loadedNav->Apply(restored) && restored.FindPath({-4, 0, 0}, {4, 0, 0}, path),
+    if (!Check(loadedNav &&
+                   restored.SetBakedData(loadedNav->GetSettings(), loadedNav->GetWidth(), loadedNav->GetHeight(),
+                                         loadedNav->GetCells()) &&
+                   restored.FindPath({-4, 0, 0}, {4, 0, 0}, path),
                "navmesh asset round-trip failed")) {
         std::filesystem::remove(navPath);
         return false;
@@ -7212,6 +7243,7 @@ MYENGINE_REGISTER_TEST("Gameplay", "TestSceneManagerAndVersionedSaveGame", TestS
 MYENGINE_REGISTER_TEST("Gameplay", "TestThirdPersonAdventureTemplateCompilesAndRuns",
                        TestThirdPersonAdventureTemplateCompilesAndRuns);
 MYENGINE_REGISTER_TEST("Scene", "TestComponentRegistry", TestComponentRegistry);
+MYENGINE_REGISTER_TEST("Core", "TestRuntimeModuleBootstrapIsIdempotent", TestRuntimeModuleBootstrapIsIdempotent);
 MYENGINE_REGISTER_TEST("Scene", "TestTypeRegistryMetadataAndWorldScheduler", TestTypeRegistryMetadataAndWorldScheduler);
 MYENGINE_REGISTER_TEST("Scene", "TestCameraComponentAndGameViewport", TestCameraComponentAndGameViewport);
 MYENGINE_REGISTER_TEST("Scene", "TestAudioSourceComponentSerialization", TestAudioSourceComponentSerialization);

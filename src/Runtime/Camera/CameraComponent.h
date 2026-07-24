@@ -1,12 +1,16 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
+#include "API/RuntimeApi.h"
+
 #include "Core/EngineMath.h"
 #include "Scene/Component.h"
 
 class Actor;
 class Camera;
 
-class CameraComponent final : public Component {
+class MYENGINE_RUNTIME_API CameraComponent final : public Component {
 public:
     const char* GetTypeName() const override { return "Camera"; }
 

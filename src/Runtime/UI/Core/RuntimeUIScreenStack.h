@@ -1,5 +1,7 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include "Core/Event.h"
 
 #include <cstddef>
@@ -38,7 +40,7 @@ struct RuntimeUIStackEvent {
     std::string action;
 };
 
-class RuntimeUIScreenStack {
+class MYENGINE_RUNTIME_API RuntimeUIScreenStack {
 public:
     bool Register(RuntimeUIScreenDescriptor descriptor, std::string* error = nullptr);
     bool SetActionLabel(const std::string& screen, const std::string& action, std::string label);

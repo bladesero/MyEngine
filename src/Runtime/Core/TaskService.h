@@ -1,5 +1,7 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include <array>
 #include <atomic>
 #include <condition_variable>
@@ -93,7 +95,7 @@ template <> inline void TaskHandle<void>::Get() const {
     m_State->future.get();
 }
 
-class TaskScope {
+class MYENGINE_RUNTIME_API TaskScope {
 public:
     TaskScope() = default;
     ~TaskScope();
@@ -121,7 +123,7 @@ struct TaskServiceStats {
     size_t workers = 0;
 };
 
-class TaskService {
+class MYENGINE_RUNTIME_API TaskService {
 public:
     explicit TaskService(size_t workerCount = 0);
     ~TaskService();

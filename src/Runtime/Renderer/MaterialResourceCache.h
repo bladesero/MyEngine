@@ -1,5 +1,7 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include "Renderer/RHI/GpuSampler.h"
 #include "Renderer/RHI/GpuTexture.h"
 #include "Renderer/RHI/GpuTextureView.h"
@@ -44,7 +46,7 @@ using GpuMeshEvictionRecord = GpuTextureEvictionRecord;
 using GpuMeshEvictionBlocker = GpuTextureEvictionBlocker;
 using GpuMeshGarbageCollectionReport = GpuTextureGarbageCollectionReport;
 
-class MaterialResourceCache {
+class MYENGINE_RUNTIME_API MaterialResourceCache {
 public:
     explicit MaterialResourceCache(IRHIDevice* device = nullptr);
     ~MaterialResourceCache();

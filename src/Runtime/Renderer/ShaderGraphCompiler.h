@@ -1,5 +1,7 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include "Assets/ShaderGraph.h"
 
 #include <string>
@@ -20,9 +22,9 @@ struct ShaderGraphCompileResult {
 };
 
 namespace ShaderGraphCompiler {
-bool Validate(const ShaderGraph& graph, const std::vector<ShaderPropertyDesc>& properties,
+MYENGINE_RUNTIME_API bool Validate(const ShaderGraph& graph, const std::vector<ShaderPropertyDesc>& properties,
               std::vector<ShaderGraphDiagnostic>& diagnostics);
-ShaderGraphCompileResult Compile(const ShaderGraphCompileRequest& request);
-std::string BuildCanonicalKey(const ShaderGraph& graph, const std::vector<ShaderPropertyDesc>& properties,
+MYENGINE_RUNTIME_API ShaderGraphCompileResult Compile(const ShaderGraphCompileRequest& request);
+MYENGINE_RUNTIME_API std::string BuildCanonicalKey(const ShaderGraph& graph, const std::vector<ShaderPropertyDesc>& properties,
                               ShaderShadingModel shadingModel, ShaderSurfaceType surfaceType);
 } // namespace ShaderGraphCompiler

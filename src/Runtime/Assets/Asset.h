@@ -1,5 +1,9 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
+#include "API/RuntimeApi.h"
+
 #include <string>
 #include <cstdint>
 #include <memory>
@@ -101,7 +105,7 @@ enum class AssetState : uint8_t {
 // --------------------------------------------------------------------------
 // Asset  –  基类
 // --------------------------------------------------------------------------
-class Asset {
+class MYENGINE_RUNTIME_API Asset {
 public:
     virtual ~Asset() = default;
 

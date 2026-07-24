@@ -1,5 +1,9 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
+#include "API/RuntimeApi.h"
+
 #include "Assets/Asset.h"
 #include "Core/EngineMath.h"
 
@@ -28,7 +32,7 @@ struct BakedSHProbeVolume {
 
 using SHCoefficient = std::array<float, 4>;
 
-class LightingProbeAsset final : public Asset {
+class MYENGINE_RUNTIME_API LightingProbeAsset final : public Asset {
 public:
     static constexpr uint32_t CurrentVersion = 1;
     static constexpr uint32_t SHCoefficientCount = 9;
@@ -67,14 +71,15 @@ private:
     std::vector<uint8_t> m_ReflectionPixels;
     std::vector<SHCoefficient> m_SHCoefficients;
 
-    friend std::shared_ptr<LightingProbeAsset> LoadLightingProbeAssetFromFile(const std::string& path);
+    friend MYENGINE_RUNTIME_API std::shared_ptr<LightingProbeAsset>
+    LoadLightingProbeAssetFromFile(const std::string& path);
 };
 
 using LightingProbeHandle = AssetHandle<LightingProbeAsset>;
 
-std::shared_ptr<LightingProbeAsset> LoadLightingProbeAssetFromFile(const std::string& path);
-bool SaveLightingProbeAssetToFile(const LightingProbeAsset& asset, const std::string& path,
+MYENGINE_RUNTIME_API std::shared_ptr<LightingProbeAsset> LoadLightingProbeAssetFromFile(const std::string& path);
+MYENGINE_RUNTIME_API bool SaveLightingProbeAssetToFile(const LightingProbeAsset& asset, const std::string& path,
                                   std::string* error = nullptr);
 
-uint16_t LightingProbeFloatToHalf(float value);
-float LightingProbeHalfToFloat(uint16_t value);
+MYENGINE_RUNTIME_API uint16_t LightingProbeFloatToHalf(float value);
+MYENGINE_RUNTIME_API float LightingProbeHalfToFloat(uint16_t value);

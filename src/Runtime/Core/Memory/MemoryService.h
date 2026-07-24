@@ -1,5 +1,7 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include "AllocTag.h"
 #include "GeneralHeapAllocator.h"
 #include "LinearAllocator.h"
@@ -9,7 +11,7 @@
 #include <cstdint>
 
 // Central memory entry: general heap (ME_*), per-frame linear arena, (optional) pools live in subsystems.
-class MemoryService {
+class MYENGINE_RUNTIME_API MemoryService {
 public:
     static MemoryService& Get();
 

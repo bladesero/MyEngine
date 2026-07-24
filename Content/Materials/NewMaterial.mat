@@ -26,6 +26,7 @@
     },
     "textures": {}
   },
+  "shader": "Content/Engine/Shaders/Mesh.shader",
   "surface": {
     "alphaThreshold": 0.5,
     "blendMode": "Opaque",

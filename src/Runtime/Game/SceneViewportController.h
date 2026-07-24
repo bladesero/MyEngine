@@ -1,5 +1,9 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
+#include "API/RuntimeApi.h"
+
 #include "Game/RenderViewport.h"
 
 class IRHIDevice;
@@ -8,7 +12,7 @@ class IRHIReadbackService;
 
 enum class SceneViewDirection { Front, Back, Left, Right, Top, Bottom };
 
-class SceneViewport : public RenderViewport {
+class MYENGINE_RUNTIME_API SceneViewport : public RenderViewport {
 public:
     SceneViewport(IRHIDevice* device, IRHIFrameContext* frameContext, IRHIReadbackService* readbackService);
 

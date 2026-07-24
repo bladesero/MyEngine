@@ -1,5 +1,7 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include "DebugDraw/DebugDrawCommand.h"
 #include "Renderer/RHI/IRHIDevice.h"
 #include "Renderer/RHI/IRHIFrameContext.h"
@@ -49,7 +51,7 @@ enum class RendererDebugView : uint8_t {
 //  - Uses row-major, left-handed math (Mat4, Camera) and MeshShader.h
 // ============================================================================
 
-class Renderer {
+class MYENGINE_RUNTIME_API Renderer {
 public:
     Renderer(IRHIDevice* device, IRHIFrameContext* frameContext, IRHIReadbackService* readbackService);
     ~Renderer();

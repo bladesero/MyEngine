@@ -1,10 +1,14 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
+#include "API/RuntimeApi.h"
+
 #include "Audio/AudioClipAsset.h"
 #include "Audio/AudioEngine.h"
 #include "Scene/Component.h"
 
-class AudioSourceComponent final : public Component {
+class MYENGINE_RUNTIME_API AudioSourceComponent final : public Component {
 public:
     const char* GetTypeName() const override { return "AudioSource"; }
 

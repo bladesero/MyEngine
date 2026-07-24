@@ -1,5 +1,9 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
+#include "API/RuntimeApi.h"
+
 #include "Math/Vector2.h"
 #include "Project/FormatVersions.h"
 
@@ -48,7 +52,7 @@ struct InputBindingConflict {
     InputBindingPart part = InputBindingPart::Source;
 };
 
-class InputActionMap {
+class MYENGINE_RUNTIME_API InputActionMap {
 public:
     static constexpr int kCurrentVersion = FormatVersions::InputActionMap;
     static constexpr const char* kDefaultProjectPath = "Content/Config/Input.input.json";

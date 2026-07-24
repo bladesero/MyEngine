@@ -1,5 +1,9 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
+#include "API/RuntimeApi.h"
+
 #include "Scene/Component.h"
 #include "Scripting/AngelScriptRuntime.h"
 #include "Scripting/ScriptDiagnostics.h"
@@ -9,7 +13,7 @@
 #include <string>
 #include <vector>
 
-class ScriptComponent final : public Component {
+class MYENGINE_RUNTIME_API ScriptComponent final : public Component {
 public:
     ScriptComponent();
     ~ScriptComponent() override;

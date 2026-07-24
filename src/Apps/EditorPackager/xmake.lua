@@ -1,0 +1,8 @@
+target("MyEngineEditorPackager")
+    set_kind("binary")
+    add_rules("myengine.module")
+    set_values("myengine.module.root", os.scriptdir())
+    set_values("myengine.architecture.role", "app")
+    add_deps("MyEngine.Runtime.API", "MyEngineRuntime")
+    set_rundir("$(projectdir)")
+target_end()

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include "Assets/Asset.h"
 #include "Assets/ShaderGraph.h"
 
@@ -47,7 +49,7 @@ struct ShaderStageSource {
     std::string entry;
 };
 
-class ShaderAsset final : public Asset {
+class MYENGINE_RUNTIME_API ShaderAsset final : public Asset {
 public:
     static constexpr uint32_t kDescriptionVersion = 2;
     static constexpr uint32_t kLegacyDescriptionVersion = 1;
@@ -148,5 +150,5 @@ private:
 
 using ShaderAssetHandle = AssetHandle<ShaderAsset>;
 
-std::shared_ptr<ShaderAsset> LoadShaderAssetFromFile(const std::string& path);
-bool SaveCookedShaderAsset(const ShaderAsset& shader, const std::filesystem::path& path, std::string* error = nullptr);
+MYENGINE_RUNTIME_API std::shared_ptr<ShaderAsset> LoadShaderAssetFromFile(const std::string& path);
+MYENGINE_RUNTIME_API bool SaveCookedShaderAsset(const ShaderAsset& shader, const std::filesystem::path& path, std::string* error = nullptr);

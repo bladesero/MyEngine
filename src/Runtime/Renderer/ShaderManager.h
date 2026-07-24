@@ -1,5 +1,7 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include "Assets/ShaderAsset.h"
 #include "Renderer/RHI/IRHIDevice.h"
 #include "Renderer/ShaderCacheService.h"
@@ -18,7 +20,7 @@ struct ShaderHandle {
 
 enum class ShaderPrewarmStatus { Ready, Pending, Failed };
 
-class ShaderManager {
+class MYENGINE_RUNTIME_API ShaderManager {
 public:
     static ShaderManager& Get();
     void SetDevice(IRHIDevice* device) { m_Device = device; }

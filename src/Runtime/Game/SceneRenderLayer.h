@@ -1,5 +1,9 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
+#include "API/RuntimeApi.h"
+
 #include "Game/SceneLayer.h"
 #include "Game/GameViewport.h"
 #include "Game/SceneViewportController.h"
@@ -12,7 +16,7 @@
 
 struct GpuTextureView;
 
-class SceneRenderLayer : public SceneLayer {
+class MYENGINE_RUNTIME_API SceneRenderLayer : public SceneLayer {
 public:
     SceneRenderLayer(IRenderContext* context, int viewportWidth, int viewportHeight);
 

@@ -1,9 +1,11 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include "Layer.h"
 #include <vector>
 
-class LayerStack {
+class MYENGINE_RUNTIME_API LayerStack {
 public:
     ~LayerStack();
 

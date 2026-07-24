@@ -1965,9 +1965,17 @@ bool TestShaderCacheBatchStopsAfterCompilerTimeout() {
     _putenv_s("MYENGINE_SLANG_TIMEOUT_MS", hadTimeout ? previousTimeout.c_str() : "");
     ShaderCacheService::Get().ClearResolver();
     fs::remove_all(root, ec);
+    const std::string failureDetail =
+        "shader cache batch continued compiling after timeout or truncated ordinary diagnostics"
+        " (results=" +
+        std::to_string(timedOut.size()) + ", timeouts=" + std::to_string(timeoutCount) +
+        ", cancelled=" + std::to_string(cancelledCount) +
+        ", invocations=" + std::to_string(slowInvocationCount) +
+        ", elapsedMs=" + std::to_string(timeoutElapsedMs) +
+        ", ordinaryDiagnostics=" + (ordinaryDiagnosticsPreserved ? "true" : "false") + ")";
     return Check(timedOut.size() == kRequestCount && timeoutCount == 1 && slowInvocationCount == 1 &&
                      cancelledCount == kRequestCount - 1 && timeoutElapsedMs < 3000.0 && ordinaryDiagnosticsPreserved,
-                 "shader cache batch continued compiling after timeout or truncated ordinary diagnostics");
+                 failureDetail);
 #endif
 }
 

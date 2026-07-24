@@ -1,5 +1,7 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include "Scene/Scene.h"
 #include <nlohmann/json.hpp>
 #include <string>
@@ -46,7 +48,7 @@ struct SceneInstantiationState {
 //   子类可重写 Serialize/Deserialize 提供具体字段；基类默认写空 data。
 // ==========================================================================
 
-class SceneSerializer {
+class MYENGINE_RUNTIME_API SceneSerializer {
 public:
     // 将 scene 保存为 JSON 到指定文件路径，失败返回 false
     static bool SaveToFile(const Scene& scene, const std::string& filepath);

@@ -1,12 +1,14 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include "Core/RuntimePerformanceBudget.h"
 #include "Project/FormatVersions.h"
 
 #include <nlohmann/json_fwd.hpp>
 #include <string>
 
-struct RuntimePerformanceProfile {
+struct MYENGINE_RUNTIME_API RuntimePerformanceProfile {
     static constexpr uint32_t CurrentVersion = FormatVersions::RuntimePerformanceProfile;
 
     uint32_t version = CurrentVersion;

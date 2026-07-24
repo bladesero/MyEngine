@@ -3,8 +3,9 @@
 #include "Core/Sha256.h"
 #include "Core/TransactionalFileWriter.h"
 #include "Project/JsonMigrationRegistry.h"
-#include "Renderer/RenderBackendRegistry.h"
 
+#include <algorithm>
+#include <cctype>
 #include <fstream>
 #include <nlohmann/json.hpp>
 #include <system_error>
@@ -26,7 +27,12 @@ bool ProjectConfig::IsWithin(const fs::path& path, const fs::path& parent) {
 }
 
 bool ProjectConfig::IsSupportedGraphicsBackend(std::string_view backend) {
-    return ParseRenderBackend(backend).has_value();
+    std::string normalized(backend);
+    std::transform(normalized.begin(), normalized.end(), normalized.begin(),
+                   [](unsigned char value) { return static_cast<char>(std::tolower(value)); });
+    return normalized == "d3d11" || normalized == "directx11" || normalized == "dx11" || normalized == "11" ||
+           normalized == "d3d12" || normalized == "directx12" || normalized == "dx12" || normalized == "12" ||
+           normalized == "metal" || normalized == "mtl" || normalized == "vulkan" || normalized == "vk";
 }
 
 bool ProjectConfig::IsSupportedRenderPath(std::string_view renderPath) {

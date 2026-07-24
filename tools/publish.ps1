@@ -2,6 +2,7 @@ param(
     [string]$Project = (Resolve-Path (Join-Path $PSScriptRoot "..")),
     [ValidateSet("debug", "release")]
     [string]$Mode = "release",
+    [switch]$Vulkan,
     [string]$SignTool = "",
     [string[]]$SignArguments = @()
 )
@@ -16,7 +17,8 @@ if (-not $xmake) {
     throw "xmake was not found on PATH."
 }
 
-& $xmake.Source f -m $Mode
+$vulkanOption = if ($Vulkan) { "--vulkan=y" } else { "--vulkan=n" }
+& $xmake.Source f -y -m $Mode $vulkanOption
 if ($LASTEXITCODE -ne 0) { throw "xmake configure failed." }
 
 & $xmake.Source build MyEnginePlayer

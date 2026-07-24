@@ -1,5 +1,7 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -89,7 +91,7 @@ struct RuntimeResourceFrameStats {
     bool transientPressure = false;
 };
 
-class FrameStatsProvider {
+class MYENGINE_RUNTIME_API FrameStatsProvider {
 public:
     static RendererFrameStats GetRendererStats();
     static void SetRendererStats(const RendererFrameStats& stats);

@@ -1388,10 +1388,10 @@ bool TestModernEnvironmentLightingMatchesClassicContract() {
     }
 
     const std::string d3d12 = CompactSource(ReadRepositoryTextFile({
-        "src/Runtime/Renderer/D3D12Context.cpp",
-        "../../../src/Runtime/Renderer/D3D12Context.cpp",
-        "../../../../src/Runtime/Renderer/D3D12Context.cpp",
-        "../../../../../src/Runtime/Renderer/D3D12Context.cpp",
+        "src/Runtime/Renderer/Backends/D3D12/D3D12Context.cpp",
+        "../../../src/Runtime/Renderer/Backends/D3D12/D3D12Context.cpp",
+        "../../../../src/Runtime/Renderer/Backends/D3D12/D3D12Context.cpp",
+        "../../../../../src/Runtime/Renderer/Backends/D3D12/D3D12Context.cpp",
     }));
     const size_t uploadTexture = d3d12.find("std::shared_ptr<GpuTexture>D3D12Context::UploadTexture(");
     const size_t capabilities = d3d12.find("RHIDeviceCapabilitiesD3D12Context::GetCapabilities()", uploadTexture);
@@ -1559,10 +1559,10 @@ bool TestPersistentNativePipelineCacheContracts() {
     return true;
 #else
     const std::string d3d12 = CompactSource(ReadRepositoryTextFile({
-        "src/Runtime/Renderer/D3D12Context.cpp",
-        "../../../src/Runtime/Renderer/D3D12Context.cpp",
-        "../../../../src/Runtime/Renderer/D3D12Context.cpp",
-        "../../../../../src/Runtime/Renderer/D3D12Context.cpp",
+        "src/Runtime/Renderer/Backends/D3D12/D3D12Context.cpp",
+        "../../../src/Runtime/Renderer/Backends/D3D12/D3D12Context.cpp",
+        "../../../../src/Runtime/Renderer/Backends/D3D12/D3D12Context.cpp",
+        "../../../../../src/Runtime/Renderer/Backends/D3D12/D3D12Context.cpp",
     }));
     if (!Check(d3d12.find("sh->rootSignature=m_IndirectObjectRootSignature") != std::string::npos &&
                    d3d12.find("shader->computeRootSignature=m_ComputeRootSignature") != std::string::npos,
@@ -1580,10 +1580,10 @@ bool TestPersistentNativePipelineCacheContracts() {
     }
 
     const std::string vulkan = CompactSource(ReadRepositoryTextFile({
-        "src/Runtime/Renderer/VulkanContext.cpp",
-        "../../../src/Runtime/Renderer/VulkanContext.cpp",
-        "../../../../src/Runtime/Renderer/VulkanContext.cpp",
-        "../../../../../src/Runtime/Renderer/VulkanContext.cpp",
+        "src/Runtime/Renderer/Backends/Vulkan/VulkanContext.cpp",
+        "../../../src/Runtime/Renderer/Backends/Vulkan/VulkanContext.cpp",
+        "../../../../src/Runtime/Renderer/Backends/Vulkan/VulkanContext.cpp",
+        "../../../../../src/Runtime/Renderer/Backends/Vulkan/VulkanContext.cpp",
     }));
     return Check(
         vulkan.find("vkCreatePipelineCache") != std::string::npos &&
@@ -1600,10 +1600,10 @@ bool TestD3D12DebugEventUsesAnsiMetadata() {
     return true;
 #else
     const std::string d3d12 = CompactSource(ReadRepositoryTextFile({
-        "src/Runtime/Renderer/D3D12Context.cpp",
-        "../../../src/Runtime/Renderer/D3D12Context.cpp",
-        "../../../../src/Runtime/Renderer/D3D12Context.cpp",
-        "../../../../../src/Runtime/Renderer/D3D12Context.cpp",
+        "src/Runtime/Renderer/Backends/D3D12/D3D12Context.cpp",
+        "../../../src/Runtime/Renderer/Backends/D3D12/D3D12Context.cpp",
+        "../../../../src/Runtime/Renderer/Backends/D3D12/D3D12Context.cpp",
+        "../../../../../src/Runtime/Renderer/Backends/D3D12/D3D12Context.cpp",
     }));
     return Check(d3d12.find("constexprUINTkPixEventAnsiVersion=1") != std::string::npos &&
                      d3d12.find("BeginEvent(kPixEventAnsiVersion,name,") != std::string::npos &&
@@ -2621,10 +2621,10 @@ bool TestSlangReflectionPreservesSamplerStateBindings() {
 
 bool TestVulkanStructuredBufferAndScreenUIBindingContracts() {
     const std::array<const char*, 4> vulkanCandidates = {
-        "src/Runtime/Renderer/VulkanContext.cpp",
-        "../../../src/Runtime/Renderer/VulkanContext.cpp",
-        "../../../../src/Runtime/Renderer/VulkanContext.cpp",
-        "../../../../../src/Runtime/Renderer/VulkanContext.cpp",
+        "src/Runtime/Renderer/Backends/Vulkan/VulkanContext.cpp",
+        "../../../src/Runtime/Renderer/Backends/Vulkan/VulkanContext.cpp",
+        "../../../../src/Runtime/Renderer/Backends/Vulkan/VulkanContext.cpp",
+        "../../../../../src/Runtime/Renderer/Backends/Vulkan/VulkanContext.cpp",
     };
     const std::string vulkan = ReadRepositoryTextFile(vulkanCandidates);
     if (!Check(!vulkan.empty() &&
@@ -5019,8 +5019,10 @@ bool TestLightingProbeBakeAndShaderContracts() {
                                                        "../../EngineContent/Shaders/ClusteredDeferred.hlsl",
                                                        "../../../EngineContent/Shaders/ClusteredDeferred.hlsl"});
     const std::string d3d12Context = ReadRepositoryTextFile(
-        {"src/Runtime/Renderer/D3D12Context.h", "../src/Runtime/Renderer/D3D12Context.h",
-         "../../../src/Runtime/Renderer/D3D12Context.h", "../../../../src/Runtime/Renderer/D3D12Context.h"});
+        {"src/Runtime/Renderer/Backends/D3D12/D3D12Context.h",
+         "../src/Runtime/Renderer/Backends/D3D12/D3D12Context.h",
+         "../../../src/Runtime/Renderer/Backends/D3D12/D3D12Context.h",
+         "../../../../src/Runtime/Renderer/Backends/D3D12/D3D12Context.h"});
     Scene reflectionScene("GpuProbeRequired");
     reflectionScene.CreateActor("Reflection")->AddComponent<ReflectionProbeComponent>();
     LightingProbeAsset reflectionAsset("GpuProbeRequired.lightprobes");
@@ -5106,17 +5108,25 @@ bool TestReflectionProbeRgbmUploadsAsLinearSingleLayerArray() {
         {"EngineContent/Shaders/ProbeLighting.hlsli", "../EngineContent/Shaders/ProbeLighting.hlsli",
          "../../EngineContent/Shaders/ProbeLighting.hlsli", "../../../EngineContent/Shaders/ProbeLighting.hlsli"}));
     const std::string d3d11 = CompactSource(ReadRepositoryTextFile(
-        {"src/Runtime/Renderer/D3D11Context.cpp", "../src/Runtime/Renderer/D3D11Context.cpp",
-         "../../../src/Runtime/Renderer/D3D11Context.cpp", "../../../../src/Runtime/Renderer/D3D11Context.cpp"}));
+        {"src/Runtime/Renderer/Backends/D3D11/D3D11Context.cpp",
+         "../src/Runtime/Renderer/Backends/D3D11/D3D11Context.cpp",
+         "../../../src/Runtime/Renderer/Backends/D3D11/D3D11Context.cpp",
+         "../../../../src/Runtime/Renderer/Backends/D3D11/D3D11Context.cpp"}));
     const std::string d3d12 = CompactSource(ReadRepositoryTextFile(
-        {"src/Runtime/Renderer/D3D12Context.cpp", "../src/Runtime/Renderer/D3D12Context.cpp",
-         "../../../src/Runtime/Renderer/D3D12Context.cpp", "../../../../src/Runtime/Renderer/D3D12Context.cpp"}));
+        {"src/Runtime/Renderer/Backends/D3D12/D3D12Context.cpp",
+         "../src/Runtime/Renderer/Backends/D3D12/D3D12Context.cpp",
+         "../../../src/Runtime/Renderer/Backends/D3D12/D3D12Context.cpp",
+         "../../../../src/Runtime/Renderer/Backends/D3D12/D3D12Context.cpp"}));
     const std::string vulkan = CompactSource(ReadRepositoryTextFile(
-        {"src/Runtime/Renderer/VulkanContext.cpp", "../src/Runtime/Renderer/VulkanContext.cpp",
-         "../../../src/Runtime/Renderer/VulkanContext.cpp", "../../../../src/Runtime/Renderer/VulkanContext.cpp"}));
+        {"src/Runtime/Renderer/Backends/Vulkan/VulkanContext.cpp",
+         "../src/Runtime/Renderer/Backends/Vulkan/VulkanContext.cpp",
+         "../../../src/Runtime/Renderer/Backends/Vulkan/VulkanContext.cpp",
+         "../../../../src/Runtime/Renderer/Backends/Vulkan/VulkanContext.cpp"}));
     const std::string metal = CompactSource(ReadRepositoryTextFile(
-        {"src/Runtime/Renderer/MetalContext.mm", "../src/Runtime/Renderer/MetalContext.mm",
-         "../../../src/Runtime/Renderer/MetalContext.mm", "../../../../src/Runtime/Renderer/MetalContext.mm"}));
+        {"src/Runtime/Renderer/Backends/Metal/MetalContext.mm",
+         "../src/Runtime/Renderer/Backends/Metal/MetalContext.mm",
+         "../../../src/Runtime/Renderer/Backends/Metal/MetalContext.mm",
+         "../../../../src/Runtime/Renderer/Backends/Metal/MetalContext.mm"}));
     const bool sourceContract = shader.find("SampleLinearProbeReflection") != std::string::npos &&
                                 shader.find("atlas.GetDimensions") != std::string::npos &&
                                 shader.find("encoded.rgb*encoded.a*probe.positionRange.w") == std::string::npos &&

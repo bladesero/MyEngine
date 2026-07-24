@@ -1,5 +1,9 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
+#include "API/RuntimeApi.h"
+
 #include "Scene/Component.h"
 #include "Scene/ActorHandle.h"
 
@@ -7,7 +11,7 @@
 
 enum class EnemyState { Idle, Patrol, Chase, Attack, Stagger, Dead };
 
-class EnemyAIComponent final : public Component {
+class MYENGINE_RUNTIME_API EnemyAIComponent final : public Component {
 public:
     const char* GetTypeName() const override { return "EnemyAI"; }
     int GetExecutionOrder() const override { return 50; }

@@ -3,8 +3,7 @@
 #include "Assets/AssetDatabase.h"
 #include "Core/Sha256.h"
 #include "Project/RuntimeCompatibility.h"
-#include "Renderer/ShaderCompilerD3D11.h"
-#include "Renderer/ShaderCompilerD3D12.h"
+#include "Renderer/RHI/PlatformShaderCompiler.h"
 #include "Renderer/ShaderCompilerSlang.h"
 #include "Renderer/ShaderGraphCompiler.h"
 #include "Renderer/RHI/ShaderReflection.h"
@@ -122,11 +121,10 @@ bool CompileShaderStageForBackend(const fs::path& hlsl, const ShaderStageSource&
         const size_t stageIndex = static_cast<size_t>(stage);
         const char* profiles11[] = {"vs_5_0", "ps_5_0", "cs_5_0"};
         const char* profiles12[] = {"vs_5_1", "ps_5_1", "cs_5_1"};
-        const bool ok = backend == ShaderBackend::D3D12
-                            ? ShaderCompilerD3D12::CompileStageFromFile(hlsl.string(), sourceStage.entry,
-                                                                        profiles12[stageIndex], fallback, defines)
-                            : ShaderCompilerD3D11::CompileStageFromFile(hlsl.string(), sourceStage.entry,
-                                                                        profiles11[stageIndex], fallback, defines);
+        const bool d3d12 = backend == ShaderBackend::D3D12;
+        const bool ok = CompileD3DShaderStage(d3d12, hlsl.string(), sourceStage.entry,
+                                              d3d12 ? profiles12[stageIndex] : profiles11[stageIndex],
+                                              fallback, defines);
         if (ok) {
             outBlob.assign(fallback.begin(), fallback.end());
             if (reflection) {

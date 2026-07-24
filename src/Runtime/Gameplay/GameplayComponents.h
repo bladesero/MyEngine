@@ -1,5 +1,9 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
+#include "API/RuntimeApi.h"
+
 #include "Scene/ActorHandle.h"
 #include "Scene/Component.h"
 
@@ -14,7 +18,7 @@ struct DamageEvent {
     Vec3 direction = Vec3::Zero();
 };
 
-class HealthComponent final : public Component {
+class MYENGINE_RUNTIME_API HealthComponent final : public Component {
 public:
     const char* GetTypeName() const override { return "Health"; }
     void OnBeginPlay() override;
@@ -36,7 +40,7 @@ private:
     DamageEvent m_LastDamage;
 };
 
-class HurtboxComponent final : public Component {
+class MYENGINE_RUNTIME_API HurtboxComponent final : public Component {
 public:
     const char* GetTypeName() const override { return "Hurtbox"; }
     void SetTeam(uint32_t value) { m_Team = value; }
@@ -51,7 +55,7 @@ private:
     float m_DamageMultiplier = 1.0f;
 };
 
-class HitboxComponent final : public Component {
+class MYENGINE_RUNTIME_API HitboxComponent final : public Component {
 public:
     const char* GetTypeName() const override { return "Hitbox"; }
     int GetExecutionOrder() const override { return 100; }
@@ -85,7 +89,7 @@ private:
 
 enum class InteractionKind { Generic, Pickup, Door, Checkpoint, SceneExit };
 
-class InteractionComponent final : public Component {
+class MYENGINE_RUNTIME_API InteractionComponent final : public Component {
 public:
     const char* GetTypeName() const override { return "Interaction"; }
     void SetKind(InteractionKind value) { m_Kind = value; }
@@ -114,7 +118,7 @@ private:
     ActorHandle m_LastInstigator;
 };
 
-class GameplayFeedbackComponent final : public Component {
+class MYENGINE_RUNTIME_API GameplayFeedbackComponent final : public Component {
 public:
     const char* GetTypeName() const override { return "GameplayFeedback"; }
     int GetExecutionOrder() const override { return 1100; }

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include "Core/EngineMath.h"
 #include "UI/Rml/RmlAssetLoader.h"
 #include "UI/Rml/RmlContextManager.h"
@@ -101,7 +103,7 @@ private:
     bool m_Dirty = false;
 };
 
-class UISystem {
+class MYENGINE_RUNTIME_API UISystem {
 public:
     UISystem();
     ~UISystem();
@@ -178,3 +180,10 @@ private:
     SubtitleSystem m_Subtitles;
     Rml::ElementDocument* m_SubtitleDocument = nullptr;
 };
+
+using UIScriptingAttachCallback = void (*)(UISystem&, UIEventBridge&);
+using UIScriptingDetachCallback = void (*)(UISystem&, UIEventBridge&);
+
+// Scripting installs these callbacks from the Runtime composition root. UI
+// only publishes lifecycle and event-bridge contracts.
+void SetUIScriptingLifecycleCallbacks(UIScriptingAttachCallback attach, UIScriptingDetachCallback detach);

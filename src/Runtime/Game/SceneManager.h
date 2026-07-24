@@ -1,4 +1,8 @@
 #pragma once
+
+#include "API/RuntimeApi.h"
+
+#include "API/RuntimeApi.h"
 #include "Scene/SceneSerializer.h"
 #include "Core/TaskService.h"
 #include "Renderer/GpuUploadQueue.h"
@@ -33,7 +37,7 @@ struct SceneLoadOptions {
     bool waitForCriticalAssets = true;
 };
 
-class SceneManager {
+class MYENGINE_RUNTIME_API SceneManager {
 public:
     ~SceneManager();
     SceneLoadRequestID RequestLoad(std::string projectRelativePath, SceneLoadOptions options = {});

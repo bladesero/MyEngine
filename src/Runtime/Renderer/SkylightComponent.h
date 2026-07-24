@@ -1,9 +1,11 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include "Core/EngineMath.h"
 #include "Scene/Component.h"
 
-class SkylightComponent final : public Component {
+class MYENGINE_RUNTIME_API SkylightComponent final : public Component {
 public:
     const char* GetTypeName() const override { return "Skylight"; }
 

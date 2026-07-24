@@ -1,0 +1,10 @@
+target("MyEnginePlayer")
+    set_kind("binary")
+    add_rules("myengine.module", "myengine.app_icons", "copy_game_content",
+              "copy_runtime_library")
+    set_values("myengine.module.root", os.scriptdir())
+    set_values("myengine.architecture.role", "app")
+    set_values("myengine.module.private_packages", {"libsdl3", "nlohmann_json"})
+    add_deps("MyEngine.Runtime.API", "MyEngineRuntime", "MyEngineIconTool")
+    set_rundir("$(projectdir)")
+target_end()

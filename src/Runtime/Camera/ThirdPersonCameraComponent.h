@@ -1,9 +1,13 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
+#include "API/RuntimeApi.h"
+
 #include "Scene/ActorHandle.h"
 #include "Scene/Component.h"
 
-class ThirdPersonCameraComponent final : public Component {
+class MYENGINE_RUNTIME_API ThirdPersonCameraComponent final : public Component {
 public:
     const char* GetTypeName() const override { return "ThirdPersonCamera"; }
     int GetExecutionOrder() const override { return 1000; }

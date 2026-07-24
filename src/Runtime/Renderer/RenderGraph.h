@@ -1,5 +1,7 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include "Renderer/RHI/IRHIDevice.h"
 #include "Renderer/RHI/GpuCommandList.h"
 
@@ -56,7 +58,7 @@ struct RGTextureSubresource {
 
 class RenderGraph;
 
-class RenderGraphResources {
+class MYENGINE_RUNTIME_API RenderGraphResources {
 public:
     GpuTexture* GetTexture(RGTextureHandle handle) const;
     GpuTextureView* GetView(RGTextureHandle handle) const;
@@ -71,7 +73,7 @@ private:
     const RenderGraph& m_Graph;
 };
 
-class RenderGraphBuilder {
+class MYENGINE_RUNTIME_API RenderGraphBuilder {
 public:
     void ReadTexture(RGTextureHandle handle);
     void ReadTexture(RGTextureHandle handle, RGTextureSubresource subresource);
@@ -128,7 +130,7 @@ private:
     std::vector<AccelerationStructureAccess>* m_AccelerationStructureAccesses = nullptr;
 };
 
-class RenderGraph {
+class MYENGINE_RUNTIME_API RenderGraph {
 public:
     using SetupCallback = std::function<void(RenderGraphBuilder&)>;
     using ExecuteCallback = std::function<void(GpuCommandList&, const RenderGraphResources&)>;

@@ -175,7 +175,8 @@ static bool JsonToScene(const Json& root, Scene& scene) {
         if (!scene.GetNavMeshAssetPath().empty()) {
             auto nav = AssetManager::Get().Load<NavMeshAsset>(scene.GetNavMeshAssetPath());
             if (nav)
-                nav->Apply(scene.GetNavigationWorld());
+                scene.GetNavigationWorld().SetBakedData(nav->GetSettings(), nav->GetWidth(), nav->GetHeight(),
+                                                        nav->GetCells());
         }
 
         if (!root.contains("actors"))
@@ -483,7 +484,8 @@ bool SceneSerializer::InstantiateLoadPlan(Scene& scene, const SceneLoadPlan& pla
             if (!scene.GetNavMeshAssetPath().empty()) {
                 auto nav = AssetManager::Get().Load<NavMeshAsset>(scene.GetNavMeshAssetPath());
                 if (nav)
-                    nav->Apply(scene.GetNavigationWorld());
+                    scene.GetNavigationWorld().SetBakedData(nav->GetSettings(), nav->GetWidth(), nav->GetHeight(),
+                                                            nav->GetCells());
             }
             state.relationshipsQueued = true;
         }

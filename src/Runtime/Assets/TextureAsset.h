@@ -1,5 +1,7 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include "Assets/Asset.h"
 #include <vector>
 #include <cstdint>
@@ -53,7 +55,7 @@ struct TextureMipData {
     std::vector<uint8_t> bc3;
 };
 
-class TextureAsset : public Asset {
+class MYENGINE_RUNTIME_API TextureAsset : public Asset {
 public:
     explicit TextureAsset(const std::string& path) : Asset(AssetType::Texture, path) {}
 
@@ -98,14 +100,8 @@ public:
     const std::vector<uint8_t>& GetPixelData() const { return m_PixelData; }
     const TextureDesc& GetDesc() const { return m_Desc; }
     const std::vector<TextureMipData>& GetMips() const { return m_Mips; }
-    const std::vector<uint8_t>& GetCompressedMip(size_t level) const {
-        static const std::vector<uint8_t> empty;
-        return level < m_Mips.size() ? m_Mips[level].bc1 : empty;
-    }
-    const std::vector<uint8_t>& GetCompressedBc3Mip(size_t level) const {
-        static const std::vector<uint8_t> empty;
-        return level < m_Mips.size() ? m_Mips[level].bc3 : empty;
-    }
+    const std::vector<uint8_t>& GetCompressedMip(size_t level) const;
+    const std::vector<uint8_t>& GetCompressedBc3Mip(size_t level) const;
     void GenerateCompressedMips();
 
     int GetWidth() const { return m_Desc.width; }

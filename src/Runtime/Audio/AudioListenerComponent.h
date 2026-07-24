@@ -1,8 +1,12 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
+#include "API/RuntimeApi.h"
+
 #include "Scene/Component.h"
 
-class AudioListenerComponent final : public Component {
+class MYENGINE_RUNTIME_API AudioListenerComponent final : public Component {
 public:
     const char* GetTypeName() const override { return "AudioListener"; }
     int GetExecutionOrder() const override { return 900; }

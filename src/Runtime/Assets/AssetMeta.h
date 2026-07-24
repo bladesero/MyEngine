@@ -1,11 +1,15 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
+#include "API/RuntimeApi.h"
+
 #include "Assets/Asset.h"
 
 #include <string>
 #include <optional>
 
-struct AssetMeta {
+struct MYENGINE_RUNTIME_API AssetMeta {
     std::string uuid;
     std::string sourcePath;
     uint32_t importerVersion = 1;

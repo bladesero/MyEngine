@@ -66,7 +66,7 @@ bool ProjectWorld(const Vec3& world, const Camera& camera, const EditorPanelRect
 }
 
 void DrawNavigationOverlay(const Scene& scene, const Camera& camera, const EditorPanelRect& rect) {
-    const NavigationWorld& nav = scene.GetNavigationWorld();
+    const ISceneNavigationSubsystem& nav = scene.GetNavigationWorld();
     if (!nav.IsBaked())
         return;
     const uint64_t total = static_cast<uint64_t>(nav.GetWidth()) * nav.GetHeight();

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include "Scene/Component.h"
 #include "UI/Core/UICanvas.h"
 
@@ -8,7 +10,7 @@
 #include <utility>
 #include <vector>
 
-class UICanvasComponent final : public Component {
+class MYENGINE_RUNTIME_API UICanvasComponent final : public Component {
 public:
     UICanvasComponent();
     ~UICanvasComponent() override;

@@ -1,12 +1,16 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
+#include "API/RuntimeApi.h"
+
 #include "Animation/AnimatorController.h"
 #include "Scene/Component.h"
 
 #include <unordered_map>
 #include <unordered_set>
 
-class AnimatorComponent final : public Component {
+class MYENGINE_RUNTIME_API AnimatorComponent final : public Component {
 public:
     const char* GetTypeName() const override { return "Animator"; }
     void OnBeginPlay() override;

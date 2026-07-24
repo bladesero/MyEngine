@@ -1,5 +1,7 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include "Core/EngineMath.h"
 #include "Scene/Component.h"
 
@@ -9,7 +11,7 @@ enum class LightType : uint8_t {
     Spot,
 };
 
-class LightComponent final : public Component {
+class MYENGINE_RUNTIME_API LightComponent final : public Component {
 public:
     const char* GetTypeName() const override { return "Light"; }
 

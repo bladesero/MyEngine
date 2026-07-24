@@ -1,5 +1,9 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
+#include "API/RuntimeApi.h"
+
 #include "Renderer/RHI/RHITypes.h"
 
 #include <cstdint>
@@ -31,7 +35,7 @@ struct IconColor {
     static IconColor Black() { return {0, 0, 0, 255}; }
 };
 
-class IconsManager {
+class MYENGINE_RUNTIME_API IconsManager {
 public:
     static constexpr const char* kEditorIcon = "engine-editor";
     static constexpr const char* kPlayerIcon = "engine-player";

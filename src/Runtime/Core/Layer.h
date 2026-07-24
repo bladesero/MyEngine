@@ -1,9 +1,11 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include "Event.h"
 #include <string>
 
-class Layer {
+class MYENGINE_RUNTIME_API Layer {
 public:
     explicit Layer(std::string name);
     virtual ~Layer() = default;

@@ -1,5 +1,9 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
+#include "API/RuntimeApi.h"
+
 #include <cstdint>
 #include <string>
 
@@ -10,7 +14,7 @@ struct ScriptProfilerRecord {
     double maxMilliseconds = 0.0;
 };
 
-class ScriptProfiler {
+class MYENGINE_RUNTIME_API ScriptProfiler {
 public:
     static void Record(const std::string& scriptClass, const std::string& callback, double milliseconds, bool failed);
     static std::string GetStatsJson();

@@ -1,5 +1,9 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
+#include "API/RuntimeApi.h"
+
 #include "DebugDraw/DebugDrawCommand.h"
 
 #include <cstddef>
@@ -14,7 +18,7 @@ struct DebugDrawServiceStats {
     size_t active = 0;
 };
 
-class DebugDrawService {
+class MYENGINE_RUNTIME_API DebugDrawService {
 public:
     using Snapshot = std::shared_ptr<const std::vector<DebugDrawCommand>>;
 

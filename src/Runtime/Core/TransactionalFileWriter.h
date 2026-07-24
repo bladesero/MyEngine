@@ -1,5 +1,7 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include <filesystem>
 #include <functional>
 #include <string>
@@ -19,7 +21,7 @@ struct TransactionalWriteOptions {
     std::function<bool(const std::filesystem::path&, std::string*)> validator;
 };
 
-class TransactionalFileWriter {
+class MYENGINE_RUNTIME_API TransactionalFileWriter {
 public:
     static void SetNextFaultForTesting(TransactionalWriteFault fault);
     static bool WriteText(const std::filesystem::path& destination, std::string_view text,

@@ -1,10 +1,12 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include "Scene/Component.h"
 
 #include <cstdint>
 
-class PostProcessComponent final : public Component {
+class MYENGINE_RUNTIME_API PostProcessComponent final : public Component {
 public:
     const char* GetTypeName() const override { return "PostProcess"; }
 

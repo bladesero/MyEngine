@@ -1,4 +1,6 @@
 #pragma once
+
+#include "API/RuntimeApi.h"
 #include "Project/FormatVersions.h"
 #include <nlohmann/json.hpp>
 #include <filesystem>
@@ -32,7 +34,7 @@ struct SaveGameSlotInfo {
     std::string error;
 };
 
-class SaveGame {
+class MYENGINE_RUNTIME_API SaveGame {
 public:
     static bool Write(const std::string& slot, const SaveGameData& data, std::string* error = nullptr);
     static bool Read(const std::string& slot, SaveGameData& data, std::string* error = nullptr);

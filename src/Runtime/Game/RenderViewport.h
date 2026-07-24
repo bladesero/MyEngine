@@ -1,5 +1,9 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
+#include "API/RuntimeApi.h"
+
 #include "Camera/Camera.h"
 #include "DebugDraw/DebugDrawCommand.h"
 #include "Game/ViewportRenderExecution.h"
@@ -13,7 +17,7 @@ class IRHIReadbackService;
 class Scene;
 class UIDrawList;
 
-class RenderViewport {
+class MYENGINE_RUNTIME_API RenderViewport {
 public:
     RenderViewport(IRHIDevice* device, IRHIFrameContext* frameContext, IRHIReadbackService* readbackService);
     virtual ~RenderViewport() = default;

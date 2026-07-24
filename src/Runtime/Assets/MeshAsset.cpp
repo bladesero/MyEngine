@@ -2,6 +2,17 @@
 #include <algorithm>
 #include <cmath>
 
+namespace {
+const MeshLod kEmptyMeshLod;
+}
+
+const MeshLod& MeshAsset::GetLod(size_t level) const {
+    if (m_Lods.empty())
+        return kEmptyMeshLod;
+    const size_t clampedLevel = level < m_Lods.size() ? level : m_Lods.size() - 1;
+    return m_Lods[clampedLevel];
+}
+
 void MeshAsset::RebuildSubMeshBounds() {
     for (SubMesh& subMesh : m_SubMeshes) {
         bool initialized = false;

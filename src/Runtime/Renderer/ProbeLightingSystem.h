@@ -1,5 +1,7 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include "Core/EngineMath.h"
 
 #include <cstdint>
@@ -20,7 +22,7 @@ struct ProbeSelection {
     float secondaryWeight = 0.0f;
 };
 
-class ProbeLightingSystem {
+class MYENGINE_RUNTIME_API ProbeLightingSystem {
 public:
     explicit ProbeLightingSystem(IRHIDevice* device);
 

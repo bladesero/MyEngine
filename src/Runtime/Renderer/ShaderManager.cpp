@@ -4,10 +4,7 @@
 #include "Core/Logger.h"
 #include "Renderer/ShaderCacheService.h"
 #include "Renderer/ShaderCooker.h"
-#ifdef MYENGINE_PLATFORM_WINDOWS
-#include "Renderer/ShaderCompilerD3D11.h"
-#include "Renderer/ShaderCompilerD3D12.h"
-#endif
+#include "Renderer/RHI/PlatformShaderCompiler.h"
 #include "Renderer/ShaderCompilerSlang.h"
 #include <algorithm>
 #include <chrono>
@@ -287,11 +284,8 @@ std::shared_ptr<GpuShader> ShaderManager::CompileRecord(const ShaderRecord& rec)
         std::vector<unsigned char> cs;
         const auto& stage = source.GetPassStage(rec.pass, ShaderStage::Compute);
         const char* profile = backend == ShaderBackend::D3D12 ? "cs_5_1" : "cs_5_0";
-        const bool ok = backend == ShaderBackend::D3D12
-                            ? ShaderCompilerD3D12::CompileStageFromFile(
-                                  source.ResolveSource(rec.pass, ShaderStage::Compute).string(), stage.entry, profile,
-                                  cs, source.GetDefines())
-                            : ShaderCompilerD3D11::CompileStageFromFile(
+        const bool ok =
+            CompileD3DShaderStage(backend == ShaderBackend::D3D12,
                                   source.ResolveSource(rec.pass, ShaderStage::Compute).string(), stage.entry, profile,
                                   cs, source.GetDefines());
         return ok ? m_Device->CreateComputeShaderFromBytecode(cs.data(), cs.size()) : nullptr;
@@ -299,16 +293,12 @@ std::shared_ptr<GpuShader> ShaderManager::CompileRecord(const ShaderRecord& rec)
     const auto& vsStage = source.GetPassStage(rec.pass, ShaderStage::Vertex);
     const auto& psStage = source.GetPassStage(rec.pass, ShaderStage::Pixel);
     std::vector<unsigned char> vs, ps;
+    const bool d3d12 = backend == ShaderBackend::D3D12;
     const bool ok =
-        backend == ShaderBackend::D3D12
-            ? ShaderCompilerD3D12::CompileStageFromFile(source.ResolveSource(rec.pass, ShaderStage::Vertex).string(),
-                                                        vsStage.entry, "vs_5_1", vs, source.GetDefines()) &&
-                  ShaderCompilerD3D12::CompileStageFromFile(source.ResolveSource(rec.pass, ShaderStage::Pixel).string(),
-                                                            psStage.entry, "ps_5_1", ps, source.GetDefines())
-            : ShaderCompilerD3D11::CompileStageFromFile(source.ResolveSource(rec.pass, ShaderStage::Vertex).string(),
-                                                        vsStage.entry, "vs_5_0", vs, source.GetDefines()) &&
-                  ShaderCompilerD3D11::CompileStageFromFile(source.ResolveSource(rec.pass, ShaderStage::Pixel).string(),
-                                                            psStage.entry, "ps_5_0", ps, source.GetDefines());
+        CompileD3DShaderStage(d3d12, source.ResolveSource(rec.pass, ShaderStage::Vertex).string(), vsStage.entry,
+                              d3d12 ? "vs_5_1" : "vs_5_0", vs, source.GetDefines()) &&
+        CompileD3DShaderStage(d3d12, source.ResolveSource(rec.pass, ShaderStage::Pixel).string(), psStage.entry,
+                              d3d12 ? "ps_5_1" : "ps_5_0", ps, source.GetDefines());
     return ok ? m_Device->CreateShaderFromBytecode(vs.data(), vs.size(), ps.data(), ps.size(), rec.layout.data(),
                                                    static_cast<uint32_t>(rec.layout.size()))
               : nullptr;

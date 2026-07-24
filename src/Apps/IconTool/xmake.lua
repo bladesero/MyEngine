@@ -1,0 +1,13 @@
+target("MyEngineIconTool")
+    set_kind("binary")
+    add_rules("myengine.module")
+    set_values("myengine.module.root", os.scriptdir())
+    set_values("myengine.architecture.role", "app")
+    add_deps("MyEngine.Runtime.API", "MyEngineRuntime")
+    set_rundir("$(projectdir)")
+    after_build(function(target)
+        local app_icons = import("scripts.app_icons",
+                                 {rootdir = path.join(os.projectdir(), "xmake")})
+        app_icons.generate(target:targetfile())
+    end)
+target_end()

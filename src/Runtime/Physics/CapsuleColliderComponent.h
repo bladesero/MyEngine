@@ -1,9 +1,13 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
+#include "API/RuntimeApi.h"
+
 #include "Physics/CollisionShapes.h"
 #include "Physics/ColliderComponent.h"
 
-class CapsuleColliderComponent final : public ColliderComponent {
+class MYENGINE_RUNTIME_API CapsuleColliderComponent final : public ColliderComponent {
 public:
     const char* GetTypeName() const override { return "CapsuleCollider"; }
     float GetRadius() const { return m_Radius; }

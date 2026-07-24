@@ -1,6 +1,10 @@
 #pragma once
 
-#include "Scene/Scene.h"
+#include "API/RuntimeApi.h"
+
+#include "API/RuntimeApi.h"
+
+#include "Assets/SceneData.h"
 #include "Project/FormatVersions.h"
 
 #include <filesystem>
@@ -27,7 +31,7 @@ struct PrefabNestedInstance {
     nlohmann::json overrides = nlohmann::json::array();
 };
 
-struct PrefabAsset {
+struct MYENGINE_RUNTIME_API PrefabAsset {
     static constexpr uint32_t kVersion = FormatVersions::Prefab;
     uint32_t version = kVersion;
     std::string uuid;
@@ -41,5 +45,5 @@ struct PrefabAsset {
     bool Validate(std::string* error = nullptr) const;
 };
 
-nlohmann::json PrefabNodeToJson(const PrefabNode& node);
-bool PrefabNodeFromJson(const nlohmann::json& json, PrefabNode& node, std::string* error = nullptr);
+MYENGINE_RUNTIME_API nlohmann::json PrefabNodeToJson(const PrefabNode& node);
+MYENGINE_RUNTIME_API bool PrefabNodeFromJson(const nlohmann::json& json, PrefabNode& node, std::string* error = nullptr);

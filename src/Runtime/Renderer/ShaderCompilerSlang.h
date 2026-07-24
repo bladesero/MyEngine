@@ -1,12 +1,14 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include "Assets/ShaderAsset.h"
 
 #include <filesystem>
 #include <string>
 #include <vector>
 
-class ShaderCompilerSlang {
+class MYENGINE_RUNTIME_API ShaderCompilerSlang {
 public:
     static bool IsAvailable();
     static std::string GetVersionString();

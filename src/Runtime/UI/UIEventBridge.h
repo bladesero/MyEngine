@@ -1,5 +1,9 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
+#include "API/RuntimeApi.h"
+
 #include <functional>
 #include <string>
 #include <unordered_map>
@@ -14,7 +18,7 @@ struct UIEvent {
     bool hasValue = false;
 };
 
-class UIEventBridge {
+class MYENGINE_RUNTIME_API UIEventBridge {
 public:
     using Callback = std::function<void(const UIEvent&)>;
 

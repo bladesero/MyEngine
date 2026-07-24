@@ -1,5 +1,7 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include "Assets/PrefabAsset.h"
 #include "Scene/ActorHandle.h"
 
@@ -18,7 +20,7 @@ struct PrefabInstantiateOptions {
     std::string nestedInstanceLocalId;
 };
 
-class PrefabSystem {
+class MYENGINE_RUNTIME_API PrefabSystem {
 public:
     static bool SaveSubtree(const Actor& root, const std::filesystem::path& path, std::string* error = nullptr);
     static ActorHandle QueueInstantiate(Scene& scene, const std::filesystem::path& path,

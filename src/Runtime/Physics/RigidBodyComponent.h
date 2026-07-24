@@ -1,5 +1,9 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
+#include "API/RuntimeApi.h"
+
 #include "Core/EngineMath.h"
 #include "Scene/Component.h"
 
@@ -16,7 +20,7 @@ enum class CollisionDetectionMode {
     Continuous,
 };
 
-class RigidBodyComponent final : public Component {
+class MYENGINE_RUNTIME_API RigidBodyComponent final : public Component {
 public:
     const char* GetTypeName() const override { return "RigidBody"; }
 

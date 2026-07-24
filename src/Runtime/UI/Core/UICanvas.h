@@ -1,5 +1,7 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include "UI/Core/RectTransform.h"
 
 #include <memory>
@@ -27,7 +29,7 @@ enum class UICanvasSourceMode {
     ActorTree,
 };
 
-class UICanvas {
+class MYENGINE_RUNTIME_API UICanvas {
 public:
     UICanvas() = default;
     ~UICanvas();

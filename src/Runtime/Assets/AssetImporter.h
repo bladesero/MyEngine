@@ -1,5 +1,9 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
+#include "API/RuntimeApi.h"
+
 #include "Assets/AssetDatabase.h"
 
 #include <filesystem>
@@ -32,6 +36,6 @@ public:
     virtual ImportResult Import(const ImportRequest& request) const = 0;
 };
 
-std::unique_ptr<IAssetImporter> CreatePassthroughAssetImporter();
-std::unique_ptr<IAssetImporter> CreateGltfModelAssetImporter();
-std::unique_ptr<IAssetImporter> CreateShaderAssetImporter();
+MYENGINE_RUNTIME_API std::unique_ptr<IAssetImporter> CreatePassthroughAssetImporter();
+MYENGINE_RUNTIME_API std::unique_ptr<IAssetImporter> CreateGltfModelAssetImporter();
+MYENGINE_RUNTIME_API std::unique_ptr<IAssetImporter> CreateShaderAssetImporter();

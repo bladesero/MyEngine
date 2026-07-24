@@ -1,10 +1,14 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
+#include "API/RuntimeApi.h"
+
 #include "Scene/Component.h"
 
 #include <vector>
 
-class NavAgentComponent final : public Component {
+class MYENGINE_RUNTIME_API NavAgentComponent final : public Component {
 public:
     const char* GetTypeName() const override { return "NavAgent"; }
     int GetExecutionOrder() const override { return 20; }

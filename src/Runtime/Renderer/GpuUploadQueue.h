@@ -1,5 +1,7 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include "Renderer/RHI/IRHIDevice.h"
 
 #include <cstddef>
@@ -29,7 +31,7 @@ struct GpuUploadQueueStats {
 
 using GpuUploadFence = uint64_t;
 
-class GpuUploadQueue {
+class MYENGINE_RUNTIME_API GpuUploadQueue {
 public:
     using UploadTask = std::function<void(IRHIDevice&)>;
 

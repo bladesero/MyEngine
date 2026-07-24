@@ -1,5 +1,9 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
+#include "API/RuntimeApi.h"
+
 #include <cstdint>
 #include <string>
 
@@ -41,7 +45,7 @@ struct GameFlowSnapshot {
     bool modal = true;
 };
 
-class GameFlowController {
+class MYENGINE_RUNTIME_API GameFlowController {
 public:
     ~GameFlowController();
     const GameFlowSnapshot& GetSnapshot() const { return m_Snapshot; }

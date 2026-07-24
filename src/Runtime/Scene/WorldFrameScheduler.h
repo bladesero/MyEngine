@@ -1,5 +1,7 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include <cstdint>
 #include <array>
 #include <functional>
@@ -22,7 +24,7 @@ enum class WorldPhase {
     Count
 };
 inline constexpr size_t kWorldPhaseCount = static_cast<size_t>(WorldPhase::Count);
-const char* WorldPhaseName(WorldPhase phase);
+MYENGINE_RUNTIME_API const char* WorldPhaseName(WorldPhase phase);
 struct WorldTickContext {
     Scene& scene;
     float deltaSeconds;
@@ -44,7 +46,7 @@ struct WorldSchedulerStats {
     std::array<float, kWorldPhaseCount> phaseMilliseconds{};
 };
 
-class WorldFrameScheduler {
+class MYENGINE_RUNTIME_API WorldFrameScheduler {
 public:
     explicit WorldFrameScheduler(bool registerBuiltins = true, bool freezeAfterRegistration = true);
     bool RegisterSystem(WorldSystemDescriptor descriptor, std::string* error = nullptr);

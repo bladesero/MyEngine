@@ -1,5 +1,7 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include "Assets/MaterialAsset.h"
 
 #include <array>
@@ -7,7 +9,7 @@
 #include <unordered_map>
 #include <vector>
 
-struct ResolvedMaterial {
+struct MYENGINE_RUNTIME_API ResolvedMaterial {
     ShaderAssetHandle shader;
     BlendMode blendMode = BlendMode::Opaque;
     bool twoSided = false;
@@ -31,7 +33,7 @@ class MaterialResourceCache;
 
 // Runtime-owned material resolution. MaterialAsset remains authoring data only;
 // GPU-facing layouts and inherited values are produced here for every pass.
-class MaterialSystem {
+class MYENGINE_RUNTIME_API MaterialSystem {
 public:
     static constexpr size_t kMaxParentDepth = 64;
     static constexpr size_t kConstantSlotCount = 32;

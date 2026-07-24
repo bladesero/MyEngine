@@ -1,5 +1,7 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -23,7 +25,7 @@ struct SubtitleState {
     uint64_t dropped = 0;
 };
 
-class SubtitleSystem {
+class MYENGINE_RUNTIME_API SubtitleSystem {
 public:
     static constexpr size_t MaxQueuedCues = 32;
 

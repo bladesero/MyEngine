@@ -1,5 +1,7 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -62,7 +64,7 @@ struct RuntimePerformanceSummary {
     uint64_t droppedFixedTicks = 0;
 };
 
-struct RuntimePerformanceReport {
+struct MYENGINE_RUNTIME_API RuntimePerformanceReport {
     bool passed = false;
     RuntimePerformanceSummary summary;
     std::vector<std::string> violations;
@@ -71,9 +73,9 @@ struct RuntimePerformanceReport {
     std::string ToJson() const;
 };
 
-uint64_t GetCurrentProcessWorkingSetBytes();
+MYENGINE_RUNTIME_API uint64_t GetCurrentProcessWorkingSetBytes();
 
-class RuntimePerformanceGate {
+class MYENGINE_RUNTIME_API RuntimePerformanceGate {
 public:
     explicit RuntimePerformanceGate(RuntimePerformanceBudget budget = {});
 

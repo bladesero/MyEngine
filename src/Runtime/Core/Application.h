@@ -1,5 +1,7 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include "Engine.h"
 #include "Window.h"
 #include "Platform.h"
@@ -43,7 +45,7 @@ struct ApplicationConfig {
 //       return app.Run();
 //   }
 // --------------------------------------------------------------------------
-class Application {
+class MYENGINE_RUNTIME_API Application {
 public:
     explicit Application(ApplicationConfig config = {});
     virtual ~Application() = default;

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include "Core/EngineMath.h"
 #include "Renderer/RenderPass.h"
 #include "Renderer/SceneLighting.h"
@@ -10,7 +12,7 @@
 
 struct ShaderHandle;
 
-class DeferredLightingPass final : public RenderPass {
+class MYENGINE_RUNTIME_API DeferredLightingPass final : public RenderPass {
 public:
     struct GraphResources {
         std::shared_ptr<GpuTexture> sceneColor;

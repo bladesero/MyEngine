@@ -1,5 +1,7 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include "Renderer/RHI/GpuCommandList.h"
 #include "Renderer/RHI/IRHIDevice.h"
 #include "Renderer/RHI/IRHIReadbackService.h"
@@ -9,7 +11,7 @@
 #include <cstdint>
 
 // Base abstraction for renderer passes (shadow, main color, post, ...).
-class RenderPass {
+class MYENGINE_RUNTIME_API RenderPass {
 public:
     explicit RenderPass(IRHIDevice* device, IRHIReadbackService* readbackService = nullptr)
         : m_Device(device), m_ReadbackService(readbackService) {}

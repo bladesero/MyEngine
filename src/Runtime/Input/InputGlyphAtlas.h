@@ -1,5 +1,9 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
+#include "API/RuntimeApi.h"
+
 #include "Project/FormatVersions.h"
 
 #include <nlohmann/json_fwd.hpp>
@@ -16,7 +20,7 @@ struct InputGlyphDescriptor {
     nlohmann::json ToJson() const;
 };
 
-class InputGlyphAtlas {
+class MYENGINE_RUNTIME_API InputGlyphAtlas {
 public:
     static constexpr uint32_t CurrentVersion = FormatVersions::InputGlyphAtlas;
     static constexpr const char* DefaultPath = "Content/Config/InputGlyphs.glyph.json";

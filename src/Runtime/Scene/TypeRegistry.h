@@ -1,5 +1,7 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include <nlohmann/json.hpp>
 
 #include <cstdint>
@@ -94,7 +96,7 @@ struct TypeDescriptor {
     std::function<void(void*)> scriptBinder;
 };
 
-class TypeRegistry {
+class MYENGINE_RUNTIME_API TypeRegistry {
 public:
     static TypeRegistry& Get();
     static TypeId StableId(const std::string& text);

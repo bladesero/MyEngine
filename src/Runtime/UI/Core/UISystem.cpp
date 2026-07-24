@@ -8,7 +8,6 @@
 #include "Core/RuntimeFileSystem.h"
 #include "Scene/Actor.h"
 #include "Scene/Scene.h"
-#include "Scripting/AngelScriptRuntime.h"
 #include "UI/Core/UIActorTreeBuilder.h"
 #include "UI/Core/UICanvasComponent.h"
 
@@ -28,6 +27,8 @@ namespace {
 
 bool g_RmlCoreInitialized = false;
 std::unordered_map<std::string, std::vector<unsigned char>> g_RmlFontData;
+UIScriptingAttachCallback g_ScriptingAttach = nullptr;
+UIScriptingDetachCallback g_ScriptingDetach = nullptr;
 
 std::string ToLower(std::string value) {
     std::transform(value.begin(), value.end(), value.begin(),
@@ -194,16 +195,16 @@ bool UISystem::Initialize(IRHIDevice* device, IRHIFrameContext* frameContext) {
     CreateSystemOverlayDocument();
     CreateRuntimeScreenDocument();
     CreateSubtitleDocument();
-    AngelScriptRuntime::SetUIEventBridge(GetActiveEventBridge());
-    AngelScriptRuntime::SetUISystem(this);
+    if (g_ScriptingAttach)
+        g_ScriptingAttach(*this, *GetActiveEventBridge());
     return true;
 }
 
 void UISystem::Shutdown() {
     if (!m_Initialized)
         return;
-    AngelScriptRuntime::ClearUIEventBridge(GetActiveEventBridge());
-    AngelScriptRuntime::ClearUISystem(this);
+    if (g_ScriptingDetach)
+        g_ScriptingDetach(*this, *GetActiveEventBridge());
     m_ContextManager.Destroy();
     m_SystemOverlayDocument = nullptr;
     m_RuntimeScreenDocument = nullptr;
@@ -838,6 +839,11 @@ void UISystem::MarkActorTreeDirty(uint64_t canvasActorID) {
 
 UIEventBridge* UISystem::GetActiveEventBridge() {
     return m_ExternalEventBridge ? m_ExternalEventBridge : &m_EventBridge;
+}
+
+void SetUIScriptingLifecycleCallbacks(UIScriptingAttachCallback attach, UIScriptingDetachCallback detach) {
+    g_ScriptingAttach = attach;
+    g_ScriptingDetach = detach;
 }
 
 UIDataModel* UISystem::ResolveDataModel(void* user, const std::string& name) {

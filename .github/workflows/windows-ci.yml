@@ -1,4 +1,4 @@
-name: Windows CI
+name: MyEngine CI
 
 permissions:
   contents: read
@@ -37,7 +37,7 @@ on:
         type: number
 
 concurrency:
-  group: windows-ci-${{ github.ref }}
+  group: myengine-ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -60,6 +60,10 @@ jobs:
   debug-smoke:
     runs-on: windows-2022
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        vulkan: [false, true]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
@@ -76,10 +80,75 @@ jobs:
           path: |
             ~/.xmake/packages
             ~/.xmake/cache
-          key: windows-xmake-${{ hashFiles('xmake.lua', 'xmake/**/*.lua') }}
+          key: windows-xmake-3.0.8-vulkan-${{ matrix.vulkan }}-${{ hashFiles('**/xmake.lua', 'xmake/**/*.lua', 'packages/**/xmake.lua') }}
       - name: Run debug smoke gate
         shell: powershell
-        run: powershell -NoProfile -ExecutionPolicy Bypass -File tools\smoke.ps1
+        env:
+          ENABLE_VULKAN: ${{ matrix.vulkan }}
+        run: |
+          $arguments = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "tools\smoke.ps1")
+          if ($env:ENABLE_VULKAN -eq "true") { $arguments += "-Vulkan" }
+          powershell @arguments
+
+  minimum-xmake:
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+          clean: true
+      - name: Set up minimum supported xmake
+        uses: xmake-io/github-action-setup-xmake@3a1a5dddfc7fa625d9a698738334bf55655a861a # v1
+        with:
+          xmake-version: "2.8.0"
+      - name: Cache xmake packages
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.xmake/packages
+            ~/.xmake/cache
+          key: windows-xmake-2.8.0-vulkan-false-${{ hashFiles('**/xmake.lua', 'xmake/**/*.lua', 'packages/**/xmake.lua') }}
+      - name: Configure and validate architecture
+        run: |
+          xmake f -y -m debug --vulkan=n
+          xmake build MyEngine.Architecture
+      - name: Build without running tests
+        run: xmake build MyEngineTests
+
+  macos-metal:
+    runs-on: macos-14
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+          clean: true
+      - name: Set up xmake
+        uses: xmake-io/github-action-setup-xmake@3a1a5dddfc7fa625d9a698738334bf55655a861a # v1
+        with:
+          xmake-version: "3.0.8"
+      - name: Cache xmake packages
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.xmake/packages
+            ~/.xmake/cache
+          key: macos-xmake-3.0.8-metal-${{ hashFiles('**/xmake.lua', 'xmake/**/*.lua', 'packages/**/xmake.lua') }}
+      - name: Configure Metal build
+        run: xmake f -y -m debug --vulkan=n
+      - name: Build Runtime, Editor, and tests
+        run: |
+          xmake build MyEngineRuntime
+          xmake build MyEngineEditor
+          xmake build MyEngineTests
+          xmake build MyEngineRuntimeLinkProbe
+      - name: Run headless-compatible tests
+        run: |
+          xmake run MyEngineTests
+          xmake run MyEngineRuntimeLinkProbe
 
   release-build:
     runs-on: windows-2022
@@ -95,7 +164,7 @@ jobs:
         with:
           xmake-version: "3.0.8"
       - name: Configure release
-        run: xmake f -m release --vulkan=n
+        run: xmake f -y -m release --vulkan=n
       - name: Build release deliverables
         shell: powershell
         run: |
@@ -108,6 +177,10 @@ jobs:
           xmake build MyEngineCooker
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           xmake build MyEngineTests
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          xmake build MyEngineRuntimeLinkProbe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          xmake run MyEngineRuntimeLinkProbe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Archive release symbols and provenance
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

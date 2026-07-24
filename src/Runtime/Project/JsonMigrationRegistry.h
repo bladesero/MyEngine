@@ -1,5 +1,7 @@
 #pragma once
 
+#include "API/RuntimeApi.h"
+
 #include <nlohmann/json.hpp>
 
 #include <cstdint>
@@ -7,7 +9,7 @@
 #include <map>
 #include <string>
 
-class JsonMigrationRegistry {
+class MYENGINE_RUNTIME_API JsonMigrationRegistry {
 public:
     using Migration = std::function<bool(nlohmann::json&, std::string*)>;
     JsonMigrationRegistry(std::string formatName, uint32_t currentVersion);

@@ -3,16 +3,6 @@
 #include <filesystem>
 #include <fstream>
 #include <nlohmann/json.hpp>
-void NavMeshAsset::Capture(const NavigationWorld& world) {
-    m_Settings = world.GetSettings();
-    m_Width = world.GetWidth();
-    m_Height = world.GetHeight();
-    m_Cells = world.GetCells();
-    SetState(AssetState::Ready);
-}
-bool NavMeshAsset::Apply(NavigationWorld& world) const {
-    return world.SetBakedData(m_Settings, m_Width, m_Height, m_Cells);
-}
 bool SaveNavMeshAssetToFile(const NavMeshAsset& a, const std::string& path) {
     try {
         std::filesystem::create_directories(std::filesystem::path(path).parent_path());

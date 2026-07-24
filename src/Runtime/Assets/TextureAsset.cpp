@@ -14,6 +14,7 @@ namespace {
 constexpr uint32_t kTexturePayloadMagic = 0x5845544d; // MTEX
 constexpr uint32_t kTexturePayloadVersion = 2;
 constexpr uint32_t kMaxTextureArrayItems = 64u << 20;
+const std::vector<uint8_t> kEmptyCompressedMip;
 
 template <typename T> bool WritePod(std::ostream& out, const T& value) {
     static_assert(std::is_trivially_copyable_v<T>);
@@ -249,6 +250,14 @@ std::vector<uint8_t> CompressBc3(const std::vector<uint8_t>& rgba, int width, in
 }
 
 } // namespace
+
+const std::vector<uint8_t>& TextureAsset::GetCompressedMip(size_t level) const {
+    return level < m_Mips.size() ? m_Mips[level].bc1 : kEmptyCompressedMip;
+}
+
+const std::vector<uint8_t>& TextureAsset::GetCompressedBc3Mip(size_t level) const {
+    return level < m_Mips.size() ? m_Mips[level].bc3 : kEmptyCompressedMip;
+}
 
 bool SaveTexturePayloadToFile(const TextureAsset& texture, const std::string& path) {
     try {
