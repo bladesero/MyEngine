@@ -51,7 +51,7 @@ package("angelscript")
                 ]]
             else
                 asm_file = [[
-                add_files("angelscript/source/as_callfunc_x64_msvc.asm")
+                add_files("angelscript/source/as_callfunc_x64_msvc_asm.asm")
                 ]]
             end
         end

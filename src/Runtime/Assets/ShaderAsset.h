@@ -151,4 +151,5 @@ private:
 using ShaderAssetHandle = AssetHandle<ShaderAsset>;
 
 MYENGINE_RUNTIME_API std::shared_ptr<ShaderAsset> LoadShaderAssetFromFile(const std::string& path);
-MYENGINE_RUNTIME_API bool SaveCookedShaderAsset(const ShaderAsset& shader, const std::filesystem::path& path, std::string* error = nullptr);
+MYENGINE_RUNTIME_API bool SaveCookedShaderAsset(const ShaderAsset& shader, const std::filesystem::path& path,
+                                                std::string* error = nullptr);

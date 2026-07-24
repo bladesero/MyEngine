@@ -92,7 +92,8 @@ std::string ArchiveState(const fs::path& archive, std::string* error) {
         SetError(error, "failed to read Content archive timestamp: " + ec.message());
         return {};
     }
-    return std::to_string(static_cast<uint64_t>(size)) + ":" + std::to_string(writeTime.time_since_epoch().count());
+    return std::to_string(static_cast<uint64_t>(size)) + ":" +
+           std::to_string(static_cast<long long>(writeTime.time_since_epoch().count()));
 }
 
 void Cleanup(const fs::path& path) {

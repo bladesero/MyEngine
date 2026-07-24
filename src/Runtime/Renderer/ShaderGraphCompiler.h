@@ -23,8 +23,9 @@ struct ShaderGraphCompileResult {
 
 namespace ShaderGraphCompiler {
 MYENGINE_RUNTIME_API bool Validate(const ShaderGraph& graph, const std::vector<ShaderPropertyDesc>& properties,
-              std::vector<ShaderGraphDiagnostic>& diagnostics);
+                                   std::vector<ShaderGraphDiagnostic>& diagnostics);
 MYENGINE_RUNTIME_API ShaderGraphCompileResult Compile(const ShaderGraphCompileRequest& request);
-MYENGINE_RUNTIME_API std::string BuildCanonicalKey(const ShaderGraph& graph, const std::vector<ShaderPropertyDesc>& properties,
-                              ShaderShadingModel shadingModel, ShaderSurfaceType surfaceType);
+MYENGINE_RUNTIME_API std::string BuildCanonicalKey(const ShaderGraph& graph,
+                                                   const std::vector<ShaderPropertyDesc>& properties,
+                                                   ShaderShadingModel shadingModel, ShaderSurfaceType surfaceType);
 } // namespace ShaderGraphCompiler

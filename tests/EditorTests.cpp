@@ -4997,12 +4997,10 @@ bool TestEditorPerformanceSourceContracts() {
     const std::string sceneLayer = readSource("src/Runtime/Game/SceneRenderLayer.cpp");
     const std::string viewportPanel = readSource("src/Editor/Panels/ViewportPanel.cpp");
     const std::string shaderGraphPanel = readSource("src/Editor/Panels/ShaderGraphPanel.cpp");
-    const std::string imguiBackend =
-        readSource("src/Editor/Backends/ImGui/EditorImGuiBackend.cpp");
+    const std::string imguiBackend = readSource("src/Editor/Backends/ImGui/EditorImGuiBackend.cpp");
     const std::string hierarchyPanel = readSource("src/Editor/Panels/SceneHierarchyPanel.cpp");
     const std::string shaderWatcher = readSource("src/Editor/EditorShaderWatchService.cpp");
-    const std::string d3d12Header =
-        readSource("src/Runtime/Renderer/Backends/D3D12/D3D12Context.h");
+    const std::string d3d12Header = readSource("src/Runtime/Renderer/Backends/D3D12/D3D12Context.h");
 
     if (!Check(!panelHeader.empty() && !editorLayer.empty() && !assetRegistry.empty() && !assetBrowser.empty() &&
                    !sceneLayerHeader.empty() && !sceneLayer.empty() && !viewportPanel.empty() &&

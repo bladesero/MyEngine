@@ -6,7 +6,7 @@ namespace {
 std::mutex g_FactoryMutex;
 ScenePhysicsSubsystemFactory g_PhysicsFactory = nullptr;
 SceneNavigationSubsystemFactory g_NavigationFactory = nullptr;
-}
+} // namespace
 
 bool RegisterScenePhysicsSubsystemFactory(ScenePhysicsSubsystemFactory factory) {
     if (!factory)

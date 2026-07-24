@@ -36,7 +36,7 @@ void DetachUIScripting(UISystem& system, UIEventBridge& bridge) {
     AngelScriptRuntime::ClearUIEventBridge(&bridge);
     AngelScriptRuntime::ClearUISystem(&system);
 }
-}
+} // namespace
 
 void InitializeMyEngineRuntimeModules() {
     std::call_once(g_RuntimeModuleInitialization, [] {
