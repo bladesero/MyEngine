@@ -227,10 +227,8 @@ public:
     }
 
 private:
-    friend MYENGINE_RUNTIME_API std::shared_ptr<MaterialAsset>
-    LoadMaterialAssetFromFile(const std::string& path);
-    friend MYENGINE_RUNTIME_API bool SaveMaterialAssetToFile(const MaterialAsset& material,
-                                                             const std::string& path);
+    friend MYENGINE_RUNTIME_API std::shared_ptr<MaterialAsset> LoadMaterialAssetFromFile(const std::string& path);
+    friend MYENGINE_RUNTIME_API bool SaveMaterialAssetToFile(const MaterialAsset& material, const std::string& path);
 
     uint32_t m_FormatVersion = kVersion;
     bool m_LoadedFromLegacyFormat = false;

@@ -104,13 +104,14 @@ const char* ShaderGraphValueTypeName(ShaderGraphValueType type);
 bool ShaderGraphValueTypeFromString(const std::string& value, ShaderGraphValueType& out);
 MYENGINE_RUNTIME_API const std::vector<ShaderGraphNodeDefinition>& GetShaderGraphNodeLibrary();
 MYENGINE_RUNTIME_API const ShaderGraphNodeDefinition* FindShaderGraphNodeDefinition(const std::string& type);
-MYENGINE_RUNTIME_API ShaderGraphNode CreateShaderGraphNode(const std::string& type, uint64_t nodeId, uint64_t& nextPinId);
+MYENGINE_RUNTIME_API ShaderGraphNode CreateShaderGraphNode(const std::string& type, uint64_t nodeId,
+                                                           uint64_t& nextPinId);
 MYENGINE_RUNTIME_API bool ShaderGraphCanConnect(const ShaderGraphNode::Pin& from, const ShaderGraphNode::Pin& to);
 bool ShaderPropertyTypeFromString(const std::string& value, ShaderPropertyType& out);
 bool ParseShaderProperties(const nlohmann::json& value, std::vector<ShaderPropertyDesc>& out,
                            std::vector<ShaderGraphDiagnostic>* diagnostics = nullptr);
 MYENGINE_RUNTIME_API bool ParseShaderGraph(const nlohmann::json& value, ShaderGraph& out,
-                      std::vector<ShaderGraphDiagnostic>* diagnostics = nullptr);
+                                           std::vector<ShaderGraphDiagnostic>* diagnostics = nullptr);
 MYENGINE_RUNTIME_API nlohmann::json SerializeShaderProperties(const std::vector<ShaderPropertyDesc>& properties);
 MYENGINE_RUNTIME_API nlohmann::json SerializeShaderGraph(const ShaderGraph& graph);
 MYENGINE_RUNTIME_API bool ShaderGraphUsesTime(const ShaderGraph& graph);

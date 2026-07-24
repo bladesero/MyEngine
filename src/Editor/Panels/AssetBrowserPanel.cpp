@@ -1650,8 +1650,8 @@ void AssetBrowserPanel::DrawContent() {
     ImGui::SameLine();
     ImGui::InputTextWithHint("##Filter", "Filter...", m_Filter, sizeof(m_Filter));
     ImGui::SameLine();
-    const char* typeItems[] = {"All Types", "Model",  "Texture", "Material", "Scene",    "Prefab",
-                               "Script",    "Shader", "Audio",   "UI",       "Particle", "Navigation", "Lighting"};
+    const char* typeItems[] = {"All Types", "Model", "Texture", "Material", "Scene",      "Prefab",  "Script",
+                               "Shader",    "Audio", "UI",      "Particle", "Navigation", "Lighting"};
     ImGui::SetNextItemWidth(120.0f);
     ImGui::Combo("##AssetTypeFilter", &m_TypeFilter, typeItems, static_cast<int>(std::size(typeItems)));
     ImGui::SameLine();

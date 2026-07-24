@@ -11,7 +11,7 @@ bool CompileD3DShaderStageBackend(bool d3d12, const std::string& filePath, const
     return d3d12 ? ShaderCompilerD3D12::CompileStageFromFile(filePath, entry, profile, outBytecode, defines)
                  : ShaderCompilerD3D11::CompileStageFromFile(filePath, entry, profile, outBytecode, defines);
 }
-}
+} // namespace
 
 bool RegisterD3DShaderCompilerBackend() {
     return RegisterD3DShaderStageCompiler(&CompileD3DShaderStageBackend);

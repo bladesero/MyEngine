@@ -371,11 +371,11 @@ bool TestSceneSerializationRegression() {
     if (!Check(savedPostProperties.value("ssaoSampleCount", 0u) == 24u &&
                    !savedPostProperties.contains("rtaoHalfResolution") &&
                    savedPostProperties.value("rayTracedShadowReplacement", false) &&
-                    savedPostProperties.value("rayTracedAOReplacement", false) &&
-                    savedPostProperties.value("rayTracedDiffuseReplacement", false) &&
-                    savedPostProperties.value("rayTracedReflectionReplacement", false) &&
-                    NearlyEqual(savedPostProperties.value("rtReflectionIntensityClamp", 0.0f), 12.5f) &&
-                    NearlyEqual(savedPostProperties.value("rtReflectionAtrousRadiusScale", 0.0f), 2.75f),
+                   savedPostProperties.value("rayTracedAOReplacement", false) &&
+                   savedPostProperties.value("rayTracedDiffuseReplacement", false) &&
+                   savedPostProperties.value("rayTracedReflectionReplacement", false) &&
+                   NearlyEqual(savedPostProperties.value("rtReflectionIntensityClamp", 0.0f), 12.5f) &&
+                   NearlyEqual(savedPostProperties.value("rtReflectionAtrousRadiusScale", 0.0f), 2.75f),
                "PostProcess ray tracing replacement fields were not serialized as true"))
         return false;
 
@@ -443,12 +443,11 @@ bool TestSceneSerializationRegression() {
                    NearlyEqual(loadedPost->GetSSGIHistoryWeight(), 0.77f) && loadedPost->GetSSGIStepCount() == 40 &&
                    loadedPost->GetSSGIFilterRounds() == 4 && !loadedPost->IsSSREnabled() &&
                    !loadedPost->IsSSRHalfResolution() && NearlyEqual(loadedPost->GetSSRMaxDistance(), 37.0f) &&
-                    NearlyEqual(loadedPost->GetSSRMaxRoughness(), 0.62f) &&
-                    NearlyEqual(loadedPost->GetSSRHistoryWeight(), 0.73f) && loadedPost->GetSSRStepCount() == 56 &&
-                    loadedPost->GetSSRFilterRounds() == 1 &&
-                    NearlyEqual(loadedPost->GetRTReflectionIntensityClamp(), 12.5f) &&
-                    NearlyEqual(loadedPost->GetRTReflectionAtrousRadiusScale(), 2.75f) &&
-                    !loadedPost->IsTAAEnabled() &&
+                   NearlyEqual(loadedPost->GetSSRMaxRoughness(), 0.62f) &&
+                   NearlyEqual(loadedPost->GetSSRHistoryWeight(), 0.73f) && loadedPost->GetSSRStepCount() == 56 &&
+                   loadedPost->GetSSRFilterRounds() == 1 &&
+                   NearlyEqual(loadedPost->GetRTReflectionIntensityClamp(), 12.5f) &&
+                   NearlyEqual(loadedPost->GetRTReflectionAtrousRadiusScale(), 2.75f) && !loadedPost->IsTAAEnabled() &&
                    NearlyEqual(loadedPost->GetTAAHistoryWeight(), 0.84f) &&
                    NearlyEqual(loadedPost->GetTAAJitterSpread(), 0.65f) &&
                    NearlyEqual(loadedPost->GetTAAHistoryClipExpansion(), 1.25f),
@@ -1469,15 +1468,13 @@ bool TestComponentRegistry() {
 bool TestRuntimeModuleBootstrapIsIdempotent() {
     InitializeMyEngineRuntimeModules();
     InitializeMyEngineRuntimeModules();
-    if (!Check(GetMyEngineRuntimeInitializationCount() == 1,
-               "Runtime composition root initialized more than once"))
+    if (!Check(GetMyEngineRuntimeInitializationCount() == 1, "Runtime composition root initialized more than once"))
         return false;
     if (!Check(HasScenePhysicsSubsystemFactory() && HasSceneNavigationSubsystemFactory(),
                "Runtime composition root did not attach Scene subsystem factories"))
         return false;
 #if defined(MYENGINE_PLATFORM_WINDOWS)
-    if (!Check(HasD3DShaderStageCompiler(),
-               "Runtime composition root did not register the D3D shader compiler"))
+    if (!Check(HasD3DShaderStageCompiler(), "Runtime composition root did not register the D3D shader compiler"))
         return false;
 #endif
 
@@ -2380,19 +2377,17 @@ bool TestTypeRegistryMetadataAndWorldScheduler() {
     const PropertyDescriptor* rtReflectionIntensityClamp =
         postProcessType ? TypeRegistry::Get().FindProperty(*postProcessType, "rtReflectionIntensityClamp") : nullptr;
     const PropertyDescriptor* rtReflectionAtrousRadiusScale =
-        postProcessType ? TypeRegistry::Get().FindProperty(*postProcessType, "rtReflectionAtrousRadiusScale")
-                        : nullptr;
+        postProcessType ? TypeRegistry::Get().FindProperty(*postProcessType, "rtReflectionAtrousRadiusScale") : nullptr;
     const PropertyDescriptor* rayTracedShadow =
         postProcessType ? TypeRegistry::Get().FindProperty(*postProcessType, "rayTracedShadowReplacement") : nullptr;
     if (!Check(ssgiStepCount && ssgiStepCount->kind == PropertyKind::UInt32 && ssrMaxDistance &&
                    ssrMaxDistance->kind == PropertyKind::Float && rayTracedAO && rayTracedDiffuse &&
-                    rayTracedReflection && rayTracedShadow && rayTracedAO->kind == PropertyKind::Bool &&
-                    rayTracedDiffuse->kind == PropertyKind::Bool && rayTracedReflection->kind == PropertyKind::Bool &&
-                    rayTracedShadow->kind == PropertyKind::Bool && rtReflectionIntensityClamp &&
-                    rtReflectionAtrousRadiusScale && rtReflectionIntensityClamp->kind == PropertyKind::Float &&
-                    rtReflectionAtrousRadiusScale->kind == PropertyKind::Float && ssgiHalfResolution &&
-                    ssrHalfResolution &&
-                   ssaoHalfResolution && ssaoSampleCount && ssgiEnabled && ssrEnabled &&
+                   rayTracedReflection && rayTracedShadow && rayTracedAO->kind == PropertyKind::Bool &&
+                   rayTracedDiffuse->kind == PropertyKind::Bool && rayTracedReflection->kind == PropertyKind::Bool &&
+                   rayTracedShadow->kind == PropertyKind::Bool && rtReflectionIntensityClamp &&
+                   rtReflectionAtrousRadiusScale && rtReflectionIntensityClamp->kind == PropertyKind::Float &&
+                   rtReflectionAtrousRadiusScale->kind == PropertyKind::Float && ssgiHalfResolution &&
+                   ssrHalfResolution && ssaoHalfResolution && ssaoSampleCount && ssgiEnabled && ssrEnabled &&
                    ssgiHalfResolution->kind == PropertyKind::Bool && ssrHalfResolution->kind == PropertyKind::Bool &&
                    ssaoHalfResolution->kind == PropertyKind::Bool && ssaoSampleCount->kind == PropertyKind::UInt32 &&
                    ssgiEnabled->kind == PropertyKind::Bool && ssrEnabled->kind == PropertyKind::Bool &&

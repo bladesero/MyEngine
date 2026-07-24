@@ -1969,8 +1969,7 @@ bool TestShaderCacheBatchStopsAfterCompilerTimeout() {
         "shader cache batch continued compiling after timeout or truncated ordinary diagnostics"
         " (results=" +
         std::to_string(timedOut.size()) + ", timeouts=" + std::to_string(timeoutCount) +
-        ", cancelled=" + std::to_string(cancelledCount) +
-        ", invocations=" + std::to_string(slowInvocationCount) +
+        ", cancelled=" + std::to_string(cancelledCount) + ", invocations=" + std::to_string(slowInvocationCount) +
         ", elapsedMs=" + std::to_string(timeoutElapsedMs) +
         ", ordinaryDiagnostics=" + (ordinaryDiagnosticsPreserved ? "true" : "false") + ")";
     return Check(timedOut.size() == kRequestCount && timeoutCount == 1 && slowInvocationCount == 1 &&

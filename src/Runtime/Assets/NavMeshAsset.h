@@ -29,10 +29,8 @@ private:
     NavMeshBakeSettings m_Settings;
     uint32_t m_Width = 0, m_Height = 0;
     std::vector<uint8_t> m_Cells;
-    friend MYENGINE_RUNTIME_API std::shared_ptr<NavMeshAsset>
-    LoadNavMeshAssetFromFile(const std::string&);
-    friend MYENGINE_RUNTIME_API bool SaveNavMeshAssetToFile(const NavMeshAsset&,
-                                                            const std::string&);
+    friend MYENGINE_RUNTIME_API std::shared_ptr<NavMeshAsset> LoadNavMeshAssetFromFile(const std::string&);
+    friend MYENGINE_RUNTIME_API bool SaveNavMeshAssetToFile(const NavMeshAsset&, const std::string&);
 };
 using NavMeshHandle = AssetHandle<NavMeshAsset>;
 MYENGINE_RUNTIME_API std::shared_ptr<NavMeshAsset> LoadNavMeshAssetFromFile(const std::string& path);

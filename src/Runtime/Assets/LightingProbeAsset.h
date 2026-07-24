@@ -79,7 +79,7 @@ using LightingProbeHandle = AssetHandle<LightingProbeAsset>;
 
 MYENGINE_RUNTIME_API std::shared_ptr<LightingProbeAsset> LoadLightingProbeAssetFromFile(const std::string& path);
 MYENGINE_RUNTIME_API bool SaveLightingProbeAssetToFile(const LightingProbeAsset& asset, const std::string& path,
-                                  std::string* error = nullptr);
+                                                       std::string* error = nullptr);
 
 MYENGINE_RUNTIME_API uint16_t LightingProbeFloatToHalf(float value);
 MYENGINE_RUNTIME_API float LightingProbeHalfToFloat(uint16_t value);

@@ -2977,8 +2977,7 @@ bool TestModernScreenSpaceCompositeShaderContract() {
                    compact.find("specularCorrection=(reflection.rgb-environmentRadiance)*brdfFactor*"
                                 "reflectionConfidence") != std::string::npos &&
                    compact.find("reflectionRoughness<=g_SSRMaxRoughness?"
-                                "saturate(1.0f-reflectionRoughness):0.0f") !=
-                       std::string::npos &&
+                                "saturate(1.0f-reflectionRoughness):0.0f") != std::string::npos &&
                    compact.find("floatroughness=clamp(reflectionRoughness,0.04f,1.0f)") != std::string::npos,
                "SSR/RT reflection composite does not replace the same local-probe fallback or reconstruct RT "
                "confidence")) {
@@ -3066,7 +3065,7 @@ bool TestModernSsaoCompositeContract() {
     if (!Check(pipelineHeader.find("GetCurrentProjection()const{returnm_ScreenSpaceConstants.projection;}") !=
                        std::string::npos &&
                    pipelineSource.find("&&!ssaoEnabled&&!rayTracedAO)returnhdr") != std::string::npos &&
-                    pipelineSource.find("(effectiveSsaoEnabled?kScreenEffectAOComposite:0u)") != std::string::npos &&
+                   pipelineSource.find("(effectiveSsaoEnabled?kScreenEffectAOComposite:0u)") != std::string::npos &&
                    pipelineSource.find("builder.ReadTexture(effectiveSsao)") != std::string::npos &&
                    pipelineSource.find("SetTexture(\"g_SSAO\",effectiveSsaoEnabled?effectiveSsaoSrv:hdrSrv)") !=
                        std::string::npos,
@@ -3172,8 +3171,7 @@ bool TestModernScreenSpaceSamplingAndConfidenceContracts() {
     const std::string ssgiTemporal = compact.substr(ssgiBegin, ssrBegin - ssgiBegin);
     const std::string ssrTemporal = compact.substr(ssrBegin, rtReflectionBegin - ssrBegin);
     const std::string rtReflectionTemporal = compact.substr(rtReflectionBegin, aoBegin - rtReflectionBegin);
-    if (!Check(ssgiTemporal.find("RadianceNeighborhoodStatistics(g_Current,pixel,g_EffectSize") !=
-                       std::string::npos &&
+    if (!Check(ssgiTemporal.find("RadianceNeighborhoodStatistics(g_Current,pixel,g_EffectSize") != std::string::npos &&
                    ssgiTemporal.find("temporalVariance=lerp(currentVariance,historyVariance,weight)+") !=
                        std::string::npos &&
                    ssgiTemporal.find("weight=valid?saturate(g_SSGIHistoryWeight):0.0f") != std::string::npos &&
@@ -3194,8 +3192,7 @@ bool TestModernScreenSpaceSamplingAndConfidenceContracts() {
     }
     if (!Check(rtReflectionTemporal.find("RadianceNeighborhoodStatistics(g_Current,pixel,g_EffectSize") !=
                        std::string::npos &&
-                   rtReflectionTemporal.find("weight=valid?saturate(g_SSRHistoryWeight):0.0f") !=
-                       std::string::npos &&
+                   rtReflectionTemporal.find("weight=valid?saturate(g_SSRHistoryWeight):0.0f") != std::string::npos &&
                    rtReflectionTemporal.find("temporalVariance=lerp(currentVariance,historyVariance,weight)+") !=
                        std::string::npos &&
                    rtReflectionTemporal.find("luminanceRadius=3.0f*sqrt(max(temporalVariance,0.0f))+0.02f") !=
@@ -3203,8 +3200,7 @@ bool TestModernScreenSpaceSamplingAndConfidenceContracts() {
                    rtReflectionTemporal.find("accumulated.a=lerp(currentSecondMoment,history.a,weight)") !=
                        std::string::npos &&
                    rtReflectionTemporal.find("RelativeLuminanceDifference") == std::string::npos &&
-                   compact.find("SCREEN_EFFECT_RT_REFLECTION)!=0u?AccumulateRTReflectionHistory") !=
-                       std::string::npos,
+                   compact.find("SCREEN_EFFECT_RT_REFLECTION)!=0u?AccumulateRTReflectionHistory") != std::string::npos,
                "RT reflection temporal accumulation does not preserve stable radiance/moment history")) {
         return false;
     }
@@ -3226,11 +3222,11 @@ bool TestModernScreenSpacePostProcessTuningContract() {
     PostProcessComponent post;
     if (!Check(post.IsSSGIEnabled() && post.IsSSREnabled() && post.IsSSGIHalfResolution() &&
                    post.IsSSRHalfResolution() && !post.IsSSAOHalfResolution() && post.GetSSAOSampleCount() == 16 &&
-                    NearlyEqual(post.GetSSGIHistoryWeight(), 0.9f) && post.GetSSGIStepCount() == 32 &&
-                    post.GetSSGIFilterRounds() == 3 && NearlyEqual(post.GetSSRMaxDistance(), 10.0f) &&
-                    NearlyEqual(post.GetSSRHistoryWeight(), 0.9f) && post.GetSSRStepCount() == 48 &&
-                    post.GetSSRFilterRounds() == 2 && NearlyEqual(post.GetRTReflectionIntensityClamp(), 10.0f) &&
-                    NearlyEqual(post.GetRTReflectionAtrousRadiusScale(), 2.0f) && post.IsTAAEnabled() &&
+                   NearlyEqual(post.GetSSGIHistoryWeight(), 0.9f) && post.GetSSGIStepCount() == 32 &&
+                   post.GetSSGIFilterRounds() == 3 && NearlyEqual(post.GetSSRMaxDistance(), 10.0f) &&
+                   NearlyEqual(post.GetSSRHistoryWeight(), 0.9f) && post.GetSSRStepCount() == 48 &&
+                   post.GetSSRFilterRounds() == 2 && NearlyEqual(post.GetRTReflectionIntensityClamp(), 10.0f) &&
+                   NearlyEqual(post.GetRTReflectionAtrousRadiusScale(), 2.0f) && post.IsTAAEnabled() &&
                    NearlyEqual(post.GetTAAHistoryWeight(), 0.8f) && NearlyEqual(post.GetTAAJitterSpread(), 1.0f) &&
                    NearlyEqual(post.GetTAAHistoryClipExpansion(), 0.0f) && !post.UsesRayTracedShadowReplacement() &&
                    !post.UsesRayTracedAOReplacement() && !post.UsesRayTracedDiffuseReplacement() &&
@@ -3269,11 +3265,11 @@ bool TestModernScreenSpacePostProcessTuningContract() {
     post.SetTAAHistoryClipExpansion(9.0f);
     if (!Check(post.GetSSAOSampleCount() == 64 && NearlyEqual(post.GetSSGIHistoryWeight(), 0.99f) &&
                    post.GetSSGIStepCount() == 1 && post.GetSSGIFilterRounds() == 4 &&
-                    NearlyEqual(post.GetSSRMaxDistance(), 0.1f) && NearlyEqual(post.GetSSRHistoryWeight(), 0.0f) &&
-                    post.GetSSRStepCount() == 128 && post.GetSSRFilterRounds() == 4 &&
-                    NearlyEqual(post.GetRTReflectionIntensityClamp(), 64.0f) &&
-                    NearlyEqual(post.GetRTReflectionAtrousRadiusScale(), 1.0f) &&
-                    NearlyEqual(post.GetTAAHistoryWeight(), 0.99f) && NearlyEqual(post.GetTAAJitterSpread(), 2.0f) &&
+                   NearlyEqual(post.GetSSRMaxDistance(), 0.1f) && NearlyEqual(post.GetSSRHistoryWeight(), 0.0f) &&
+                   post.GetSSRStepCount() == 128 && post.GetSSRFilterRounds() == 4 &&
+                   NearlyEqual(post.GetRTReflectionIntensityClamp(), 64.0f) &&
+                   NearlyEqual(post.GetRTReflectionAtrousRadiusScale(), 1.0f) &&
+                   NearlyEqual(post.GetTAAHistoryWeight(), 0.99f) && NearlyEqual(post.GetTAAJitterSpread(), 2.0f) &&
                    NearlyEqual(post.GetTAAHistoryClipExpansion(), 4.0f),
                "PostProcess Modern SSGI/SSR/TAA tuning ranges are not bounded")) {
         return false;
@@ -3321,9 +3317,9 @@ bool TestModernScreenSpacePostProcessTuningContract() {
         return false;
     }
     if (!Check(shader.find("g_SSGIHistoryWeight") != std::string::npos &&
-                    shader.find("g_SSRHistoryWeight") != std::string::npos &&
-                    shader.find("g_RTReflectionAtrousRadiusScale") != std::string::npos &&
-                    shader.find("max(g_SSGIMaxDistance,0.1f)") != std::string::npos &&
+                   shader.find("g_SSRHistoryWeight") != std::string::npos &&
+                   shader.find("g_RTReflectionAtrousRadiusScale") != std::string::npos &&
+                   shader.find("max(g_SSGIMaxDistance,0.1f)") != std::string::npos &&
                    shader.find("max(g_SSRMaxDistance,0.1f)") != std::string::npos &&
                    shader.find("g_MaxDistance") == std::string::npos &&
                    shader.find("g_HistoryWeight") == std::string::npos &&
@@ -3331,8 +3327,8 @@ bool TestModernScreenSpacePostProcessTuningContract() {
                    taaShader.find("g_HistoryWeight") != std::string::npos &&
                    taaShader.find("g_HistoryClipExpansion") != std::string::npos &&
                    taaShader.find("clipSigma=1.5f*(1.0f+max(g_HistoryClipExpansion,0.0f))") != std::string::npos &&
-                    taaShader.find("g_SSGIHistoryWeight") == std::string::npos &&
-                    taaShader.find("g_SSRHistoryWeight") == std::string::npos,
+                   taaShader.find("g_SSGIHistoryWeight") == std::string::npos &&
+                   taaShader.find("g_SSRHistoryWeight") == std::string::npos,
                "TAA tuning is not isolated from the SSGI/SSR screen-space constant contract")) {
         return false;
     }
@@ -3364,13 +3360,11 @@ bool TestModernScreenSpacePostProcessTuningContract() {
                 pipeline.find("RTReflectionTemporalDenoise") != std::string::npos &&
                 pipeline.find("RTReflectionAtrous") != std::string::npos &&
                 pipeline.find("RTReflectionHistory0") == std::string::npos &&
-                shader.find("relativeSigma=sqrt(centerVariance)/max(centerLuminance,0.1f)") !=
-                    std::string::npos &&
+                shader.find("relativeSigma=sqrt(centerVariance)/max(centerLuminance,0.1f)") != std::string::npos &&
                 shader.find("varianceFactor=saturate(relativeSigma/0.5f)") != std::string::npos &&
                 shader.find("roughnessFactor=saturate(centerRoughness/max(g_SSRMaxRoughness,0.04f))") !=
                     std::string::npos &&
-                shader.find("stepWidth=max(1,(int)round((float)baseStepWidth*radiusScale))") !=
-                    std::string::npos,
+                shader.find("stepWidth=max(1,(int)round((float)baseStepWidth*radiusScale))") != std::string::npos,
             "Modern pipeline does not consume independent SSGI/SSR trace, temporal, and filter settings")) {
         return false;
     }
@@ -3448,9 +3442,9 @@ bool TestModernScreenSpaceDebugRoutingContract() {
     }
     if (!Check(pipeline.find("debugConstants.effectMode=debugSSGI?kScreenEffectDebugSSGI:"
                              "kScreenEffectDebugReflectionConfidence") != std::string::npos &&
-                    pipeline.find("if(debugSSR&&rayTracedReflection)"
-                                  "debugConstants.effectMode|=kScreenEffectRTReflection") != std::string::npos &&
-                    pipeline.find("debugSSGI?\"VisualizeSSGI\":\"VisualizeSSRConfidence\"") != std::string::npos &&
+                   pipeline.find("if(debugSSR&&rayTracedReflection)"
+                                 "debugConstants.effectMode|=kScreenEffectRTReflection") != std::string::npos &&
+                   pipeline.find("debugSSGI?\"VisualizeSSGI\":\"VisualizeSSRConfidence\"") != std::string::npos &&
                    pipeline.find("m_SSGIDebugOutputSrv=m_ScreenSpaceDebug.srv") != std::string::npos &&
                    pipeline.find("m_SSRDebugOutputSrv=m_ScreenSpaceDebug.srv") != std::string::npos &&
                    pipeline.find("taaConstants.debugMode=16u") != std::string::npos &&
@@ -3572,15 +3566,14 @@ bool TestModernRayTracingSlangCompileContracts() {
                    !pipelineHeader.empty() && !pipelineSource.empty(),
                "Modern ray tracing shader source was not found"))
         return false;
-    if (!Check(includeSource.find("float2ModernRTSample2D(uint2pixel,uintframeIndex,uintstream)") !=
-                       std::string::npos &&
-                   includeSource.find("float2(0.754877666f,0.569840291f)") != std::string::npos &&
-                    CountOccurrences(shaderSource, "ModernRTSample2D(pixel,(uint)g_RTParams1.w,") == 3 &&
-                    shaderSource.find("ModernRTHash(float2(pixel)+g_RTParams1.w)") == std::string::npos &&
-                    shaderSource.find("float4(nonNegativeRadiance,luminance*luminance)") != std::string::npos &&
-                    shaderSource.find("scale=min(1.0f,max(intensityClamp,0.1f)/max(luminance,1e-6f))") !=
-                        std::string::npos,
-               "Modern RT sampling regressed to a translated noise field or lost the diffuse second-moment ABI"))
+    if (!Check(
+            includeSource.find("float2ModernRTSample2D(uint2pixel,uintframeIndex,uintstream)") != std::string::npos &&
+                includeSource.find("float2(0.754877666f,0.569840291f)") != std::string::npos &&
+                CountOccurrences(shaderSource, "ModernRTSample2D(pixel,(uint)g_RTParams1.w,") == 3 &&
+                shaderSource.find("ModernRTHash(float2(pixel)+g_RTParams1.w)") == std::string::npos &&
+                shaderSource.find("float4(nonNegativeRadiance,luminance*luminance)") != std::string::npos &&
+                shaderSource.find("scale=min(1.0f,max(intensityClamp,0.1f)/max(luminance,1e-6f))") != std::string::npos,
+            "Modern RT sampling regressed to a translated noise field or lost the diffuse second-moment ABI"))
         return false;
     const size_t diffuseBegin = shaderSource.find("voidCSRTDiffuse");
     const size_t reflectionBegin = shaderSource.find("voidCSRTReflection", diffuseBegin);
@@ -3593,14 +3586,14 @@ bool TestModernRayTracingSlangCompileContracts() {
     if (!Check(diffuseSource.find("ModernRTSurfaceGiRadiance(instanceId,primitiveIndex,barycentrics,-direction)") !=
                        std::string::npos &&
                    diffuseSource.find(":0.0f") != std::string::npos &&
-                    reflectionSource.find("ModernRTSurfaceRadiance(instanceId,primitiveIndex,barycentrics)") !=
-                        std::string::npos &&
-                    reflectionSource.find("ModernRTClampReflectionRadiance(radiance,g_RTParams0.x)") !=
-                        std::string::npos &&
-                    reflectionSource.find("float4(clampedRadiance,luminance*luminance)") != std::string::npos &&
-                    reflectionSource.find("1.0f-roughness") == std::string::npos &&
-                    reflectionSource.find("ModernRTSurfaceGiRadiance") == std::string::npos,
-                "RTDiffuse does not use zero-miss GI shading or RTReflection lost its clamped moment contract")) {
+                   reflectionSource.find("ModernRTSurfaceRadiance(instanceId,primitiveIndex,barycentrics)") !=
+                       std::string::npos &&
+                   reflectionSource.find("ModernRTClampReflectionRadiance(radiance,g_RTParams0.x)") !=
+                       std::string::npos &&
+                   reflectionSource.find("float4(clampedRadiance,luminance*luminance)") != std::string::npos &&
+                   reflectionSource.find("1.0f-roughness") == std::string::npos &&
+                   reflectionSource.find("ModernRTSurfaceGiRadiance") == std::string::npos,
+               "RTDiffuse does not use zero-miss GI shading or RTReflection lost its clamped moment contract")) {
         return false;
     }
     if (!Check(includeSource.find("float3ModernRTSurfaceGiRadiance(") != std::string::npos &&
@@ -5019,8 +5012,7 @@ bool TestLightingProbeBakeAndShaderContracts() {
                                                        "../../EngineContent/Shaders/ClusteredDeferred.hlsl",
                                                        "../../../EngineContent/Shaders/ClusteredDeferred.hlsl"});
     const std::string d3d12Context = ReadRepositoryTextFile(
-        {"src/Runtime/Renderer/Backends/D3D12/D3D12Context.h",
-         "../src/Runtime/Renderer/Backends/D3D12/D3D12Context.h",
+        {"src/Runtime/Renderer/Backends/D3D12/D3D12Context.h", "../src/Runtime/Renderer/Backends/D3D12/D3D12Context.h",
          "../../../src/Runtime/Renderer/Backends/D3D12/D3D12Context.h",
          "../../../../src/Runtime/Renderer/Backends/D3D12/D3D12Context.h"});
     Scene reflectionScene("GpuProbeRequired");
@@ -5107,26 +5099,26 @@ bool TestReflectionProbeRgbmUploadsAsLinearSingleLayerArray() {
     const std::string shader = CompactSource(ReadRepositoryTextFile(
         {"EngineContent/Shaders/ProbeLighting.hlsli", "../EngineContent/Shaders/ProbeLighting.hlsli",
          "../../EngineContent/Shaders/ProbeLighting.hlsli", "../../../EngineContent/Shaders/ProbeLighting.hlsli"}));
-    const std::string d3d11 = CompactSource(ReadRepositoryTextFile(
-        {"src/Runtime/Renderer/Backends/D3D11/D3D11Context.cpp",
-         "../src/Runtime/Renderer/Backends/D3D11/D3D11Context.cpp",
-         "../../../src/Runtime/Renderer/Backends/D3D11/D3D11Context.cpp",
-         "../../../../src/Runtime/Renderer/Backends/D3D11/D3D11Context.cpp"}));
-    const std::string d3d12 = CompactSource(ReadRepositoryTextFile(
-        {"src/Runtime/Renderer/Backends/D3D12/D3D12Context.cpp",
-         "../src/Runtime/Renderer/Backends/D3D12/D3D12Context.cpp",
-         "../../../src/Runtime/Renderer/Backends/D3D12/D3D12Context.cpp",
-         "../../../../src/Runtime/Renderer/Backends/D3D12/D3D12Context.cpp"}));
-    const std::string vulkan = CompactSource(ReadRepositoryTextFile(
-        {"src/Runtime/Renderer/Backends/Vulkan/VulkanContext.cpp",
-         "../src/Runtime/Renderer/Backends/Vulkan/VulkanContext.cpp",
-         "../../../src/Runtime/Renderer/Backends/Vulkan/VulkanContext.cpp",
-         "../../../../src/Runtime/Renderer/Backends/Vulkan/VulkanContext.cpp"}));
-    const std::string metal = CompactSource(ReadRepositoryTextFile(
-        {"src/Runtime/Renderer/Backends/Metal/MetalContext.mm",
-         "../src/Runtime/Renderer/Backends/Metal/MetalContext.mm",
-         "../../../src/Runtime/Renderer/Backends/Metal/MetalContext.mm",
-         "../../../../src/Runtime/Renderer/Backends/Metal/MetalContext.mm"}));
+    const std::string d3d11 =
+        CompactSource(ReadRepositoryTextFile({"src/Runtime/Renderer/Backends/D3D11/D3D11Context.cpp",
+                                              "../src/Runtime/Renderer/Backends/D3D11/D3D11Context.cpp",
+                                              "../../../src/Runtime/Renderer/Backends/D3D11/D3D11Context.cpp",
+                                              "../../../../src/Runtime/Renderer/Backends/D3D11/D3D11Context.cpp"}));
+    const std::string d3d12 =
+        CompactSource(ReadRepositoryTextFile({"src/Runtime/Renderer/Backends/D3D12/D3D12Context.cpp",
+                                              "../src/Runtime/Renderer/Backends/D3D12/D3D12Context.cpp",
+                                              "../../../src/Runtime/Renderer/Backends/D3D12/D3D12Context.cpp",
+                                              "../../../../src/Runtime/Renderer/Backends/D3D12/D3D12Context.cpp"}));
+    const std::string vulkan =
+        CompactSource(ReadRepositoryTextFile({"src/Runtime/Renderer/Backends/Vulkan/VulkanContext.cpp",
+                                              "../src/Runtime/Renderer/Backends/Vulkan/VulkanContext.cpp",
+                                              "../../../src/Runtime/Renderer/Backends/Vulkan/VulkanContext.cpp",
+                                              "../../../../src/Runtime/Renderer/Backends/Vulkan/VulkanContext.cpp"}));
+    const std::string metal =
+        CompactSource(ReadRepositoryTextFile({"src/Runtime/Renderer/Backends/Metal/MetalContext.mm",
+                                              "../src/Runtime/Renderer/Backends/Metal/MetalContext.mm",
+                                              "../../../src/Runtime/Renderer/Backends/Metal/MetalContext.mm",
+                                              "../../../../src/Runtime/Renderer/Backends/Metal/MetalContext.mm"}));
     const bool sourceContract = shader.find("SampleLinearProbeReflection") != std::string::npos &&
                                 shader.find("atlas.GetDimensions") != std::string::npos &&
                                 shader.find("encoded.rgb*encoded.a*probe.positionRange.w") == std::string::npos &&
