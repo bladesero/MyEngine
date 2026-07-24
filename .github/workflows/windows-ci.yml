@@ -163,6 +163,15 @@ jobs:
         uses: xmake-io/github-action-setup-xmake@3a1a5dddfc7fa625d9a698738334bf55655a861a # v1
         with:
           xmake-version: "3.0.8"
+      - name: Cache xmake packages
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.xmake/packages
+            ~/.xmake/cache
+          key: windows-xmake-3.0.8-vulkan-false-${{ hashFiles('**/xmake.lua', 'xmake/**/*.lua', 'packages/**/xmake.lua') }}
+          restore-keys: |
+            windows-xmake-3.0.8-vulkan-false-
       - name: Configure release
         run: xmake f -y -m release --vulkan=n
       - name: Build release deliverables
