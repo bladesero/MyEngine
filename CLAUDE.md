@@ -13,7 +13,7 @@
 
 ## Build and run
 
-- **Prerequisites**: [xmake](https://xmake.io/) ≥ **2.8.0**, C++17 toolchain (MSVC on Windows, Clang on macOS). On Windows, **PowerShell** is used for HLSL embedding (see below).
+- **Prerequisites**: [xmake](https://xmake.io/) ≥ **2.8.1**, C++17 toolchain (MSVC on Windows, Clang on macOS). On Windows, **PowerShell** is used for HLSL embedding (see below).
 - **Smoke check** (recommended before/after engine changes):
 
 ```powershell
