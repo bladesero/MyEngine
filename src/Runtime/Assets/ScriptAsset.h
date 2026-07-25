@@ -39,10 +39,10 @@ private:
 
 MYENGINE_RUNTIME_API std::shared_ptr<ScriptAsset> LoadScriptAssetFromFile(const std::string& path);
 
-using ScriptAssetPreprocessCallback =
-    bool (*)(const std::string&, const std::string&, std::string&, std::vector<std::string>*, std::string&);
-using ScriptAssetDiscoverCallback =
-    std::vector<ScriptClassInfo> (*)(const std::string&, const std::string&, std::string&);
+using ScriptAssetPreprocessCallback = bool (*)(const std::string&, const std::string&, std::string&,
+                                               std::vector<std::string>*, std::string&);
+using ScriptAssetDiscoverCallback = std::vector<ScriptClassInfo> (*)(const std::string&, const std::string&,
+                                                                     std::string&);
 
 // Installed by the Runtime composition root. Assets owns the DTO and loading
 // policy without taking a dependency on a concrete scripting runtime.
