@@ -541,9 +541,9 @@ bool CompileShaderStageForBackend(const fs::path& hlsl, const ShaderStageSource&
         const char* profiles11[] = {"vs_5_0", "ps_5_0", "cs_5_0"};
         const char* profiles12[] = {"vs_5_1", "ps_5_1", "cs_5_1"};
         const bool d3d12 = backend == ShaderBackend::D3D12;
-        const bool ok = CompileD3DShaderStage(d3d12, hlsl.string(), sourceStage.entry,
-                                              d3d12 ? profiles12[stageIndex] : profiles11[stageIndex],
-                                              fallback, defines);
+        const bool ok =
+            CompileD3DShaderStage(d3d12, hlsl.string(), sourceStage.entry,
+                                  d3d12 ? profiles12[stageIndex] : profiles11[stageIndex], fallback, defines);
         if (ok) {
             outBlob.assign(fallback.begin(), fallback.end());
             return true;

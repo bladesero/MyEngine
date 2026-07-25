@@ -240,10 +240,22 @@ struct Scanner {
     }
     void VisitJson(const nlohmann::json& node, const fs::path& from, const std::vector<std::string>& chain,
                    const std::string& key = {}) {
-        static const std::unordered_set<std::string> direct = {
-            "mesh",  "material",   "scriptPath",          "shader",           "uri",
-            "clip",  "asset",      "navMeshAsset",        "lightingProbeAsset", "documentPath", "document",
-            "atlas", "stylePaths", "generatedStylePaths", "defaultFontPaths", "preloadAssets"};
+        static const std::unordered_set<std::string> direct = {"mesh",
+                                                               "material",
+                                                               "scriptPath",
+                                                               "shader",
+                                                               "uri",
+                                                               "clip",
+                                                               "asset",
+                                                               "navMeshAsset",
+                                                               "lightingProbeAsset",
+                                                               "documentPath",
+                                                               "document",
+                                                               "atlas",
+                                                               "stylePaths",
+                                                               "generatedStylePaths",
+                                                               "defaultFontPaths",
+                                                               "preloadAssets"};
         if (node.is_string() && direct.count(key)) {
             ScanReference(node.get<std::string>(), from, chain);
             return;

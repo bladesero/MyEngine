@@ -46,4 +46,5 @@ struct MYENGINE_RUNTIME_API PrefabAsset {
 };
 
 MYENGINE_RUNTIME_API nlohmann::json PrefabNodeToJson(const PrefabNode& node);
-MYENGINE_RUNTIME_API bool PrefabNodeFromJson(const nlohmann::json& json, PrefabNode& node, std::string* error = nullptr);
+MYENGINE_RUNTIME_API bool PrefabNodeFromJson(const nlohmann::json& json, PrefabNode& node,
+                                             std::string* error = nullptr);

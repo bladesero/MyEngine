@@ -133,9 +133,7 @@ void Scene::DestroyAllZones() {
 namespace {
 void ApplyActorLayer(Actor& actor, uint32_t layer) {
     actor.SetLayer(layer);
-    actor.ForEachComponent([&](Component& component) {
-        component.OnOwnerLayerChanged(layer);
-    });
+    actor.ForEachComponent([&](Component& component) { component.OnOwnerLayerChanged(layer); });
 }
 } // namespace
 

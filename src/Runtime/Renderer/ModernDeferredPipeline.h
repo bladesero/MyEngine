@@ -50,8 +50,8 @@ enum ModernRayTracingEffectMask : uint32_t {
 };
 
 MYENGINE_RUNTIME_API uint32_t ResolveModernRayTracingEffectMask(uint32_t requestedMask, bool projectEnabled,
-                                           const RHIDeviceCapabilities& capabilities, uint32_t sourceEffectMask,
-                                           uint32_t readyPipelineMask);
+                                                                const RHIDeviceCapabilities& capabilities,
+                                                                uint32_t sourceEffectMask, uint32_t readyPipelineMask);
 
 struct ModernPostProcessSettings {
     bool ssgiEnabled = true;

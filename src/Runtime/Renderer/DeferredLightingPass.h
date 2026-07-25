@@ -41,9 +41,8 @@ public:
     void SetEnvironmentInput(GpuTexture* environmentCubemap, std::shared_ptr<GpuBufferView> sh2Buffer);
     void SetProbeInput(std::shared_ptr<GpuTextureView> reflectionAtlas,
                        std::shared_ptr<GpuBufferView> reflectionMetadata,
-                       std::shared_ptr<GpuBufferView> shVolumeMetadata,
-                       std::shared_ptr<GpuBufferView> shCoefficients, uint32_t reflectionCount,
-                       uint32_t shVolumeCount, uint32_t reflectionMipCount);
+                       std::shared_ptr<GpuBufferView> shVolumeMetadata, std::shared_ptr<GpuBufferView> shCoefficients,
+                       uint32_t reflectionCount, uint32_t shVolumeCount, uint32_t reflectionMipCount);
 
 private:
     bool EnsureResources();
