@@ -4287,10 +4287,12 @@ bool TestIndexedSceneLightingAndMeshCollection() {
                    collection.transparentItems.size() == 1 &&
                    collection.transparentItems.front().actor == particlePriority && stats.candidateVisits == 6 &&
                    stats.matchedActors == 6,
-               "indexed lighting/mesh collection mismatch submitted=" + std::to_string(collection.submittedSubMeshes) +
+               "indexed lighting/mesh collection mismatch submitted=" +
+                   std::to_string(collection.submittedSubMeshes) +
                    " opaque=" + std::to_string(collection.opaqueItems.size()) +
-                   " transparent=" + std::to_string(collection.transparentItems.size()) + " candidates=" +
-                   std::to_string(stats.candidateVisits) + " matched=" + std::to_string(stats.matchedActors)))
+                   " transparent=" + std::to_string(collection.transparentItems.size()) +
+                   " candidates=" + std::to_string(stats.candidateVisits) +
+                   " matched=" + std::to_string(stats.matchedActors)))
         return false;
 
     scene.ResetQueryStats();
@@ -5398,8 +5400,8 @@ bool TestReflectionProbeRgbmUploadsAsLinearSingleLayerArray() {
     fs::remove_all(root, ec);
     return Check(prepared && unchangedMetadataReused && changedMetadataUploaded && textureContract && decoded &&
                      sourceContract,
-                 "reflection probe RGBM was not decoded to a linear single-layer array across the RHI chain: " +
-                     lighting.GetLastError());
+                  "reflection probe RGBM was not decoded to a linear single-layer array across the RHI chain: " +
+                      lighting.GetLastError());
 }
 
 bool TestReflectionProbeGpuBakeUsesRendererReadbackAndFastShadows() {
