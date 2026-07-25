@@ -17,7 +17,7 @@ enum class RHIAccelerationStructureBuildFlags : uint8_t {
 };
 
 inline RHIAccelerationStructureBuildFlags operator|(RHIAccelerationStructureBuildFlags a,
-                                                     RHIAccelerationStructureBuildFlags b) {
+                                                    RHIAccelerationStructureBuildFlags b) {
     return static_cast<RHIAccelerationStructureBuildFlags>(static_cast<uint8_t>(a) | static_cast<uint8_t>(b));
 }
 
@@ -57,8 +57,7 @@ struct GpuAccelerationStructure;
 
 struct RHIRayTracingInstanceDesc {
     // Row-major 3x4 object-to-world transform in the API-neutral DXR convention.
-    std::array<float, 12> transform = {1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f,
-                                       0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f};
+    std::array<float, 12> transform = {1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f};
     uint32_t instanceId = 0;
     uint8_t instanceMask = 0xff;
     bool forceOpaque = false;

@@ -153,6 +153,7 @@
 ??0ReflectionProbeComponent@@QEAA@$$QEAV0@@Z
 ??0ReflectionProbeComponent@@QEAA@AEBV0@@Z
 ??0ReflectionProbeComponent@@QEAA@XZ
+??0RenderFrameCoordinator@@QEAA@PEAVIRHIDevice@@PEAVIRHIFrameContext@@@Z
 ??0RenderGraph@@QEAA@$$QEAV0@@Z
 ??0RenderGraph@@QEAA@AEAVIRHIDevice@@@Z
 ??0RenderGraph@@QEAA@AEBV0@@Z
@@ -162,6 +163,7 @@
 ??0RenderPass@@QEAA@PEAVIRHIDevice@@PEAVIRHIReadbackService@@@Z
 ??0RenderViewport@@QEAA@PEAVIRHIDevice@@PEAVIRHIFrameContext@@PEAVIRHIReadbackService@@@Z
 ??0Renderer@@QEAA@PEAVIRHIDevice@@PEAVIRHIFrameContext@@PEAVIRHIReadbackService@@@Z
+??0Renderer@@QEAA@PEAVIRHIDevice@@PEAVIRHIFrameContext@@PEAVIRHIReadbackService@@PEAVRenderFrameCoordinator@@@Z
 ??0ResolvedMaterial@@QEAA@$$QEAU0@@Z
 ??0ResolvedMaterial@@QEAA@AEBU0@@Z
 ??0ResolvedMaterial@@QEAA@XZ
@@ -328,6 +330,7 @@
 ??1ProjectConfig@@QEAA@XZ
 ??1RHIConformanceReport@@QEAA@XZ
 ??1ReflectionProbeComponent@@UEAA@XZ
+??1RenderFrameCoordinator@@QEAA@XZ
 ??1RenderGraph@@QEAA@XZ
 ??1RenderPass@@UEAA@XZ
 ??1RenderViewport@@UEAA@XZ
@@ -720,6 +723,7 @@
 ?Bake@NavigationWorld@@UEAA_NAEBUNavMeshBakeSettings@@AEBV?$vector@UAABB@Math@@V?$allocator@UAABB@Math@@@std@@@std@@@Z
 ?Bake@ProbeBakeRenderer@@QEBA?AUProbeBakeResult@@AEBVScene@@AEAVLightingProbeAsset@@AEBV?$function@$$A6AXAEBUProbeBakeProgress@@@Z@std@@PEBU?$atomic@_N@6@@Z
 ?BeginAttack@HitboxComponent@@QEAAXM@Z
+?BeginFrame@RenderFrameCoordinator@@QEAAXMMMM@Z
 ?BeginFrame@RenderGraph@@QEAAXXZ
 ?BeginLoading@GameFlowController@@QEAAXPEAVScene@@@Z
 ?BeginPlay@Actor@@AEAAXXZ
@@ -811,6 +815,7 @@
 ?CollectSceneEnvironmentData@@YA?AUSceneEnvironmentData@@AEBVScene@@@Z
 ?CollectSceneLights@@YA?AUSceneLightData@@AEBVScene@@@Z
 ?CollectSceneLights@@YA?AUSceneLightData@@AEBVScene@@AEBUSceneEnvironmentData@@@Z
+?CollectScenePostProcessData@@YA?AUScenePostProcessData@@AEBVScene@@@Z
 ?Collide@@YA_NAEBUCapsuleShape@@0AEAUContactManifold@@@Z
 ?Collide@@YA_NAEBUCapsuleShape@@AEBUOrientedBox@@AEAUContactManifold@@@Z
 ?Collide@@YA_NAEBUCapsuleShape@@AEBUSphereShape@@AEAUContactManifold@@@Z
@@ -952,6 +957,7 @@
 ?EnablePlayPhase@Actor@@AEAAXXZ
 ?EnableRuntimeResourceBudget@SceneRenderLayer@@QEAA_NAEBURuntimeResourceBudgetConfig@@PEAV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@Z
 ?EndAttack@HitboxComponent@@QEAAXXZ
+?EndFrame@RenderFrameCoordinator@@QEAAXXZ
 ?EndPlay@Actor@@AEAAXXZ
 ?EndPlay@Scene@@QEAAXXZ
 ?Enqueue@GpuUploadQueue@@QEAA_KV?$function@$$A6AXAEAVIRHIDevice@@@Z@std@@_K@Z
@@ -961,12 +967,14 @@
 ?EnsureCanvasDocuments@UISystem@@AEAAXAEAVScene@@@Z
 ?EnsureClusterResources@ModernDeferredPipeline@@AEAA_NXZ
 ?EnsureHiZResources@ModernDeferredPipeline@@AEAA_NXZ
+?EnsureHierarchyCache@Scene@@AEBAXXZ
 ?EnsureIndirectBuffers@ModernDeferredPipeline@@AEAA_NI@Z
 ?EnsureMeshUploaded@MaterialResourceCache@@QEAAXPEAVMeshAsset@@@Z
 ?EnsureModernPipeline@Renderer@@AEAAXXZ
 ?EnsureNamedBindingDefaults@MaterialResourceCache@@QEAAXXZ
 ?EnsurePayloadLoaded@TextureAsset@@QEAA_NXZ
 ?EnsurePipelines@ModernDeferredPipeline@@AEAA_NXZ
+?EnsureQueryTypeOrdered@Scene@@AEBAXI@Z
 ?EnsureRayTracingPipelines@ModernDeferredPipeline@@AEAA_NXZ
 ?EnsureRayTracingResources@ModernDeferredPipeline@@AEAA_NXZ
 ?EnsureRayTracingScene@ModernDeferredPipeline@@AEAA_NXZ
@@ -996,6 +1004,7 @@
 ?ExecuteFiltered@GBufferPass@@AEAAXAEAVGpuCommandList@@AEBVScene@@AEBVCamera@@_NPEBUMat4@@4@Z
 ?ExecutePhase@WorldFrameScheduler@@AEAA_NW4WorldPhase@@AEAVScene@@M_N@Z
 ?ExecutePrepared@DebugDrawPass@@QEAAXAEAVGpuCommandList@@AEBVCamera@@@Z
+?ExecutionOrderedComponents@Actor@@AEBAAEBV?$vector@PEAVComponent@@V?$allocator@PEAVComponent@@@std@@@std@@XZ
 ?Exists@ContentArchiveReader@@QEBA_NAEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@Z
 ?Exists@MountedFileSystem@@UEBA_NAEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@Z
 ?Exists@PackageRootFileSystem@@UEBA_NAEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@Z
@@ -1020,6 +1029,7 @@
 ?FindBindingConflicts@Input@@SA?AV?$vector@UInputBindingConflict@@V?$allocator@UInputBindingConflict@@@std@@@std@@V?$basic_string_view@DU?$char_traits@D@std@@@3@_KW4InputBindingPart@@0@Z
 ?FindByID@Scene@@QEBAPEAVActor@@_K@Z
 ?FindByName@Scene@@QEBAPEAVActor@@AEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@Z
+?FindByRuntimeTypeIndex@TypeRegistry@@QEBAPEBUTypeDescriptor@@I@Z
 ?FindBySourcePath@AssetDatabase@@QEBAPEBUAssetRecord@@AEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@Z
 ?FindByUuid@AssetDatabase@@QEBAPEBUAssetRecord@@AEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@Z
 ?FindConflicts@InputActionMap@@QEBA?AV?$vector@UInputBindingConflict@@V?$allocator@UInputBindingConflict@@@std@@@std@@V?$basic_string_view@DU?$char_traits@D@std@@@3@_KW4InputBindingPart@@0@Z
@@ -1033,6 +1043,8 @@
 ?FindProperty@TypeRegistry@@QEBAPEBUPropertyDescriptor@@AEBUTypeDescriptor@@AEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@Z
 ?FindPropertyById@ShaderAsset@@QEBAPEBUShaderPropertyDesc@@AEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@Z
 ?FindPropertyByName@ShaderAsset@@QEBAPEBUShaderPropertyDesc@@AEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@Z
+?FindRuntimeTypeIndex@TypeRegistry@@QEBAIVtype_index@std@@@Z
+?FindRuntimeTypeIndex@TypeRegistry@@QEBAI_K@Z
 ?FindShaderGraphNodeDefinition@@YAPEBUShaderGraphNodeDefinition@@AEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@Z
 ?FindState@AnimatorController@@QEBAPEBUAnimatorState@@AEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@Z
 ?FindTexture@ResolvedMaterial@@QEBA?AV?$AssetHandle@VTextureAsset@@@@AEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@Z
@@ -1044,6 +1056,8 @@
 ?FlushPendingDestroy@Scene@@QEAAXXZ
 ?ForEach@Scene@@QEBAXAEBV?$function@$$A6AXAEAVActor@@@Z@std@@@Z
 ?ForEachComponent@Actor@@QEBAXAEBV?$function@$$A6AXAEAVComponent@@@Z@std@@@Z
+?ForEachQueryAll@Scene@@AEBA_KPEAI_KUQueryVisitor@1@@Z
+?ForEachQueryAny@Scene@@AEBA_KPEAI_KPEA_KUQueryVisitor@1@@Z
 ?FrameArena@MemoryService@@QEAAAEAVLinearAllocator@@XZ
 ?FrameArena@MemoryService@@QEBAAEBVLinearAllocator@@XZ
 ?FrameBegin@MemoryService@@QEAAXXZ
@@ -1250,6 +1264,7 @@
 ?GetForward@Camera@@QEBA?AUVec3@Math@@XZ
 ?GetFovY@Camera@@QEBAMXZ
 ?GetFovYDegrees@CameraComponent@@QEBAMXZ
+?GetFrameCoordinator@SceneRenderLayer@@QEAAAEAVRenderFrameCoordinator@@XZ
 ?GetFrameScheduler@Scene@@QEAAAEAVWorldFrameScheduler@@XZ
 ?GetFrameScheduler@Scene@@QEBAAEBVWorldFrameScheduler@@XZ
 ?GetFrameStats@Engine@@QEBAAEBUFrameStats@@XZ
@@ -1294,6 +1309,7 @@
 ?GetHeight@NavigationWorld@@UEBAIXZ
 ?GetHeight@TextureAsset@@QEBAHXZ
 ?GetHiZDebugSrv@ModernDeferredPipeline@@QEBAAEBV?$shared_ptr@UGpuTextureView@@@std@@XZ
+?GetHierarchyOrdinal@Scene@@AEBAIUActorHandle@@@Z
 ?GetHistoryResetReason@ModernDeferredPipeline@@QEBAAEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@XZ
 ?GetHorizonTint@SkylightComponent@@QEBAAEBUVec3@Math@@XZ
 ?GetID@Actor@@QEBA_KXZ
@@ -1467,6 +1483,7 @@
 ?GetPublishSettings@ProjectConfig@@QEAAAEAUProjectPublishSettings@@XZ
 ?GetPublishSettings@ProjectConfig@@QEBAAEBUProjectPublishSettings@@XZ
 ?GetQuadMesh@AssetManager@@QEAA?AV?$AssetHandle@VMeshAsset@@@@XZ
+?GetQueryStats@Scene@@QEBA?AUSceneQueryStats@@XZ
 ?GetRTAODebugSrv@ModernDeferredPipeline@@QEBAAEBV?$shared_ptr@UGpuTextureView@@@std@@XZ
 ?GetRTDiffuseDebugSrv@ModernDeferredPipeline@@QEBAAEBV?$shared_ptr@UGpuTextureView@@@std@@XZ
 ?GetRTReflectionAtrousRadiusScale@PostProcessComponent@@QEBAMXZ
@@ -1527,6 +1544,7 @@
 ?GetRuntimeScreenStack@SceneRenderLayer@@QEAAAEAVRuntimeUIScreenStack@@XZ
 ?GetRuntimeScreenStack@SceneRenderLayer@@QEBAAEBVRuntimeUIScreenStack@@XZ
 ?GetRuntimeScreensEnabled@SceneRenderLayer@@QEBA_NXZ
+?GetRuntimeTypeCount@TypeRegistry@@QEBAIXZ
 ?GetSHCoefficientView@ProbeLightingSystem@@QEBAAEBV?$shared_ptr@UGpuBufferView@@@std@@XZ
 ?GetSHCoefficients@LightingProbeAsset@@QEBAAEBV?$vector@V?$array@M$03@std@@V?$allocator@V?$array@M$03@std@@@2@@std@@XZ
 ?GetSHVolumeCount@ProbeLightingSystem@@QEBAIXZ
@@ -1778,6 +1796,7 @@
 ?InstantiateLoadPlanAdditive@SceneSerializer@@SA_NAEAVScene@@AEBUSceneLoadPlan@@AEAUSceneInstantiationState@@_KAEAV?$vector@UActorHandle@@V?$allocator@UActorHandle@@@std@@@std@@AEA_NPEAV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@6@@Z
 ?Interact@InteractionComponent@@QEAA_NUActorHandle@@@Z
 ?InvalidateGpuBuffers@MeshAsset@@QEAAXXZ
+?InvalidateHierarchyCache@Scene@@AEAAXXZ
 ?InvalidateMaterialPreview@SceneRenderLayer@@QEAAXXZ
 ?InvalidateTemporalHistory@ModernDeferredPipeline@@QEAAXV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@_N@Z
 ?InvalidateTemporalHistory@RenderViewport@@QEAAXAEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@_N@Z
@@ -1970,6 +1989,8 @@
 ?NormalizePath@AssetDatabase@@CA?AV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@AEBV23@@Z
 ?NormalizePath@AssetManager@@AEBA?AV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@AEBV23@@Z
 ?Offset@LinearAllocator@@QEBA_KXZ
+?OnActorCreated@Scene@@AEAAXAEAVActor@@@Z
+?OnActorDestroyed@Scene@@AEAAXAEAVActor@@@Z
 ?OnAnimationEvent@AudioSourceComponent@@UEAAXAEBUAnimationEventData@@@Z
 ?OnAnimationEvent@Component@@UEAAXAEBUAnimationEventData@@@Z
 ?OnAnimationEvent@HitboxComponent@@UEAAXAEBUAnimationEventData@@@Z
@@ -1989,7 +2010,9 @@
 ?OnBeginPlay@ScriptComponent@@UEAAXXZ
 ?OnCollisionEvent@Component@@UEAAXAEBUCollisionEvent@@@Z
 ?OnCollisionEvent@ScriptComponent@@UEAAXAEBUCollisionEvent@@@Z
+?OnComponentAdded@Scene@@AEAAXAEAVActor@@Vtype_index@std@@@Z
 ?OnComponentEnabledChanged@Actor@@AEAAXAEAVComponent@@_N@Z
+?OnComponentRemoved@Scene@@AEAAXAEAVActor@@Vtype_index@std@@@Z
 ?OnDetach@AudioSourceComponent@@UEAAXXZ
 ?OnDetach@Component@@UEAAXXZ
 ?OnDetach@Layer@@UEAAXXZ
@@ -2062,6 +2085,7 @@
 ?OpenRead@PakFileSystem@@UEBA?AV?$unique_ptr@V?$basic_istream@DU?$char_traits@D@std@@@std@@U?$default_delete@V?$basic_istream@DU?$char_traits@D@std@@@std@@@2@@std@@AEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@3@PEAV43@@Z
 ?Orbit@Camera@@QEAAXMM@Z
 ?OrbitAroundFocus@SceneViewport@@QEAAXAEBUVec3@Math@@MM@Z
+?OrderedActorHandles@Scene@@AEBAAEBV?$vector@UActorHandle@@V?$allocator@UActorHandle@@@std@@@std@@XZ
 ?OrderedActors@Scene@@AEBA?AV?$vector@PEAVActor@@V?$allocator@PEAVActor@@@std@@@std@@_N@Z
 ?OrderedComponents@Actor@@AEBA?AV?$vector@PEAVComponent@@V?$allocator@PEAVComponent@@@std@@@std@@_N@Z
 ?Pan@Camera@@QEAAXMM@Z
@@ -2238,6 +2262,7 @@
 ?ResetActionMapOverrides@Input@@SAXXZ
 ?ResetFrameStats@MaterialResourceCache@@QEAAXXZ
 ?ResetPeaksAndTotals@RHIResourceStatsProvider@@SAXXZ
+?ResetQueryStats@Scene@@QEAAXXZ
 ?ResetStatistics@GpuUploadQueue@@QEAAXXZ
 ?ResetStatistics@RuntimeResourceBudgetController@@QEAAXXZ
 ?ResetTemporalState@GpuSceneDatabase@@QEAAXXZ
@@ -2471,6 +2496,8 @@
 ?SetFollowSharpness@ThirdPersonCameraComponent@@QEAAXM@Z
 ?SetFovY@Camera@@QEAAXM@Z
 ?SetFovYDegrees@CameraComponent@@QEAAXM@Z
+?SetFrameCoordinator@RenderViewport@@QEAAXPEAVRenderFrameCoordinator@@@Z
+?SetFrameCoordinator@Renderer@@QEAAXPEAVRenderFrameCoordinator@@@Z
 ?SetFrameCounters@RuntimeQualityDegradation@@SAX_K0@Z
 ?SetFriction@RigidBodyComponent@@QEAAXM@Z
 ?SetGBufferInput@DeferredLightingPass@@QEAAXV?$shared_ptr@UGpuTextureView@@@std@@000@Z
@@ -2585,6 +2612,8 @@
 ?SetProbeId@SHProbeVolumeComponent@@QEAAXV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@Z
 ?SetProbeInput@DeferredLightingPass@@QEAAXV?$shared_ptr@UGpuTextureView@@@std@@V?$shared_ptr@UGpuBufferView@@@3@11III@Z
 ?SetProbeInput@ModernDeferredPipeline@@QEAAXV?$shared_ptr@UGpuTextureView@@@std@@V?$shared_ptr@UGpuBufferView@@@3@11III@Z
+?SetProfilerLabel@RenderViewport@@QEAAXV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@Z
+?SetProfilerLabel@Renderer@@QEAAXV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@Z
 ?SetProjectRoot@AssetManager@@QEAAXVpath@filesystem@std@@@Z
 ?SetProjectRoot@MountedFileSystem@@QEAAXVpath@filesystem@std@@@Z
 ?SetProjectionMode@Camera@@QEAAXW4ProjectionMode@@@Z
@@ -2736,6 +2765,7 @@
 ?Shutdown@MemoryService@@QEAAXXZ
 ?Shutdown@TaskService@@QEAAXXZ
 ?Shutdown@UISystem@@QEAAXXZ
+?SignatureContains@Scene@@AEBA_NUActorHandle@@PEBI_K@Z
 ?Skin@SkinnedMeshRendererComponent@@QEAAXXZ
 ?SleepForFrameRate@Engine@@CAXMV?$time_point@Usteady_clock@chrono@std@@V?$duration@_JU?$ratio@$00$0DLJKMKAA@@std@@@23@@chrono@std@@@Z
 ?SlowMotion@GameplayFeedbackComponent@@QEAAXMM@Z

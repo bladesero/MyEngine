@@ -11,25 +11,72 @@ struct RenderGraphPassGpuTiming {
     float gpuMs = 0.0f;
 };
 
-struct RendererFrameStats {
+struct RendererViewportStats {
+    std::string name;
+    uint64_t gpuSourceFrameNumber = 0;
     float renderSubmissionCpuMs = 0.0f;
     float renderGraphBuildCpuMs = 0.0f;
     float renderGraphExecuteCpuMs = 0.0f;
     float renderGraphPrepareCpuMs = 0.0f;
+    float renderGraphRecordCpuMs = 0.0f;
+    float renderGraphFinalizeCpuMs = 0.0f;
     float pipelinePrepareCpuMs = 0.0f;
+    float sceneCollectCpuMs = 0.0f;
     float renderGraphAddPassCpuMs = 0.0f;
     float renderGraphCompileCpuMs = 0.0f;
     float renderGraphEnsureResourcesCpuMs = 0.0f;
+    float gpuScenePrepareCpuMs = 0.0f;
+    float uploadQueueCpuMs = 0.0f;
     float frameWaitCpuMs = 0.0f;
     float presentCpuMs = 0.0f;
+    float renderGraphGpuMs = 0.0f;
+    uint32_t drawCalls = 0;
+    bool gpuTimingAvailable = false;
+    bool renderGraphTopologyCacheHit = false;
+    std::vector<RenderGraphPassGpuTiming> renderGraphPassGpuTimings;
+};
+
+struct RenderLayerCpuTiming {
+    std::string name;
+    float cpuMs = 0.0f;
+};
+
+struct EditorUiPanelCpuTiming {
+    std::string name;
+    float cpuMs = 0.0f;
+};
+
+struct RendererFrameStats {
+    uint64_t frameNumber = 0;
+    float renderSubmissionCpuMs = 0.0f;
+    float renderGraphBuildCpuMs = 0.0f;
+    float renderGraphExecuteCpuMs = 0.0f;
+    float renderGraphPrepareCpuMs = 0.0f;
+    float renderGraphRecordCpuMs = 0.0f;
+    float renderGraphFinalizeCpuMs = 0.0f;
+    float pipelinePrepareCpuMs = 0.0f;
+    float sceneCollectCpuMs = 0.0f;
+    float renderGraphAddPassCpuMs = 0.0f;
+    float renderGraphCompileCpuMs = 0.0f;
+    float renderGraphEnsureResourcesCpuMs = 0.0f;
+    float uploadQueueCpuMs = 0.0f;
+    float frameWaitCpuMs = 0.0f;
+    float presentCpuMs = 0.0f;
+    float editorUiCpuMs = 0.0f;
+    float editorUiBuildCpuMs = 0.0f;
+    float editorUiSubmitCpuMs = 0.0f;
+    float platformWindowsCpuMs = 0.0f;
     float shadowCpuMs = 0.0f;
     float mainCpuMs = 0.0f;
     float ssaoCpuMs = 0.0f;
     float compositeCpuMs = 0.0f;
     float shadowGpuMs = 0.0f;
+    // Deprecated compatibility field. It aliases the aggregate RenderGraph GPU duration.
     float mainGpuMs = 0.0f;
     float ssaoGpuMs = 0.0f;
     float compositeGpuMs = 0.0f;
+    float renderGraphGpuMs = 0.0f;
+    uint64_t gpuSourceFrameNumber = 0;
     uint32_t drawCalls = 0;
     uint32_t shadowDrawCalls = 0;
     uint32_t mainDrawCalls = 0;
@@ -71,6 +118,9 @@ struct RendererFrameStats {
     bool rayTracingTlasUpdated = false;
     std::string rayTracingFallbackReason;
     std::string historyResetReason;
+    std::vector<RendererViewportStats> viewportStats;
+    std::vector<RenderLayerCpuTiming> renderLayerCpuTimings;
+    std::vector<EditorUiPanelCpuTiming> editorUiPanelCpuTimings;
 };
 
 struct RuntimeResourceFrameStats {

@@ -8,7 +8,80 @@
 #include "Scene/WorldZoneStreamer.h"
 
 #include <algorithm>
+#include <array>
+#include <limits>
 #include <mutex>
+
+struct SceneEcsState {
+    struct Signature {
+        std::array<uint64_t, 2> inlineWords{};
+        std::vector<uint64_t> overflowWords;
+
+        void Set(RuntimeTypeIndex type, bool value) {
+            const size_t word = static_cast<size_t>(type) / 64;
+            const uint64_t bit = uint64_t{1} << (type % 64);
+            if (word < inlineWords.size()) {
+                if (value)
+                    inlineWords[word] |= bit;
+                else
+                    inlineWords[word] &= ~bit;
+                return;
+            }
+            const size_t overflowWord = word - inlineWords.size();
+            if (value && overflowWord >= overflowWords.size())
+                overflowWords.resize(overflowWord + 1, 0);
+            if (overflowWord >= overflowWords.size())
+                return;
+            if (value)
+                overflowWords[overflowWord] |= bit;
+            else
+                overflowWords[overflowWord] &= ~bit;
+        }
+
+        bool Contains(RuntimeTypeIndex type) const {
+            const size_t word = static_cast<size_t>(type) / 64;
+            const uint64_t bit = uint64_t{1} << (type % 64);
+            if (word < inlineWords.size())
+                return (inlineWords[word] & bit) != 0;
+            const size_t overflowWord = word - inlineWords.size();
+            return overflowWord < overflowWords.size() && (overflowWords[overflowWord] & bit) != 0;
+        }
+    };
+
+    struct ActorSignature {
+        uint32_t generation = 0;
+        Signature value;
+    };
+
+    struct SparseEntry {
+        uint32_t generation = 0;
+        uint32_t position = std::numeric_limits<uint32_t>::max();
+    };
+
+    struct TypeMembers {
+        std::vector<ActorHandle> dense;
+        std::vector<SparseEntry> sparse;
+        uint64_t orderedHierarchyRevision = 0;
+    };
+
+    std::vector<ActorSignature> signatures;
+    std::vector<TypeMembers> members;
+    mutable std::vector<ActorHandle> hierarchy;
+    mutable std::vector<uint32_t> hierarchyOrdinals;
+    uint64_t hierarchyRevision = 1;
+    mutable uint64_t cachedHierarchyRevision = 0;
+    mutable SceneQueryStats stats;
+
+    void EnsureTypeCapacity(size_t count) {
+        if (members.size() < count)
+            members.resize(count);
+    }
+
+    void EnsureSlotCapacity(size_t count) {
+        if (signatures.size() < count)
+            signatures.resize(count);
+    }
+};
 
 namespace {
 std::atomic<uint64_t> g_NextSceneLifetimeGeneration{1};
@@ -18,9 +91,9 @@ std::atomic<uint64_t> g_NextZoneLifetimeGeneration{1};
 }
 
 Scene::Scene(std::string name)
-    : m_Name(std::move(name)), m_PhysicsWorld(CreateScenePhysicsSubsystem()),
-      m_NavigationWorld(CreateSceneNavigationSubsystem()), m_Lifetime(std::make_shared<SceneLifetimeState>()),
-      m_ZoneStreamer(std::make_unique<WorldZoneStreamer>()) {
+    : m_Name(std::move(name)), m_EcsState(std::make_unique<SceneEcsState>()),
+      m_PhysicsWorld(CreateScenePhysicsSubsystem()), m_NavigationWorld(CreateSceneNavigationSubsystem()),
+      m_Lifetime(std::make_shared<SceneLifetimeState>()), m_ZoneStreamer(std::make_unique<WorldZoneStreamer>()) {
     if (!m_PhysicsWorld || !m_NavigationWorld)
         throw std::logic_error("Runtime scene subsystems were not attached by the composition root");
     m_Lifetime->generation = g_NextSceneLifetimeGeneration.fetch_add(1, std::memory_order_relaxed);
@@ -133,9 +206,7 @@ void Scene::DestroyAllZones() {
 namespace {
 void ApplyActorLayer(Actor& actor, uint32_t layer) {
     actor.SetLayer(layer);
-    actor.ForEachComponent([&](Component& component) {
-        component.OnOwnerLayerChanged(layer);
-    });
+    actor.ForEachComponent([&](Component& component) { component.OnOwnerLayerChanged(layer); });
 }
 } // namespace
 
@@ -257,8 +328,89 @@ ActorHandle Scene::GetHandle(uint64_t persistentID) const {
     return it == m_IDHandles.end() ? ActorHandle{} : it->second;
 }
 
+void Scene::InvalidateHierarchyCache() {
+    ++m_EcsState->hierarchyRevision;
+    if (!m_EcsState->hierarchyRevision)
+        m_EcsState->hierarchyRevision = 1;
+}
+
+void Scene::OnActorCreated(Actor& actor) {
+    const ActorHandle handle = actor.GetHandle();
+    m_EcsState->EnsureSlotCapacity(static_cast<size_t>(handle.index) + 1);
+    auto& signature = m_EcsState->signatures[handle.index];
+    signature.generation = handle.generation;
+    signature.value = {};
+    InvalidateHierarchyCache();
+}
+
+void Scene::OnComponentAdded(Actor& actor, std::type_index type) {
+    const RuntimeTypeIndex runtimeType = TypeRegistry::Get().FindRuntimeTypeIndex(type);
+    if (runtimeType == InvalidRuntimeTypeIndex)
+        return;
+    const ActorHandle handle = actor.GetHandle();
+    m_EcsState->EnsureSlotCapacity(static_cast<size_t>(handle.index) + 1);
+    m_EcsState->EnsureTypeCapacity(TypeRegistry::Get().GetRuntimeTypeCount());
+    auto& signature = m_EcsState->signatures[handle.index];
+    if (signature.generation != handle.generation) {
+        signature.generation = handle.generation;
+        signature.value = {};
+    }
+    if (signature.value.Contains(runtimeType))
+        return;
+    signature.value.Set(runtimeType, true);
+
+    auto& members = m_EcsState->members[runtimeType];
+    if (members.sparse.size() <= handle.index)
+        members.sparse.resize(static_cast<size_t>(handle.index) + 1);
+    auto& sparse = members.sparse[handle.index];
+    sparse.generation = handle.generation;
+    sparse.position = static_cast<uint32_t>(members.dense.size());
+    members.dense.push_back(handle);
+    members.orderedHierarchyRevision = 0;
+}
+
+void Scene::OnComponentRemoved(Actor& actor, std::type_index type) {
+    const RuntimeTypeIndex runtimeType = TypeRegistry::Get().FindRuntimeTypeIndex(type);
+    const ActorHandle handle = actor.GetHandle();
+    if (runtimeType == InvalidRuntimeTypeIndex || runtimeType >= m_EcsState->members.size() ||
+        handle.index >= m_EcsState->signatures.size())
+        return;
+    auto& signature = m_EcsState->signatures[handle.index];
+    if (signature.generation != handle.generation || !signature.value.Contains(runtimeType))
+        return;
+    signature.value.Set(runtimeType, false);
+
+    auto& members = m_EcsState->members[runtimeType];
+    if (handle.index >= members.sparse.size())
+        return;
+    auto& sparse = members.sparse[handle.index];
+    if (sparse.generation != handle.generation || sparse.position >= members.dense.size())
+        return;
+    const uint32_t position = sparse.position;
+    const ActorHandle moved = members.dense.back();
+    members.dense[position] = moved;
+    members.dense.pop_back();
+    if (position < members.dense.size()) {
+        auto& movedSparse = members.sparse[moved.index];
+        movedSparse.generation = moved.generation;
+        movedSparse.position = position;
+    }
+    sparse.generation = 0;
+    sparse.position = std::numeric_limits<uint32_t>::max();
+    members.orderedHierarchyRevision = 0;
+}
+
+void Scene::OnActorDestroyed(Actor& actor) {
+    actor.ForEachComponent(
+        [&](Component& component) { OnComponentRemoved(actor, std::type_index(typeid(component))); });
+    const ActorHandle handle = actor.GetHandle();
+    if (handle.index < m_EcsState->signatures.size())
+        m_EcsState->signatures[handle.index] = {};
+    InvalidateHierarchyCache();
+}
+
 bool Scene::FlushCommands() {
-    if (m_Traversing || m_Flushing)
+    if (IsTraversing() || m_Flushing)
         return false;
     m_Flushing = true;
     std::vector<PendingCreate> creates = std::move(m_PendingCreates);
@@ -353,6 +505,7 @@ bool Scene::FlushCommands() {
         m_IDMap[id] = raw;
         m_IDHandles[id] = pending.handle;
         m_Actors.push_back(std::move(actor));
+        OnActorCreated(*raw);
         created.push_back(raw);
         if (id >= m_NextID)
             m_NextID = id + 1;
@@ -490,26 +643,34 @@ void Scene::FinalizeCreated(const std::vector<Actor*>& actors) {
     const bool runtimeActive = m_State == SceneState::Playing || m_State == SceneState::Paused;
     for (Actor* actor : actors)
         actor->RefreshActiveInHierarchy(!actor->m_Parent || actor->m_Parent->IsActiveInHierarchy(), false);
-    for (Actor* actor : OrderedActors()) {
+    const auto& handles = OrderedActorHandles();
+    for (ActorHandle handle : handles) {
+        Actor* actor = TryGetActor(handle);
         if (std::find(actors.begin(), actors.end(), actor) != actors.end())
             actor->FinalizeConstruction(runtimeActive);
     }
     if (runtimeActive) {
-        for (Actor* actor : OrderedActors())
+        for (ActorHandle handle : handles) {
+            Actor* actor = TryGetActor(handle);
             if (std::find(actors.begin(), actors.end(), actor) != actors.end())
                 actor->BeginPlayPhase();
-        for (Actor* actor : OrderedActors())
+        }
+        for (ActorHandle handle : handles) {
+            Actor* actor = TryGetActor(handle);
             if (std::find(actors.begin(), actors.end(), actor) != actors.end())
                 actor->EnablePlayPhase();
-        for (Actor* actor : OrderedActors())
+        }
+        for (ActorHandle handle : handles) {
+            Actor* actor = TryGetActor(handle);
             if (std::find(actors.begin(), actors.end(), actor) != actors.end())
                 actor->StartPlayPhase();
+        }
     }
 }
 
 Actor* Scene::CreateActor(const std::string& name) {
     const ActorHandle handle = QueueCreateActor(ActorCreateDesc{name});
-    if (!m_Traversing)
+    if (!IsTraversing())
         FlushCommands();
     return TryGetActor(handle);
 }
@@ -519,7 +680,7 @@ Actor* Scene::CreateActor(const std::string& name, Actor* parent) {
     desc.name = name;
     desc.parent = parent ? parent->GetHandle() : ActorHandle{};
     const ActorHandle handle = QueueCreateActor(desc);
-    if (!m_Traversing)
+    if (!IsTraversing())
         FlushCommands();
     return TryGetActor(handle);
 }
@@ -531,7 +692,7 @@ Actor* Scene::CreateActorWithID(const std::string& name, uint64_t id) {
     desc.name = name;
     desc.persistentID = id;
     const ActorHandle handle = QueueCreateActor(desc);
-    if (!m_Traversing)
+    if (!IsTraversing())
         FlushCommands();
     return TryGetActor(handle);
 }
@@ -539,7 +700,7 @@ Actor* Scene::CreateActorWithID(const std::string& name, uint64_t id) {
 void Scene::DestroyActor(Actor* actor) {
     if (actor) {
         QueueDestroyActor(actor->GetHandle());
-        if (!m_Traversing)
+        if (!IsTraversing())
             FlushCommands();
     }
 }
@@ -558,6 +719,7 @@ void Scene::DestroyActorInternal(Actor* actor) {
     actor->SetParent(nullptr);
     const ActorHandle handle = actor->m_Handle;
     const uint64_t id = actor->m_ID;
+    OnActorDestroyed(*actor);
     for (auto& entry : m_Zones) {
         auto& actors = entry.second->actors;
         actors.erase(std::remove(actors.begin(), actors.end(), handle), actors.end());
@@ -642,9 +804,11 @@ bool Scene::MoveActorInternal(Actor* actor, Actor* parent, Actor* beforeSibling)
         return false;
 
     actor->SetParent(parent);
-    if (parent)
-        return parent->MoveChildBefore(actor, beforeSibling);
-    return MoveRootActorBefore(actor, beforeSibling);
+    const bool moved =
+        parent ? parent->MoveChildBefore(actor, beforeSibling) : MoveRootActorBefore(actor, beforeSibling);
+    if (moved)
+        InvalidateHierarchyCache();
+    return moved;
 }
 
 void Scene::Clear() {
@@ -665,6 +829,7 @@ void Scene::Clear() {
     m_IDHandles.clear();
     const size_t count = m_Actors.size();
     m_Actors.clear();
+    m_EcsState = std::make_unique<SceneEcsState>();
     m_NextID = 1;
     for (Slot& slot : m_Slots) {
         slot.actor = nullptr;
@@ -707,40 +872,217 @@ std::vector<Actor*> Scene::GetRootActors() const {
 
 std::vector<Actor*> Scene::OrderedActors(bool reverse) const {
     std::vector<Actor*> result;
-    std::function<void(Actor*)> visit = [&](Actor* actor) {
-        result.push_back(actor);
-        for (Actor* child : actor->GetChildren())
-            visit(child);
-    };
-    for (Actor* root : GetRootActors())
-        visit(root);
+    const auto& handles = OrderedActorHandles();
+    result.reserve(handles.size());
+    for (ActorHandle handle : handles)
+        if (Actor* actor = const_cast<Actor*>(TryGetActor(handle)))
+            result.push_back(actor);
     if (reverse)
         std::reverse(result.begin(), result.end());
     return result;
 }
 
+void Scene::EnsureHierarchyCache() const {
+    SceneEcsState& state = *m_EcsState;
+    if (state.cachedHierarchyRevision == state.hierarchyRevision)
+        return;
+    state.hierarchy.clear();
+    state.hierarchy.reserve(m_Actors.size());
+    state.hierarchyOrdinals.assign(m_Slots.size(), std::numeric_limits<uint32_t>::max());
+    std::function<void(Actor*)> visit = [&](Actor* actor) {
+        const ActorHandle handle = actor->GetHandle();
+        if (handle.index < state.hierarchyOrdinals.size())
+            state.hierarchyOrdinals[handle.index] = static_cast<uint32_t>(state.hierarchy.size());
+        state.hierarchy.push_back(handle);
+        for (Actor* child : actor->GetChildren())
+            visit(child);
+    };
+    for (const auto& actor : m_Actors)
+        if (!actor->GetParent())
+            visit(actor.get());
+    state.cachedHierarchyRevision = state.hierarchyRevision;
+    ++state.stats.hierarchyCacheRebuilds;
+}
+
+const std::vector<ActorHandle>& Scene::OrderedActorHandles() const {
+    EnsureHierarchyCache();
+    return m_EcsState->hierarchy;
+}
+
+uint32_t Scene::GetHierarchyOrdinal(ActorHandle actor) const {
+    EnsureHierarchyCache();
+    if (!TryGetActor(actor) || actor.index >= m_EcsState->hierarchyOrdinals.size())
+        return std::numeric_limits<uint32_t>::max();
+    return m_EcsState->hierarchyOrdinals[actor.index];
+}
+
+void Scene::EnsureQueryTypeOrdered(RuntimeTypeIndex type) const {
+    m_EcsState->EnsureTypeCapacity(TypeRegistry::Get().GetRuntimeTypeCount());
+    if (type >= m_EcsState->members.size())
+        return;
+    EnsureHierarchyCache();
+    auto& members = m_EcsState->members[type];
+    if (members.orderedHierarchyRevision == m_EcsState->hierarchyRevision)
+        return;
+    std::sort(members.dense.begin(), members.dense.end(), [&](ActorHandle a, ActorHandle b) {
+        const uint32_t aOrdinal = GetHierarchyOrdinal(a);
+        const uint32_t bOrdinal = GetHierarchyOrdinal(b);
+        return aOrdinal != bOrdinal ? aOrdinal < bOrdinal : a.ToUInt64() < b.ToUInt64();
+    });
+    for (uint32_t position = 0; position < members.dense.size(); ++position) {
+        const ActorHandle handle = members.dense[position];
+        if (members.sparse.size() <= handle.index)
+            members.sparse.resize(static_cast<size_t>(handle.index) + 1);
+        members.sparse[handle.index] = {handle.generation, position};
+    }
+    members.orderedHierarchyRevision = m_EcsState->hierarchyRevision;
+    ++m_EcsState->stats.queryOrderRebuilds;
+}
+
+bool Scene::SignatureContains(ActorHandle actor, const RuntimeTypeIndex* types, size_t typeCount) const {
+    if (!TryGetActor(actor) || actor.index >= m_EcsState->signatures.size())
+        return false;
+    const auto& signature = m_EcsState->signatures[actor.index];
+    if (signature.generation != actor.generation)
+        return false;
+    for (size_t i = 0; i < typeCount; ++i)
+        if (!signature.value.Contains(types[i]))
+            return false;
+    return true;
+}
+
+namespace {
+struct SceneTraversalScope {
+    explicit SceneTraversalScope(uint32_t& value) : depth(value) { ++depth; }
+    ~SceneTraversalScope() { --depth; }
+    uint32_t& depth;
+};
+} // namespace
+
 void Scene::ForEach(const std::function<void(Actor&)>& fn) const {
-    for (Actor* actor : OrderedActors())
-        fn(*actor);
+    SceneTraversalScope traversal(m_TraversalDepth);
+    const auto& handles = OrderedActorHandles();
+    for (ActorHandle handle : handles)
+        if (Actor* actor = const_cast<Actor*>(TryGetActor(handle)))
+            fn(*actor);
+}
+
+size_t Scene::ForEachQueryAll(RuntimeTypeIndex* types, size_t typeCount, QueryVisitor visitor) const {
+    if (!types || !typeCount || !visitor.invoke)
+        return 0;
+    RuntimeTypeIndex candidateType = types[0];
+    EnsureQueryTypeOrdered(candidateType);
+    for (size_t i = 1; i < typeCount; ++i) {
+        EnsureQueryTypeOrdered(types[i]);
+        if (types[i] < m_EcsState->members.size() && candidateType < m_EcsState->members.size() &&
+            m_EcsState->members[types[i]].dense.size() < m_EcsState->members[candidateType].dense.size())
+            candidateType = types[i];
+    }
+    if (candidateType >= m_EcsState->members.size())
+        return 0;
+
+    SceneTraversalScope traversal(m_TraversalDepth);
+    size_t matched = 0;
+    const auto& candidates = m_EcsState->members[candidateType].dense;
+    for (ActorHandle handle : candidates) {
+        ++m_EcsState->stats.candidateVisits;
+        if (!SignatureContains(handle, types, typeCount))
+            continue;
+        Actor* actor = const_cast<Actor*>(TryGetActor(handle));
+        if (!actor)
+            continue;
+        ++matched;
+        ++m_EcsState->stats.matchedActors;
+        if (visitor.invoke(visitor.context, *actor) == SceneQueryControl::Break)
+            break;
+    }
+    return matched;
+}
+
+size_t Scene::ForEachQueryAny(RuntimeTypeIndex* types, size_t typeCount, size_t* positions,
+                              QueryVisitor visitor) const {
+    if (!types || !typeCount || !positions || !visitor.invoke)
+        return 0;
+    for (size_t i = 0; i < typeCount; ++i) {
+        EnsureQueryTypeOrdered(types[i]);
+        if (types[i] >= m_EcsState->members.size())
+            return 0;
+    }
+
+    SceneTraversalScope traversal(m_TraversalDepth);
+    size_t matched = 0;
+    while (true) {
+        ActorHandle next;
+        uint32_t nextOrdinal = std::numeric_limits<uint32_t>::max();
+        bool found = false;
+        for (size_t i = 0; i < typeCount; ++i) {
+            const auto& members = m_EcsState->members[types[i]].dense;
+            if (positions[i] >= members.size())
+                continue;
+            const ActorHandle candidate = members[positions[i]];
+            const uint32_t ordinal = GetHierarchyOrdinal(candidate);
+            if (!found || ordinal < nextOrdinal || (ordinal == nextOrdinal && candidate.ToUInt64() < next.ToUInt64())) {
+                next = candidate;
+                nextOrdinal = ordinal;
+                found = true;
+            }
+        }
+        if (!found)
+            break;
+        for (size_t i = 0; i < typeCount; ++i) {
+            const auto& members = m_EcsState->members[types[i]].dense;
+            if (positions[i] < members.size() && members[positions[i]] == next)
+                ++positions[i];
+        }
+
+        ++m_EcsState->stats.candidateVisits;
+        Actor* actor = const_cast<Actor*>(TryGetActor(next));
+        if (!actor)
+            continue;
+        ++matched;
+        ++m_EcsState->stats.matchedActors;
+        if (visitor.invoke(visitor.context, *actor) == SceneQueryControl::Break)
+            break;
+    }
+    return matched;
+}
+
+SceneQueryStats Scene::GetQueryStats() const {
+    return m_EcsState->stats;
+}
+
+void Scene::ResetQueryStats() {
+    m_EcsState->stats = {};
 }
 
 void Scene::BeginPlay() {
     FlushCommands();
     m_State = SceneState::Playing;
-    for (Actor* actor : OrderedActors())
-        actor->BeginPlayPhase();
-    for (Actor* actor : OrderedActors())
-        actor->EnablePlayPhase();
-    for (Actor* actor : OrderedActors())
-        actor->StartPlayPhase();
+    {
+        SceneTraversalScope traversal(m_TraversalDepth);
+        const auto& handles = OrderedActorHandles();
+        for (ActorHandle handle : handles)
+            if (Actor* actor = TryGetActor(handle))
+                actor->BeginPlayPhase();
+        for (ActorHandle handle : handles)
+            if (Actor* actor = TryGetActor(handle))
+                actor->EnablePlayPhase();
+        for (ActorHandle handle : handles)
+            if (Actor* actor = TryGetActor(handle))
+                actor->StartPlayPhase();
+    }
+    FlushCommands();
 }
 
 void Scene::EndPlay() {
     if (m_State != SceneState::Playing && m_State != SceneState::Paused)
         return;
     m_State = SceneState::Stopping;
-    for (Actor* actor : OrderedActors(true))
-        actor->EndPlay();
+    SceneTraversalScope traversal(m_TraversalDepth);
+    const auto& handles = OrderedActorHandles();
+    for (auto it = handles.rbegin(); it != handles.rend(); ++it)
+        if (Actor* actor = TryGetActor(*it))
+            actor->EndPlay();
     m_State = SceneState::Edit;
 }
 

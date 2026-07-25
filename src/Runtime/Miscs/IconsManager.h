@@ -63,6 +63,7 @@ private:
     std::string MakeUploadKey(RHIBackend backend, std::string_view iconName, int size, IconColor color) const;
 
     std::filesystem::path m_IconRoot;
+    mutable std::unordered_map<std::string, std::filesystem::path> m_PathCache;
     std::unordered_map<std::string, std::shared_ptr<IconPixels>> m_PixelCache;
     std::unordered_map<std::string, std::shared_ptr<UploadedIcon>> m_UploadCache;
 };

@@ -8,7 +8,7 @@
 namespace {
 ScriptAssetPreprocessCallback g_Preprocess = nullptr;
 ScriptAssetDiscoverCallback g_Discover = nullptr;
-}
+} // namespace
 
 void SetScriptAssetProcessor(ScriptAssetPreprocessCallback preprocess, ScriptAssetDiscoverCallback discover) {
     g_Preprocess = preprocess;

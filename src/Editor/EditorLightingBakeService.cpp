@@ -3,6 +3,7 @@
 #include "Assets/AssetManager.h"
 #include "Assets/LightingProbeAsset.h"
 #include "Core/Logger.h"
+#include "Core/EngineTime.h"
 #include "Editor/EditorContext.h"
 #include "Game/SceneRenderLayer.h"
 #include "Renderer/IRenderContext.h"
@@ -27,6 +28,7 @@ bool EditorLightingBakeService::RequestBake(Scene& scene) {
         return false;
     m_PendingScene = &scene;
     m_LastResult = {};
+    InvalidateBakeStatus();
     Logger::Info("[LightingBake] queued GPU reflection probe bake for ", scene.GetName());
     return true;
 }
@@ -45,6 +47,7 @@ void EditorLightingBakeService::OnUpdate(float deltaSeconds) {
 void EditorLightingBakeService::OnDetach() {
     m_PendingScene = nullptr;
     m_ActiveScene = nullptr;
+    InvalidateBakeStatus();
     EditorService::OnDetach();
 }
 
@@ -90,8 +93,27 @@ ProbeBakeResult EditorLightingBakeService::ExecuteBake(EditorContext& context, S
 bool EditorLightingBakeService::IsBakeCurrent(const Scene& scene) const {
     if (IsBakePending(scene))
         return false;
-    if (scene.GetLightingProbeAssetPath().empty())
+    const std::string& assetPath = scene.GetLightingProbeAssetPath();
+    if (assetPath.empty())
         return false;
-    auto asset = AssetManager::Get().Load<LightingProbeAsset>(scene.GetLightingProbeAssetPath());
-    return asset.IsValid() && asset->GetDependencyHash() == ProbeBakeRenderer::ComputeDependencyHash(scene);
+    constexpr uint64_t kBakeStatusRefreshFrames = 30;
+    const uint64_t frame = Time::FrameCount();
+    if (m_BakeStatusScene == &scene && m_BakeStatusAssetPath == assetPath && frame >= m_BakeStatusFrame &&
+        frame - m_BakeStatusFrame < kBakeStatusRefreshFrames)
+        return m_BakeStatusCurrent;
+
+    auto asset = AssetManager::Get().Load<LightingProbeAsset>(assetPath);
+    m_BakeStatusCurrent =
+        asset.IsValid() && asset->GetDependencyHash() == ProbeBakeRenderer::ComputeDependencyHash(scene);
+    m_BakeStatusScene = &scene;
+    m_BakeStatusAssetPath = assetPath;
+    m_BakeStatusFrame = frame;
+    return m_BakeStatusCurrent;
+}
+
+void EditorLightingBakeService::InvalidateBakeStatus() {
+    m_BakeStatusScene = nullptr;
+    m_BakeStatusAssetPath.clear();
+    m_BakeStatusFrame = 0;
+    m_BakeStatusCurrent = false;
 }

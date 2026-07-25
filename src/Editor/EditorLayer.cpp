@@ -5,7 +5,9 @@
 #include "Assets/AssetDatabase.h"
 #include "Assets/AssetManager.h"
 #include "Core/Engine.h"
+#include "Core/FrameStats.h"
 #include "Core/Logger.h"
+#include "Core/RuntimePerformanceBudget.h"
 #include "Core/Window.h"
 #include "Editor/EditorPanel.h"
 #include "Editor/EditorPanels.h"
@@ -39,8 +41,12 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
+#include <limits>
+#include <nlohmann/json.hpp>
 #include <set>
 #include <vector>
 
@@ -156,6 +162,19 @@ std::filesystem::path FindEditorFontRoot() {
     }
     const std::filesystem::path candidate = std::filesystem::current_path() / "EngineContent" / "Editor" / "Fonts";
     return candidate.lexically_normal();
+}
+
+double EditorPercentile(std::vector<double> values, double percentile) {
+    if (values.empty())
+        return 0.0;
+    std::sort(values.begin(), values.end());
+    const double rank = percentile * static_cast<double>(values.size() - 1);
+    const size_t lower = static_cast<size_t>(std::floor(rank));
+    const size_t upper = static_cast<size_t>(std::ceil(rank));
+    if (lower == upper)
+        return values[lower];
+    const double fraction = rank - static_cast<double>(lower);
+    return values[lower] + (values[upper] - values[lower]) * fraction;
 }
 
 } // namespace
@@ -837,6 +856,8 @@ void EditorLayer::OnUpdate(float deltaSeconds) {
     ProcessDialogResults();
     if (m_AutomationPending)
         RunAutomation();
+    if (m_PerformanceGate)
+        CapturePerformanceSample();
     if (m_ProjectOpen) {
         UpdateRecovery(deltaSeconds);
         m_Context.RefreshSceneViewMode();
@@ -1468,14 +1489,19 @@ std::string EditorLayer::GetSelectedStatusText() const {
 
 void EditorLayer::OnRender() {
 #if defined(MYENGINE_ENABLE_IMGUI)
-    if (!m_ImGuiReady || !m_RenderContext)
+    if (!m_RenderContext)
         return;
-    // The Editor owns the main swapchain frame independently of its offscreen
-    // viewports. BeginFrame is intentionally unconditional so the project
-    // selector and an empty/fully hidden dockspace can still draw and present.
-    // Backends treat this as an idempotent ensure when a viewport renderer has
-    // already opened the frame earlier in the layer render order.
-    m_RenderContext->BeginFrame(0.12f, 0.12f, 0.18f, 1.0f);
+    if (!m_ImGuiReady) {
+        if (m_SceneLayer)
+            m_SceneLayer->GetFrameCoordinator().EndFrame();
+        return;
+    }
+    RenderFrameCoordinator* frameCoordinator = m_SceneLayer ? &m_SceneLayer->GetFrameCoordinator() : nullptr;
+    if (frameCoordinator)
+        frameCoordinator->BeginFrame();
+    else
+        m_RenderContext->BeginFrame(0.12f, 0.12f, 0.18f, 1.0f);
+    const auto editorUiStart = std::chrono::steady_clock::now();
     const bool scaleOrFontChanged = m_UIScaleManager.BeginFrame(m_ImGuiBackend.get());
     if (scaleOrFontChanged)
         m_ThemeManager.Apply(m_UIScaleManager.GetEffectiveScale());
@@ -1485,6 +1511,8 @@ void EditorLayer::OnRender() {
     ImGuizmo::BeginFrame();
     ImGuizmo::AllowAxisFlip(false);
     DispatchEditorShortcuts();
+    std::vector<EditorUiPanelCpuTiming> panelCpuTimings;
+    panelCpuTimings.reserve(m_Panels.size());
     if (m_SceneLayer)
         m_SceneLayer->BeginViewportActivityFrame();
     if (m_ProjectOpen) {
@@ -1493,8 +1521,13 @@ void EditorLayer::OnRender() {
         DrawMainMenuBar();
         const float statusHeight = DrawStatusBar();
         m_LayoutManager.BeginDockSpace(m_Panels, menuHeight, statusHeight);
-        for (auto& panel : m_Panels)
+        for (auto& panel : m_Panels) {
+            const auto panelStart = std::chrono::steady_clock::now();
             panel->OnImGui();
+            panelCpuTimings.push_back(
+                {panel->GetTitle(),
+                 std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - panelStart).count()});
+        }
         DrawProjectSettings();
         DrawProjectResult();
         DrawRecoveryDialog();
@@ -1511,14 +1544,42 @@ void EditorLayer::OnRender() {
     if (m_SceneLayer)
         m_SceneLayer->CommitViewportActivityFrame();
     ImGui::Render();
+    const auto editorUiBuildEnd = std::chrono::steady_clock::now();
     if (m_ImGuiBackend)
         m_ImGuiBackend->RenderDrawData(ImGui::GetDrawData());
+    const auto editorUiEnd = std::chrono::steady_clock::now();
+    RendererFrameStats rendererStats = FrameStatsProvider::GetRendererStats();
+    rendererStats.editorUiCpuMs += std::chrono::duration<float, std::milli>(editorUiEnd - editorUiStart).count();
+    rendererStats.editorUiBuildCpuMs +=
+        std::chrono::duration<float, std::milli>(editorUiBuildEnd - editorUiStart).count();
+    rendererStats.editorUiSubmitCpuMs +=
+        std::chrono::duration<float, std::milli>(editorUiEnd - editorUiBuildEnd).count();
+    rendererStats.editorUiPanelCpuTimings = std::move(panelCpuTimings);
+    FrameStatsProvider::SetRendererStats(rendererStats);
     const bool renderPlatformWindowsAfterMainFrame = m_RenderContext->GetBackend() == RHIBackend::Vulkan;
-    if (m_ImGuiBackend && !renderPlatformWindowsAfterMainFrame)
+    if (m_ImGuiBackend && !renderPlatformWindowsAfterMainFrame) {
+        const auto platformWindowsStart = std::chrono::steady_clock::now();
         m_ImGuiBackend->RenderPlatformWindows();
-    m_RenderContext->EndFrame();
-    if (m_ImGuiBackend && renderPlatformWindowsAfterMainFrame)
+        rendererStats = FrameStatsProvider::GetRendererStats();
+        rendererStats.platformWindowsCpuMs +=
+            std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - platformWindowsStart).count();
+        FrameStatsProvider::SetRendererStats(rendererStats);
+    }
+    if (frameCoordinator)
+        frameCoordinator->EndFrame();
+    else
+        m_RenderContext->EndFrame();
+    if (m_ImGuiBackend && renderPlatformWindowsAfterMainFrame) {
+        const auto platformWindowsStart = std::chrono::steady_clock::now();
         m_ImGuiBackend->RenderPlatformWindows();
+        rendererStats = FrameStatsProvider::GetRendererStats();
+        rendererStats.platformWindowsCpuMs +=
+            std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - platformWindowsStart).count();
+        FrameStatsProvider::SetRendererStats(rendererStats);
+    }
+#else
+    if (m_SceneLayer)
+        m_SceneLayer->GetFrameCoordinator().EndFrame();
 #endif
 }
 
@@ -1722,8 +1783,140 @@ void EditorLayer::RunAutomation() {
             return;
         }
     }
+    if (!m_Automation.performanceReport.empty()) {
+        if (m_Window && m_Window->GetSDLWindow()) {
+            SDL_SetWindowAlwaysOnTop(m_Window->GetSDLWindow(), true);
+            SDL_RaiseWindow(m_Window->GetSDLWindow());
+        }
+        RuntimePerformanceBudget budget;
+        budget.warmupSamples = m_Automation.performanceWarmupFrames;
+        budget.minimumSamples = m_Automation.performanceSampleFrames;
+        budget.maxP95FrameMs = 1000.0;
+        budget.maxP99FrameMs = 1000.0;
+        budget.maxFrameMs = 10000.0;
+        budget.maxP95GpuMs = 1000.0;
+        budget.maxWorkingSetGrowthBytes = (std::numeric_limits<uint64_t>::max)();
+        budget.maxDroppedFixedTicks = (std::numeric_limits<uint64_t>::max)();
+        m_PerformanceGate = std::make_unique<RuntimePerformanceGate>(budget);
+        m_PerformancePanelSamples.clear();
+        m_PerformanceLayerSamples.clear();
+        m_LastPerformanceFrameNumber = 0;
+        Logger::Info("[EditorPerformance] Capturing ", budget.warmupSamples, " warmup frames and ",
+                     budget.minimumSamples, " samples to ", m_Automation.performanceReport.string());
+        return;
+    }
     if (m_Engine) {
         m_Engine->SetExitCode(0);
         m_Engine->RequestQuit();
     }
+}
+
+void EditorLayer::CapturePerformanceSample() {
+    if (!m_Engine || !m_PerformanceGate)
+        return;
+    const FrameStats& frame = m_Engine->GetFrameStats();
+    if (frame.frameNumber == 0 || frame.frameNumber == m_LastPerformanceFrameNumber)
+        return;
+    m_LastPerformanceFrameNumber = frame.frameNumber;
+
+    const RendererFrameStats& renderer = frame.renderer;
+    RuntimePerformanceSample sample;
+    sample.frameMs = frame.frameMs;
+    sample.updateMs = frame.updateMs;
+    sample.renderMs = frame.renderMs;
+    sample.gpuMs = renderer.gpuTimingAvailable ? renderer.renderGraphGpuMs : 0.0;
+    sample.workingSetBytes = GetCurrentProcessWorkingSetBytes();
+    sample.gpuTimingAvailable = renderer.gpuTimingAvailable;
+    sample.renderSubmissionMs = renderer.renderSubmissionCpuMs;
+    sample.shadowCpuMs = renderer.shadowCpuMs;
+    sample.mainCpuMs = renderer.mainCpuMs;
+    sample.ssaoCpuMs = renderer.ssaoCpuMs;
+    sample.compositeCpuMs = renderer.compositeCpuMs;
+    sample.renderGraphBuildMs = renderer.renderGraphBuildCpuMs;
+    sample.renderGraphExecuteMs = renderer.renderGraphExecuteCpuMs;
+    sample.renderGraphRecordMs = renderer.renderGraphRecordCpuMs;
+    sample.renderGraphPrepareMs = renderer.renderGraphPrepareCpuMs;
+    sample.renderGraphFinalizeMs = renderer.renderGraphFinalizeCpuMs;
+    sample.sceneCollectMs = renderer.sceneCollectCpuMs;
+    sample.pipelinePrepareMs = renderer.pipelinePrepareCpuMs;
+    sample.renderGraphAddPassMs = renderer.renderGraphAddPassCpuMs;
+    sample.renderGraphCompileMs = renderer.renderGraphCompileCpuMs;
+    sample.renderGraphEnsureResourcesMs = renderer.renderGraphEnsureResourcesCpuMs;
+    sample.gpuScenePrepareMs = renderer.gpuScenePrepareCpuMs;
+    sample.uploadQueueMs = renderer.uploadQueueCpuMs;
+    sample.frameWaitMs = renderer.frameWaitCpuMs;
+    sample.presentMs = renderer.presentCpuMs;
+    sample.editorUiMs = renderer.editorUiCpuMs;
+    sample.editorUiBuildMs = renderer.editorUiBuildCpuMs;
+    sample.editorUiSubmitMs = renderer.editorUiSubmitCpuMs;
+    sample.platformWindowsMs = renderer.platformWindowsCpuMs;
+    if (m_PerformanceGate->SampleCount() >= m_PerformanceGate->GetBudget().warmupSamples) {
+        for (const EditorUiPanelCpuTiming& panel : renderer.editorUiPanelCpuTimings)
+            m_PerformancePanelSamples[panel.name].push_back(panel.cpuMs);
+        for (const RenderLayerCpuTiming& layer : renderer.renderLayerCpuTimings)
+            m_PerformanceLayerSamples[layer.name].push_back(layer.cpuMs);
+    }
+    m_PerformanceGate->AddSample(std::move(sample));
+
+    const RuntimePerformanceBudget& budget = m_PerformanceGate->GetBudget();
+    if (m_PerformanceGate->SampleCount() < budget.warmupSamples + budget.minimumSamples)
+        return;
+    if (!WritePerformanceReport()) {
+        FailAutomation("failed to write performance report: " + m_Automation.performanceReport.string());
+        m_PerformanceGate.reset();
+        return;
+    }
+    m_PerformanceGate.reset();
+    if (m_Engine) {
+        m_Engine->SetExitCode(0);
+        m_Engine->RequestQuit();
+    }
+}
+
+bool EditorLayer::WritePerformanceReport() {
+    if (!m_PerformanceGate)
+        return false;
+    const RuntimePerformanceReport report = m_PerformanceGate->Evaluate();
+    nlohmann::json value = nlohmann::json::parse(report.ToJson());
+    value["schemaVersion"] = 1;
+    value["capture"] = {{"kind", "editor"},
+                        {"backend", m_RenderContext ? static_cast<int>(m_RenderContext->GetBackend()) : -1},
+                        {"width", m_Window ? m_Window->GetWidth() : 0},
+                        {"height", m_Window ? m_Window->GetHeight() : 0},
+                        {"warmupFrames", m_Automation.performanceWarmupFrames},
+                        {"sampleFrames", m_Automation.performanceSampleFrames},
+                        {"capturedUnixMilliseconds", std::chrono::duration_cast<std::chrono::milliseconds>(
+                                                         std::chrono::system_clock::now().time_since_epoch())
+                                                         .count()}};
+    value["editorPanels"] = nlohmann::json::array();
+    for (const auto& [name, samples] : m_PerformancePanelSamples) {
+        value["editorPanels"].push_back({{"name", name},
+                                         {"p50CpuMs", EditorPercentile(samples, 0.50)},
+                                         {"p95CpuMs", EditorPercentile(samples, 0.95)}});
+    }
+    value["renderLayers"] = nlohmann::json::array();
+    for (const auto& [name, samples] : m_PerformanceLayerSamples) {
+        value["renderLayers"].push_back({{"name", name},
+                                         {"p50CpuMs", EditorPercentile(samples, 0.50)},
+                                         {"p95CpuMs", EditorPercentile(samples, 0.95)}});
+    }
+
+    std::error_code ec;
+    const std::filesystem::path parent = m_Automation.performanceReport.parent_path();
+    if (!parent.empty()) {
+        std::filesystem::create_directories(parent, ec);
+        if (ec)
+            return false;
+    }
+    std::ofstream output(m_Automation.performanceReport, std::ios::binary | std::ios::trunc);
+    if (!output)
+        return false;
+    output << value.dump(2);
+    output.close();
+    if (!output)
+        return false;
+    Logger::Info("[EditorPerformance] Report written: ", m_Automation.performanceReport.string(),
+                 " p50 CPU Render=", report.summary.p50RenderMs, " ms p95=", report.summary.p95RenderMs,
+                 " ms p50 Editor UI=", report.summary.p50EditorUiMs, " ms");
+    return true;
 }

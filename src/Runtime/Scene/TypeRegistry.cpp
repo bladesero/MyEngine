@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <exception>
+#include <limits>
 #include <unordered_set>
 
 namespace {
@@ -39,6 +40,14 @@ bool TypeRegistry::Register(TypeDescriptor descriptor, std::string* error) {
         SetError(error, "duplicate type name or id: " + descriptor.stableName);
         return false;
     }
+    if (descriptor.cppType != std::type_index(typeid(void)) && m_RuntimeCppTypes.count(descriptor.cppType)) {
+        SetError(error, "duplicate C++ component type: " + descriptor.stableName);
+        return false;
+    }
+    if (m_RuntimeTypeNames.size() >= std::numeric_limits<RuntimeTypeIndex>::max()) {
+        SetError(error, "runtime type index capacity exhausted");
+        return false;
+    }
     std::unordered_set<std::string> names;
     std::unordered_set<PropertyId> ids;
     for (auto& property : descriptor.properties) {
@@ -58,8 +67,16 @@ bool TypeRegistry::Register(TypeDescriptor descriptor, std::string* error) {
             return false;
         }
     }
-    m_TypeIds.emplace(descriptor.id, descriptor.stableName);
+    const RuntimeTypeIndex runtimeIndex = static_cast<RuntimeTypeIndex>(m_RuntimeTypeNames.size());
+    const TypeId typeId = descriptor.id;
+    const std::type_index cppType = descriptor.cppType;
+    const std::string stableName = descriptor.stableName;
+    m_TypeIds.emplace(typeId, stableName);
     m_Types.emplace(descriptor.stableName, std::move(descriptor));
+    m_RuntimeTypeIds.emplace(typeId, runtimeIndex);
+    if (cppType != std::type_index(typeid(void)))
+        m_RuntimeCppTypes.emplace(cppType, runtimeIndex);
+    m_RuntimeTypeNames.push_back(stableName);
     return true;
 }
 bool TypeRegistry::Freeze(std::string* error) {
@@ -81,6 +98,17 @@ const TypeDescriptor* TypeRegistry::Find(const std::string& name) const {
 const TypeDescriptor* TypeRegistry::Find(TypeId id) const {
     auto it = m_TypeIds.find(id);
     return it == m_TypeIds.end() ? nullptr : Find(it->second);
+}
+RuntimeTypeIndex TypeRegistry::FindRuntimeTypeIndex(TypeId id) const {
+    const auto it = m_RuntimeTypeIds.find(id);
+    return it == m_RuntimeTypeIds.end() ? InvalidRuntimeTypeIndex : it->second;
+}
+RuntimeTypeIndex TypeRegistry::FindRuntimeTypeIndex(std::type_index cppType) const {
+    const auto it = m_RuntimeCppTypes.find(cppType);
+    return it == m_RuntimeCppTypes.end() ? InvalidRuntimeTypeIndex : it->second;
+}
+const TypeDescriptor* TypeRegistry::FindByRuntimeTypeIndex(RuntimeTypeIndex index) const {
+    return index < m_RuntimeTypeNames.size() ? Find(m_RuntimeTypeNames[index]) : nullptr;
 }
 const PropertyDescriptor* TypeRegistry::FindProperty(const TypeDescriptor& type, const std::string& name) const {
     for (const auto& p : type.properties) {

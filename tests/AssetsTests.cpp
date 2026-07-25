@@ -1735,7 +1735,7 @@ bool TestParallelStartupShaderCachePrewarm() {
     std::error_code ec;
     fs::remove_all(root, ec);
     const fs::path shaderRoot = fs::current_path() / "EngineContent" / "Shaders";
-    const std::array<const char*, 32> descriptors = {
+    const std::array<const char*, 30> descriptors = {
         "ShadowDepth.shader",
         "ShadowDepthSkinned.shader",
         "AtmosphereCubemap.shader",
@@ -1757,9 +1757,7 @@ bool TestParallelStartupShaderCachePrewarm() {
         "ModernGBuffer.shader",
         "ModernHiZInit.shader",
         "ModernHiZReduce.shader",
-        "ClusterCount.shader",
-        "ClusterPrefix.shader",
-        "ClusterScatter.shader",
+        "ClusterLightBuild.shader",
         "ClusterLighting.shader",
         "ModernSSGITrace.shader",
         "ModernSSRTrace.shader",
@@ -1969,8 +1967,7 @@ bool TestShaderCacheBatchStopsAfterCompilerTimeout() {
         "shader cache batch continued compiling after timeout or truncated ordinary diagnostics"
         " (results=" +
         std::to_string(timedOut.size()) + ", timeouts=" + std::to_string(timeoutCount) +
-        ", cancelled=" + std::to_string(cancelledCount) +
-        ", invocations=" + std::to_string(slowInvocationCount) +
+        ", cancelled=" + std::to_string(cancelledCount) + ", invocations=" + std::to_string(slowInvocationCount) +
         ", elapsedMs=" + std::to_string(timeoutElapsedMs) +
         ", ordinaryDiagnostics=" + (ordinaryDiagnosticsPreserved ? "true" : "false") + ")";
     return Check(timedOut.size() == kRequestCount && timeoutCount == 1 && slowInvocationCount == 1 &&

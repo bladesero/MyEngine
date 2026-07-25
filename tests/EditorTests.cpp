@@ -2559,16 +2559,24 @@ bool TestEditorProfilerBufferAndSourceContracts() {
     if (!Check(profilerPanel.find("stats.frameNumber") != std::string::npos &&
                    profilerPanel.find("stats.frameMs") != std::string::npos &&
                    profilerPanel.find("stats.smoothedFrameMs") != std::string::npos &&
-                   profilerPanel.find("renderer.shadowGpuMs") != std::string::npos &&
-                   profilerPanel.find("renderer.mainGpuMs") != std::string::npos &&
-                   profilerPanel.find("renderer.ssaoGpuMs") != std::string::npos &&
-                   profilerPanel.find("renderer.compositeGpuMs") != std::string::npos &&
+                   profilerPanel.find("renderer.renderGraphGpuMs") != std::string::npos &&
+                   profilerPanel.find("renderer.gpuSourceFrameNumber") != std::string::npos &&
+                   profilerPanel.find("renderer.frameWaitCpuMs") != std::string::npos &&
+                   profilerPanel.find("renderer.presentCpuMs") != std::string::npos &&
+                   profilerPanel.find("renderer.editorUiCpuMs") != std::string::npos &&
+                   profilerPanel.find("renderer.editorUiBuildCpuMs") != std::string::npos &&
+                   profilerPanel.find("renderer.editorUiSubmitCpuMs") != std::string::npos &&
+                   profilerPanel.find("renderer.editorUiPanelCpuTimings") != std::string::npos &&
+                   profilerPanel.find("renderer.platformWindowsCpuMs") != std::string::npos &&
+                   profilerPanel.find("renderer.viewportStats") != std::string::npos &&
+                   profilerPanel.find("renderer.renderGraphRecordCpuMs") != std::string::npos &&
+                   profilerPanel.find("renderer.renderGraphFinalizeCpuMs") != std::string::npos &&
                    profilerPanel.find("renderer.pipelinePrepareCpuMs") != std::string::npos &&
                    profilerPanel.find("renderer.renderGraphAddPassCpuMs") != std::string::npos &&
                    profilerPanel.find("renderer.renderGraphCompileCpuMs") != std::string::npos &&
                    profilerPanel.find("renderer.renderGraphEnsureResourcesCpuMs") != std::string::npos &&
                    profilerPanel.find("renderer.renderGraphTopologyCacheHit") != std::string::npos &&
-                   profilerPanel.find("renderer.renderGraphPassGpuTimings") != std::string::npos &&
+                   profilerPanel.find("viewport.renderGraphPassGpuTimings") != std::string::npos &&
                    profilerPanel.find("renderer.subMeshCount") != std::string::npos &&
                    profilerPanel.find("renderer.textureUploadBytes") != std::string::npos,
                "profiler panel is missing frame or renderer performance data"))
@@ -4991,24 +4999,35 @@ bool TestEditorPerformanceSourceContracts() {
 
     const std::string panelHeader = readSource("src/Editor/EditorPanel.h");
     const std::string editorLayer = readSource("src/Editor/EditorLayer.cpp");
+    const std::string editorMain = readSource("src/Apps/Editor/EditorMain.cpp");
     const std::string assetRegistry = readSource("src/Editor/EditorAssetRegistry.cpp");
     const std::string assetBrowser = readSource("src/Editor/Panels/AssetBrowserPanel.cpp");
     const std::string sceneLayerHeader = readSource("src/Runtime/Game/SceneRenderLayer.h");
     const std::string sceneLayer = readSource("src/Runtime/Game/SceneRenderLayer.cpp");
     const std::string viewportPanel = readSource("src/Editor/Panels/ViewportPanel.cpp");
     const std::string shaderGraphPanel = readSource("src/Editor/Panels/ShaderGraphPanel.cpp");
-    const std::string imguiBackend =
-        readSource("src/Editor/Backends/ImGui/EditorImGuiBackend.cpp");
+    const std::string imguiBackend = readSource("src/Editor/Backends/ImGui/EditorImGuiBackend.cpp");
     const std::string hierarchyPanel = readSource("src/Editor/Panels/SceneHierarchyPanel.cpp");
     const std::string shaderWatcher = readSource("src/Editor/EditorShaderWatchService.cpp");
-    const std::string d3d12Header =
-        readSource("src/Runtime/Renderer/Backends/D3D12/D3D12Context.h");
+    const std::string lightingBakeService = readSource("src/Editor/EditorLightingBakeService.cpp");
+    const std::string d3d12Header = readSource("src/Runtime/Renderer/Backends/D3D12/D3D12Context.h");
+    const std::string frameCoordinator = readSource("src/Runtime/Renderer/RenderFrameCoordinator.cpp");
 
-    if (!Check(!panelHeader.empty() && !editorLayer.empty() && !assetRegistry.empty() && !assetBrowser.empty() &&
-                   !sceneLayerHeader.empty() && !sceneLayer.empty() && !viewportPanel.empty() &&
-                   !shaderGraphPanel.empty() && !imguiBackend.empty() && !hierarchyPanel.empty() &&
-                   !shaderWatcher.empty() && !d3d12Header.empty(),
+    if (!Check(!panelHeader.empty() && !editorLayer.empty() && !editorMain.empty() && !assetRegistry.empty() &&
+                   !assetBrowser.empty() && !sceneLayerHeader.empty() && !sceneLayer.empty() &&
+                   !viewportPanel.empty() && !shaderGraphPanel.empty() && !imguiBackend.empty() &&
+                   !hierarchyPanel.empty() && !shaderWatcher.empty() && !lightingBakeService.empty() &&
+                   !d3d12Header.empty() && !frameCoordinator.empty(),
                "performance source contract files were not found"))
+        return false;
+    if (!Check(editorMain.find("\"--performance-report\"") != std::string::npos &&
+                   editorMain.find("\"--performance-warmup-frames\"") != std::string::npos &&
+                   editorMain.find("\"--performance-sample-frames\"") != std::string::npos &&
+                   editorLayer.find("CapturePerformanceSample()") != std::string::npos &&
+                   editorLayer.find("WritePerformanceReport()") != std::string::npos &&
+                   editorLayer.find("SDL_SetWindowAlwaysOnTop") != std::string::npos &&
+                   editorLayer.find("sample.editorUiMs = renderer.editorUiCpuMs") != std::string::npos,
+               "Editor performance capture cannot produce an undisturbed warmup/sample report"))
         return false;
 
     if (!Check(panelHeader.find("ShouldUpdateWhenHidden") != std::string::npos &&
@@ -5022,6 +5041,12 @@ bool TestEditorPerformanceSourceContracts() {
                    editorFrameEnd != std::string::npos && editorFrameBegin < imguiFrameBegin &&
                    imguiFrameBegin < editorFrameEnd,
                "ImGui swapchain frame still depends on a viewport renderer"))
+        return false;
+    if (!Check(editorLayer.find("#include \"Core/EngineTime.h\"") == std::string::npos &&
+                   editorLayer.find("frameCoordinator->BeginFrame();") != std::string::npos &&
+                   sceneLayer.find("m_FrameCoordinator.BeginFrame();") != std::string::npos &&
+                   frameCoordinator.find("const uint64_t frameNumber = Time::FrameCount();") != std::string::npos,
+               "frame coordination can use module-local frame counters and double-present the Editor swapchain"))
         return false;
     if (!Check(assetRegistry.find("BuildDirectorySnapshot") != std::string::npos &&
                    assetRegistry.find("std::vector<EditorAssetInfo> before") == std::string::npos &&
@@ -5061,6 +5086,10 @@ bool TestEditorPerformanceSourceContracts() {
                    hierarchyPanel.find("RebuildSearchCache") != std::string::npos &&
                    hierarchyPanel.find("ActorMatchesFilter") == std::string::npos,
                "scene hierarchy search still recursively rematches per drawn actor"))
+        return false;
+    if (!Check(lightingBakeService.find("kBakeStatusRefreshFrames = 30") != std::string::npos &&
+                   lightingBakeService.find("m_BakeStatusScene == &scene") != std::string::npos,
+               "lighting probe bake freshness still serializes the scene in every Inspector frame"))
         return false;
     return Check(shaderWatcher.find("m_Paths.empty()") != std::string::npos,
                  "shader watcher does not skip empty project watch sets");

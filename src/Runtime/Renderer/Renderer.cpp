@@ -16,9 +16,11 @@
 #include "Renderer/LightComponent.h"
 #include "Renderer/MainPass.h"
 #include "Renderer/ModernDeferredPipeline.h"
+#include "Renderer/ParticleSystemComponent.h"
 #include "Renderer/ProbeLightingSystem.h"
 #include "Renderer/PostProcessPass.h"
 #include "Renderer/PostProcessComponent.h"
+#include "Renderer/RenderFrameCoordinator.h"
 #include "Renderer/ShaderManager.h"
 #include "Renderer/ShadowPass.h"
 #include "Renderer/RenderGraph.h"
@@ -41,49 +43,45 @@ struct PostProcessRuntimeOptions {
 
 PostProcessRuntimeOptions CollectPostProcessOptions(const Scene& scene) {
     PostProcessRuntimeOptions options;
-    bool found = false;
-    scene.ForEach([&](Actor& actor) {
-        if (found || !actor.IsActive())
-            return;
-        auto* post = actor.GetComponent<PostProcessComponent>();
-        if (!post || !post->IsEnabled())
-            return;
-        options.ssaoEnabled = post->GetSSAOIntensity() > 0.0f;
-        options.ssaoHalfResolution = post->IsSSAOHalfResolution();
-        options.modern.ssaoRadius = post->GetSSAORadius();
-        options.modern.ssaoBias = post->GetSSAOBias();
-        options.modern.ssaoPower = post->GetSSAOPower();
-        options.modern.ssaoIntensity = post->GetSSAOIntensity();
-        options.modern.ssaoHalfResolution = post->IsSSAOHalfResolution();
-        options.modern.rayTracedShadowReplacement = post->UsesRayTracedShadowReplacement();
-        options.modern.rayTracedAOReplacement = post->UsesRayTracedAOReplacement();
-        options.modern.rayTracedReflectionReplacement = post->UsesRayTracedReflectionReplacement();
-        options.modern.rayTracedDiffuseReplacement = post->UsesRayTracedDiffuseReplacement();
-        options.modern.ssgiEnabled = post->IsSSGIEnabled();
-        options.modern.ssgiHalfResolution = post->IsSSGIHalfResolution();
-        options.modern.ssrEnabled = post->IsSSREnabled();
-        options.modern.ssrHalfResolution = post->IsSSRHalfResolution();
-        options.modern.taaEnabled = post->IsTAAEnabled();
-        options.modern.ssgiIntensity = post->GetSSGIIntensity();
-        options.modern.ssgiMaxDistance = post->GetSSGIMaxDistance();
-        options.modern.ssgiHistoryWeight = post->GetSSGIHistoryWeight();
-        options.modern.ssgiStepCount = post->GetSSGIStepCount();
-        options.modern.ssgiFilterRounds = post->GetSSGIFilterRounds();
-        options.modern.ssrMaxDistance = post->GetSSRMaxDistance();
-        options.modern.ssrMaxRoughness = post->GetSSRMaxRoughness();
-        options.modern.ssrHistoryWeight = post->GetSSRHistoryWeight();
-        options.modern.ssrStepCount = post->GetSSRStepCount();
-        options.modern.ssrFilterRounds = post->GetSSRFilterRounds();
-        options.modern.rtReflectionIntensityClamp = post->GetRTReflectionIntensityClamp();
-        options.modern.rtReflectionAtrousRadiusScale = post->GetRTReflectionAtrousRadiusScale();
-        options.modern.taaHistoryWeight = post->GetTAAHistoryWeight();
-        options.modern.taaJitterSpread = post->GetTAAJitterSpread();
-        options.modern.taaHistoryClipExpansion = post->GetTAAHistoryClipExpansion();
-        options.modern.exposure = post->GetExposure();
-        options.modern.gamma = post->GetGamma();
-        options.modern.bloomThreshold = post->GetBloomThreshold();
-        options.modern.bloomIntensity = post->IsBloomEnabled() ? post->GetBloomIntensity() : 0.0f;
-        found = true;
+    scene.ForEachWith<PostProcessComponent>([&](const Actor& actor, const PostProcessComponent& post) {
+        if (!actor.IsActive() || !post.IsEnabled())
+            return SceneQueryControl::Continue;
+        options.ssaoEnabled = post.GetSSAOIntensity() > 0.0f;
+        options.ssaoHalfResolution = post.IsSSAOHalfResolution();
+        options.modern.ssaoRadius = post.GetSSAORadius();
+        options.modern.ssaoBias = post.GetSSAOBias();
+        options.modern.ssaoPower = post.GetSSAOPower();
+        options.modern.ssaoIntensity = post.GetSSAOIntensity();
+        options.modern.ssaoHalfResolution = post.IsSSAOHalfResolution();
+        options.modern.rayTracedShadowReplacement = post.UsesRayTracedShadowReplacement();
+        options.modern.rayTracedAOReplacement = post.UsesRayTracedAOReplacement();
+        options.modern.rayTracedReflectionReplacement = post.UsesRayTracedReflectionReplacement();
+        options.modern.rayTracedDiffuseReplacement = post.UsesRayTracedDiffuseReplacement();
+        options.modern.ssgiEnabled = post.IsSSGIEnabled();
+        options.modern.ssgiHalfResolution = post.IsSSGIHalfResolution();
+        options.modern.ssrEnabled = post.IsSSREnabled();
+        options.modern.ssrHalfResolution = post.IsSSRHalfResolution();
+        options.modern.taaEnabled = post.IsTAAEnabled();
+        options.modern.ssgiIntensity = post.GetSSGIIntensity();
+        options.modern.ssgiMaxDistance = post.GetSSGIMaxDistance();
+        options.modern.ssgiHistoryWeight = post.GetSSGIHistoryWeight();
+        options.modern.ssgiStepCount = post.GetSSGIStepCount();
+        options.modern.ssgiFilterRounds = post.GetSSGIFilterRounds();
+        options.modern.ssrMaxDistance = post.GetSSRMaxDistance();
+        options.modern.ssrMaxRoughness = post.GetSSRMaxRoughness();
+        options.modern.ssrHistoryWeight = post.GetSSRHistoryWeight();
+        options.modern.ssrStepCount = post.GetSSRStepCount();
+        options.modern.ssrFilterRounds = post.GetSSRFilterRounds();
+        options.modern.rtReflectionIntensityClamp = post.GetRTReflectionIntensityClamp();
+        options.modern.rtReflectionAtrousRadiusScale = post.GetRTReflectionAtrousRadiusScale();
+        options.modern.taaHistoryWeight = post.GetTAAHistoryWeight();
+        options.modern.taaJitterSpread = post.GetTAAJitterSpread();
+        options.modern.taaHistoryClipExpansion = post.GetTAAHistoryClipExpansion();
+        options.modern.exposure = post.GetExposure();
+        options.modern.gamma = post.GetGamma();
+        options.modern.bloomThreshold = post.GetBloomThreshold();
+        options.modern.bloomIntensity = post.IsBloomEnabled() ? post.GetBloomIntensity() : 0.0f;
+        return SceneQueryControl::Break;
     });
     return options;
 }
@@ -105,19 +103,15 @@ ModernDeferredPipeline::ScreenSpaceDebugMode ResolveModernScreenSpaceDebugMode(R
 
 Vec3 CollectEnvironmentSunDirection(const Scene& scene) {
     Vec3 sunDirection = EnvironmentPass::DefaultSunDirection();
-    bool found = false;
-    scene.ForEach([&](Actor& actor) {
-        if (found || !actor.IsActive())
-            return;
-        auto* light = actor.GetComponent<LightComponent>();
-        if (!light || !light->IsEnabled() || light->GetLightType() != LightType::Directional) {
-            return;
-        }
-        const Vec3 lightDirection = light->GetDirection();
+    scene.ForEachWith<LightComponent>([&](const Actor& actor, const LightComponent& light) {
+        if (!actor.IsActive() || !light.IsEnabled() || light.GetLightType() != LightType::Directional)
+            return SceneQueryControl::Continue;
+        const Vec3 lightDirection = light.GetDirection();
         if (lightDirection.LengthSq() > 1e-8f) {
             sunDirection = (-lightDirection).Normalized();
-            found = true;
+            return SceneQueryControl::Break;
         }
+        return SceneQueryControl::Continue;
     });
     return sunDirection;
 }
@@ -125,6 +119,145 @@ Vec3 CollectEnvironmentSunDirection(const Scene& scene) {
 float ElapsedMs(std::chrono::steady_clock::time_point start, std::chrono::steady_clock::time_point end) {
     return std::chrono::duration<float, std::milli>(end - start).count();
 }
+
+RendererViewportStats MakeViewportStats(const std::string& label, const RendererFrameStats& stats) {
+    RendererViewportStats viewport;
+    viewport.name = label;
+    viewport.gpuSourceFrameNumber = stats.gpuSourceFrameNumber;
+    viewport.renderSubmissionCpuMs = stats.renderSubmissionCpuMs;
+    viewport.renderGraphBuildCpuMs = stats.renderGraphBuildCpuMs;
+    viewport.renderGraphExecuteCpuMs = stats.renderGraphExecuteCpuMs;
+    viewport.renderGraphPrepareCpuMs = stats.renderGraphPrepareCpuMs;
+    viewport.renderGraphRecordCpuMs = stats.renderGraphRecordCpuMs;
+    viewport.renderGraphFinalizeCpuMs = stats.renderGraphFinalizeCpuMs;
+    viewport.pipelinePrepareCpuMs = stats.pipelinePrepareCpuMs;
+    viewport.sceneCollectCpuMs = stats.sceneCollectCpuMs;
+    viewport.renderGraphAddPassCpuMs = stats.renderGraphAddPassCpuMs;
+    viewport.renderGraphCompileCpuMs = stats.renderGraphCompileCpuMs;
+    viewport.renderGraphEnsureResourcesCpuMs = stats.renderGraphEnsureResourcesCpuMs;
+    viewport.gpuScenePrepareCpuMs = stats.gpuScenePrepareCpuMs;
+    viewport.uploadQueueCpuMs = stats.uploadQueueCpuMs;
+    viewport.frameWaitCpuMs = stats.frameWaitCpuMs;
+    viewport.presentCpuMs = stats.presentCpuMs;
+    viewport.renderGraphGpuMs = stats.renderGraphGpuMs;
+    viewport.drawCalls = stats.drawCalls;
+    viewport.gpuTimingAvailable = stats.gpuTimingAvailable;
+    viewport.renderGraphTopologyCacheHit = stats.renderGraphTopologyCacheHit;
+    viewport.renderGraphPassGpuTimings = stats.renderGraphPassGpuTimings;
+    return viewport;
+}
+
+void AccumulateRendererStats(RendererFrameStats& total, const RendererFrameStats& value, const std::string& label) {
+    const bool hadViewports = !total.viewportStats.empty();
+    total.frameNumber = (std::max)(total.frameNumber, value.frameNumber);
+    total.renderSubmissionCpuMs += value.renderSubmissionCpuMs;
+    total.renderGraphBuildCpuMs += value.renderGraphBuildCpuMs;
+    total.renderGraphExecuteCpuMs += value.renderGraphExecuteCpuMs;
+    total.renderGraphPrepareCpuMs += value.renderGraphPrepareCpuMs;
+    total.renderGraphRecordCpuMs += value.renderGraphRecordCpuMs;
+    total.renderGraphFinalizeCpuMs += value.renderGraphFinalizeCpuMs;
+    total.pipelinePrepareCpuMs += value.pipelinePrepareCpuMs;
+    total.sceneCollectCpuMs += value.sceneCollectCpuMs;
+    total.renderGraphAddPassCpuMs += value.renderGraphAddPassCpuMs;
+    total.renderGraphCompileCpuMs += value.renderGraphCompileCpuMs;
+    total.renderGraphEnsureResourcesCpuMs += value.renderGraphEnsureResourcesCpuMs;
+    total.uploadQueueCpuMs += value.uploadQueueCpuMs;
+    total.frameWaitCpuMs += value.frameWaitCpuMs;
+    total.presentCpuMs += value.presentCpuMs;
+    total.editorUiCpuMs += value.editorUiCpuMs;
+    total.editorUiBuildCpuMs += value.editorUiBuildCpuMs;
+    total.editorUiSubmitCpuMs += value.editorUiSubmitCpuMs;
+    total.platformWindowsCpuMs += value.platformWindowsCpuMs;
+    total.shadowCpuMs += value.shadowCpuMs;
+    total.mainCpuMs += value.mainCpuMs;
+    total.ssaoCpuMs += value.ssaoCpuMs;
+    total.compositeCpuMs += value.compositeCpuMs;
+    total.shadowGpuMs += value.shadowGpuMs;
+    total.ssaoGpuMs += value.ssaoGpuMs;
+    total.compositeGpuMs += value.compositeGpuMs;
+    total.renderGraphGpuMs += value.renderGraphGpuMs;
+    total.mainGpuMs = total.renderGraphGpuMs;
+    total.gpuSourceFrameNumber = (std::max)(total.gpuSourceFrameNumber, value.gpuSourceFrameNumber);
+    total.drawCalls += value.drawCalls;
+    total.shadowDrawCalls += value.shadowDrawCalls;
+    total.mainDrawCalls += value.mainDrawCalls;
+    total.fullscreenDrawCalls += value.fullscreenDrawCalls;
+    total.subMeshCount += value.subMeshCount;
+    total.bindGroupCreates += value.bindGroupCreates;
+    total.textureUploads += value.textureUploads;
+    total.textureUploadBytes += value.textureUploadBytes;
+    total.textureUploadMs += value.textureUploadMs;
+    total.gpuTimingAvailable =
+        hadViewports ? total.gpuTimingAvailable && value.gpuTimingAvailable : value.gpuTimingAvailable;
+    total.renderGraphTopologyCacheHit = hadViewports
+                                            ? total.renderGraphTopologyCacheHit && value.renderGraphTopologyCacheHit
+                                            : value.renderGraphTopologyCacheHit;
+    total.renderGraphTopologyCacheHits += value.renderGraphTopologyCacheHits;
+    total.renderGraphTopologyCacheMisses += value.renderGraphTopologyCacheMisses;
+    for (const RenderGraphPassGpuTiming& pass : value.renderGraphPassGpuTimings)
+        total.renderGraphPassGpuTimings.push_back({"[" + label + "] " + pass.name, pass.gpuMs});
+    total.transientRequestedBytes += value.transientRequestedBytes;
+    total.transientAllocatedBytes += value.transientAllocatedBytes;
+    total.transientReusedBytes += value.transientReusedBytes;
+    total.renderGraphPooledBytes += value.renderGraphPooledBytes;
+    total.renderGraphPoolEvictedBytes += value.renderGraphPoolEvictedBytes;
+    total.transientResources += value.transientResources;
+    total.transientDescriptors += value.transientDescriptors;
+    total.renderGraphPoolEvictions += value.renderGraphPoolEvictions;
+    total.transientBudgetExceeded = total.transientBudgetExceeded || value.transientBudgetExceeded;
+    total.gpuSceneUploadBytes += value.gpuSceneUploadBytes;
+    total.gpuScenePrepareCpuMs += value.gpuScenePrepareCpuMs;
+    total.gpuSceneMaterialResolves += value.gpuSceneMaterialResolves;
+    total.gpuSceneMaterialCacheHits += value.gpuSceneMaterialCacheHits;
+    total.gpuSceneTexturedMaterials += value.gpuSceneTexturedMaterials;
+    total.gpuSceneCandidates += value.gpuSceneCandidates;
+    total.gpuFrustumVisible += value.gpuFrustumVisible;
+    total.gpuHiZOccluded += value.gpuHiZOccluded;
+    total.indirectDrawCount += value.indirectDrawCount;
+    total.clusterCount += value.clusterCount;
+    total.clusterOverflow += value.clusterOverflow;
+    total.localLightCount += value.localLightCount;
+    total.bindlessResourcesUsed = (std::max)(total.bindlessResourcesUsed, value.bindlessResourcesUsed);
+    total.bindlessResourcesCapacity = (std::max)(total.bindlessResourcesCapacity, value.bindlessResourcesCapacity);
+    total.rayTracingRequestedMask |= value.rayTracingRequestedMask;
+    total.rayTracingEffectiveMask |= value.rayTracingEffectiveMask;
+    total.rayTracingBlasCount += value.rayTracingBlasCount;
+    total.rayTracingTlasInstanceCount += value.rayTracingTlasInstanceCount;
+    total.rayTracingAccelerationStructureBytes += value.rayTracingAccelerationStructureBytes;
+    total.rayTracingBuildCpuMs += value.rayTracingBuildCpuMs;
+    total.rayTracingTlasUpdated = total.rayTracingTlasUpdated || value.rayTracingTlasUpdated;
+    if (!value.rayTracingFallbackReason.empty())
+        total.rayTracingFallbackReason = value.rayTracingFallbackReason;
+    if (!value.historyResetReason.empty())
+        total.historyResetReason = value.historyResetReason;
+    total.viewportStats.push_back(MakeViewportStats(label, value));
+}
+
+class ScopedViewportFrameStats {
+public:
+    ScopedViewportFrameStats(std::string label, bool aggregate)
+        : m_Label(std::move(label)),
+          m_Aggregate(aggregate ? FrameStatsProvider::GetRendererStats() : RendererFrameStats{}) {
+        if (!aggregate || m_Aggregate.frameNumber != Time::FrameCount())
+            m_Aggregate = {};
+        RendererFrameStats viewport;
+        viewport.frameNumber = Time::FrameCount();
+        FrameStatsProvider::SetRendererStats(viewport);
+    }
+
+    ~ScopedViewportFrameStats() {
+        const RendererFrameStats viewport = FrameStatsProvider::GetRendererStats();
+        AccumulateRendererStats(m_Aggregate, viewport, m_Label);
+        FrameStatsProvider::SetRendererStats(m_Aggregate);
+    }
+
+    ScopedViewportFrameStats(const ScopedViewportFrameStats&) = delete;
+    ScopedViewportFrameStats& operator=(const ScopedViewportFrameStats&) = delete;
+
+private:
+    std::string m_Label;
+    RendererFrameStats m_Aggregate;
+};
 
 void CollectMaterialShaderPaths(const MaterialAsset* material,
                                 std::unordered_set<const MaterialAsset*>& visitedMaterials,
@@ -147,23 +280,33 @@ std::vector<std::string> CollectSceneShaderPaths(const Scene& scene) {
     std::unordered_set<const MaterialAsset*> visitedMaterials;
     std::unordered_set<std::string> uniqueShaders;
     std::vector<std::string> shaders;
-    scene.ForEach([&](Actor& actor) {
-        if (const auto* renderer = actor.GetComponent<MeshRendererComponent>()) {
-            for (const MaterialHandle& material : renderer->GetMaterials())
+    scene.ForEachWithAny<ParticleSystemComponent, SkinnedMeshRendererComponent, MeshRendererComponent>(
+        [&](const Actor& actor) {
+            if (const auto* particles = actor.GetComponent<ParticleSystemComponent>()) {
+                CollectMaterialShaderPaths(particles->GetMaterial(), visitedMaterials, uniqueShaders, shaders);
+                return;
+            }
+            if (const auto* skinned = actor.GetComponent<SkinnedMeshRendererComponent>()) {
+                const MaterialHandle material = skinned->GetMaterial();
                 CollectMaterialShaderPaths(material.Get(), visitedMaterials, uniqueShaders, shaders);
-        }
-        if (const auto* skinned = actor.GetComponent<SkinnedMeshRendererComponent>()) {
-            const MaterialHandle material = skinned->GetMaterial();
-            CollectMaterialShaderPaths(material.Get(), visitedMaterials, uniqueShaders, shaders);
-        }
-    });
+                return;
+            }
+            if (const auto* renderer = actor.GetComponent<MeshRendererComponent>())
+                for (const MaterialHandle& material : renderer->GetMaterials())
+                    CollectMaterialShaderPaths(material.Get(), visitedMaterials, uniqueShaders, shaders);
+        });
     return shaders;
 }
 } // namespace
 
 Renderer::Renderer(IRHIDevice* device, IRHIFrameContext* frameContext, IRHIReadbackService* readbackService)
+    : Renderer(device, frameContext, readbackService, nullptr) {
+}
+
+Renderer::Renderer(IRHIDevice* device, IRHIFrameContext* frameContext, IRHIReadbackService* readbackService,
+                   RenderFrameCoordinator* frameCoordinator)
     : m_Device(device), m_FrameContext(frameContext), m_ReadbackService(readbackService),
-      m_ShadowPass(std::make_unique<ShadowPass>(device)),
+      m_FrameCoordinator(frameCoordinator), m_ShadowPass(std::make_unique<ShadowPass>(device)),
       m_EnvironmentPass(std::make_unique<EnvironmentPass>(device, readbackService)),
       m_MainPass(std::make_unique<MainPass>(device)), m_GBufferPass(std::make_unique<GBufferPass>(device)),
       m_DeferredLightingPass(std::make_unique<DeferredLightingPass>(device)),
@@ -264,14 +407,13 @@ bool Renderer::PrewarmStartupShaders(const Scene& scene) {
         shaders.insert(shaders.end(), {EngineShaders::kPostProcessSSAO, EngineShaders::kPostProcessSSAOBlur});
     }
     if ((missing & kModernDeferredShaders) != 0) {
-        shaders.insert(shaders.end(),
-                       {EngineShaders::kModernCulling, EngineShaders::kModernOcclusionCulling,
-                        EngineShaders::kModernDepth, EngineShaders::kModernGBuffer, EngineShaders::kModernHiZInit,
-                        EngineShaders::kModernHiZReduce, EngineShaders::kClusterCount, EngineShaders::kClusterPrefix,
-                        EngineShaders::kClusterScatter, EngineShaders::kClusterLighting,
-                        EngineShaders::kModernSSGITrace, EngineShaders::kModernSSRTrace, EngineShaders::kModernTemporal,
-                        EngineShaders::kModernAtrous, EngineShaders::kModernEffectsComposite, EngineShaders::kModernTAA,
-                        EngineShaders::kModernBloomTone});
+        shaders.insert(
+            shaders.end(),
+            {EngineShaders::kModernCulling, EngineShaders::kModernOcclusionCulling, EngineShaders::kModernDepth,
+             EngineShaders::kModernGBuffer, EngineShaders::kModernHiZInit, EngineShaders::kModernHiZReduce,
+             EngineShaders::kClusterLightBuild, EngineShaders::kClusterLighting, EngineShaders::kModernSSGITrace,
+             EngineShaders::kModernSSRTrace, EngineShaders::kModernTemporal, EngineShaders::kModernAtrous,
+             EngineShaders::kModernEffectsComposite, EngineShaders::kModernTAA, EngineShaders::kModernBloomTone});
     }
     if ((missing & kModernRayTracingShaders) != 0) {
         shaders.insert(shaders.end(), {EngineShaders::kModernRTShadow, EngineShaders::kModernRTAO,
@@ -374,11 +516,13 @@ void Renderer::ReleaseFrameResources() {
 }
 
 void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool present) {
-    FrameStatsProvider::SetRendererStats({});
+    ScopedViewportFrameStats viewportStats(m_ProfilerLabel, m_FrameCoordinator != nullptr);
     if (!PrewarmStartupShaders(scene)) {
         // Shader cooking is CPU-only and runs off the render thread. Keep the window/editor responsive with a valid
         // clear frame; the next frame consumes the completed artifacts and creates GPU objects on the render thread.
-        if (m_FrameContext) {
+        if (m_FrameCoordinator) {
+            m_FrameCoordinator->BeginFrame();
+        } else if (m_FrameContext) {
             m_FrameContext->BeginFrame(0.12f, 0.12f, 0.18f);
             if (present)
                 m_FrameContext->EndFrame();
@@ -391,14 +535,20 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
         !m_PostProcessPass)
         return;
 
-    GpuUploadQueue::Get().Process(*m_Device, GpuUploadQueue::Get().GetDefaultBudget());
-
-    m_FrameContext->BeginFrame(0.12f, 0.12f, 0.18f);
-    const auto submissionStart = std::chrono::steady_clock::now();
+    if (m_FrameCoordinator) {
+        m_FrameCoordinator->BeginFrame();
+    } else {
+        const auto uploadStart = std::chrono::steady_clock::now();
+        GpuUploadQueue::Get().Process(*m_Device, GpuUploadQueue::Get().GetDefaultBudget());
+        RendererFrameStats stats = FrameStatsProvider::GetRendererStats();
+        stats.uploadQueueCpuMs += ElapsedMs(uploadStart, std::chrono::steady_clock::now());
+        FrameStatsProvider::SetRendererStats(stats);
+        m_FrameContext->BeginFrame(0.12f, 0.12f, 0.18f);
+    }
     const auto endFrameOnFailure = [this, present]() {
         if (m_ModernDeferredPipeline)
             m_ModernDeferredPipeline->AbortTemporalFrame("render graph frame aborted");
-        if (present)
+        if (!m_FrameCoordinator && present)
             m_FrameContext->EndFrame();
     };
     GpuCommandList* commandList = m_FrameContext->GetGraphicsCommandList();
@@ -416,8 +566,10 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
         if (timestampPool->ReadResults(0, queryCount, ticks) && ticks.size() == queryCount && ticks[1] >= ticks[0] &&
             timestampPool->GetFrequency() > 0) {
             RendererFrameStats stats = FrameStatsProvider::GetRendererStats();
-            stats.mainGpuMs = static_cast<float>(static_cast<double>(ticks[1] - ticks[0]) * 1000.0 /
-                                                 static_cast<double>(timestampPool->GetFrequency()));
+            stats.renderGraphGpuMs = static_cast<float>(static_cast<double>(ticks[1] - ticks[0]) * 1000.0 /
+                                                        static_cast<double>(timestampPool->GetFrequency()));
+            stats.mainGpuMs = stats.renderGraphGpuMs;
+            stats.gpuSourceFrameNumber = m_FrameTimestampFrameNumbers[timestampSlot];
             stats.renderGraphPassGpuTimings.clear();
             stats.renderGraphPassGpuTimings.reserve(timestampPassNames.size());
             for (uint32_t pass = 0; pass < timestampPassNames.size(); ++pass) {
@@ -434,7 +586,9 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
     }
     m_FrameTimestampRecorded[timestampSlot] = false;
 
+    const auto graphRecordStart = std::chrono::steady_clock::now();
     m_RenderGraph->BeginFrame();
+    const auto sceneCollectStart = std::chrono::steady_clock::now();
     if (m_LocalLightingProbesEnabled && m_ProbeLightingSystem && !m_ProbeLightingSystem->Prepare(scene) &&
         !m_ProbeLightingSystem->GetLastError().empty())
         Logger::Warn("[Renderer] local lighting probes unavailable; using global environment: ",
@@ -482,6 +636,9 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
         useDeferred && m_PipelineDiagnostics.resolvedPipeline == ResolvedRenderPipeline::ModernDeferred;
     const SceneLightData sceneLights = CollectSceneLights(scene, environment);
     PostProcessRuntimeOptions postOptions = CollectPostProcessOptions(scene);
+    RendererFrameStats sceneCollectStats = FrameStatsProvider::GetRendererStats();
+    sceneCollectStats.sceneCollectCpuMs = ElapsedMs(sceneCollectStart, std::chrono::steady_clock::now());
+    FrameStatsProvider::SetRendererStats(sceneCollectStats);
     if (!HasRendererFeature(m_FeatureMask, RendererFeatureMask::SSAO))
         postOptions.modern.ssaoIntensity = 0.0f;
     bool modernFrameReady = false;
@@ -1191,6 +1348,7 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
         stats.transientBudgetExceeded = graph.transientBudgetExceeded;
         const auto& cpu = m_RenderGraph->GetCpuTimings();
         stats.renderGraphAddPassCpuMs = cpu.addPassCpuMs;
+        stats.renderGraphFinalizeCpuMs = cpu.finalizeCpuMs;
         stats.renderGraphCompileCpuMs = cpu.compileCpuMs;
         stats.renderGraphEnsureResourcesCpuMs = cpu.ensureResourcesCpuMs;
         stats.renderGraphTopologyCacheHit = cpu.topologyCacheHit;
@@ -1229,6 +1387,9 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
         FrameStatsProvider::SetRendererStats(stats);
     };
     const auto graphPrepareStart = std::chrono::steady_clock::now();
+    RendererFrameStats graphTimingStats = FrameStatsProvider::GetRendererStats();
+    graphTimingStats.renderGraphRecordCpuMs = ElapsedMs(graphRecordStart, graphPrepareStart);
+    FrameStatsProvider::SetRendererStats(graphTimingStats);
     if (!m_RenderGraph->Prepare()) {
         publishGraphStats();
         Logger::Error("[Renderer] RenderGraph preparation failed: ", m_RenderGraph->GetLastError());
@@ -1236,9 +1397,10 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
         return;
     }
     const auto graphExecuteStart = std::chrono::steady_clock::now();
-    RendererFrameStats graphTimingStats = FrameStatsProvider::GetRendererStats();
+    graphTimingStats = FrameStatsProvider::GetRendererStats();
     graphTimingStats.renderGraphPrepareCpuMs = ElapsedMs(graphPrepareStart, graphExecuteStart);
-    graphTimingStats.renderGraphBuildCpuMs = ElapsedMs(submissionStart, graphExecuteStart);
+    graphTimingStats.renderGraphBuildCpuMs =
+        graphTimingStats.renderGraphRecordCpuMs + graphTimingStats.renderGraphPrepareCpuMs;
     FrameStatsProvider::SetRendererStats(graphTimingStats);
     timestampPassNames = m_RenderGraph->GetExecutionOrder();
     const uint32_t timestampQueryCount = 2u + static_cast<uint32_t>(timestampPassNames.size()) * 2u;
@@ -1262,6 +1424,7 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
         commandList->WriteTimestamp(timestampPool.get(), 1);
         commandList->ResolveTimestamps(timestampPool.get(), 0, timestampQueryCount);
         m_FrameTimestampRecorded[timestampSlot] = true;
+        m_FrameTimestampFrameNumbers[timestampSlot] = Time::FrameCount();
     }
     publishGraphStats();
     if (useOffscreen) {
@@ -1286,7 +1449,7 @@ void Renderer::RenderScene(const Scene& scene, const Camera& camera, bool presen
     rendererStats.drawCalls =
         rendererStats.shadowDrawCalls + rendererStats.mainDrawCalls + rendererStats.fullscreenDrawCalls;
     FrameStatsProvider::SetRendererStats(rendererStats);
-    if (present) {
+    if (!m_FrameCoordinator && present) {
         m_FrameContext->EndFrame();
     }
 }

@@ -559,6 +559,7 @@ void RenderGraph::AdoptRecordedFrame() {
 bool RenderGraph::FinalizeFrameRecording() {
     if (!m_FrameRecording)
         return true;
+    ScopedCpuTimer timer(m_CpuTimings.finalizeCpuMs);
     if (FrameTopologyMatches())
         MergeRecordedFrame();
     else

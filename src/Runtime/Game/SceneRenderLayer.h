@@ -10,6 +10,7 @@
 #include "Game/RuntimeResourceBudget.h"
 #include "Assets/MaterialAsset.h"
 #include "Renderer/IRenderContext.h"
+#include "Renderer/RenderFrameCoordinator.h"
 #include "Renderer/RenderPath.h"
 #include "UI/Core/UISystem.h"
 #include "UI/Render/UIDrawList.h"
@@ -53,6 +54,7 @@ public:
     const Scene& GetSceneViewportRenderScene() const;
 
     IRenderContext* GetRenderContext() const { return m_RenderContext; }
+    RenderFrameCoordinator& GetFrameCoordinator() { return m_FrameCoordinator; }
     GpuTextureView* GetSceneColorView() const { return m_Viewport.GetOutputView(); }
     SceneViewport* GetSceneViewport() { return &m_Viewport; }
     const SceneViewport* GetSceneViewport() const { return &m_Viewport; }
@@ -107,6 +109,7 @@ private:
     void RefreshRuntimeSettingsLabels();
     void AdjustRuntimeSetting(const std::string& action);
     IRenderContext* m_RenderContext = nullptr;
+    RenderFrameCoordinator m_FrameCoordinator;
     SceneViewport m_Viewport;
     SceneViewport m_MaterialPreviewViewport;
     std::unique_ptr<Scene> m_MaterialPreviewScene;

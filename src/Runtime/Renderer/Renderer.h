@@ -13,6 +13,8 @@
 
 #include <memory>
 #include <array>
+#include <string>
+#include <utility>
 #include <vector>
 
 class ShadowPass;
@@ -26,6 +28,7 @@ class ScreenUIPass;
 class ModernDeferredPipeline;
 class ProbeLightingSystem;
 class RenderGraph;
+class RenderFrameCoordinator;
 class UIDrawList;
 
 enum class RendererDebugView : uint8_t {
@@ -54,6 +57,8 @@ enum class RendererDebugView : uint8_t {
 class MYENGINE_RUNTIME_API Renderer {
 public:
     Renderer(IRHIDevice* device, IRHIFrameContext* frameContext, IRHIReadbackService* readbackService);
+    Renderer(IRHIDevice* device, IRHIFrameContext* frameContext, IRHIReadbackService* readbackService,
+             RenderFrameCoordinator* frameCoordinator);
     ~Renderer();
 
     void Resize(uint32_t width, uint32_t height);
@@ -62,6 +67,8 @@ public:
     // If present == false, the caller is responsible for ending the RHI frame
     // (useful for editor overlays like ImGui).
     void RenderScene(const Scene& scene, const Camera& camera, bool present = true);
+    void SetFrameCoordinator(RenderFrameCoordinator* coordinator) { m_FrameCoordinator = coordinator; }
+    void SetProfilerLabel(std::string label) { m_ProfilerLabel = std::move(label); }
     void SetUIDrawList(const UIDrawList* drawList) { m_UIDrawList = drawList; }
     void SetDebugDrawViewMask(DebugDrawViewMask mask) { m_DebugDrawViewMask = mask; }
     DebugDrawViewMask GetDebugDrawViewMask() const { return m_DebugDrawViewMask; }
@@ -93,6 +100,7 @@ private:
     IRHIDevice* m_Device = nullptr;
     IRHIFrameContext* m_FrameContext = nullptr;
     IRHIReadbackService* m_ReadbackService = nullptr;
+    RenderFrameCoordinator* m_FrameCoordinator = nullptr;
     std::unique_ptr<ShadowPass> m_ShadowPass;
     std::unique_ptr<EnvironmentPass> m_EnvironmentPass;
     std::unique_ptr<MainPass> m_MainPass;
@@ -122,7 +130,9 @@ private:
     RendererDebugView m_DebugView = RendererDebugView::Final;
     std::array<std::shared_ptr<GpuTimestampQueryPool>, 3> m_FrameTimestampPools{};
     std::array<bool, 3> m_FrameTimestampRecorded{};
+    std::array<uint64_t, 3> m_FrameTimestampFrameNumbers{};
     std::array<std::vector<std::string>, 3> m_FrameTimestampPassNames{};
+    std::string m_ProfilerLabel = "Renderer";
     uint8_t m_ShaderPrewarmMask = 0;
     uint64_t m_ShaderPrewarmSceneGeneration = 0;
     bool m_SceneShaderPrewarmComplete = false;

@@ -8,7 +8,9 @@ Actor::Actor(std::string name, uint64_t id, ActorHandle handle) : m_ID(id), m_Ha
 }
 
 Actor::~Actor() {
-    for (Component* comp : OrderedComponents(true)) {
+    const auto& components = ExecutionOrderedComponents();
+    for (auto it = components.rbegin(); it != components.rend(); ++it) {
+        Component* comp = *it;
         if (comp->m_BeganPlay) {
             comp->OnEndPlay();
             comp->m_BeganPlay = false;
@@ -104,6 +106,9 @@ Component* Actor::AddComponentObject(std::type_index type, std::unique_ptr<Compo
     raw->m_Owner = this;
     m_ComponentLookup[type] = m_Components.size();
     m_Components.push_back({type, std::move(component), m_NextComponentOrder++});
+    m_ExecutionOrderDirty = true;
+    if (m_Scene)
+        m_Scene->OnComponentAdded(*this, type);
     if (finalizeNow) {
         raw->OnAttach();
         raw->m_Attached = true;
@@ -143,7 +148,10 @@ bool Actor::RemoveComponentAt(size_t index) {
         comp->OnDetach();
         comp->m_Attached = false;
     }
+    if (m_Scene)
+        m_Scene->OnComponentRemoved(*this, m_Components[index].type);
     m_Components.erase(m_Components.begin() + static_cast<std::ptrdiff_t>(index));
+    m_ExecutionOrderDirty = true;
     RebuildComponentLookup();
     return true;
 }
@@ -154,22 +162,23 @@ void Actor::RebuildComponentLookup() {
         m_ComponentLookup[m_Components[i].type] = i;
 }
 
-std::vector<Component*> Actor::OrderedComponents(bool reverse) const {
-    std::vector<const ComponentEntry*> entries;
-    entries.reserve(m_Components.size());
+const std::vector<Component*>& Actor::ExecutionOrderedComponents() const {
+    if (!m_ExecutionOrderDirty)
+        return m_ExecutionOrderCache;
+    m_ExecutionOrderCache.clear();
+    m_ExecutionOrderCache.reserve(m_Components.size());
     for (const auto& entry : m_Components)
-        entries.push_back(&entry);
-    std::stable_sort(entries.begin(), entries.end(), [](const ComponentEntry* a, const ComponentEntry* b) {
-        const int ao = a->component->GetExecutionOrder();
-        const int bo = b->component->GetExecutionOrder();
-        return ao != bo ? ao < bo : a->insertionOrder < b->insertionOrder;
-    });
+        m_ExecutionOrderCache.push_back(entry.component.get());
+    std::stable_sort(m_ExecutionOrderCache.begin(), m_ExecutionOrderCache.end(),
+                     [](Component* a, Component* b) { return a->GetExecutionOrder() < b->GetExecutionOrder(); });
+    m_ExecutionOrderDirty = false;
+    return m_ExecutionOrderCache;
+}
+
+std::vector<Component*> Actor::OrderedComponents(bool reverse) const {
+    std::vector<Component*> result = ExecutionOrderedComponents();
     if (reverse)
-        std::reverse(entries.begin(), entries.end());
-    std::vector<Component*> result;
-    result.reserve(entries.size());
-    for (const ComponentEntry* entry : entries)
-        result.push_back(entry->component.get());
+        std::reverse(result.begin(), result.end());
     return result;
 }
 
@@ -192,6 +201,8 @@ void Actor::SetParent(Actor* parent) {
     if (m_Parent)
         m_Parent->AddChild(this);
     RefreshActiveInHierarchy(!m_Parent || m_Parent->IsActiveInHierarchy(), m_Scene && m_Scene->IsPlaying());
+    if (m_Scene)
+        m_Scene->InvalidateHierarchyCache();
 }
 
 void Actor::AddChild(Actor* child) {
@@ -229,12 +240,12 @@ bool Actor::MoveChildBefore(Actor* child, Actor* beforeChild) {
 }
 
 void Actor::FinalizeConstruction(bool playing) {
-    for (Component* comp : OrderedComponents())
+    for (Component* comp : ExecutionOrderedComponents())
         if (!comp->m_Attached) {
             comp->OnAttach();
             comp->m_Attached = true;
         }
-    for (Component* comp : OrderedComponents())
+    for (Component* comp : ExecutionOrderedComponents())
         if (!comp->m_Initialized) {
             comp->OnInitialize();
             comp->m_Initialized = true;
@@ -252,7 +263,7 @@ void Actor::BeginPlay() {
 }
 
 void Actor::BeginPlayPhase() {
-    for (Component* comp : OrderedComponents())
+    for (Component* comp : ExecutionOrderedComponents())
         if (!comp->m_BeganPlay) {
             comp->OnBeginPlay();
             comp->m_BeganPlay = true;
@@ -260,7 +271,7 @@ void Actor::BeginPlayPhase() {
 }
 
 void Actor::EnablePlayPhase() {
-    for (Component* comp : OrderedComponents()) {
+    for (Component* comp : ExecutionOrderedComponents()) {
         if (IsActive() && comp->IsEnabled() && !comp->m_EffectiveEnabled) {
             comp->OnEnable();
             comp->m_EffectiveEnabled = true;
@@ -269,7 +280,7 @@ void Actor::EnablePlayPhase() {
 }
 
 void Actor::StartPlayPhase() {
-    for (Component* comp : OrderedComponents())
+    for (Component* comp : ExecutionOrderedComponents())
         if (!comp->m_Started) {
             comp->OnStart();
             comp->m_Started = true;
@@ -277,16 +288,21 @@ void Actor::StartPlayPhase() {
 }
 
 void Actor::EndPlay() {
-    for (Component* comp : OrderedComponents(true))
+    const auto& components = ExecutionOrderedComponents();
+    for (auto it = components.rbegin(); it != components.rend(); ++it) {
+        Component* comp = *it;
         if (comp->m_BeganPlay) {
             comp->OnEndPlay();
             comp->m_BeganPlay = false;
         }
-    for (Component* comp : OrderedComponents(true))
+    }
+    for (auto it = components.rbegin(); it != components.rend(); ++it) {
+        Component* comp = *it;
         if (comp->m_EffectiveEnabled) {
             comp->OnDisable();
             comp->m_EffectiveEnabled = false;
         }
+    }
 }
 
 void Actor::RefreshActiveInHierarchy(bool parentActive, bool playing) {
@@ -302,7 +318,8 @@ void Actor::RefreshActiveInHierarchy(bool parentActive, bool playing) {
         for (Actor* child : m_Children)
             child->RefreshActiveInHierarchy(false, playing);
     if (changed && playing) {
-        for (Component* comp : OrderedComponents(!next)) {
+        const auto& components = ExecutionOrderedComponents();
+        const auto apply = [&](Component* comp) {
             const bool effective = next && comp->IsEnabled();
             if (effective && !comp->m_EffectiveEnabled) {
                 comp->OnEnable();
@@ -311,7 +328,13 @@ void Actor::RefreshActiveInHierarchy(bool parentActive, bool playing) {
                 comp->OnDisable();
                 comp->m_EffectiveEnabled = false;
             }
-        }
+        };
+        if (next)
+            for (Component* comp : components)
+                apply(comp);
+        else
+            for (auto it = components.rbegin(); it != components.rend(); ++it)
+                apply(*it);
     }
     if (next)
         for (Actor* child : m_Children)
@@ -330,7 +353,7 @@ void Actor::MarkPendingDestroy() {
 void Actor::Update(float deltaSeconds) {
     if (!IsActive())
         return;
-    for (Component* comp : OrderedComponents())
+    for (Component* comp : ExecutionOrderedComponents())
         if (comp->m_EffectiveEnabled)
             comp->OnUpdate(deltaSeconds);
 }
@@ -338,7 +361,7 @@ void Actor::Update(float deltaSeconds) {
 void Actor::FixedUpdate(float deltaSeconds) {
     if (!IsActive())
         return;
-    for (Component* comp : OrderedComponents())
+    for (Component* comp : ExecutionOrderedComponents())
         if (comp->m_EffectiveEnabled)
             comp->OnFixedUpdate(deltaSeconds);
 }
@@ -346,7 +369,7 @@ void Actor::FixedUpdate(float deltaSeconds) {
 void Actor::LateUpdate(float deltaSeconds) {
     if (!IsActive())
         return;
-    for (Component* comp : OrderedComponents())
+    for (Component* comp : ExecutionOrderedComponents())
         if (comp->m_EffectiveEnabled)
             comp->OnLateUpdate(deltaSeconds);
 }

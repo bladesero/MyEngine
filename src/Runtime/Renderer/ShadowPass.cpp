@@ -8,6 +8,7 @@
 #include "Renderer/LightComponent.h"
 #include "Renderer/MaterialResourceCache.h"
 #include "Renderer/MeshShader.h"
+#include "Renderer/ParticleSystemComponent.h"
 #include "Renderer/ShaderManager.h"
 #include "Math/Mat4Inverse.h"
 #include "Scene/Actor.h"
@@ -120,7 +121,7 @@ static bool AABBIntersectsClip(const AABB& worldBounds, const Mat4& viewProj) {
     return !(outsideLeft || outsideRight || outsideBottom || outsideTop || outsideNear || outsideFar);
 }
 
-static MeshAsset* GetRenderMesh(Actor& actor, SkinnedMeshRendererComponent** outSkin = nullptr,
+static MeshAsset* GetRenderMesh(const Actor& actor, SkinnedMeshRendererComponent** outSkin = nullptr,
                                 MaterialAsset** outMaterial = nullptr) {
     if (outSkin)
         *outSkin = nullptr;
@@ -221,27 +222,26 @@ void ShadowPass::UpdateLightMatrices(const Scene& scene, const Camera& camera) {
     m_SpotShadowIndex = -1;
     m_PointShadowIndex = -1;
 
-    scene.ForEach([&](Actor& actor) {
+    scene.ForEachWith<LightComponent>([&](const Actor& actor, const LightComponent& light) {
         if (!actor.IsActive())
             return;
-        auto* light = actor.GetComponent<LightComponent>();
-        if (!light || !light->IsEnabled())
+        if (!light.IsEnabled())
             return;
-        if (light->GetLightType() == LightType::Directional) {
+        if (light.GetLightType() == LightType::Directional) {
             if (!foundDirectional) {
-                m_LightDirection = light->GetDirection();
-                m_DirectionalShadowEnabled = light->CastsShadows();
+                m_LightDirection = light.GetDirection();
+                m_DirectionalShadowEnabled = light.CastsShadows();
                 foundDirectional = true;
             }
             return;
         }
-        if (light->GetLightType() == LightType::Spot) {
-            if (!foundSpot && light->CastsShadows() && spotIndex < 4) {
+        if (light.GetLightType() == LightType::Spot) {
+            if (!foundSpot && light.CastsShadows() && spotIndex < 4) {
                 const Vec3 position = actor.GetWorldPosition();
-                const Vec3 direction = light->GetDirection();
+                const Vec3 direction = light.GetDirection();
                 const Mat4 lightView = Mat4::LookAt(position, position + direction, StableUpForDirection(direction));
                 const Mat4 lightProj =
-                    Mat4::Perspective(light->GetOuterConeAngle() * 2.0f * kDeg2Rad, 1.0f, 0.05f, light->GetRange());
+                    Mat4::Perspective(light.GetOuterConeAngle() * 2.0f * kDeg2Rad, 1.0f, 0.05f, light.GetRange());
                 m_SpotLightViewProj = lightView * lightProj;
                 m_SpotShadowIndex = spotIndex;
                 foundSpot = true;
@@ -249,10 +249,10 @@ void ShadowPass::UpdateLightMatrices(const Scene& scene, const Camera& camera) {
             ++spotIndex;
             return;
         }
-        if (light->GetLightType() == LightType::Point) {
-            if (!foundPoint && light->CastsShadows() && pointIndex < 4) {
+        if (light.GetLightType() == LightType::Point) {
+            if (!foundPoint && light.CastsShadows() && pointIndex < 4) {
                 m_PointShadowPosition = actor.GetWorldPosition();
-                m_PointShadowRange = light->GetRange();
+                m_PointShadowRange = light.GetRange();
                 m_PointShadowIndex = pointIndex;
                 foundPoint = true;
 
@@ -295,8 +295,8 @@ void ShadowPass::UpdateLightMatrices(const Scene& scene, const Camera& camera) {
             sceneMax.z = p.z;
     };
 
-    scene.ForEach([&](Actor& actor) {
-        if (!actor.IsActive())
+    const auto collectShadowBounds = [&](const Actor& actor) {
+        if (!actor.IsActive() || actor.GetComponent<ParticleSystemComponent>())
             return;
         MeshAsset* mesh = GetRenderMesh(actor);
         if (!mesh || mesh->GetVertices().empty())
@@ -315,7 +315,9 @@ void ShadowPass::UpdateLightMatrices(const Scene& scene, const Camera& camera) {
             expandBounds(world.TransformPoint(c));
         }
         hasBounds = true;
-    });
+    };
+    scene.ForEachWithAny<ParticleSystemComponent, SkinnedMeshRendererComponent, MeshRendererComponent>(
+        collectShadowBounds);
 
     if (!hasBounds) {
         const float extent = 8.0f;
@@ -613,8 +615,9 @@ void ShadowPass::DrawShadowScene(GpuCommandList& commands, const Scene& scene, c
                                  bool compatibilityOnly) {
     m_ResourceCache.SetDevice(Device());
     m_ResourceCache.EnsureNamedBindingDefaults();
-    scene.ForEach([&](Actor& actor) {
-        if (!actor.IsActive() || (m_StaticGeometryOnly && !actor.IsStatic()))
+    const auto drawActor = [&](const Actor& actor) {
+        if (!actor.IsActive() || actor.GetComponent<ParticleSystemComponent>() ||
+            (m_StaticGeometryOnly && !actor.IsStatic()))
             return;
         SkinnedMeshRendererComponent* skin = nullptr;
         MeshAsset* mesh = nullptr;
@@ -798,7 +801,8 @@ void ShadowPass::DrawShadowScene(GpuCommandList& commands, const Scene& scene, c
             }
             ++m_LastStats.drawCalls;
         }
-    });
+    };
+    scene.ForEachWithAny<ParticleSystemComponent, SkinnedMeshRendererComponent, MeshRendererComponent>(drawActor);
 }
 
 void ShadowPass::ExecuteGraphManaged(GpuCommandList& commands, const Scene& scene, bool renderDirectional) {

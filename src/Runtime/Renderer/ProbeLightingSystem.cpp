@@ -61,6 +61,30 @@ bool UploadStructuredBuffer(IRHIDevice* device, const std::vector<T>& values, co
     view = device->CreateBufferView(buffer, viewDesc);
     return static_cast<bool>(view);
 }
+
+template <typename T>
+bool UploadStructuredBufferIfChanged(IRHIDevice* device, const std::vector<T>& values, const char* name,
+                                     std::shared_ptr<GpuBuffer>& buffer, std::shared_ptr<GpuBufferView>& view,
+                                     std::vector<uint8_t>& cachedBytes) {
+    const size_t byteCount = values.size() * sizeof(T);
+    const auto* bytes = reinterpret_cast<const uint8_t*>(values.data());
+    const bool unchanged = buffer && view && cachedBytes.size() == byteCount &&
+                           (byteCount == 0 || std::memcmp(cachedBytes.data(), bytes, byteCount) == 0);
+    if (unchanged)
+        return true;
+
+    std::shared_ptr<GpuBuffer> nextBuffer;
+    std::shared_ptr<GpuBufferView> nextView;
+    if (!UploadStructuredBuffer(device, values, name, nextBuffer, nextView))
+        return false;
+    buffer = std::move(nextBuffer);
+    view = std::move(nextView);
+    if (byteCount == 0)
+        cachedBytes.clear();
+    else
+        cachedBytes.assign(bytes, bytes + byteCount);
+    return true;
+}
 } // namespace
 
 ProbeLightingSystem::ProbeLightingSystem(IRHIDevice* device) : m_Device(device) {
@@ -79,6 +103,8 @@ void ProbeLightingSystem::Reset() {
     m_SHCoefficients.reset();
     m_SHCoefficientView.reset();
     m_CpuReflectionProbes.clear();
+    m_ReflectionMetadataBytes.clear();
+    m_SHVolumeMetadataBytes.clear();
     m_ReflectionProbeCount = 0;
     m_SHVolumeCount = 0;
     m_LastError.clear();
@@ -105,6 +131,8 @@ bool ProbeLightingSystem::LoadAsset(const std::string& path) {
 bool ProbeLightingSystem::UploadFallbackResources() {
     if (!m_Device)
         return false;
+    m_ReflectionMetadataBytes.clear();
+    m_SHVolumeMetadataBytes.clear();
     const std::array<uint16_t, 4> black = {0, 0, 0, LightingProbeFloatToHalf(1.0f)};
     RHITextureDesc textureDesc;
     textureDesc.format = RHIFormat::RGBA16Float;
@@ -284,10 +312,10 @@ bool ProbeLightingSystem::UpdateSceneMetadata(const Scene& scene) {
             }
         }
     });
-    if (!UploadStructuredBuffer(m_Device, reflectionGpu, "LocalReflectionProbeMetadata", m_ReflectionMetadata,
-                                m_ReflectionMetadataView) ||
-        !UploadStructuredBuffer(m_Device, volumeGpu, "LocalSHVolumeMetadata", m_SHVolumeMetadata,
-                                m_SHVolumeMetadataView)) {
+    if (!UploadStructuredBufferIfChanged(m_Device, reflectionGpu, "LocalReflectionProbeMetadata", m_ReflectionMetadata,
+                                         m_ReflectionMetadataView, m_ReflectionMetadataBytes) ||
+        !UploadStructuredBufferIfChanged(m_Device, volumeGpu, "LocalSHVolumeMetadata", m_SHVolumeMetadata,
+                                         m_SHVolumeMetadataView, m_SHVolumeMetadataBytes)) {
         m_LastError = "RHI failed to upload local probe metadata";
         return false;
     }
