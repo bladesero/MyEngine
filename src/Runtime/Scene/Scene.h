@@ -4,10 +4,13 @@
 
 #include "Scene/Actor.h"
 #include "Scene/SceneSubsystems.h"
+#include "Scene/TypeRegistry.h"
 #include "Scene/WorldFrameScheduler.h"
 #include "Core/TaskService.h"
 
 #include <nlohmann/json.hpp>
+#include <algorithm>
+#include <array>
 #include <atomic>
 #include <functional>
 #include <memory>
@@ -15,7 +18,9 @@
 #include <string>
 #include <stdexcept>
 #include <type_traits>
+#include <typeindex>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 struct ActorCreateDesc {
@@ -104,7 +109,41 @@ struct LightingProbeBakeSettings {
     float rgbmMaximumRange = 64.0f;
 };
 
+enum class SceneQueryControl : uint8_t { Continue, Break };
+
+struct SceneQueryStats {
+    uint64_t hierarchyCacheRebuilds = 0;
+    uint64_t queryOrderRebuilds = 0;
+    uint64_t candidateVisits = 0;
+    uint64_t matchedActors = 0;
+};
+
+namespace SceneQueryDetail {
+template <typename Function, typename... Args> SceneQueryControl Invoke(Function& function, Args&&... args) {
+    using Result = std::invoke_result_t<Function&, Args...>;
+    static_assert(std::is_same_v<Result, void> || std::is_same_v<Result, SceneQueryControl>,
+                  "scene query visitor must return void or SceneQueryControl");
+    if constexpr (std::is_same_v<Result, SceneQueryControl>)
+        return std::invoke(function, std::forward<Args>(args)...);
+    else {
+        std::invoke(function, std::forward<Args>(args)...);
+        return SceneQueryControl::Continue;
+    }
+}
+
+template <typename ComponentType> const ComponentType& GetConstComponent(const Actor& actor) {
+    return *actor.GetComponent<ComponentType>();
+}
+} // namespace SceneQueryDetail
+
+struct SceneEcsState;
+
 class MYENGINE_RUNTIME_API Scene {
+    struct QueryVisitor {
+        void* context = nullptr;
+        SceneQueryControl (*invoke)(void*, Actor&) = nullptr;
+    };
+
 public:
     explicit Scene(std::string name = "Scene");
     ~Scene();
@@ -153,6 +192,67 @@ public:
     size_t ActorCount() const { return m_Actors.size(); }
     void ForEach(const std::function<void(Actor&)>& fn) const;
 
+    template <typename... Components, typename Function> size_t ForEachWith(Function&& function) {
+        static_assert(sizeof...(Components) > 0, "scene query requires at least one component type");
+        std::array<RuntimeTypeIndex, sizeof...(Components)> types{
+            TypeRegistry::Get().FindRuntimeTypeIndex(std::type_index(typeid(Components)))...};
+        if (std::find(types.begin(), types.end(), InvalidRuntimeTypeIndex) != types.end())
+            return 0;
+        auto visitor = [&](Actor& actor) {
+            return SceneQueryDetail::Invoke(function, actor, *actor.GetComponent<Components>()...);
+        };
+        QueryVisitor erased{
+            &visitor, [](void* context, Actor& actor) { return (*static_cast<decltype(visitor)*>(context))(actor); }};
+        return ForEachQueryAll(types.data(), types.size(), erased);
+    }
+
+    template <typename... Components, typename Function> size_t ForEachWith(Function&& function) const {
+        static_assert(sizeof...(Components) > 0, "scene query requires at least one component type");
+        std::array<RuntimeTypeIndex, sizeof...(Components)> types{
+            TypeRegistry::Get().FindRuntimeTypeIndex(std::type_index(typeid(Components)))...};
+        if (std::find(types.begin(), types.end(), InvalidRuntimeTypeIndex) != types.end())
+            return 0;
+        auto visitor = [&](Actor& actor) {
+            const Actor& constActor = actor;
+            return SceneQueryDetail::Invoke(function, constActor,
+                                            SceneQueryDetail::GetConstComponent<Components>(constActor)...);
+        };
+        QueryVisitor erased{
+            &visitor, [](void* context, Actor& actor) { return (*static_cast<decltype(visitor)*>(context))(actor); }};
+        return ForEachQueryAll(types.data(), types.size(), erased);
+    }
+
+    template <typename... Components, typename Function> size_t ForEachWithAny(Function&& function) {
+        static_assert(sizeof...(Components) > 0, "scene query requires at least one component type");
+        std::array<RuntimeTypeIndex, sizeof...(Components)> types{
+            TypeRegistry::Get().FindRuntimeTypeIndex(std::type_index(typeid(Components)))...};
+        if (std::find(types.begin(), types.end(), InvalidRuntimeTypeIndex) != types.end())
+            return 0;
+        auto visitor = [&](Actor& actor) { return SceneQueryDetail::Invoke(function, actor); };
+        QueryVisitor erased{
+            &visitor, [](void* context, Actor& actor) { return (*static_cast<decltype(visitor)*>(context))(actor); }};
+        std::array<size_t, sizeof...(Components)> positions{};
+        return ForEachQueryAny(types.data(), types.size(), positions.data(), erased);
+    }
+
+    template <typename... Components, typename Function> size_t ForEachWithAny(Function&& function) const {
+        static_assert(sizeof...(Components) > 0, "scene query requires at least one component type");
+        std::array<RuntimeTypeIndex, sizeof...(Components)> types{
+            TypeRegistry::Get().FindRuntimeTypeIndex(std::type_index(typeid(Components)))...};
+        if (std::find(types.begin(), types.end(), InvalidRuntimeTypeIndex) != types.end())
+            return 0;
+        auto visitor = [&](Actor& actor) {
+            return SceneQueryDetail::Invoke(function, static_cast<const Actor&>(actor));
+        };
+        QueryVisitor erased{
+            &visitor, [](void* context, Actor& actor) { return (*static_cast<decltype(visitor)*>(context))(actor); }};
+        std::array<size_t, sizeof...(Components)> positions{};
+        return ForEachQueryAny(types.data(), types.size(), positions.data(), erased);
+    }
+
+    SceneQueryStats GetQueryStats() const;
+    void ResetQueryStats();
+
     void BeginPlay();
     void EndPlay();
     void Pause() {
@@ -166,7 +266,7 @@ public:
     void OnUpdate(float deltaSeconds);
     SceneState GetState() const { return m_State; }
     bool IsPlaying() const { return m_State == SceneState::Playing; }
-    bool IsTraversing() const { return m_Traversing; }
+    bool IsTraversing() const { return m_TraversalDepth != 0; }
     void SetTimeScale(float value) { m_TimeScale = value < 0.0f ? 0.0f : value; }
     float GetTimeScale() const { return m_TimeScale; }
     SceneLifetimeToken GetLifetimeToken() const { return SceneLifetimeToken(m_Lifetime); }
@@ -268,6 +368,18 @@ private:
     bool MoveActorInternal(Actor* actor, Actor* parent, Actor* beforeSibling);
     bool MoveRootActorBefore(Actor* actor, Actor* beforeSibling);
     std::vector<Actor*> OrderedActors(bool reverse = false) const;
+    const std::vector<ActorHandle>& OrderedActorHandles() const;
+    void EnsureHierarchyCache() const;
+    void EnsureQueryTypeOrdered(RuntimeTypeIndex type) const;
+    bool SignatureContains(ActorHandle actor, const RuntimeTypeIndex* types, size_t typeCount) const;
+    uint32_t GetHierarchyOrdinal(ActorHandle actor) const;
+    void InvalidateHierarchyCache();
+    void OnActorCreated(Actor& actor);
+    void OnActorDestroyed(Actor& actor);
+    void OnComponentAdded(Actor& actor, std::type_index type);
+    void OnComponentRemoved(Actor& actor, std::type_index type);
+    size_t ForEachQueryAll(RuntimeTypeIndex* types, size_t typeCount, QueryVisitor visitor) const;
+    size_t ForEachQueryAny(RuntimeTypeIndex* types, size_t typeCount, size_t* positions, QueryVisitor visitor) const;
     void FinalizeCreated(const std::vector<Actor*>& actors);
 
     std::string m_Name;
@@ -278,6 +390,7 @@ private:
     std::unordered_map<uint64_t, Actor*> m_IDMap;
     std::unordered_map<uint64_t, ActorHandle> m_IDHandles;
     std::vector<Slot> m_Slots;
+    std::unique_ptr<SceneEcsState> m_EcsState;
     std::vector<PendingCreate> m_PendingCreates;
     std::vector<Command> m_Commands;
     std::unique_ptr<IScenePhysicsSubsystem> m_PhysicsWorld;
@@ -288,7 +401,7 @@ private:
     LightingProbeBakeSettings m_LightingProbeBakeSettings;
     std::vector<std::string> m_PreloadAssets;
     SceneState m_State = SceneState::Edit;
-    bool m_Traversing = false;
+    mutable uint32_t m_TraversalDepth = 0;
     bool m_Flushing = false;
     float m_TimeScale = 1.0f;
     class SceneManager* m_SceneManager = nullptr;
@@ -298,4 +411,6 @@ private:
     std::unordered_map<WorldZoneID, std::unique_ptr<WorldZone>> m_Zones;
     WorldZoneID m_NextZoneID = 1;
     std::unique_ptr<class WorldZoneStreamer> m_ZoneStreamer;
+
+    friend class Actor;
 };

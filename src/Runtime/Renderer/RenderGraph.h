@@ -42,6 +42,7 @@ struct RenderGraphResourceStats {
 
 struct RenderGraphCpuTimings {
     float addPassCpuMs = 0.0f;
+    float finalizeCpuMs = 0.0f;
     float compileCpuMs = 0.0f;
     float ensureResourcesCpuMs = 0.0f;
     bool topologyCacheHit = false;

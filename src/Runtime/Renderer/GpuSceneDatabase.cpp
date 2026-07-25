@@ -8,6 +8,7 @@
 #include "Math/Mat4Inverse.h"
 #include "Renderer/LightComponent.h"
 #include "Renderer/MaterialSystem.h"
+#include "Renderer/ParticleSystemComponent.h"
 #include "Scene/Actor.h"
 #include "Scene/MeshRendererComponent.h"
 #include "Scene/Scene.h"
@@ -361,7 +362,7 @@ bool GpuSceneDatabase::Update(const Scene& scene, uint64_t frameNumber) {
         return cached;
     };
 
-    const auto addObject = [&](Actor& actor, MeshAsset* mesh, MaterialAsset* material, uint32_t subMeshIndex,
+    const auto addObject = [&](const Actor& actor, MeshAsset* mesh, MaterialAsset* material, uint32_t subMeshIndex,
                                bool skinned, const CachedMaterial& cachedMaterial) {
         if (!mesh || !material || subMeshIndex >= mesh->GetSubMeshes().size())
             return;
@@ -411,57 +412,65 @@ bool GpuSceneDatabase::Update(const Scene& scene, uint64_t frameNumber) {
         currentWorld[key] = world;
     };
 
-    scene.ForEach([&](Actor& actor) {
+    scene.ForEachWith<LightComponent>([&](const Actor& actor, const LightComponent& light) {
         if (!actor.IsActive())
             return;
-        if (auto* light = actor.GetComponent<LightComponent>();
-            light && light->IsEnabled() && light->GetLightType() != LightType::Directional) {
+        if (light.IsEnabled() && light.GetLightType() != LightType::Directional) {
             if (m_Lights.size() >= kMaxLocalLights) {
                 m_Stats.lightBudgetExceeded = true;
             } else {
                 GpuSceneLightData data;
                 const Vec3 position = actor.GetWorldPosition();
-                const Vec3 direction = light->GetDirection();
-                const Vec3 color = light->GetColor();
-                data.positionRange = {position.x, position.y, position.z, light->GetRange()};
+                const Vec3 direction = light.GetDirection();
+                const Vec3 color = light.GetColor();
+                data.positionRange = {position.x, position.y, position.z, light.GetRange()};
                 data.directionType = {direction.x, direction.y, direction.z,
-                                      light->GetLightType() == LightType::Spot ? 1.0f : 0.0f};
-                data.colorIntensity = {color.x, color.y, color.z, light->GetIntensity()};
+                                      light.GetLightType() == LightType::Spot ? 1.0f : 0.0f};
+                data.colorIntensity = {color.x, color.y, color.z, light.GetIntensity()};
                 constexpr float degreesToRadians = 3.14159265359f / 180.0f;
-                data.spotAnglesShadow = {std::cos(light->GetInnerConeAngle() * degreesToRadians),
-                                         std::cos(light->GetOuterConeAngle() * degreesToRadians),
-                                         light->CastsShadows() ? 1.0f : 0.0f, 0.0f};
+                data.spotAnglesShadow = {std::cos(light.GetInnerConeAngle() * degreesToRadians),
+                                         std::cos(light.GetOuterConeAngle() * degreesToRadians),
+                                         light.CastsShadows() ? 1.0f : 0.0f, 0.0f};
                 m_Lights.push_back(data);
             }
         }
-        if (auto* skinned = actor.GetComponent<SkinnedMeshRendererComponent>();
-            skinned && skinned->IsEnabled() && skinned->IsValid()) {
-            MeshAsset* mesh = skinned->GetRenderMesh();
-            MaterialAsset* material = skinned->GetMaterial().Get();
-            if (mesh && material)
-                for (uint32_t subMesh = 0; subMesh < mesh->GetSubMeshes().size(); ++subMesh) {
-                    const CachedMaterial& cached = resolveMaterial(material);
-                    if (!cached.transparent)
-                        addObject(actor, mesh, material, subMesh, true, cached);
-                }
-            return;
-        }
-        auto* renderer = actor.GetComponent<MeshRendererComponent>();
-        MeshAsset* mesh =
-            renderer && renderer->IsEnabled() && renderer->IsValid() ? renderer->GetMesh().Get() : nullptr;
-        if (!mesh)
-            return;
-        for (uint32_t subMesh = 0; subMesh < mesh->GetSubMeshes().size(); ++subMesh) {
-            MaterialAsset* material = renderer->GetMaterialForSlot(mesh->GetSubMeshes()[subMesh].materialSlot).Get();
-            if (!material) {
-                ++m_Stats.compatibilityObjects;
-                continue;
-            }
-            const CachedMaterial& cached = resolveMaterial(material);
-            if (!cached.transparent)
-                addObject(actor, mesh, material, subMesh, false, cached);
-        }
     });
+    scene.ForEachWithAny<ParticleSystemComponent, SkinnedMeshRendererComponent, MeshRendererComponent>(
+        [&](const Actor& actor) {
+            if (!actor.IsActive())
+                return;
+            if (actor.GetComponent<ParticleSystemComponent>())
+                return;
+            if (auto* skinned = actor.GetComponent<SkinnedMeshRendererComponent>()) {
+                if (skinned->IsEnabled() && skinned->IsValid()) {
+                    MeshAsset* mesh = skinned->GetRenderMesh();
+                    MaterialAsset* material = skinned->GetMaterial().Get();
+                    if (mesh && material)
+                        for (uint32_t subMesh = 0; subMesh < mesh->GetSubMeshes().size(); ++subMesh) {
+                            const CachedMaterial& cached = resolveMaterial(material);
+                            if (!cached.transparent)
+                                addObject(actor, mesh, material, subMesh, true, cached);
+                        }
+                }
+                return;
+            }
+            auto* renderer = actor.GetComponent<MeshRendererComponent>();
+            MeshAsset* mesh =
+                renderer && renderer->IsEnabled() && renderer->IsValid() ? renderer->GetMesh().Get() : nullptr;
+            if (!mesh)
+                return;
+            for (uint32_t subMesh = 0; subMesh < mesh->GetSubMeshes().size(); ++subMesh) {
+                MaterialAsset* material =
+                    renderer->GetMaterialForSlot(mesh->GetSubMeshes()[subMesh].materialSlot).Get();
+                if (!material) {
+                    ++m_Stats.compatibilityObjects;
+                    continue;
+                }
+                const CachedMaterial& cached = resolveMaterial(material);
+                if (!cached.transparent)
+                    addObject(actor, mesh, material, subMesh, false, cached);
+            }
+        });
     previousWorld = std::move(currentWorld);
 
     if (m_Stats.candidateBudgetExceeded || m_Stats.lightBudgetExceeded)

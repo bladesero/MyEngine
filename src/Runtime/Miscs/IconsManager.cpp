@@ -521,10 +521,15 @@ IconsManager& IconsManager::Get() {
 }
 
 void IconsManager::SetIconRoot(std::filesystem::path root) {
+    root = root.lexically_normal();
+    if (m_IconRoot == root)
+        return;
+    Clear();
     m_IconRoot = std::move(root);
 }
 
 void IconsManager::Clear() {
+    m_PathCache.clear();
     m_PixelCache.clear();
     m_UploadCache.clear();
 }
@@ -541,12 +546,18 @@ fs::path IconsManager::FindDefaultIconRoot() const {
 }
 
 fs::path IconsManager::ResolveIconPath(std::string_view iconName) const {
+    const std::string key = Lower(std::string(iconName));
+    if (auto cached = m_PathCache.find(key); cached != m_PathCache.end())
+        return cached->second;
+
     const fs::path root = m_IconRoot.empty() ? FindDefaultIconRoot() : m_IconRoot;
     const fs::path path = root / WithSvgExtension(iconName);
     std::error_code ec;
+    fs::path resolved;
     if (fs::is_regular_file(path, ec) && !ec)
-        return path.lexically_normal();
-    return {};
+        resolved = path.lexically_normal();
+    m_PathCache.emplace(key, resolved);
+    return resolved;
 }
 
 std::string IconsManager::MakePixelKey(std::string_view iconName, int size, IconColor color) const {

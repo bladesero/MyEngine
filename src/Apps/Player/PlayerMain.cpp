@@ -321,10 +321,7 @@ private:
             return;
         const FrameStats& frame = GetEngine().GetFrameStats();
         const RendererFrameStats& renderer = frame.renderer;
-        const double gpuMs = renderer.gpuTimingAvailable
-                                 ? static_cast<double>(renderer.shadowGpuMs + renderer.mainGpuMs + renderer.ssaoGpuMs +
-                                                       renderer.compositeGpuMs)
-                                 : 0.0;
+        const double gpuMs = renderer.gpuTimingAvailable ? static_cast<double>(renderer.renderGraphGpuMs) : 0.0;
         uint32_t droppedTicks = 0;
         if (m_SceneLayer) {
             droppedTicks = m_SceneLayer->GetSimulationScene().GetFrameScheduler().GetStats().droppedFixedTicks;
@@ -343,14 +340,23 @@ private:
         sample.ssaoCpuMs = renderer.ssaoCpuMs;
         sample.compositeCpuMs = renderer.compositeCpuMs;
         sample.renderGraphBuildMs = renderer.renderGraphBuildCpuMs;
+        sample.renderGraphExecuteMs = renderer.renderGraphExecuteCpuMs;
+        sample.renderGraphRecordMs = renderer.renderGraphRecordCpuMs;
         sample.renderGraphPrepareMs = renderer.renderGraphPrepareCpuMs;
+        sample.renderGraphFinalizeMs = renderer.renderGraphFinalizeCpuMs;
+        sample.sceneCollectMs = renderer.sceneCollectCpuMs;
         sample.pipelinePrepareMs = renderer.pipelinePrepareCpuMs;
         sample.renderGraphAddPassMs = renderer.renderGraphAddPassCpuMs;
         sample.renderGraphCompileMs = renderer.renderGraphCompileCpuMs;
         sample.renderGraphEnsureResourcesMs = renderer.renderGraphEnsureResourcesCpuMs;
         sample.gpuScenePrepareMs = renderer.gpuScenePrepareCpuMs;
+        sample.uploadQueueMs = renderer.uploadQueueCpuMs;
         sample.frameWaitMs = renderer.frameWaitCpuMs;
         sample.presentMs = renderer.presentCpuMs;
+        sample.editorUiMs = renderer.editorUiCpuMs;
+        sample.editorUiBuildMs = renderer.editorUiBuildCpuMs;
+        sample.editorUiSubmitMs = renderer.editorUiSubmitCpuMs;
+        sample.platformWindowsMs = renderer.platformWindowsCpuMs;
         m_PerformanceGate->AddSample(std::move(sample));
     }
 
@@ -385,7 +391,10 @@ private:
         value["renderer"] = {
             {"renderSubmissionCpuMs", rendererStats.renderSubmissionCpuMs},
             {"renderGraphBuildCpuMs", rendererStats.renderGraphBuildCpuMs},
+            {"renderGraphRecordCpuMs", rendererStats.renderGraphRecordCpuMs},
             {"renderGraphPrepareCpuMs", rendererStats.renderGraphPrepareCpuMs},
+            {"renderGraphFinalizeCpuMs", rendererStats.renderGraphFinalizeCpuMs},
+            {"sceneCollectCpuMs", rendererStats.sceneCollectCpuMs},
             {"pipelinePrepareCpuMs", rendererStats.pipelinePrepareCpuMs},
             {"renderGraphAddPassCpuMs", rendererStats.renderGraphAddPassCpuMs},
             {"renderGraphCompileCpuMs", rendererStats.renderGraphCompileCpuMs},
@@ -395,11 +404,14 @@ private:
             {"renderGraphTopologyCacheMisses", rendererStats.renderGraphTopologyCacheMisses},
             {"frameWaitCpuMs", rendererStats.frameWaitCpuMs},
             {"presentCpuMs", rendererStats.presentCpuMs},
+            {"uploadQueueCpuMs", rendererStats.uploadQueueCpuMs},
             {"gpuScenePrepareCpuMs", rendererStats.gpuScenePrepareCpuMs},
             {"gpuSceneMaterialResolves", rendererStats.gpuSceneMaterialResolves},
             {"gpuSceneMaterialCacheHits", rendererStats.gpuSceneMaterialCacheHits},
             {"gpuSceneTexturedMaterials", rendererStats.gpuSceneTexturedMaterials},
             {"renderGraphExecuteCpuMs", rendererStats.renderGraphExecuteCpuMs},
+            {"renderGraphGpuMs", rendererStats.renderGraphGpuMs},
+            {"gpuSourceFrameNumber", rendererStats.gpuSourceFrameNumber},
             {"gpuSceneUploadBytes", rendererStats.gpuSceneUploadBytes},
             {"gpuSceneCandidates", rendererStats.gpuSceneCandidates},
             {"gpuFrustumVisible", rendererStats.gpuFrustumVisible},

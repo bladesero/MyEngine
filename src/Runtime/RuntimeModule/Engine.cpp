@@ -374,10 +374,14 @@ void Engine::UpdateLayers() {
 }
 
 void Engine::RenderLayers() {
+    RendererFrameStats frameStats;
+    frameStats.frameNumber = Time::FrameCount();
+    FrameStatsProvider::SetRendererStats(frameStats);
     for (Layer* layer : m_Layers.GetLayers()) {
         if (IsLayerFaulted(layer)) {
             continue;
         }
+        const auto layerStart = Time::Clock::now();
         try {
             layer->OnRender();
         } catch (const std::exception& e) {
@@ -385,6 +389,12 @@ void Engine::RenderLayers() {
         } catch (...) {
             MarkLayerFaulted(layer, "render", "unknown exception");
         }
+        const auto layerEnd = Time::Clock::now();
+        frameStats = FrameStatsProvider::GetRendererStats();
+        frameStats.frameNumber = Time::FrameCount();
+        frameStats.renderLayerCpuTimings.push_back(
+            {layer->Name(), std::chrono::duration<float, std::milli>(layerEnd - layerStart).count()});
+        FrameStatsProvider::SetRendererStats(frameStats);
     }
 }
 

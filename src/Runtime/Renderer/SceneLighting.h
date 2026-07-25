@@ -69,4 +69,4 @@ struct ScenePostProcessData {
 MYENGINE_RUNTIME_API SceneEnvironmentData CollectSceneEnvironmentData(const Scene& scene);
 MYENGINE_RUNTIME_API SceneLightData CollectSceneLights(const Scene& scene);
 MYENGINE_RUNTIME_API SceneLightData CollectSceneLights(const Scene& scene, const SceneEnvironmentData& environment);
-ScenePostProcessData CollectScenePostProcessData(const Scene& scene);
+MYENGINE_RUNTIME_API ScenePostProcessData CollectScenePostProcessData(const Scene& scene);

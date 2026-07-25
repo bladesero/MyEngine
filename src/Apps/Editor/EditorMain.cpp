@@ -60,6 +60,20 @@ bool ApplyVSyncValue(const std::string& value, ApplicationConfig& cfg) {
     return false;
 }
 
+bool ParsePerformanceFrameCount(const std::string& value, size_t& output) {
+    try {
+        output = static_cast<size_t>(std::stoull(value));
+    } catch (...) {
+        Logger::Error("Invalid performance frame count: ", value);
+        return false;
+    }
+    if (output == 0 || output > 1000000) {
+        Logger::Error("Performance frame count must be between 1 and 1000000");
+        return false;
+    }
+    return true;
+}
+
 void ApplyProjectBackend(const std::filesystem::path& projectRoot, ApplicationConfig& cfg) {
     auto tryApply = [&cfg](const std::filesystem::path& root) {
         ProjectConfig project;
@@ -206,6 +220,31 @@ static int RunEditor(int argc, char* argv[]) {
             automation.projectName = arg.substr(std::string("--project-name=").size());
         } else if (arg == "--publish-project") {
             automation.publishProject = true;
+        } else if (arg == "--performance-report" && i + 1 < argc) {
+            automation.performanceReport = argv[++i];
+        } else if (arg.rfind("--performance-report=", 0) == 0) {
+            automation.performanceReport = arg.substr(std::string("--performance-report=").size());
+        } else if ((arg == "--performance-warmup-frames" || arg == "--performance-sample-frames" ||
+                    arg == "--performance-min-samples") &&
+                   i + 1 < argc) {
+            size_t parsed = 0;
+            if (!ParsePerformanceFrameCount(argv[++i], parsed))
+                return 2;
+            if (arg == "--performance-warmup-frames")
+                automation.performanceWarmupFrames = parsed;
+            else
+                automation.performanceSampleFrames = parsed;
+        } else if (arg.rfind("--performance-warmup-frames=", 0) == 0) {
+            if (!ParsePerformanceFrameCount(arg.substr(std::string("--performance-warmup-frames=").size()),
+                                            automation.performanceWarmupFrames))
+                return 2;
+        } else if (arg.rfind("--performance-sample-frames=", 0) == 0 ||
+                   arg.rfind("--performance-min-samples=", 0) == 0) {
+            const size_t prefixLength = arg.rfind("--performance-sample-frames=", 0) == 0
+                                            ? std::string("--performance-sample-frames=").size()
+                                            : std::string("--performance-min-samples=").size();
+            if (!ParsePerformanceFrameCount(arg.substr(prefixLength), automation.performanceSampleFrames))
+                return 2;
         } else if (arg == "--backend" && i + 1 < argc) {
             const std::string b = argv[++i];
             backendOverridden = ApplyBackendValue(b, cfg);
@@ -235,8 +274,12 @@ static int RunEditor(int argc, char* argv[]) {
         ApplyProjectBackend(projectRoot, cfg);
     }
 
+    if (!automation.performanceReport.empty() && automation.performanceReport.filename().empty()) {
+        Logger::Error("--performance-report must name a JSON file");
+        return 2;
+    }
     if (automation.Enabled()) {
-        cfg.engine.autoQuitAfterSeconds = 20.0f;
+        cfg.engine.autoQuitAfterSeconds = automation.performanceReport.empty() ? 20.0f : 120.0f;
     }
 
     MyApp app(cfg, std::move(projectRoot), std::move(automation), deviceProfileOverride);

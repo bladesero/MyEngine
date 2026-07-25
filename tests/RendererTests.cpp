@@ -4,12 +4,14 @@
 #include "Assets/AssetManager.h"
 #include "Assets/LightingProbeAsset.h"
 #include "Camera/Camera.h"
+#include "Core/EngineTime.h"
 #include "Core/FrameStats.h"
 #include "Core/RuntimeQualityDegradation.h"
 #include "DebugDraw/DebugDrawCommand.h"
 #include "Game/SceneRenderLayer.h"
 #include "Math/Mat4Inverse.h"
 #include "Renderer/EnvironmentPass.h"
+#include "Renderer/ClusterLightListLayout.h"
 #include "Renderer/DeferredLightingPass.h"
 #include "Renderer/DebugDrawPass.h"
 #include "Renderer/EngineShaderCatalog.h"
@@ -25,6 +27,7 @@
 #include "Renderer/ProbeLightingSystem.h"
 #include "Renderer/PostProcessComponent.h"
 #include "Renderer/RHI/RHIResourceStats.h"
+#include "Renderer/RenderFrameCoordinator.h"
 #include "Renderer/RenderGraph.h"
 #include "Renderer/Renderer.h"
 #include "Renderer/ShaderCompilerSlang.h"
@@ -50,6 +53,7 @@
 #include <filesystem>
 #include <fstream>
 #include <future>
+#include <limits>
 #include <memory>
 #include <sstream>
 #include <string>
@@ -111,16 +115,20 @@ public:
 };
 class MockTimestampPool final : public GpuTimestampQueryPool {
 public:
-    uint32_t GetCount() const override { return 4; }
+    explicit MockTimestampPool(uint32_t count = 4) : m_Count(count) {}
+    uint32_t GetCount() const override { return m_Count; }
     uint64_t GetFrequency() const override { return 1000000; }
     bool ReadResults(uint32_t first, uint32_t count, std::vector<uint64_t>& ticks) override {
-        if (first + count > 4)
+        if (first + count > m_Count)
             return false;
         ticks.resize(count);
         for (uint32_t i = 0; i < count; ++i)
             ticks[i] = first + i;
         return true;
     }
+
+private:
+    uint32_t m_Count = 4;
 };
 
 class MockReadbackTicket final : public GpuReadbackTicket {
@@ -350,7 +358,7 @@ public:
                ((supportBc1 && format == RHIFormat::BC1UNorm) || (supportBc3 && format == RHIFormat::BC3UNorm));
     }
     std::shared_ptr<GpuTimestampQueryPool> CreateTimestampQueryPool(uint32_t count) override {
-        return count <= 4 ? std::make_shared<MockTimestampPool>() : nullptr;
+        return std::make_shared<MockTimestampPool>(count);
     }
     std::shared_ptr<GpuTexture> CreateTexture(const RHITextureDesc& desc) override {
         auto texture = std::make_shared<MockTexture>();
@@ -1435,6 +1443,143 @@ bool TestModernEnvironmentLightingMatchesClassicContract() {
     return true;
 }
 
+bool TestClusterLightBuildLayoutAndShaderContract() {
+    using namespace ClusterLightListLayout;
+    if (!Check(TileCount(1920) == 60 && TileCount(1080) == 34 && ClusterCount(1920, 1080) == 48960,
+               "Cluster grid mapping changed for the 1920x1080 performance baseline")) {
+        return false;
+    }
+    if (!Check(BaseIndex(0) == 0 && BaseIndex(1) == kMaxLightsPerCluster &&
+                   BaseIndex(48959) + kMaxLightsPerCluster == LightIndexCapacity(1920, 1080),
+               "Fixed-capacity cluster light-list base mapping is inconsistent")) {
+        return false;
+    }
+    if (!Check(StoredLightCount(0) == 0 && OverflowLightCount(0) == 0 &&
+                   StoredLightCount(kMaxLightsPerCluster) == kMaxLightsPerCluster &&
+                   OverflowLightCount(kMaxLightsPerCluster) == 0 &&
+                   StoredLightCount(kMaxLightsPerCluster + 7) == kMaxLightsPerCluster &&
+                   OverflowLightCount(kMaxLightsPerCluster + 7) == 7,
+               "Cluster light truncation or overflow accounting changed")) {
+        return false;
+    }
+    constexpr uint32_t kMaximumSupportedDimension = 16384;
+    if (!Check(ClusterCount(kMaximumSupportedDimension, kMaximumSupportedDimension) == 6291456 &&
+                   LightIndexCapacity(kMaximumSupportedDimension, kMaximumSupportedDimension) == 805306368 &&
+                   LightIndexCapacity(kMaximumSupportedDimension, kMaximumSupportedDimension) <=
+                       std::numeric_limits<uint32_t>::max(),
+               "Cluster light-list capacity overflows the supported maximum render size")) {
+        return false;
+    }
+
+    const std::array<const char*, 4> shaderCandidates = {
+        "EngineContent/Shaders/ClusteredDeferred.hlsl",
+        "../../../EngineContent/Shaders/ClusteredDeferred.hlsl",
+        "../../../../EngineContent/Shaders/ClusteredDeferred.hlsl",
+        "../../../../../EngineContent/Shaders/ClusteredDeferred.hlsl",
+    };
+    const auto shaderPath = FindRepositoryFile(shaderCandidates);
+    const std::string shader = CompactSource(ReadRepositoryTextFile(shaderCandidates));
+    if (!Check(!shaderPath.empty() && shader.find("voidCSClusterLightBuild(") != std::string::npos &&
+                   shader.find("[numthreads(64,1,1)]") != std::string::npos &&
+                   shader.find("uintoutputIndex=cluster*MAX_LIGHTS_PER_CLUSTER") != std::string::npos &&
+                   shader.find("g_ClusterCountsOut[cluster]=count") != std::string::npos &&
+                   shader.find("voidCSClusterPrefix(") == std::string::npos,
+               "Cluster shader did not keep the single-pass fixed-capacity build contract")) {
+        return false;
+    }
+    const std::string pipeline = CompactSource(ReadRepositoryTextFile({
+        "src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+        "../../../src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+        "../../../../src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+        "../../../../../src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+    }));
+    if (!Check(pipeline.find("graph.AddComputePass(\"ClusterLightBuild\"") != std::string::npos &&
+                   pipeline.find("\"ClusterPrefixScan\"") == std::string::npos &&
+                   pipeline.find("\"ClusterLightScatter\"") == std::string::npos &&
+                   pipeline.find("\"ClusterOffsets\"") == std::string::npos,
+               "Modern Deferred graph still contains the legacy count/prefix/scatter topology")) {
+        return false;
+    }
+    if (!Check(ShaderCompilerSlang::IsAvailable(),
+               "Slang compiler is unavailable; ClusterLightBuild DXIL/SPIR-V cannot be validated")) {
+        return false;
+    }
+    for (ShaderBackend backend : {ShaderBackend::D3D12, ShaderBackend::Vulkan}) {
+        std::vector<uint8_t> bytecode;
+        std::string error;
+        if (!Check(ShaderCompilerSlang::CompileStageFromFile(shaderPath, "CSClusterLightBuild", ShaderStage::Compute,
+                                                             backend, bytecode, {}, &error),
+                   "ClusterLightBuild compile failed: " + error) ||
+            !Check(!bytecode.empty(), "ClusterLightBuild produced empty bytecode")) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool TestRendererViewportStatsAggregateWithinCoordinatedFrame() {
+    MockRenderContext context;
+    RenderFrameCoordinator coordinator(&context, &context);
+    Scene scene("ViewportStats");
+    Camera camera;
+    camera.LookAt({0.0f, 0.0f, -4.0f}, Vec3::Zero());
+    camera.SetPerspective(60.0f, 16.0f / 9.0f);
+
+    RendererFrameStats seed;
+    seed.frameNumber = Time::FrameCount();
+    seed.frameWaitCpuMs = 1.25f;
+    seed.presentCpuMs = 2.5f;
+    FrameStatsProvider::SetRendererStats(seed);
+
+    Renderer sceneRenderer(&context, &context, &context, &coordinator);
+    sceneRenderer.SetProfilerLabel("Scene View");
+    sceneRenderer.Resize(128, 72);
+    sceneRenderer.SetOutputOffscreen(true);
+    sceneRenderer.SetFeatureMask(RendererFeatureMask::None);
+    Renderer gameRenderer(&context, &context, &context, &coordinator);
+    gameRenderer.SetProfilerLabel("Game View");
+    gameRenderer.Resize(128, 72);
+    gameRenderer.SetOutputOffscreen(true);
+    gameRenderer.SetFeatureMask(RendererFeatureMask::None);
+
+    coordinator.BeginFrame();
+    coordinator.BeginFrame();
+    sceneRenderer.RenderScene(scene, camera, false);
+    gameRenderer.RenderScene(scene, camera, false);
+    coordinator.EndFrame();
+
+    const RendererFrameStats stats = FrameStatsProvider::GetRendererStats();
+    if (!Check(context.beginFrames == 1 && context.endFrames == 1,
+               "coordinated viewports did not share one RHI frame boundary")) {
+        return false;
+    }
+    if (!Check(stats.viewportStats.size() == 2 && stats.viewportStats[0].name == "Scene View" &&
+                   stats.viewportStats[1].name == "Game View",
+               "per-viewport renderer statistics were cleared or overwritten")) {
+        return false;
+    }
+    if (!Check(stats.frameWaitCpuMs >= 1.25f && stats.presentCpuMs >= 2.5f,
+               "frame wait or present timing was overwritten during viewport aggregation")) {
+        return false;
+    }
+    if (!Check(stats.mainGpuMs == stats.renderGraphGpuMs,
+               "deprecated mainGpuMs no longer aliases the RenderGraph GPU total")) {
+        return false;
+    }
+
+    const std::string rendererSource = ReadRepositoryTextFile({
+        "src/Runtime/Renderer/Renderer.cpp",
+        "../../../src/Runtime/Renderer/Renderer.cpp",
+        "../../../../src/Runtime/Renderer/Renderer.cpp",
+        "../../../../../src/Runtime/Renderer/Renderer.cpp",
+    });
+    return Check(rendererSource.find("stats.gpuSourceFrameNumber = m_FrameTimestampFrameNumbers[timestampSlot]") !=
+                         std::string::npos &&
+                     rendererSource.find("m_FrameTimestampFrameNumbers[timestampSlot] = Time::FrameCount()") !=
+                         std::string::npos,
+                 "GPU query results are not tagged with their source frame number");
+}
+
 bool TestModernClusterBuffersStartInNativeUavState() {
 #ifndef MYENGINE_PLATFORM_WINDOWS
     return true;
@@ -1530,8 +1675,8 @@ bool TestModernClusterBuffersStartInNativeUavState() {
     if (!Check(graph.Execute(context.commands), "Modern cluster graph execution failed: " + graph.GetLastError()))
         return false;
 
-    const std::array<std::string, 3> clusterBuffers = {"ClusterCounts", "ClusterOffsets", "ClusterLightIndices"};
-    std::array<bool, 3> sawUavToSrv{};
+    const std::array<std::string, 2> clusterBuffers = {"ClusterCounts", "ClusterLightIndices"};
+    std::array<bool, 2> sawUavToSrv{};
     bool sawUndefinedToUav = false;
     for (size_t index = 0; index < context.commands.transitions.size(); ++index) {
         auto* buffer = index < context.commands.transitionResources.size()
@@ -1593,6 +1738,22 @@ bool TestPersistentNativePipelineCacheContracts() {
             vulkan.find("WriteVulkanPipelineCache") != std::string::npos,
         "Vulkan graphics/compute pipelines do not share a persisted VkPipelineCache");
 #endif
+}
+
+bool TestD3D12VSyncOffUsesTearingWhenSupported() {
+    const std::string d3d12 = CompactSource(ReadRepositoryTextFile({
+        "src/Runtime/Renderer/Backends/D3D12/D3D12Context.cpp",
+        "../../../src/Runtime/Renderer/Backends/D3D12/D3D12Context.cpp",
+        "../../../../src/Runtime/Renderer/Backends/D3D12/D3D12Context.cpp",
+        "../../../../../src/Runtime/Renderer/Backends/D3D12/D3D12Context.cpp",
+    }));
+    return Check(d3d12.find("CheckFeatureSupport(DXGI_FEATURE_PRESENT_ALLOW_TEARING") != std::string::npos &&
+                     d3d12.find("scd.Flags=m_AllowTearing?DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING:0") != std::string::npos &&
+                     d3d12.find("constbooluseTearing=!vsync&&m_AllowTearing&&fullscreen==FALSE") != std::string::npos &&
+                     d3d12.find("useTearing?DXGI_PRESENT_ALLOW_TEARING:0") != std::string::npos &&
+                     d3d12.find("ResizeBuffers(kFrameCount,width,height,m_RtvFormat,swapChainFlags)") !=
+                         std::string::npos,
+                 "D3D12 VSync-off swapchain does not preserve the negotiated tearing flags");
 }
 
 bool TestD3D12DebugEventUsesAnsiMetadata() {
@@ -2977,8 +3138,7 @@ bool TestModernScreenSpaceCompositeShaderContract() {
                    compact.find("specularCorrection=(reflection.rgb-environmentRadiance)*brdfFactor*"
                                 "reflectionConfidence") != std::string::npos &&
                    compact.find("reflectionRoughness<=g_SSRMaxRoughness?"
-                                "saturate(1.0f-reflectionRoughness):0.0f") !=
-                       std::string::npos &&
+                                "saturate(1.0f-reflectionRoughness):0.0f") != std::string::npos &&
                    compact.find("floatroughness=clamp(reflectionRoughness,0.04f,1.0f)") != std::string::npos,
                "SSR/RT reflection composite does not replace the same local-probe fallback or reconstruct RT "
                "confidence")) {
@@ -3066,7 +3226,7 @@ bool TestModernSsaoCompositeContract() {
     if (!Check(pipelineHeader.find("GetCurrentProjection()const{returnm_ScreenSpaceConstants.projection;}") !=
                        std::string::npos &&
                    pipelineSource.find("&&!ssaoEnabled&&!rayTracedAO)returnhdr") != std::string::npos &&
-                    pipelineSource.find("(effectiveSsaoEnabled?kScreenEffectAOComposite:0u)") != std::string::npos &&
+                   pipelineSource.find("(effectiveSsaoEnabled?kScreenEffectAOComposite:0u)") != std::string::npos &&
                    pipelineSource.find("builder.ReadTexture(effectiveSsao)") != std::string::npos &&
                    pipelineSource.find("SetTexture(\"g_SSAO\",effectiveSsaoEnabled?effectiveSsaoSrv:hdrSrv)") !=
                        std::string::npos,
@@ -3172,8 +3332,7 @@ bool TestModernScreenSpaceSamplingAndConfidenceContracts() {
     const std::string ssgiTemporal = compact.substr(ssgiBegin, ssrBegin - ssgiBegin);
     const std::string ssrTemporal = compact.substr(ssrBegin, rtReflectionBegin - ssrBegin);
     const std::string rtReflectionTemporal = compact.substr(rtReflectionBegin, aoBegin - rtReflectionBegin);
-    if (!Check(ssgiTemporal.find("RadianceNeighborhoodStatistics(g_Current,pixel,g_EffectSize") !=
-                       std::string::npos &&
+    if (!Check(ssgiTemporal.find("RadianceNeighborhoodStatistics(g_Current,pixel,g_EffectSize") != std::string::npos &&
                    ssgiTemporal.find("temporalVariance=lerp(currentVariance,historyVariance,weight)+") !=
                        std::string::npos &&
                    ssgiTemporal.find("weight=valid?saturate(g_SSGIHistoryWeight):0.0f") != std::string::npos &&
@@ -3194,8 +3353,7 @@ bool TestModernScreenSpaceSamplingAndConfidenceContracts() {
     }
     if (!Check(rtReflectionTemporal.find("RadianceNeighborhoodStatistics(g_Current,pixel,g_EffectSize") !=
                        std::string::npos &&
-                   rtReflectionTemporal.find("weight=valid?saturate(g_SSRHistoryWeight):0.0f") !=
-                       std::string::npos &&
+                   rtReflectionTemporal.find("weight=valid?saturate(g_SSRHistoryWeight):0.0f") != std::string::npos &&
                    rtReflectionTemporal.find("temporalVariance=lerp(currentVariance,historyVariance,weight)+") !=
                        std::string::npos &&
                    rtReflectionTemporal.find("luminanceRadius=3.0f*sqrt(max(temporalVariance,0.0f))+0.02f") !=
@@ -3203,8 +3361,7 @@ bool TestModernScreenSpaceSamplingAndConfidenceContracts() {
                    rtReflectionTemporal.find("accumulated.a=lerp(currentSecondMoment,history.a,weight)") !=
                        std::string::npos &&
                    rtReflectionTemporal.find("RelativeLuminanceDifference") == std::string::npos &&
-                   compact.find("SCREEN_EFFECT_RT_REFLECTION)!=0u?AccumulateRTReflectionHistory") !=
-                       std::string::npos,
+                   compact.find("SCREEN_EFFECT_RT_REFLECTION)!=0u?AccumulateRTReflectionHistory") != std::string::npos,
                "RT reflection temporal accumulation does not preserve stable radiance/moment history")) {
         return false;
     }
@@ -3226,11 +3383,11 @@ bool TestModernScreenSpacePostProcessTuningContract() {
     PostProcessComponent post;
     if (!Check(post.IsSSGIEnabled() && post.IsSSREnabled() && post.IsSSGIHalfResolution() &&
                    post.IsSSRHalfResolution() && !post.IsSSAOHalfResolution() && post.GetSSAOSampleCount() == 16 &&
-                    NearlyEqual(post.GetSSGIHistoryWeight(), 0.9f) && post.GetSSGIStepCount() == 32 &&
-                    post.GetSSGIFilterRounds() == 3 && NearlyEqual(post.GetSSRMaxDistance(), 10.0f) &&
-                    NearlyEqual(post.GetSSRHistoryWeight(), 0.9f) && post.GetSSRStepCount() == 48 &&
-                    post.GetSSRFilterRounds() == 2 && NearlyEqual(post.GetRTReflectionIntensityClamp(), 10.0f) &&
-                    NearlyEqual(post.GetRTReflectionAtrousRadiusScale(), 2.0f) && post.IsTAAEnabled() &&
+                   NearlyEqual(post.GetSSGIHistoryWeight(), 0.9f) && post.GetSSGIStepCount() == 32 &&
+                   post.GetSSGIFilterRounds() == 3 && NearlyEqual(post.GetSSRMaxDistance(), 10.0f) &&
+                   NearlyEqual(post.GetSSRHistoryWeight(), 0.9f) && post.GetSSRStepCount() == 48 &&
+                   post.GetSSRFilterRounds() == 2 && NearlyEqual(post.GetRTReflectionIntensityClamp(), 10.0f) &&
+                   NearlyEqual(post.GetRTReflectionAtrousRadiusScale(), 2.0f) && post.IsTAAEnabled() &&
                    NearlyEqual(post.GetTAAHistoryWeight(), 0.8f) && NearlyEqual(post.GetTAAJitterSpread(), 1.0f) &&
                    NearlyEqual(post.GetTAAHistoryClipExpansion(), 0.0f) && !post.UsesRayTracedShadowReplacement() &&
                    !post.UsesRayTracedAOReplacement() && !post.UsesRayTracedDiffuseReplacement() &&
@@ -3269,11 +3426,11 @@ bool TestModernScreenSpacePostProcessTuningContract() {
     post.SetTAAHistoryClipExpansion(9.0f);
     if (!Check(post.GetSSAOSampleCount() == 64 && NearlyEqual(post.GetSSGIHistoryWeight(), 0.99f) &&
                    post.GetSSGIStepCount() == 1 && post.GetSSGIFilterRounds() == 4 &&
-                    NearlyEqual(post.GetSSRMaxDistance(), 0.1f) && NearlyEqual(post.GetSSRHistoryWeight(), 0.0f) &&
-                    post.GetSSRStepCount() == 128 && post.GetSSRFilterRounds() == 4 &&
-                    NearlyEqual(post.GetRTReflectionIntensityClamp(), 64.0f) &&
-                    NearlyEqual(post.GetRTReflectionAtrousRadiusScale(), 1.0f) &&
-                    NearlyEqual(post.GetTAAHistoryWeight(), 0.99f) && NearlyEqual(post.GetTAAJitterSpread(), 2.0f) &&
+                   NearlyEqual(post.GetSSRMaxDistance(), 0.1f) && NearlyEqual(post.GetSSRHistoryWeight(), 0.0f) &&
+                   post.GetSSRStepCount() == 128 && post.GetSSRFilterRounds() == 4 &&
+                   NearlyEqual(post.GetRTReflectionIntensityClamp(), 64.0f) &&
+                   NearlyEqual(post.GetRTReflectionAtrousRadiusScale(), 1.0f) &&
+                   NearlyEqual(post.GetTAAHistoryWeight(), 0.99f) && NearlyEqual(post.GetTAAJitterSpread(), 2.0f) &&
                    NearlyEqual(post.GetTAAHistoryClipExpansion(), 4.0f),
                "PostProcess Modern SSGI/SSR/TAA tuning ranges are not bounded")) {
         return false;
@@ -3321,9 +3478,9 @@ bool TestModernScreenSpacePostProcessTuningContract() {
         return false;
     }
     if (!Check(shader.find("g_SSGIHistoryWeight") != std::string::npos &&
-                    shader.find("g_SSRHistoryWeight") != std::string::npos &&
-                    shader.find("g_RTReflectionAtrousRadiusScale") != std::string::npos &&
-                    shader.find("max(g_SSGIMaxDistance,0.1f)") != std::string::npos &&
+                   shader.find("g_SSRHistoryWeight") != std::string::npos &&
+                   shader.find("g_RTReflectionAtrousRadiusScale") != std::string::npos &&
+                   shader.find("max(g_SSGIMaxDistance,0.1f)") != std::string::npos &&
                    shader.find("max(g_SSRMaxDistance,0.1f)") != std::string::npos &&
                    shader.find("g_MaxDistance") == std::string::npos &&
                    shader.find("g_HistoryWeight") == std::string::npos &&
@@ -3331,8 +3488,8 @@ bool TestModernScreenSpacePostProcessTuningContract() {
                    taaShader.find("g_HistoryWeight") != std::string::npos &&
                    taaShader.find("g_HistoryClipExpansion") != std::string::npos &&
                    taaShader.find("clipSigma=1.5f*(1.0f+max(g_HistoryClipExpansion,0.0f))") != std::string::npos &&
-                    taaShader.find("g_SSGIHistoryWeight") == std::string::npos &&
-                    taaShader.find("g_SSRHistoryWeight") == std::string::npos,
+                   taaShader.find("g_SSGIHistoryWeight") == std::string::npos &&
+                   taaShader.find("g_SSRHistoryWeight") == std::string::npos,
                "TAA tuning is not isolated from the SSGI/SSR screen-space constant contract")) {
         return false;
     }
@@ -3364,37 +3521,35 @@ bool TestModernScreenSpacePostProcessTuningContract() {
                 pipeline.find("RTReflectionTemporalDenoise") != std::string::npos &&
                 pipeline.find("RTReflectionAtrous") != std::string::npos &&
                 pipeline.find("RTReflectionHistory0") == std::string::npos &&
-                shader.find("relativeSigma=sqrt(centerVariance)/max(centerLuminance,0.1f)") !=
-                    std::string::npos &&
+                shader.find("relativeSigma=sqrt(centerVariance)/max(centerLuminance,0.1f)") != std::string::npos &&
                 shader.find("varianceFactor=saturate(relativeSigma/0.5f)") != std::string::npos &&
                 shader.find("roughnessFactor=saturate(centerRoughness/max(g_SSRMaxRoughness,0.04f))") !=
                     std::string::npos &&
-                shader.find("stepWidth=max(1,(int)round((float)baseStepWidth*radiusScale))") !=
-                    std::string::npos,
+                shader.find("stepWidth=max(1,(int)round((float)baseStepWidth*radiusScale))") != std::string::npos,
             "Modern pipeline does not consume independent SSGI/SSR trace, temporal, and filter settings")) {
         return false;
     }
     return Check(
-        renderer.find("options.modern.ssgiHistoryWeight=post->GetSSGIHistoryWeight()") != std::string::npos &&
-            renderer.find("options.ssaoHalfResolution=post->IsSSAOHalfResolution()") != std::string::npos &&
-            renderer.find("options.modern.ssaoHalfResolution=post->IsSSAOHalfResolution()") != std::string::npos &&
+        renderer.find("options.modern.ssgiHistoryWeight=post.GetSSGIHistoryWeight()") != std::string::npos &&
+            renderer.find("options.ssaoHalfResolution=post.IsSSAOHalfResolution()") != std::string::npos &&
+            renderer.find("options.modern.ssaoHalfResolution=post.IsSSAOHalfResolution()") != std::string::npos &&
             renderer.find("IsRTAOHalfResolution") == std::string::npos &&
-            renderer.find("options.modern.ssgiHalfResolution=post->IsSSGIHalfResolution()") != std::string::npos &&
-            renderer.find("options.modern.ssgiStepCount=post->GetSSGIStepCount()") != std::string::npos &&
-            renderer.find("options.modern.ssgiFilterRounds=post->GetSSGIFilterRounds()") != std::string::npos &&
-            renderer.find("options.modern.ssrMaxDistance=post->GetSSRMaxDistance()") != std::string::npos &&
-            renderer.find("options.modern.ssrHistoryWeight=post->GetSSRHistoryWeight()") != std::string::npos &&
-            renderer.find("options.modern.ssrHalfResolution=post->IsSSRHalfResolution()") != std::string::npos &&
-            renderer.find("options.modern.ssrStepCount=post->GetSSRStepCount()") != std::string::npos &&
-            renderer.find("options.modern.ssrFilterRounds=post->GetSSRFilterRounds()") != std::string::npos &&
-            renderer.find("options.modern.rtReflectionIntensityClamp=post->GetRTReflectionIntensityClamp()") !=
+            renderer.find("options.modern.ssgiHalfResolution=post.IsSSGIHalfResolution()") != std::string::npos &&
+            renderer.find("options.modern.ssgiStepCount=post.GetSSGIStepCount()") != std::string::npos &&
+            renderer.find("options.modern.ssgiFilterRounds=post.GetSSGIFilterRounds()") != std::string::npos &&
+            renderer.find("options.modern.ssrMaxDistance=post.GetSSRMaxDistance()") != std::string::npos &&
+            renderer.find("options.modern.ssrHistoryWeight=post.GetSSRHistoryWeight()") != std::string::npos &&
+            renderer.find("options.modern.ssrHalfResolution=post.IsSSRHalfResolution()") != std::string::npos &&
+            renderer.find("options.modern.ssrStepCount=post.GetSSRStepCount()") != std::string::npos &&
+            renderer.find("options.modern.ssrFilterRounds=post.GetSSRFilterRounds()") != std::string::npos &&
+            renderer.find("options.modern.rtReflectionIntensityClamp=post.GetRTReflectionIntensityClamp()") !=
                 std::string::npos &&
-            renderer.find("options.modern.rtReflectionAtrousRadiusScale=post->GetRTReflectionAtrousRadiusScale()") !=
+            renderer.find("options.modern.rtReflectionAtrousRadiusScale=post.GetRTReflectionAtrousRadiusScale()") !=
                 std::string::npos &&
-            renderer.find("options.modern.taaEnabled=post->IsTAAEnabled()") != std::string::npos &&
-            renderer.find("options.modern.taaHistoryWeight=post->GetTAAHistoryWeight()") != std::string::npos &&
-            renderer.find("options.modern.taaJitterSpread=post->GetTAAJitterSpread()") != std::string::npos &&
-            renderer.find("options.modern.taaHistoryClipExpansion=post->GetTAAHistoryClipExpansion()") !=
+            renderer.find("options.modern.taaEnabled=post.IsTAAEnabled()") != std::string::npos &&
+            renderer.find("options.modern.taaHistoryWeight=post.GetTAAHistoryWeight()") != std::string::npos &&
+            renderer.find("options.modern.taaJitterSpread=post.GetTAAJitterSpread()") != std::string::npos &&
+            renderer.find("options.modern.taaHistoryClipExpansion=post.GetTAAHistoryClipExpansion()") !=
                 std::string::npos &&
             inspector.find("ReflectionIntensityClamp##RT") != std::string::npos &&
             inspector.find("SetRTReflectionIntensityClamp(rtReflectionIntensityClamp)") != std::string::npos &&
@@ -3448,9 +3603,9 @@ bool TestModernScreenSpaceDebugRoutingContract() {
     }
     if (!Check(pipeline.find("debugConstants.effectMode=debugSSGI?kScreenEffectDebugSSGI:"
                              "kScreenEffectDebugReflectionConfidence") != std::string::npos &&
-                    pipeline.find("if(debugSSR&&rayTracedReflection)"
-                                  "debugConstants.effectMode|=kScreenEffectRTReflection") != std::string::npos &&
-                    pipeline.find("debugSSGI?\"VisualizeSSGI\":\"VisualizeSSRConfidence\"") != std::string::npos &&
+                   pipeline.find("if(debugSSR&&rayTracedReflection)"
+                                 "debugConstants.effectMode|=kScreenEffectRTReflection") != std::string::npos &&
+                   pipeline.find("debugSSGI?\"VisualizeSSGI\":\"VisualizeSSRConfidence\"") != std::string::npos &&
                    pipeline.find("m_SSGIDebugOutputSrv=m_ScreenSpaceDebug.srv") != std::string::npos &&
                    pipeline.find("m_SSRDebugOutputSrv=m_ScreenSpaceDebug.srv") != std::string::npos &&
                    pipeline.find("taaConstants.debugMode=16u") != std::string::npos &&
@@ -3572,15 +3727,14 @@ bool TestModernRayTracingSlangCompileContracts() {
                    !pipelineHeader.empty() && !pipelineSource.empty(),
                "Modern ray tracing shader source was not found"))
         return false;
-    if (!Check(includeSource.find("float2ModernRTSample2D(uint2pixel,uintframeIndex,uintstream)") !=
-                       std::string::npos &&
-                   includeSource.find("float2(0.754877666f,0.569840291f)") != std::string::npos &&
-                    CountOccurrences(shaderSource, "ModernRTSample2D(pixel,(uint)g_RTParams1.w,") == 3 &&
-                    shaderSource.find("ModernRTHash(float2(pixel)+g_RTParams1.w)") == std::string::npos &&
-                    shaderSource.find("float4(nonNegativeRadiance,luminance*luminance)") != std::string::npos &&
-                    shaderSource.find("scale=min(1.0f,max(intensityClamp,0.1f)/max(luminance,1e-6f))") !=
-                        std::string::npos,
-               "Modern RT sampling regressed to a translated noise field or lost the diffuse second-moment ABI"))
+    if (!Check(
+            includeSource.find("float2ModernRTSample2D(uint2pixel,uintframeIndex,uintstream)") != std::string::npos &&
+                includeSource.find("float2(0.754877666f,0.569840291f)") != std::string::npos &&
+                CountOccurrences(shaderSource, "ModernRTSample2D(pixel,(uint)g_RTParams1.w,") == 3 &&
+                shaderSource.find("ModernRTHash(float2(pixel)+g_RTParams1.w)") == std::string::npos &&
+                shaderSource.find("float4(nonNegativeRadiance,luminance*luminance)") != std::string::npos &&
+                shaderSource.find("scale=min(1.0f,max(intensityClamp,0.1f)/max(luminance,1e-6f))") != std::string::npos,
+            "Modern RT sampling regressed to a translated noise field or lost the diffuse second-moment ABI"))
         return false;
     const size_t diffuseBegin = shaderSource.find("voidCSRTDiffuse");
     const size_t reflectionBegin = shaderSource.find("voidCSRTReflection", diffuseBegin);
@@ -3593,14 +3747,14 @@ bool TestModernRayTracingSlangCompileContracts() {
     if (!Check(diffuseSource.find("ModernRTSurfaceGiRadiance(instanceId,primitiveIndex,barycentrics,-direction)") !=
                        std::string::npos &&
                    diffuseSource.find(":0.0f") != std::string::npos &&
-                    reflectionSource.find("ModernRTSurfaceRadiance(instanceId,primitiveIndex,barycentrics)") !=
-                        std::string::npos &&
-                    reflectionSource.find("ModernRTClampReflectionRadiance(radiance,g_RTParams0.x)") !=
-                        std::string::npos &&
-                    reflectionSource.find("float4(clampedRadiance,luminance*luminance)") != std::string::npos &&
-                    reflectionSource.find("1.0f-roughness") == std::string::npos &&
-                    reflectionSource.find("ModernRTSurfaceGiRadiance") == std::string::npos,
-                "RTDiffuse does not use zero-miss GI shading or RTReflection lost its clamped moment contract")) {
+                   reflectionSource.find("ModernRTSurfaceRadiance(instanceId,primitiveIndex,barycentrics)") !=
+                       std::string::npos &&
+                   reflectionSource.find("ModernRTClampReflectionRadiance(radiance,g_RTParams0.x)") !=
+                       std::string::npos &&
+                   reflectionSource.find("float4(clampedRadiance,luminance*luminance)") != std::string::npos &&
+                   reflectionSource.find("1.0f-roughness") == std::string::npos &&
+                   reflectionSource.find("ModernRTSurfaceGiRadiance") == std::string::npos,
+               "RTDiffuse does not use zero-miss GI shading or RTReflection lost its clamped moment contract")) {
         return false;
     }
     if (!Check(includeSource.find("float3ModernRTSurfaceGiRadiance(") != std::string::npos &&
@@ -4083,6 +4237,97 @@ bool TestHeadlessRendering() {
                  "transparent forward pipeline writes scene depth and invalidates temporal geometry history");
 }
 
+bool TestIndexedSceneLightingAndMeshCollection() {
+    AssetManager::Get().Clear();
+    Scene scene("IndexedRendererCollection");
+    for (int i = 0; i < 128; ++i)
+        scene.CreateActor("Unrelated" + std::to_string(i));
+
+    Actor* skylightActor = scene.CreateActor("Skylight");
+    skylightActor->AddComponent<SkylightComponent>();
+    Actor* lightActor = scene.CreateActor("Light");
+    lightActor->AddComponent<LightComponent>();
+    Actor* postActor = scene.CreateActor("Post");
+    postActor->AddComponent<PostProcessComponent>();
+
+    const MeshHandle cube = AssetManager::Get().GetCubeMesh();
+    const MaterialHandle material = AssetManager::Get().GetDefaultMaterial();
+    Actor* meshActor = scene.CreateActor("Mesh");
+    auto* mesh = meshActor->AddComponent<MeshRendererComponent>();
+    mesh->SetMesh(cube);
+    mesh->SetMaterial(material);
+
+    Actor* particlePriority = scene.CreateActor("ParticlePriority");
+    auto* particleFallback = particlePriority->AddComponent<MeshRendererComponent>();
+    particleFallback->SetMesh(cube);
+    particleFallback->SetMaterial(material);
+    particlePriority->AddComponent<SkinnedMeshRendererComponent>();
+    auto* particles = particlePriority->AddComponent<ParticleSystemComponent>();
+    particles->Emit(1);
+
+    Actor* skinnedPriority = scene.CreateActor("SkinnedPriority");
+    auto* skinnedFallback = skinnedPriority->AddComponent<MeshRendererComponent>();
+    skinnedFallback->SetMesh(cube);
+    skinnedFallback->SetMaterial(material);
+    skinnedPriority->AddComponent<SkinnedMeshRendererComponent>();
+
+    Camera camera;
+    camera.LookAt({0.0f, 0.0f, -4.0f}, Vec3::Zero());
+    camera.SetPerspective(60.0f, 16.0f / 9.0f);
+
+    scene.ResetQueryStats();
+    const SceneEnvironmentData environment = CollectSceneEnvironmentData(scene);
+    const SceneLightData lighting = CollectSceneLights(scene, environment);
+    const ScenePostProcessData post = CollectScenePostProcessData(scene);
+    SceneRenderCollector collector;
+    const SceneRenderCollection collection = collector.Collect(scene, camera);
+    const SceneQueryStats stats = scene.GetQueryStats();
+    if (!Check(environment.activeSkylightCount == 1 && lighting.directionalIntensity > 0.0f && post.exposure > 0.0f &&
+                   collection.submittedSubMeshes == 2 && collection.opaqueItems.size() == 1 &&
+                   collection.transparentItems.size() == 1 &&
+                   collection.transparentItems.front().actor == particlePriority && stats.candidateVisits == 6 &&
+                   stats.matchedActors == 6,
+               "indexed lighting/mesh collection mismatch submitted=" + std::to_string(collection.submittedSubMeshes) +
+                   " opaque=" + std::to_string(collection.opaqueItems.size()) +
+                   " transparent=" + std::to_string(collection.transparentItems.size()) + " candidates=" +
+                   std::to_string(stats.candidateVisits) + " matched=" + std::to_string(stats.matchedActors)))
+        return false;
+
+    scene.ResetQueryStats();
+    if (!Check(collector.Collect(scene, camera, true).submittedSubMeshes == 0 &&
+                   scene.GetQueryStats().candidateVisits == 3,
+               "static-only indexed collection accepted non-static actors or scanned the full scene"))
+        return false;
+    meshActor->SetStatic(true);
+    if (!Check(collector.Collect(scene, camera, true).submittedSubMeshes == 1,
+               "static-only indexed collection rejected a static mesh"))
+        return false;
+
+    const std::array<std::string, 5> sources = {
+        CompactSource(ReadRepositoryTextFile(
+            {"src/Runtime/Renderer/SceneLighting.cpp", "../src/Runtime/Renderer/SceneLighting.cpp",
+             "../../../src/Runtime/Renderer/SceneLighting.cpp", "../../../../src/Runtime/Renderer/SceneLighting.cpp"})),
+        CompactSource(ReadRepositoryTextFile({"src/Runtime/Renderer/SceneRenderCollector.cpp",
+                                              "../src/Runtime/Renderer/SceneRenderCollector.cpp",
+                                              "../../../src/Runtime/Renderer/SceneRenderCollector.cpp",
+                                              "../../../../src/Runtime/Renderer/SceneRenderCollector.cpp"})),
+        CompactSource(ReadRepositoryTextFile({"src/Runtime/Renderer/GpuSceneDatabase.cpp",
+                                              "../src/Runtime/Renderer/GpuSceneDatabase.cpp",
+                                              "../../../src/Runtime/Renderer/GpuSceneDatabase.cpp",
+                                              "../../../../src/Runtime/Renderer/GpuSceneDatabase.cpp"})),
+        CompactSource(ReadRepositoryTextFile(
+            {"src/Runtime/Renderer/ShadowPass.cpp", "../src/Runtime/Renderer/ShadowPass.cpp",
+             "../../../src/Runtime/Renderer/ShadowPass.cpp", "../../../../src/Runtime/Renderer/ShadowPass.cpp"})),
+        CompactSource(ReadRepositoryTextFile(
+            {"src/Runtime/Renderer/Renderer.cpp", "../src/Runtime/Renderer/Renderer.cpp",
+             "../../../src/Runtime/Renderer/Renderer.cpp", "../../../../src/Runtime/Renderer/Renderer.cpp"}))};
+    return Check(std::all_of(sources.begin(), sources.end(),
+                             [](const std::string& source) {
+                                 return !source.empty() && source.find("scene.ForEach(") == std::string::npos;
+                             }),
+                 "a migrated renderer collection path regressed to a full scene scan");
+}
+
 bool TestMeshRendererSubMeshMaterialSlotDraws() {
     AssetManager& assets = AssetManager::Get();
     assets.Clear();
@@ -4556,7 +4801,7 @@ bool TestRendererStartsShaderPrewarmOffRenderThread() {
     while (batchEntries.load() == 0 && std::chrono::steady_clock::now() < deadline)
         std::this_thread::yield();
     const bool valid = cookedSaved && sceneShader.IsValid() && sceneShader->IsCooked() && renderMs < 100.0 &&
-                       batchEntries.load() == 1 && batchArtifacts.load() == 33 && sawSceneSource.load() &&
+                       batchEntries.load() == 1 && batchArtifacts.load() == 31 && sawSceneSource.load() &&
                        !sawLibraryPath.load();
     releaseWorkers.set_value();
     ShaderManager::Get().Clear();
@@ -4798,26 +5043,32 @@ bool TestMaterialPreviewDirtyDrivenScheduling() {
 
     layer.ConfigureMaterialPreview("EngineContent/Shaders/Mesh.shader", false);
     layer.OnRender();
-    const int firstRenderCount = context.beginFrames;
+    const int firstRenderCount = context.commands.renderingBeginCalls;
     layer.OnRender();
-    if (!Check(firstRenderCount == 1 && context.beginFrames == firstRenderCount,
+    if (!Check(firstRenderCount > 0 && context.commands.renderingBeginCalls == firstRenderCount,
                "static material preview rendered without a dirty request"))
         return false;
 
     layer.InvalidateMaterialPreview();
     layer.OnRender();
-    if (!Check(context.beginFrames == firstRenderCount + 1, "material preview invalidation did not submit one frame"))
+    const int invalidatedRenderCount = context.commands.renderingBeginCalls;
+    if (!Check(invalidatedRenderCount > firstRenderCount, "material preview invalidation did not submit one frame"))
         return false;
 
     layer.SetMaterialPreviewRealtime(true);
     layer.OnRender();
+    const int firstRealtimeRenderCount = context.commands.renderingBeginCalls;
     layer.OnRender();
-    if (!Check(context.beginFrames == firstRenderCount + 3, "realtime material preview did not render while active"))
+    const int secondRealtimeRenderCount = context.commands.renderingBeginCalls;
+    if (!Check(firstRealtimeRenderCount > invalidatedRenderCount &&
+                   secondRealtimeRenderCount > firstRealtimeRenderCount,
+               "realtime material preview did not render while active"))
         return false;
 
     layer.SetMaterialPreviewActive(false);
     layer.OnRender();
-    return Check(context.beginFrames == firstRenderCount + 3, "hidden realtime material preview continued rendering");
+    return Check(context.commands.renderingBeginCalls == secondRealtimeRenderCount,
+                 "hidden realtime material preview continued rendering");
 }
 
 bool TestViewportActivityCommitPreservesContinuousInput() {
@@ -5019,8 +5270,7 @@ bool TestLightingProbeBakeAndShaderContracts() {
                                                        "../../EngineContent/Shaders/ClusteredDeferred.hlsl",
                                                        "../../../EngineContent/Shaders/ClusteredDeferred.hlsl"});
     const std::string d3d12Context = ReadRepositoryTextFile(
-        {"src/Runtime/Renderer/Backends/D3D12/D3D12Context.h",
-         "../src/Runtime/Renderer/Backends/D3D12/D3D12Context.h",
+        {"src/Runtime/Renderer/Backends/D3D12/D3D12Context.h", "../src/Runtime/Renderer/Backends/D3D12/D3D12Context.h",
          "../../../src/Runtime/Renderer/Backends/D3D12/D3D12Context.h",
          "../../../../src/Runtime/Renderer/Backends/D3D12/D3D12Context.h"});
     Scene reflectionScene("GpuProbeRequired");
@@ -5083,6 +5333,15 @@ bool TestReflectionProbeRgbmUploadsAsLinearSingleLayerArray() {
     context.uploadedSubresources.clear();
     context.uploadedSubresourceBytes.clear();
     const bool prepared = lighting.Prepare(scene);
+    const int metadataBufferCreates = context.bufferCreates;
+    const GpuBufferView* metadataView = lighting.GetReflectionMetadataView().get();
+    const bool unchangedPrepared = lighting.Prepare(scene);
+    const bool unchangedMetadataReused = unchangedPrepared && context.bufferCreates == metadataBufferCreates &&
+                                         lighting.GetReflectionMetadataView().get() == metadataView;
+    scene.GetRootActors().front()->GetTransform().position = {1.0f, 0.0f, 0.0f};
+    const bool changedPrepared = lighting.Prepare(scene);
+    const bool changedMetadataUploaded = changedPrepared && context.bufferCreates == metadataBufferCreates + 1 &&
+                                         lighting.GetReflectionMetadataView().get() != metadataView;
 
     bool decoded = false;
     if (!context.uploadedSubresourceBytes.empty() && context.uploadedSubresourceBytes.front().size() >= 8u) {
@@ -5107,26 +5366,26 @@ bool TestReflectionProbeRgbmUploadsAsLinearSingleLayerArray() {
     const std::string shader = CompactSource(ReadRepositoryTextFile(
         {"EngineContent/Shaders/ProbeLighting.hlsli", "../EngineContent/Shaders/ProbeLighting.hlsli",
          "../../EngineContent/Shaders/ProbeLighting.hlsli", "../../../EngineContent/Shaders/ProbeLighting.hlsli"}));
-    const std::string d3d11 = CompactSource(ReadRepositoryTextFile(
-        {"src/Runtime/Renderer/Backends/D3D11/D3D11Context.cpp",
-         "../src/Runtime/Renderer/Backends/D3D11/D3D11Context.cpp",
-         "../../../src/Runtime/Renderer/Backends/D3D11/D3D11Context.cpp",
-         "../../../../src/Runtime/Renderer/Backends/D3D11/D3D11Context.cpp"}));
-    const std::string d3d12 = CompactSource(ReadRepositoryTextFile(
-        {"src/Runtime/Renderer/Backends/D3D12/D3D12Context.cpp",
-         "../src/Runtime/Renderer/Backends/D3D12/D3D12Context.cpp",
-         "../../../src/Runtime/Renderer/Backends/D3D12/D3D12Context.cpp",
-         "../../../../src/Runtime/Renderer/Backends/D3D12/D3D12Context.cpp"}));
-    const std::string vulkan = CompactSource(ReadRepositoryTextFile(
-        {"src/Runtime/Renderer/Backends/Vulkan/VulkanContext.cpp",
-         "../src/Runtime/Renderer/Backends/Vulkan/VulkanContext.cpp",
-         "../../../src/Runtime/Renderer/Backends/Vulkan/VulkanContext.cpp",
-         "../../../../src/Runtime/Renderer/Backends/Vulkan/VulkanContext.cpp"}));
-    const std::string metal = CompactSource(ReadRepositoryTextFile(
-        {"src/Runtime/Renderer/Backends/Metal/MetalContext.mm",
-         "../src/Runtime/Renderer/Backends/Metal/MetalContext.mm",
-         "../../../src/Runtime/Renderer/Backends/Metal/MetalContext.mm",
-         "../../../../src/Runtime/Renderer/Backends/Metal/MetalContext.mm"}));
+    const std::string d3d11 =
+        CompactSource(ReadRepositoryTextFile({"src/Runtime/Renderer/Backends/D3D11/D3D11Context.cpp",
+                                              "../src/Runtime/Renderer/Backends/D3D11/D3D11Context.cpp",
+                                              "../../../src/Runtime/Renderer/Backends/D3D11/D3D11Context.cpp",
+                                              "../../../../src/Runtime/Renderer/Backends/D3D11/D3D11Context.cpp"}));
+    const std::string d3d12 =
+        CompactSource(ReadRepositoryTextFile({"src/Runtime/Renderer/Backends/D3D12/D3D12Context.cpp",
+                                              "../src/Runtime/Renderer/Backends/D3D12/D3D12Context.cpp",
+                                              "../../../src/Runtime/Renderer/Backends/D3D12/D3D12Context.cpp",
+                                              "../../../../src/Runtime/Renderer/Backends/D3D12/D3D12Context.cpp"}));
+    const std::string vulkan =
+        CompactSource(ReadRepositoryTextFile({"src/Runtime/Renderer/Backends/Vulkan/VulkanContext.cpp",
+                                              "../src/Runtime/Renderer/Backends/Vulkan/VulkanContext.cpp",
+                                              "../../../src/Runtime/Renderer/Backends/Vulkan/VulkanContext.cpp",
+                                              "../../../../src/Runtime/Renderer/Backends/Vulkan/VulkanContext.cpp"}));
+    const std::string metal =
+        CompactSource(ReadRepositoryTextFile({"src/Runtime/Renderer/Backends/Metal/MetalContext.mm",
+                                              "../src/Runtime/Renderer/Backends/Metal/MetalContext.mm",
+                                              "../../../src/Runtime/Renderer/Backends/Metal/MetalContext.mm",
+                                              "../../../../src/Runtime/Renderer/Backends/Metal/MetalContext.mm"}));
     const bool sourceContract = shader.find("SampleLinearProbeReflection") != std::string::npos &&
                                 shader.find("atlas.GetDimensions") != std::string::npos &&
                                 shader.find("encoded.rgb*encoded.a*probe.positionRange.w") == std::string::npos &&
@@ -5137,7 +5396,8 @@ bool TestReflectionProbeRgbmUploadsAsLinearSingleLayerArray() {
 
     AssetManager::Get().Unload(path.string());
     fs::remove_all(root, ec);
-    return Check(prepared && textureContract && decoded && sourceContract,
+    return Check(prepared && unchangedMetadataReused && changedMetadataUploaded && textureContract && decoded &&
+                     sourceContract,
                  "reflection probe RGBM was not decoded to a linear single-layer array across the RHI chain: " +
                      lighting.GetLastError());
 }
@@ -5217,10 +5477,16 @@ MYENGINE_REGISTER_TEST("Renderer", "TestModernGpuSceneNormalAndReflectionContrac
                        TestModernGpuSceneNormalAndReflectionContracts);
 MYENGINE_REGISTER_TEST("Renderer", "TestModernEnvironmentLightingMatchesClassicContract",
                        TestModernEnvironmentLightingMatchesClassicContract);
+MYENGINE_REGISTER_TEST("Renderer", "TestClusterLightBuildLayoutAndShaderContract",
+                       TestClusterLightBuildLayoutAndShaderContract);
+MYENGINE_REGISTER_TEST("Renderer", "TestRendererViewportStatsAggregateWithinCoordinatedFrame",
+                       TestRendererViewportStatsAggregateWithinCoordinatedFrame);
 MYENGINE_REGISTER_TEST("Renderer", "TestModernClusterBuffersStartInNativeUavState",
                        TestModernClusterBuffersStartInNativeUavState);
 MYENGINE_REGISTER_TEST("Renderer", "TestPersistentNativePipelineCacheContracts",
                        TestPersistentNativePipelineCacheContracts);
+MYENGINE_REGISTER_TEST("Renderer", "TestD3D12VSyncOffUsesTearingWhenSupported",
+                       TestD3D12VSyncOffUsesTearingWhenSupported);
 MYENGINE_REGISTER_TEST("Renderer", "TestD3D12DebugEventUsesAnsiMetadata", TestD3D12DebugEventUsesAnsiMetadata);
 MYENGINE_REGISTER_TEST("Renderer", "TestBackendIndependentPassRecording", TestBackendIndependentPassRecording);
 MYENGINE_REGISTER_TEST("Renderer", "TestComputeStorageBufferAndAsyncReadback",
@@ -5284,6 +5550,8 @@ MYENGINE_REGISTER_TEST("Renderer", "TestModernDiagnosticsReadbackIsThrottled",
                        TestModernDiagnosticsReadbackIsThrottled);
 MYENGINE_REGISTER_TEST("Renderer", "TestModernTemporalHistoryCommitAndAbort", TestModernTemporalHistoryCommitAndAbort);
 MYENGINE_REGISTER_TEST("Renderer", "TestHeadlessRendering", TestHeadlessRendering);
+MYENGINE_REGISTER_TEST("Renderer", "TestIndexedSceneLightingAndMeshCollection",
+                       TestIndexedSceneLightingAndMeshCollection);
 MYENGINE_REGISTER_TEST("Renderer", "TestMeshRendererSubMeshMaterialSlotDraws",
                        TestMeshRendererSubMeshMaterialSlotDraws);
 MYENGINE_REGISTER_TEST("Renderer", "TestMainPassSamplerCacheDeduplicatesTextureSamplerStates",

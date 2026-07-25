@@ -11,8 +11,7 @@ namespace {
 std::string GenerateProbeId() {
     static std::atomic<uint64_t> sequence{0};
     static std::mt19937_64 random(std::random_device{}());
-    const uint64_t now = static_cast<uint64_t>(
-        std::chrono::high_resolution_clock::now().time_since_epoch().count());
+    const uint64_t now = static_cast<uint64_t>(std::chrono::high_resolution_clock::now().time_since_epoch().count());
     const uint64_t a = random() ^ now;
     const uint64_t b = random() ^ ++sequence;
     std::ostringstream out;
@@ -35,7 +34,8 @@ Vec3 PositiveExtents(const Vec3& value) {
 }
 } // namespace
 
-ReflectionProbeComponent::ReflectionProbeComponent() : m_ProbeId(GenerateProbeId()) {}
+ReflectionProbeComponent::ReflectionProbeComponent() : m_ProbeId(GenerateProbeId()) {
+}
 
 void ReflectionProbeComponent::SetProbeId(std::string value) {
     m_ProbeId = value.empty() ? GenerateProbeId() : std::move(value);
@@ -78,7 +78,8 @@ void ReflectionProbeComponent::Deserialize(const nlohmann::json& data) {
     SetLayerMask(data.value("layerMask", ~uint32_t{0}));
 }
 
-SHProbeVolumeComponent::SHProbeVolumeComponent() : m_ProbeId(GenerateProbeId()) {}
+SHProbeVolumeComponent::SHProbeVolumeComponent() : m_ProbeId(GenerateProbeId()) {
+}
 
 void SHProbeVolumeComponent::SetProbeId(std::string value) {
     m_ProbeId = value.empty() ? GenerateProbeId() : std::move(value);
@@ -106,12 +107,9 @@ void SHProbeVolumeComponent::SetIntensity(float value) {
 }
 
 void SHProbeVolumeComponent::Serialize(nlohmann::json& data) const {
-    data = {{"probeId", m_ProbeId},
-            {"boxExtents", Vec3Json(m_BoxExtents)},
-            {"gridSpacing", m_GridSpacing},
-            {"blendDistance", m_BlendDistance},
-            {"priority", m_Priority},
-            {"intensity", m_Intensity},
+    data = {{"probeId", m_ProbeId},         {"boxExtents", Vec3Json(m_BoxExtents)},
+            {"gridSpacing", m_GridSpacing}, {"blendDistance", m_BlendDistance},
+            {"priority", m_Priority},       {"intensity", m_Intensity},
             {"layerMask", m_LayerMask}};
 }
 

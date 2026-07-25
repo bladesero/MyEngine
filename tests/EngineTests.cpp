@@ -371,11 +371,11 @@ bool TestSceneSerializationRegression() {
     if (!Check(savedPostProperties.value("ssaoSampleCount", 0u) == 24u &&
                    !savedPostProperties.contains("rtaoHalfResolution") &&
                    savedPostProperties.value("rayTracedShadowReplacement", false) &&
-                    savedPostProperties.value("rayTracedAOReplacement", false) &&
-                    savedPostProperties.value("rayTracedDiffuseReplacement", false) &&
-                    savedPostProperties.value("rayTracedReflectionReplacement", false) &&
-                    NearlyEqual(savedPostProperties.value("rtReflectionIntensityClamp", 0.0f), 12.5f) &&
-                    NearlyEqual(savedPostProperties.value("rtReflectionAtrousRadiusScale", 0.0f), 2.75f),
+                   savedPostProperties.value("rayTracedAOReplacement", false) &&
+                   savedPostProperties.value("rayTracedDiffuseReplacement", false) &&
+                   savedPostProperties.value("rayTracedReflectionReplacement", false) &&
+                   NearlyEqual(savedPostProperties.value("rtReflectionIntensityClamp", 0.0f), 12.5f) &&
+                   NearlyEqual(savedPostProperties.value("rtReflectionAtrousRadiusScale", 0.0f), 2.75f),
                "PostProcess ray tracing replacement fields were not serialized as true"))
         return false;
 
@@ -443,12 +443,11 @@ bool TestSceneSerializationRegression() {
                    NearlyEqual(loadedPost->GetSSGIHistoryWeight(), 0.77f) && loadedPost->GetSSGIStepCount() == 40 &&
                    loadedPost->GetSSGIFilterRounds() == 4 && !loadedPost->IsSSREnabled() &&
                    !loadedPost->IsSSRHalfResolution() && NearlyEqual(loadedPost->GetSSRMaxDistance(), 37.0f) &&
-                    NearlyEqual(loadedPost->GetSSRMaxRoughness(), 0.62f) &&
-                    NearlyEqual(loadedPost->GetSSRHistoryWeight(), 0.73f) && loadedPost->GetSSRStepCount() == 56 &&
-                    loadedPost->GetSSRFilterRounds() == 1 &&
-                    NearlyEqual(loadedPost->GetRTReflectionIntensityClamp(), 12.5f) &&
-                    NearlyEqual(loadedPost->GetRTReflectionAtrousRadiusScale(), 2.75f) &&
-                    !loadedPost->IsTAAEnabled() &&
+                   NearlyEqual(loadedPost->GetSSRMaxRoughness(), 0.62f) &&
+                   NearlyEqual(loadedPost->GetSSRHistoryWeight(), 0.73f) && loadedPost->GetSSRStepCount() == 56 &&
+                   loadedPost->GetSSRFilterRounds() == 1 &&
+                   NearlyEqual(loadedPost->GetRTReflectionIntensityClamp(), 12.5f) &&
+                   NearlyEqual(loadedPost->GetRTReflectionAtrousRadiusScale(), 2.75f) && !loadedPost->IsTAAEnabled() &&
                    NearlyEqual(loadedPost->GetTAAHistoryWeight(), 0.84f) &&
                    NearlyEqual(loadedPost->GetTAAJitterSpread(), 0.65f) &&
                    NearlyEqual(loadedPost->GetTAAHistoryClipExpansion(), 1.25f),
@@ -1469,15 +1468,13 @@ bool TestComponentRegistry() {
 bool TestRuntimeModuleBootstrapIsIdempotent() {
     InitializeMyEngineRuntimeModules();
     InitializeMyEngineRuntimeModules();
-    if (!Check(GetMyEngineRuntimeInitializationCount() == 1,
-               "Runtime composition root initialized more than once"))
+    if (!Check(GetMyEngineRuntimeInitializationCount() == 1, "Runtime composition root initialized more than once"))
         return false;
     if (!Check(HasScenePhysicsSubsystemFactory() && HasSceneNavigationSubsystemFactory(),
                "Runtime composition root did not attach Scene subsystem factories"))
         return false;
 #if defined(MYENGINE_PLATFORM_WINDOWS)
-    if (!Check(HasD3DShaderStageCompiler(),
-               "Runtime composition root did not register the D3D shader compiler"))
+    if (!Check(HasD3DShaderStageCompiler(), "Runtime composition root did not register the D3D shader compiler"))
         return false;
 #endif
 
@@ -1777,6 +1774,15 @@ bool TestIconsManagerSvgRasterizeIcoAndUploadCache() {
 
     if (!Check(fs::is_regular_file(icons.ResolveIconPath(IconsManager::kEditorIcon)),
                "engine-editor.svg was not resolved"))
+        return false;
+    const fs::path iconRoot = icons.GetIconRoot();
+    icons.SetIconRoot(fs::temp_directory_path() / "__myengine_missing_icon_root__");
+    const bool missingRootResolvedEmpty = icons.ResolveIconPath(IconsManager::kEditorIcon).empty();
+    icons.SetIconRoot(iconRoot);
+    if (!Check(missingRootResolvedEmpty, "icon resolution should cache a missing path as empty"))
+        return false;
+    if (!Check(fs::is_regular_file(icons.ResolveIconPath(IconsManager::kEditorIcon)),
+               "changing the icon root did not invalidate the resolved-path cache"))
         return false;
 
     const char* required[] = {IconsManager::kEditorIcon, IconsManager::kPlayerIcon, IconsManager::kCookerIcon,
@@ -2380,19 +2386,17 @@ bool TestTypeRegistryMetadataAndWorldScheduler() {
     const PropertyDescriptor* rtReflectionIntensityClamp =
         postProcessType ? TypeRegistry::Get().FindProperty(*postProcessType, "rtReflectionIntensityClamp") : nullptr;
     const PropertyDescriptor* rtReflectionAtrousRadiusScale =
-        postProcessType ? TypeRegistry::Get().FindProperty(*postProcessType, "rtReflectionAtrousRadiusScale")
-                        : nullptr;
+        postProcessType ? TypeRegistry::Get().FindProperty(*postProcessType, "rtReflectionAtrousRadiusScale") : nullptr;
     const PropertyDescriptor* rayTracedShadow =
         postProcessType ? TypeRegistry::Get().FindProperty(*postProcessType, "rayTracedShadowReplacement") : nullptr;
     if (!Check(ssgiStepCount && ssgiStepCount->kind == PropertyKind::UInt32 && ssrMaxDistance &&
                    ssrMaxDistance->kind == PropertyKind::Float && rayTracedAO && rayTracedDiffuse &&
-                    rayTracedReflection && rayTracedShadow && rayTracedAO->kind == PropertyKind::Bool &&
-                    rayTracedDiffuse->kind == PropertyKind::Bool && rayTracedReflection->kind == PropertyKind::Bool &&
-                    rayTracedShadow->kind == PropertyKind::Bool && rtReflectionIntensityClamp &&
-                    rtReflectionAtrousRadiusScale && rtReflectionIntensityClamp->kind == PropertyKind::Float &&
-                    rtReflectionAtrousRadiusScale->kind == PropertyKind::Float && ssgiHalfResolution &&
-                    ssrHalfResolution &&
-                   ssaoHalfResolution && ssaoSampleCount && ssgiEnabled && ssrEnabled &&
+                   rayTracedReflection && rayTracedShadow && rayTracedAO->kind == PropertyKind::Bool &&
+                   rayTracedDiffuse->kind == PropertyKind::Bool && rayTracedReflection->kind == PropertyKind::Bool &&
+                   rayTracedShadow->kind == PropertyKind::Bool && rtReflectionIntensityClamp &&
+                   rtReflectionAtrousRadiusScale && rtReflectionIntensityClamp->kind == PropertyKind::Float &&
+                   rtReflectionAtrousRadiusScale->kind == PropertyKind::Float && ssgiHalfResolution &&
+                   ssrHalfResolution && ssaoHalfResolution && ssaoSampleCount && ssgiEnabled && ssrEnabled &&
                    ssgiHalfResolution->kind == PropertyKind::Bool && ssrHalfResolution->kind == PropertyKind::Bool &&
                    ssaoHalfResolution->kind == PropertyKind::Bool && ssaoSampleCount->kind == PropertyKind::UInt32 &&
                    ssgiEnabled->kind == PropertyKind::Bool && ssrEnabled->kind == PropertyKind::Bool &&
@@ -4867,6 +4871,10 @@ struct DeferredMutationProbe final : Component {
     }
 };
 
+struct SceneQueryMarkerComponent final : Component {
+    const char* GetTypeName() const override { return "SceneQueryMarker"; }
+};
+
 bool TestActorHandleLifecycleAndDeferredMutation() {
     ComponentRegistry::Get().Register("LifecycleProbe", [] { return std::make_unique<LifecycleProbeComponent>(); });
     ComponentRegistry::Get().Register("PriorityLifecycleProbe",
@@ -4944,6 +4952,128 @@ bool TestActorHandleLifecycleAndDeferredMutation() {
         return false;
     LifecycleProbeComponent::events = nullptr;
     return true;
+}
+
+bool TestSceneRuntimeTypeAndQueryIndex() {
+    TypeRegistry& registry = TypeRegistry::Get();
+    const RuntimeTypeIndex lightType = registry.FindRuntimeTypeIndex(std::type_index(typeid(LightComponent)));
+    const RuntimeTypeIndex meshType = registry.FindRuntimeTypeIndex(std::type_index(typeid(MeshRendererComponent)));
+    const TypeDescriptor* lightDescriptor = registry.Find("Light");
+    if (!Check(lightDescriptor && lightType != InvalidRuntimeTypeIndex && meshType != InvalidRuntimeTypeIndex &&
+                   lightType != meshType && registry.FindRuntimeTypeIndex(lightDescriptor->id) == lightType &&
+                   registry.FindByRuntimeTypeIndex(lightType) == lightDescriptor &&
+                   lightType < registry.GetRuntimeTypeCount() && meshType < registry.GetRuntimeTypeCount(),
+               "runtime type index lookup is not dense or reversible"))
+        return false;
+
+    const uint32_t previousTypeCount = registry.GetRuntimeTypeCount();
+    if (!Check(ComponentRegistry::Get().Register("SceneQueryMarker",
+                                                 [] { return std::make_unique<SceneQueryMarkerComponent>(); }),
+               "late scene query marker registration failed"))
+        return false;
+    const RuntimeTypeIndex markerType =
+        registry.FindRuntimeTypeIndex(std::type_index(typeid(SceneQueryMarkerComponent)));
+    if (!Check(markerType == previousTypeCount && registry.FindRuntimeTypeIndex(lightDescriptor->id) == lightType,
+               "late runtime type registration changed an existing index or left a hole"))
+        return false;
+
+    Scene scene("IndexedQueries");
+    Actor* lightOnly = scene.CreateActor("LightOnly");
+    lightOnly->AddComponent<LightComponent>();
+    for (int i = 0; i < 64; ++i)
+        scene.CreateActor("Unrelated" + std::to_string(i));
+    Actor* parent = scene.CreateActor("MeshParent");
+    parent->AddComponent<MeshRendererComponent>();
+    Actor* child = scene.CreateActor("LightMeshChild", parent);
+    child->AddComponent<LightComponent>();
+    child->AddComponent<MeshRendererComponent>();
+    parent->AddComponent<SceneQueryMarkerComponent>();
+
+    scene.ResetQueryStats();
+    std::vector<std::string> allOf;
+    scene.ForEachWith<LightComponent, MeshRendererComponent>(
+        [&](Actor& actor, LightComponent&, MeshRendererComponent&) { allOf.push_back(actor.GetName()); });
+    std::vector<std::string> anyOf;
+    scene.ForEachWithAny<LightComponent, MeshRendererComponent>(
+        [&](Actor& actor) { anyOf.push_back(actor.GetName()); });
+    const SceneQueryStats initialStats = scene.GetQueryStats();
+    const auto joinNames = [](const std::vector<std::string>& names) {
+        std::string joined;
+        for (const std::string& name : names)
+            joined += (joined.empty() ? "" : ",") + name;
+        return joined;
+    };
+    if (!Check(allOf == std::vector<std::string>({"LightMeshChild"}) &&
+                   anyOf == std::vector<std::string>({"LightOnly", "MeshParent", "LightMeshChild"}) &&
+                   initialStats.candidateVisits == 5 && initialStats.matchedActors == 4 &&
+                   initialStats.hierarchyCacheRebuilds == 0,
+               "AllOf/AnyOf query mismatch all=[" + joinNames(allOf) + "] any=[" + joinNames(anyOf) +
+                   "] candidates=" + std::to_string(initialStats.candidateVisits) +
+                   " matched=" + std::to_string(initialStats.matchedActors) +
+                   " hierarchyRebuilds=" + std::to_string(initialStats.hierarchyCacheRebuilds)))
+        return false;
+
+    lightOnly->SetParent(parent);
+    scene.ResetQueryStats();
+    anyOf.clear();
+    scene.ForEachWithAny<LightComponent, MeshRendererComponent>(
+        [&](Actor& actor) { anyOf.push_back(actor.GetName()); });
+    const SceneQueryStats reparentStats = scene.GetQueryStats();
+    if (!Check(anyOf == std::vector<std::string>({"MeshParent", "LightMeshChild", "LightOnly"}) &&
+                   reparentStats.hierarchyCacheRebuilds == 1 && reparentStats.queryOrderRebuilds == 2,
+               "query order cache did not rebuild exactly once after reparenting"))
+        return false;
+
+    child->RemoveComponent<MeshRendererComponent>();
+    allOf.clear();
+    scene.ForEachWith<LightComponent, MeshRendererComponent>(
+        [&](Actor& actor, LightComponent&, MeshRendererComponent&) { allOf.push_back(actor.GetName()); });
+    if (!Check(allOf.empty(), "component removal did not update the actor signature"))
+        return false;
+
+    bool createReturnedNull = false;
+    scene.ForEachWith<LightComponent>([&](Actor& actor, LightComponent&) {
+        if (actor.GetName() != "LightOnly")
+            return;
+        actor.RemoveComponent<LightComponent>();
+        createReturnedNull = scene.CreateActor("DeferredByQuery") == nullptr;
+    });
+    if (!Check(createReturnedNull && lightOnly->GetComponent<LightComponent>() && !scene.FindByName("DeferredByQuery"),
+               "query-time structural mutations became visible before command flush"))
+        return false;
+    scene.FlushCommands();
+    if (!Check(!lightOnly->GetComponent<LightComponent>() && scene.FindByName("DeferredByQuery"),
+               "query-time structural mutations did not update the index after command flush"))
+        return false;
+
+    size_t markerMatches = 0;
+    scene.ForEachWith<SceneQueryMarkerComponent>([&](Actor&, SceneQueryMarkerComponent&) { ++markerMatches; });
+    if (!Check(markerMatches == 1, "late-registered runtime type was not indexed by the scene"))
+        return false;
+
+    const ActorHandle recycledHandle = lightOnly->GetHandle();
+    scene.DestroyActor(parent);
+    Actor* recycled = scene.CreateActor("RecycledSlot");
+    recycled->AddComponent<SceneQueryMarkerComponent>();
+    size_t staleMeshMatches = 0;
+    scene.ForEachWith<MeshRendererComponent>([&](Actor&, MeshRendererComponent&) { ++staleMeshMatches; });
+    markerMatches = 0;
+    scene.ForEachWith<SceneQueryMarkerComponent>([&](Actor&, SceneQueryMarkerComponent&) { ++markerMatches; });
+    if (!Check(recycled->GetHandle().index == recycledHandle.index &&
+                   recycled->GetHandle().generation != recycledHandle.generation && staleMeshMatches == 0 &&
+                   markerMatches == 1,
+               "actor destruction or generation reuse left stale signature/index membership"))
+        return false;
+
+    scene.Clear();
+    markerMatches = 0;
+    scene.ForEachWith<SceneQueryMarkerComponent>([&](Actor&, SceneQueryMarkerComponent&) { ++markerMatches; });
+    if (!Check(markerMatches == 0, "Scene::Clear retained stale query membership"))
+        return false;
+    scene.CreateActor("AfterClear")->AddComponent<SceneQueryMarkerComponent>();
+    markerMatches = 0;
+    scene.ForEachWith<SceneQueryMarkerComponent>([&](Actor&, SceneQueryMarkerComponent&) { ++markerMatches; });
+    return Check(markerMatches == 1, "query index did not rebuild after Scene::Clear");
 }
 
 bool TestSceneActorSiblingReorder() {
@@ -6708,10 +6838,22 @@ bool TestRuntimePerformanceBudgetEvaluation() {
     RuntimePerformanceGate gate(budget);
     for (uint64_t i = 0; i < 10; ++i) {
         RuntimePerformanceSample sample{10.0 + static_cast<double>(i), 2.0, 5.0, 8.0, 100 + i * 4, 0, true};
+        sample.renderGraphBuildMs = 0.5 + static_cast<double>(i) * 0.1;
+        sample.renderGraphExecuteMs = 0.4 + static_cast<double>(i) * 0.1;
+        sample.renderGraphRecordMs = 0.3 + static_cast<double>(i) * 0.1;
+        sample.renderGraphFinalizeMs = 0.2 + static_cast<double>(i) * 0.1;
+        sample.sceneCollectMs = 0.1 + static_cast<double>(i) * 0.1;
         sample.pipelinePrepareMs = 1.0 + static_cast<double>(i) * 0.1;
         sample.renderGraphAddPassMs = 2.0 + static_cast<double>(i) * 0.1;
         sample.renderGraphCompileMs = 3.0 + static_cast<double>(i) * 0.1;
         sample.renderGraphEnsureResourcesMs = 4.0 + static_cast<double>(i) * 0.1;
+        sample.uploadQueueMs = 0.05 + static_cast<double>(i) * 0.01;
+        sample.frameWaitMs = 0.15 + static_cast<double>(i) * 0.01;
+        sample.presentMs = 0.25 + static_cast<double>(i) * 0.01;
+        sample.editorUiMs = 1.5 + static_cast<double>(i) * 0.1;
+        sample.editorUiBuildMs = 1.0 + static_cast<double>(i) * 0.1;
+        sample.editorUiSubmitMs = 0.5 + static_cast<double>(i) * 0.1;
+        sample.platformWindowsMs = 0.05 + static_cast<double>(i) * 0.01;
         gate.AddSample(sample);
     }
     const RuntimePerformanceReport passing = gate.Evaluate();
@@ -6725,12 +6867,27 @@ bool TestRuntimePerformanceBudgetEvaluation() {
                    json["summary"].value("p95PipelinePrepareMs", 0.0) > 0.0 &&
                    json["summary"].value("p95RenderGraphAddPassMs", 0.0) > 0.0 &&
                    json["summary"].value("p95RenderGraphCompileMs", 0.0) > 0.0 &&
-                   json["summary"].value("p95RenderGraphEnsureResourcesMs", 0.0) > 0.0 && json["samples"].size() == 8 &&
+                   json["summary"].value("p95RenderGraphEnsureResourcesMs", 0.0) > 0.0 &&
+                   json["summary"].value("p50RenderMs", 0.0) > 0.0 && json["summary"].value("p95RenderMs", 0.0) > 0.0 &&
+                   json["summary"].value("p50RenderGraphBuildMs", 0.0) > 0.0 &&
+                   json["summary"].value("p50RenderGraphExecuteMs", 0.0) > 0.0 &&
+                   json["summary"].value("p95RenderGraphRecordMs", 0.0) > 0.0 &&
+                   json["summary"].value("p95RenderGraphFinalizeMs", 0.0) > 0.0 &&
+                   json["summary"].value("p95FrameWaitMs", 0.0) > 0.0 &&
+                   json["summary"].value("p95PresentMs", 0.0) > 0.0 &&
+                   json["summary"].value("p50EditorUiMs", 0.0) > 0.0 &&
+                   json["summary"].value("p95EditorUiBuildMs", 0.0) > 0.0 &&
+                   json["summary"].value("p95EditorUiSubmitMs", 0.0) > 0.0 &&
+                   json["summary"].value("p95PlatformWindowsMs", 0.0) > 0.0 && json["samples"].size() == 8 &&
                    json["samples"][0].value("workingSetBytes", 0ull) == 108 &&
                    json["samples"][0].value("pipelinePrepareMs", 0.0) == 1.2 &&
                    json["samples"][0].value("renderGraphAddPassMs", 0.0) == 2.2 &&
                    json["samples"][0].value("renderGraphCompileMs", 0.0) == 3.2 &&
-                   json["samples"][0].value("renderGraphEnsureResourcesMs", 0.0) == 4.2,
+                   json["samples"][0].value("renderGraphEnsureResourcesMs", 0.0) == 4.2 &&
+                   json["samples"][0].value("renderGraphRecordMs", 0.0) == 0.5 &&
+                   json["samples"][0].value("renderGraphFinalizeMs", 0.0) == 0.4 &&
+                   json["samples"][0].value("renderGraphExecuteMs", 0.0) > 0.0 &&
+                   json["samples"][0].value("editorUiMs", 0.0) > 0.0,
                "runtime performance report JSON lost summary data"))
         return false;
 #if defined(MYENGINE_PLATFORM_WINDOWS)
@@ -7270,6 +7427,7 @@ MYENGINE_REGISTER_TEST("Core", "TestSceneAndAssetMemoryCounters", TestSceneAndAs
 MYENGINE_REGISTER_TEST("Scene", "TestSceneColdLoadsModelSubAssetReferences", TestSceneColdLoadsModelSubAssetReferences);
 MYENGINE_REGISTER_TEST("Scene", "TestActorHandleLifecycleAndDeferredMutation",
                        TestActorHandleLifecycleAndDeferredMutation);
+MYENGINE_REGISTER_TEST("Scene", "TestSceneRuntimeTypeAndQueryIndex", TestSceneRuntimeTypeAndQueryIndex);
 MYENGINE_REGISTER_TEST("Scene", "TestSceneActorSiblingReorder", TestSceneActorSiblingReorder);
 MYENGINE_REGISTER_TEST("Scene", "TestPrefabRoundTripOverridesAndValidation", TestPrefabRoundTripOverridesAndValidation);
 MYENGINE_REGISTER_TEST("Project", "TestPrefabCookDependencyValidation", TestPrefabCookDependencyValidation);

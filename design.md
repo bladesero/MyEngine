@@ -86,6 +86,10 @@ Runtime 内部仍遵守以下源码层次，但这些目录不再生成独立 bu
 
 Runtime 组件类型统一登记到 `TypeRegistry`。注册描述器提供稳定类型/属性 ID、工厂、schema version、默认值、序列化、Inspector hints、脚本访问标记和 Prefab override 路径；`ComponentRegistry` 是兼容 facade。Camera、Light 与 BoxCollider 已使用宏构建的属性描述器，其他组件继续走原有虚函数序列化并可渐进迁移。
 
+每个已注册组件还会获得仅限当前进程的连续 `RuntimeTypeIndex`；稳定 `TypeId` 仍是序列化和兼容协议，runtime index 不写入 Scene、Prefab 或资产。`Scene` 的私有 ECS 状态按 Actor handle/generation 保存动态 component signature，并为每种 runtime type 维护 dense handle 列表与 sparse position。`ForEachWith<T...>` 使用最小候选列表做 AllOf 过滤，`ForEachWithAny<T...>` 合并层级有序列表并去重；查询期间的结构修改进入命令队列，提交后统一失效层级和查询顺序缓存。组件对象仍由 Actor 持有，这一索引不是 archetype/chunk 或 SoA 组件存储。
+
+Scene 层级先序和 Actor component execution order 都按结构 revision 缓存。SceneLighting、主场景 render collector、GPU Scene、ShadowPass 与场景 shader 预热通过 signature/query index 收集 Light、PostProcess、MeshRenderer、SkinnedMeshRenderer 和 ParticleSystem 候选，不再为这些类型重复扫描全部 Actor；未迁移的 Physics、UI、脚本、Prefab、Probe 元数据和序列化路径仍可按各自需求遍历 Scene。
+
 每个 `Scene` 持有 `WorldFrameScheduler`，按 `WorldFrameBegin → PreUpdate → FixedPrePhysics → FixedPhysics → FixedPostPhysics → Update → LateUpdate → RenderExtract → WorldFrameEnd` 驱动 PlayWorld。固定步长 accumulator 属于 Scheduler，默认 60 Hz、每帧最多追赶 4 tick；`PhysicsWorld::StepFixed` 只执行单次物理模拟。应用级事件、Layer、Editor UI、渲染提交与 Present 仍由 `Engine`/Layer 路径拥有。
 
 ### 3.2 依赖关系示意（Mermaid）
@@ -617,9 +621,12 @@ candidate graph. When resource descriptors, pass names/types, and declared
 access topology match, the graph refreshes imported resources, clear values,
 and execute callbacks in place while reusing the compiled order, liveness data,
 transient allocations, and subresource views. Topology changes fall back to a
-full compile/resource-ensure path. CPU diagnostics report Pipeline Prepare,
-AddPass, Compile, and EnsureResources independently; timestamp-capable backends
-also record a begin/end query pair for every live RenderGraph pass.
+full compile/resource-ensure path. CPU diagnostics report Scene Collection,
+GPU Scene Prepare, Graph Record, Prepare, Finalize, AddPass, Compile, and
+EnsureResources independently. Timestamp-capable backends record a begin/end
+query pair for every live RenderGraph pass and tag delayed results with their
+source engine frame. `RendererFrameStats` aggregates Scene, Game, Material
+Preview, and Player viewports without replacing earlier viewport samples.
 
 ## 11. Physics backend boundary
 
@@ -736,10 +743,13 @@ failed or superseded job retains the previous shader and cached preview image.
 Each `Renderer` owns a backend-neutral `RendererFeatureMask`. Normal Scene/Game
 renderers enable Shadows, SSAO, and ScreenUI by default; Material Preview disables
 all three before its first frame while retaining the shared main/composite path.
-`EditorLayer` unconditionally begins and ends the main swapchain frame around
-ImGui, including the project selector and an empty dockspace. Offscreen viewport
-renderers may populate cached textures earlier in the layer order, but their
-active state never controls whether Editor UI is submitted or presented.
+Runtime `RenderFrameCoordinator` owns the device-level frame boundary. It drains
+the upload queue and calls `BeginFrame` once before any visible Scene, Game, or
+Material Preview viewport, preserves each viewport's independent Renderer,
+RenderGraph, and temporal history, then submits ImGui and calls `EndFrame` once.
+Player uses the same coordinator and ends the frame after its single viewport.
+An empty dockspace still opens a frame for Editor UI, so viewport activity never
+controls whether Editor UI is submitted or presented.
 Editor viewport activity is latched from the most recent ImGui dock pass using a
 two-phase collect/commit step: clearing visibility candidates never mutates input,
 and only the final inactive state releases mouse capture and Game UI input. This
@@ -823,8 +833,9 @@ Modern Deferred executes on the single graphics queue in this order:
    specialized Shader Graph/code and skinned vertex ABIs;
 5. full-resolution RTShadow before clustered lighting when it replaces the
    directional-light CSM; local spot/point shadows retain their current path;
-6. 32x32x24 clustered light count, prefix, scatter, and compute deferred
-   lighting into RGBA16Float HDR;
+6. 32x32x24 parallel clustered light-list build using a fixed
+   `clusterIndex * 128` base, followed by compute deferred lighting into
+   RGBA16Float HDR; zero-light and populated scenes keep the same graph topology;
 7. SSAO or RTAO, then SSGI/RTDiffuse and SSR/RTReflection trace, temporal
    rejection/clamping, bilateral a-trous filtering, and HDR effects composition;
 8. sorted transparent/particle raster, TAA, bloom, ACES tone mapping, color

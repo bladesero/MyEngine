@@ -19,8 +19,15 @@
 #include <vector>
 
 SceneRenderLayer::SceneRenderLayer(IRenderContext* context, int viewportWidth, int viewportHeight)
-    : SceneLayer("SceneRenderLayer"), m_RenderContext(context), m_Viewport(context, context, context),
-      m_MaterialPreviewViewport(context, context, context), m_GameViewport(context, context, context) {
+    : SceneLayer("SceneRenderLayer"), m_RenderContext(context), m_FrameCoordinator(context, context),
+      m_Viewport(context, context, context), m_MaterialPreviewViewport(context, context, context),
+      m_GameViewport(context, context, context) {
+    m_Viewport.SetFrameCoordinator(&m_FrameCoordinator);
+    m_Viewport.SetProfilerLabel("Scene View");
+    m_MaterialPreviewViewport.SetFrameCoordinator(&m_FrameCoordinator);
+    m_MaterialPreviewViewport.SetProfilerLabel("Material Preview");
+    m_GameViewport.SetFrameCoordinator(&m_FrameCoordinator);
+    m_GameViewport.SetProfilerLabel("Game View");
     m_Viewport.Initialize(viewportWidth, viewportHeight);
     m_GameViewport.Initialize(viewportWidth, viewportHeight);
     BeginViewportActivityFrame();
@@ -480,11 +487,15 @@ void SceneRenderLayer::OnSceneLoaded() {
 }
 
 void SceneRenderLayer::OnRender() {
+    m_FrameCoordinator.BeginFrame();
     m_UISystem.CollectDrawData(GetSimulationScene(), m_UIDrawList);
     if (m_PresentEnabled) {
+        m_GameViewport.SetProfilerLabel("Player");
         m_GameViewport.Render(GetSimulationScene(), true, &m_UIDrawList);
+        m_FrameCoordinator.EndFrame();
         return;
     }
+    m_GameViewport.SetProfilerLabel("Game View");
     if (m_SceneViewportActive) {
         m_Viewport.Render(GetSceneViewportRenderScene(), false);
     }
