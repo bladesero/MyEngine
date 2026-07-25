@@ -68,6 +68,8 @@ private:
     std::shared_ptr<GpuBuffer> m_SHCoefficients;
     std::shared_ptr<GpuBufferView> m_SHCoefficientView;
     std::vector<CpuReflectionProbe> m_CpuReflectionProbes;
+    std::vector<uint8_t> m_ReflectionMetadataBytes;
+    std::vector<uint8_t> m_SHVolumeMetadataBytes;
     uint32_t m_ReflectionProbeCount = 0;
     uint32_t m_SHVolumeCount = 0;
     std::string m_LastError;

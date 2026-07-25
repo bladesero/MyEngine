@@ -8,6 +8,7 @@ struct GpuTextureView;
 class IRHIDevice;
 class IRHIFrameContext;
 class IRHIReadbackService;
+class RenderFrameCoordinator;
 class RenderViewport;
 class Scene;
 class UIDrawList;
@@ -36,6 +37,8 @@ public:
     RendererFeatureMask GetFeatureMask() const;
     void SetDebugView(RendererDebugView view);
     RendererDebugView GetDebugView() const;
+    void SetFrameCoordinator(RenderFrameCoordinator* coordinator);
+    void SetProfilerLabel(std::string label);
     void InvalidateTemporalHistory(const std::string& reason, bool resetObjectHistory = false);
 
 private:

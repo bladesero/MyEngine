@@ -104,6 +104,14 @@ RendererDebugView ViewportRenderExecution::GetDebugView() const {
     return m_Renderer.GetDebugView();
 }
 
+void ViewportRenderExecution::SetFrameCoordinator(RenderFrameCoordinator* coordinator) {
+    m_Renderer.SetFrameCoordinator(coordinator);
+}
+
+void ViewportRenderExecution::SetProfilerLabel(std::string label) {
+    m_Renderer.SetProfilerLabel(std::move(label));
+}
+
 void ViewportRenderExecution::InvalidateTemporalHistory(const std::string& reason, bool resetObjectHistory) {
     m_Renderer.InvalidateTemporalHistory(reason, resetObjectHistory);
 }

@@ -153,6 +153,7 @@
 ??0ReflectionProbeComponent@@QEAA@$$QEAV0@@Z
 ??0ReflectionProbeComponent@@QEAA@AEBV0@@Z
 ??0ReflectionProbeComponent@@QEAA@XZ
+??0RenderFrameCoordinator@@QEAA@PEAVIRHIDevice@@PEAVIRHIFrameContext@@@Z
 ??0RenderGraph@@QEAA@$$QEAV0@@Z
 ??0RenderGraph@@QEAA@AEAVIRHIDevice@@@Z
 ??0RenderGraph@@QEAA@AEBV0@@Z
@@ -162,6 +163,7 @@
 ??0RenderPass@@QEAA@PEAVIRHIDevice@@PEAVIRHIReadbackService@@@Z
 ??0RenderViewport@@QEAA@PEAVIRHIDevice@@PEAVIRHIFrameContext@@PEAVIRHIReadbackService@@@Z
 ??0Renderer@@QEAA@PEAVIRHIDevice@@PEAVIRHIFrameContext@@PEAVIRHIReadbackService@@@Z
+??0Renderer@@QEAA@PEAVIRHIDevice@@PEAVIRHIFrameContext@@PEAVIRHIReadbackService@@PEAVRenderFrameCoordinator@@@Z
 ??0ResolvedMaterial@@QEAA@$$QEAU0@@Z
 ??0ResolvedMaterial@@QEAA@AEBU0@@Z
 ??0ResolvedMaterial@@QEAA@XZ
@@ -328,6 +330,7 @@
 ??1ProjectConfig@@QEAA@XZ
 ??1RHIConformanceReport@@QEAA@XZ
 ??1ReflectionProbeComponent@@UEAA@XZ
+??1RenderFrameCoordinator@@QEAA@XZ
 ??1RenderGraph@@QEAA@XZ
 ??1RenderPass@@UEAA@XZ
 ??1RenderViewport@@UEAA@XZ
@@ -720,6 +723,7 @@
 ?Bake@NavigationWorld@@UEAA_NAEBUNavMeshBakeSettings@@AEBV?$vector@UAABB@Math@@V?$allocator@UAABB@Math@@@std@@@std@@@Z
 ?Bake@ProbeBakeRenderer@@QEBA?AUProbeBakeResult@@AEBVScene@@AEAVLightingProbeAsset@@AEBV?$function@$$A6AXAEBUProbeBakeProgress@@@Z@std@@PEBU?$atomic@_N@6@@Z
 ?BeginAttack@HitboxComponent@@QEAAXM@Z
+?BeginFrame@RenderFrameCoordinator@@QEAAXMMMM@Z
 ?BeginFrame@RenderGraph@@QEAAXXZ
 ?BeginLoading@GameFlowController@@QEAAXPEAVScene@@@Z
 ?BeginPlay@Actor@@AEAAXXZ
@@ -953,6 +957,7 @@
 ?EnablePlayPhase@Actor@@AEAAXXZ
 ?EnableRuntimeResourceBudget@SceneRenderLayer@@QEAA_NAEBURuntimeResourceBudgetConfig@@PEAV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@Z
 ?EndAttack@HitboxComponent@@QEAAXXZ
+?EndFrame@RenderFrameCoordinator@@QEAAXXZ
 ?EndPlay@Actor@@AEAAXXZ
 ?EndPlay@Scene@@QEAAXXZ
 ?Enqueue@GpuUploadQueue@@QEAA_KV?$function@$$A6AXAEAVIRHIDevice@@@Z@std@@_K@Z
@@ -1259,6 +1264,7 @@
 ?GetForward@Camera@@QEBA?AUVec3@Math@@XZ
 ?GetFovY@Camera@@QEBAMXZ
 ?GetFovYDegrees@CameraComponent@@QEBAMXZ
+?GetFrameCoordinator@SceneRenderLayer@@QEAAAEAVRenderFrameCoordinator@@XZ
 ?GetFrameScheduler@Scene@@QEAAAEAVWorldFrameScheduler@@XZ
 ?GetFrameScheduler@Scene@@QEBAAEBVWorldFrameScheduler@@XZ
 ?GetFrameStats@Engine@@QEBAAEBUFrameStats@@XZ
@@ -2490,6 +2496,8 @@
 ?SetFollowSharpness@ThirdPersonCameraComponent@@QEAAXM@Z
 ?SetFovY@Camera@@QEAAXM@Z
 ?SetFovYDegrees@CameraComponent@@QEAAXM@Z
+?SetFrameCoordinator@RenderViewport@@QEAAXPEAVRenderFrameCoordinator@@@Z
+?SetFrameCoordinator@Renderer@@QEAAXPEAVRenderFrameCoordinator@@@Z
 ?SetFrameCounters@RuntimeQualityDegradation@@SAX_K0@Z
 ?SetFriction@RigidBodyComponent@@QEAAXM@Z
 ?SetGBufferInput@DeferredLightingPass@@QEAAXV?$shared_ptr@UGpuTextureView@@@std@@000@Z
@@ -2604,6 +2612,8 @@
 ?SetProbeId@SHProbeVolumeComponent@@QEAAXV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@Z
 ?SetProbeInput@DeferredLightingPass@@QEAAXV?$shared_ptr@UGpuTextureView@@@std@@V?$shared_ptr@UGpuBufferView@@@3@11III@Z
 ?SetProbeInput@ModernDeferredPipeline@@QEAAXV?$shared_ptr@UGpuTextureView@@@std@@V?$shared_ptr@UGpuBufferView@@@3@11III@Z
+?SetProfilerLabel@RenderViewport@@QEAAXV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@Z
+?SetProfilerLabel@Renderer@@QEAAXV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@Z
 ?SetProjectRoot@AssetManager@@QEAAXVpath@filesystem@std@@@Z
 ?SetProjectRoot@MountedFileSystem@@QEAAXVpath@filesystem@std@@@Z
 ?SetProjectionMode@Camera@@QEAAXW4ProjectionMode@@@Z

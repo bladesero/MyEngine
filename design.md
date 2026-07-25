@@ -621,9 +621,12 @@ candidate graph. When resource descriptors, pass names/types, and declared
 access topology match, the graph refreshes imported resources, clear values,
 and execute callbacks in place while reusing the compiled order, liveness data,
 transient allocations, and subresource views. Topology changes fall back to a
-full compile/resource-ensure path. CPU diagnostics report Pipeline Prepare,
-AddPass, Compile, and EnsureResources independently; timestamp-capable backends
-also record a begin/end query pair for every live RenderGraph pass.
+full compile/resource-ensure path. CPU diagnostics report Scene Collection,
+GPU Scene Prepare, Graph Record, Prepare, Finalize, AddPass, Compile, and
+EnsureResources independently. Timestamp-capable backends record a begin/end
+query pair for every live RenderGraph pass and tag delayed results with their
+source engine frame. `RendererFrameStats` aggregates Scene, Game, Material
+Preview, and Player viewports without replacing earlier viewport samples.
 
 ## 11. Physics backend boundary
 
@@ -740,10 +743,13 @@ failed or superseded job retains the previous shader and cached preview image.
 Each `Renderer` owns a backend-neutral `RendererFeatureMask`. Normal Scene/Game
 renderers enable Shadows, SSAO, and ScreenUI by default; Material Preview disables
 all three before its first frame while retaining the shared main/composite path.
-`EditorLayer` unconditionally begins and ends the main swapchain frame around
-ImGui, including the project selector and an empty dockspace. Offscreen viewport
-renderers may populate cached textures earlier in the layer order, but their
-active state never controls whether Editor UI is submitted or presented.
+Runtime `RenderFrameCoordinator` owns the device-level frame boundary. It drains
+the upload queue and calls `BeginFrame` once before any visible Scene, Game, or
+Material Preview viewport, preserves each viewport's independent Renderer,
+RenderGraph, and temporal history, then submits ImGui and calls `EndFrame` once.
+Player uses the same coordinator and ends the frame after its single viewport.
+An empty dockspace still opens a frame for Editor UI, so viewport activity never
+controls whether Editor UI is submitted or presented.
 Editor viewport activity is latched from the most recent ImGui dock pass using a
 two-phase collect/commit step: clearing visibility candidates never mutates input,
 and only the final inactive state releases mouse capture and Game UI input. This
@@ -827,8 +833,9 @@ Modern Deferred executes on the single graphics queue in this order:
    specialized Shader Graph/code and skinned vertex ABIs;
 5. full-resolution RTShadow before clustered lighting when it replaces the
    directional-light CSM; local spot/point shadows retain their current path;
-6. 32x32x24 clustered light count, prefix, scatter, and compute deferred
-   lighting into RGBA16Float HDR;
+6. 32x32x24 parallel clustered light-list build using a fixed
+   `clusterIndex * 128` base, followed by compute deferred lighting into
+   RGBA16Float HDR; zero-light and populated scenes keep the same graph topology;
 7. SSAO or RTAO, then SSGI/RTDiffuse and SSR/RTReflection trace, temporal
    rejection/clamping, bilateral a-trous filtering, and HDR effects composition;
 8. sorted transparent/particle raster, TAA, bloom, ACES tone mapping, color

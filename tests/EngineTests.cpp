@@ -1778,6 +1778,15 @@ bool TestIconsManagerSvgRasterizeIcoAndUploadCache() {
     if (!Check(fs::is_regular_file(icons.ResolveIconPath(IconsManager::kEditorIcon)),
                "engine-editor.svg was not resolved"))
         return false;
+    const fs::path iconRoot = icons.GetIconRoot();
+    icons.SetIconRoot(fs::temp_directory_path() / "__myengine_missing_icon_root__");
+    const bool missingRootResolvedEmpty = icons.ResolveIconPath(IconsManager::kEditorIcon).empty();
+    icons.SetIconRoot(iconRoot);
+    if (!Check(missingRootResolvedEmpty, "icon resolution should cache a missing path as empty"))
+        return false;
+    if (!Check(fs::is_regular_file(icons.ResolveIconPath(IconsManager::kEditorIcon)),
+               "changing the icon root did not invalidate the resolved-path cache"))
+        return false;
 
     const char* required[] = {IconsManager::kEditorIcon, IconsManager::kPlayerIcon, IconsManager::kCookerIcon,
                               "play-start"};
@@ -6834,10 +6843,22 @@ bool TestRuntimePerformanceBudgetEvaluation() {
     RuntimePerformanceGate gate(budget);
     for (uint64_t i = 0; i < 10; ++i) {
         RuntimePerformanceSample sample{10.0 + static_cast<double>(i), 2.0, 5.0, 8.0, 100 + i * 4, 0, true};
+        sample.renderGraphBuildMs = 0.5 + static_cast<double>(i) * 0.1;
+        sample.renderGraphExecuteMs = 0.4 + static_cast<double>(i) * 0.1;
+        sample.renderGraphRecordMs = 0.3 + static_cast<double>(i) * 0.1;
+        sample.renderGraphFinalizeMs = 0.2 + static_cast<double>(i) * 0.1;
+        sample.sceneCollectMs = 0.1 + static_cast<double>(i) * 0.1;
         sample.pipelinePrepareMs = 1.0 + static_cast<double>(i) * 0.1;
         sample.renderGraphAddPassMs = 2.0 + static_cast<double>(i) * 0.1;
         sample.renderGraphCompileMs = 3.0 + static_cast<double>(i) * 0.1;
         sample.renderGraphEnsureResourcesMs = 4.0 + static_cast<double>(i) * 0.1;
+        sample.uploadQueueMs = 0.05 + static_cast<double>(i) * 0.01;
+        sample.frameWaitMs = 0.15 + static_cast<double>(i) * 0.01;
+        sample.presentMs = 0.25 + static_cast<double>(i) * 0.01;
+        sample.editorUiMs = 1.5 + static_cast<double>(i) * 0.1;
+        sample.editorUiBuildMs = 1.0 + static_cast<double>(i) * 0.1;
+        sample.editorUiSubmitMs = 0.5 + static_cast<double>(i) * 0.1;
+        sample.platformWindowsMs = 0.05 + static_cast<double>(i) * 0.01;
         gate.AddSample(sample);
     }
     const RuntimePerformanceReport passing = gate.Evaluate();
@@ -6851,12 +6872,27 @@ bool TestRuntimePerformanceBudgetEvaluation() {
                    json["summary"].value("p95PipelinePrepareMs", 0.0) > 0.0 &&
                    json["summary"].value("p95RenderGraphAddPassMs", 0.0) > 0.0 &&
                    json["summary"].value("p95RenderGraphCompileMs", 0.0) > 0.0 &&
-                   json["summary"].value("p95RenderGraphEnsureResourcesMs", 0.0) > 0.0 && json["samples"].size() == 8 &&
+                   json["summary"].value("p95RenderGraphEnsureResourcesMs", 0.0) > 0.0 &&
+                   json["summary"].value("p50RenderMs", 0.0) > 0.0 && json["summary"].value("p95RenderMs", 0.0) > 0.0 &&
+                   json["summary"].value("p50RenderGraphBuildMs", 0.0) > 0.0 &&
+                   json["summary"].value("p50RenderGraphExecuteMs", 0.0) > 0.0 &&
+                   json["summary"].value("p95RenderGraphRecordMs", 0.0) > 0.0 &&
+                   json["summary"].value("p95RenderGraphFinalizeMs", 0.0) > 0.0 &&
+                   json["summary"].value("p95FrameWaitMs", 0.0) > 0.0 &&
+                   json["summary"].value("p95PresentMs", 0.0) > 0.0 &&
+                   json["summary"].value("p50EditorUiMs", 0.0) > 0.0 &&
+                   json["summary"].value("p95EditorUiBuildMs", 0.0) > 0.0 &&
+                   json["summary"].value("p95EditorUiSubmitMs", 0.0) > 0.0 &&
+                   json["summary"].value("p95PlatformWindowsMs", 0.0) > 0.0 && json["samples"].size() == 8 &&
                    json["samples"][0].value("workingSetBytes", 0ull) == 108 &&
                    json["samples"][0].value("pipelinePrepareMs", 0.0) == 1.2 &&
                    json["samples"][0].value("renderGraphAddPassMs", 0.0) == 2.2 &&
                    json["samples"][0].value("renderGraphCompileMs", 0.0) == 3.2 &&
-                   json["samples"][0].value("renderGraphEnsureResourcesMs", 0.0) == 4.2,
+                   json["samples"][0].value("renderGraphEnsureResourcesMs", 0.0) == 4.2 &&
+                   json["samples"][0].value("renderGraphRecordMs", 0.0) == 0.5 &&
+                   json["samples"][0].value("renderGraphFinalizeMs", 0.0) == 0.4 &&
+                   json["samples"][0].value("renderGraphExecuteMs", 0.0) > 0.0 &&
+                   json["samples"][0].value("editorUiMs", 0.0) > 0.0,
                "runtime performance report JSON lost summary data"))
         return false;
 #if defined(MYENGINE_PLATFORM_WINDOWS)

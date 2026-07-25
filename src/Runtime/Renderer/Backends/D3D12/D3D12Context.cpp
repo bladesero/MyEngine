@@ -7,7 +7,7 @@
 #include "Renderer/RHI/RHIResourceStats.h"
 
 #include <d3d12.h>
-#include <dxgi1_4.h>
+#include <dxgi1_5.h>
 
 #include <d3dcompiler.h>
 
@@ -1403,6 +1403,13 @@ bool D3D12Context::Init(IWindow* window) {
     if (SUCCEEDED(factory->EnumAdapterByLuid(m_Device->GetAdapterLuid(), IID_PPV_ARGS(&adapter)))) {
         m_DeviceIdentity = DescribeAdapter(adapter.Get());
     }
+    ComPtr<IDXGIFactory5> factory5;
+    BOOL allowTearing = FALSE;
+    if (SUCCEEDED(factory.As(&factory5)) &&
+        SUCCEEDED(
+            factory5->CheckFeatureSupport(DXGI_FEATURE_PRESENT_ALLOW_TEARING, &allowTearing, sizeof(allowTearing)))) {
+        m_AllowTearing = allowTearing == TRUE;
+    }
     InitializePipelineCache();
 
     DXGI_SWAP_CHAIN_DESC1 scd = {};
@@ -1414,6 +1421,7 @@ bool D3D12Context::Init(IWindow* window) {
     scd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
     scd.SampleDesc.Count = 1;
     scd.SampleDesc.Quality = 0;
+    scd.Flags = m_AllowTearing ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0;
 
     ComPtr<IDXGISwapChain1> swapChain1;
     hr = factory->CreateSwapChainForHwnd(m_CommandQueue.Get(), hwnd, &scd, nullptr, nullptr, &swapChain1);
@@ -1722,6 +1730,7 @@ void D3D12Context::Shutdown() {
 
     m_SwapChainWidth = 0;
     m_SwapChainHeight = 0;
+    m_AllowTearing = false;
     m_RenderFrameIndex = 0;
     m_NextFenceValue = 1;
     m_NextRtvSlot = kFrameCount;
@@ -2002,7 +2011,10 @@ ImGuiBackendHandles D3D12Context::GetImGuiBackendHandles() {
 void D3D12Context::PresentSwapChain(bool vsync) {
     if (!m_SwapChain)
         return;
-    const HRESULT presentHr = m_SwapChain->Present(vsync ? 1 : 0, 0);
+    BOOL fullscreen = FALSE;
+    m_SwapChain->GetFullscreenState(&fullscreen, nullptr);
+    const bool useTearing = !vsync && m_AllowTearing && fullscreen == FALSE;
+    const HRESULT presentHr = m_SwapChain->Present(vsync ? 1 : 0, useTearing ? DXGI_PRESENT_ALLOW_TEARING : 0);
     CheckDeviceResult(presentHr, "D3D12 Present");
 }
 
@@ -2040,7 +2052,8 @@ bool D3D12Context::ResizeSwapChain(uint32_t width, uint32_t height) {
     m_MainDsvHandle = {};
     m_NextDsvSlot = 0;
 
-    HRESULT hr = m_SwapChain->ResizeBuffers(kFrameCount, width, height, m_RtvFormat, 0);
+    const UINT swapChainFlags = m_AllowTearing ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0;
+    HRESULT hr = m_SwapChain->ResizeBuffers(kFrameCount, width, height, m_RtvFormat, swapChainFlags);
     if (FAILED(hr)) {
         Logger::Error("D3D12 ResizeBuffers failed: 0x", reinterpret_cast<void*>(static_cast<uintptr_t>(hr)));
         return false;

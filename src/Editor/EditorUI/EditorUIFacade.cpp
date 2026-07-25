@@ -1184,6 +1184,22 @@ std::string Profiler_GetFrameStats() {
                            {"fps", stats.fps},
                            {"updateMs", stats.updateMs},
                            {"renderMs", stats.renderMs},
+                           {"frameWaitCpuMs", renderer.frameWaitCpuMs},
+                           {"presentCpuMs", renderer.presentCpuMs},
+                           {"uploadQueueCpuMs", renderer.uploadQueueCpuMs},
+                           {"editorUiCpuMs", renderer.editorUiCpuMs},
+                           {"editorUiBuildCpuMs", renderer.editorUiBuildCpuMs},
+                           {"editorUiSubmitCpuMs", renderer.editorUiSubmitCpuMs},
+                           {"platformWindowsCpuMs", renderer.platformWindowsCpuMs},
+                           {"renderGraphBuildCpuMs", renderer.renderGraphBuildCpuMs},
+                           {"renderGraphRecordCpuMs", renderer.renderGraphRecordCpuMs},
+                           {"renderGraphPrepareCpuMs", renderer.renderGraphPrepareCpuMs},
+                           {"renderGraphFinalizeCpuMs", renderer.renderGraphFinalizeCpuMs},
+                           {"renderGraphExecuteCpuMs", renderer.renderGraphExecuteCpuMs},
+                           {"sceneCollectCpuMs", renderer.sceneCollectCpuMs},
+                           {"gpuScenePrepareCpuMs", renderer.gpuScenePrepareCpuMs},
+                           {"renderGraphGpuMs", renderer.renderGraphGpuMs},
+                           {"gpuSourceFrameNumber", renderer.gpuSourceFrameNumber},
                            {"drawCalls", renderer.drawCalls},
                            {"shadowDrawCalls", renderer.shadowDrawCalls},
                            {"mainDrawCalls", renderer.mainDrawCalls},
@@ -1203,6 +1219,23 @@ std::string Profiler_GetFrameStats() {
                            {"bindlessResourcesUsed", renderer.bindlessResourcesUsed},
                            {"bindlessResourcesCapacity", renderer.bindlessResourcesCapacity},
                            {"historyResetReason", renderer.historyResetReason}};
+    data["editorPanels"] = nlohmann::json::array();
+    for (const EditorUiPanelCpuTiming& panel : renderer.editorUiPanelCpuTimings)
+        data["editorPanels"].push_back({{"name", panel.name}, {"cpuMs", panel.cpuMs}});
+    data["viewports"] = nlohmann::json::array();
+    for (const RendererViewportStats& viewport : renderer.viewportStats) {
+        data["viewports"].push_back({{"name", viewport.name},
+                                     {"renderGraphBuildCpuMs", viewport.renderGraphBuildCpuMs},
+                                     {"renderGraphRecordCpuMs", viewport.renderGraphRecordCpuMs},
+                                     {"renderGraphPrepareCpuMs", viewport.renderGraphPrepareCpuMs},
+                                     {"renderGraphFinalizeCpuMs", viewport.renderGraphFinalizeCpuMs},
+                                     {"renderGraphExecuteCpuMs", viewport.renderGraphExecuteCpuMs},
+                                     {"sceneCollectCpuMs", viewport.sceneCollectCpuMs},
+                                     {"gpuScenePrepareCpuMs", viewport.gpuScenePrepareCpuMs},
+                                     {"renderGraphGpuMs", viewport.renderGraphGpuMs},
+                                     {"gpuSourceFrameNumber", viewport.gpuSourceFrameNumber},
+                                     {"gpuTimingAvailable", viewport.gpuTimingAvailable}});
+    }
     if (Scene* scene = context ? context->GetSimulationScene() : nullptr) {
         const WorldSchedulerStats& world = scene->GetFrameScheduler().GetStats();
         data["worldFixedTicks"] = world.fixedTicks;

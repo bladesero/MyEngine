@@ -50,8 +50,8 @@ enum ModernRayTracingEffectMask : uint32_t {
 };
 
 MYENGINE_RUNTIME_API uint32_t ResolveModernRayTracingEffectMask(uint32_t requestedMask, bool projectEnabled,
-                                           const RHIDeviceCapabilities& capabilities, uint32_t sourceEffectMask,
-                                           uint32_t readyPipelineMask);
+                                                                const RHIDeviceCapabilities& capabilities,
+                                                                uint32_t sourceEffectMask, uint32_t readyPipelineMask);
 
 struct ModernPostProcessSettings {
     bool ssgiEnabled = true;
@@ -389,17 +389,11 @@ private:
     std::shared_ptr<GpuShader> m_HiZReduceShader;
     std::shared_ptr<GpuComputePipeline> m_HiZInitPipeline;
     std::shared_ptr<GpuComputePipeline> m_HiZReducePipeline;
-    std::shared_ptr<ShaderHandle> m_ClusterCountHandle;
-    std::shared_ptr<ShaderHandle> m_ClusterPrefixHandle;
-    std::shared_ptr<ShaderHandle> m_ClusterScatterHandle;
+    std::shared_ptr<ShaderHandle> m_ClusterLightBuildHandle;
     std::shared_ptr<ShaderHandle> m_ClusterLightingHandle;
-    std::shared_ptr<GpuShader> m_ClusterCountShader;
-    std::shared_ptr<GpuShader> m_ClusterPrefixShader;
-    std::shared_ptr<GpuShader> m_ClusterScatterShader;
+    std::shared_ptr<GpuShader> m_ClusterLightBuildShader;
     std::shared_ptr<GpuShader> m_ClusterLightingShader;
-    std::shared_ptr<GpuComputePipeline> m_ClusterCountPipeline;
-    std::shared_ptr<GpuComputePipeline> m_ClusterPrefixPipeline;
-    std::shared_ptr<GpuComputePipeline> m_ClusterScatterPipeline;
+    std::shared_ptr<GpuComputePipeline> m_ClusterLightBuildPipeline;
     std::shared_ptr<GpuComputePipeline> m_ClusterLightingPipeline;
     std::shared_ptr<ShaderHandle> m_SSGITraceHandle, m_SSRTraceHandle, m_TemporalHandle, m_AtrousHandle,
         m_EffectsCompositeHandle, m_TAAHandle, m_BloomToneHandle;
@@ -453,8 +447,6 @@ private:
     std::vector<std::shared_ptr<GpuTextureView>> m_HiZMipUavs;
     std::shared_ptr<GpuBuffer> m_ClusterCounts;
     std::shared_ptr<GpuBufferView> m_ClusterCountsView;
-    std::shared_ptr<GpuBuffer> m_ClusterOffsets;
-    std::shared_ptr<GpuBufferView> m_ClusterOffsetsView;
     std::shared_ptr<GpuBuffer> m_ClusterLightIndices;
     std::shared_ptr<GpuBufferView> m_ClusterLightIndicesView;
     std::shared_ptr<GpuBuffer> m_ClusterOverflow;

@@ -26,8 +26,10 @@
 #include "Editor/EditorImGuiBackend.h"
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <map>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -38,15 +40,19 @@ class EditorAngelScriptDomain;
 class EditorProjectSettingsController;
 class Engine;
 class IWindow;
+class RuntimePerformanceGate;
 class SceneRenderLayer;
 struct PublishReport;
 
 struct EditorAutomationConfig {
     std::filesystem::path createProjectRoot;
+    std::filesystem::path performanceReport;
     std::string projectName;
+    size_t performanceWarmupFrames = 120;
+    size_t performanceSampleFrames = 300;
     bool publishProject = false;
 
-    bool Enabled() const { return !createProjectRoot.empty() || publishProject; }
+    bool Enabled() const { return !createProjectRoot.empty() || publishProject || !performanceReport.empty(); }
 };
 
 class EditorLayer final : public Layer {
@@ -98,6 +104,8 @@ private:
     void PublishProject();
     bool PublishProjectInternal(PublishReport* report = nullptr, std::string* error = nullptr, bool showResult = true);
     void RunAutomation();
+    void CapturePerformanceSample();
+    bool WritePerformanceReport();
     void FailAutomation(const std::string& message);
 
     friend class EditorProjectSettingsController;
@@ -131,6 +139,9 @@ private:
     std::unique_ptr<EditorAngelScriptDomain> m_ScriptDomain;
     std::unique_ptr<EditorImGuiBackend> m_ImGuiBackend;
     std::unique_ptr<IPlatformEventBridge> m_ImGuiEventBridge;
+    std::unique_ptr<RuntimePerformanceGate> m_PerformanceGate;
+    std::map<std::string, std::vector<double>> m_PerformancePanelSamples;
+    std::map<std::string, std::vector<double>> m_PerformanceLayerSamples;
     std::filesystem::path m_InitialProject;
     EditorAutomationConfig m_Automation;
     std::array<char, 1024> m_ProjectPath{};
@@ -149,6 +160,7 @@ private:
     std::string m_LastRecoveryScenePath;
     std::string m_LastRecoveryScene;
     uint64_t m_LastRecoveryRevision = 0;
+    uint64_t m_LastPerformanceFrameNumber = 0;
     uint32_t m_ViewportActivationDelayFrames = 0;
     float m_RecoveryElapsedSeconds = 0.0f;
     bool m_RecoveryDialogRequested = false;

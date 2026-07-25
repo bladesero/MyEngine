@@ -1,5 +1,6 @@
 #include "Renderer/ModernDeferredPipeline.h"
 
+#include "Renderer/ClusterLightListLayout.h"
 #include "Camera/Camera.h"
 #include "Assets/MeshAsset.h"
 #include "Core/Logger.h"
@@ -333,8 +334,6 @@ void ModernDeferredPipeline::Resize(uint32_t width, uint32_t height) {
     m_HiZInShaderState = false;
     m_ClusterCounts.reset();
     m_ClusterCountsView.reset();
-    m_ClusterOffsets.reset();
-    m_ClusterOffsetsView.reset();
     m_ClusterLightIndices.reset();
     m_ClusterLightIndicesView.reset();
     m_ClusterOverflow.reset();
@@ -549,10 +548,9 @@ bool ModernDeferredPipeline::EnsurePipelines() {
     ShaderManager::Get().PrewarmCacheArtifacts(
         {EngineShaders::kModernCulling, EngineShaders::kModernOcclusionCulling, EngineShaders::kModernDepth,
          EngineShaders::kModernGBuffer, EngineShaders::kModernHiZInit, EngineShaders::kModernHiZReduce,
-         EngineShaders::kClusterCount, EngineShaders::kClusterPrefix, EngineShaders::kClusterScatter,
-         EngineShaders::kClusterLighting, EngineShaders::kModernSSGITrace, EngineShaders::kModernSSRTrace,
-         EngineShaders::kModernTemporal, EngineShaders::kModernAtrous, EngineShaders::kModernEffectsComposite,
-         EngineShaders::kModernTAA, EngineShaders::kModernBloomTone});
+         EngineShaders::kClusterLightBuild, EngineShaders::kClusterLighting, EngineShaders::kModernSSGITrace,
+         EngineShaders::kModernSSRTrace, EngineShaders::kModernTemporal, EngineShaders::kModernAtrous,
+         EngineShaders::kModernEffectsComposite, EngineShaders::kModernTAA, EngineShaders::kModernBloomTone});
     m_CullingHandle = ShaderManager::Get().GetOrCreateCompute(EngineShaders::kModernCulling);
     m_OcclusionCullingHandle = ShaderManager::Get().GetOrCreateCompute(EngineShaders::kModernOcclusionCulling);
     m_DepthHandle =
@@ -561,9 +559,7 @@ bool ModernDeferredPipeline::EnsurePipelines() {
         ShaderManager::Get().GetOrCreate(EngineShaders::kModernGBuffer, k_MeshVertexLayout, k_MeshVertexLayoutCount);
     m_HiZInitHandle = ShaderManager::Get().GetOrCreateCompute(EngineShaders::kModernHiZInit);
     m_HiZReduceHandle = ShaderManager::Get().GetOrCreateCompute(EngineShaders::kModernHiZReduce);
-    m_ClusterCountHandle = ShaderManager::Get().GetOrCreateCompute(EngineShaders::kClusterCount);
-    m_ClusterPrefixHandle = ShaderManager::Get().GetOrCreateCompute(EngineShaders::kClusterPrefix);
-    m_ClusterScatterHandle = ShaderManager::Get().GetOrCreateCompute(EngineShaders::kClusterScatter);
+    m_ClusterLightBuildHandle = ShaderManager::Get().GetOrCreateCompute(EngineShaders::kClusterLightBuild);
     m_ClusterLightingHandle = ShaderManager::Get().GetOrCreateCompute(EngineShaders::kClusterLighting);
     m_SSGITraceHandle = ShaderManager::Get().GetOrCreateCompute(EngineShaders::kModernSSGITrace);
     m_SSRTraceHandle = ShaderManager::Get().GetOrCreateCompute(EngineShaders::kModernSSRTrace);
@@ -578,9 +574,7 @@ bool ModernDeferredPipeline::EnsurePipelines() {
     m_GBufferShader = m_GBufferHandle ? m_GBufferHandle->shader : nullptr;
     m_HiZInitShader = m_HiZInitHandle ? m_HiZInitHandle->shader : nullptr;
     m_HiZReduceShader = m_HiZReduceHandle ? m_HiZReduceHandle->shader : nullptr;
-    m_ClusterCountShader = m_ClusterCountHandle ? m_ClusterCountHandle->shader : nullptr;
-    m_ClusterPrefixShader = m_ClusterPrefixHandle ? m_ClusterPrefixHandle->shader : nullptr;
-    m_ClusterScatterShader = m_ClusterScatterHandle ? m_ClusterScatterHandle->shader : nullptr;
+    m_ClusterLightBuildShader = m_ClusterLightBuildHandle ? m_ClusterLightBuildHandle->shader : nullptr;
     m_ClusterLightingShader = m_ClusterLightingHandle ? m_ClusterLightingHandle->shader : nullptr;
     m_SSGITraceShader = m_SSGITraceHandle ? m_SSGITraceHandle->shader : nullptr;
     m_SSRTraceShader = m_SSRTraceHandle ? m_SSRTraceHandle->shader : nullptr;
@@ -590,9 +584,9 @@ bool ModernDeferredPipeline::EnsurePipelines() {
     m_TAAShader = m_TAAHandle ? m_TAAHandle->shader : nullptr;
     m_BloomToneShader = m_BloomToneHandle ? m_BloomToneHandle->shader : nullptr;
     if (!m_CullingShader || !m_OcclusionCullingShader || !m_DepthShader || !m_GBufferShader || !m_HiZInitShader ||
-        !m_HiZReduceShader || !m_ClusterCountShader || !m_ClusterPrefixShader || !m_ClusterScatterShader ||
-        !m_ClusterLightingShader || !m_SSGITraceShader || !m_SSRTraceShader || !m_TemporalShader || !m_AtrousShader ||
-        !m_EffectsCompositeShader || !m_TAAShader || !m_BloomToneShader) {
+        !m_HiZReduceShader || !m_ClusterLightBuildShader || !m_ClusterLightingShader || !m_SSGITraceShader ||
+        !m_SSRTraceShader || !m_TemporalShader || !m_AtrousShader || !m_EffectsCompositeShader || !m_TAAShader ||
+        !m_BloomToneShader) {
         m_InitializationError = "Modern culling/depth shader variants are unavailable";
         return false;
     }
@@ -605,12 +599,8 @@ bool ModernDeferredPipeline::EnsurePipelines() {
     m_HiZInitPipeline = m_Device->CreateComputePipeline(compute);
     compute.shader = m_HiZReduceShader;
     m_HiZReducePipeline = m_Device->CreateComputePipeline(compute);
-    compute.shader = m_ClusterCountShader;
-    m_ClusterCountPipeline = m_Device->CreateComputePipeline(compute);
-    compute.shader = m_ClusterPrefixShader;
-    m_ClusterPrefixPipeline = m_Device->CreateComputePipeline(compute);
-    compute.shader = m_ClusterScatterShader;
-    m_ClusterScatterPipeline = m_Device->CreateComputePipeline(compute);
+    compute.shader = m_ClusterLightBuildShader;
+    m_ClusterLightBuildPipeline = m_Device->CreateComputePipeline(compute);
     compute.shader = m_ClusterLightingShader;
     m_ClusterLightingPipeline = m_Device->CreateComputePipeline(compute);
     compute.shader = m_SSGITraceShader;
@@ -653,10 +643,9 @@ bool ModernDeferredPipeline::EnsurePipelines() {
     gbuffer.blend.attachments.resize(gbuffer.colorFormats.size());
     m_GBufferPipeline = m_Device->CreateGraphicsPipeline(gbuffer);
     if (!m_CullingPipeline || !m_OcclusionCullingPipeline || !m_DepthPipeline || !m_ShadowDepthPipeline ||
-        !m_GBufferPipeline || !m_HiZInitPipeline || !m_HiZReducePipeline || !m_ClusterCountPipeline ||
-        !m_ClusterPrefixPipeline || !m_ClusterScatterPipeline || !m_ClusterLightingPipeline || !m_SSGITracePipeline ||
-        !m_SSRTracePipeline || !m_TemporalPipeline || !m_AtrousPipeline || !m_EffectsCompositePipeline ||
-        !m_TAAPipeline || !m_BloomTonePipeline) {
+        !m_GBufferPipeline || !m_HiZInitPipeline || !m_HiZReducePipeline || !m_ClusterLightBuildPipeline ||
+        !m_ClusterLightingPipeline || !m_SSGITracePipeline || !m_SSRTracePipeline || !m_TemporalPipeline ||
+        !m_AtrousPipeline || !m_EffectsCompositePipeline || !m_TAAPipeline || !m_BloomTonePipeline) {
         m_InitializationError = "RHI failed to create Modern culling/depth pipelines";
         return false;
     }
@@ -667,9 +656,9 @@ bool ModernDeferredPipeline::EnsurePipelines() {
 bool ModernDeferredPipeline::EnsureClusterResources() {
     if (m_ClusterCounts && m_Hdr)
         return true;
-    const uint32_t tileX = (m_Width + 31u) / 32u;
-    const uint32_t tileY = (m_Height + 31u) / 32u;
-    const uint32_t clusterCount = tileX * tileY * 24u;
+    const uint32_t tileX = ClusterLightListLayout::TileCount(m_Width);
+    const uint32_t tileY = ClusterLightListLayout::TileCount(m_Height);
+    const uint32_t clusterCount = static_cast<uint32_t>(ClusterLightListLayout::ClusterCount(m_Width, m_Height));
     const auto createBuffer = [&](const char* name, uint32_t elementCount, std::shared_ptr<GpuBuffer>& buffer,
                                   std::shared_ptr<GpuBufferView>& view) {
         RHIBufferDesc desc;
@@ -686,8 +675,8 @@ bool ModernDeferredPipeline::EnsureClusterResources() {
         return buffer && view;
     };
     if (!createBuffer("ClusterCounts", clusterCount, m_ClusterCounts, m_ClusterCountsView) ||
-        !createBuffer("ClusterOffsets", clusterCount, m_ClusterOffsets, m_ClusterOffsetsView) ||
-        !createBuffer("ClusterLightIndices", clusterCount * 128u, m_ClusterLightIndices, m_ClusterLightIndicesView) ||
+        !createBuffer("ClusterLightIndices", clusterCount * ClusterLightListLayout::kMaxLightsPerCluster,
+                      m_ClusterLightIndices, m_ClusterLightIndicesView) ||
         !createBuffer("ClusterOverflow", 1, m_ClusterOverflow, m_ClusterOverflowView))
         return false;
 
@@ -1395,9 +1384,9 @@ bool ModernDeferredPipeline::Prepare(const Scene& scene, const Camera& camera, u
     }
     m_ClusterConstants.renderSize[0] = m_Width;
     m_ClusterConstants.renderSize[1] = m_Height;
-    m_ClusterConstants.tileCount[0] = (m_Width + 31u) / 32u;
-    m_ClusterConstants.tileCount[1] = (m_Height + 31u) / 32u;
-    m_ClusterConstants.clusterCount = m_ClusterConstants.tileCount[0] * m_ClusterConstants.tileCount[1] * 24u;
+    m_ClusterConstants.tileCount[0] = ClusterLightListLayout::TileCount(m_Width);
+    m_ClusterConstants.tileCount[1] = ClusterLightListLayout::TileCount(m_Height);
+    m_ClusterConstants.clusterCount = static_cast<uint32_t>(ClusterLightListLayout::ClusterCount(m_Width, m_Height));
     m_ClusterConstants.lightCount = sceneStats.localLights;
     m_ClusterConstants.nearPlane = camera.GetNear();
     m_ClusterConstants.farPlane = camera.GetFar();
@@ -1954,8 +1943,6 @@ RGTextureHandle ModernDeferredPipeline::AddClusteredLightingPasses(
                                            RHIResourceState::ShaderResource, RHIResourceState::ShaderResource);
     const auto counts =
         graph.ImportBuffer("ClusterCounts", m_ClusterCounts, clusterInitial, RHIResourceState::ShaderResource);
-    const auto offsets =
-        graph.ImportBuffer("ClusterOffsets", m_ClusterOffsets, clusterInitial, RHIResourceState::ShaderResource);
     const auto indices = graph.ImportBuffer("ClusterLightIndices", m_ClusterLightIndices, clusterInitial,
                                             RHIResourceState::ShaderResource);
     const auto overflow = graph.ImportBuffer("ClusterOverflow", m_ClusterOverflow, m_ClusterOverflowState,
@@ -1965,88 +1952,37 @@ RGTextureHandle ModernDeferredPipeline::AddClusteredLightingPasses(
                             m_HdrInShaderState ? RHIResourceState::ShaderResource : RHIResourceState::Undefined,
                             RHIResourceState::ShaderResource);
 
-    if (m_ClusterConstants.lightCount == 0) {
-        graph.AddComputePass(
-            "ResetEmptyClusterData",
-            [counts, overflow](RenderGraphBuilder& builder) {
-                builder.ReadWriteUAV(counts);
-                builder.ReadWriteUAV(overflow);
-            },
-            [this](GpuCommandList& commands, const RenderGraphResources&) {
-                commands.ClearStorageBuffer(m_ClusterCountsView.get(), 0);
-                commands.ClearStorageBuffer(m_ClusterOverflowView.get(), 0);
-            });
-    } else {
-        graph.AddComputePass(
-            "ResetClusterOverflowCounter", [overflow](RenderGraphBuilder& builder) { builder.ReadWriteUAV(overflow); },
-            [this](GpuCommandList& commands, const RenderGraphResources&) {
-                commands.ClearStorageBuffer(m_ClusterOverflowView.get(), 0);
-            });
-        graph.AddComputePass(
-            "ClusterLightCount",
-            [lights, counts, overflow](RenderGraphBuilder& builder) {
-                builder.ReadBuffer(lights);
-                builder.ReadWriteUAV(counts);
-                builder.ReadWriteUAV(overflow);
-            },
-            [this](GpuCommandList& commands, const RenderGraphResources&) {
-                commands.SetComputePipeline(m_ClusterCountPipeline.get());
-                auto bindings = AcquireBindGroup(m_ClusterCountShader);
-                if (!bindings)
-                    return;
-                bindings->SetConstants("ClusterConstants", &m_ClusterConstants, sizeof(m_ClusterConstants));
-                bindings->SetBuffer("g_Lights", m_GpuScene->GetLightView());
-                bindings->SetStorageBuffer("g_ClusterCountsOut", m_ClusterCountsView);
-                bindings->SetStorageBuffer("g_ClusterOverflow", m_ClusterOverflowView);
-                if (!BindModernPass(commands, "ClusterLightCount", bindings))
-                    return;
-                commands.Dispatch((m_ClusterConstants.clusterCount + 63u) / 64u, 1, 1);
-            });
-        graph.AddComputePass(
-            "ClusterPrefixScan",
-            [counts, offsets](RenderGraphBuilder& builder) {
-                builder.ReadBuffer(counts);
-                builder.ReadWriteUAV(offsets);
-            },
-            [this](GpuCommandList& commands, const RenderGraphResources&) {
-                commands.SetComputePipeline(m_ClusterPrefixPipeline.get());
-                auto bindings = AcquireBindGroup(m_ClusterPrefixShader);
-                if (!bindings)
-                    return;
-                bindings->SetConstants("ClusterConstants", &m_ClusterConstants, sizeof(m_ClusterConstants));
-                bindings->SetBuffer("g_ClusterCounts", m_ClusterCountsView);
-                bindings->SetStorageBuffer("g_ClusterOffsetsOut", m_ClusterOffsetsView);
-                if (!BindModernPass(commands, "ClusterPrefixScan", bindings))
-                    return;
-                commands.Dispatch(1, 1, 1);
-            });
-        graph.AddComputePass(
-            "ClusterLightScatter",
-            [lights, counts, offsets, indices](RenderGraphBuilder& builder) {
-                builder.ReadBuffer(lights);
-                builder.ReadBuffer(counts);
-                builder.ReadBuffer(offsets);
-                builder.ReadWriteUAV(indices);
-            },
-            [this](GpuCommandList& commands, const RenderGraphResources&) {
-                commands.SetComputePipeline(m_ClusterScatterPipeline.get());
-                auto bindings = AcquireBindGroup(m_ClusterScatterShader);
-                if (!bindings)
-                    return;
-                bindings->SetConstants("ClusterConstants", &m_ClusterConstants, sizeof(m_ClusterConstants));
-                bindings->SetBuffer("g_Lights", m_GpuScene->GetLightView());
-                bindings->SetBuffer("g_ClusterCounts", m_ClusterCountsView);
-                bindings->SetBuffer("g_ClusterOffsets", m_ClusterOffsetsView);
-                bindings->SetStorageBuffer("g_ClusterLightIndicesOut", m_ClusterLightIndicesView);
-                if (!BindModernPass(commands, "ClusterLightScatter", bindings))
-                    return;
-                commands.Dispatch((m_ClusterConstants.clusterCount + 63u) / 64u, 1, 1);
-            });
-    }
+    graph.AddComputePass(
+        "ResetClusterOverflowCounter", [overflow](RenderGraphBuilder& builder) { builder.ReadWriteUAV(overflow); },
+        [this](GpuCommandList& commands, const RenderGraphResources&) {
+            commands.ClearStorageBuffer(m_ClusterOverflowView.get(), 0);
+        });
+    graph.AddComputePass(
+        "ClusterLightBuild",
+        [lights, counts, indices, overflow](RenderGraphBuilder& builder) {
+            builder.ReadBuffer(lights);
+            builder.ReadWriteUAV(counts);
+            builder.ReadWriteUAV(indices);
+            builder.ReadWriteUAV(overflow);
+        },
+        [this](GpuCommandList& commands, const RenderGraphResources&) {
+            commands.SetComputePipeline(m_ClusterLightBuildPipeline.get());
+            auto bindings = AcquireBindGroup(m_ClusterLightBuildShader);
+            if (!bindings)
+                return;
+            bindings->SetConstants("ClusterConstants", &m_ClusterConstants, sizeof(m_ClusterConstants));
+            bindings->SetBuffer("g_Lights", m_GpuScene->GetLightView());
+            bindings->SetStorageBuffer("g_ClusterCountsOut", m_ClusterCountsView);
+            bindings->SetStorageBuffer("g_ClusterLightIndicesOut", m_ClusterLightIndicesView);
+            bindings->SetStorageBuffer("g_ClusterOverflow", m_ClusterOverflowView);
+            if (!BindModernPass(commands, "ClusterLightBuild", bindings))
+                return;
+            commands.Dispatch((m_ClusterConstants.clusterCount + 63u) / 64u, 1, 1);
+        });
     graph.AddComputePass(
         "ComputeDeferredLighting",
-        [gbufferAlbedo, gbufferNormal, gbufferMaterial, gbufferEmissive, sceneDepth, lights, counts, offsets, indices,
-         hdr, lightingEnvironment, lightingEnvironmentSH, directionalShadow,
+        [gbufferAlbedo, gbufferNormal, gbufferMaterial, gbufferEmissive, sceneDepth, lights, counts, indices, hdr,
+         lightingEnvironment, lightingEnvironmentSH, directionalShadow,
          shadowEnabled = m_ClusterConstants.shadowInfo.x > 0.5f](RenderGraphBuilder& builder) {
             builder.ReadTexture(gbufferAlbedo);
             builder.ReadTexture(gbufferNormal);
@@ -2055,7 +1991,6 @@ RGTextureHandle ModernDeferredPipeline::AddClusteredLightingPasses(
             builder.ReadTexture(sceneDepth);
             builder.ReadBuffer(lights);
             builder.ReadBuffer(counts);
-            builder.ReadBuffer(offsets);
             builder.ReadBuffer(indices);
             builder.ReadTexture(lightingEnvironment);
             builder.ReadBuffer(lightingEnvironmentSH);
@@ -2072,7 +2007,6 @@ RGTextureHandle ModernDeferredPipeline::AddClusteredLightingPasses(
             bindings->SetConstants("ClusterConstants", &m_ClusterConstants, sizeof(m_ClusterConstants));
             bindings->SetBuffer("g_Lights", m_GpuScene->GetLightView());
             bindings->SetBuffer("g_ClusterCounts", m_ClusterCountsView);
-            bindings->SetBuffer("g_ClusterOffsets", m_ClusterOffsetsView);
             bindings->SetBuffer("g_ClusterLightIndices", m_ClusterLightIndicesView);
             bindings->SetTexture("g_GBufferAlbedo", gbufferAlbedoSrv);
             bindings->SetTexture("g_GBufferNormal", gbufferNormalSrv);

@@ -7,7 +7,7 @@
 #include <array>
 
 #include <d3d12.h>
-#include <dxgi1_4.h>
+#include <dxgi1_5.h>
 
 #include <wrl/client.h>
 
@@ -341,6 +341,7 @@ private:
     bool m_FrameCommandListClosed = true;
     bool m_DeviceLost = false;
     bool m_VSyncEnabled = true;
+    bool m_AllowTearing = false;
     bool m_DredDumped = false;
     bool m_DeviceLossSuppressionLogged = false;
     bool m_DepthOnlyBound = false;

@@ -39,10 +39,8 @@ cbuffer ClusterConstants : register(b0)
 
 StructuredBuffer<GpuSceneLight> g_Lights : register(t0);
 StructuredBuffer<uint> g_ClusterCounts : register(t1);
-StructuredBuffer<uint> g_ClusterOffsets : register(t2);
 StructuredBuffer<uint> g_ClusterLightIndices : register(t3);
 RWStructuredBuffer<uint> g_ClusterCountsOut : register(u0);
-RWStructuredBuffer<uint> g_ClusterOffsetsOut : register(u1);
 RWStructuredBuffer<uint> g_ClusterLightIndicesOut : register(u2);
 RWStructuredBuffer<uint> g_ClusterOverflow : register(u3);
 
@@ -109,7 +107,7 @@ bool LightIntersectsCluster(GpuSceneLight light, float3 boundsMin, float3 bounds
 }
 
 [numthreads(64, 1, 1)]
-void CSClusterCount(uint3 dispatchThreadId : SV_DispatchThreadID)
+void CSClusterLightBuild(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
     uint cluster = dispatchThreadId.x;
     if (cluster >= g_ClusterCount)
@@ -117,42 +115,21 @@ void CSClusterCount(uint3 dispatchThreadId : SV_DispatchThreadID)
     float3 boundsMin, boundsMax;
     ClusterBounds(cluster, boundsMin, boundsMax);
     uint count = 0;
+    uint overflow = 0;
+    uint outputIndex = cluster * MAX_LIGHTS_PER_CLUSTER;
     [loop]
     for (uint light = 0; light < g_LightCount; ++light)
-        count += LightIntersectsCluster(g_Lights[light], boundsMin, boundsMax) ? 1 : 0;
-    g_ClusterCountsOut[cluster] = min(count, MAX_LIGHTS_PER_CLUSTER);
-    if (count > MAX_LIGHTS_PER_CLUSTER)
-        InterlockedAdd(g_ClusterOverflow[0], count - MAX_LIGHTS_PER_CLUSTER);
-}
-
-[numthreads(1, 1, 1)]
-void CSClusterPrefix(uint3 dispatchThreadId : SV_DispatchThreadID)
-{
-    uint offset = 0;
-    [loop]
-    for (uint cluster = 0; cluster < g_ClusterCount; ++cluster)
     {
-        g_ClusterOffsetsOut[cluster] = offset;
-        offset += g_ClusterCounts[cluster];
+        if (!LightIntersectsCluster(g_Lights[light], boundsMin, boundsMax))
+            continue;
+        if (count < MAX_LIGHTS_PER_CLUSTER)
+            g_ClusterLightIndicesOut[outputIndex + count++] = light;
+        else
+            ++overflow;
     }
-}
-
-[numthreads(64, 1, 1)]
-void CSClusterScatter(uint3 dispatchThreadId : SV_DispatchThreadID)
-{
-    uint cluster = dispatchThreadId.x;
-    if (cluster >= g_ClusterCount)
-        return;
-    float3 boundsMin, boundsMax;
-    ClusterBounds(cluster, boundsMin, boundsMax);
-    uint outputIndex = g_ClusterOffsets[cluster];
-    uint written = 0;
-    [loop]
-    for (uint light = 0; light < g_LightCount && written < g_ClusterCounts[cluster]; ++light)
-    {
-        if (LightIntersectsCluster(g_Lights[light], boundsMin, boundsMax))
-            g_ClusterLightIndicesOut[outputIndex + written++] = light;
-    }
+    g_ClusterCountsOut[cluster] = count;
+    if (overflow > 0)
+        InterlockedAdd(g_ClusterOverflow[0], overflow);
 }
 
 float3 ReconstructWorldPosition(uint2 pixel, float depth)
@@ -272,7 +249,7 @@ void CSDeferredLighting(uint3 dispatchThreadId : SV_DispatchThreadID)
              max(g_DirectionalColorAmbient.w, 0.0f) * max(g_EnvironmentLighting.rgb, 0.0f);
     color += emissive;
     uint count = g_ClusterCounts[cluster];
-    uint offset = g_ClusterOffsets[cluster];
+    uint offset = cluster * MAX_LIGHTS_PER_CLUSTER;
     [loop]
     for (uint i = 0; i < count; ++i)
     {
