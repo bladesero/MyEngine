@@ -164,6 +164,7 @@ private:
     Component* AddComponentObject(std::type_index type, std::unique_ptr<Component> component, bool finalizeNow);
     bool RemoveComponentAt(size_t index);
     void RebuildComponentLookup();
+    const std::vector<Component*>& ExecutionOrderedComponents() const;
     std::vector<Component*> OrderedComponents(bool reverse = false) const;
     void FinalizeConstruction(bool playing);
     void BeginPlay();
@@ -199,6 +200,8 @@ private:
     };
     std::vector<ComponentEntry> m_Components;
     std::unordered_map<std::type_index, size_t> m_ComponentLookup;
+    mutable std::vector<Component*> m_ExecutionOrderCache;
+    mutable bool m_ExecutionOrderDirty = true;
     uint64_t m_NextComponentOrder = 1;
     Scene* m_Scene = nullptr;
     std::string m_PrefabAssetPath;

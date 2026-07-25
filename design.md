@@ -86,6 +86,10 @@ Runtime 内部仍遵守以下源码层次，但这些目录不再生成独立 bu
 
 Runtime 组件类型统一登记到 `TypeRegistry`。注册描述器提供稳定类型/属性 ID、工厂、schema version、默认值、序列化、Inspector hints、脚本访问标记和 Prefab override 路径；`ComponentRegistry` 是兼容 facade。Camera、Light 与 BoxCollider 已使用宏构建的属性描述器，其他组件继续走原有虚函数序列化并可渐进迁移。
 
+每个已注册组件还会获得仅限当前进程的连续 `RuntimeTypeIndex`；稳定 `TypeId` 仍是序列化和兼容协议，runtime index 不写入 Scene、Prefab 或资产。`Scene` 的私有 ECS 状态按 Actor handle/generation 保存动态 component signature，并为每种 runtime type 维护 dense handle 列表与 sparse position。`ForEachWith<T...>` 使用最小候选列表做 AllOf 过滤，`ForEachWithAny<T...>` 合并层级有序列表并去重；查询期间的结构修改进入命令队列，提交后统一失效层级和查询顺序缓存。组件对象仍由 Actor 持有，这一索引不是 archetype/chunk 或 SoA 组件存储。
+
+Scene 层级先序和 Actor component execution order 都按结构 revision 缓存。SceneLighting、主场景 render collector、GPU Scene、ShadowPass 与场景 shader 预热通过 signature/query index 收集 Light、PostProcess、MeshRenderer、SkinnedMeshRenderer 和 ParticleSystem 候选，不再为这些类型重复扫描全部 Actor；未迁移的 Physics、UI、脚本、Prefab、Probe 元数据和序列化路径仍可按各自需求遍历 Scene。
+
 每个 `Scene` 持有 `WorldFrameScheduler`，按 `WorldFrameBegin → PreUpdate → FixedPrePhysics → FixedPhysics → FixedPostPhysics → Update → LateUpdate → RenderExtract → WorldFrameEnd` 驱动 PlayWorld。固定步长 accumulator 属于 Scheduler，默认 60 Hz、每帧最多追赶 4 tick；`PhysicsWorld::StepFixed` 只执行单次物理模拟。应用级事件、Layer、Editor UI、渲染提交与 Present 仍由 `Engine`/Layer 路径拥有。
 
 ### 3.2 依赖关系示意（Mermaid）

@@ -51,59 +51,61 @@ SceneRenderCollection SceneRenderCollector::Collect(const Scene& scene, const Ca
         }
     };
 
-    scene.ForEach([&](Actor& actor) {
-        if (!actor.IsActive() || (staticGeometryOnly && !actor.IsStatic()))
-            return;
-        if (auto* particles = actor.GetComponent<ParticleSystemComponent>()) {
-            if (particles->IsEnabled() && particles->GetAliveCount() > 0) {
-                MeshAsset* mesh = particles->BuildBillboardMesh(camera);
-                MaterialAsset* material = particles->GetMaterial();
-                if (mesh && material && !mesh->GetSubMeshes().empty())
-                    addRenderItem(actor, mesh, mesh->GetSubMeshes().front(), 0, material, nullptr);
-            }
-            return;
-        }
-        if (auto* skinned = actor.GetComponent<SkinnedMeshRendererComponent>()) {
-            if (!skinned->IsEnabled() || !skinned->IsValid())
+    scene.ForEachWithAny<ParticleSystemComponent, SkinnedMeshRendererComponent, MeshRendererComponent>(
+        [&](const Actor& constActor) {
+            Actor& actor = const_cast<Actor&>(constActor);
+            if (!actor.IsActive() || (staticGeometryOnly && !actor.IsStatic()))
                 return;
-            MeshAsset* mesh = skinned->GetRenderMesh();
-            MaterialAsset* material = skinned->GetMaterial().Get();
-            if (!mesh || !material)
+            if (auto* particles = actor.GetComponent<ParticleSystemComponent>()) {
+                if (particles->IsEnabled() && particles->GetAliveCount() > 0) {
+                    MeshAsset* mesh = particles->BuildBillboardMesh(camera);
+                    MaterialAsset* material = particles->GetMaterial();
+                    if (mesh && material && !mesh->GetSubMeshes().empty())
+                        addRenderItem(actor, mesh, mesh->GetSubMeshes().front(), 0, material, nullptr);
+                }
+                return;
+            }
+            if (auto* skinned = actor.GetComponent<SkinnedMeshRendererComponent>()) {
+                if (!skinned->IsEnabled() || !skinned->IsValid())
+                    return;
+                MeshAsset* mesh = skinned->GetRenderMesh();
+                MaterialAsset* material = skinned->GetMaterial().Get();
+                if (!mesh || !material)
+                    return;
+                const Mat4 world = actor.GetWorldMatrix();
+                if (!camera.IsVisible(TransformAABB(mesh->GetAABB(), world)))
+                    return;
+                const auto& subMeshes = mesh->GetSubMeshes();
+                for (uint32_t i = 0; i < subMeshes.size(); ++i) {
+                    if (!camera.IsVisible(TransformAABB(subMeshes[i].bounds, world))) {
+                        ++collection.culledSubMeshes;
+                        continue;
+                    }
+                    addRenderItem(actor, mesh, subMeshes[i], i, material, skinned);
+                }
+                return;
+            }
+
+            auto* renderer = actor.GetComponent<MeshRendererComponent>();
+            if (!renderer || !renderer->IsEnabled() || !renderer->IsValid())
+                return;
+            MeshAsset* mesh = renderer->GetMesh().Get();
+            if (!mesh)
                 return;
             const Mat4 world = actor.GetWorldMatrix();
             if (!camera.IsVisible(TransformAABB(mesh->GetAABB(), world)))
                 return;
             const auto& subMeshes = mesh->GetSubMeshes();
             for (uint32_t i = 0; i < subMeshes.size(); ++i) {
-                if (!camera.IsVisible(TransformAABB(subMeshes[i].bounds, world))) {
+                const SubMesh& subMesh = subMeshes[i];
+                if (!camera.IsVisible(TransformAABB(subMesh.bounds, world))) {
                     ++collection.culledSubMeshes;
                     continue;
                 }
-                addRenderItem(actor, mesh, subMeshes[i], i, material, skinned);
+                MaterialHandle material = renderer->GetMaterialForSlot(subMesh.materialSlot);
+                addRenderItem(actor, mesh, subMesh, i, material.Get(), nullptr);
             }
-            return;
-        }
-
-        auto* renderer = actor.GetComponent<MeshRendererComponent>();
-        if (!renderer || !renderer->IsEnabled() || !renderer->IsValid())
-            return;
-        MeshAsset* mesh = renderer->GetMesh().Get();
-        if (!mesh)
-            return;
-        const Mat4 world = actor.GetWorldMatrix();
-        if (!camera.IsVisible(TransformAABB(mesh->GetAABB(), world)))
-            return;
-        const auto& subMeshes = mesh->GetSubMeshes();
-        for (uint32_t i = 0; i < subMeshes.size(); ++i) {
-            const SubMesh& subMesh = subMeshes[i];
-            if (!camera.IsVisible(TransformAABB(subMesh.bounds, world))) {
-                ++collection.culledSubMeshes;
-                continue;
-            }
-            MaterialHandle material = renderer->GetMaterialForSlot(subMesh.materialSlot);
-            addRenderItem(actor, mesh, subMesh, i, material.Get(), nullptr);
-        }
-    });
+        });
 
     std::sort(collection.opaqueItems.begin(), collection.opaqueItems.end(),
               [](const SceneRenderItem& a, const SceneRenderItem& b) {

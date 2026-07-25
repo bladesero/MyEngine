@@ -16,6 +16,7 @@
 #include "Renderer/LightComponent.h"
 #include "Renderer/MainPass.h"
 #include "Renderer/ModernDeferredPipeline.h"
+#include "Renderer/ParticleSystemComponent.h"
 #include "Renderer/ProbeLightingSystem.h"
 #include "Renderer/PostProcessPass.h"
 #include "Renderer/PostProcessComponent.h"
@@ -41,49 +42,45 @@ struct PostProcessRuntimeOptions {
 
 PostProcessRuntimeOptions CollectPostProcessOptions(const Scene& scene) {
     PostProcessRuntimeOptions options;
-    bool found = false;
-    scene.ForEach([&](Actor& actor) {
-        if (found || !actor.IsActive())
-            return;
-        auto* post = actor.GetComponent<PostProcessComponent>();
-        if (!post || !post->IsEnabled())
-            return;
-        options.ssaoEnabled = post->GetSSAOIntensity() > 0.0f;
-        options.ssaoHalfResolution = post->IsSSAOHalfResolution();
-        options.modern.ssaoRadius = post->GetSSAORadius();
-        options.modern.ssaoBias = post->GetSSAOBias();
-        options.modern.ssaoPower = post->GetSSAOPower();
-        options.modern.ssaoIntensity = post->GetSSAOIntensity();
-        options.modern.ssaoHalfResolution = post->IsSSAOHalfResolution();
-        options.modern.rayTracedShadowReplacement = post->UsesRayTracedShadowReplacement();
-        options.modern.rayTracedAOReplacement = post->UsesRayTracedAOReplacement();
-        options.modern.rayTracedReflectionReplacement = post->UsesRayTracedReflectionReplacement();
-        options.modern.rayTracedDiffuseReplacement = post->UsesRayTracedDiffuseReplacement();
-        options.modern.ssgiEnabled = post->IsSSGIEnabled();
-        options.modern.ssgiHalfResolution = post->IsSSGIHalfResolution();
-        options.modern.ssrEnabled = post->IsSSREnabled();
-        options.modern.ssrHalfResolution = post->IsSSRHalfResolution();
-        options.modern.taaEnabled = post->IsTAAEnabled();
-        options.modern.ssgiIntensity = post->GetSSGIIntensity();
-        options.modern.ssgiMaxDistance = post->GetSSGIMaxDistance();
-        options.modern.ssgiHistoryWeight = post->GetSSGIHistoryWeight();
-        options.modern.ssgiStepCount = post->GetSSGIStepCount();
-        options.modern.ssgiFilterRounds = post->GetSSGIFilterRounds();
-        options.modern.ssrMaxDistance = post->GetSSRMaxDistance();
-        options.modern.ssrMaxRoughness = post->GetSSRMaxRoughness();
-        options.modern.ssrHistoryWeight = post->GetSSRHistoryWeight();
-        options.modern.ssrStepCount = post->GetSSRStepCount();
-        options.modern.ssrFilterRounds = post->GetSSRFilterRounds();
-        options.modern.rtReflectionIntensityClamp = post->GetRTReflectionIntensityClamp();
-        options.modern.rtReflectionAtrousRadiusScale = post->GetRTReflectionAtrousRadiusScale();
-        options.modern.taaHistoryWeight = post->GetTAAHistoryWeight();
-        options.modern.taaJitterSpread = post->GetTAAJitterSpread();
-        options.modern.taaHistoryClipExpansion = post->GetTAAHistoryClipExpansion();
-        options.modern.exposure = post->GetExposure();
-        options.modern.gamma = post->GetGamma();
-        options.modern.bloomThreshold = post->GetBloomThreshold();
-        options.modern.bloomIntensity = post->IsBloomEnabled() ? post->GetBloomIntensity() : 0.0f;
-        found = true;
+    scene.ForEachWith<PostProcessComponent>([&](const Actor& actor, const PostProcessComponent& post) {
+        if (!actor.IsActive() || !post.IsEnabled())
+            return SceneQueryControl::Continue;
+        options.ssaoEnabled = post.GetSSAOIntensity() > 0.0f;
+        options.ssaoHalfResolution = post.IsSSAOHalfResolution();
+        options.modern.ssaoRadius = post.GetSSAORadius();
+        options.modern.ssaoBias = post.GetSSAOBias();
+        options.modern.ssaoPower = post.GetSSAOPower();
+        options.modern.ssaoIntensity = post.GetSSAOIntensity();
+        options.modern.ssaoHalfResolution = post.IsSSAOHalfResolution();
+        options.modern.rayTracedShadowReplacement = post.UsesRayTracedShadowReplacement();
+        options.modern.rayTracedAOReplacement = post.UsesRayTracedAOReplacement();
+        options.modern.rayTracedReflectionReplacement = post.UsesRayTracedReflectionReplacement();
+        options.modern.rayTracedDiffuseReplacement = post.UsesRayTracedDiffuseReplacement();
+        options.modern.ssgiEnabled = post.IsSSGIEnabled();
+        options.modern.ssgiHalfResolution = post.IsSSGIHalfResolution();
+        options.modern.ssrEnabled = post.IsSSREnabled();
+        options.modern.ssrHalfResolution = post.IsSSRHalfResolution();
+        options.modern.taaEnabled = post.IsTAAEnabled();
+        options.modern.ssgiIntensity = post.GetSSGIIntensity();
+        options.modern.ssgiMaxDistance = post.GetSSGIMaxDistance();
+        options.modern.ssgiHistoryWeight = post.GetSSGIHistoryWeight();
+        options.modern.ssgiStepCount = post.GetSSGIStepCount();
+        options.modern.ssgiFilterRounds = post.GetSSGIFilterRounds();
+        options.modern.ssrMaxDistance = post.GetSSRMaxDistance();
+        options.modern.ssrMaxRoughness = post.GetSSRMaxRoughness();
+        options.modern.ssrHistoryWeight = post.GetSSRHistoryWeight();
+        options.modern.ssrStepCount = post.GetSSRStepCount();
+        options.modern.ssrFilterRounds = post.GetSSRFilterRounds();
+        options.modern.rtReflectionIntensityClamp = post.GetRTReflectionIntensityClamp();
+        options.modern.rtReflectionAtrousRadiusScale = post.GetRTReflectionAtrousRadiusScale();
+        options.modern.taaHistoryWeight = post.GetTAAHistoryWeight();
+        options.modern.taaJitterSpread = post.GetTAAJitterSpread();
+        options.modern.taaHistoryClipExpansion = post.GetTAAHistoryClipExpansion();
+        options.modern.exposure = post.GetExposure();
+        options.modern.gamma = post.GetGamma();
+        options.modern.bloomThreshold = post.GetBloomThreshold();
+        options.modern.bloomIntensity = post.IsBloomEnabled() ? post.GetBloomIntensity() : 0.0f;
+        return SceneQueryControl::Break;
     });
     return options;
 }
@@ -105,19 +102,15 @@ ModernDeferredPipeline::ScreenSpaceDebugMode ResolveModernScreenSpaceDebugMode(R
 
 Vec3 CollectEnvironmentSunDirection(const Scene& scene) {
     Vec3 sunDirection = EnvironmentPass::DefaultSunDirection();
-    bool found = false;
-    scene.ForEach([&](Actor& actor) {
-        if (found || !actor.IsActive())
-            return;
-        auto* light = actor.GetComponent<LightComponent>();
-        if (!light || !light->IsEnabled() || light->GetLightType() != LightType::Directional) {
-            return;
-        }
-        const Vec3 lightDirection = light->GetDirection();
+    scene.ForEachWith<LightComponent>([&](const Actor& actor, const LightComponent& light) {
+        if (!actor.IsActive() || !light.IsEnabled() || light.GetLightType() != LightType::Directional)
+            return SceneQueryControl::Continue;
+        const Vec3 lightDirection = light.GetDirection();
         if (lightDirection.LengthSq() > 1e-8f) {
             sunDirection = (-lightDirection).Normalized();
-            found = true;
+            return SceneQueryControl::Break;
         }
+        return SceneQueryControl::Continue;
     });
     return sunDirection;
 }
@@ -147,16 +140,21 @@ std::vector<std::string> CollectSceneShaderPaths(const Scene& scene) {
     std::unordered_set<const MaterialAsset*> visitedMaterials;
     std::unordered_set<std::string> uniqueShaders;
     std::vector<std::string> shaders;
-    scene.ForEach([&](Actor& actor) {
-        if (const auto* renderer = actor.GetComponent<MeshRendererComponent>()) {
-            for (const MaterialHandle& material : renderer->GetMaterials())
+    scene.ForEachWithAny<ParticleSystemComponent, SkinnedMeshRendererComponent, MeshRendererComponent>(
+        [&](const Actor& actor) {
+            if (const auto* particles = actor.GetComponent<ParticleSystemComponent>()) {
+                CollectMaterialShaderPaths(particles->GetMaterial(), visitedMaterials, uniqueShaders, shaders);
+                return;
+            }
+            if (const auto* skinned = actor.GetComponent<SkinnedMeshRendererComponent>()) {
+                const MaterialHandle material = skinned->GetMaterial();
                 CollectMaterialShaderPaths(material.Get(), visitedMaterials, uniqueShaders, shaders);
-        }
-        if (const auto* skinned = actor.GetComponent<SkinnedMeshRendererComponent>()) {
-            const MaterialHandle material = skinned->GetMaterial();
-            CollectMaterialShaderPaths(material.Get(), visitedMaterials, uniqueShaders, shaders);
-        }
-    });
+                return;
+            }
+            if (const auto* renderer = actor.GetComponent<MeshRendererComponent>())
+                for (const MaterialHandle& material : renderer->GetMaterials())
+                    CollectMaterialShaderPaths(material.Get(), visitedMaterials, uniqueShaders, shaders);
+        });
     return shaders;
 }
 } // namespace

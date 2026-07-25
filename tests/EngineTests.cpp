@@ -4867,6 +4867,10 @@ struct DeferredMutationProbe final : Component {
     }
 };
 
+struct SceneQueryMarkerComponent final : Component {
+    const char* GetTypeName() const override { return "SceneQueryMarker"; }
+};
+
 bool TestActorHandleLifecycleAndDeferredMutation() {
     ComponentRegistry::Get().Register("LifecycleProbe", [] { return std::make_unique<LifecycleProbeComponent>(); });
     ComponentRegistry::Get().Register("PriorityLifecycleProbe",
@@ -4944,6 +4948,128 @@ bool TestActorHandleLifecycleAndDeferredMutation() {
         return false;
     LifecycleProbeComponent::events = nullptr;
     return true;
+}
+
+bool TestSceneRuntimeTypeAndQueryIndex() {
+    TypeRegistry& registry = TypeRegistry::Get();
+    const RuntimeTypeIndex lightType = registry.FindRuntimeTypeIndex(std::type_index(typeid(LightComponent)));
+    const RuntimeTypeIndex meshType = registry.FindRuntimeTypeIndex(std::type_index(typeid(MeshRendererComponent)));
+    const TypeDescriptor* lightDescriptor = registry.Find("Light");
+    if (!Check(lightDescriptor && lightType != InvalidRuntimeTypeIndex && meshType != InvalidRuntimeTypeIndex &&
+                   lightType != meshType && registry.FindRuntimeTypeIndex(lightDescriptor->id) == lightType &&
+                   registry.FindByRuntimeTypeIndex(lightType) == lightDescriptor &&
+                   lightType < registry.GetRuntimeTypeCount() && meshType < registry.GetRuntimeTypeCount(),
+               "runtime type index lookup is not dense or reversible"))
+        return false;
+
+    const uint32_t previousTypeCount = registry.GetRuntimeTypeCount();
+    if (!Check(ComponentRegistry::Get().Register("SceneQueryMarker",
+                                                 [] { return std::make_unique<SceneQueryMarkerComponent>(); }),
+               "late scene query marker registration failed"))
+        return false;
+    const RuntimeTypeIndex markerType =
+        registry.FindRuntimeTypeIndex(std::type_index(typeid(SceneQueryMarkerComponent)));
+    if (!Check(markerType == previousTypeCount && registry.FindRuntimeTypeIndex(lightDescriptor->id) == lightType,
+               "late runtime type registration changed an existing index or left a hole"))
+        return false;
+
+    Scene scene("IndexedQueries");
+    Actor* lightOnly = scene.CreateActor("LightOnly");
+    lightOnly->AddComponent<LightComponent>();
+    for (int i = 0; i < 64; ++i)
+        scene.CreateActor("Unrelated" + std::to_string(i));
+    Actor* parent = scene.CreateActor("MeshParent");
+    parent->AddComponent<MeshRendererComponent>();
+    Actor* child = scene.CreateActor("LightMeshChild", parent);
+    child->AddComponent<LightComponent>();
+    child->AddComponent<MeshRendererComponent>();
+    parent->AddComponent<SceneQueryMarkerComponent>();
+
+    scene.ResetQueryStats();
+    std::vector<std::string> allOf;
+    scene.ForEachWith<LightComponent, MeshRendererComponent>(
+        [&](Actor& actor, LightComponent&, MeshRendererComponent&) { allOf.push_back(actor.GetName()); });
+    std::vector<std::string> anyOf;
+    scene.ForEachWithAny<LightComponent, MeshRendererComponent>(
+        [&](Actor& actor) { anyOf.push_back(actor.GetName()); });
+    const SceneQueryStats initialStats = scene.GetQueryStats();
+    const auto joinNames = [](const std::vector<std::string>& names) {
+        std::string joined;
+        for (const std::string& name : names)
+            joined += (joined.empty() ? "" : ",") + name;
+        return joined;
+    };
+    if (!Check(allOf == std::vector<std::string>({"LightMeshChild"}) &&
+                   anyOf == std::vector<std::string>({"LightOnly", "MeshParent", "LightMeshChild"}) &&
+                   initialStats.candidateVisits == 5 && initialStats.matchedActors == 4 &&
+                   initialStats.hierarchyCacheRebuilds == 0,
+               "AllOf/AnyOf query mismatch all=[" + joinNames(allOf) + "] any=[" + joinNames(anyOf) +
+                   "] candidates=" + std::to_string(initialStats.candidateVisits) +
+                   " matched=" + std::to_string(initialStats.matchedActors) +
+                   " hierarchyRebuilds=" + std::to_string(initialStats.hierarchyCacheRebuilds)))
+        return false;
+
+    lightOnly->SetParent(parent);
+    scene.ResetQueryStats();
+    anyOf.clear();
+    scene.ForEachWithAny<LightComponent, MeshRendererComponent>(
+        [&](Actor& actor) { anyOf.push_back(actor.GetName()); });
+    const SceneQueryStats reparentStats = scene.GetQueryStats();
+    if (!Check(anyOf == std::vector<std::string>({"MeshParent", "LightMeshChild", "LightOnly"}) &&
+                   reparentStats.hierarchyCacheRebuilds == 1 && reparentStats.queryOrderRebuilds == 2,
+               "query order cache did not rebuild exactly once after reparenting"))
+        return false;
+
+    child->RemoveComponent<MeshRendererComponent>();
+    allOf.clear();
+    scene.ForEachWith<LightComponent, MeshRendererComponent>(
+        [&](Actor& actor, LightComponent&, MeshRendererComponent&) { allOf.push_back(actor.GetName()); });
+    if (!Check(allOf.empty(), "component removal did not update the actor signature"))
+        return false;
+
+    bool createReturnedNull = false;
+    scene.ForEachWith<LightComponent>([&](Actor& actor, LightComponent&) {
+        if (actor.GetName() != "LightOnly")
+            return;
+        actor.RemoveComponent<LightComponent>();
+        createReturnedNull = scene.CreateActor("DeferredByQuery") == nullptr;
+    });
+    if (!Check(createReturnedNull && lightOnly->GetComponent<LightComponent>() && !scene.FindByName("DeferredByQuery"),
+               "query-time structural mutations became visible before command flush"))
+        return false;
+    scene.FlushCommands();
+    if (!Check(!lightOnly->GetComponent<LightComponent>() && scene.FindByName("DeferredByQuery"),
+               "query-time structural mutations did not update the index after command flush"))
+        return false;
+
+    size_t markerMatches = 0;
+    scene.ForEachWith<SceneQueryMarkerComponent>([&](Actor&, SceneQueryMarkerComponent&) { ++markerMatches; });
+    if (!Check(markerMatches == 1, "late-registered runtime type was not indexed by the scene"))
+        return false;
+
+    const ActorHandle recycledHandle = lightOnly->GetHandle();
+    scene.DestroyActor(parent);
+    Actor* recycled = scene.CreateActor("RecycledSlot");
+    recycled->AddComponent<SceneQueryMarkerComponent>();
+    size_t staleMeshMatches = 0;
+    scene.ForEachWith<MeshRendererComponent>([&](Actor&, MeshRendererComponent&) { ++staleMeshMatches; });
+    markerMatches = 0;
+    scene.ForEachWith<SceneQueryMarkerComponent>([&](Actor&, SceneQueryMarkerComponent&) { ++markerMatches; });
+    if (!Check(recycled->GetHandle().index == recycledHandle.index &&
+                   recycled->GetHandle().generation != recycledHandle.generation && staleMeshMatches == 0 &&
+                   markerMatches == 1,
+               "actor destruction or generation reuse left stale signature/index membership"))
+        return false;
+
+    scene.Clear();
+    markerMatches = 0;
+    scene.ForEachWith<SceneQueryMarkerComponent>([&](Actor&, SceneQueryMarkerComponent&) { ++markerMatches; });
+    if (!Check(markerMatches == 0, "Scene::Clear retained stale query membership"))
+        return false;
+    scene.CreateActor("AfterClear")->AddComponent<SceneQueryMarkerComponent>();
+    markerMatches = 0;
+    scene.ForEachWith<SceneQueryMarkerComponent>([&](Actor&, SceneQueryMarkerComponent&) { ++markerMatches; });
+    return Check(markerMatches == 1, "query index did not rebuild after Scene::Clear");
 }
 
 bool TestSceneActorSiblingReorder() {
@@ -7270,6 +7396,7 @@ MYENGINE_REGISTER_TEST("Core", "TestSceneAndAssetMemoryCounters", TestSceneAndAs
 MYENGINE_REGISTER_TEST("Scene", "TestSceneColdLoadsModelSubAssetReferences", TestSceneColdLoadsModelSubAssetReferences);
 MYENGINE_REGISTER_TEST("Scene", "TestActorHandleLifecycleAndDeferredMutation",
                        TestActorHandleLifecycleAndDeferredMutation);
+MYENGINE_REGISTER_TEST("Scene", "TestSceneRuntimeTypeAndQueryIndex", TestSceneRuntimeTypeAndQueryIndex);
 MYENGINE_REGISTER_TEST("Scene", "TestSceneActorSiblingReorder", TestSceneActorSiblingReorder);
 MYENGINE_REGISTER_TEST("Scene", "TestPrefabRoundTripOverridesAndValidation", TestPrefabRoundTripOverridesAndValidation);
 MYENGINE_REGISTER_TEST("Project", "TestPrefabCookDependencyValidation", TestPrefabCookDependencyValidation);

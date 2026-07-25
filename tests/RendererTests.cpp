@@ -3375,26 +3375,26 @@ bool TestModernScreenSpacePostProcessTuningContract() {
         return false;
     }
     return Check(
-        renderer.find("options.modern.ssgiHistoryWeight=post->GetSSGIHistoryWeight()") != std::string::npos &&
-            renderer.find("options.ssaoHalfResolution=post->IsSSAOHalfResolution()") != std::string::npos &&
-            renderer.find("options.modern.ssaoHalfResolution=post->IsSSAOHalfResolution()") != std::string::npos &&
+        renderer.find("options.modern.ssgiHistoryWeight=post.GetSSGIHistoryWeight()") != std::string::npos &&
+            renderer.find("options.ssaoHalfResolution=post.IsSSAOHalfResolution()") != std::string::npos &&
+            renderer.find("options.modern.ssaoHalfResolution=post.IsSSAOHalfResolution()") != std::string::npos &&
             renderer.find("IsRTAOHalfResolution") == std::string::npos &&
-            renderer.find("options.modern.ssgiHalfResolution=post->IsSSGIHalfResolution()") != std::string::npos &&
-            renderer.find("options.modern.ssgiStepCount=post->GetSSGIStepCount()") != std::string::npos &&
-            renderer.find("options.modern.ssgiFilterRounds=post->GetSSGIFilterRounds()") != std::string::npos &&
-            renderer.find("options.modern.ssrMaxDistance=post->GetSSRMaxDistance()") != std::string::npos &&
-            renderer.find("options.modern.ssrHistoryWeight=post->GetSSRHistoryWeight()") != std::string::npos &&
-            renderer.find("options.modern.ssrHalfResolution=post->IsSSRHalfResolution()") != std::string::npos &&
-            renderer.find("options.modern.ssrStepCount=post->GetSSRStepCount()") != std::string::npos &&
-            renderer.find("options.modern.ssrFilterRounds=post->GetSSRFilterRounds()") != std::string::npos &&
-            renderer.find("options.modern.rtReflectionIntensityClamp=post->GetRTReflectionIntensityClamp()") !=
+            renderer.find("options.modern.ssgiHalfResolution=post.IsSSGIHalfResolution()") != std::string::npos &&
+            renderer.find("options.modern.ssgiStepCount=post.GetSSGIStepCount()") != std::string::npos &&
+            renderer.find("options.modern.ssgiFilterRounds=post.GetSSGIFilterRounds()") != std::string::npos &&
+            renderer.find("options.modern.ssrMaxDistance=post.GetSSRMaxDistance()") != std::string::npos &&
+            renderer.find("options.modern.ssrHistoryWeight=post.GetSSRHistoryWeight()") != std::string::npos &&
+            renderer.find("options.modern.ssrHalfResolution=post.IsSSRHalfResolution()") != std::string::npos &&
+            renderer.find("options.modern.ssrStepCount=post.GetSSRStepCount()") != std::string::npos &&
+            renderer.find("options.modern.ssrFilterRounds=post.GetSSRFilterRounds()") != std::string::npos &&
+            renderer.find("options.modern.rtReflectionIntensityClamp=post.GetRTReflectionIntensityClamp()") !=
                 std::string::npos &&
-            renderer.find("options.modern.rtReflectionAtrousRadiusScale=post->GetRTReflectionAtrousRadiusScale()") !=
+            renderer.find("options.modern.rtReflectionAtrousRadiusScale=post.GetRTReflectionAtrousRadiusScale()") !=
                 std::string::npos &&
-            renderer.find("options.modern.taaEnabled=post->IsTAAEnabled()") != std::string::npos &&
-            renderer.find("options.modern.taaHistoryWeight=post->GetTAAHistoryWeight()") != std::string::npos &&
-            renderer.find("options.modern.taaJitterSpread=post->GetTAAJitterSpread()") != std::string::npos &&
-            renderer.find("options.modern.taaHistoryClipExpansion=post->GetTAAHistoryClipExpansion()") !=
+            renderer.find("options.modern.taaEnabled=post.IsTAAEnabled()") != std::string::npos &&
+            renderer.find("options.modern.taaHistoryWeight=post.GetTAAHistoryWeight()") != std::string::npos &&
+            renderer.find("options.modern.taaJitterSpread=post.GetTAAJitterSpread()") != std::string::npos &&
+            renderer.find("options.modern.taaHistoryClipExpansion=post.GetTAAHistoryClipExpansion()") !=
                 std::string::npos &&
             inspector.find("ReflectionIntensityClamp##RT") != std::string::npos &&
             inspector.find("SetRTReflectionIntensityClamp(rtReflectionIntensityClamp)") != std::string::npos &&
@@ -4081,6 +4081,99 @@ bool TestHeadlessRendering() {
     return Check(transparentPipelineIndex < context.commands.pipelineDepthWriteEnabled.size() &&
                      !context.commands.pipelineDepthWriteEnabled[transparentPipelineIndex],
                  "transparent forward pipeline writes scene depth and invalidates temporal geometry history");
+}
+
+bool TestIndexedSceneLightingAndMeshCollection() {
+    AssetManager::Get().Clear();
+    Scene scene("IndexedRendererCollection");
+    for (int i = 0; i < 128; ++i)
+        scene.CreateActor("Unrelated" + std::to_string(i));
+
+    Actor* skylightActor = scene.CreateActor("Skylight");
+    skylightActor->AddComponent<SkylightComponent>();
+    Actor* lightActor = scene.CreateActor("Light");
+    lightActor->AddComponent<LightComponent>();
+    Actor* postActor = scene.CreateActor("Post");
+    postActor->AddComponent<PostProcessComponent>();
+
+    const MeshHandle cube = AssetManager::Get().GetCubeMesh();
+    const MaterialHandle material = AssetManager::Get().GetDefaultMaterial();
+    Actor* meshActor = scene.CreateActor("Mesh");
+    auto* mesh = meshActor->AddComponent<MeshRendererComponent>();
+    mesh->SetMesh(cube);
+    mesh->SetMaterial(material);
+
+    Actor* particlePriority = scene.CreateActor("ParticlePriority");
+    auto* particleFallback = particlePriority->AddComponent<MeshRendererComponent>();
+    particleFallback->SetMesh(cube);
+    particleFallback->SetMaterial(material);
+    particlePriority->AddComponent<SkinnedMeshRendererComponent>();
+    auto* particles = particlePriority->AddComponent<ParticleSystemComponent>();
+    particles->Emit(1);
+
+    Actor* skinnedPriority = scene.CreateActor("SkinnedPriority");
+    auto* skinnedFallback = skinnedPriority->AddComponent<MeshRendererComponent>();
+    skinnedFallback->SetMesh(cube);
+    skinnedFallback->SetMaterial(material);
+    skinnedPriority->AddComponent<SkinnedMeshRendererComponent>();
+
+    Camera camera;
+    camera.LookAt({0.0f, 0.0f, -4.0f}, Vec3::Zero());
+    camera.SetPerspective(60.0f, 16.0f / 9.0f);
+
+    scene.ResetQueryStats();
+    const SceneEnvironmentData environment = CollectSceneEnvironmentData(scene);
+    const SceneLightData lighting = CollectSceneLights(scene, environment);
+    const ScenePostProcessData post = CollectScenePostProcessData(scene);
+    SceneRenderCollector collector;
+    const SceneRenderCollection collection = collector.Collect(scene, camera);
+    const SceneQueryStats stats = scene.GetQueryStats();
+    if (!Check(environment.activeSkylightCount == 1 && lighting.directionalIntensity > 0.0f && post.exposure > 0.0f &&
+                   collection.submittedSubMeshes == 2 && collection.opaqueItems.size() == 1 &&
+                   collection.transparentItems.size() == 1 &&
+                   collection.transparentItems.front().actor == particlePriority && stats.candidateVisits == 6 &&
+                   stats.matchedActors == 6,
+               "indexed lighting/mesh collection mismatch submitted=" +
+                   std::to_string(collection.submittedSubMeshes) +
+                   " opaque=" + std::to_string(collection.opaqueItems.size()) +
+                   " transparent=" + std::to_string(collection.transparentItems.size()) +
+                   " candidates=" + std::to_string(stats.candidateVisits) +
+                   " matched=" + std::to_string(stats.matchedActors)))
+        return false;
+
+    scene.ResetQueryStats();
+    if (!Check(collector.Collect(scene, camera, true).submittedSubMeshes == 0 &&
+                   scene.GetQueryStats().candidateVisits == 3,
+               "static-only indexed collection accepted non-static actors or scanned the full scene"))
+        return false;
+    meshActor->SetStatic(true);
+    if (!Check(collector.Collect(scene, camera, true).submittedSubMeshes == 1,
+               "static-only indexed collection rejected a static mesh"))
+        return false;
+
+    const std::array<std::string, 5> sources = {
+        CompactSource(ReadRepositoryTextFile(
+            {"src/Runtime/Renderer/SceneLighting.cpp", "../src/Runtime/Renderer/SceneLighting.cpp",
+             "../../../src/Runtime/Renderer/SceneLighting.cpp", "../../../../src/Runtime/Renderer/SceneLighting.cpp"})),
+        CompactSource(ReadRepositoryTextFile({"src/Runtime/Renderer/SceneRenderCollector.cpp",
+                                              "../src/Runtime/Renderer/SceneRenderCollector.cpp",
+                                              "../../../src/Runtime/Renderer/SceneRenderCollector.cpp",
+                                              "../../../../src/Runtime/Renderer/SceneRenderCollector.cpp"})),
+        CompactSource(ReadRepositoryTextFile({"src/Runtime/Renderer/GpuSceneDatabase.cpp",
+                                              "../src/Runtime/Renderer/GpuSceneDatabase.cpp",
+                                              "../../../src/Runtime/Renderer/GpuSceneDatabase.cpp",
+                                              "../../../../src/Runtime/Renderer/GpuSceneDatabase.cpp"})),
+        CompactSource(ReadRepositoryTextFile(
+            {"src/Runtime/Renderer/ShadowPass.cpp", "../src/Runtime/Renderer/ShadowPass.cpp",
+             "../../../src/Runtime/Renderer/ShadowPass.cpp", "../../../../src/Runtime/Renderer/ShadowPass.cpp"})),
+        CompactSource(ReadRepositoryTextFile(
+            {"src/Runtime/Renderer/Renderer.cpp", "../src/Runtime/Renderer/Renderer.cpp",
+             "../../../src/Runtime/Renderer/Renderer.cpp", "../../../../src/Runtime/Renderer/Renderer.cpp"}))};
+    return Check(std::all_of(sources.begin(), sources.end(),
+                             [](const std::string& source) {
+                                 return !source.empty() && source.find("scene.ForEach(") == std::string::npos;
+                             }),
+                 "a migrated renderer collection path regressed to a full scene scan");
 }
 
 bool TestMeshRendererSubMeshMaterialSlotDraws() {
@@ -5284,6 +5377,8 @@ MYENGINE_REGISTER_TEST("Renderer", "TestModernDiagnosticsReadbackIsThrottled",
                        TestModernDiagnosticsReadbackIsThrottled);
 MYENGINE_REGISTER_TEST("Renderer", "TestModernTemporalHistoryCommitAndAbort", TestModernTemporalHistoryCommitAndAbort);
 MYENGINE_REGISTER_TEST("Renderer", "TestHeadlessRendering", TestHeadlessRendering);
+MYENGINE_REGISTER_TEST("Renderer", "TestIndexedSceneLightingAndMeshCollection",
+                       TestIndexedSceneLightingAndMeshCollection);
 MYENGINE_REGISTER_TEST("Renderer", "TestMeshRendererSubMeshMaterialSlotDraws",
                        TestMeshRendererSubMeshMaterialSlotDraws);
 MYENGINE_REGISTER_TEST("Renderer", "TestMainPassSamplerCacheDeduplicatesTextureSamplerStates",

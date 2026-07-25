@@ -16,6 +16,8 @@ class Component;
 
 using TypeId = uint64_t;
 using PropertyId = uint64_t;
+using RuntimeTypeIndex = uint32_t;
+inline constexpr RuntimeTypeIndex InvalidRuntimeTypeIndex = UINT32_MAX;
 
 enum class PropertyKind {
     Bool,
@@ -105,6 +107,10 @@ public:
     bool IsFrozen() const { return m_Frozen; }
     const TypeDescriptor* Find(const std::string& stableName) const;
     const TypeDescriptor* Find(TypeId id) const;
+    RuntimeTypeIndex FindRuntimeTypeIndex(TypeId id) const;
+    RuntimeTypeIndex FindRuntimeTypeIndex(std::type_index cppType) const;
+    const TypeDescriptor* FindByRuntimeTypeIndex(RuntimeTypeIndex index) const;
+    uint32_t GetRuntimeTypeCount() const { return static_cast<uint32_t>(m_RuntimeTypeNames.size()); }
     const PropertyDescriptor* FindProperty(const TypeDescriptor& type, const std::string& nameOrAlias) const;
     std::unique_ptr<Component> Create(const std::string& stableName) const;
     std::vector<std::string> GetRegisteredTypes() const;
@@ -120,6 +126,9 @@ public:
 private:
     std::unordered_map<std::string, TypeDescriptor> m_Types;
     std::unordered_map<TypeId, std::string> m_TypeIds;
+    std::unordered_map<TypeId, RuntimeTypeIndex> m_RuntimeTypeIds;
+    std::unordered_map<std::type_index, RuntimeTypeIndex> m_RuntimeCppTypes;
+    std::vector<std::string> m_RuntimeTypeNames;
     bool m_Frozen = false;
 };
 
