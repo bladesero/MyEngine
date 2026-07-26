@@ -32,8 +32,7 @@ public:
                                                             const RHIBufferViewDesc&) {
         return nullptr;
     }
-    virtual std::shared_ptr<GpuIndexedIndirectCommandStream>
-    CreateIndexedIndirectCommandStream(uint32_t capacity) {
+    virtual std::shared_ptr<GpuIndexedIndirectCommandStream> CreateIndexedIndirectCommandStream(uint32_t capacity) {
         if (capacity == 0)
             return nullptr;
         auto stream = std::make_shared<GpuIndexedIndirectCommandStream>();

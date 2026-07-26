@@ -1216,8 +1216,7 @@ bool ModernDeferredPipeline::EnsureIndirectBuffers(uint32_t candidateCount) {
     count.size = sizeof(uint32_t);
     count.stride = sizeof(uint32_t);
     count.usage = RHIResourceUsage::UnorderedAccess | RHIResourceUsage::IndirectArguments |
-                  RHIResourceUsage::CopyDestination | RHIResourceUsage::CopySource |
-                  RHIResourceUsage::ShaderResource;
+                  RHIResourceUsage::CopyDestination | RHIResourceUsage::CopySource | RHIResourceUsage::ShaderResource;
     count.debugName = "ModernDepthIndirectCount";
     const uint32_t zero = 0;
     m_IndirectCount = m_Device->CreateBuffer(count, &zero);
@@ -1649,8 +1648,7 @@ bool ModernDeferredPipeline::AddGpuDrivenShadowView(RenderGraph& graph, const st
             commands.BuildIndexedIndirectCommandStream(stream->commands.get(), stream->args.get(), 0,
                                                        stream->count.get(), 0,
                                                        m_GpuScene->GetGeometryArena().GetIndexBuffer().get(),
-                                                       stream->capacity,
-                                                       sizeof(RHIObjectDrawIndexedIndirectArgs));
+                                                       stream->capacity, sizeof(RHIObjectDrawIndexedIndirectArgs));
         });
     graph.AddPass(
         name + "Draw",
@@ -1721,8 +1719,8 @@ void ModernDeferredPipeline::AddDepthPrepass(RenderGraph& graph, RGTextureHandle
         [this](GpuCommandList& commands, const RenderGraphResources&) {
             commands.BuildIndexedIndirectCommandStream(
                 m_IndirectCommands.get(), m_IndirectArgs.get(), 0, m_IndirectCount.get(), 0,
-                m_GpuScene->GetGeometryArena().GetIndexBuffer().get(),
-                m_Stats.indirectDrawCapacity, sizeof(RHIObjectDrawIndexedIndirectArgs));
+                m_GpuScene->GetGeometryArena().GetIndexBuffer().get(), m_Stats.indirectDrawCapacity,
+                sizeof(RHIObjectDrawIndexedIndirectArgs));
         });
     graph.AddPass(
         "DepthPrepassIndirect",
@@ -1898,8 +1896,8 @@ void ModernDeferredPipeline::AddGBufferPass(RenderGraph& graph, RGTextureHandle 
         [this](GpuCommandList& commands, const RenderGraphResources&) {
             commands.BuildIndexedIndirectCommandStream(
                 m_IndirectCommands.get(), m_IndirectArgs.get(), 0, m_IndirectCount.get(), 0,
-                m_GpuScene->GetGeometryArena().GetIndexBuffer().get(),
-                m_Stats.indirectDrawCapacity, sizeof(RHIObjectDrawIndexedIndirectArgs));
+                m_GpuScene->GetGeometryArena().GetIndexBuffer().get(), m_Stats.indirectDrawCapacity,
+                sizeof(RHIObjectDrawIndexedIndirectArgs));
         });
     graph.AddPass(
         "GBufferIndirect",

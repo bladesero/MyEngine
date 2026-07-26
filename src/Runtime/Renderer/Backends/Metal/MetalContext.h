@@ -38,10 +38,9 @@ public:
     RHIBackend GetBackend() const override { return RHIBackend::Metal; }
     RHIDeviceCapabilities GetCapabilities() const override;
     bool IsFormatSupported(RHIFormat format, RHIResourceUsage usage) const override;
-    std::shared_ptr<GpuReadbackTicket>
-    ReadbackBufferAsync(const std::shared_ptr<GpuBuffer>& buffer) override;
-    std::shared_ptr<GpuTextureReadbackTicket>
-    ReadbackTextureAsync(const std::shared_ptr<GpuTexture>& texture, const RHITextureRegion& region) override;
+    std::shared_ptr<GpuReadbackTicket> ReadbackBufferAsync(const std::shared_ptr<GpuBuffer>& buffer) override;
+    std::shared_ptr<GpuTextureReadbackTicket> ReadbackTextureAsync(const std::shared_ptr<GpuTexture>& texture,
+                                                                   const RHITextureRegion& region) override;
     IEditorImGuiRHIInterop* QueryEditorImGuiInterop() override { return this; }
     ImGuiBackendHandles GetImGuiBackendHandles() override;
 
@@ -51,8 +50,7 @@ public:
     std::shared_ptr<GpuBuffer> CreateBuffer(const RHIBufferDesc& desc, const void* initialData = nullptr) override;
     std::shared_ptr<GpuBufferView> CreateBufferView(const std::shared_ptr<GpuBuffer>& buffer,
                                                     const RHIBufferViewDesc& desc) override;
-    std::shared_ptr<GpuIndexedIndirectCommandStream>
-    CreateIndexedIndirectCommandStream(uint32_t capacity) override;
+    std::shared_ptr<GpuIndexedIndirectCommandStream> CreateIndexedIndirectCommandStream(uint32_t capacity) override;
     bool UpdateBuffer(const std::shared_ptr<GpuBuffer>& buffer, uint64_t offset, const void* data,
                       uint64_t size) override;
 

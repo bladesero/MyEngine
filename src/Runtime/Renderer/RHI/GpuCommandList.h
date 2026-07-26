@@ -92,8 +92,8 @@ public:
                                           uint32_t = sizeof(RHIDrawIndexedIndirectArgs)) {}
     virtual void BuildIndexedIndirectCommandStream(GpuIndexedIndirectCommandStream* stream, GpuBuffer* arguments,
                                                    uint64_t argumentOffset, GpuBuffer* countBuffer,
-                                                   uint64_t countOffset, GpuBuffer* indexBuffer,
-                                                   uint32_t maxDrawCount, uint32_t stride) {
+                                                   uint64_t countOffset, GpuBuffer* indexBuffer, uint32_t maxDrawCount,
+                                                   uint32_t stride) {
         if (!stream)
             return;
         stream->arguments = arguments;

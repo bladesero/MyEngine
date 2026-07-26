@@ -39,7 +39,7 @@ constexpr std::array<const char*, kMetalMaterialSamplerCount> kMetalMaterialSamp
     "g_PointClampURepeatVSampler", "g_LinearRepeatUClampVSampler", "g_PointRepeatUClampVSampler",
     "g_LinearClampSampler",        "g_PointClampSampler",
 };
-}
+} // namespace
 
 // ============================================================================
 // GPU resource types
@@ -171,14 +171,13 @@ struct MetalTextureReadbackTicket final : GpuTextureReadbackTicket {
             return false;
         data.resize(size);
         if (size) {
-            const MTLRegion nativeRegion =
-                MTLRegionMake2D(region.x, region.y, region.width, region.height);
+            const MTLRegion nativeRegion = MTLRegionMake2D(region.x, region.y, region.width, region.height);
             [texture getBytes:data.data()
-                 bytesPerRow:rowPitch
-               bytesPerImage:size
-                  fromRegion:nativeRegion
-                 mipmapLevel:region.mipLevel
-                       slice:region.arrayLayer];
+                  bytesPerRow:rowPitch
+                bytesPerImage:size
+                   fromRegion:nativeRegion
+                  mipmapLevel:region.mipLevel
+                        slice:region.arrayLayer];
         }
         return true;
     }
@@ -452,11 +451,10 @@ void ParseMetalBindings(const std::string& source, uint8_t stage, ShaderReflecti
         binding.bindCount = 1;
         binding.stages = stage;
         if (attr == "texture") {
-            binding.type =
-                declarationText.find("access::write") != std::string::npos ||
-                        declarationText.find("access::read_write") != std::string::npos
-                    ? ShaderBindingType::StorageTexture
-                    : ShaderBindingType::Texture;
+            binding.type = declarationText.find("access::write") != std::string::npos ||
+                                   declarationText.find("access::read_write") != std::string::npos
+                               ? ShaderBindingType::StorageTexture
+                               : ShaderBindingType::Texture;
         } else if (attr == "sampler") {
             binding.type = ShaderBindingType::Sampler;
         } else {
@@ -467,8 +465,7 @@ void ParseMetalBindings(const std::string& source, uint8_t stage, ShaderReflecti
         }
         AddOrMergeBinding(reflection, binding);
     }
-    static const std::regex argumentSamplerRegex(
-        R"(sampler\s+(g_[A-Za-z0-9_]+)\s*\[\[id\((\d+)\)\]\])");
+    static const std::regex argumentSamplerRegex(R"(sampler\s+(g_[A-Za-z0-9_]+)\s*\[\[id\((\d+)\)\]\])");
     for (std::sregex_iterator it(source.begin(), source.end(), argumentSamplerRegex), end; it != end; ++it) {
         ShaderBindingDesc binding;
         binding.name = (*it)[1].str();
@@ -507,19 +504,18 @@ std::string RewriteMetalBindlessArgumentBuffer(std::string source) {
     if (source.find("g_BindlessTextures_") == std::string::npos)
         return source;
 
-    constexpr const char* declaration =
-        "\nstruct MyEngineBindlessTextureTable\n"
-        "{\n"
-        "    array<texture2d<float, access::sample>, 4096> textures [[id(0)]];\n"
-        "    sampler g_LinearRepeatSampler [[id(4096)]];\n"
-        "    sampler g_PointRepeatSampler [[id(4097)]];\n"
-        "    sampler g_LinearClampURepeatVSampler [[id(4098)]];\n"
-        "    sampler g_PointClampURepeatVSampler [[id(4099)]];\n"
-        "    sampler g_LinearRepeatUClampVSampler [[id(4100)]];\n"
-        "    sampler g_PointRepeatUClampVSampler [[id(4101)]];\n"
-        "    sampler g_LinearClampSampler [[id(4102)]];\n"
-        "    sampler g_PointClampSampler [[id(4103)]];\n"
-        "};\n";
+    constexpr const char* declaration = "\nstruct MyEngineBindlessTextureTable\n"
+                                        "{\n"
+                                        "    array<texture2d<float, access::sample>, 4096> textures [[id(0)]];\n"
+                                        "    sampler g_LinearRepeatSampler [[id(4096)]];\n"
+                                        "    sampler g_PointRepeatSampler [[id(4097)]];\n"
+                                        "    sampler g_LinearClampURepeatVSampler [[id(4098)]];\n"
+                                        "    sampler g_PointClampURepeatVSampler [[id(4099)]];\n"
+                                        "    sampler g_LinearRepeatUClampVSampler [[id(4100)]];\n"
+                                        "    sampler g_PointRepeatUClampVSampler [[id(4101)]];\n"
+                                        "    sampler g_LinearClampSampler [[id(4102)]];\n"
+                                        "    sampler g_PointClampSampler [[id(4103)]];\n"
+                                        "};\n";
     const std::string marker = "using namespace metal;";
     const size_t markerPosition = source.find(marker);
     if (markerPosition == std::string::npos)
@@ -528,26 +524,21 @@ std::string RewriteMetalBindlessArgumentBuffer(std::string source) {
 
     const std::regex memberRegex(
         R"(array<texture2d<float,\s*access::sample>,\s*int\(4096\)>\s+g_BindlessTextures_(\d+);)");
-    source = std::regex_replace(source, memberRegex,
-                                "constant MyEngineBindlessTextureTable* g_BindlessTable_$1;");
+    source = std::regex_replace(source, memberRegex, "constant MyEngineBindlessTextureTable* g_BindlessTable_$1;");
 
     const std::regex parameterRegex(
         R"(array<texture2d<float,\s*access::sample>,\s*int\(4096\)>\s+g_BindlessTextures_(\d+))");
-    source = std::regex_replace(
-        source, parameterRegex,
-        "constant MyEngineBindlessTextureTable& g_BindlessTable_$1 [[buffer(14)]]");
+    source = std::regex_replace(source, parameterRegex,
+                                "constant MyEngineBindlessTextureTable& g_BindlessTable_$1 [[buffer(14)]]");
 
-    const std::regex assignmentRegex(
-        R"(->g_BindlessTextures_(\d+)\s*=\s*g_BindlessTextures_(\d+);)");
-    source = std::regex_replace(source, assignmentRegex,
-                                "->g_BindlessTable_$1 = &g_BindlessTable_$2;");
+    const std::regex assignmentRegex(R"(->g_BindlessTextures_(\d+)\s*=\s*g_BindlessTextures_(\d+);)");
+    source = std::regex_replace(source, assignmentRegex, "->g_BindlessTable_$1 = &g_BindlessTable_$2;");
 
     const std::regex accessRegex(R"(->g_BindlessTextures_(\d+)\[)");
     source = std::regex_replace(source, accessRegex, "->g_BindlessTable_$1->textures[");
 
     std::smatch tableMember;
-    static const std::regex tableMemberRegex(
-        R"(constant\s+MyEngineBindlessTextureTable\*\s+g_BindlessTable_(\d+);)");
+    static const std::regex tableMemberRegex(R"(constant\s+MyEngineBindlessTextureTable\*\s+g_BindlessTable_(\d+);)");
     if (!std::regex_search(source, tableMember, tableMemberRegex))
         return {};
     const std::string tableSuffix = tableMember[1].str();
@@ -556,11 +547,10 @@ std::string RewriteMetalBindlessArgumentBuffer(std::string source) {
         source = std::regex_replace(
             source, std::regex(",\\s*sampler\\s+" + escapedName + "_\\d+\\s*\\[\\[sampler\\(\\d+\\)\\]\\]"), "");
         source = std::regex_replace(source, std::regex("\\s*sampler\\s+" + escapedName + "_\\d+\\s*;"), "");
-        source = std::regex_replace(
-            source,
-            std::regex("\\s*\\(&[A-Za-z_][A-Za-z0-9_]*\\)->" + escapedName +
-                       "_\\d+\\s*=\\s*" + escapedName + "_\\d+\\s*;"),
-            "");
+        source = std::regex_replace(source,
+                                    std::regex("\\s*\\(&[A-Za-z_][A-Za-z0-9_]*\\)->" + escapedName + "_\\d+\\s*=\\s*" +
+                                               escapedName + "_\\d+\\s*;"),
+                                    "");
         source = std::regex_replace(source, std::regex("->" + escapedName + "_\\d+"),
                                     "->g_BindlessTable_" + tableSuffix + "->" + escapedName);
     }
@@ -572,14 +562,13 @@ void CollectMetalBufferBindingNames(const std::string& source, std::vector<std::
         R"(([A-Za-z_][A-Za-z0-9_:<>, \*&]*?)\s+([A-Za-z_][A-Za-z0-9_]*)\s*\[\[buffer\((\d+)\)\]\])");
     for (std::sregex_iterator it(source.begin(), source.end(), bufferRegex), end; it != end; ++it) {
         const std::string normalized = NormalizeSlangBindingName((*it)[2].str());
-        if (normalized != "g_BindlessTable" &&
-            std::find(names.begin(), names.end(), normalized) == names.end())
+        if (normalized != "g_BindlessTable" && std::find(names.begin(), names.end(), normalized) == names.end())
             names.push_back(normalized);
     }
 }
 
-std::string RemapMetalBufferBindings(
-    const std::string& source, const std::unordered_map<std::string, uint32_t>& bindings) {
+std::string RemapMetalBufferBindings(const std::string& source,
+                                     const std::unordered_map<std::string, uint32_t>& bindings) {
     static const std::regex bufferRegex(
         R"(([A-Za-z_][A-Za-z0-9_:<>, \*&]*?)\s+([A-Za-z_][A-Za-z0-9_]*)\s*\[\[buffer\((\d+)\)\]\])");
     std::string result;
@@ -638,8 +627,8 @@ void CollectMetalTextureBindingNames(const std::string& source, std::vector<std:
     }
 }
 
-std::string RemapMetalTextureBindings(
-    const std::string& source, const std::unordered_map<std::string, uint32_t>& bindings) {
+std::string RemapMetalTextureBindings(const std::string& source,
+                                      const std::unordered_map<std::string, uint32_t>& bindings) {
     static const std::regex textureRegex(
         R"(([A-Za-z_][A-Za-z0-9_:<>, \*&]*?)\s+([A-Za-z_][A-Za-z0-9_]*)\s*\[\[texture\((\d+)\)\]\])");
     std::string result;
@@ -785,9 +774,7 @@ public:
 
     void Dispatch(uint32_t x, uint32_t y, uint32_t z) override { m_Owner.Dispatch(x, y, z); }
     void DispatchIndirect(GpuBuffer* args, uint64_t offset) override { m_Owner.DispatchIndirect(args, offset); }
-    void ClearStorageBuffer(GpuBufferView* view, uint32_t value) override {
-        m_Owner.ClearStorageBuffer(view, value);
-    }
+    void ClearStorageBuffer(GpuBufferView* view, uint32_t value) override { m_Owner.ClearStorageBuffer(view, value); }
     void UAVBarrier(GpuResource* resource) override { m_Owner.UAVBarrier(resource); }
     void BuildIndexedIndirectCommandStream(GpuIndexedIndirectCommandStream* stream, GpuBuffer* arguments,
                                            uint64_t argumentOffset, GpuBuffer* countBuffer, uint64_t countOffset,
@@ -876,8 +863,7 @@ bool MetalContext::Init(IWindow* window) {
         textures.arrayLength = kMetalBindlessTextureCapacity;
         textures.access = MTLBindingAccessReadOnly;
         textures.textureType = MTLTextureType2D;
-        NSMutableArray<MTLArgumentDescriptor*>* bindlessArguments =
-            [NSMutableArray arrayWithObject:textures];
+        NSMutableArray<MTLArgumentDescriptor*>* bindlessArguments = [NSMutableArray arrayWithObject:textures];
         for (uint32_t samplerIndex = 0; samplerIndex < kMetalMaterialSamplerCount; ++samplerIndex) {
             MTLArgumentDescriptor* sampler = [[MTLArgumentDescriptor alloc] init];
             sampler.dataType = MTLDataTypeSampler;
@@ -887,8 +873,8 @@ bool MetalContext::Init(IWindow* window) {
             [bindlessArguments addObject:sampler];
         }
         bindless.encoder = [m_Impl->device newArgumentEncoderWithArguments:bindlessArguments];
-        bindless.argumentBuffer =
-            [m_Impl->device newBufferWithLength:bindless.encoder.encodedLength options:MTLResourceStorageModeShared];
+        bindless.argumentBuffer = [m_Impl->device newBufferWithLength:bindless.encoder.encodedLength
+                                                              options:MTLResourceStorageModeShared];
         [bindless.encoder setArgumentBuffer:bindless.argumentBuffer offset:0];
 
         MTLTextureDescriptor* fallbackDesc =
@@ -918,8 +904,7 @@ bool MetalContext::Init(IWindow* window) {
         bindless.fallbackSampler = [m_Impl->device newSamplerStateWithDescriptor:fallbackSamplerDesc];
         bindless.materialSamplers.fill(bindless.fallbackSampler);
         for (uint32_t i = 0; i < kMetalMaterialSamplerCount; ++i)
-            [bindless.encoder setSamplerState:bindless.fallbackSampler
-                                     atIndex:kMetalMaterialSamplerBaseIndex + i];
+            [bindless.encoder setSamplerState:bindless.fallbackSampler atIndex:kMetalMaterialSamplerBaseIndex + i];
         m_Impl->bindlessSupported =
             bindless.encoder && bindless.argumentBuffer && bindless.fallbackTexture && bindless.fallbackSampler;
 
@@ -979,12 +964,12 @@ kernel void ClearStorageBuffer(device uint* destination [[buffer(0)]],
         id<MTLFunction> clearFunction =
             indirectLibrary ? [indirectLibrary newFunctionWithName:@"ClearStorageBuffer"] : nil;
         if (indirectFunction) {
-            m_Impl->indirectCommandBuildPipeline =
-                [m_Impl->device newComputePipelineStateWithFunction:indirectFunction error:&indirectError];
+            m_Impl->indirectCommandBuildPipeline = [m_Impl->device newComputePipelineStateWithFunction:indirectFunction
+                                                                                                 error:&indirectError];
         }
         if (clearFunction) {
-            m_Impl->clearStorageBufferPipeline =
-                [m_Impl->device newComputePipelineStateWithFunction:clearFunction error:&indirectError];
+            m_Impl->clearStorageBufferPipeline = [m_Impl->device newComputePipelineStateWithFunction:clearFunction
+                                                                                               error:&indirectError];
         }
         if (!m_Impl->indirectCommandBuildPipeline || !m_Impl->clearStorageBufferPipeline) {
             m_Impl->indirectCommandBuffersSupported = false;
@@ -1014,15 +999,11 @@ kernel void ClearStorageBuffer(device uint* destination [[buffer(0)]],
     m_Impl->drawableH = static_cast<uint32_t>(h);
     m_Impl->EnsureDepthTexture(m_Impl->drawableW, m_Impl->drawableH);
     m_Impl->modernFormatsSupported =
-        IsFormatSupported(RHIFormat::RGBA16Float, RHIResourceUsage::ShaderResource |
-                                                       RHIResourceUsage::UnorderedAccess |
-                                                       RHIResourceUsage::RenderTarget) &&
-        IsFormatSupported(RHIFormat::RG32Float,
-                          RHIResourceUsage::ShaderResource | RHIResourceUsage::UnorderedAccess) &&
-        IsFormatSupported(RHIFormat::RG16Float,
-                          RHIResourceUsage::ShaderResource | RHIResourceUsage::RenderTarget) &&
-        IsFormatSupported(RHIFormat::R8UNorm,
-                          RHIResourceUsage::ShaderResource | RHIResourceUsage::UnorderedAccess);
+        IsFormatSupported(RHIFormat::RGBA16Float, RHIResourceUsage::ShaderResource | RHIResourceUsage::UnorderedAccess |
+                                                      RHIResourceUsage::RenderTarget) &&
+        IsFormatSupported(RHIFormat::RG32Float, RHIResourceUsage::ShaderResource | RHIResourceUsage::UnorderedAccess) &&
+        IsFormatSupported(RHIFormat::RG16Float, RHIResourceUsage::ShaderResource | RHIResourceUsage::RenderTarget) &&
+        IsFormatSupported(RHIFormat::R8UNorm, RHIResourceUsage::ShaderResource | RHIResourceUsage::UnorderedAccess);
 
     Logger::Info("[Metal] Initialized – GPU: ", [[m_Impl->device name] UTF8String]);
     return true;
@@ -1223,25 +1204,25 @@ bool MetalContext::IsFormatSupported(RHIFormat format, RHIResourceUsage usage) c
     const MTLPixelFormat pixelFormat = ToMetalFormat(format);
     if (pixelFormat == MTLPixelFormatInvalid)
         return false;
-    if (HasUsage(usage, RHIResourceUsage::DepthStencil) &&
-        format != RHIFormat::D24S8 && format != RHIFormat::D32Float)
+    if (HasUsage(usage, RHIResourceUsage::DepthStencil) && format != RHIFormat::D24S8 && format != RHIFormat::D32Float)
         return false;
     if (HasUsage(usage, RHIResourceUsage::UnorderedAccess) &&
-        (format == RHIFormat::D24S8 || format == RHIFormat::D32Float ||
-         format == RHIFormat::RGBA8UNormSrgb || format == RHIFormat::BGRA8UNorm))
+        (format == RHIFormat::D24S8 || format == RHIFormat::D32Float || format == RHIFormat::RGBA8UNormSrgb ||
+         format == RHIFormat::BGRA8UNorm))
         return false;
     if (HasUsage(usage, RHIResourceUsage::RenderTarget) &&
         (format == RHIFormat::R8UInt || format == RHIFormat::R16UInt || format == RHIFormat::R32UInt))
         return false;
-    MTLTextureDescriptor* probe =
-        [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:pixelFormat width:4 height:4 mipmapped:NO];
+    MTLTextureDescriptor* probe = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:pixelFormat
+                                                                                     width:4
+                                                                                    height:4
+                                                                                 mipmapped:NO];
     probe.storageMode = MTLStorageModePrivate;
     probe.usage = ToMetalUsage(usage);
     return [m_Impl->device newTextureWithDescriptor:probe] != nil;
 }
 
-std::shared_ptr<GpuReadbackTicket>
-MetalContext::ReadbackBufferAsync(const std::shared_ptr<GpuBuffer>& buffer) {
+std::shared_ptr<GpuReadbackTicket> MetalContext::ReadbackBufferAsync(const std::shared_ptr<GpuBuffer>& buffer) {
     auto native = std::dynamic_pointer_cast<MetalGpuBuffer>(buffer);
     if (!m_Impl || !m_Impl->queue || !native || !native->buffer || native->desc.size == 0)
         return nullptr;
@@ -1256,13 +1237,13 @@ MetalContext::ReadbackBufferAsync(const std::shared_ptr<GpuBuffer>& buffer) {
     return ticket;
 }
 
-std::shared_ptr<GpuTextureReadbackTicket>
-MetalContext::ReadbackTextureAsync(const std::shared_ptr<GpuTexture>& texture, const RHITextureRegion& region) {
+std::shared_ptr<GpuTextureReadbackTicket> MetalContext::ReadbackTextureAsync(const std::shared_ptr<GpuTexture>& texture,
+                                                                             const RHITextureRegion& region) {
     auto native = std::dynamic_pointer_cast<MetalGpuTexture>(texture);
     const uint32_t bytesPerPixel = native ? MetalFormatBytesPerPixel(native->desc.format) : 0;
-    if (!m_Impl || !m_Impl->queue || !native || !native->texture || bytesPerPixel == 0 ||
-        region.width == 0 || region.height == 0 || region.depth != 1 ||
-        region.mipLevel >= native->desc.mipLevels || region.arrayLayer >= native->desc.arrayLayers) {
+    if (!m_Impl || !m_Impl->queue || !native || !native->texture || bytesPerPixel == 0 || region.width == 0 ||
+        region.height == 0 || region.depth != 1 || region.mipLevel >= native->desc.mipLevels ||
+        region.arrayLayer >= native->desc.arrayLayers) {
         return nullptr;
     }
     const uint32_t mipWidth = (std::max)(1u, native->desc.width >> region.mipLevel);
@@ -1379,7 +1360,7 @@ std::shared_ptr<GpuBuffer> MetalContext::CreateBuffer(const RHIBufferDesc& desc,
 }
 
 std::shared_ptr<GpuBufferView> MetalContext::CreateBufferView(const std::shared_ptr<GpuBuffer>& buffer,
-                                                               const RHIBufferViewDesc& desc) {
+                                                              const RHIBufferViewDesc& desc) {
     auto native = std::dynamic_pointer_cast<MetalGpuBuffer>(buffer);
     if (!native || !native->buffer || native->desc.stride == 0)
         return nullptr;
@@ -1397,8 +1378,7 @@ std::shared_ptr<GpuBufferView> MetalContext::CreateBufferView(const std::shared_
     return view;
 }
 
-std::shared_ptr<GpuIndexedIndirectCommandStream>
-MetalContext::CreateIndexedIndirectCommandStream(uint32_t capacity) {
+std::shared_ptr<GpuIndexedIndirectCommandStream> MetalContext::CreateIndexedIndirectCommandStream(uint32_t capacity) {
     if (!m_Impl || !m_Impl->device || !m_Impl->indirectCommandBuffersSupported || capacity == 0)
         return nullptr;
     MTLIndirectCommandBufferDescriptor* descriptor = [[MTLIndirectCommandBufferDescriptor alloc] init];
@@ -1412,9 +1392,8 @@ MetalContext::CreateIndexedIndirectCommandStream(uint32_t capacity) {
     stream->commands = [m_Impl->device newIndirectCommandBufferWithDescriptor:descriptor
                                                               maxCommandCount:capacity
                                                                       options:0];
-    stream->executionRange =
-        [m_Impl->device newBufferWithLength:sizeof(MTLIndirectCommandBufferExecutionRange)
-                                   options:MTLResourceStorageModeShared];
+    stream->executionRange = [m_Impl->device newBufferWithLength:sizeof(MTLIndirectCommandBufferExecutionRange)
+                                                         options:MTLResourceStorageModeShared];
     MTLArgumentDescriptor* commandArgument = [[MTLArgumentDescriptor alloc] init];
     commandArgument.dataType = MTLDataTypeIndirectCommandBuffer;
     commandArgument.index = 0;
@@ -1422,9 +1401,8 @@ MetalContext::CreateIndexedIndirectCommandStream(uint32_t capacity) {
     stream->commandArgumentEncoder = [m_Impl->device newArgumentEncoderWithArguments:@[ commandArgument ]];
     if (!stream->commands || !stream->executionRange || !stream->commandArgumentEncoder)
         return nullptr;
-    stream->commandArgumentBuffer =
-        [m_Impl->device newBufferWithLength:stream->commandArgumentEncoder.encodedLength
-                                   options:MTLResourceStorageModeShared];
+    stream->commandArgumentBuffer = [m_Impl->device newBufferWithLength:stream->commandArgumentEncoder.encodedLength
+                                                                options:MTLResourceStorageModeShared];
     if (!stream->commandArgumentBuffer)
         return nullptr;
     [stream->commandArgumentEncoder setArgumentBuffer:stream->commandArgumentBuffer offset:0];
@@ -1493,9 +1471,8 @@ std::shared_ptr<GpuShader> MetalContext::CreateShader(const std::string& mslSour
     shader->vertexFunction = vsFn;
     shader->fragmentFunction = psFn;
     shader->vertexDescriptor = vd;
-    shader->supportsIndirectCommandBuffers =
-        rewrittenSource.find("[[texture(") == std::string::npos &&
-        rewrittenSource.find("[[sampler(") == std::string::npos;
+    shader->supportsIndirectCommandBuffers = rewrittenSource.find("[[texture(") == std::string::npos &&
+                                             rewrittenSource.find("[[sampler(") == std::string::npos;
     shader->vertexBytecode.assign(rewrittenSource.begin(), rewrittenSource.end());
     shader->pixelBytecode.assign(rewrittenSource.begin(), rewrittenSource.end());
     if (layout && layoutCount)
@@ -1521,10 +1498,12 @@ std::shared_ptr<GpuShader> MetalContext::CreateShaderFromBytecode(const void* vs
     if (vsText.empty() || psText.empty() || !RewriteMetalBufferBindings(vsText, &psText) ||
         !RewriteMetalTextureBindings(vsText, &psText))
         return nullptr;
-    NSString* vsSource =
-        [[NSString alloc] initWithBytes:vsText.data() length:vsText.size() encoding:NSUTF8StringEncoding];
-    NSString* psSource =
-        [[NSString alloc] initWithBytes:psText.data() length:psText.size() encoding:NSUTF8StringEncoding];
+    NSString* vsSource = [[NSString alloc] initWithBytes:vsText.data()
+                                                  length:vsText.size()
+                                                encoding:NSUTF8StringEncoding];
+    NSString* psSource = [[NSString alloc] initWithBytes:psText.data()
+                                                  length:psText.size()
+                                                encoding:NSUTF8StringEncoding];
     if (!vsSource || !psSource) {
         Logger::Error("[Metal] Cooked Metal shader blob is not UTF-8 MSL");
         return nullptr;
@@ -1896,8 +1875,8 @@ void MetalContext::SetBindGroup(GpuBindGroup* group) {
             [m_Impl->encoder setVertexBuffer:bindless.argumentBuffer offset:0 atIndex:kMetalBindlessBufferIndex];
             [m_Impl->encoder setFragmentBuffer:bindless.argumentBuffer offset:0 atIndex:kMetalBindlessBufferIndex];
             [m_Impl->encoder useResource:bindless.fallbackTexture
-                                  usage:MTLResourceUsageRead
-                                 stages:MTLRenderStageVertex | MTLRenderStageFragment];
+                                   usage:MTLResourceUsageRead
+                                  stages:MTLRenderStageVertex | MTLRenderStageFragment];
             if (bindless.nextIndex > 0) {
                 [m_Impl->encoder useResources:bindless.textures.data()
                                         count:bindless.nextIndex
@@ -2026,8 +2005,7 @@ void MetalContext::SetBindGroup(GpuBindGroup* group) {
             auto* buffer = value.second ? dynamic_cast<MetalGpuBuffer*>(value.second->buffer.get()) : nullptr;
             if (!buffer || !buffer->buffer)
                 continue;
-            const NSUInteger offset =
-                static_cast<NSUInteger>(value.second->desc.firstElement) * buffer->desc.stride;
+            const NSUInteger offset = static_cast<NSUInteger>(value.second->desc.firstElement) * buffer->desc.stride;
             if (binding->stages == 0 || (binding->stages & ShaderStageVertex))
                 [m_Impl->encoder setVertexBuffer:buffer->buffer offset:offset atIndex:binding->bindPoint];
             if (binding->stages == 0 || (binding->stages & ShaderStagePixel))
@@ -2148,20 +2126,18 @@ void MetalContext::UAVBarrier(GpuResource*) {
     [m_Impl->computeEncoder memoryBarrierWithScope:MTLBarrierScopeBuffers | MTLBarrierScopeTextures];
 }
 
-void MetalContext::BuildIndexedIndirectCommandStream(GpuIndexedIndirectCommandStream* stream,
-                                                     GpuBuffer* arguments, uint64_t argumentOffset,
-                                                     GpuBuffer* countBuffer, uint64_t countOffset,
-                                                     GpuBuffer* indexBuffer, uint32_t maxDrawCount,
-                                                     uint32_t stride) {
+void MetalContext::BuildIndexedIndirectCommandStream(GpuIndexedIndirectCommandStream* stream, GpuBuffer* arguments,
+                                                     uint64_t argumentOffset, GpuBuffer* countBuffer,
+                                                     uint64_t countOffset, GpuBuffer* indexBuffer,
+                                                     uint32_t maxDrawCount, uint32_t stride) {
     auto* nativeStream = dynamic_cast<MetalIndexedIndirectCommandStream*>(stream);
     auto* nativeArguments = dynamic_cast<MetalGpuBuffer*>(arguments);
     auto* nativeCount = dynamic_cast<MetalGpuBuffer*>(countBuffer);
     auto* nativeIndex = dynamic_cast<MetalGpuBuffer*>(indexBuffer);
     if (!m_Impl || !m_Impl->cmdBuffer || !m_Impl->indirectCommandBuildPipeline || !nativeStream ||
         !nativeStream->commands || !nativeStream->executionRange || !nativeArguments || !nativeArguments->buffer ||
-        !nativeCount || !nativeCount->buffer || maxDrawCount == 0 ||
-        maxDrawCount > nativeStream->capacity || stride != sizeof(RHIObjectDrawIndexedIndirectArgs) ||
-        argumentOffset > nativeArguments->byteSize ||
+        !nativeCount || !nativeCount->buffer || maxDrawCount == 0 || maxDrawCount > nativeStream->capacity ||
+        stride != sizeof(RHIObjectDrawIndexedIndirectArgs) || argumentOffset > nativeArguments->byteSize ||
         static_cast<uint64_t>(maxDrawCount) * stride > nativeArguments->byteSize - argumentOffset ||
         countOffset > nativeCount->byteSize || sizeof(uint32_t) > nativeCount->byteSize - countOffset)
         return;
@@ -2203,8 +2179,7 @@ void MetalContext::BuildIndexedIndirectCommandStream(GpuIndexedIndirectCommandSt
     [compute useResource:commandIndexBuffer usage:MTLResourceUsageRead];
     [compute useResource:nativeStream->commands usage:MTLResourceUsageWrite];
     constexpr NSUInteger kThreads = 64;
-    [compute dispatchThreads:MTLSizeMake(maxDrawCount, 1, 1)
-        threadsPerThreadgroup:MTLSizeMake(kThreads, 1, 1)];
+    [compute dispatchThreads:MTLSizeMake(maxDrawCount, 1, 1) threadsPerThreadgroup:MTLSizeMake(kThreads, 1, 1)];
     [compute endEncoding];
 }
 
@@ -2214,9 +2189,7 @@ void MetalContext::ExecuteIndexedIndirectCommandStream(GpuIndexedIndirectCommand
     if (!m_Impl || !m_Impl->encoder || !native || !native->commands || !native->executionRange)
         return;
     if (indexBuffer && indexBuffer->buffer) {
-        [m_Impl->encoder useResource:indexBuffer->buffer
-                               usage:MTLResourceUsageRead
-                              stages:MTLRenderStageVertex];
+        [m_Impl->encoder useResource:indexBuffer->buffer usage:MTLResourceUsageRead stages:MTLRenderStageVertex];
     }
     [m_Impl->encoder useResource:native->commands
                            usage:MTLResourceUsageRead
@@ -2256,11 +2229,10 @@ std::shared_ptr<GpuTexture> MetalContext::UploadTexture2D(const void* rgba8Data,
 std::shared_ptr<GpuTexture> MetalContext::UploadTexture(const RHITextureDesc& desc,
                                                         const RHITextureSubresourceData* data,
                                                         uint32_t subresourceCount) {
-    const uint32_t bytesPerPixel =
-        desc.format == RHIFormat::RGBA8UNorm                                      ? 4u
-        : desc.format == RHIFormat::RGBA16Float                                   ? 8u
-        : (desc.format == RHIFormat::D32Float || desc.format == RHIFormat::R32Float) ? 4u
-                                                                                     : 0u;
+    const uint32_t bytesPerPixel = desc.format == RHIFormat::RGBA8UNorm                                         ? 4u
+                                   : desc.format == RHIFormat::RGBA16Float                                      ? 8u
+                                   : (desc.format == RHIFormat::D32Float || desc.format == RHIFormat::R32Float) ? 4u
+                                                                                                                : 0u;
     if (!data || subresourceCount == 0 || !m_Impl || !m_Impl->device || bytesPerPixel == 0 ||
         subresourceCount != desc.mipLevels * desc.arrayLayers) {
         return nullptr;
@@ -2367,14 +2339,12 @@ std::shared_ptr<GpuTextureView> MetalContext::CreateTextureView(const std::share
             view->retireBindless = [weakState](uint32_t retiredIndex) {
                 if (auto locked = weakState.lock()) {
                     std::lock_guard<std::mutex> retireLock(locked->mutex);
-                    locked->retired.push_back(
-                        {locked->frameSerial + kMetalBindlessRetireFrames, retiredIndex});
+                    locked->retired.push_back({locked->frameSerial + kMetalBindlessRetireFrames, retiredIndex});
                 }
             };
         } else if (!state->exhaustedLogged) {
             state->exhaustedLogged = true;
-            Logger::Error("[Metal] Bindless texture table exhausted (capacity ",
-                          kMetalBindlessTextureCapacity, ")");
+            Logger::Error("[Metal] Bindless texture table exhausted (capacity ", kMetalBindlessTextureCapacity, ")");
         }
     }
     return view;

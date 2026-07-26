@@ -265,8 +265,7 @@ bool TestSurfaceShaderGraphV2Contract() {
     if (!Check(v5Bytes.size() > 12, "cooked v5 fixture is truncated"))
         return false;
     std::memcpy(v5Bytes.data() + 8, &v5Version, sizeof(v5Version));
-    const std::string currentAbiMarker =
-        "\"abiVersion\":" + std::to_string(ShaderAsset::kCookedShaderAbiVersion);
+    const std::string currentAbiMarker = "\"abiVersion\":" + std::to_string(ShaderAsset::kCookedShaderAbiVersion);
     const size_t abiMarker = v5Bytes.find(currentAbiMarker);
     if (!Check(abiMarker != std::string::npos, "current cooked shader ABI marker was not found"))
         return false;

@@ -104,8 +104,8 @@ inline RenderPipelineDiagnostics ResolveRenderPipeline(RenderPath path, Graphics
 
     diagnostics.resolvedPipeline = ResolvedRenderPipeline::ClassicDeferred;
     diagnostics.usedFallback = profile == GraphicsDeviceProfile::Console;
-    diagnostics.fallbackReason =
-        modernImplementationReady ? DescribeModernDeferredCapabilityFailure(backend, capabilities)
-                                  : "modern deferred implementation is not initialized";
+    diagnostics.fallbackReason = modernImplementationReady
+                                     ? DescribeModernDeferredCapabilityFailure(backend, capabilities)
+                                     : "modern deferred implementation is not initialized";
     return diagnostics;
 }

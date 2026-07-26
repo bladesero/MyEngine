@@ -106,9 +106,7 @@ std::shared_ptr<GpuShader> ShaderManager::CompileRecord(const ShaderRecord& rec)
             return;
         for (const auto& source : metadata.bindings) {
             auto native = std::find_if(shader->reflection.bindings.begin(), shader->reflection.bindings.end(),
-                                       [&](const ShaderBindingDesc& binding) {
-                                           return binding.name == source.name;
-                                       });
+                                       [&](const ShaderBindingDesc& binding) { return binding.name == source.name; });
             if (native != shader->reflection.bindings.end()) {
                 // Slang emits both StructuredBuffer and RWStructuredBuffer as an unqualified device pointer, so
                 // metadata remains authoritative for buffers. The final MSL access qualifier is authoritative for

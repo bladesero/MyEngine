@@ -149,8 +149,8 @@ fragment float4 PSMain(VSOutput input [[stage_in]]) { return float4(0.2, 0.6, 0.
     if (!require(!context.IsDeviceLost(), "pipeline-bind", "pipeline binding/draw transitioned to device-lost state"))
         return report;
 
-    if (context.GetBackend() == RHIBackend::Metal && capabilities.indirectDrawCount &&
-        capabilities.indirectDispatch && capabilities.shaderDrawParameters) {
+    if (context.GetBackend() == RHIBackend::Metal && capabilities.indirectDrawCount && capabilities.indirectDispatch &&
+        capabilities.shaderDrawParameters) {
         static const char* indirectComputeSource = R"(
 #include <metal_stdlib>
 using namespace metal;
@@ -191,8 +191,8 @@ fragment float4 PSMain(VSOutput input [[stage_in]]) {
     return input.drawIndex == 0 ? float4(1.0, 0.0, 0.0, 1.0) : float4(0.0, 1.0, 0.0, 1.0);
 }
 )";
-        auto computeShader = context.CreateComputeShaderFromBytecode(indirectComputeSource,
-                                                                     std::strlen(indirectComputeSource));
+        auto computeShader =
+            context.CreateComputeShaderFromBytecode(indirectComputeSource, std::strlen(indirectComputeSource));
         ComputePipelineDesc computePipelineDesc;
         computePipelineDesc.shader = computeShader;
         auto computePipeline = context.CreateComputePipeline(computePipelineDesc);
@@ -200,8 +200,8 @@ fragment float4 PSMain(VSOutput input [[stage_in]]) {
         RHIBufferDesc argsDesc;
         argsDesc.size = 2u * sizeof(RHIObjectDrawIndexedIndirectArgs);
         argsDesc.stride = sizeof(RHIObjectDrawIndexedIndirectArgs);
-        argsDesc.usage = RHIResourceUsage::UnorderedAccess | RHIResourceUsage::ShaderResource |
-                         RHIResourceUsage::IndirectArguments;
+        argsDesc.usage =
+            RHIResourceUsage::UnorderedAccess | RHIResourceUsage::ShaderResource | RHIResourceUsage::IndirectArguments;
         argsDesc.debugName = "RHIConformanceMetalIndirectArgs";
         auto indirectArgs = context.CreateBuffer(argsDesc);
         RHIBufferViewDesc argsViewDesc;
@@ -212,8 +212,8 @@ fragment float4 PSMain(VSOutput input [[stage_in]]) {
         RHIBufferDesc countDesc;
         countDesc.size = sizeof(uint32_t);
         countDesc.stride = sizeof(uint32_t);
-        countDesc.usage = RHIResourceUsage::UnorderedAccess | RHIResourceUsage::ShaderResource |
-                          RHIResourceUsage::IndirectArguments;
+        countDesc.usage =
+            RHIResourceUsage::UnorderedAccess | RHIResourceUsage::ShaderResource | RHIResourceUsage::IndirectArguments;
         countDesc.debugName = "RHIConformanceMetalIndirectCount";
         auto indirectCount = context.CreateBuffer(countDesc);
         RHIBufferViewDesc countViewDesc;
@@ -222,8 +222,7 @@ fragment float4 PSMain(VSOutput input [[stage_in]]) {
         auto indirectCountView = context.CreateBufferView(indirectCount, countViewDesc);
         auto indirectBindings = context.CreateBindGroup(computeShader);
 
-        auto indirectShader =
-            context.CreateShader(indirectGraphicsSource, "VSMain", "PSMain", layout, 1);
+        auto indirectShader = context.CreateShader(indirectGraphicsSource, "VSMain", "PSMain", layout, 1);
         GraphicsPipelineDesc indirectPipelineDesc;
         indirectPipelineDesc.shader = indirectShader;
         indirectPipelineDesc.colorFormats = {RHIFormat::RGBA8UNorm};
@@ -254,15 +253,15 @@ fragment float4 PSMain(VSOutput input [[stage_in]]) {
         std::string bindingError;
         const bool indirectResourcesReady =
             computeShader && computePipeline && indirectArgs && indirectArgsView && indirectCount &&
-            indirectCountView && indirectBindings &&
-            indirectBindings->SetStorageBuffer("g_Args", indirectArgsView) &&
+            indirectCountView && indirectBindings && indirectBindings->SetStorageBuffer("g_Args", indirectArgsView) &&
             indirectBindings->SetStorageBuffer("g_Count", indirectCountView) &&
-            indirectBindings->Validate(&bindingError) && indirectShader && indirectPipeline &&
-            indirectVertexBuffer && indirectIndexBuffer && indirectStream && indirectColor && indirectColorView &&
-            emptyIndirectColor && emptyIndirectColorView;
+            indirectBindings->Validate(&bindingError) && indirectShader && indirectPipeline && indirectVertexBuffer &&
+            indirectIndexBuffer && indirectStream && indirectColor && indirectColorView && emptyIndirectColor &&
+            emptyIndirectColorView;
         if (!indirectResourcesReady) {
-            report.failure = "metal-indirect-create: " +
-                             (bindingError.empty() ? std::string("resource or pipeline creation failed") : bindingError);
+            report.failure =
+                "metal-indirect-create: " +
+                (bindingError.empty() ? std::string("resource or pipeline creation failed") : bindingError);
             return report;
         }
 
@@ -272,9 +271,9 @@ fragment float4 PSMain(VSOutput input [[stage_in]]) {
         commands->SetBindGroup(0, indirectBindings.get());
         commands->Dispatch(1, 1, 1);
         commands->UAVBarrier(indirectArgs.get());
-        commands->BuildIndexedIndirectCommandStream(
-            indirectStream.get(), indirectArgs.get(), 0, indirectCount.get(), 0, indirectIndexBuffer.get(), 2,
-            sizeof(RHIObjectDrawIndexedIndirectArgs));
+        commands->BuildIndexedIndirectCommandStream(indirectStream.get(), indirectArgs.get(), 0, indirectCount.get(), 0,
+                                                    indirectIndexBuffer.get(), 2,
+                                                    sizeof(RHIObjectDrawIndexedIndirectArgs));
         RenderingAttachment indirectColorAttachment;
         indirectColorAttachment.view = indirectColorView.get();
         indirectColorAttachment.loadOp = RHILoadOp::Clear;
@@ -291,9 +290,9 @@ fragment float4 PSMain(VSOutput input [[stage_in]]) {
         commands->ExecuteIndexedIndirectCommandStream(indirectStream.get());
         commands->EndRendering();
         commands->ClearStorageBuffer(indirectCountView.get(), 0);
-        commands->BuildIndexedIndirectCommandStream(
-            indirectStream.get(), indirectArgs.get(), 0, indirectCount.get(), 0, indirectIndexBuffer.get(), 2,
-            sizeof(RHIObjectDrawIndexedIndirectArgs));
+        commands->BuildIndexedIndirectCommandStream(indirectStream.get(), indirectArgs.get(), 0, indirectCount.get(), 0,
+                                                    indirectIndexBuffer.get(), 2,
+                                                    sizeof(RHIObjectDrawIndexedIndirectArgs));
         RenderingAttachment emptyIndirectColorAttachment;
         emptyIndirectColorAttachment.view = emptyIndirectColorView.get();
         emptyIndirectColorAttachment.loadOp = RHILoadOp::Clear;
@@ -328,12 +327,11 @@ fragment float4 PSMain(VSOutput input [[stage_in]]) {
                 }
             }
         }
-        const bool emptyDrawStayedClear =
-            waitReadback(emptyIndirectReadback) && emptyIndirectReadback->Read(emptyIndirectPixels) &&
-            emptyIndirectPixels.size() >= 4 && emptyIndirectPixels[0] < 32 && emptyIndirectPixels[1] < 32 &&
-            emptyIndirectPixels[2] > 200;
-        if (!require(sawObjectZero && sawObjectOne && emptyDrawStayedClear && !context.IsDeviceLost(),
-                     "metal-indirect",
+        const bool emptyDrawStayedClear = waitReadback(emptyIndirectReadback) &&
+                                          emptyIndirectReadback->Read(emptyIndirectPixels) &&
+                                          emptyIndirectPixels.size() >= 4 && emptyIndirectPixels[0] < 32 &&
+                                          emptyIndirectPixels[1] < 32 && emptyIndirectPixels[2] > 200;
+        if (!require(sawObjectZero && sawObjectOne && emptyDrawStayedClear && !context.IsDeviceLost(), "metal-indirect",
                      "compute args/count -> ICB -> baseInstance indexed render/readback or zero-draw reuse failed")) {
             return report;
         }

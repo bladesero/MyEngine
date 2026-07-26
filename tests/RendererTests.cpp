@@ -216,8 +216,8 @@ public:
     }
     void DrawIndirect(GpuBuffer*, uint64_t) override { ++indirectDraws; }
     void DrawIndexedIndirect(GpuBuffer*, uint64_t) override { ++indirectDraws; }
-    void DrawIndexedIndirectCount(GpuBuffer* arguments, uint64_t argumentOffset, GpuBuffer* count,
-                                  uint64_t countOffset, uint32_t maxDrawCount, uint32_t stride) override {
+    void DrawIndexedIndirectCount(GpuBuffer* arguments, uint64_t argumentOffset, GpuBuffer* count, uint64_t countOffset,
+                                  uint32_t maxDrawCount, uint32_t stride) override {
         ++indirectCountDraws;
         lastIndirectArguments = arguments;
         lastIndirectCount = count;
@@ -641,21 +641,18 @@ bool TestExtendedRHIContracts() {
     context.commands.ResolveTimestamps(timestamps.get(), 0, 1);
     std::vector<uint64_t> ticks;
     const auto caps = context.GetCapabilities();
-    const std::string metalHeader =
-        CompactSource(ReadRepositoryTextFile({"src/Runtime/Renderer/Backends/Metal/MetalContext.h",
-                                              "../src/Runtime/Renderer/Backends/Metal/MetalContext.h",
-                                              "../../../src/Runtime/Renderer/Backends/Metal/MetalContext.h",
-                                              "../../../../src/Runtime/Renderer/Backends/Metal/MetalContext.h"}));
+    const std::string metalHeader = CompactSource(ReadRepositoryTextFile(
+        {"src/Runtime/Renderer/Backends/Metal/MetalContext.h", "../src/Runtime/Renderer/Backends/Metal/MetalContext.h",
+         "../../../src/Runtime/Renderer/Backends/Metal/MetalContext.h",
+         "../../../../src/Runtime/Renderer/Backends/Metal/MetalContext.h"}));
     const std::string metalSource =
         CompactSource(ReadRepositoryTextFile({"src/Runtime/Renderer/Backends/Metal/MetalContext.mm",
                                               "../src/Runtime/Renderer/Backends/Metal/MetalContext.mm",
                                               "../../../src/Runtime/Renderer/Backends/Metal/MetalContext.mm",
                                               "../../../../src/Runtime/Renderer/Backends/Metal/MetalContext.mm"}));
-    const std::string shadowPass =
-        CompactSource(ReadRepositoryTextFile({"src/Runtime/Renderer/ShadowPass.cpp",
-                                              "../src/Runtime/Renderer/ShadowPass.cpp",
-                                              "../../../src/Runtime/Renderer/ShadowPass.cpp",
-                                              "../../../../src/Runtime/Renderer/ShadowPass.cpp"}));
+    const std::string shadowPass = CompactSource(ReadRepositoryTextFile(
+        {"src/Runtime/Renderer/ShadowPass.cpp", "../src/Runtime/Renderer/ShadowPass.cpp",
+         "../../../src/Runtime/Renderer/ShadowPass.cpp", "../../../../src/Runtime/Renderer/ShadowPass.cpp"}));
     const bool metalContracts =
         metalHeader.find("CreateBuffer(constRHIBufferDesc&desc") != std::string::npos &&
         metalHeader.find("CreateBufferView(conststd::shared_ptr<GpuBuffer>&buffer") != std::string::npos &&
@@ -743,8 +740,7 @@ bool TestMetalModernDeferredSourceContracts() {
         metal.find("supportIndirectCommandBuffers=shader->supportsIndirectCommandBuffers") != std::string::npos;
     const bool commands =
         metal.find("dispatchThreadgroupsWithIndirectBuffer:buffer->buffer") != std::string::npos &&
-        metal.find("threadsPerThreadgroup:m_Impl->boundComputePipeline->threadsPerThreadgroup") !=
-            std::string::npos &&
+        metal.find("threadsPerThreadgroup:m_Impl->boundComputePipeline->threadsPerThreadgroup") != std::string::npos &&
         metal.find("kernelvoidClearStorageBuffer") != std::string::npos &&
         metal.find("memoryBarrierWithScope:MTLBarrierScopeBuffers|MTLBarrierScopeTextures") != std::string::npos;
     const bool integration =
@@ -2927,22 +2923,21 @@ bool TestSlangReflectionPreservesSamplerStateBindings() {
         return false;
     }
 #ifndef MYENGINE_PLATFORM_WINDOWS
-    const auto computePath = FindRepositoryFile(
-        {"EngineContent/Shaders/AtmosphereSH.hlsl", "../../../EngineContent/Shaders/AtmosphereSH.hlsl",
-         "../../../../EngineContent/Shaders/AtmosphereSH.hlsl",
-         "../../../../../EngineContent/Shaders/AtmosphereSH.hlsl"});
+    const auto computePath = FindRepositoryFile({"EngineContent/Shaders/AtmosphereSH.hlsl",
+                                                 "../../../EngineContent/Shaders/AtmosphereSH.hlsl",
+                                                 "../../../../EngineContent/Shaders/AtmosphereSH.hlsl",
+                                                 "../../../../../EngineContent/Shaders/AtmosphereSH.hlsl"});
     CookedShaderStageReflection computeReflection;
-    if (!Check(!computePath.empty() &&
-                   ShaderCompilerSlang::CompileStageFromFile(computePath, "CSMain", ShaderStage::Compute,
-                                                             ShaderBackend::Metal, bytecode, {}, &error,
-                                                             &computeReflection),
+    if (!Check(!computePath.empty() && ShaderCompilerSlang::CompileStageFromFile(
+                                           computePath, "CSMain", ShaderStage::Compute, ShaderBackend::Metal, bytecode,
+                                           {}, &error, &computeReflection),
                "AtmosphereSH Metal reflection compile failed: " + error)) {
         return false;
     }
     const auto storage = std::find_if(computeReflection.bindings.begin(), computeReflection.bindings.end(),
                                       [](const auto& binding) { return binding.name == "g_SH2Out"; });
-    if (!Check(storage != computeReflection.bindings.end() &&
-                   storage->type == CookedShaderBindingType::StorageBuffer && storage->bindPoint == 0,
+    if (!Check(storage != computeReflection.bindings.end() && storage->type == CookedShaderBindingType::StorageBuffer &&
+                   storage->bindPoint == 0,
                "Slang Metal reflection misclassified RWStructuredBuffer as a constant buffer")) {
         return false;
     }
@@ -4103,8 +4098,7 @@ bool TestModernHiZOddDimensionReductionContract() {
     const std::string compact = CompactSource(ReadRepositoryTextFile(candidates));
     if (!Check(compact.find("g_SourceSize.x>g_DestinationSize.x*2u") != std::string::npos &&
                    compact.find("g_SourceSize.y>g_DestinationSize.y*2u") != std::string::npos &&
-                   compact.find("ExpandRange(range,g_SourceHiZ.Load(int3(g_SourceSize-1u,0)).xy)") !=
-                       std::string::npos,
+                   compact.find("ExpandRange(range,g_SourceHiZ.Load(int3(g_SourceSize-1u,0)).xy)") != std::string::npos,
                "HiZ reduction drops the final source row or column for odd-sized viewports")) {
         return false;
     }
@@ -4122,9 +4116,8 @@ bool TestModernHiZOddDimensionReductionContract() {
             std::vector<uint8_t> bytecode;
             CookedShaderStageReflection reflection;
             std::string error;
-            if (!Check(ShaderCompilerSlang::CompileStageFromFile(shaderPath, entry.first, ShaderStage::Compute,
-                                                                 backend, bytecode, {entry.second}, &error,
-                                                                 &reflection),
+            if (!Check(ShaderCompilerSlang::CompileStageFromFile(shaderPath, entry.first, ShaderStage::Compute, backend,
+                                                                 bytecode, {entry.second}, &error, &reflection),
                        "ModernHiZ Slang compile failed for " + std::string(entry.first) + ": " + error)) {
                 return false;
             }
@@ -4462,12 +4455,10 @@ bool TestIndexedSceneLightingAndMeshCollection() {
                    collection.transparentItems.size() == 1 &&
                    collection.transparentItems.front().actor == particlePriority && stats.candidateVisits == 6 &&
                    stats.matchedActors == 6,
-               "indexed lighting/mesh collection mismatch submitted=" +
-                   std::to_string(collection.submittedSubMeshes) +
+               "indexed lighting/mesh collection mismatch submitted=" + std::to_string(collection.submittedSubMeshes) +
                    " opaque=" + std::to_string(collection.opaqueItems.size()) +
-                   " transparent=" + std::to_string(collection.transparentItems.size()) +
-                   " candidates=" + std::to_string(stats.candidateVisits) +
-                   " matched=" + std::to_string(stats.matchedActors)))
+                   " transparent=" + std::to_string(collection.transparentItems.size()) + " candidates=" +
+                   std::to_string(stats.candidateVisits) + " matched=" + std::to_string(stats.matchedActors)))
         return false;
 
     scene.ResetQueryStats();
@@ -5591,8 +5582,8 @@ bool TestReflectionProbeRgbmUploadsAsLinearSingleLayerArray() {
     fs::remove_all(root, ec);
     return Check(prepared && unchangedMetadataReused && changedMetadataUploaded && textureContract && decoded &&
                      sourceContract,
-                  "reflection probe RGBM was not decoded to a linear single-layer array across the RHI chain: " +
-                      lighting.GetLastError());
+                 "reflection probe RGBM was not decoded to a linear single-layer array across the RHI chain: " +
+                     lighting.GetLastError());
 }
 
 bool TestReflectionProbeGpuBakeUsesRendererReadbackAndFastShadows() {
@@ -5646,8 +5637,7 @@ MYENGINE_REGISTER_TEST("Renderer", "TestReflectionProbeGpuBakeUsesRendererReadba
 MYENGINE_REGISTER_TEST("Renderer", "TestExtendedRHIContracts", TestExtendedRHIContracts);
 MYENGINE_REGISTER_TEST("Renderer", "TestIndexedIndirectCommandStreamContract",
                        TestIndexedIndirectCommandStreamContract);
-MYENGINE_REGISTER_TEST("Renderer", "TestMetalModernDeferredSourceContracts",
-                       TestMetalModernDeferredSourceContracts);
+MYENGINE_REGISTER_TEST("Renderer", "TestMetalModernDeferredSourceContracts", TestMetalModernDeferredSourceContracts);
 MYENGINE_REGISTER_TEST("Renderer", "TestStableRHIDeviceLossContract", TestStableRHIDeviceLossContract);
 MYENGINE_REGISTER_TEST("Renderer", "TestMaterialResourceCacheUploadsBc3WhenSupported",
                        TestMaterialResourceCacheUploadsBc3WhenSupported);
