@@ -28,6 +28,12 @@ RHIConformanceReport RunRHIConformance(IRHIContext& context) {
         report.completedStages.emplace_back(stage);
         return true;
     };
+    const auto waitReadback = [](const std::shared_ptr<GpuReadbackTicket>& ticket) {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        while (ticket && !ticket->IsReady() && std::chrono::steady_clock::now() < deadline)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        return ticket && ticket->IsReady();
+    };
 
     const RHIDeviceCapabilities capabilities = context.GetCapabilities();
     if (!require(context.GetBackend() != RHIBackend::Unknown && capabilities.maxTextureDimension2D >= 64 &&
@@ -86,7 +92,7 @@ RHIConformanceReport RunRHIConformance(IRHIContext& context) {
     if (!require(color && colorView && depth && depthView, "render-targets", "color/depth texture or view failed"))
         return report;
 
-    static const char* shaderSource = R"(
+    static const char* hlslShaderSource = R"(
 struct VSInput { float3 position : POSITION; };
 struct VSOutput { float4 position : SV_POSITION; };
 VSOutput VSMain(VSInput input) {
@@ -94,7 +100,18 @@ VSOutput VSMain(VSInput input) {
 }
 float4 PSMain(VSOutput input) : SV_TARGET { return float4(0.2, 0.6, 0.9, 1.0); }
 )";
+    static const char* metalShaderSource = R"(
+#include <metal_stdlib>
+using namespace metal;
+struct VSInput { float3 position [[attribute(0)]]; };
+struct VSOutput { float4 position [[position]]; };
+vertex VSOutput VSMain(VSInput input [[stage_in]]) {
+    VSOutput output; output.position = float4(input.position, 1.0); return output;
+}
+fragment float4 PSMain(VSOutput input [[stage_in]]) { return float4(0.2, 0.6, 0.9, 1.0); }
+)";
     const VertexElement layout[] = {{"POSITION", 0, VertexFormat::Float3, 0}};
+    const char* shaderSource = context.GetBackend() == RHIBackend::Metal ? metalShaderSource : hlslShaderSource;
     auto shader = context.CreateShader(shaderSource, "VSMain", "PSMain", layout, 1);
     GraphicsPipelineDesc pipelineDesc;
     pipelineDesc.shader = shader;
@@ -132,6 +149,196 @@ float4 PSMain(VSOutput input) : SV_TARGET { return float4(0.2, 0.6, 0.9, 1.0); }
     if (!require(!context.IsDeviceLost(), "pipeline-bind", "pipeline binding/draw transitioned to device-lost state"))
         return report;
 
+    if (context.GetBackend() == RHIBackend::Metal && capabilities.indirectDrawCount &&
+        capabilities.indirectDispatch && capabilities.shaderDrawParameters) {
+        static const char* indirectComputeSource = R"(
+#include <metal_stdlib>
+using namespace metal;
+struct DrawArgs {
+    uint objectIndex;
+    uint indexCount;
+    uint instanceCount;
+    uint startIndex;
+    int baseVertex;
+    uint startInstance;
+};
+[[kernel]] void CSMain(device DrawArgs* g_Args [[buffer(0)]],
+                       device uint* g_Count [[buffer(1)]],
+                       uint threadIndex [[thread_position_in_grid]]) {
+    if (threadIndex != 0)
+        return;
+    g_Args[0] = DrawArgs{0, 3, 1, 0, 0, 0};
+    g_Args[1] = DrawArgs{1, 3, 1, 0, 0, 1};
+    g_Count[0] = 3;
+}
+)";
+        static const char* indirectGraphicsSource = R"(
+#include <metal_stdlib>
+using namespace metal;
+struct VSInput { float3 position [[attribute(0)]]; };
+struct VSOutput {
+    float4 position [[position]];
+    uint drawIndex [[flat]];
+};
+vertex VSOutput VSMain(VSInput input [[stage_in]], uint drawIndex [[instance_id]]) {
+    VSOutput output;
+    const float xOffset = drawIndex == 0 ? -0.45 : 0.45;
+    output.position = float4(input.position.x + xOffset, input.position.yz, 1.0);
+    output.drawIndex = drawIndex;
+    return output;
+}
+fragment float4 PSMain(VSOutput input [[stage_in]]) {
+    return input.drawIndex == 0 ? float4(1.0, 0.0, 0.0, 1.0) : float4(0.0, 1.0, 0.0, 1.0);
+}
+)";
+        auto computeShader = context.CreateComputeShaderFromBytecode(indirectComputeSource,
+                                                                     std::strlen(indirectComputeSource));
+        ComputePipelineDesc computePipelineDesc;
+        computePipelineDesc.shader = computeShader;
+        auto computePipeline = context.CreateComputePipeline(computePipelineDesc);
+
+        RHIBufferDesc argsDesc;
+        argsDesc.size = 2u * sizeof(RHIObjectDrawIndexedIndirectArgs);
+        argsDesc.stride = sizeof(RHIObjectDrawIndexedIndirectArgs);
+        argsDesc.usage = RHIResourceUsage::UnorderedAccess | RHIResourceUsage::ShaderResource |
+                         RHIResourceUsage::IndirectArguments;
+        argsDesc.debugName = "RHIConformanceMetalIndirectArgs";
+        auto indirectArgs = context.CreateBuffer(argsDesc);
+        RHIBufferViewDesc argsViewDesc;
+        argsViewDesc.elementCount = 2;
+        argsViewDesc.usage = RHIResourceUsage::UnorderedAccess;
+        auto indirectArgsView = context.CreateBufferView(indirectArgs, argsViewDesc);
+
+        RHIBufferDesc countDesc;
+        countDesc.size = sizeof(uint32_t);
+        countDesc.stride = sizeof(uint32_t);
+        countDesc.usage = RHIResourceUsage::UnorderedAccess | RHIResourceUsage::ShaderResource |
+                          RHIResourceUsage::IndirectArguments;
+        countDesc.debugName = "RHIConformanceMetalIndirectCount";
+        auto indirectCount = context.CreateBuffer(countDesc);
+        RHIBufferViewDesc countViewDesc;
+        countViewDesc.elementCount = 1;
+        countViewDesc.usage = RHIResourceUsage::UnorderedAccess;
+        auto indirectCountView = context.CreateBufferView(indirectCount, countViewDesc);
+        auto indirectBindings = context.CreateBindGroup(computeShader);
+
+        auto indirectShader =
+            context.CreateShader(indirectGraphicsSource, "VSMain", "PSMain", layout, 1);
+        GraphicsPipelineDesc indirectPipelineDesc;
+        indirectPipelineDesc.shader = indirectShader;
+        indirectPipelineDesc.colorFormats = {RHIFormat::RGBA8UNorm};
+        indirectPipelineDesc.depthStencil.depthTestEnable = false;
+        indirectPipelineDesc.depthStencil.depthWriteEnable = false;
+        indirectPipelineDesc.rasterizer.cullMode = RHICullMode::None;
+        auto indirectPipeline = context.CreateGraphicsPipeline(indirectPipelineDesc);
+        const float indirectVertices[] = {-0.35f, -0.5f, 0.0f, 0.0f, 0.5f, 0.0f, 0.35f, -0.5f, 0.0f};
+        const uint32_t indirectIndices[] = {0, 1, 2};
+        auto indirectVertexBuffer =
+            context.CreateVertexBuffer(indirectVertices, sizeof(indirectVertices), sizeof(float) * 3);
+        auto indirectIndexBuffer = context.CreateIndexBuffer(indirectIndices, sizeof(indirectIndices));
+        auto indirectStream = context.CreateIndexedIndirectCommandStream(2);
+
+        RHITextureDesc indirectColorDesc;
+        indirectColorDesc.width = indirectColorDesc.height = 32;
+        indirectColorDesc.format = RHIFormat::RGBA8UNorm;
+        indirectColorDesc.usage = RHIResourceUsage::RenderTarget | RHIResourceUsage::CopySource;
+        indirectColorDesc.debugName = "RHIConformanceMetalIndirectColor";
+        auto indirectColor = context.CreateTexture(indirectColorDesc);
+        RHITextureViewDesc indirectColorViewDesc;
+        indirectColorViewDesc.usage = RHIResourceUsage::RenderTarget;
+        auto indirectColorView = context.CreateTextureView(indirectColor, indirectColorViewDesc);
+        indirectColorDesc.debugName = "RHIConformanceMetalEmptyIndirectColor";
+        auto emptyIndirectColor = context.CreateTexture(indirectColorDesc);
+        auto emptyIndirectColorView = context.CreateTextureView(emptyIndirectColor, indirectColorViewDesc);
+
+        std::string bindingError;
+        const bool indirectResourcesReady =
+            computeShader && computePipeline && indirectArgs && indirectArgsView && indirectCount &&
+            indirectCountView && indirectBindings &&
+            indirectBindings->SetStorageBuffer("g_Args", indirectArgsView) &&
+            indirectBindings->SetStorageBuffer("g_Count", indirectCountView) &&
+            indirectBindings->Validate(&bindingError) && indirectShader && indirectPipeline &&
+            indirectVertexBuffer && indirectIndexBuffer && indirectStream && indirectColor && indirectColorView &&
+            emptyIndirectColor && emptyIndirectColorView;
+        if (!indirectResourcesReady) {
+            report.failure = "metal-indirect-create: " +
+                             (bindingError.empty() ? std::string("resource or pipeline creation failed") : bindingError);
+            return report;
+        }
+
+        context.BeginFrame(0.0f, 0.0f, 0.0f, 1.0f);
+        commands = context.GetGraphicsCommandList();
+        commands->SetComputePipeline(computePipeline.get());
+        commands->SetBindGroup(0, indirectBindings.get());
+        commands->Dispatch(1, 1, 1);
+        commands->UAVBarrier(indirectArgs.get());
+        commands->BuildIndexedIndirectCommandStream(
+            indirectStream.get(), indirectArgs.get(), 0, indirectCount.get(), 0, indirectIndexBuffer.get(), 2,
+            sizeof(RHIObjectDrawIndexedIndirectArgs));
+        RenderingAttachment indirectColorAttachment;
+        indirectColorAttachment.view = indirectColorView.get();
+        indirectColorAttachment.loadOp = RHILoadOp::Clear;
+        indirectColorAttachment.storeOp = RHIStoreOp::Store;
+        indirectColorAttachment.clearColor = {0.0f, 0.0f, 0.0f, 1.0f};
+        RenderingInfo indirectRendering;
+        indirectRendering.colors = &indirectColorAttachment;
+        indirectRendering.colorCount = 1;
+        indirectRendering.width = indirectRendering.height = 32;
+        commands->BeginRendering(indirectRendering);
+        commands->SetGraphicsPipeline(indirectPipeline.get());
+        commands->SetVertexBuffer(indirectVertexBuffer.get());
+        commands->SetIndexBuffer(indirectIndexBuffer.get());
+        commands->ExecuteIndexedIndirectCommandStream(indirectStream.get());
+        commands->EndRendering();
+        commands->ClearStorageBuffer(indirectCountView.get(), 0);
+        commands->BuildIndexedIndirectCommandStream(
+            indirectStream.get(), indirectArgs.get(), 0, indirectCount.get(), 0, indirectIndexBuffer.get(), 2,
+            sizeof(RHIObjectDrawIndexedIndirectArgs));
+        RenderingAttachment emptyIndirectColorAttachment;
+        emptyIndirectColorAttachment.view = emptyIndirectColorView.get();
+        emptyIndirectColorAttachment.loadOp = RHILoadOp::Clear;
+        emptyIndirectColorAttachment.storeOp = RHIStoreOp::Store;
+        emptyIndirectColorAttachment.clearColor = {0.0f, 0.0f, 1.0f, 1.0f};
+        RenderingInfo emptyIndirectRendering;
+        emptyIndirectRendering.colors = &emptyIndirectColorAttachment;
+        emptyIndirectRendering.colorCount = 1;
+        emptyIndirectRendering.width = emptyIndirectRendering.height = 32;
+        commands->BeginRendering(emptyIndirectRendering);
+        commands->SetGraphicsPipeline(indirectPipeline.get());
+        commands->SetVertexBuffer(indirectVertexBuffer.get());
+        commands->SetIndexBuffer(indirectIndexBuffer.get());
+        commands->ExecuteIndexedIndirectCommandStream(indirectStream.get());
+        commands->EndRendering();
+        RHITextureRegion indirectReadbackRegion{0, 0, 0, 32, 32, 1, 0, 0};
+        auto indirectReadback = context.ReadbackTextureAsync(indirectColor, indirectReadbackRegion);
+        auto emptyIndirectReadback = context.ReadbackTextureAsync(emptyIndirectColor, indirectReadbackRegion);
+        context.EndFrame();
+
+        std::vector<uint8_t> indirectPixels;
+        std::vector<uint8_t> emptyIndirectPixels;
+        bool sawObjectZero = false;
+        bool sawObjectOne = false;
+        if (waitReadback(indirectReadback) && indirectReadback->Read(indirectPixels)) {
+            const uint32_t rowPitch = indirectReadback->GetRowPitch();
+            for (uint32_t y = 0; y < indirectReadback->GetHeight(); ++y) {
+                for (uint32_t x = 0; x < indirectReadback->GetWidth(); ++x) {
+                    const uint8_t* pixel = indirectPixels.data() + y * rowPitch + x * 4u;
+                    sawObjectZero = sawObjectZero || (pixel[0] > 200 && pixel[1] < 32);
+                    sawObjectOne = sawObjectOne || (pixel[1] > 200 && pixel[0] < 32);
+                }
+            }
+        }
+        const bool emptyDrawStayedClear =
+            waitReadback(emptyIndirectReadback) && emptyIndirectReadback->Read(emptyIndirectPixels) &&
+            emptyIndirectPixels.size() >= 4 && emptyIndirectPixels[0] < 32 && emptyIndirectPixels[1] < 32 &&
+            emptyIndirectPixels[2] > 200;
+        if (!require(sawObjectZero && sawObjectOne && emptyDrawStayedClear && !context.IsDeviceLost(),
+                     "metal-indirect",
+                     "compute args/count -> ICB -> baseInstance indexed render/readback or zero-draw reuse failed")) {
+            return report;
+        }
+    }
+
     RHISamplerDesc samplerDesc;
     samplerDesc.filter = RHIFilter::Point;
     samplerDesc.addressU = samplerDesc.addressV = samplerDesc.addressW = RHIAddressMode::Clamp;
@@ -154,12 +361,6 @@ float4 PSMain(VSOutput input) : SV_TARGET { return float4(0.2, 0.6, 0.9, 1.0); }
                  "frame/present transitioned to device-lost state"))
         return report;
 
-    auto waitReadback = [](const std::shared_ptr<GpuReadbackTicket>& ticket) {
-        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
-        while (ticket && !ticket->IsReady() && std::chrono::steady_clock::now() < deadline)
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        return ticket && ticket->IsReady();
-    };
     // D3D12 records readback copies into the active frame command list while
     // immediate backends execute the same public calls directly.
     context.BeginFrame(0.02f, 0.03f, 0.04f, 1.0f);

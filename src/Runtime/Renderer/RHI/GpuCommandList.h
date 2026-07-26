@@ -2,6 +2,7 @@
 
 #include "Renderer/RHI/GpuAccelerationStructure.h"
 #include "Renderer/RHI/GpuBuffer.h"
+#include "Renderer/RHI/GpuIndirectCommandStream.h"
 #include "Renderer/RHI/GpuShader.h"
 #include "Renderer/RHI/GpuTexture.h"
 #include "Renderer/RHI/GpuPipeline.h"
@@ -89,6 +90,26 @@ public:
     virtual void DrawIndexedIndirect(GpuBuffer*, uint64_t = 0) {}
     virtual void DrawIndexedIndirectCount(GpuBuffer*, uint64_t, GpuBuffer*, uint64_t, uint32_t,
                                           uint32_t = sizeof(RHIDrawIndexedIndirectArgs)) {}
+    virtual void BuildIndexedIndirectCommandStream(GpuIndexedIndirectCommandStream* stream, GpuBuffer* arguments,
+                                                   uint64_t argumentOffset, GpuBuffer* countBuffer,
+                                                   uint64_t countOffset, GpuBuffer* indexBuffer,
+                                                   uint32_t maxDrawCount, uint32_t stride) {
+        if (!stream)
+            return;
+        stream->arguments = arguments;
+        stream->count = countBuffer;
+        stream->indexBuffer = indexBuffer;
+        stream->argumentOffset = argumentOffset;
+        stream->countOffset = countOffset;
+        stream->maxDrawCount = maxDrawCount;
+        stream->stride = stride;
+    }
+    virtual void ExecuteIndexedIndirectCommandStream(GpuIndexedIndirectCommandStream* stream) {
+        if (!stream)
+            return;
+        DrawIndexedIndirectCount(stream->arguments, stream->argumentOffset, stream->count, stream->countOffset,
+                                 stream->maxDrawCount, stream->stride);
+    }
     virtual void WriteTimestamp(GpuTimestampQueryPool*, uint32_t) {}
     virtual void ResolveTimestamps(GpuTimestampQueryPool*, uint32_t, uint32_t) {}
     virtual void ClearStorageBuffer(GpuBufferView*, uint32_t = 0) {}

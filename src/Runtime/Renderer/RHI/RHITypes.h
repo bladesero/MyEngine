@@ -217,8 +217,8 @@ struct RHIDrawIndexedIndirectArgs {
 };
 
 // Modern GPU-driven draws need an explicit object index on D3D12 because SV_InstanceID starts at zero for every
-// draw there. Vulkan consumes the native draw fields at byte offset 4 and exposes firstInstance through Slang's raw
-// SV_VulkanInstanceID semantic.
+// draw there. Vulkan consumes the native draw fields at byte offset 4; Metal transcodes the same 24-byte record to
+// an ICB. Both backends pass startInstance=objectIndex to the vertex shader.
 struct RHIObjectDrawIndexedIndirectArgs {
     uint32_t objectIndex = 0;
     uint32_t indexCount = 0, instanceCount = 0, startIndex = 0;

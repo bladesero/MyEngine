@@ -170,7 +170,7 @@ Shader 管线以 HLSL 为唯一源码形态：`.shader` 描述逻辑 stage、ent
 defines，源码仍放在 `EngineContent/Shaders` 或项目 `Content/Shaders` 下的
 `.hlsl/.hlsli`。`ShaderCompilerSlang` 负责将同一份 HLSL 编译为当前 RHI 所需
 产物：D3D11/D3D12 使用 DX bytecode，Metal 使用 MSL 文本 blob；cooked shader
-容器 v5 保存后端字节码、反射与 ABI 元数据，并兼容读取旧容器。Editor 与未挂载
+容器 v6 保存后端字节码、反射与 ABI 元数据，并兼容读取旧容器。Editor 与未挂载
 `Content.pak` 的开发态 Player 通过 `ShaderCacheService` 使用项目级
 `Library/windows-x64/ShaderCache/<cacheKey>.shader` 内容寻址缓存；键包含构建与
 cooker ABI、编译器版本、目标后端/平台、设置以及 `.shader/.hlsl/.hlsli` 完整依赖
@@ -776,11 +776,12 @@ Project manifest schema v3 owns `graphics.backend`, `graphics.renderPath`,
 master switch. v1/v2 manifests migrate the switch to disabled. Device profiles are quality simulations, not new
 deployment platforms. Forward always resolves to Forward; mobile deferred
 resolves to Classic Deferred; desktop and console deferred resolve to Modern
-Deferred only when D3D12 or Vulkan exposes compute, storage images, bindless
-sampled textures, shader draw parameters, indirect-count/dispatch, and the
-required HDR/velocity/UAV formats. Resolution records requested and actual
-pipelines plus a stable fallback reason. D3D11 and Metal remain Classic
-Deferred/Forward.
+Deferred only when D3D12, Vulkan, or Metal exposes compute, storage images,
+bindless sampled textures, shader draw parameters, indirect-count/dispatch, and
+the required HDR/velocity/UAV formats. Resolution records requested and actual
+pipelines plus a stable fallback reason. Metal additionally requires Apple
+Silicon, macOS 14+, Apple GPU family 7+, argument-buffer tier 2, and ICB support;
+an incomplete probe (including Intel Mac) stays on Classic Deferred/Forward.
 
 Hardware ray tracing is an optional D3D12 Modern Deferred enhancement and never
 participates in Modern Deferred qualification. The first implementation uses
@@ -788,8 +789,8 @@ DXR 1.1 inline `RayQuery` compute shaders (Shader Model 6.5 or newer), not a
 ray-generation/miss/hit-group pipeline or SBT. `RHIDeviceCapabilities` reports
 acceleration structures, inline ray queries, and the DXR tier independently;
 the RHI exposes BLAS/TLAS sizing, allocation, build/update commands, AS bind
-groups, and RenderGraph AS read/write dependencies. Vulkan Modern Deferred,
-D3D11, Metal, and D3D12 devices below this contract retain their existing
+groups, and RenderGraph AS read/write dependencies. Vulkan/Metal Modern
+Deferred, D3D11, and D3D12 devices below this contract retain their existing
 raster/screen-space paths and expose the fallback reason in Project Settings.
 
 | Backend | Modern Deferred | Inline RT replacements |
@@ -797,7 +798,17 @@ raster/screen-space paths and expose the fallback reason in Project Settings.
 | D3D12 with DXR 1.1 + SM 6.5 | Yes | RTShadow, RTAO, RTDiffuse, RTReflection |
 | D3D12 without DXR 1.1 | Yes when normal Modern requirements pass | No; CSM/SSAO/SSGI/SSR |
 | Vulkan | Yes when normal Modern requirements pass | No; SSAO/SSGI/SSR |
-| D3D11 / Metal | Classic Deferred or Forward | No |
+| Metal (Apple Silicon, macOS 14+, complete capability probe) | Yes | No; CSM/SSAO/SSGI/SSR |
+| D3D11 / unsupported Metal | Classic Deferred or Forward | No |
+
+Metal executes GPU-generated indexed draws through a cached
+`GpuIndexedIndirectCommandStream`: a private compute kernel clamps the GPU count
+and transcodes each 24-byte object draw record into an
+`MTLIndirectCommandBuffer`, with `baseInstance=objectIndex`. Depth, shadow, and
+GBuffer passes execute the ICB without reading the count on the CPU. A
+device-owned 4096-entry argument buffer supplies stable bindless sampled-texture
+indices; destroyed views retire for the in-flight frame window before their
+slots are reused, and unused entries reference a fallback texture.
 
 Each `ViewportRenderExecution` owns a `Renderer`, visibility buffers, and
 SSGI/SSR/TAA histories. The device-level `GpuSceneDatabase` and geometry arena
@@ -893,14 +904,15 @@ effect toggles, render-path/profile changes, scene changes, and EditorWorld /
 PlayWorld switches. Editor renders ImGui after the viewport result and presents
 once.
 
-Cooked shader container v6 stores ABI version 6, backend bytecode, reflected
+Cooked shader container v6 stores ABI version 7, backend bytecode, reflected
 array/space bindings, acceleration-structure bindings, constant sizes, and
-compute thread-group sizes; v5 reflection containers remain readable. Windows
+compute thread-group sizes; v5 reflection containers with ABI version 6 remain
+readable. Windows
 packages contain Classic D3D11 and Modern D3D12 variants; Vulkan-enabled builds
-also contain SPIR-V. Modern-only engine shaders are intentionally omitted from
-D3D11/Metal blobs. `ModernRT*` descriptors produce D3D12 artifacts only and are
-not required by Vulkan/D3D11/Metal packages, while legacy v4 containers remain
-readable.
+also contain SPIR-V, and macOS packages contain the complete Modern Metal MSL
+set. Modern-only engine shaders are intentionally omitted from D3D11 blobs.
+`ModernRT*` descriptors produce D3D12 artifacts only and are not required by
+Vulkan/D3D11/Metal packages, while legacy v4 containers remain readable.
 
 ## Local lighting probes
 

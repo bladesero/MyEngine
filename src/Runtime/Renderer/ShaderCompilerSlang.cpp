@@ -6,6 +6,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <fstream>
+#include <mutex>
 #include <sstream>
 #include <thread>
 #include <unordered_set>
@@ -18,6 +19,11 @@
 #endif
 
 namespace {
+std::mutex& MetalSlangCompilerMutex() {
+    static std::mutex mutex;
+    return mutex;
+}
+
 std::string Quote(const std::string& value) {
 #ifdef _WIN32
     std::string out = "\"";
@@ -435,7 +441,16 @@ bool ShaderCompilerSlang::CompileStageFromFile(const std::filesystem::path& file
             command << " -D" << Quote(define);
         command << " > " << Quote(diag.string()) << " 2>&1";
 
-        const CommandResult commandResult = RunCommand(command.str());
+        CommandResult commandResult;
+        if (backend == ShaderBackend::Metal) {
+            // The bundled slangc Metal emitter is not reliable when several independent jobs compile the same
+            // translation unit concurrently (ModernHiZ and ModernScreenSpace expose multiple entry points). Keep
+            // other backends parallel, but serialize Metal source generation until the compiler is upgraded.
+            std::lock_guard<std::mutex> lock(MetalSlangCompilerMutex());
+            commandResult = RunCommand(command.str());
+        } else {
+            commandResult = RunCommand(command.str());
+        }
         const bool compiled =
             commandResult == CommandResult::Succeeded && ReadFile(output, outBlob) && !outBlob.empty();
         reflectionDiagnostic.clear();
@@ -446,8 +461,17 @@ bool ShaderCompilerSlang::CompileStageFromFile(const std::filesystem::path& file
         std::filesystem::remove(output, ec);
         std::filesystem::remove(diag, ec);
         std::filesystem::remove(reflectionPath, ec);
-        if (compiled && reflected)
+        if (compiled && reflected) {
+            if (backend == ShaderBackend::Metal && reflection) {
+                for (auto& binding : reflection->bindings) {
+                    if (binding.type == CookedShaderBindingType::Texture &&
+                        (binding.name == "g_BindlessTextures" || binding.name == "g_RTBindlessTextures")) {
+                        binding.bindCount = UINT32_MAX;
+                    }
+                }
+            }
             return true;
+        }
         if (commandResult == CommandResult::TimedOut) {
             if (error) {
                 *error = "slangc timed out for " + filePath.string() + " entry=" + entry + " target=" + target;

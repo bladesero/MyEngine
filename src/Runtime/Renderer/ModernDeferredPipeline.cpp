@@ -1197,7 +1197,8 @@ bool ModernDeferredPipeline::EnsureIndirectBuffers(uint32_t candidateCount) {
         return false;
     }
     const uint32_t required = (std::max)(candidateCount, 1u);
-    if (m_IndirectArgs && m_IndirectArgsUav && m_IndirectCount && m_IndirectCountUav && required <= m_IndirectCapacity)
+    if (m_IndirectArgs && m_IndirectArgsUav && m_IndirectCount && m_IndirectCountUav && m_IndirectCommands &&
+        required <= m_IndirectCapacity)
         return true;
     m_IndirectCapacity = GrowIndirectCapacity(required);
     RHIBufferDesc args;
@@ -1215,7 +1216,8 @@ bool ModernDeferredPipeline::EnsureIndirectBuffers(uint32_t candidateCount) {
     count.size = sizeof(uint32_t);
     count.stride = sizeof(uint32_t);
     count.usage = RHIResourceUsage::UnorderedAccess | RHIResourceUsage::IndirectArguments |
-                  RHIResourceUsage::CopyDestination | RHIResourceUsage::CopySource;
+                  RHIResourceUsage::CopyDestination | RHIResourceUsage::CopySource |
+                  RHIResourceUsage::ShaderResource;
     count.debugName = "ModernDepthIndirectCount";
     const uint32_t zero = 0;
     m_IndirectCount = m_Device->CreateBuffer(count, &zero);
@@ -1223,9 +1225,10 @@ bool ModernDeferredPipeline::EnsureIndirectBuffers(uint32_t candidateCount) {
     countView.elementCount = 1;
     countView.usage = RHIResourceUsage::UnorderedAccess;
     m_IndirectCountUav = m_Device->CreateBufferView(m_IndirectCount, countView);
+    m_IndirectCommands = m_Device->CreateIndexedIndirectCommandStream(m_IndirectCapacity);
     m_IndirectArgsState = RHIResourceState::UnorderedAccess;
     m_IndirectCountState = RHIResourceState::UnorderedAccess;
-    return m_IndirectArgs && m_IndirectArgsUav && m_IndirectCount && m_IndirectCountUav;
+    return m_IndirectArgs && m_IndirectArgsUav && m_IndirectCount && m_IndirectCountUav && m_IndirectCommands;
 }
 
 std::shared_ptr<ModernDeferredPipeline::ShadowIndirectStream>
@@ -1255,8 +1258,8 @@ ModernDeferredPipeline::EnsureShadowIndirectStream(const std::string& name) {
     RHIBufferDesc count;
     count.size = sizeof(uint32_t);
     count.stride = sizeof(uint32_t);
-    count.usage =
-        RHIResourceUsage::UnorderedAccess | RHIResourceUsage::IndirectArguments | RHIResourceUsage::CopyDestination;
+    count.usage = RHIResourceUsage::UnorderedAccess | RHIResourceUsage::IndirectArguments |
+                  RHIResourceUsage::CopyDestination | RHIResourceUsage::ShaderResource;
     count.debugName = name + "Count";
     const uint32_t zero = 0;
     stream->count = m_Device->CreateBuffer(count, &zero);
@@ -1264,10 +1267,11 @@ ModernDeferredPipeline::EnsureShadowIndirectStream(const std::string& name) {
     countView.elementCount = 1;
     countView.usage = RHIResourceUsage::UnorderedAccess;
     stream->countUav = m_Device->CreateBufferView(stream->count, countView);
+    stream->commands = m_Device->CreateIndexedIndirectCommandStream(stream->capacity);
     stream->cullingBindings = m_Device->CreateBindGroup(m_CullingShader);
     stream->depthBindings = m_Device->CreateBindGroup(m_DepthShader);
-    if (!stream->args || !stream->argsUav || !stream->count || !stream->countUav || !stream->cullingBindings ||
-        !stream->depthBindings) {
+    if (!stream->args || !stream->argsUav || !stream->count || !stream->countUav || !stream->commands ||
+        !stream->cullingBindings || !stream->depthBindings) {
         return nullptr;
     }
     if (existing) {
@@ -1574,12 +1578,14 @@ bool ModernDeferredPipeline::AddGpuDrivenShadowView(RenderGraph& graph, const st
     cullingConstants.viewProjection = viewProjection;
     if (!stream->cullingBindings->GetShader() || stream->cullingBindings->GetShader()->reflection.bindings.empty())
         return fail("culling shader reflection is empty");
-    if (!stream->cullingBindings->SetConstants("CullingConstants", &cullingConstants, sizeof(cullingConstants)) ||
-        !stream->cullingBindings->SetBuffer("g_Objects", m_GpuScene->GetObjectView()) ||
-        !stream->cullingBindings->SetStorageBuffer("g_DrawArgs", stream->argsUav) ||
-        !stream->cullingBindings->SetStorageBuffer("g_DrawCount", stream->countUav)) {
-        return fail("culling bindings do not match the shader contract");
-    }
+    if (!stream->cullingBindings->SetConstants("CullingConstants", &cullingConstants, sizeof(cullingConstants)))
+        return fail("culling shader rejects CullingConstants");
+    if (!stream->cullingBindings->SetBuffer("g_Objects", m_GpuScene->GetObjectView()))
+        return fail("culling shader rejects g_Objects");
+    if (!stream->cullingBindings->SetStorageBuffer("g_DrawArgs", stream->argsUav))
+        return fail("culling shader rejects g_DrawArgs");
+    if (!stream->cullingBindings->SetStorageBuffer("g_DrawCount", stream->countUav))
+        return fail("culling shader rejects g_DrawCount");
     std::string validationError;
     if (!stream->cullingBindings->Validate(&validationError))
         return fail("culling bindings are incomplete: " + validationError);
@@ -1633,6 +1639,19 @@ bool ModernDeferredPipeline::AddGpuDrivenShadowView(RenderGraph& graph, const st
                 return;
             commands.Dispatch((objectCount + 63u) / 64u, 1, 1);
         });
+    graph.AddComputePass(
+        name + "BuildCommands",
+        [indirectArgs, indirectCount](RenderGraphBuilder& builder) {
+            builder.ReadBuffer(indirectArgs);
+            builder.ReadBuffer(indirectCount);
+        },
+        [this, stream](GpuCommandList& commands, const RenderGraphResources&) {
+            commands.BuildIndexedIndirectCommandStream(stream->commands.get(), stream->args.get(), 0,
+                                                       stream->count.get(), 0,
+                                                       m_GpuScene->GetGeometryArena().GetIndexBuffer().get(),
+                                                       stream->capacity,
+                                                       sizeof(RHIObjectDrawIndexedIndirectArgs));
+        });
     graph.AddPass(
         name + "Draw",
         [shadowTarget, subresource, objectBuffer, materialBuffer, indirectArgs,
@@ -1649,8 +1668,7 @@ bool ModernDeferredPipeline::AddGpuDrivenShadowView(RenderGraph& graph, const st
                 return;
             commands.SetVertexBuffer(m_GpuScene->GetGeometryArena().GetVertexBuffer().get());
             commands.SetIndexBuffer(m_GpuScene->GetGeometryArena().GetIndexBuffer().get());
-            commands.DrawIndexedIndirectCount(stream->args.get(), 0, stream->count.get(), 0, stream->capacity,
-                                              sizeof(RHIObjectDrawIndexedIndirectArgs));
+            commands.ExecuteIndexedIndirectCommandStream(stream->commands.get());
         });
     if (std::find(m_PendingShadowStreams.begin(), m_PendingShadowStreams.end(), stream) ==
         m_PendingShadowStreams.end()) {
@@ -1694,6 +1712,18 @@ void ModernDeferredPipeline::AddDepthPrepass(RenderGraph& graph, RGTextureHandle
                 return;
             commands.Dispatch((m_CullingConstants.objectCount + 63u) / 64u, 1, 1);
         });
+    graph.AddComputePass(
+        "BuildDepthIndirectCommands",
+        [indirectArgs, indirectCount](RenderGraphBuilder& builder) {
+            builder.ReadBuffer(indirectArgs);
+            builder.ReadBuffer(indirectCount);
+        },
+        [this](GpuCommandList& commands, const RenderGraphResources&) {
+            commands.BuildIndexedIndirectCommandStream(
+                m_IndirectCommands.get(), m_IndirectArgs.get(), 0, m_IndirectCount.get(), 0,
+                m_GpuScene->GetGeometryArena().GetIndexBuffer().get(),
+                m_Stats.indirectDrawCapacity, sizeof(RHIObjectDrawIndexedIndirectArgs));
+        });
     graph.AddPass(
         "DepthPrepassIndirect",
         [sceneDepth, objectBuffer, materialBuffer, indirectArgs, indirectCount](RenderGraphBuilder& builder) {
@@ -1727,8 +1757,7 @@ void ModernDeferredPipeline::AddDepthPrepass(RenderGraph& graph, RGTextureHandle
                 return;
             commands.SetVertexBuffer(vertexBuffer.get());
             commands.SetIndexBuffer(indexBuffer.get());
-            commands.DrawIndexedIndirectCount(m_IndirectArgs.get(), 0, m_IndirectCount.get(), 0,
-                                              m_Stats.indirectDrawCapacity, sizeof(RHIObjectDrawIndexedIndirectArgs));
+            commands.ExecuteIndexedIndirectCommandStream(m_IndirectCommands.get());
         });
     m_IndirectArgsState = RHIResourceState::IndirectArgument;
     m_IndirectCountState = RHIResourceState::IndirectArgument;
@@ -1860,6 +1889,18 @@ void ModernDeferredPipeline::AddGBufferPass(RenderGraph& graph, RGTextureHandle 
                                                 RHIResourceState::IndirectArgument);
     const auto visibleCount = graph.ImportBuffer("ModernGBufferIndirectCount", m_IndirectCount, m_IndirectCountState,
                                                  RHIResourceState::IndirectArgument);
+    graph.AddComputePass(
+        "BuildGBufferIndirectCommands",
+        [visibleArgs, visibleCount](RenderGraphBuilder& builder) {
+            builder.ReadBuffer(visibleArgs);
+            builder.ReadBuffer(visibleCount);
+        },
+        [this](GpuCommandList& commands, const RenderGraphResources&) {
+            commands.BuildIndexedIndirectCommandStream(
+                m_IndirectCommands.get(), m_IndirectArgs.get(), 0, m_IndirectCount.get(), 0,
+                m_GpuScene->GetGeometryArena().GetIndexBuffer().get(),
+                m_Stats.indirectDrawCapacity, sizeof(RHIObjectDrawIndexedIndirectArgs));
+        });
     graph.AddPass(
         "GBufferIndirect",
         [objects, materials, visibleArgs, visibleCount, albedo, normal, material, emissive, velocity,
@@ -1900,8 +1941,7 @@ void ModernDeferredPipeline::AddGBufferPass(RenderGraph& graph, RGTextureHandle 
                 return;
             commands.SetVertexBuffer(vertexBuffer.get());
             commands.SetIndexBuffer(indexBuffer.get());
-            commands.DrawIndexedIndirectCount(m_IndirectArgs.get(), 0, m_IndirectCount.get(), 0,
-                                              m_Stats.indirectDrawCapacity, sizeof(RHIObjectDrawIndexedIndirectArgs));
+            commands.ExecuteIndexedIndirectCommandStream(m_IndirectCommands.get());
         });
     m_IndirectArgsState = RHIResourceState::IndirectArgument;
     m_IndirectCountState = RHIResourceState::IndirectArgument;

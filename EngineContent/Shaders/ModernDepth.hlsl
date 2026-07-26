@@ -50,7 +50,11 @@ SamplerState g_LinearRepeatUClampVSampler : register(s4);
 SamplerState g_PointRepeatUClampVSampler : register(s5);
 SamplerState g_LinearClampSampler : register(s6);
 SamplerState g_PointClampSampler : register(s7);
+#ifdef MYENGINE_METAL
+Texture2D<float4> g_BindlessTextures[4096] : register(t0, space1);
+#else
 Texture2D<float4> g_BindlessTextures[] : register(t0, space1);
+#endif
 
 struct VSInput
 {

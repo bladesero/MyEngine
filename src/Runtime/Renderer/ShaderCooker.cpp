@@ -270,7 +270,7 @@ std::string BuildCacheKey(const fs::path& source, const fs::path& allowedRoot,
     // otherwise an unchanged HLSL file can keep an older artifact with missing or mis-typed resource bindings.
     const std::string cookerContract =
         std::string(RuntimeCompatibility::kBuildId) +
-        "|shader-cooker-v6-slang-bindings-array2-resource-access1-stablepublish1-objectdraw2-materialsampler1|" +
+        "|shader-cooker-v7-slang-metal-modern-bindings1-stablepublish1-objectdraw3-materialsampler1|" +
         (usesSlang ? ShaderCompilerSlang::GetVersionString() : "fxc") + "|" +
         std::to_string(description->GetSourceHash()) + "|" + targetPlatform + "|" + settingsJson + "|" + graphContract;
     cacheKey.Update(cookerContract.data(), cookerContract.size());
@@ -302,7 +302,8 @@ ShaderCookResult Cook(const ShaderCookRequest& request, std::string* error) {
     for (ShaderBackend backend : requestedBackends) {
         if (rayTracingOnly && backend != ShaderBackend::D3D12)
             continue;
-        if (modernOnly && backend != ShaderBackend::D3D12 && backend != ShaderBackend::Vulkan)
+        if (modernOnly && backend != ShaderBackend::D3D12 && backend != ShaderBackend::Vulkan &&
+            backend != ShaderBackend::Metal)
             continue;
         backends.push_back(backend);
     }
@@ -416,7 +417,8 @@ ShaderCookResult Cook(const ShaderCookRequest& request, std::string* error) {
             for (ShaderBackend backend : backends) {
                 if (rayTracingOnly && backend != ShaderBackend::D3D12)
                     continue;
-                if (modernOnly && backend != ShaderBackend::D3D12 && backend != ShaderBackend::Vulkan)
+                if (modernOnly && backend != ShaderBackend::D3D12 && backend != ShaderBackend::Vulkan &&
+                    backend != ShaderBackend::Metal)
                     continue;
                 if (!CompileShaderStageForBackend(hlsl, sourceStage, stage, backend, description->GetDefines(),
                                                   blobs[static_cast<size_t>(backend)][passIndex][stageIndex],

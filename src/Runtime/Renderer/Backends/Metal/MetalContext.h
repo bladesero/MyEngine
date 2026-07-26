@@ -37,6 +37,11 @@ public:
     GpuCommandList* GetGraphicsCommandList() override;
     RHIBackend GetBackend() const override { return RHIBackend::Metal; }
     RHIDeviceCapabilities GetCapabilities() const override;
+    bool IsFormatSupported(RHIFormat format, RHIResourceUsage usage) const override;
+    std::shared_ptr<GpuReadbackTicket>
+    ReadbackBufferAsync(const std::shared_ptr<GpuBuffer>& buffer) override;
+    std::shared_ptr<GpuTextureReadbackTicket>
+    ReadbackTextureAsync(const std::shared_ptr<GpuTexture>& texture, const RHITextureRegion& region) override;
     IEditorImGuiRHIInterop* QueryEditorImGuiInterop() override { return this; }
     ImGuiBackendHandles GetImGuiBackendHandles() override;
 
@@ -46,6 +51,8 @@ public:
     std::shared_ptr<GpuBuffer> CreateBuffer(const RHIBufferDesc& desc, const void* initialData = nullptr) override;
     std::shared_ptr<GpuBufferView> CreateBufferView(const std::shared_ptr<GpuBuffer>& buffer,
                                                     const RHIBufferViewDesc& desc) override;
+    std::shared_ptr<GpuIndexedIndirectCommandStream>
+    CreateIndexedIndirectCommandStream(uint32_t capacity) override;
     bool UpdateBuffer(const std::shared_ptr<GpuBuffer>& buffer, uint64_t offset, const void* data,
                       uint64_t size) override;
 
@@ -80,6 +87,13 @@ public:
     void SetComputePipeline(GpuComputePipeline* pipeline);
     void SetBindGroup(GpuBindGroup* group);
     void Dispatch(uint32_t x, uint32_t y = 1, uint32_t z = 1);
+    void DispatchIndirect(GpuBuffer* arguments, uint64_t offset);
+    void ClearStorageBuffer(GpuBufferView* bufferView, uint32_t value);
+    void UAVBarrier(GpuResource* resource);
+    void BuildIndexedIndirectCommandStream(GpuIndexedIndirectCommandStream* stream, GpuBuffer* arguments,
+                                           uint64_t argumentOffset, GpuBuffer* countBuffer, uint64_t countOffset,
+                                           GpuBuffer* indexBuffer, uint32_t maxDrawCount, uint32_t stride);
+    void ExecuteIndexedIndirectCommandStream(GpuIndexedIndirectCommandStream* stream);
     std::shared_ptr<GpuTexture> UploadTexture2D(const void* rgba8Data, int width, int height) override;
     std::shared_ptr<GpuTexture> UploadTexture(const RHITextureDesc& desc, const RHITextureSubresourceData* data,
                                               uint32_t subresourceCount) override;

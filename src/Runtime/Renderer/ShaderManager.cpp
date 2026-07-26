@@ -100,13 +100,54 @@ std::shared_ptr<GpuShader> ShaderManager::CompileRecord(const ShaderRecord& rec)
             shader->reflection.bindings.push_back(std::move(destination));
         }
     };
+    const auto mergeMetalStageReflection = [](const CookedShaderStageReflection& metadata,
+                                              const std::shared_ptr<GpuShader>& shader, uint8_t stageMask) {
+        if (!shader)
+            return;
+        for (const auto& source : metadata.bindings) {
+            auto native = std::find_if(shader->reflection.bindings.begin(), shader->reflection.bindings.end(),
+                                       [&](const ShaderBindingDesc& binding) {
+                                           return binding.name == source.name;
+                                       });
+            if (native != shader->reflection.bindings.end()) {
+                // Slang emits both StructuredBuffer and RWStructuredBuffer as an unqualified device pointer, so
+                // metadata remains authoritative for buffers. The final MSL access qualifier is authoritative for
+                // textures: stale reflection can describe an RWTexture as sampled even though the rewritten
+                // declaration uses access::write/read_write.
+                if (source.type != CookedShaderBindingType::Texture &&
+                    source.type != CookedShaderBindingType::StorageTexture) {
+                    native->type = static_cast<ShaderBindingType>(source.type);
+                }
+                native->stages |= stageMask;
+                native->bindCount = source.bindCount;
+                // The Metal backend rewrites Slang parameter-group structs to the engine's packed HLSL/C++ upload
+                // layout. Slang's JSON byte size describes the pre-rewrite natural MSL layout.
+                native->byteSize = 0;
+                continue;
+            }
+            // The Metal bindless source rewrite replaces the unsized texture parameter with a device-level argument
+            // buffer. Keep the source-level binding so validation knows it is populated by the device.
+            if (source.type == CookedShaderBindingType::Texture && source.bindCount == UINT32_MAX) {
+                ShaderBindingDesc bindless;
+                bindless.name = source.name;
+                bindless.type = ShaderBindingType::Texture;
+                bindless.bindPoint = 14;
+                bindless.bindSpace = source.bindSpace;
+                bindless.bindCount = UINT32_MAX;
+                bindless.stages = stageMask;
+                shader->reflection.bindings.push_back(std::move(bindless));
+            }
+        }
+    };
     const auto applyStageReflection = [&](const CookedShaderStageReflection& metadata,
                                           const std::shared_ptr<GpuShader>& shader, ShaderStage stage,
                                           uint8_t stageMask) {
         if (!shader)
             return;
         shader->abiVersion = ShaderAsset::kCookedShaderAbiVersion;
-        if (activeBackend != RHIBackend::Vulkan)
+        if (activeBackend == RHIBackend::Metal)
+            mergeMetalStageReflection(metadata, shader, stageMask);
+        else if (activeBackend != RHIBackend::Vulkan)
             mergeStageReflection(metadata, shader, stageMask);
         if (stage == ShaderStage::Compute) {
             shader->threadGroupSize[0] = metadata.threadGroupSize[0];
@@ -129,6 +170,24 @@ std::shared_ptr<GpuShader> ShaderManager::CompileRecord(const ShaderRecord& rec)
                 shader->threadGroupSize[0] = metadata.threadGroupSize[0];
                 shader->threadGroupSize[1] = metadata.threadGroupSize[1];
                 shader->threadGroupSize[2] = metadata.threadGroupSize[2];
+            }
+            return;
+        }
+        if (activeBackend == RHIBackend::Metal) {
+            const auto mergeMetalStage = [&](ShaderStage stage, uint8_t stageMask) {
+                const auto& metadata = cooked.GetReflection(backend, rec.pass, stage);
+                mergeMetalStageReflection(metadata, shader, stageMask);
+                if (stage == ShaderStage::Compute) {
+                    shader->threadGroupSize[0] = metadata.threadGroupSize[0];
+                    shader->threadGroupSize[1] = metadata.threadGroupSize[1];
+                    shader->threadGroupSize[2] = metadata.threadGroupSize[2];
+                }
+            };
+            if (rec.compute)
+                mergeMetalStage(ShaderStage::Compute, ShaderStageCompute);
+            else {
+                mergeMetalStage(ShaderStage::Vertex, ShaderStageVertex);
+                mergeMetalStage(ShaderStage::Pixel, ShaderStagePixel);
             }
             return;
         }
@@ -245,7 +304,8 @@ std::shared_ptr<GpuShader> ShaderManager::CompileRecord(const ShaderRecord& rec)
                 return {};
             }
             auto shader = m_Device->CreateComputeShaderFromBytecode(cs.data(), cs.size());
-            if (shader && activeBackend != RHIBackend::Vulkan && !reflection.bindings.empty())
+            if (shader && activeBackend != RHIBackend::Vulkan && activeBackend != RHIBackend::Metal &&
+                !reflection.bindings.empty())
                 shader->reflection = {};
             applyStageReflection(reflection, shader, ShaderStage::Compute, ShaderStageCompute);
             return shader;
@@ -267,7 +327,7 @@ std::shared_ptr<GpuShader> ShaderManager::CompileRecord(const ShaderRecord& rec)
         }
         auto shader = m_Device->CreateShaderFromBytecode(vs.data(), vs.size(), ps.data(), ps.size(), rec.layout.data(),
                                                          static_cast<uint32_t>(rec.layout.size()));
-        if (shader && activeBackend != RHIBackend::Vulkan &&
+        if (shader && activeBackend != RHIBackend::Vulkan && activeBackend != RHIBackend::Metal &&
             (!vsReflection.bindings.empty() || !psReflection.bindings.empty()))
             shader->reflection = {};
         applyStageReflection(vsReflection, shader, ShaderStage::Vertex, ShaderStageVertex);

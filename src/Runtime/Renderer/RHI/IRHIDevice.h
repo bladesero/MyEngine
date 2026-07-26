@@ -4,6 +4,7 @@
 #include "Renderer/RHI/GpuBindGroup.h"
 #include "Renderer/RHI/GpuBuffer.h"
 #include "Renderer/RHI/GpuBufferView.h"
+#include "Renderer/RHI/GpuIndirectCommandStream.h"
 #include "Renderer/RHI/GpuSampler.h"
 #include "Renderer/RHI/GpuPipeline.h"
 #include "Renderer/RHI/GpuShader.h"
@@ -30,6 +31,14 @@ public:
     virtual std::shared_ptr<GpuBufferView> CreateBufferView(const std::shared_ptr<GpuBuffer>&,
                                                             const RHIBufferViewDesc&) {
         return nullptr;
+    }
+    virtual std::shared_ptr<GpuIndexedIndirectCommandStream>
+    CreateIndexedIndirectCommandStream(uint32_t capacity) {
+        if (capacity == 0)
+            return nullptr;
+        auto stream = std::make_shared<GpuIndexedIndirectCommandStream>();
+        stream->capacity = capacity;
+        return stream;
     }
     virtual RHIAccelerationStructureBuildSizes
     GetAccelerationStructureBuildSizes(const RHIAccelerationStructureDesc&) const {

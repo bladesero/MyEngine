@@ -236,6 +236,7 @@ private:
         std::shared_ptr<GpuBufferView> argsUav;
         std::shared_ptr<GpuBuffer> count;
         std::shared_ptr<GpuBufferView> countUav;
+        std::shared_ptr<GpuIndexedIndirectCommandStream> commands;
         std::shared_ptr<GpuBindGroup> cullingBindings;
         std::shared_ptr<GpuBindGroup> depthBindings;
         uint32_t capacity = 0;
@@ -436,6 +437,7 @@ private:
     std::shared_ptr<GpuBufferView> m_IndirectArgsUav;
     std::shared_ptr<GpuBuffer> m_IndirectCount;
     std::shared_ptr<GpuBufferView> m_IndirectCountUav;
+    std::shared_ptr<GpuIndexedIndirectCommandStream> m_IndirectCommands;
     std::unordered_map<std::string, std::shared_ptr<ShadowIndirectStream>> m_ShadowIndirectStreams;
     // Shadow graph construction must not advance the persistent RHI state. The graph may still fail during prepare or
     // execution, so streams are committed only after Renderer confirms that the frame completed successfully.

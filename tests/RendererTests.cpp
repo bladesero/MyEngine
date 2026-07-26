@@ -101,6 +101,14 @@ size_t CountOccurrences(const std::string& text, const std::string& needle) {
     return count;
 }
 
+std::vector<ShaderBackend> ModernRasterShaderBackendsForHost() {
+#ifdef MYENGINE_PLATFORM_WINDOWS
+    return {ShaderBackend::D3D12, ShaderBackend::Vulkan};
+#else
+    return {ShaderBackend::Metal};
+#endif
+}
+
 struct MockBuffer final : GpuBuffer {};
 struct MockBufferView final : GpuBufferView {};
 struct MockShader final : GpuShader {};
@@ -208,8 +216,15 @@ public:
     }
     void DrawIndirect(GpuBuffer*, uint64_t) override { ++indirectDraws; }
     void DrawIndexedIndirect(GpuBuffer*, uint64_t) override { ++indirectDraws; }
-    void DrawIndexedIndirectCount(GpuBuffer*, uint64_t, GpuBuffer*, uint64_t, uint32_t, uint32_t) override {
+    void DrawIndexedIndirectCount(GpuBuffer* arguments, uint64_t argumentOffset, GpuBuffer* count,
+                                  uint64_t countOffset, uint32_t maxDrawCount, uint32_t stride) override {
         ++indirectCountDraws;
+        lastIndirectArguments = arguments;
+        lastIndirectCount = count;
+        lastIndirectArgumentOffset = argumentOffset;
+        lastIndirectCountOffset = countOffset;
+        lastIndirectMaxDrawCount = maxDrawCount;
+        lastIndirectStride = stride;
     }
     void WriteTimestamp(GpuTimestampQueryPool*, uint32_t) override { ++timestamps; }
     void ResolveTimestamps(GpuTimestampQueryPool*, uint32_t, uint32_t) override { ++timestampResolves; }
@@ -249,6 +264,12 @@ public:
     int textureRegionCopies = 0;
     int indirectDraws = 0;
     int indirectCountDraws = 0;
+    GpuBuffer* lastIndirectArguments = nullptr;
+    GpuBuffer* lastIndirectCount = nullptr;
+    uint64_t lastIndirectArgumentOffset = 0;
+    uint64_t lastIndirectCountOffset = 0;
+    uint32_t lastIndirectMaxDrawCount = 0;
+    uint32_t lastIndirectStride = 0;
     int timestamps = 0;
     int timestampResolves = 0;
     int blasBuilds = 0;
@@ -657,6 +678,85 @@ bool TestExtendedRHIContracts() {
                      caps.indirectDraw && caps.timestampQueries && !caps.accelerationStructures &&
                      !caps.inlineRayQueries && caps.rayTracingTier == RHIRayTracingTier::None && metalContracts,
                  "extended RHI transfer/query/indirect contracts were not preserved");
+}
+
+bool TestIndexedIndirectCommandStreamContract() {
+    MockCommandList commands;
+    MockBuffer arguments;
+    MockBuffer count;
+    MockBuffer index;
+    GpuIndexedIndirectCommandStream stream;
+    stream.capacity = 16;
+    commands.BuildIndexedIndirectCommandStream(&stream, &arguments, 24, &count, 4, &index, 11,
+                                               sizeof(RHIObjectDrawIndexedIndirectArgs));
+    const bool built = stream.arguments == &arguments && stream.count == &count && stream.indexBuffer == &index &&
+                       stream.argumentOffset == 24 && stream.countOffset == 4 && stream.maxDrawCount == 11 &&
+                       stream.stride == sizeof(RHIObjectDrawIndexedIndirectArgs);
+    commands.ExecuteIndexedIndirectCommandStream(&stream);
+    return Check(built && commands.indirectCountDraws == 1 && commands.lastIndirectArguments == &arguments &&
+                     commands.lastIndirectCount == &count && commands.lastIndirectArgumentOffset == 24 &&
+                     commands.lastIndirectCountOffset == 4 && commands.lastIndirectMaxDrawCount == 11 &&
+                     commands.lastIndirectStride == sizeof(RHIObjectDrawIndexedIndirectArgs),
+                 "backend-neutral indexed command stream did not preserve the counted-indirect ABI");
+}
+
+bool TestMetalModernDeferredSourceContracts() {
+    const std::string metal = CompactSource(ReadRepositoryTextFile({
+        "src/Runtime/Renderer/Backends/Metal/MetalContext.mm",
+        "../../../src/Runtime/Renderer/Backends/Metal/MetalContext.mm",
+        "../../../../src/Runtime/Renderer/Backends/Metal/MetalContext.mm",
+        "../../../../../src/Runtime/Renderer/Backends/Metal/MetalContext.mm",
+    }));
+    const std::string pipeline = CompactSource(ReadRepositoryTextFile({
+        "src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+        "../../../src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+        "../../../../src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+        "../../../../../src/Runtime/Renderer/ModernDeferredPipeline.cpp",
+    }));
+    const std::string conformance = CompactSource(ReadRepositoryTextFile({
+        "src/Runtime/Renderer/RHIConformance.cpp",
+        "../../../src/Runtime/Renderer/RHIConformance.cpp",
+        "../../../../src/Runtime/Renderer/RHIConformance.cpp",
+        "../../../../../src/Runtime/Renderer/RHIConformance.cpp",
+    }));
+    const std::string depth = CompactSource(ReadRepositoryTextFile({
+        "EngineContent/Shaders/ModernDepth.hlsl",
+        "../../../EngineContent/Shaders/ModernDepth.hlsl",
+        "../../../../EngineContent/Shaders/ModernDepth.hlsl",
+        "../../../../../EngineContent/Shaders/ModernDepth.hlsl",
+    }));
+    const bool capabilities =
+        metal.find("isOperatingSystemAtLeastVersion:NSOperatingSystemVersion{14,0,0}") != std::string::npos &&
+        metal.find("supportsFamily:MTLGPUFamilyApple7") != std::string::npos &&
+        metal.find("argumentBuffersSupport==MTLArgumentBuffersTier2") != std::string::npos &&
+        metal.find("kMetalBindlessTextureCapacity=4096") != std::string::npos &&
+        metal.find("kMetalBindlessRetireFrames=3") != std::string::npos &&
+        metal.find("newTextureWithDescriptor:probe") != std::string::npos;
+    const bool commandStream =
+        metal.find("newIndirectCommandBufferWithDescriptor:descriptor") != std::string::npos &&
+        metal.find("kernelvoidBuildIndexedCommands") != std::string::npos &&
+        metal.find("min(drawCount[0],limits.x)") != std::string::npos &&
+        metal.find("draw.baseVertex,draw.startInstance") != std::string::npos &&
+        metal.find("nativeIndex&&nativeIndex->buffer?maxDrawCount:0u") != std::string::npos &&
+        metal.find("resetCommandsInBuffer:nativeStream->commands") != std::string::npos &&
+        metal.find("executeCommandsInBuffer:native->commands") != std::string::npos &&
+        metal.find("supportIndirectCommandBuffers=shader->supportsIndirectCommandBuffers") != std::string::npos;
+    const bool commands =
+        metal.find("dispatchThreadgroupsWithIndirectBuffer:buffer->buffer") != std::string::npos &&
+        metal.find("threadsPerThreadgroup:m_Impl->boundComputePipeline->threadsPerThreadgroup") !=
+            std::string::npos &&
+        metal.find("kernelvoidClearStorageBuffer") != std::string::npos &&
+        metal.find("memoryBarrierWithScope:MTLBarrierScopeBuffers|MTLBarrierScopeTextures") != std::string::npos;
+    const bool integration =
+        CountOccurrences(pipeline, "BuildIndexedIndirectCommandStream(") >= 3 &&
+        CountOccurrences(pipeline, "ExecuteIndexedIndirectCommandStream(") >= 3 &&
+        conformance.find("computeargs/count->ICB->baseInstanceindexedrender/readbackorzero-drawreusefailed") !=
+            std::string::npos &&
+        depth.find("Texture2D<float4>g_BindlessTextures[4096]") != std::string::npos &&
+        depth.find("uintobjectIndex=drawInstanceIndex") != std::string::npos;
+    return Check(!metal.empty() && !pipeline.empty() && !conformance.empty() && !depth.empty() && capabilities &&
+                     commandStream && commands && integration,
+                 "Metal Modern Deferred ICB, bindless, synchronization, or conformance contract is incomplete");
 }
 
 bool TestStableRHIDeviceLossContract() {
@@ -1225,9 +1325,6 @@ bool TestGpuSceneMaterialBindlessSamplerSelection() {
 }
 
 bool TestModernBindlessSamplerShaderContract() {
-#ifndef MYENGINE_PLATFORM_WINDOWS
-    return true;
-#else
     const std::array<const char*, kGpuSceneMaterialSamplerCount> samplerNames = {
         "g_LinearRepeatSampler",       "g_PointRepeatSampler",         "g_LinearClampURepeatVSampler",
         "g_PointClampURepeatVSampler", "g_LinearRepeatUClampVSampler", "g_PointRepeatUClampVSampler",
@@ -1240,7 +1337,7 @@ bool TestModernBindlessSamplerShaderContract() {
          "../../../../EngineContent/Shaders/ModernGBuffer.hlsl",
          "../../../../../EngineContent/Shaders/ModernGBuffer.hlsl"},
     }};
-    const std::array<ShaderBackend, 2> backends = {ShaderBackend::D3D12, ShaderBackend::Vulkan};
+    const auto backends = ModernRasterShaderBackendsForHost();
     for (const auto& shaderCandidates : candidates) {
         const auto shaderPath = FindRepositoryFile(shaderCandidates);
         if (!Check(!shaderPath.empty(), "Modern material shader source was not found"))
@@ -1289,9 +1386,9 @@ bool TestModernBindlessSamplerShaderContract() {
         "../../../../../src/Runtime/Renderer/ShaderCooker.cpp",
     };
     const std::string cooker = ReadRepositoryTextFile(cookerCandidates);
-    return Check(cooker.find("shader-cooker-v5-stablepublish1-objectdraw2-materialsampler1") != std::string::npos,
+    return Check(cooker.find("shader-cooker-v7-slang-metal-modern-bindings1-stablepublish1-objectdraw3-"
+                             "materialsampler1") != std::string::npos,
                  "Modern material sampler ABI did not invalidate stale cooked shader artifacts");
-#endif
 }
 
 bool TestModernGpuSceneNormalAndReflectionContracts() {
@@ -1361,7 +1458,7 @@ bool TestModernGpuSceneNormalAndReflectionContracts() {
         return false;
     }
     const auto gbufferPath = FindRepositoryFile(objectShaderCandidates[2]);
-    const std::array<ShaderBackend, 2> backends = {ShaderBackend::D3D12, ShaderBackend::Vulkan};
+    const auto backends = ModernRasterShaderBackendsForHost();
     for (ShaderBackend backend : backends) {
         for (const auto& stage : {std::pair{"VSMain", ShaderStage::Vertex}, std::pair{"PSMain", ShaderStage::Pixel}}) {
             std::vector<uint8_t> bytecode;
@@ -1444,7 +1541,7 @@ bool TestModernEnvironmentLightingMatchesClassicContract() {
                "Slang compiler is unavailable; Modern environment DXIL/SPIR-V cannot be validated")) {
         return false;
     }
-    const std::array<ShaderBackend, 2> backends = {ShaderBackend::D3D12, ShaderBackend::Vulkan};
+    const auto backends = ModernRasterShaderBackendsForHost();
     for (ShaderBackend backend : backends) {
         std::vector<uint8_t> bytecode;
         CookedShaderStageReflection reflection;
@@ -3725,13 +3822,13 @@ bool TestModernScreenSpaceSlangCompileContracts() {
     const std::array<const char*, 6> entries = {
         "CSSSGITrace", "CSSSRTrace", "CSTemporal", "CSAtrous", "CSEffectsComposite", "CSBloomTone",
     };
-    const std::array<ShaderBackend, 2> backends = {ShaderBackend::D3D12, ShaderBackend::Vulkan};
+    const auto backends = ModernRasterShaderBackendsForHost();
     for (ShaderBackend backend : backends) {
         for (const char* entry : entries) {
             std::vector<uint8_t> bytecode;
             CookedShaderStageReflection reflection;
             std::string error;
-            const std::string backendName = backend == ShaderBackend::D3D12 ? "D3D12" : "Vulkan";
+            const std::string backendName = ShaderCooker::BackendName(backend);
             if (!Check(ShaderCompilerSlang::CompileStageFromFile(shaderPath, entry, ShaderStage::Compute, backend,
                                                                  bytecode, {}, &error, &reflection),
                        "ModernScreenSpace " + backendName + " compile failed for " + entry + ": " + error)) {
@@ -3747,7 +3844,7 @@ bool TestModernScreenSpaceSlangCompileContracts() {
         std::vector<uint8_t> taaBytecode;
         CookedShaderStageReflection taaReflection;
         std::string taaError;
-        const std::string backendName = backend == ShaderBackend::D3D12 ? "D3D12" : "Vulkan";
+        const std::string backendName = ShaderCooker::BackendName(backend);
         if (!Check(ShaderCompilerSlang::CompileStageFromFile(taaShaderPath, "CSTAA", ShaderStage::Compute, backend,
                                                              taaBytecode, {}, &taaError, &taaReflection),
                    "ModernTAA " + backendName + " compile failed: " + taaError)) {
@@ -4006,7 +4103,8 @@ bool TestModernHiZOddDimensionReductionContract() {
     const std::string compact = CompactSource(ReadRepositoryTextFile(candidates));
     if (!Check(compact.find("g_SourceSize.x>g_DestinationSize.x*2u") != std::string::npos &&
                    compact.find("g_SourceSize.y>g_DestinationSize.y*2u") != std::string::npos &&
-                   compact.find("ExpandRange(range,g_SourceHiZ.Load(int3(g_SourceSize-1u,0)))") != std::string::npos,
+                   compact.find("ExpandRange(range,g_SourceHiZ.Load(int3(g_SourceSize-1u,0)).xy)") !=
+                       std::string::npos,
                "HiZ reduction drops the final source row or column for odd-sized viewports")) {
         return false;
     }
@@ -4014,16 +4112,20 @@ bool TestModernHiZOddDimensionReductionContract() {
                "Slang compiler is unavailable; Modern HiZ DXIL/SPIR-V cannot be validated")) {
         return false;
     }
-    const std::array<const char*, 2> entries = {"CSInit", "CSReduce"};
-    const std::array<ShaderBackend, 2> backends = {ShaderBackend::D3D12, ShaderBackend::Vulkan};
+    const std::array<std::pair<const char*, const char*>, 2> entries = {{
+        {"CSInit", "MYENGINE_HIZ_INIT=1"},
+        {"CSReduce", "MYENGINE_HIZ_REDUCE=1"},
+    }};
+    const auto backends = ModernRasterShaderBackendsForHost();
     for (ShaderBackend backend : backends) {
-        for (const char* entry : entries) {
+        for (const auto& entry : entries) {
             std::vector<uint8_t> bytecode;
             CookedShaderStageReflection reflection;
             std::string error;
-            if (!Check(ShaderCompilerSlang::CompileStageFromFile(shaderPath, entry, ShaderStage::Compute, backend,
-                                                                 bytecode, {}, &error, &reflection),
-                       "ModernHiZ Slang compile failed for " + std::string(entry) + ": " + error)) {
+            if (!Check(ShaderCompilerSlang::CompileStageFromFile(shaderPath, entry.first, ShaderStage::Compute,
+                                                                 backend, bytecode, {entry.second}, &error,
+                                                                 &reflection),
+                       "ModernHiZ Slang compile failed for " + std::string(entry.first) + ": " + error)) {
                 return false;
             }
             if (!Check(!bytecode.empty() && reflection.threadGroupSize[0] == 8 && reflection.threadGroupSize[1] == 8 &&
@@ -4738,6 +4840,8 @@ bool TestRenderPipelineDeviceProfileResolution() {
         ResolveRenderPipeline(RenderPath::Deferred, GraphicsDeviceProfile::Desktop, RHIBackend::D3D12, modern, true);
     const auto console =
         ResolveRenderPipeline(RenderPath::Deferred, GraphicsDeviceProfile::Console, RHIBackend::Vulkan, modern, true);
+    const auto metal =
+        ResolveRenderPipeline(RenderPath::Deferred, GraphicsDeviceProfile::Desktop, RHIBackend::Metal, modern, true);
     const auto mobile =
         ResolveRenderPipeline(RenderPath::Deferred, GraphicsDeviceProfile::Mobile, RHIBackend::D3D12, modern, true);
     modern.storageTextures = false;
@@ -4745,11 +4849,21 @@ bool TestRenderPipelineDeviceProfileResolution() {
         ResolveRenderPipeline(RenderPath::Deferred, GraphicsDeviceProfile::Console, RHIBackend::D3D12, modern, true);
     const auto forward =
         ResolveRenderPipeline(RenderPath::Forward, GraphicsDeviceProfile::Console, RHIBackend::D3D11, modern, true);
+    RHIDeviceCapabilities incompleteMetal = modern;
+    incompleteMetal.storageTextures = true;
+    incompleteMetal.indirectDispatch = false;
+    incompleteMetal.maxBindlessResources = 4095;
+    const auto metalFallback = ResolveRenderPipeline(RenderPath::Deferred, GraphicsDeviceProfile::Desktop,
+                                                     RHIBackend::Metal, incompleteMetal, true);
     return Check(desktop.resolvedPipeline == ResolvedRenderPipeline::ModernDeferred && desktop.modernSupported &&
                      console.resolvedPipeline == ResolvedRenderPipeline::ModernDeferred &&
+                     metal.resolvedPipeline == ResolvedRenderPipeline::ModernDeferred && metal.modernSupported &&
                      mobile.resolvedPipeline == ResolvedRenderPipeline::ClassicDeferred &&
                      fallback.resolvedPipeline == ResolvedRenderPipeline::ClassicDeferred && fallback.usedFallback &&
-                     !fallback.fallbackReason.empty() && forward.resolvedPipeline == ResolvedRenderPipeline::Forward,
+                     !fallback.fallbackReason.empty() && forward.resolvedPipeline == ResolvedRenderPipeline::Forward &&
+                     metalFallback.resolvedPipeline == ResolvedRenderPipeline::ClassicDeferred &&
+                     metalFallback.fallbackReason.find("indirect dispatch") != std::string::npos &&
+                     metalFallback.fallbackReason.find("4096 bindless texture slots") != std::string::npos,
                  "render pipeline device-profile resolution matrix mismatch");
 }
 
@@ -5530,6 +5644,10 @@ MYENGINE_REGISTER_TEST("Renderer", "TestReflectionProbeRgbmUploadsAsLinearSingle
 MYENGINE_REGISTER_TEST("Renderer", "TestReflectionProbeGpuBakeUsesRendererReadbackAndFastShadows",
                        TestReflectionProbeGpuBakeUsesRendererReadbackAndFastShadows);
 MYENGINE_REGISTER_TEST("Renderer", "TestExtendedRHIContracts", TestExtendedRHIContracts);
+MYENGINE_REGISTER_TEST("Renderer", "TestIndexedIndirectCommandStreamContract",
+                       TestIndexedIndirectCommandStreamContract);
+MYENGINE_REGISTER_TEST("Renderer", "TestMetalModernDeferredSourceContracts",
+                       TestMetalModernDeferredSourceContracts);
 MYENGINE_REGISTER_TEST("Renderer", "TestStableRHIDeviceLossContract", TestStableRHIDeviceLossContract);
 MYENGINE_REGISTER_TEST("Renderer", "TestMaterialResourceCacheUploadsBc3WhenSupported",
                        TestMaterialResourceCacheUploadsBc3WhenSupported);

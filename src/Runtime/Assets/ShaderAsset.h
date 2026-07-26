@@ -55,8 +55,8 @@ public:
     static constexpr uint32_t kLegacyDescriptionVersion = 1;
     static constexpr uint32_t kCookedFormatVersion = 6;
     static constexpr uint32_t kCookedFormatVersionWithReflection = 5;
-    static constexpr uint32_t kCookedShaderAbiVersion = 6;
-    static constexpr uint32_t kPreviousCookedShaderAbiVersion = 5;
+    static constexpr uint32_t kCookedShaderAbiVersion = 7;
+    static constexpr uint32_t kPreviousCookedShaderAbiVersion = 6;
     static constexpr uint32_t kCookedFormatVersionWithPasses = 4;
     static constexpr uint32_t kCookedFormatVersionWithVulkan = 3;
     static constexpr uint32_t kCookedFormatVersionWithMetal = 2;
