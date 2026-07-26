@@ -1,10 +1,10 @@
 @echo off
-REM build_vulkan.bat — Generate VS 2022 solution with the Vulkan backend enabled.
+REM build_vulkan.bat - Generate VS 2022 solution with the Vulkan backend enabled.
 REM
 REM Usage:
-REM   build_vulkan.bat                  — debug + release
-REM   build_vulkan.bat debug            — debug only
-REM   build_vulkan.bat release          — release only
+REM   build_vulkan.bat                  - debug + release
+REM   build_vulkan.bat debug            - debug only
+REM   build_vulkan.bat release          - release only
 REM
 REM After generation, open vs2022\vsxmake2022\MyEngine.sln in Visual Studio
 REM and run with --backend vulkan (e.g. set as command arg in VS debug settings).

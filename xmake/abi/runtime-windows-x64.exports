@@ -19,6 +19,7 @@
 ??0AssetMeta@@QEAA@$$QEAU0@@Z
 ??0AssetMeta@@QEAA@AEBU0@@Z
 ??0AssetMeta@@QEAA@XZ
+??0AudioClipAsset@@QEAA@AEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@Z
 ??0AudioEngine@@AEAA@XZ
 ??0AudioListenerComponent@@QEAA@$$QEAV0@@Z
 ??0AudioListenerComponent@@QEAA@AEBV0@@Z
@@ -199,6 +200,7 @@
 ??0SceneManager@@QEAA@XZ
 ??0SceneRenderLayer@@QEAA@PEAVIRHIContext@@HH@Z
 ??0SceneViewport@@QEAA@PEAVIRHIDevice@@PEAVIRHIFrameContext@@PEAVIRHIReadbackService@@@Z
+??0ScriptAsset@@QEAA@AEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@Z
 ??0ScriptComponent@@QEAA@XZ
 ??0Sha256@@QEAA@XZ
 ??0ShaderAsset@@QEAA@AEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@Z
@@ -276,6 +278,7 @@
 ??1AssetDatabaseValidationReport@@QEAA@XZ
 ??1AssetManager@@QEAA@XZ
 ??1AssetMeta@@QEAA@XZ
+??1AudioClipAsset@@UEAA@XZ
 ??1AudioEngine@@AEAA@XZ
 ??1AudioListenerComponent@@UEAA@XZ
 ??1AudioSourceComponent@@UEAA@XZ
@@ -350,6 +353,7 @@
 ??1SceneManager@@QEAA@XZ
 ??1SceneRenderLayer@@UEAA@XZ
 ??1SceneViewport@@UEAA@XZ
+??1ScriptAsset@@UEAA@XZ
 ??1ScriptComponent@@UEAA@XZ
 ??1ShaderAsset@@UEAA@XZ
 ??1ShaderCacheService@@QEAA@XZ
@@ -440,6 +444,8 @@
 ??4HealthComponent@@QEAAAEAV0@AEBV0@@Z
 ??4HitboxComponent@@QEAAAEAV0@$$QEAV0@@Z
 ??4HitboxComponent@@QEAAAEAV0@AEBV0@@Z
+??4HostRuntimeDependencyCollector@@QEAAAEAV0@$$QEAV0@@Z
+??4HostRuntimeDependencyCollector@@QEAAAEAV0@AEBV0@@Z
 ??4HurtboxComponent@@QEAAAEAV0@$$QEAV0@@Z
 ??4HurtboxComponent@@QEAAAEAV0@AEBV0@@Z
 ??4IReadOnlyFileSystem@@QEAAAEAV0@AEBV0@@Z
@@ -584,6 +590,7 @@
 ??_7AnimatorComponent@@6B@
 ??_7Application@@6B@
 ??_7Asset@@6B@
+??_7AudioClipAsset@@6B@
 ??_7AudioListenerComponent@@6B@
 ??_7AudioSourceComponent@@6B@
 ??_7BoxColliderComponent@@6B@
@@ -625,6 +632,7 @@
 ??_7SceneLayer@@6B@
 ??_7SceneRenderLayer@@6B@
 ??_7SceneViewport@@6B@
+??_7ScriptAsset@@6B@
 ??_7ScriptComponent@@6B@
 ??_7ShaderAsset@@6B@
 ??_7SkinnedMeshRendererComponent@@6B@
@@ -802,6 +810,7 @@
 ?CloneSceneFromJson@SceneLayer@@AEBA?AV?$unique_ptr@VScene@@U?$default_delete@VScene@@@std@@@std@@AEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@3@@Z
 ?CloseDocument@UICanvas@@QEAAXXZ
 ?CloseGamepadSlot@Input@@CAXAEAUGamepadState@1@@Z
+?Collect@HostRuntimeDependencyCollector@@SA_NAEBVpath@filesystem@std@@0AEAURuntimeDependencyManifest@@AEBV?$vector@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@V?$allocator@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@2@@4@PEAV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@4@@Z
 ?Collect@SceneRenderCollector@@QEBA?AUSceneRenderCollection@@AEBVScene@@AEBVCamera@@_N@Z
 ?Collect@WindowsRuntimeDependencyCollector@@SA_NAEBVpath@filesystem@std@@0AEAURuntimeDependencyManifest@@AEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@4@PEAV64@@Z
 ?Collect@WindowsRuntimeDependencyCollector@@SA_NAEBVpath@filesystem@std@@0AEAURuntimeDependencyManifest@@AEBV?$vector@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@V?$allocator@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@2@@4@PEAV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@4@@Z
@@ -1159,9 +1168,11 @@
 ?GetCanvasSpace@UICanvas@@QEBA?AW4UICanvasSpace@@XZ
 ?GetCaptureOffset@ReflectionProbeComponent@@QEBAAEBUVec3@Math@@XZ
 ?GetCells@NavigationWorld@@UEBAAEBV?$vector@EV?$allocator@E@std@@@std@@XZ
+?GetChannels@AudioClipAsset@@QEBAIXZ
 ?GetChildren@Actor@@QEBAAEBV?$vector@PEAVActor@@V?$allocator@PEAVActor@@@std@@@std@@XZ
 ?GetClassName@ScriptComponent@@QEBAAEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@XZ
 ?GetClassName@UIElementComponent@@QEBAAEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@XZ
+?GetClasses@ScriptAsset@@QEBAAEBV?$vector@UScriptClassInfo@@V?$allocator@UScriptClassInfo@@@std@@@std@@XZ
 ?GetClearColor@CameraComponent@@QEBAAEBUVec3@Math@@XZ
 ?GetClip@AudioSourceComponent@@QEBA?AV?$AssetHandle@VAudioClipAsset@@@@XZ
 ?GetClipPath@AudioSourceComponent@@QEBAAEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@XZ
@@ -1202,6 +1213,7 @@
 ?GetDefines@ShaderAsset@@QEBAAEBV?$vector@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@V?$allocator@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@2@@std@@XZ
 ?GetDependencies@Asset@@QEBAAEBV?$vector@_KV?$allocator@_K@std@@@std@@XZ
 ?GetDependencies@AssetDatabase@@QEBA?AV?$vector@PEBUAssetRecord@@V?$allocator@PEBUAssetRecord@@@std@@@std@@AEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@3@@Z
+?GetDependencies@ScriptAsset@@QEBAAEBV?$vector@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@V?$allocator@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@2@@std@@XZ
 ?GetDependencyHash@LightingProbeAsset@@QEBA_KXZ
 ?GetDesc@TextureAsset@@QEBAAEBUTextureDesc@@XZ
 ?GetDestination@NavAgentComponent@@QEBAAEBUVec3@Math@@XZ
@@ -1211,6 +1223,7 @@
 ?GetDeviceProfile@Renderer@@QEBA?AW4GraphicsDeviceProfile@@XZ
 ?GetDeviceProfile@SceneRenderLayer@@QEBA?AW4GraphicsDeviceProfile@@XZ
 ?GetDiagnostics@AudioEngine@@QEBA?AUAudioDiagnostics@@XZ
+?GetDiagnostics@ScriptAsset@@QEBAAEBUScriptDiagnostics@@XZ
 ?GetDiagnostics@ScriptComponent@@QEBAAEBUScriptDiagnostics@@XZ
 ?GetDiagnostics@ShaderAsset@@QEBAAEBV?$vector@UShaderGraphDiagnostic@@V?$allocator@UShaderGraphDiagnostic@@@std@@@std@@XZ
 ?GetDiagnostics@UISystem@@QEBAAEBUUISystemDiagnostics@@XZ
@@ -1220,6 +1233,7 @@
 ?GetDocumentPath@UICanvas@@QEBAAEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@XZ
 ?GetDocumentPath@UICanvasComponent@@QEBAAEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@XZ
 ?GetDomain@ShaderAsset@@QEBA?AW4ShaderDomain@@XZ
+?GetDurationSeconds@AudioClipAsset@@QEBAMXZ
 ?GetEditorFlags@Actor@@QEBAIXZ
 ?GetEditorScene@SceneLayer@@QEAAAEAVScene@@XZ
 ?GetEditorScene@SceneLayer@@QEBAAEBVScene@@XZ
@@ -1265,6 +1279,7 @@
 ?GetFovY@Camera@@QEBAMXZ
 ?GetFovYDegrees@CameraComponent@@QEBAMXZ
 ?GetFrameCoordinator@SceneRenderLayer@@QEAAAEAVRenderFrameCoordinator@@XZ
+?GetFrameCount@AudioClipAsset@@QEBA_KXZ
 ?GetFrameScheduler@Scene@@QEAAAEAVWorldFrameScheduler@@XZ
 ?GetFrameScheduler@Scene@@QEBAAEBVWorldFrameScheduler@@XZ
 ?GetFrameStats@Engine@@QEBAAEBUFrameStats@@XZ
@@ -1341,6 +1356,7 @@
 ?GetLastError@ProbeLightingSystem@@QEBAAEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@XZ
 ?GetLastError@RenderGraph@@QEBAAEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@XZ
 ?GetLastError@SceneManager@@QEBAAEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@XZ
+?GetLastError@ScriptAsset@@QEBAAEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@XZ
 ?GetLastError@ScriptComponent@@QEBAAEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@XZ
 ?GetLastErrorCode@RenderGraph@@QEBA?AW4ErrorCode@1@XZ
 ?GetLastInstigator@InteractionComponent@@QEBA?AUActorHandle@@XZ
@@ -1569,6 +1585,7 @@
 ?GetSSRMaxRoughness@PostProcessComponent@@QEBAMXZ
 ?GetSSRStepCount@PostProcessComponent@@QEBAIXZ
 ?GetSafeAreaInsets@UISystem@@QEBAAEBUUISafeAreaInsets@@XZ
+?GetSampleRate@AudioClipAsset@@QEBAIXZ
 ?GetSamplerForTexture@MaterialResourceCache@@QEAA?AV?$shared_ptr@UGpuSampler@@@std@@PEAVTextureAsset@@@Z
 ?GetSaturation@PostProcessComponent@@QEBAMXZ
 ?GetScene@Actor@@QEBAPEAVScene@@XZ
@@ -1609,6 +1626,7 @@
 ?GetSnapshot@GameFlowController@@QEBAAEBUGameFlowSnapshot@@XZ
 ?GetSortOrder@UICanvas@@QEBAHXZ
 ?GetSortOrder@UICanvasComponent@@QEBAHXZ
+?GetSource@ScriptAsset@@QEBAAEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@XZ
 ?GetSource@ScriptComponent@@QEBAAEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@XZ
 ?GetSourceGlyphJson@Input@@SA?AV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@V?$basic_string_view@DU?$char_traits@D@std@@@3@@Z
 ?GetSourceHash@ShaderAsset@@QEBA_KXZ
@@ -1928,6 +1946,7 @@
 ?LoadAsset@AssetManager@@QEAA?AV?$shared_ptr@VAsset@@@std@@AEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@3@@Z
 ?LoadAsset@ProbeLightingSystem@@AEAA_NAEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@Z
 ?LoadAsync@AssetManager@@QEAA?AV?$TaskHandle@V?$shared_ptr@VAsset@@@std@@@@AEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@Z
+?LoadAudioClipAssetFromFile@@YA?AV?$shared_ptr@VAudioClipAsset@@@std@@AEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@2@@Z
 ?LoadCanvasFonts@UISystem@@AEAAXAEAVScene@@@Z
 ?LoadDocument@UICanvas@@QEAA_NAEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@Z
 ?LoadDocument@UICanvasComponent@@QEAA_NAEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@Z
@@ -1966,6 +1985,7 @@
 ?MarkLayerFaulted@Engine@@AEAAXPEBVLayer@@PEBD1@Z
 ?MarkLegacyLua@ScriptComponent@@AEAAXXZ
 ?MarkPendingDestroy@Actor@@AEAAXXZ
+?MarkReady@AudioClipAsset@@QEAAXXZ
 ?MarkReady@LightingProbeAsset@@QEAAXXZ
 ?MarkReady@ShaderAsset@@QEAAXXZ
 ?Mat4Invert@@YA_NAEBUMat4@@AEAU1@@Z
@@ -2231,7 +2251,9 @@
 ?Reload@UICanvas@@QEAA_NXZ
 ?Reload@UICanvasComponent@@QEAA_NXZ
 ?ReloadFrom@Asset@@UEAA_NAEBV1@@Z
+?ReloadFrom@AudioClipAsset@@UEAA_NAEBVAsset@@@Z
 ?ReloadFrom@MeshAsset@@UEAA_NAEBVAsset@@@Z
+?ReloadFrom@ScriptAsset@@UEAA_NAEBVAsset@@@Z
 ?ReloadFrom@ShaderAsset@@UEAA_NAEBVAsset@@@Z
 ?ReloadFrom@TextureAsset@@UEAA_NAEBVAsset@@@Z
 ?Remove@AssetDatabase@@QEAA_NAEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@Z
@@ -2427,6 +2449,7 @@
 ?SetCastShadows@LightComponent@@QEAAX_N@Z
 ?SetClassName@ScriptComponent@@QEAAXV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@Z
 ?SetClassName@UIElementComponent@@QEAAXV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@Z
+?SetClasses@ScriptAsset@@QEAAXV?$vector@UScriptClassInfo@@V?$allocator@UScriptClassInfo@@@std@@@std@@@Z
 ?SetClearColor@CameraComponent@@QEAAXAEBUVec3@Math@@@Z
 ?SetClip@AudioSourceComponent@@QEAAXV?$AssetHandle@VAudioClipAsset@@@@@Z
 ?SetClipPath@AudioSourceComponent@@QEAAXAEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@Z
@@ -2452,6 +2475,7 @@
 ?SetDefaultFontPaths@UICanvasComponent@@QEAAXV?$vector@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@V?$allocator@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@2@@std@@@Z
 ?SetDeferredPayload@TextureAsset@@QEAAXV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@AEBUTextureDesc@@@Z
 ?SetDependencies@Asset@@AEAAXV?$vector@_KV?$allocator@_K@std@@@std@@@Z
+?SetDependencies@ScriptAsset@@QEAAXV?$vector@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@V?$allocator@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@2@@std@@@Z
 ?SetDependencyHash@LightingProbeAsset@@QEAAX_K@Z
 ?SetDepthInput@DeferredLightingPass@@QEAAXV?$shared_ptr@UGpuTextureView@@@std@@@Z
 ?SetDescription@ShaderAsset@@QEAAXIV?$array@UShaderStageSource@@$02@std@@V?$vector@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@V?$allocator@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@2@@3@_K@Z
@@ -2540,6 +2564,7 @@
 ?SetJumpSpeed@CharacterControllerComponent@@QEAAXM@Z
 ?SetKind@InteractionComponent@@QEAAXW4InteractionKind@@@Z
 ?SetKinematicTarget@RigidBodyComponent@@QEAAXAEBUVec3@Math@@0@Z
+?SetLastError@ScriptAsset@@QEAAXV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@Z
 ?SetLayer@Actor@@QEAAXI@Z
 ?SetLayer@ColliderComponent@@QEAAXI@Z
 ?SetLayerMask@ColliderComponent@@QEAAXI@Z
@@ -2573,6 +2598,7 @@
 ?SetMaxSlopeAngle@CharacterControllerComponent@@QEAAXM@Z
 ?SetMaxVoices@AudioEngine@@QEAAXI@Z
 ?SetMesh@MeshRendererComponent@@QEAAXV?$AssetHandle@VMeshAsset@@@@@Z
+?SetMetadata@AudioClipAsset@@QEAAXII_K@Z
 ?SetMinDistance@AudioSourceComponent@@QEAAXM@Z
 ?SetName@Actor@@QEAAXAEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@Z
 ?SetName@Asset@@QEAAXAEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@Z
@@ -2697,6 +2723,7 @@
 ?SetSoundPitch@AudioEngine@@QEAAX_KM@Z
 ?SetSoundPosition@AudioEngine@@QEAAX_KAEBUVec3@Math@@@Z
 ?SetSoundVolume@AudioEngine@@QEAAX_KM@Z
+?SetSource@ScriptAsset@@QEAAXV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@Z
 ?SetSource@ScriptComponent@@QEAAXV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@Z
 ?SetSourceMesh@SkinnedMeshRendererComponent@@QEAAXV?$AssetHandle@VMeshAsset@@@@@Z
 ?SetSourceMode@UICanvasComponent@@QEAAXW4UICanvasSourceMode@@@Z
