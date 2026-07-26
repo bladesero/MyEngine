@@ -54,6 +54,10 @@ struct MetalGraphicsPipeline : GpuGraphicsPipeline {
     MTLCullMode cullMode = MTLCullModeBack;
     MTLWinding frontWinding = MTLWindingClockwise;
     MTLTriangleFillMode fillMode = MTLTriangleFillModeFill;
+    MTLDepthClipMode depthClipMode = MTLDepthClipModeClip;
+    float depthBias = 0.0f;
+    float slopeScaledDepthBias = 0.0f;
+    float depthBiasClamp = 0.0f;
 };
 
 struct MetalComputePipeline : GpuComputePipeline {
@@ -628,6 +632,20 @@ GpuCommandList* MetalContext::GetGraphicsCommandList() {
     return m_GraphicsCommandList.get();
 }
 
+RHIDeviceCapabilities MetalContext::GetCapabilities() const {
+    RHIDeviceCapabilities capabilities;
+    capabilities.maxTextureDimension2D = 16384;
+    capabilities.maxTextureArrayLayers = 2048;
+    // Metal exposes eight color attachment slots on supported macOS GPUs. Leaving the
+    // IRHIDevice default of one here prevents the classic deferred GBuffer pass from
+    // reaching the backend even though BeginRendering and pipeline creation support MRT.
+    capabilities.maxColorAttachments = 8;
+    capabilities.maxSamples = 1;
+    capabilities.computeShaders = true;
+    capabilities.storageTextures = true;
+    return capabilities;
+}
+
 ImGuiBackendHandles MetalContext::GetImGuiBackendHandles() {
     if (m_Impl->computeEncoder) {
         [m_Impl->computeEncoder endEncoding];
@@ -696,6 +714,54 @@ std::shared_ptr<GpuBuffer> MetalContext::CreateIndexBuffer(const void* data, uin
     gpuBuf->desc = {byteSize, sizeof(uint32_t), RHIResourceUsage::IndexBuffer, "IndexBuffer"};
     CommitRHIResourceAccounting(std::static_pointer_cast<GpuBuffer>(gpuBuf));
     return gpuBuf;
+}
+
+std::shared_ptr<GpuBuffer> MetalContext::CreateBuffer(const RHIBufferDesc& desc, const void* initialData) {
+    if (!m_Impl || !m_Impl->device || desc.size == 0)
+        return nullptr;
+
+    auto buffer = std::make_shared<MetalGpuBuffer>();
+    buffer->desc = desc;
+    buffer->stride = desc.stride;
+    buffer->byteSize = desc.size;
+    buffer->buffer = [m_Impl->device newBufferWithLength:desc.size options:MTLResourceStorageModeShared];
+    if (!buffer->buffer)
+        return nullptr;
+    if (initialData)
+        std::memcpy(buffer->buffer.contents, initialData, desc.size);
+    if (!desc.debugName.empty())
+        buffer->buffer.label = [NSString stringWithUTF8String:desc.debugName.c_str()];
+    CommitRHIResourceAccounting(std::static_pointer_cast<GpuBuffer>(buffer));
+    return buffer;
+}
+
+std::shared_ptr<GpuBufferView> MetalContext::CreateBufferView(const std::shared_ptr<GpuBuffer>& buffer,
+                                                               const RHIBufferViewDesc& desc) {
+    auto native = std::dynamic_pointer_cast<MetalGpuBuffer>(buffer);
+    if (!native || !native->buffer || native->desc.stride == 0)
+        return nullptr;
+    const uint32_t totalElements = native->desc.size / native->desc.stride;
+    if (desc.firstElement > totalElements)
+        return nullptr;
+    const uint32_t elementCount = desc.elementCount ? desc.elementCount : totalElements - desc.firstElement;
+    if (elementCount > totalElements - desc.firstElement)
+        return nullptr;
+
+    auto view = std::make_shared<GpuBufferView>();
+    view->buffer = buffer;
+    view->desc = desc;
+    view->desc.elementCount = elementCount;
+    return view;
+}
+
+bool MetalContext::UpdateBuffer(const std::shared_ptr<GpuBuffer>& buffer, uint64_t offset, const void* data,
+                                uint64_t size) {
+    auto native = std::dynamic_pointer_cast<MetalGpuBuffer>(buffer);
+    if (!native || !native->buffer || !data || size == 0 || offset > native->desc.size ||
+        size > static_cast<uint64_t>(native->desc.size) - offset)
+        return false;
+    std::memcpy(static_cast<uint8_t*>(native->buffer.contents) + offset, data, static_cast<size_t>(size));
+    return true;
 }
 
 std::shared_ptr<GpuShader> MetalContext::CreateShader(const std::string& mslSource, const std::string& vsEntry,
@@ -996,6 +1062,13 @@ std::shared_ptr<GpuGraphicsPipeline> MetalContext::CreateGraphicsPipeline(const 
         desc.rasterizer.frontFace == RHIFrontFace::CounterClockwise ? MTLWindingCounterClockwise : MTLWindingClockwise;
     pipeline->fillMode =
         desc.rasterizer.fillMode == RHIFillMode::Wireframe ? MTLTriangleFillModeLines : MTLTriangleFillModeFill;
+    pipeline->depthClipMode = desc.rasterizer.depthClipEnable ? MTLDepthClipModeClip : MTLDepthClipModeClamp;
+    // The cross-backend raster state stores constant bias as an integer for D3D/Vulkan.
+    // Metal expects a normalized floating-point adjustment; preserve the engine's authored
+    // shadow value (1536) as approximately 0.015, matching Metal shadow-map practice.
+    pipeline->depthBias = static_cast<float>(desc.rasterizer.depthBias) * 0.00001f;
+    pipeline->slopeScaledDepthBias = desc.rasterizer.slopeScaledDepthBias;
+    pipeline->depthBiasClamp = desc.rasterizer.depthBiasClamp;
     return pipeline;
 }
 
@@ -1032,6 +1105,10 @@ void MetalContext::SetGraphicsPipeline(GpuGraphicsPipeline* pipeline) {
     [m_Impl->encoder setCullMode:native->cullMode];
     [m_Impl->encoder setFrontFacingWinding:native->frontWinding];
     [m_Impl->encoder setTriangleFillMode:native->fillMode];
+    [m_Impl->encoder setDepthClipMode:native->depthClipMode];
+    [m_Impl->encoder setDepthBias:native->depthBias
+                       slopeScale:native->slopeScaledDepthBias
+                            clamp:native->depthBiasClamp];
     m_Impl->primitiveType = native->primitiveType;
 }
 
@@ -1170,15 +1247,17 @@ void MetalContext::SetBindGroup(GpuBindGroup* group) {
                 warnMissing(value.first);
                 continue;
             }
-            auto* view = value.second ? dynamic_cast<MetalGpuBuffer*>(value.second->buffer.get()) : nullptr;
-            if (!view || !view->buffer)
+            auto* buffer = value.second ? dynamic_cast<MetalGpuBuffer*>(value.second->buffer.get()) : nullptr;
+            if (!buffer || !buffer->buffer)
                 continue;
+            const NSUInteger offset =
+                static_cast<NSUInteger>(value.second->desc.firstElement) * buffer->desc.stride;
             if (binding->stages == 0 || (binding->stages & ShaderStageVertex))
-                [m_Impl->encoder setVertexBuffer:view->buffer offset:0 atIndex:binding->bindPoint];
+                [m_Impl->encoder setVertexBuffer:buffer->buffer offset:offset atIndex:binding->bindPoint];
             if (binding->stages == 0 || (binding->stages & ShaderStagePixel))
-                [m_Impl->encoder setFragmentBuffer:view->buffer offset:0 atIndex:binding->bindPoint];
+                [m_Impl->encoder setFragmentBuffer:buffer->buffer offset:offset atIndex:binding->bindPoint];
             if (m_Impl->computeEncoder && (binding->stages == 0 || (binding->stages & ShaderStageCompute)))
-                [m_Impl->computeEncoder setBuffer:view->buffer offset:0 atIndex:binding->bindPoint];
+                [m_Impl->computeEncoder setBuffer:buffer->buffer offset:offset atIndex:binding->bindPoint];
         }
     };
     bindBufferMap(group->GetBuffers(), ShaderBindingType::StructuredBuffer);

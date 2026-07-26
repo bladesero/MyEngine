@@ -13,7 +13,7 @@ end
 if not is_plat("macosx") then
     table.insert(excluded_dirs, path.join(editor_backends, "Metal"))
 else
-    table.join2(frameworks, {"Metal", "MetalKit"})
+    table.join2(frameworks, {"Metal", "MetalKit", "QuartzCore"})
 end
 
 if is_plat("windows") then

@@ -620,12 +620,42 @@ bool TestExtendedRHIContracts() {
     context.commands.ResolveTimestamps(timestamps.get(), 0, 1);
     std::vector<uint64_t> ticks;
     const auto caps = context.GetCapabilities();
+    const std::string metalHeader =
+        CompactSource(ReadRepositoryTextFile({"src/Runtime/Renderer/Backends/Metal/MetalContext.h",
+                                              "../src/Runtime/Renderer/Backends/Metal/MetalContext.h",
+                                              "../../../src/Runtime/Renderer/Backends/Metal/MetalContext.h",
+                                              "../../../../src/Runtime/Renderer/Backends/Metal/MetalContext.h"}));
+    const std::string metalSource =
+        CompactSource(ReadRepositoryTextFile({"src/Runtime/Renderer/Backends/Metal/MetalContext.mm",
+                                              "../src/Runtime/Renderer/Backends/Metal/MetalContext.mm",
+                                              "../../../src/Runtime/Renderer/Backends/Metal/MetalContext.mm",
+                                              "../../../../src/Runtime/Renderer/Backends/Metal/MetalContext.mm"}));
+    const std::string shadowPass =
+        CompactSource(ReadRepositoryTextFile({"src/Runtime/Renderer/ShadowPass.cpp",
+                                              "../src/Runtime/Renderer/ShadowPass.cpp",
+                                              "../../../src/Runtime/Renderer/ShadowPass.cpp",
+                                              "../../../../src/Runtime/Renderer/ShadowPass.cpp"}));
+    const bool metalContracts =
+        metalHeader.find("CreateBuffer(constRHIBufferDesc&desc") != std::string::npos &&
+        metalHeader.find("CreateBufferView(conststd::shared_ptr<GpuBuffer>&buffer") != std::string::npos &&
+        metalHeader.find("UpdateBuffer(conststd::shared_ptr<GpuBuffer>&buffer") != std::string::npos &&
+        metalHeader.find("RHIDeviceCapabilitiesGetCapabilities()constoverride") != std::string::npos &&
+        metalSource.find("MetalContext::CreateBuffer(constRHIBufferDesc&desc") != std::string::npos &&
+        metalSource.find("MetalContext::CreateBufferView(conststd::shared_ptr<GpuBuffer>&buffer") !=
+            std::string::npos &&
+        metalSource.find("MetalContext::UpdateBuffer(conststd::shared_ptr<GpuBuffer>&buffer") != std::string::npos &&
+        metalSource.find("value.second->desc.firstElement") != std::string::npos &&
+        metalSource.find("capabilities.maxColorAttachments=8") != std::string::npos &&
+        metalSource.find("setDepthBias:native->depthBias") != std::string::npos &&
+        metalSource.find("setDepthClipMode:native->depthClipMode") != std::string::npos &&
+        shadowPass.find("{\"BLENDWEIGHT\",0,VertexFormat::Float4,offsetof(MeshVertex,boneWeights)}") !=
+            std::string::npos;
     return Check(source && context.commands.textureRegionCopies == 1 && context.commands.copiedSrc.x == 1 &&
                      context.commands.copiedDst.x == 4 && context.commands.indirectDraws == 2 &&
                      context.commands.timestamps == 1 && context.commands.timestampResolves == 1 && timestamps &&
                      timestamps->ReadResults(0, 1, ticks) && ticks.size() == 1 && caps.maxColorAttachments == 8 &&
                      caps.indirectDraw && caps.timestampQueries && !caps.accelerationStructures &&
-                     !caps.inlineRayQueries && caps.rayTracingTier == RHIRayTracingTier::None,
+                     !caps.inlineRayQueries && caps.rayTracingTier == RHIRayTracingTier::None && metalContracts,
                  "extended RHI transfer/query/indirect contracts were not preserved");
 }
 
@@ -2402,6 +2432,12 @@ bool TestDirectShadowsOccludeSpecularAcrossPipelines() {
     const std::string deferredCompact = CompactSource(deferred);
     const std::string modernCompact = CompactSource(modern);
     const std::string pbrCompact = CompactSource(pbr);
+    if (!Check(CountOccurrences(forwardCompact, "-proj.y*0.5f+0.5f") >= 2 &&
+                   CountOccurrences(deferredCompact, "-proj.y*0.5f+0.5f") >= 2 &&
+                   CountOccurrences(modernCompact, "-projected.y*0.5f+0.5f") >= 1,
+               "shadow clip-to-texture Y convention regressed")) {
+        return false;
+    }
     if (!Check(forwardCompact.find("DIRECT_SHADOW_MIN_VISIBILITY=0.0f") != std::string::npos &&
                    deferredCompact.find("DIRECT_SHADOW_MIN_VISIBILITY=0.0f") != std::string::npos &&
                    CountOccurrences(forwardCompact, "?1.0f:DIRECT_SHADOW_MIN_VISIBILITY") >= 2 &&
@@ -2765,8 +2801,14 @@ bool TestSlangReflectionPreservesSamplerStateBindings() {
     std::vector<uint8_t> bytecode;
     CookedShaderStageReflection reflection;
     std::string error;
-    if (!Check(ShaderCompilerSlang::CompileStageFromFile(shaderPath, "PSMain", ShaderStage::Pixel, ShaderBackend::D3D12,
-                                                         bytecode, {}, &error, &reflection),
+    const ShaderBackend backend =
+#ifdef MYENGINE_PLATFORM_WINDOWS
+        ShaderBackend::D3D12;
+#else
+        ShaderBackend::Metal;
+#endif
+    if (!Check(ShaderCompilerSlang::CompileStageFromFile(shaderPath, "PSMain", ShaderStage::Pixel, backend, bytecode,
+                                                         {}, &error, &reflection),
                "ShadowDepth Slang reflection compile failed: " + error)) {
         return false;
     }
@@ -2774,10 +2816,41 @@ bool TestSlangReflectionPreservesSamplerStateBindings() {
     const auto sampler = std::find_if(reflection.bindings.begin(), reflection.bindings.end(), isBaseColorSampler);
     const size_t samplerCount =
         static_cast<size_t>(std::count_if(reflection.bindings.begin(), reflection.bindings.end(), isBaseColorSampler));
-    return Check(sampler != reflection.bindings.end() && samplerCount == 1 &&
-                     sampler->type == CookedShaderBindingType::Sampler && sampler->bindPoint == 0 &&
-                     sampler->bindSpace == 0,
-                 "Slang reflection dropped or corrupted the ShadowDepth base-color sampler binding");
+    const auto hasBinding = [&](const char* name, CookedShaderBindingType type) {
+        return std::find_if(reflection.bindings.begin(), reflection.bindings.end(), [&](const auto& binding) {
+                   return binding.name == name && binding.type == type && binding.bindPoint == 0 &&
+                          binding.bindSpace == 0;
+               }) != reflection.bindings.end();
+    };
+    if (!Check(sampler != reflection.bindings.end() && samplerCount == 1 &&
+                   sampler->type == CookedShaderBindingType::Sampler && sampler->bindPoint == 0 &&
+                   sampler->bindSpace == 0 && hasBinding("g_BaseColorMap", CookedShaderBindingType::Texture) &&
+                   hasBinding("ShadowPerDraw", CookedShaderBindingType::ConstantBuffer),
+               "Slang reflection dropped or corrupted a ShadowDepth binding")) {
+        return false;
+    }
+#ifndef MYENGINE_PLATFORM_WINDOWS
+    const auto computePath = FindRepositoryFile(
+        {"EngineContent/Shaders/AtmosphereSH.hlsl", "../../../EngineContent/Shaders/AtmosphereSH.hlsl",
+         "../../../../EngineContent/Shaders/AtmosphereSH.hlsl",
+         "../../../../../EngineContent/Shaders/AtmosphereSH.hlsl"});
+    CookedShaderStageReflection computeReflection;
+    if (!Check(!computePath.empty() &&
+                   ShaderCompilerSlang::CompileStageFromFile(computePath, "CSMain", ShaderStage::Compute,
+                                                             ShaderBackend::Metal, bytecode, {}, &error,
+                                                             &computeReflection),
+               "AtmosphereSH Metal reflection compile failed: " + error)) {
+        return false;
+    }
+    const auto storage = std::find_if(computeReflection.bindings.begin(), computeReflection.bindings.end(),
+                                      [](const auto& binding) { return binding.name == "g_SH2Out"; });
+    if (!Check(storage != computeReflection.bindings.end() &&
+                   storage->type == CookedShaderBindingType::StorageBuffer && storage->bindPoint == 0,
+               "Slang Metal reflection misclassified RWStructuredBuffer as a constant buffer")) {
+        return false;
+    }
+#endif
+    return true;
 }
 
 bool TestVulkanStructuredBufferAndScreenUIBindingContracts() {
@@ -4584,6 +4657,10 @@ bool TestDeferredLightingShaderSourceContract() {
     if (!Check(source.find("SampleDirectionalShadow") != std::string::npos &&
                    source.find("g_ShadowMap.SampleCmpLevelZero") != std::string::npos,
                "DeferredLightingPass does not sample directional shadows"))
+        return false;
+    if (!Check(source.find("g_ShadowMap.GetDimensions") != std::string::npos &&
+                   source.find("dot(worldPos - g_CameraPosition.xyz, g_CameraForward.xyz)") != std::string::npos,
+               "DeferredLightingPass uses a fixed PCF footprint or radial CSM cascade selection"))
         return false;
     return Check(source.find("g_EnvironmentLighting.w") != std::string::npos &&
                      source.find("g_IBLCubemap.SampleLevel") != std::string::npos,

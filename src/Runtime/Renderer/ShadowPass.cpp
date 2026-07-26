@@ -28,6 +28,9 @@ const VertexElement k_StaticShadowVertexLayout[] = {
     {"POSITION", 0, VertexFormat::Float3, offsetof(MeshVertex, position)},
     {"TEXCOORD", 0, VertexFormat::Float2, offsetof(MeshVertex, u)},
     {"COLOR", 0, VertexFormat::Float4, offsetof(MeshVertex, color)},
+#if defined(MYENGINE_PLATFORM_MACOS)
+    {"BLENDWEIGHT", 0, VertexFormat::Float4, offsetof(MeshVertex, boneWeights)},
+#endif
 };
 
 const VertexElement k_SkinnedShadowVertexLayout[] = {
@@ -323,7 +326,7 @@ void ShadowPass::UpdateLightMatrices(const Scene& scene, const Camera& camera) {
         const float extent = 8.0f;
         const Vec3 center = Vec3::Zero();
         const Vec3 eye = center - m_LightDirection * (extent * 2.5f);
-        const Mat4 lightView = Mat4::LookAt(eye, center, Vec3::Up());
+        const Mat4 lightView = Mat4::LookAt(eye, center, StableUpForDirection(m_LightDirection));
         const Mat4 lightProj = Mat4::Ortho(-extent, extent, -extent, extent, 0.1f, extent * 8.0f);
         m_LightViewProjCascade[0] = lightView * lightProj;
         m_LightViewProj = m_LightViewProjCascade[0];
@@ -357,7 +360,7 @@ void ShadowPass::UpdateLightMatrices(const Scene& scene, const Camera& camera) {
         // Fallback on degenerate view matrix.
         const float extent = (std::max)(4.0f, halfMax);
         const Vec3 eyeFb = center - m_LightDirection * (extent * 3.0f);
-        const Mat4 lightViewFb = Mat4::LookAt(eyeFb, center, Vec3::Up());
+        const Mat4 lightViewFb = Mat4::LookAt(eyeFb, center, StableUpForDirection(m_LightDirection));
         const Mat4 lightProjFb = Mat4::Ortho(-extent, extent, -extent, extent, 0.1f, extent * 8.0f);
         m_LightViewProjCascade[0] = lightViewFb * lightProjFb;
         m_LightViewProj = m_LightViewProjCascade[0];
@@ -372,7 +375,7 @@ void ShadowPass::UpdateLightMatrices(const Scene& scene, const Camera& camera) {
     // Light view: look at scene center from far enough away.
     const float lightDist = (std::max)(4.0f, halfMax) * 3.0f;
     const Vec3 eye = center - m_LightDirection * lightDist;
-    const Mat4 lightView = Mat4::LookAt(eye, center, Vec3::Up());
+    const Mat4 lightView = Mat4::LookAt(eye, center, StableUpForDirection(m_LightDirection));
 
     for (uint32_t cascade = 0; cascade < cascadeCount; ++cascade) {
         const float splitNear = (cascade == 0) ? camNear : splits[cascade - 1];

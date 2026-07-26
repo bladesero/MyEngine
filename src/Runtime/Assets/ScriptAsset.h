@@ -2,8 +2,6 @@
 
 #include "API/RuntimeApi.h"
 
-#include "API/RuntimeApi.h"
-
 #include "Assets/Asset.h"
 #include "Assets/ScriptDiagnostics.h"
 #include "Assets/ScriptReflection.h"
@@ -12,7 +10,7 @@
 #include <string>
 #include <vector>
 
-class ScriptAsset final : public Asset {
+class MYENGINE_RUNTIME_API ScriptAsset final : public Asset {
 public:
     explicit ScriptAsset(const std::string& path);
 

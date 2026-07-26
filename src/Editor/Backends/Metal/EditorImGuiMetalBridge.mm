@@ -4,7 +4,7 @@
 
 #import <Metal/Metal.h>
 
-#include <backends/imgui_impl_metal.h>
+#include "../../../../thirdparty/imgui/backends/imgui_impl_metal.h"
 
 bool EditorImGuiMetal_Init(void* device) {
     return ImGui_ImplMetal_Init((__bridge id<MTLDevice>)device);

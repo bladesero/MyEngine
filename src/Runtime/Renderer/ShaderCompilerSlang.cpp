@@ -236,6 +236,16 @@ bool ParseReflection(const std::filesystem::path& path, const std::string& entry
         const auto entryPoints = root.value("entryPoints", nlohmann::json::array());
         std::unordered_set<std::string> usedBindings;
         bool hasEntryPointUsage = false;
+        const auto forEachBinding = [](const nlohmann::json& owner, const auto& visitor) {
+            if (const auto plural = owner.find("bindings"); plural != owner.end() && plural->is_array()) {
+                for (const auto& binding : *plural)
+                    if (binding.is_object())
+                        visitor(binding);
+                return;
+            }
+            if (const auto singular = owner.find("binding"); singular != owner.end() && singular->is_object())
+                visitor(*singular);
+        };
         for (const auto& point : entryPoints) {
             if (point.value("name", std::string{}) != entry)
                 continue;
@@ -244,10 +254,17 @@ bool ParseReflection(const std::filesystem::path& path, const std::string& entry
                 for (size_t axis = 0; axis < 3; ++axis)
                     output.threadGroupSize[axis] = threads[axis].get<uint32_t>();
             const auto entryBindings = point.value("bindings", nlohmann::json::array());
-            hasEntryPointUsage = entryBindings.is_array();
             for (const auto& binding : entryBindings) {
-                const auto bindingJson = binding.value("binding", nlohmann::json::object());
-                if (bindingJson.value("used", 0u) != 0u)
+                bool hasUsage = false;
+                bool used = false;
+                forEachBinding(binding, [&](const nlohmann::json& bindingJson) {
+                    if (bindingJson.contains("used")) {
+                        hasUsage = true;
+                        used |= bindingJson.value("used", 0u) != 0u;
+                    }
+                });
+                hasEntryPointUsage |= hasUsage;
+                if (used)
                     usedBindings.insert(binding.value("name", std::string{}));
             }
             break;
@@ -256,12 +273,24 @@ bool ParseReflection(const std::filesystem::path& path, const std::string& entry
             const std::string parameterName = parameter.value("name", std::string{});
             if (hasEntryPointUsage && usedBindings.count(parameterName) == 0)
                 continue;
-            const auto bindingJson = parameter.value("binding", nlohmann::json::object());
-            const std::string kind = bindingJson.value("kind", std::string{});
+            const nlohmann::json* resourceBinding = nullptr;
+            forEachBinding(parameter, [&](const nlohmann::json& bindingJson) {
+                if (resourceBinding)
+                    return;
+                const std::string candidateKind = bindingJson.value("kind", std::string{});
+                if (candidateKind == "constantBuffer" || candidateKind == "sampler" ||
+                    candidateKind == "samplerState" || candidateKind == "shaderResource" ||
+                    candidateKind == "rayTracingAccelerationStructure" || candidateKind == "unorderedAccess") {
+                    resourceBinding = &bindingJson;
+                }
+            });
+            if (!resourceBinding)
+                continue;
+            const std::string kind = resourceBinding->value("kind", std::string{});
             CookedShaderBinding binding;
             binding.name = parameterName;
-            binding.bindPoint = bindingJson.value("index", 0u);
-            binding.bindSpace = bindingJson.value("space", 0u);
+            binding.bindPoint = resourceBinding->value("index", 0u);
+            binding.bindSpace = resourceBinding->value("space", 0u);
             const nlohmann::json* type = parameter.contains("type") ? &parameter["type"] : nullptr;
             while (type && type->value("kind", std::string{}) == "array") {
                 const uint32_t elementCount = type->value("elementCount", 1u);
@@ -277,7 +306,16 @@ bool ParseReflection(const std::filesystem::path& path, const std::string& entry
                 type = type->contains("elementType") ? &(*type)["elementType"] : nullptr;
             }
             const std::string shape = type ? type->value("baseShape", std::string{}) : std::string{};
-            if (kind == "constantBuffer") {
+            const std::string access = type ? type->value("access", std::string{}) : std::string{};
+            const bool structuredBuffer = shape == "structuredBuffer" || shape == "byteAddressBuffer";
+            const bool writable = access == "readWrite" || access == "write";
+            // Newer Slang releases report Metal buffer slots as "constantBuffer" regardless of whether the
+            // source resource was a StructuredBuffer or RWStructuredBuffer. The resource type/access remains
+            // authoritative and matches the generated MSL device pointer.
+            if (structuredBuffer) {
+                binding.type =
+                    writable ? CookedShaderBindingType::StorageBuffer : CookedShaderBindingType::StructuredBuffer;
+            } else if (kind == "constantBuffer") {
                 binding.type = CookedShaderBindingType::ConstantBuffer;
                 if (type && type->contains("elementVarLayout"))
                     binding.byteSize =
@@ -292,15 +330,11 @@ bool ParseReflection(const std::filesystem::path& path, const std::string& entry
                 if (shape == "accelerationStructure")
                     binding.type = CookedShaderBindingType::AccelerationStructure;
                 else
-                    binding.type = shape == "structuredBuffer" || shape == "byteAddressBuffer"
-                                       ? CookedShaderBindingType::StructuredBuffer
-                                       : CookedShaderBindingType::Texture;
+                    binding.type = CookedShaderBindingType::Texture;
             } else if (kind == "rayTracingAccelerationStructure") {
                 binding.type = CookedShaderBindingType::AccelerationStructure;
             } else if (kind == "unorderedAccess") {
-                binding.type = shape == "structuredBuffer" || shape == "byteAddressBuffer"
-                                   ? CookedShaderBindingType::StorageBuffer
-                                   : CookedShaderBindingType::StorageTexture;
+                binding.type = CookedShaderBindingType::StorageTexture;
             } else {
                 continue;
             }

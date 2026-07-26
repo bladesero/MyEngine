@@ -21,6 +21,7 @@ struct DeferredLightingConstants {
     float lightDirection[4];
     float lightColor[4];
     float cameraPosition[4];
+    float cameraForward[4];
     float pointLightPositions[4][4];
     float pointLightColors[4][4];
     float spotLightPositions[4][4];
@@ -273,6 +274,10 @@ void DeferredLightingPass::Execute(GpuCommandList& commands, const Scene&, const
     constants.cameraPosition[1] = cameraPosition.y;
     constants.cameraPosition[2] = cameraPosition.z;
     constants.cameraPosition[3] = 1.0f;
+    const Vec3 cameraForward = camera.GetForward();
+    constants.cameraForward[0] = cameraForward.x;
+    constants.cameraForward[1] = cameraForward.y;
+    constants.cameraForward[2] = cameraForward.z;
 
     const size_t pointCount = (std::min)(m_Lights.pointLights.size(), size_t{4});
     for (size_t i = 0; i < pointCount; ++i) {

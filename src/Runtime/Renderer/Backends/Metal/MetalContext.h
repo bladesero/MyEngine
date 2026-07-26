@@ -36,12 +36,18 @@ public:
     GpuTextureView* GetCurrentBackBufferView() override;
     GpuCommandList* GetGraphicsCommandList() override;
     RHIBackend GetBackend() const override { return RHIBackend::Metal; }
+    RHIDeviceCapabilities GetCapabilities() const override;
     IEditorImGuiRHIInterop* QueryEditorImGuiInterop() override { return this; }
     ImGuiBackendHandles GetImGuiBackendHandles() override;
 
     std::shared_ptr<GpuBuffer> CreateVertexBuffer(const void* data, uint32_t byteSize, uint32_t strideBytes) override;
 
     std::shared_ptr<GpuBuffer> CreateIndexBuffer(const void* data, uint32_t byteSize) override;
+    std::shared_ptr<GpuBuffer> CreateBuffer(const RHIBufferDesc& desc, const void* initialData = nullptr) override;
+    std::shared_ptr<GpuBufferView> CreateBufferView(const std::shared_ptr<GpuBuffer>& buffer,
+                                                    const RHIBufferViewDesc& desc) override;
+    bool UpdateBuffer(const std::shared_ptr<GpuBuffer>& buffer, uint64_t offset, const void* data,
+                      uint64_t size) override;
 
     // mslSource: Metal Shading Language string.
     // vsEntry / psEntry: function names inside the MSL source.

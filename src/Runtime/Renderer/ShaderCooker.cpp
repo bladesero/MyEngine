@@ -269,7 +269,8 @@ std::string BuildCacheKey(const fs::path& source, const fs::path& allowedRoot,
     // Reflection is part of the cooked shader ABI. Bump this contract whenever the Slang reflection mapping changes;
     // otherwise an unchanged HLSL file can keep an older artifact with missing or mis-typed resource bindings.
     const std::string cookerContract =
-        std::string(RuntimeCompatibility::kBuildId) + "|shader-cooker-v5-stablepublish1-objectdraw2-materialsampler1|" +
+        std::string(RuntimeCompatibility::kBuildId) +
+        "|shader-cooker-v6-slang-bindings-array2-resource-access1-stablepublish1-objectdraw2-materialsampler1|" +
         (usesSlang ? ShaderCompilerSlang::GetVersionString() : "fxc") + "|" +
         std::to_string(description->GetSourceHash()) + "|" + targetPlatform + "|" + settingsJson + "|" + graphContract;
     cacheKey.Update(cookerContract.data(), cookerContract.size());

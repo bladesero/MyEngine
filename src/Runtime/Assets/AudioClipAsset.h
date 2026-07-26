@@ -2,13 +2,14 @@
 
 // Audio asset data belongs to Assets; Runtime/Audio owns device playback.
 
+#include "API/RuntimeApi.h"
 #include "Assets/Asset.h"
 
 #include <cstdint>
 #include <memory>
 #include <string>
 
-class AudioClipAsset final : public Asset {
+class MYENGINE_RUNTIME_API AudioClipAsset final : public Asset {
 public:
     explicit AudioClipAsset(const std::string& path) : Asset(AssetType::AudioClip, path) {}
 
@@ -30,4 +31,4 @@ private:
 
 using AudioClipHandle = AssetHandle<AudioClipAsset>;
 
-std::shared_ptr<AudioClipAsset> LoadAudioClipAssetFromFile(const std::string& path);
+MYENGINE_RUNTIME_API std::shared_ptr<AudioClipAsset> LoadAudioClipAssetFromFile(const std::string& path);

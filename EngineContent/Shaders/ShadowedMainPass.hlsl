@@ -184,7 +184,9 @@ float SampleDirectionalCascade(float3 worldPos, float nDotL, uint cascade)
     float bias = max(0.0020f, 0.0100f * (1.0f - nDotL));
     float compareDepth = proj.z - bias;
 
-    const float2 texelSize = float2(1.0f / 2048.0f, 1.0f / 2048.0f);
+    uint shadowWidth, shadowHeight, shadowLayers;
+    g_ShadowMap.GetDimensions(shadowWidth, shadowHeight, shadowLayers);
+    const float2 texelSize = 1.0f / max(float2(shadowWidth, shadowHeight), 1.0f.xx);
     float shadow = 0.0f;
     [unroll]
     for (int y = -1; y <= 1; ++y) {

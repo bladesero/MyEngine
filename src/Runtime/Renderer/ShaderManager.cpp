@@ -132,7 +132,17 @@ std::shared_ptr<GpuShader> ShaderManager::CompileRecord(const ShaderRecord& rec)
             }
             return;
         }
-        shader->reflection = {};
+        bool hasCookedBindings = false;
+        if (rec.compute) {
+            hasCookedBindings = !cooked.GetReflection(backend, rec.pass, ShaderStage::Compute).bindings.empty();
+        } else {
+            hasCookedBindings = !cooked.GetReflection(backend, rec.pass, ShaderStage::Vertex).bindings.empty() ||
+                                !cooked.GetReflection(backend, rec.pass, ShaderStage::Pixel).bindings.empty();
+        }
+        // Metal bytecode is MSL source, so the backend can recover the actual native binding indices. Preserve that
+        // table when loading an older/broken cache artifact whose serialized Slang reflection is empty.
+        if (hasCookedBindings)
+            shader->reflection = {};
         const auto mergeStage = [&](ShaderStage stage, uint8_t stageMask) {
             const auto& metadata = cooked.GetReflection(backend, rec.pass, stage);
             mergeStageReflection(metadata, shader, stageMask);
@@ -235,6 +245,8 @@ std::shared_ptr<GpuShader> ShaderManager::CompileRecord(const ShaderRecord& rec)
                 return {};
             }
             auto shader = m_Device->CreateComputeShaderFromBytecode(cs.data(), cs.size());
+            if (shader && activeBackend != RHIBackend::Vulkan && !reflection.bindings.empty())
+                shader->reflection = {};
             applyStageReflection(reflection, shader, ShaderStage::Compute, ShaderStageCompute);
             return shader;
         }
@@ -255,7 +267,8 @@ std::shared_ptr<GpuShader> ShaderManager::CompileRecord(const ShaderRecord& rec)
         }
         auto shader = m_Device->CreateShaderFromBytecode(vs.data(), vs.size(), ps.data(), ps.size(), rec.layout.data(),
                                                          static_cast<uint32_t>(rec.layout.size()));
-        if (shader && activeBackend != RHIBackend::Vulkan)
+        if (shader && activeBackend != RHIBackend::Vulkan &&
+            (!vsReflection.bindings.empty() || !psReflection.bindings.empty()))
             shader->reflection = {};
         applyStageReflection(vsReflection, shader, ShaderStage::Vertex, ShaderStageVertex);
         applyStageReflection(psReflection, shader, ShaderStage::Pixel, ShaderStagePixel);
