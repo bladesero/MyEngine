@@ -51,6 +51,74 @@ rule("copy_game_content")
     end)
 rule_end()
 
+rule("compile_metal_internal_shaders")
+    after_build(function(target)
+        if not is_plat("macosx") then
+            return
+        end
+        local source = path.join(os.projectdir(), "EngineContent", "Shaders", "MetalCommandInfrastructure.metal")
+        if not os.isfile(source) then
+            return
+        end
+        local generated = path.join(target:autogendir(), "metal")
+        local air = path.join(generated, "MetalCommandInfrastructure.air")
+        local library = path.join(generated, "MetalCommandInfrastructure.metallib")
+        local destination = path.join(target:targetdir(), "EngineContent", "Shaders",
+                                      "MetalCommandInfrastructure.metallib")
+        os.mkdir(generated)
+        try {
+            function()
+                local toolchain_args = {}
+                local component_json = nil
+                try {
+                    function()
+                        component_json =
+                            os.iorunv("xcodebuild", {"-showComponent", "MetalToolchain", "-json"})
+                    end,
+                    catch {
+                        function()
+                            component_json = nil
+                        end
+                    }
+                }
+                if component_json then
+                    local identifier = component_json:match('"toolchainIdentifier"%s*:%s*"([^"]+)"')
+                    if identifier and identifier ~= "" then
+                        table.insert(toolchain_args, "--toolchain")
+                        table.insert(toolchain_args, identifier)
+                    end
+                end
+                local metal_args = {}
+                for _, argument in ipairs(toolchain_args) do
+                    table.insert(metal_args, argument)
+                end
+                for _, argument in ipairs({"-sdk", "macosx", "metal", "-std=metal3.0",
+                                           "-mmacosx-version-min=14.0", "-c", source, "-o", air}) do
+                    table.insert(metal_args, argument)
+                end
+                os.vrunv("xcrun", metal_args)
+                local metallib_args = {}
+                for _, argument in ipairs(toolchain_args) do
+                    table.insert(metallib_args, argument)
+                end
+                for _, argument in ipairs({"-sdk", "macosx", "metallib", air, "-o", library}) do
+                    table.insert(metallib_args, argument)
+                end
+                os.vrunv("xcrun", metallib_args)
+                os.mkdir(path.directory(destination))
+                os.cp(library, destination)
+            end,
+            catch {
+                function(errors)
+                    os.rm(air)
+                    os.rm(library)
+                    cprint("${yellow}[Metal] optional Metal Toolchain unavailable; internal shaders will use runtime MSL")
+                end
+            }
+        }
+    end)
+rule_end()
+
 rule("copy_slang_tool")
     after_build(function (target)
         local incremental_files = import("scripts.incremental_files",

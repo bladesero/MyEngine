@@ -20,6 +20,7 @@
 #include "Renderer/GpuSceneDatabase.h"
 #include "Renderer/LightComponent.h"
 #include "Renderer/MaterialResourceCache.h"
+#include "Renderer/MetalShaderArtifact.h"
 #include "Renderer/ModernDeferredPipeline.h"
 #include "Renderer/ParticleSystemComponent.h"
 #include "Renderer/ProbeBakeRenderer.h"
@@ -49,6 +50,7 @@
 #include <array>
 #include <cctype>
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -100,6 +102,43 @@ size_t CountOccurrences(const std::string& text, const std::string& needle) {
         ++count;
     return count;
 }
+
+#if defined(MYENGINE_PLATFORM_MACOS)
+class ScopedEnvironmentVariable {
+public:
+    ScopedEnvironmentVariable(const char* name, const std::string& value) : m_Name(name) {
+        if (const char* current = std::getenv(name)) {
+            m_HadValue = true;
+            m_Value = current;
+        }
+        setenv(m_Name.c_str(), value.c_str(), 1);
+    }
+
+    ~ScopedEnvironmentVariable() {
+        if (m_HadValue)
+            setenv(m_Name.c_str(), m_Value.c_str(), 1);
+        else
+            unsetenv(m_Name.c_str());
+    }
+
+private:
+    std::string m_Name;
+    std::string m_Value;
+    bool m_HadValue = false;
+};
+
+bool WriteExecutableTestScript(const std::filesystem::path& path, const std::string& source) {
+    std::ofstream output(path, std::ios::binary | std::ios::trunc);
+    output << source;
+    output.close();
+    std::error_code error;
+    std::filesystem::permissions(
+        path, std::filesystem::perms::owner_read | std::filesystem::perms::owner_write |
+                  std::filesystem::perms::owner_exec,
+        std::filesystem::perm_options::replace, error);
+    return !error && std::filesystem::is_regular_file(path, error);
+}
+#endif
 
 std::vector<ShaderBackend> ModernRasterShaderBackendsForHost() {
 #ifdef MYENGINE_PLATFORM_WINDOWS
@@ -704,6 +743,12 @@ bool TestMetalModernDeferredSourceContracts() {
         "../../../../src/Runtime/Renderer/Backends/Metal/MetalContext.mm",
         "../../../../../src/Runtime/Renderer/Backends/Metal/MetalContext.mm",
     }));
+    const std::string metalCommands = CompactSource(ReadRepositoryTextFile({
+        "EngineContent/Shaders/MetalCommandInfrastructure.metal",
+        "../../../EngineContent/Shaders/MetalCommandInfrastructure.metal",
+        "../../../../EngineContent/Shaders/MetalCommandInfrastructure.metal",
+        "../../../../../EngineContent/Shaders/MetalCommandInfrastructure.metal",
+    }));
     const std::string pipeline = CompactSource(ReadRepositoryTextFile({
         "src/Runtime/Renderer/ModernDeferredPipeline.cpp",
         "../../../src/Runtime/Renderer/ModernDeferredPipeline.cpp",
@@ -731,9 +776,9 @@ bool TestMetalModernDeferredSourceContracts() {
         metal.find("newTextureWithDescriptor:probe") != std::string::npos;
     const bool commandStream =
         metal.find("newIndirectCommandBufferWithDescriptor:descriptor") != std::string::npos &&
-        metal.find("kernelvoidBuildIndexedCommands") != std::string::npos &&
-        metal.find("min(drawCount[0],limits.x)") != std::string::npos &&
-        metal.find("draw.baseVertex,draw.startInstance") != std::string::npos &&
+        metalCommands.find("kernelvoidBuildIndexedCommands") != std::string::npos &&
+        metalCommands.find("min(drawCount[0],limits.x)") != std::string::npos &&
+        metalCommands.find("draw.baseVertex,draw.startInstance") != std::string::npos &&
         metal.find("nativeIndex&&nativeIndex->buffer?maxDrawCount:0u") != std::string::npos &&
         metal.find("resetCommandsInBuffer:nativeStream->commands") != std::string::npos &&
         metal.find("executeCommandsInBuffer:native->commands") != std::string::npos &&
@@ -741,7 +786,7 @@ bool TestMetalModernDeferredSourceContracts() {
     const bool commands =
         metal.find("dispatchThreadgroupsWithIndirectBuffer:buffer->buffer") != std::string::npos &&
         metal.find("threadsPerThreadgroup:m_Impl->boundComputePipeline->threadsPerThreadgroup") != std::string::npos &&
-        metal.find("kernelvoidClearStorageBuffer") != std::string::npos &&
+        metalCommands.find("kernelvoidClearStorageBuffer") != std::string::npos &&
         metal.find("memoryBarrierWithScope:MTLBarrierScopeBuffers|MTLBarrierScopeTextures") != std::string::npos;
     const bool integration =
         CountOccurrences(pipeline, "BuildIndexedIndirectCommandStream(") >= 3 &&
@@ -750,8 +795,8 @@ bool TestMetalModernDeferredSourceContracts() {
             std::string::npos &&
         depth.find("Texture2D<float4>g_BindlessTextures[4096]") != std::string::npos &&
         depth.find("uintobjectIndex=drawInstanceIndex") != std::string::npos;
-    return Check(!metal.empty() && !pipeline.empty() && !conformance.empty() && !depth.empty() && capabilities &&
-                     commandStream && commands && integration,
+    return Check(!metal.empty() && !metalCommands.empty() && !pipeline.empty() && !conformance.empty() &&
+                     !depth.empty() && capabilities && commandStream && commands && integration,
                  "Metal Modern Deferred ICB, bindless, synchronization, or conformance contract is incomplete");
 }
 
@@ -1382,7 +1427,7 @@ bool TestModernBindlessSamplerShaderContract() {
         "../../../../../src/Runtime/Renderer/ShaderCooker.cpp",
     };
     const std::string cooker = ReadRepositoryTextFile(cookerCandidates);
-    return Check(cooker.find("shader-cooker-v7-slang-metal-modern-bindings1-stablepublish1-objectdraw3-"
+    return Check(cooker.find("shader-cooker-v8-slang-metal-container1-nativebindings1-stablepublish1-objectdraw3-"
                              "materialsampler1") != std::string::npos,
                  "Modern material sampler ABI did not invalidate stale cooked shader artifacts");
 }
@@ -1823,7 +1868,28 @@ bool TestModernClusterBuffersStartInNativeUavState() {
 }
 
 bool TestPersistentNativePipelineCacheContracts() {
-#ifndef MYENGINE_PLATFORM_WINDOWS
+#if defined(MYENGINE_PLATFORM_MACOS)
+    const std::string metal = CompactSource(ReadRepositoryTextFile({
+        "src/Runtime/Renderer/Backends/Metal/MetalContext.mm",
+        "../../../src/Runtime/Renderer/Backends/Metal/MetalContext.mm",
+        "../../../../src/Runtime/Renderer/Backends/Metal/MetalContext.mm",
+        "../../../../../src/Runtime/Renderer/Backends/Metal/MetalContext.mm",
+    }));
+    return Check(
+        metal.find("newBinaryArchiveWithDescriptor") != std::string::npos &&
+            metal.find("MTLPipelineOptionFailOnBinaryArchiveMiss") != std::string::npos &&
+            metal.find("addRenderPipelineFunctionsWithDescriptor") != std::string::npos &&
+            metal.find("addComputePipelineFunctionsWithDescriptor") != std::string::npos &&
+            metal.find("serializeToURL") != std::string::npos &&
+            metal.find("newLibraryWithData") != std::string::npos &&
+            metal.find("RenderPipelineDescriptorKey") != std::string::npos &&
+            metal.find("ComputePipelineDescriptorKey") != std::string::npos &&
+            metal.find("renderPipelineStateCache") != std::string::npos &&
+            metal.find("computePipelineStateCache") != std::string::npos &&
+            metal.find("pipelineArchiveHits") != std::string::npos &&
+            metal.find("pipelineArchiveMisses") != std::string::npos,
+        "Metal graphics/compute pipelines do not share a persisted, corruption-tolerant MTLBinaryArchive");
+#elif !defined(MYENGINE_PLATFORM_WINDOWS)
     return true;
 #else
     const std::string d3d12 = CompactSource(ReadRepositoryTextFile({
@@ -1861,6 +1927,346 @@ bool TestPersistentNativePipelineCacheContracts() {
             vulkan.find("WriteVulkanPipelineCache") != std::string::npos,
         "Vulkan graphics/compute pipelines do not share a persisted VkPipelineCache");
 #endif
+}
+
+bool TestMetalShaderArtifactContainerAndNativeBindingContract() {
+#ifndef MYENGINE_PLATFORM_MACOS
+    return true;
+#else
+    const std::string payloadText = "metallib-test-payload";
+    const std::vector<uint8_t> payload(payloadText.begin(), payloadText.end());
+    std::vector<uint8_t> encoded;
+    std::string error;
+    if (!Check(MetalShaderArtifact::Encode(MetalShaderArtifact::PayloadKind::Metallib, "CustomMain", true, payload,
+                                           encoded, &error),
+               "Metal shader container encoding failed: " + error)) {
+        return false;
+    }
+    MetalShaderArtifact::DecodedPayload decoded;
+    if (!Check(MetalShaderArtifact::Decode(encoded.data(), encoded.size(), decoded, &error) &&
+                   decoded.kind == MetalShaderArtifact::PayloadKind::Metallib &&
+                   decoded.entryPoint == "CustomMain" && decoded.supportsIndirectCommandBuffers &&
+                   decoded.size == payload.size() && std::memcmp(decoded.data, payload.data(), payload.size()) == 0,
+               "Metal shader container did not preserve payload metadata")) {
+        return false;
+    }
+    encoded.back() ^= 0xffu;
+    if (!Check(!MetalShaderArtifact::Decode(encoded.data(), encoded.size(), decoded, &error),
+               "Metal shader container accepted a corrupted payload")) {
+        return false;
+    }
+    encoded.back() ^= 0xffu;
+    const uint64_t oversizedPayload = 256ull * 1024ull * 1024ull + 1ull;
+    std::memcpy(encoded.data() + 24, &oversizedPayload, sizeof(oversizedPayload));
+    if (!Check(!MetalShaderArtifact::Decode(encoded.data(), encoded.size(), decoded, &error),
+               "Metal shader container accepted an oversized payload declaration")) {
+        return false;
+    }
+
+    std::string vertex = R"(
+#include <metal_stdlib>
+using namespace metal;
+struct SLANG_ParameterGroup_PerDraw_natural { uint objectIndex; packed_float2 scale; };
+vertex float4 CustomVS(constant SLANG_ParameterGroup_PerDraw_natural& PerDraw_0 [[buffer(7)]],
+                       uint vertexID [[vertex_id]]) { return float4(float(vertexID)); }
+)";
+    std::string fragment = R"(
+#include <metal_stdlib>
+using namespace metal;
+fragment float4 CustomPS(texture2d<float> g_Color_0 [[texture(9)]],
+                         sampler g_ColorSampler_0 [[sampler(4)]]) { return float4(1.0); }
+)";
+    CookedShaderStageReflection vertexReflection;
+    vertexReflection.bindings.push_back(
+        {"PerDraw", CookedShaderBindingType::ConstantBuffer, 7, 0, 1, 16});
+    CookedShaderStageReflection fragmentReflection;
+    fragmentReflection.bindings.push_back({"g_Color", CookedShaderBindingType::Texture, 9, 0, 1, 0});
+    fragmentReflection.bindings.push_back(
+        {"g_ColorSampler", CookedShaderBindingType::Sampler, 4, 0, 1, 0});
+    bool supportsIndirect = true;
+    if (!Check(MetalShaderArtifact::TransformGraphicsSources(vertex, fragment, vertexReflection, fragmentReflection,
+                                                             supportsIndirect, &error),
+               "Metal source ABI transformation failed: " + error)) {
+        return false;
+    }
+    const auto findBinding = [](const CookedShaderStageReflection& reflection, const char* name) {
+        return std::find_if(reflection.bindings.begin(), reflection.bindings.end(),
+                            [name](const CookedShaderBinding& binding) { return binding.name == name; });
+    };
+    const auto perDraw = findBinding(vertexReflection, "PerDraw");
+    const auto texture = findBinding(fragmentReflection, "g_Color");
+    const auto sampler = findBinding(fragmentReflection, "g_ColorSampler");
+    if (!Check(perDraw != vertexReflection.bindings.end() && perDraw->bindPoint == 0 && perDraw->byteSize == 0 &&
+                   texture != fragmentReflection.bindings.end() && texture->bindPoint == 0 &&
+                   sampler != fragmentReflection.bindings.end() && sampler->bindPoint == 0 && !supportsIndirect &&
+                   vertex.find("[[buffer(0)]]") != std::string::npos &&
+                   fragment.find("[[texture(0)]]") != std::string::npos &&
+                   fragment.find("[[sampler(0)]]") != std::string::npos,
+               "Metal transformed reflection does not match final native binding slots")) {
+        return false;
+    }
+
+    std::string compute = R"(
+#include <metal_stdlib>
+using namespace metal;
+kernel void Main(device uint* g_Used_0 [[buffer(5)]], uint index [[thread_position_in_grid]]) {
+    g_Used_0[index] = index;
+}
+)";
+    CookedShaderStageReflection computeReflection;
+    computeReflection.bindings.push_back({"g_Used", CookedShaderBindingType::StorageBuffer, 5, 0, 1, 0});
+    computeReflection.bindings.push_back({"g_OptimizedOut", CookedShaderBindingType::Texture, 9, 0, 1, 0});
+    supportsIndirect = true;
+    if (!Check(MetalShaderArtifact::TransformComputeSource(compute, computeReflection, supportsIndirect, &error),
+               "Metal compute source ABI transformation failed: " + error)) {
+        return false;
+    }
+    return Check(computeReflection.bindings.size() == 1 && computeReflection.bindings[0].name == "g_Used" &&
+                     computeReflection.bindings[0].bindPoint == 0,
+                 "Metal cooked reflection retained a resource optimized out of the final native function");
+#endif
+}
+
+bool TestMetalShaderCookProducesRuntimeReadyContainer() {
+#ifndef MYENGINE_PLATFORM_MACOS
+    return true;
+#else
+    if (!Check(ShaderCompilerSlang::IsAvailable(), "Slang compiler is unavailable for Metal artifact cook test"))
+        return false;
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "myengine_metal_container_cook";
+    std::error_code fileError;
+    fs::remove_all(root, fileError);
+    fs::create_directories(root / "Content" / "Shaders", fileError);
+    const fs::path descriptor = root / "Content" / "Shaders" / "Container.shader";
+    const fs::path hlsl = root / "Content" / "Shaders" / "Container.hlsl";
+    const fs::path artifact = root / "Library" / "macos-arm64" / "ShaderCache" / "Container.shader";
+    std::ofstream(descriptor)
+        << R"({"type":"Shader","version":1,"stages":{"vertex":{"source":"Container.hlsl","entry":"CustomVS"},"pixel":{"source":"Container.hlsl","entry":"CustomPS"}},"defines":[]})";
+    std::ofstream(hlsl) << R"(
+cbuffer PerDraw : register(b0) { float4 color; };
+Texture2D g_Color : register(t0);
+SamplerState g_ColorSampler : register(s0);
+struct VSOut { float4 position : SV_Position; };
+VSOut CustomVS(uint vertexID : SV_VertexID) {
+    VSOut output;
+    output.position = float4(vertexID == 1 ? 3.0 : -1.0, vertexID == 2 ? 3.0 : -1.0, 0.0, 1.0);
+    return output;
+}
+float4 CustomPS(VSOut input) : SV_Target { return color + g_Color.Sample(g_ColorSampler, float2(0.5, 0.5)); }
+)";
+    ShaderCookRequest request;
+    request.sourcePath = descriptor;
+    request.artifactPath = artifact;
+    request.allowedRoot = root / "Content";
+    request.backends = {ShaderBackend::Metal};
+    request.targetPlatform = "macos-arm64";
+    std::string error;
+    const ShaderCookResult result = ShaderCooker::Cook(request, &error);
+    const auto cooked = result.succeeded ? LoadShaderAssetFromFile(artifact.string()) : nullptr;
+    MetalShaderArtifact::DecodedPayload vertex;
+    MetalShaderArtifact::DecodedPayload pixel;
+    const auto& vertexBlob =
+        cooked ? cooked->GetBytecode(ShaderBackend::Metal, ShaderStage::Vertex) : std::vector<uint8_t>{};
+    const auto& pixelBlob =
+        cooked ? cooked->GetBytecode(ShaderBackend::Metal, ShaderStage::Pixel) : std::vector<uint8_t>{};
+    const bool decoded =
+        cooked && MetalShaderArtifact::Decode(vertexBlob.data(), vertexBlob.size(), vertex, &error) &&
+        MetalShaderArtifact::Decode(pixelBlob.data(), pixelBlob.size(), pixel, &error);
+    const auto& fragmentReflection =
+        cooked ? cooked->GetReflection(ShaderBackend::Metal, ShaderPass::Default, ShaderStage::Pixel)
+               : CookedShaderStageReflection{};
+    const auto texture = std::find_if(fragmentReflection.bindings.begin(), fragmentReflection.bindings.end(),
+                                      [](const CookedShaderBinding& binding) {
+                                          return binding.name == "g_Color" &&
+                                                 binding.type == CookedShaderBindingType::Texture;
+                                      });
+    const bool expectedKind =
+        decoded && vertex.kind == (MetalShaderArtifact::IsNativeCompilerAvailable()
+                                       ? MetalShaderArtifact::PayloadKind::Metallib
+                                       : MetalShaderArtifact::PayloadKind::MSLSource) &&
+        pixel.kind == vertex.kind;
+    const bool valid = result.succeeded && cooked && cooked->GetCookedShaderAbiVersion() == 8 && decoded &&
+                       vertex.entryPoint == "CustomVS" && pixel.entryPoint == "CustomPS" && expectedKind &&
+                       texture != fragmentReflection.bindings.end() && texture->bindPoint == 0;
+    fs::remove_all(root, fileError);
+    return Check(valid, error.empty() ? "Metal cooker did not produce a runtime-ready container" : error);
+#endif
+}
+
+bool TestMetalNativeToolInjectionTimeoutCancellationAndFingerprint() {
+#ifndef MYENGINE_PLATFORM_MACOS
+    return true;
+#else
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "myengine_fake_metal_tools";
+    std::error_code fileError;
+    fs::remove_all(root, fileError);
+    fs::create_directories(root, fileError);
+    if (!Check(!fileError, "failed to create fake Metal tool directory"))
+        return false;
+
+    const std::string successTool = R"(#!/bin/sh
+if [ "${1:-}" = "--version" ]; then
+    echo "fake-metal-tool 1"
+    exit 0
+fi
+output=""
+while [ "$#" -gt 0 ]; do
+    if [ "$1" = "-o" ]; then
+        shift
+        output="${1:-}"
+        break
+    fi
+    shift
+done
+if [ -z "$output" ]; then
+    exit 2
+fi
+printf 'fake-native-library' > "$output"
+)";
+    const std::string failingTool = R"(#!/bin/sh
+if [ "${1:-}" = "--version" ]; then
+    echo "fake-metal-tool failure"
+    exit 0
+fi
+echo "intentional fake compiler failure" >&2
+exit 7
+)";
+    const std::string slowTool = R"(#!/bin/sh
+if [ "${1:-}" = "--version" ]; then
+    echo "fake-metal-tool slow"
+    exit 0
+fi
+exec /bin/sleep 5
+)";
+    const fs::path metal = root / "metal-success";
+    const fs::path metallib = root / "metallib-success";
+    const fs::path failingMetal = root / "metal-failure";
+    const fs::path slowMetal = root / "metal-slow";
+    if (!Check(WriteExecutableTestScript(metal, successTool) &&
+                   WriteExecutableTestScript(metallib, successTool) &&
+                   WriteExecutableTestScript(failingMetal, failingTool) &&
+                   WriteExecutableTestScript(slowMetal, slowTool),
+               "failed to create executable fake Metal tools")) {
+        fs::remove_all(root, fileError);
+        return false;
+    }
+
+    ScopedEnvironmentVariable compiler("MYENGINE_METAL_COMPILER", metal.string());
+    ScopedEnvironmentVariable linker("MYENGINE_METALLIB_COMPILER", metallib.string());
+    ScopedEnvironmentVariable timeout("MYENGINE_METAL_TOOL_TIMEOUT_MS", "5000");
+
+    const std::string firstFingerprint = MetalShaderArtifact::GetToolchainFingerprint();
+    const std::string repeatedFingerprint = MetalShaderArtifact::GetToolchainFingerprint();
+    std::vector<uint8_t> artifact;
+    std::string error;
+    if (!Check(firstFingerprint.rfind("native-", 0) == 0 && firstFingerprint == repeatedFingerprint &&
+                   MetalShaderArtifact::BuildCookedPayload(
+                       "#include <metal_stdlib>\nusing namespace metal;\nkernel void Main() {}", "Main", true,
+                       artifact, nullptr, &error),
+               "fake native Metal tools did not produce a stable native artifact: " + error)) {
+        fs::remove_all(root, fileError);
+        return false;
+    }
+    MetalShaderArtifact::DecodedPayload decoded;
+    if (!Check(MetalShaderArtifact::Decode(artifact.data(), artifact.size(), decoded, &error) &&
+                   decoded.kind == MetalShaderArtifact::PayloadKind::Metallib && decoded.entryPoint == "Main",
+               "fake native Metal tool output was not wrapped as a metallib payload")) {
+        fs::remove_all(root, fileError);
+        return false;
+    }
+
+    setenv("MYENGINE_METAL_COMPILER", (root / "missing-metal").c_str(), 1);
+    setenv("MYENGINE_METALLIB_COMPILER", (root / "missing-metallib").c_str(), 1);
+    artifact.clear();
+    error.clear();
+    bool sourceFallback = false;
+    if (!Check(MetalShaderArtifact::BuildCookedPayload(
+                   "#include <metal_stdlib>\nusing namespace metal;\nkernel void Main() {}", "Main", true,
+                   artifact, &sourceFallback, &error) &&
+                   sourceFallback &&
+                   MetalShaderArtifact::Decode(artifact.data(), artifact.size(), decoded, &error) &&
+                   decoded.kind == MetalShaderArtifact::PayloadKind::MSLSource,
+               "missing native Metal tools did not produce the explicit transformed-source fallback")) {
+        fs::remove_all(root, fileError);
+        return false;
+    }
+
+    setenv("MYENGINE_METAL_COMPILER", failingMetal.c_str(), 1);
+    setenv("MYENGINE_METALLIB_COMPILER", metallib.c_str(), 1);
+    const std::string changedFingerprint = MetalShaderArtifact::GetToolchainFingerprint();
+    artifact.clear();
+    error.clear();
+    const bool rejectedFailure = !MetalShaderArtifact::BuildCookedPayload(
+        "#include <metal_stdlib>\nusing namespace metal;\nkernel void Main() {}", "Main", true, artifact, nullptr,
+        &error);
+    if (!Check(changedFingerprint != firstFingerprint && rejectedFailure &&
+                   error.find("intentional fake compiler failure") != std::string::npos,
+               "native Metal compiler failure silently fell back to runtime MSL")) {
+        fs::remove_all(root, fileError);
+        return false;
+    }
+
+    setenv("MYENGINE_METAL_COMPILER", slowMetal.c_str(), 1);
+    setenv("MYENGINE_METAL_TOOL_TIMEOUT_MS", "100", 1);
+    artifact.clear();
+    error.clear();
+    const bool rejectedTimeout = !MetalShaderArtifact::BuildCookedPayload(
+        "#include <metal_stdlib>\nusing namespace metal;\nkernel void Main() {}", "Main", true, artifact, nullptr,
+        &error);
+    if (!Check(rejectedTimeout && error.find("timed out") != std::string::npos,
+               "Metal native compiler timeout was not bounded and reported")) {
+        fs::remove_all(root, fileError);
+        return false;
+    }
+
+    setenv("MYENGINE_METAL_TOOL_TIMEOUT_MS", "5000", 1);
+    std::atomic_bool cancelled{false};
+    std::thread cancelThread([&] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        cancelled.store(true, std::memory_order_release);
+    });
+    artifact.clear();
+    error.clear();
+    const bool rejectedCancellation = !MetalShaderArtifact::BuildCookedPayload(
+        "#include <metal_stdlib>\nusing namespace metal;\nkernel void Main() {}", "Main", true, artifact, nullptr,
+        &error, [&] { return cancelled.load(std::memory_order_acquire); });
+    cancelThread.join();
+    fs::remove_all(root, fileError);
+    return Check(rejectedCancellation && error.find("cancelled") != std::string::npos,
+                 "Metal native compiler cancellation did not terminate the child process");
+#endif
+}
+
+bool TestDevelopmentShaderCacheUsesHostTargetContract() {
+    const std::string targets = ReadRepositoryTextFile({
+        "src/Runtime/Project/PublishTargets.h",
+        "../../../src/Runtime/Project/PublishTargets.h",
+        "../../../../src/Runtime/Project/PublishTargets.h",
+        "../../../../../src/Runtime/Project/PublishTargets.h",
+    });
+    const std::string editor = CompactSource(ReadRepositoryTextFile({
+        "src/Editor/EditorImportService.cpp",
+        "../../../src/Editor/EditorImportService.cpp",
+        "../../../../src/Editor/EditorImportService.cpp",
+        "../../../../../src/Editor/EditorImportService.cpp",
+    }));
+    const std::string player = CompactSource(ReadRepositoryTextFile({
+        "src/Apps/Player/PlayerMain.cpp",
+        "../../../src/Apps/Player/PlayerMain.cpp",
+        "../../../../src/Apps/Player/PlayerMain.cpp",
+        "../../../../../src/Apps/Player/PlayerMain.cpp",
+    }));
+    const std::string cacheContract =
+        "Library\"/target/\"ShaderCache\",target";
+    return Check(targets.find("kMacOSArm64{\"macos-arm64\"") != std::string::npos &&
+                     targets.find("kDefaultTargetId = kMacOSArm64.id") != std::string::npos &&
+                     editor.find(cacheContract) != std::string::npos &&
+                     player.find(cacheContract) != std::string::npos &&
+                     editor.find("Library/windows-x64/ShaderCache") == std::string::npos &&
+                     player.find("Library/windows-x64/ShaderCache") == std::string::npos,
+                 "Editor/Player development shader cache is not selected from the host target");
 }
 
 bool TestD3D12VSyncOffUsesTearingWhenSupported() {
@@ -5672,6 +6078,14 @@ MYENGINE_REGISTER_TEST("Renderer", "TestModernClusterBuffersStartInNativeUavStat
                        TestModernClusterBuffersStartInNativeUavState);
 MYENGINE_REGISTER_TEST("Renderer", "TestPersistentNativePipelineCacheContracts",
                        TestPersistentNativePipelineCacheContracts);
+MYENGINE_REGISTER_TEST("Renderer", "TestMetalShaderArtifactContainerAndNativeBindingContract",
+                       TestMetalShaderArtifactContainerAndNativeBindingContract);
+MYENGINE_REGISTER_TEST("Renderer", "TestMetalShaderCookProducesRuntimeReadyContainer",
+                       TestMetalShaderCookProducesRuntimeReadyContainer);
+MYENGINE_REGISTER_TEST("Renderer", "TestMetalNativeToolInjectionTimeoutCancellationAndFingerprint",
+                       TestMetalNativeToolInjectionTimeoutCancellationAndFingerprint);
+MYENGINE_REGISTER_TEST("Renderer", "TestDevelopmentShaderCacheUsesHostTargetContract",
+                       TestDevelopmentShaderCacheUsesHostTargetContract);
 MYENGINE_REGISTER_TEST("Renderer", "TestD3D12VSyncOffUsesTearingWhenSupported",
                        TestD3D12VSyncOffUsesTearingWhenSupported);
 MYENGINE_REGISTER_TEST("Renderer", "TestD3D12DebugEventUsesAnsiMetadata", TestD3D12DebugEventUsesAnsiMetadata);

@@ -169,13 +169,17 @@ Application::Run()
 Shader 管线以 HLSL 为唯一源码形态：`.shader` 描述逻辑 stage、entry 与
 defines，源码仍放在 `EngineContent/Shaders` 或项目 `Content/Shaders` 下的
 `.hlsl/.hlsli`。`ShaderCompilerSlang` 负责将同一份 HLSL 编译为当前 RHI 所需
-产物：D3D11/D3D12 使用 DX bytecode，Metal 使用 MSL 文本 blob；cooked shader
-容器 v6 保存后端字节码、反射与 ABI 元数据，并兼容读取旧容器。Editor 与未挂载
-`Content.pak` 的开发态 Player 通过 `ShaderCacheService` 使用项目级
-`Library/windows-x64/ShaderCache/<cacheKey>.shader` 内容寻址缓存；键包含构建与
-cooker ABI、编译器版本、目标后端/平台、设置以及 `.shader/.hlsl/.hlsli` 完整依赖
-内容。发布包 Player 切换到 `RuntimeCookedOnly`、移除开发态 resolver，只消费
-`Content.pak` 中的 cooked shader，缺失或不匹配时明确失败而不在用户机器上编译。
+产物：D3D11/D3D12 使用 DX bytecode；Metal cooked ABI v8 在 Slang 生成 MSL 后完成
+两阶段一致的 native slot/argument-buffer 重写，并把实际 entry、ICB 兼容标记和校验过的
+`.metallib` 放入内部容器。安装 Xcode Metal Toolchain 时 cooker 通过 `metal`/`metallib`
+离线生成原生库；工具链缺失时容器保存最终重写后的 MSL 作为明确的性能降级路径。Editor 与
+未挂载 `Content.pak` 的开发态 Player 通过 `ShaderCacheService` 使用当前平台项目缓存：
+Windows 为 `Library/windows-x64/ShaderCache/<cacheKey>.shader`，Apple Silicon macOS 为
+`Library/macos-arm64/ShaderCache/<cacheKey>.shader`。键包含构建与转换 ABI、最低 macOS 14、
+Metal 3、Slang/Metal toolchain 指纹、目标后端/平台、设置以及 `.shader/.hlsl/.hlsli` 完整
+依赖内容；升级工具链会自然生成新 artifact。发布包 Player 切换到 `RuntimeCookedOnly`、
+移除开发态 resolver，只消费 `Content.pak` 中的 cooked shader，缺失或不匹配时明确失败而
+不在用户机器上编译。
 
 `Renderer` 按实际 render path、device profile 与能力收集精确的启动 Shader 集，
 `ShaderManager` 将规范化去重后的缓存解析与缺失项 cook 作为有界并行后台批次执行；
@@ -185,12 +189,18 @@ resident shader/PSO。缓存 miss 先写入跨进程唯一 staging 路径，cook
 依赖键并校验 source/pass/backend/ABI；只有前后键稳定时才通过事务写原子发布到最终
 内容地址，源码在编译期间变化则重试，`allowCompile=false` 永不修复或覆盖无效缓存。
 
-驱动级管线缓存独立于 cooked shader 缓存并放在 `%LOCALAPPDATA%/MyEngine/PipelineCache`。
-D3D12 以 adapter/driver 身份隔离目录，以共享 compute root-signature ABI、DXIL 与长度
-标识持久化 compute PSO blob；驱动拒绝旧 blob 时用权威 DXIL 重建并原子替换，graphics
-PSO 当前仍按需创建。Vulkan 以 vendor/device/driver 与 `pipelineCacheUUID` 隔离
-`VkPipelineCache`，同时参与 graphics/compute pipeline 创建，并在设备关闭时原子保存；
-损坏或供应商判定无效的缓存会回退为空缓存而不阻止设备启动。
+驱动级管线缓存独立于 cooked shader 缓存。D3D12 在
+`%LOCALAPPDATA%/MyEngine/PipelineCache` 以 adapter/driver 身份隔离目录，以共享 compute
+root-signature ABI、DXIL 与长度标识持久化 compute PSO blob；驱动拒绝旧 blob 时用权威
+DXIL 重建并原子替换，graphics PSO 当前仍按需创建。Vulkan 以 vendor/device/driver 与
+`pipelineCacheUUID` 隔离 `VkPipelineCache`，同时参与 graphics/compute pipeline 创建，并在
+设备关闭时原子保存。Metal 使用
+`~/Library/Caches/MyEngine/PipelineCache/Metal/<archive-abi>/<gpu-registry-id>_<os-build>.metallib`
+中的单个 `MTLBinaryArchive` 覆盖 graphics/compute PSO：创建时先探测 archive 命中，miss
+时登记函数并编译，正常关闭时通过临时文件原子发布；损坏、不兼容或超过 128 MB 的 archive
+会安全重建而不影响渲染正确性。Metal shader 创建只加载 library 和函数，真正 PSO 由 pipeline
+descriptor 按需创建，并按 metallib 内容哈希和完整 native descriptor 在进程内去重；只有旧
+`BindShader` 兼容入口会惰性建立默认格式 PSO。
 开发机需要在 `PATH` 中提供 `slangc`，或通过 `MYENGINE_SLANGC` 指定编译器路径；
 Windows 热编译在 Slang 不可用时可临时回退到原 D3D 编译器，Metal 后端必须依赖 Slang。
 
@@ -228,7 +238,7 @@ Asset 缓存按未引用、未 pin 的 LRU 候选和 CPU 高低水位回收，�
 
 新增 Runtime、Editor 或测试源码时，将文件放入所属目录即可；自动发现规则负责加入对应 target。只有增加新的产品入口、第三方源码根或平台后端目录时才修改本地 `xmake.lua`。根 `xmake.lua` 永远只做工程元数据与 `includes(...)` 编排。`MyEngine.Architecture` 与所有产品的 stamped gate 会拒绝三库依赖环或反向边、源码重复/遗漏、Tests 重复编译 Editor、fragment 错误、错误平台后端、Runtime/ThirdParty → Editor、feature/define 漂移以及根脚本污染。
 
-`MyEngineRuntime` 的跨 DLL 契约使用 `API/RuntimeApi.h` 中的 `MYENGINE_RUNTIME_API` 显式标注。Windows 链接后生成排序 export manifest，并与 `xmake/abi/` 下批准基线精确比较；`MyEngineRuntimeLinkProbe` 只链接 import library，覆盖各 Runtime 模块、bootstrap、组件/Scene 子系统和后端创建入口。内部 backend 实现与 RuntimeModule 组合细节不属于兼容 ABI。
+`MyEngineRuntime` 的跨 DLL 契约使用 `API/RuntimeApi.h` 中的 `MYENGINE_RUNTIME_API` 显式标注。Windows 链接后生成排序 export manifest，并与 `xmake/abi/` 下批准基线精确比较；`tools/check-abi.sh` 额外校验 Runtime 导出头、cooked shader、Metal artifact 与 cooker contract，只有显式 `--refresh` 才更新批准基线。`MyEngineRuntimeLinkProbe` 只链接 import library，覆盖各 Runtime 模块、bootstrap、组件/Scene 子系统和后端创建入口。内部 backend 实现与 RuntimeModule 组合细节不属于兼容 ABI。
 
 ---
 
@@ -904,13 +914,14 @@ effect toggles, render-path/profile changes, scene changes, and EditorWorld /
 PlayWorld switches. Editor renders ImGui after the viewport result and presents
 once.
 
-Cooked shader container v6 stores ABI version 7, backend bytecode, reflected
+Cooked shader container v6 stores ABI version 8, backend bytecode, reflected
 array/space bindings, acceleration-structure bindings, constant sizes, and
 compute thread-group sizes; v5 reflection containers with ABI version 6 remain
 readable. Windows
 packages contain Classic D3D11 and Modern D3D12 variants; Vulkan-enabled builds
-also contain SPIR-V, and macOS packages contain the complete Modern Metal MSL
-set. Modern-only engine shaders are intentionally omitted from D3D11 blobs.
+also contain SPIR-V, and macOS development artifacts contain the complete Modern
+Metal metallib/MSL-fallback container set. Modern-only engine shaders are
+intentionally omitted from D3D11 blobs.
 `ModernRT*` descriptors produce D3D12 artifacts only and are not required by
 Vulkan/D3D11/Metal packages, while legacy v4 containers remain readable.
 

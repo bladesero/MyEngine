@@ -297,11 +297,8 @@ GpuShader* MainPass::GetOrCreateShader() {
         }
         if ((!m_MainShaderHandle || !m_MainShaderHandle->shader) && m_ShaderMode == ShaderMode::ShadowedPbr) {
             Logger::Warn("[MainPass] Metal PBR shader failed; fallback to legacy shader");
-            m_MainShaderHandle = std::make_shared<ShaderHandle>();
-            m_MainShaderHandle->shader = Device()->CreateShader(k_MeshShaderSource, "VSMain", "PSMain",
-                                                                k_MeshVertexLayout, k_MeshVertexLayoutCount);
-            if (m_MainShaderHandle->shader)
-                ++m_MainShaderHandle->version;
+            m_MainShaderHandle =
+                ShaderManager::Get().GetOrCreate(EngineShaders::kMesh, k_MeshVertexLayout, k_MeshVertexLayoutCount);
             m_ShaderMode = ShaderMode::Legacy;
         }
     } else if (!m_MainShaderHandle) {

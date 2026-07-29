@@ -11,6 +11,7 @@
 #include "Editor/EditorContext.h"
 #include "Editor/EditorProfiler.h"
 #include "Renderer/ShaderCacheService.h"
+#include "Project/PublishTargets.h"
 
 #include <algorithm>
 #include <chrono>
@@ -114,7 +115,8 @@ void EditorImportService::OnAttach(EditorContext& context) {
     std::string error;
     if (!m_ImportPipeline->OpenProject(context.GetProjectRoot(), &error))
         Logger::Warn("[Editor] Asset import pipeline unavailable: ", error);
-    ShaderCacheService::Get().ConfigureFileSystemCache(m_ProjectRoot / "Library/windows-x64/ShaderCache");
+    const std::string target = PublishTargets::kDefaultTargetId;
+    ShaderCacheService::Get().ConfigureFileSystemCache(m_ProjectRoot / "Library" / target / "ShaderCache", target);
 }
 
 bool EditorImportService::EnsureShaderCache(const std::filesystem::path& sourcePath, const std::string& settingsJson,

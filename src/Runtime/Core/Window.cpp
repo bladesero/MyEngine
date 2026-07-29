@@ -28,7 +28,7 @@ bool SDLWindow::Init(const WindowConfig& config) {
     m_PixelHeight = config.height;
 
     SDL_WindowFlags flags = SDL_WINDOW_RESIZABLE;
-#ifdef MYENGINE_PLATFORM_WINDOWS
+#if defined(MYENGINE_PLATFORM_WINDOWS) || defined(MYENGINE_PLATFORM_MACOS)
     // Keep the native window and every ImGui platform viewport in SDL's per-monitor pixel-density coordinate space.
     flags = static_cast<SDL_WindowFlags>(flags | SDL_WINDOW_HIGH_PIXEL_DENSITY);
 #endif

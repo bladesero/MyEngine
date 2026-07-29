@@ -468,6 +468,22 @@ struct ImGuiViewportDataMetal
     bool                        FirstFrame = true;
 };
 
+inline static CGSize MakeScaledSize(CGSize size, CGFloat scale)
+{
+    return CGSizeMake(size.width * scale, size.height * scale);
+}
+
+#if TARGET_OS_OSX
+static void ImGui_ImplMetal_UpdateDrawableSize(ImGuiViewportDataMetal* data, NSWindow* window)
+{
+    NSView* content_view = window.contentView;
+    const CGFloat framebuffer_scale = window.backingScaleFactor > 0.0 ? window.backingScaleFactor : 1.0;
+    data->MetalLayer.contentsScale = framebuffer_scale;
+    // CAMetalLayer is attached to contentView: the title bar in window.frame must not contribute to drawable pixels.
+    data->MetalLayer.drawableSize = MakeScaledSize(content_view.bounds.size, framebuffer_scale);
+}
+#endif
+
 static void ImGui_ImplMetal_CreateWindow(ImGuiViewport* viewport)
 {
     ImGui_ImplMetal_Data* bd = ImGui_ImplMetal_GetBackendData();
@@ -487,13 +503,16 @@ static void ImGui_ImplMetal_CreateWindow(ImGuiViewport* viewport)
 #if TARGET_OS_OSX
     NSWindow* window = (__bridge NSWindow*)handle;
     NSView* view = window.contentView;
-    view.layer = layer;
     view.wantsLayer = YES;
+    view.layer = layer;
 #endif
     data->MetalLayer = layer;
     data->CommandQueue = [device newCommandQueue];
     data->RenderPassDescriptor = [[MTLRenderPassDescriptor alloc] init];
     data->Handle = handle;
+#if TARGET_OS_OSX
+    ImGui_ImplMetal_UpdateDrawableSize(data, window);
+#endif
 }
 
 static void ImGui_ImplMetal_DestroyWindow(ImGuiViewport* viewport)
@@ -504,19 +523,21 @@ static void ImGui_ImplMetal_DestroyWindow(ImGuiViewport* viewport)
     viewport->RendererUserData = nullptr;
 }
 
-inline static CGSize MakeScaledSize(CGSize size, CGFloat scale)
-{
-    return CGSizeMake(size.width * scale, size.height * scale);
-}
-
 static void ImGui_ImplMetal_SetWindowSize(ImGuiViewport* viewport, ImVec2 size)
 {
     ImGuiViewportDataMetal* data = (ImGuiViewportDataMetal*)viewport->RendererUserData;
+#if TARGET_OS_OSX
+    IM_UNUSED(size);
+    NSWindow* window = (__bridge NSWindow*)data->Handle;
+    ImGui_ImplMetal_UpdateDrawableSize(data, window);
+#else
     data->MetalLayer.drawableSize = MakeScaledSize(CGSizeMake(size.x, size.y), viewport->DpiScale);
+#endif
 }
 
 static void ImGui_ImplMetal_RenderWindow(ImGuiViewport* viewport, void*)
 {
+    ImGui_ImplMetal_Data* bd = ImGui_ImplMetal_GetBackendData();
     ImGuiViewportDataMetal* data = (ImGuiViewportDataMetal*)viewport->RendererUserData;
 
 #if TARGET_OS_OSX
@@ -532,12 +553,8 @@ static void ImGui_ImplMetal_RenderWindow(ImGuiViewport* viewport, void*)
     }
     data->FirstFrame = false;
 
-    float fb_scale = (float)window.backingScaleFactor;
-    if (data->MetalLayer.contentsScale != fb_scale)
-    {
-        data->MetalLayer.contentsScale = fb_scale;
-        data->MetalLayer.drawableSize = MakeScaledSize(window.frame.size, fb_scale);
-    }
+    // A viewport can move between displays without a resize callback. Keep the drawable in content-view pixels every frame.
+    ImGui_ImplMetal_UpdateDrawableSize(data, window);
 #endif
 
     id <CAMetalDrawable> drawable = [data->MetalLayer nextDrawable];
@@ -547,12 +564,19 @@ static void ImGui_ImplMetal_RenderWindow(ImGuiViewport* viewport, void*)
     MTLRenderPassDescriptor* renderPassDescriptor = data->RenderPassDescriptor;
     renderPassDescriptor.colorAttachments[0].texture = drawable.texture;
     renderPassDescriptor.colorAttachments[0].clearColor = MTLClearColorMake(0, 0, 0, 0);
-    if ((viewport->Flags & ImGuiViewportFlags_NoRendererClear) == 0)
-        renderPassDescriptor.colorAttachments[0].loadAction = MTLLoadActionClear;
+    renderPassDescriptor.colorAttachments[0].loadAction =
+        (viewport->Flags & ImGuiViewportFlags_NoRendererClear) ? MTLLoadActionLoad : MTLLoadActionClear;
+    // CAMetalLayer drawables are presented after the render pass, so tile memory must be resolved to the drawable.
+    renderPassDescriptor.colorAttachments[0].storeAction = MTLStoreActionStore;
 
     id <MTLCommandBuffer> commandBuffer = [data->CommandQueue commandBuffer];
     id <MTLRenderCommandEncoder> renderEncoder = [commandBuffer renderCommandEncoderWithDescriptor:renderPassDescriptor];
+
+    // The main viewport has a depth attachment, while platform viewports do not. Select a compatible pipeline.
+    FramebufferDescriptor* mainFramebufferDescriptor = bd->SharedMetalContext.framebufferDescriptor;
+    bd->SharedMetalContext.framebufferDescriptor = [[FramebufferDescriptor alloc] initWithRenderPassDescriptor:renderPassDescriptor];
     ImGui_ImplMetal_RenderDrawData(viewport->DrawData, commandBuffer, renderEncoder);
+    bd->SharedMetalContext.framebufferDescriptor = mainFramebufferDescriptor;
     [renderEncoder endEncoding];
 
     [commandBuffer presentDrawable:drawable];

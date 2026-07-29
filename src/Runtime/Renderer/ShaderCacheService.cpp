@@ -62,7 +62,9 @@ bool IsCompilerTimeoutFailure(const std::string& diagnostic) {
     // ShaderCompilerSlang emits this explicit marker and skips its ordinary transient-failure retry for a timed-out
     // child process. Do not infer timeout from a slow ordinary compiler diagnostic: those failures must remain
     // independent so the batch can report every real source error.
-    return diagnostic.find("slangc timed out") != std::string::npos;
+    return diagnostic.find("slangc timed out") != std::string::npos ||
+           diagnostic.find("Metal compiler timed out") != std::string::npos ||
+           diagnostic.find("metallib timed out") != std::string::npos;
 }
 
 ShaderCacheResult CancelledResult(std::string diagnostic = "shader cache batch cancelled before request started") {
@@ -151,6 +153,9 @@ ShaderCacheResult ResolveFileSystemArtifact(const ShaderCacheRequest& request, c
         cook.backends = request.backends;
         cook.targetPlatform = targetPlatform;
         cook.settingsJson = request.settingsJson;
+        if (cancellation) {
+            cook.cancellationRequested = [cancellation] { return cancellation->IsCancellationRequested(); };
+        }
         ShaderCookResult cooked = ShaderCooker::Cook(cook, &error);
         const auto removeStaging = [&] {
             std::error_code removeError;
@@ -158,6 +163,8 @@ ShaderCacheResult ResolveFileSystemArtifact(const ShaderCacheRequest& request, c
         };
         if (!cooked.succeeded) {
             removeStaging();
+            if (cancellation && cancellation->IsCancellationRequested())
+                return CancelledResult("shader cache batch cancelled while compiling");
             result.diagnostic = error.empty() ? "shader cache cook failed" : std::move(error);
             if (IsCompilerTimeoutFailure(result.diagnostic))
                 result.failureKind = ShaderCacheFailureKind::CompilerTimeout;

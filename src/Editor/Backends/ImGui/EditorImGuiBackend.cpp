@@ -277,10 +277,10 @@ void EditorImGuiBackend::BeginFrame() {
 
     const ImGuiBackendHandles handles = m_Interop->GetImGuiBackendHandles();
 
-#if defined(MYENGINE_PLATFORM_WINDOWS)
     if (m_FontTextureRebuildPending && RebuildFontTextureNow()) {
         m_FontTextureRebuildPending = false;
     }
+#if defined(MYENGINE_PLATFORM_WINDOWS)
 #if defined(MYENGINE_ENABLE_VULKAN)
     if (handles.backend == RHIBackend::Vulkan) {
         EditorImGuiVulkan_NewFrame();
@@ -388,21 +388,29 @@ bool EditorImGuiBackend::RebuildFontTexture() {
 }
 
 bool EditorImGuiBackend::SupportsRuntimeFontTextureRebuild() const {
-#if defined(MYENGINE_ENABLE_IMGUI) && defined(MYENGINE_PLATFORM_WINDOWS)
+#if defined(MYENGINE_ENABLE_IMGUI)
     if (!m_Initialized || !m_Interop)
         return false;
     const ImGuiBackendHandles handles = m_Interop->GetImGuiBackendHandles();
+#if defined(MYENGINE_PLATFORM_WINDOWS)
     return handles.backend != RHIBackend::D3D12;
+#elif defined(MYENGINE_PLATFORM_MACOS)
+    // ImGui's Metal renderer advertises RendererHasTextures and uploads dirty atlas data from ImDrawData.
+    return handles.backend == RHIBackend::Metal;
+#else
+    return false;
+#endif
 #else
     return false;
 #endif
 }
 
 bool EditorImGuiBackend::RebuildFontTextureNow() {
-#if defined(MYENGINE_ENABLE_IMGUI) && defined(MYENGINE_PLATFORM_WINDOWS)
+#if defined(MYENGINE_ENABLE_IMGUI)
     if (!m_Initialized || !m_Interop)
         return false;
     const ImGuiBackendHandles handles = m_Interop->GetImGuiBackendHandles();
+#if defined(MYENGINE_PLATFORM_WINDOWS)
 #if defined(MYENGINE_ENABLE_VULKAN)
     if (handles.backend == RHIBackend::Vulkan) {
         // ImGui 1.92 renderer backends consume atlas texture updates from ImDrawData.
@@ -415,6 +423,12 @@ bool EditorImGuiBackend::RebuildFontTextureNow() {
     }
     ImGui_ImplDX11_InvalidateDeviceObjects();
     return ImGui_ImplDX11_CreateDeviceObjects();
+#elif defined(MYENGINE_PLATFORM_MACOS)
+    // The Metal backend consumes the pending atlas create/update/destroy requests while rendering ImDrawData.
+    return handles.backend == RHIBackend::Metal;
+#else
+    return false;
+#endif
 #else
     return false;
 #endif

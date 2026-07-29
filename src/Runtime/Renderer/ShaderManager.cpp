@@ -123,18 +123,17 @@ std::shared_ptr<GpuShader> ShaderManager::CompileRecord(const ShaderRecord& rec)
                 native->byteSize = 0;
                 continue;
             }
-            // The Metal bindless source rewrite replaces the unsized texture parameter with a device-level argument
-            // buffer. Keep the source-level binding so validation knows it is populated by the device.
-            if (source.type == CookedShaderBindingType::Texture && source.bindCount == UINT32_MAX) {
-                ShaderBindingDesc bindless;
-                bindless.name = source.name;
-                bindless.type = ShaderBindingType::Texture;
-                bindless.bindPoint = 14;
-                bindless.bindSpace = source.bindSpace;
-                bindless.bindCount = UINT32_MAX;
-                bindless.stages = stageMask;
-                shader->reflection.bindings.push_back(std::move(bindless));
-            }
+            // ABI v8 Metal artifacts contain precompiled libraries, so the backend cannot parse final MSL at load
+            // time. Their cooked reflection already carries the rewritten native slot and is authoritative here.
+            ShaderBindingDesc cookedBinding;
+            cookedBinding.name = source.name;
+            cookedBinding.type = static_cast<ShaderBindingType>(source.type);
+            cookedBinding.bindPoint = source.bindPoint;
+            cookedBinding.bindSpace = source.bindSpace;
+            cookedBinding.bindCount = source.bindCount;
+            cookedBinding.byteSize = 0;
+            cookedBinding.stages = stageMask;
+            shader->reflection.bindings.push_back(std::move(cookedBinding));
         }
     };
     const auto applyStageReflection = [&](const CookedShaderStageReflection& metadata,

@@ -1732,6 +1732,9 @@ bool TestEditorAppearancePreferencesAndScale() {
     if (!Check(NearlyEqual(EditorUIScaleManager::ComputeEffectiveScale(1.5f, 1.25f), 1.875f),
                "effective ui scale calculation mismatch"))
         return false;
+    if (!Check(NearlyEqual(EditorUIScaleManager::ComputeEffectiveScale(1.0f, 1.0f), 1.0f),
+               "Retina pixel density leaked into logical UI scale"))
+        return false;
 
     const auto& fontConfig = Editor::UI::EditorFontManager::GetDefaultConfig();
     if (!Check(fontConfig.uiRegularPath.filename() == "Inter-Regular.ttf" &&
@@ -1751,7 +1754,7 @@ bool TestEditorAppearancePreferencesAndScale() {
     scale.Initialize(nullptr, 1.0f);
     scale.SetPlatformScaleForTesting(1.25f);
     const float first = scale.GetEffectiveScale();
-    if (!Check(NearlyEqual(first, 1.25f), "testing dpi scale did not affect effective scale"))
+    if (!Check(NearlyEqual(first, 1.25f), "testing content scale did not affect effective scale"))
         return false;
     if (!Check(scale.SetUserScale(1.5f) && NearlyEqual(scale.GetEffectiveScale(), 1.875f),
                "user ui scale did not affect effective scale"))

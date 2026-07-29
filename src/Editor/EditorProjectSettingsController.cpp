@@ -247,7 +247,7 @@ void EditorProjectSettingsController::DrawLayoutSettingsTab(EditorLayer& layer) 
 void EditorProjectSettingsController::DrawAppearanceSettingsTab(EditorLayer& layer) {
 #if defined(MYENGINE_ENABLE_IMGUI)
     float userScale = layer.m_Workspace.GetUserUiScale();
-    ImGui::Text("Platform DPI scale: %.2f", layer.m_UIScaleManager.GetPlatformScale());
+    ImGui::Text("Platform content scale: %.2f", layer.m_UIScaleManager.GetPlatformScale());
     ImGui::Text("Effective UI scale: %.2f", layer.m_UIScaleManager.GetEffectiveScale());
     ImGui::LabelText("Font root", "%s", layer.m_UIScaleManager.GetFontManager().GetFontRoot().string().c_str());
     if (!layer.m_UIScaleManager.GetFontManager().GetLastWarning().empty()) {

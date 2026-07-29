@@ -51,7 +51,7 @@ public:
 
     void SetResolver(Resolver resolver, BatchResolver batchResolver = {});
     void SetResolverWithCancellation(Resolver resolver, CancellableBatchResolver batchResolver);
-    void ConfigureFileSystemCache(const std::filesystem::path& cacheRoot, std::string targetPlatform = "windows-x64",
+    void ConfigureFileSystemCache(const std::filesystem::path& cacheRoot, std::string targetPlatform,
                                   size_t maxConcurrency = 0);
     void ClearResolver();
     bool HasResolver() const;

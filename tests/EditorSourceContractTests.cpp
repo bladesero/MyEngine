@@ -151,6 +151,8 @@ bool TestEditorPlatformViewportDpiContract() {
     const std::string manifest = readSource(root / "src/Runtime/Miscs/Resources/MyEngineEditor.manifest");
     const std::string resource = readSource(root / "src/Apps/Editor/MyEngineEditor.rc");
     const std::string backend = readSource(root / "src/Editor/Backends/ImGui/EditorImGuiBackend.cpp");
+    const std::string imguiMetal = readSource(root / "thirdparty/imgui/backends/imgui_impl_metal.mm");
+    const std::string uiScaleManager = readSource(root / "src/Editor/UI/EditorUIScaleManager.cpp");
     const std::string graphPanel = readSource(root / "src/Editor/Panels/ShaderGraphPanel.cpp");
 
     if (!Check(packageCatalog.find("version = \"v1.92.7-docking\"") != std::string::npos &&
@@ -164,10 +166,12 @@ bool TestEditorPlatformViewportDpiContract() {
                    imnodesPatch.find("IMGUI_VERSION_NUM != 19270") != std::string::npos,
                "imnodes package can reuse a stale binary built against an incompatible ImGui ABI"))
         return false;
-    if (!Check(window.find("SDL_WINDOW_HIGH_PIXEL_DENSITY") != std::string::npos &&
+    if (!Check(window.find("defined(MYENGINE_PLATFORM_WINDOWS) || defined(MYENGINE_PLATFORM_MACOS)") !=
+                       std::string::npos &&
+                   window.find("SDL_WINDOW_HIGH_PIXEL_DENSITY") != std::string::npos &&
                    manifest.find("PerMonitorV2") != std::string::npos &&
                    resource.find("MyEngineEditor.manifest") != std::string::npos,
-               "Windows Editor high-DPI manifest/window contract is incomplete"))
+               "Editor high-DPI manifest/window contract is incomplete"))
         return false;
     if (!Check(window.find("SDL_GetWindowSize(m_Window") != std::string::npos &&
                    window.find("SDL_GetWindowSizeInPixels(m_Window") != std::string::npos &&
@@ -184,6 +188,25 @@ bool TestEditorPlatformViewportDpiContract() {
                    vulkan.find("window->GetPixelWidth()") != std::string::npos &&
                    metal.find("window->GetPixelWidth()") != std::string::npos,
                "window resize mixes logical dock coordinates with drawable swapchain pixels"))
+        return false;
+    if (!Check(metal.find("SyncDrawableSizeFromWindow()") != std::string::npos &&
+                   metal.find("SDL_GetWindowSizeInPixels(window") != std::string::npos &&
+                   metal.find("layer.contentsScale") != std::string::npos,
+               "Metal main viewport does not keep CAMetalLayer in SDL drawable pixels"))
+        return false;
+    if (!Check(imguiMetal.find("content_view.bounds.size") != std::string::npos &&
+                   imguiMetal.find("storeAction = MTLStoreActionStore") != std::string::npos &&
+                   imguiMetal.find("mainFramebufferDescriptor") != std::string::npos &&
+                   imguiMetal.find("initWithRenderPassDescriptor:renderPassDescriptor") != std::string::npos,
+               "Metal platform viewports can use the wrong Retina size, discard presented pixels, or reuse an incompatible pipeline"))
+        return false;
+    if (!Check(backend.find("uploads dirty atlas data from ImDrawData") != std::string::npos &&
+                   backend.find("return handles.backend == RHIBackend::Metal;") != std::string::npos,
+               "Metal Editor does not support runtime font-atlas rebuild after a DPI transition"))
+        return false;
+    if (!Check(uiScaleManager.find("SDL_GetDisplayContentScale(display)") != std::string::npos &&
+                   uiScaleManager.find("SDL_GetWindowDisplayScale") == std::string::npos,
+               "Editor UI size incorrectly includes framebuffer pixel density"))
         return false;
     if (!Check(backend.find("ImGui_ImplDX12_InitInfo") != std::string::npos &&
                    backend.find("initInfo.CommandQueue = commandQueue") != std::string::npos,

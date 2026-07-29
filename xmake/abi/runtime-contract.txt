@@ -1,0 +1,7 @@
+contract_format=1
+cooked_shader_abi=8
+metal_container_abi=1
+metal_transformation_abi=2
+runtime_export_header_count=136
+runtime_public_headers_sha256=03da3af1f548455050a62f122efc2c8f1297ea3d5a5ad459bdf967be11d82392
+shader_cooker_contract=shader-cooker-v8-slang-metal-container1-nativebindings1-stablepublish1-objectdraw3-materialsampler1

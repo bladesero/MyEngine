@@ -1,6 +1,6 @@
 target("MyEnginePlayer")
     set_kind("binary")
-    add_rules("myengine.module", "myengine.app_icons", "copy_game_content",
+    add_rules("myengine.module", "myengine.app_icons", "copy_game_content", "compile_metal_internal_shaders",
               "copy_runtime_library")
     set_values("myengine.module.root", os.scriptdir())
     set_values("myengine.architecture.role", "app")

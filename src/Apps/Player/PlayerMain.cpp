@@ -27,6 +27,7 @@
 #include "Renderer/RenderPath.h"
 #include "Renderer/RHIConformance.h"
 #include "Renderer/ShaderCacheService.h"
+#include "Project/PublishTargets.h"
 #include "Renderer/ShaderManager.h"
 #include "RuntimeModule/RuntimeModule.h"
 #include "Miscs/IconsManager.h"
@@ -131,7 +132,9 @@ protected:
                                                                           : ShaderCacheMode::EditorOnDemandCompile);
         ShaderCacheService::Get().ClearResolver();
         if (!m_PublishedContentMounted) {
-            ShaderCacheService::Get().ConfigureFileSystemCache(m_Project.GetRoot() / "Library/windows-x64/ShaderCache");
+            const std::string target = PublishTargets::kDefaultTargetId;
+            ShaderCacheService::Get().ConfigureFileSystemCache(
+                m_Project.GetRoot() / "Library" / target / "ShaderCache", target);
             Logger::Info("[Player] Content.pak not mounted; using the development shader cache");
         }
         LoadProjectInputConfig();

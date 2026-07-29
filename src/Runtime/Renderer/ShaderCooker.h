@@ -6,6 +6,7 @@
 #include "Assets/ShaderAsset.h"
 
 #include <filesystem>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -14,8 +15,9 @@ struct ShaderCookRequest {
     std::filesystem::path artifactPath;
     std::filesystem::path allowedRoot;
     std::vector<ShaderBackend> backends;
-    std::string targetPlatform = "windows-x64";
+    std::string targetPlatform;
     std::string settingsJson = "{}";
+    std::function<bool()> cancellationRequested;
 };
 
 struct ShaderCookResult {

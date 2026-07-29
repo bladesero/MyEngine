@@ -49,7 +49,11 @@ float EditorUIScaleManager::QueryPlatformScale() const {
         return m_PlatformScale;
     if (!m_Window || !m_Window->GetSDLWindow())
         return 1.0f;
-    const float scale = SDL_GetWindowDisplayScale(m_Window->GetSDLWindow());
+
+    // UI geometry is expressed in platform content coordinates. On macOS, a Retina window has a pixel density of
+    // 2 but a content scale of 1; the pixel density belongs to ImGui's framebuffer scale and the Metal drawable.
+    const SDL_DisplayID display = SDL_GetDisplayForWindow(m_Window->GetSDLWindow());
+    const float scale = display != 0 ? SDL_GetDisplayContentScale(display) : 0.0f;
     return scale > 0.0f ? scale : 1.0f;
 }
 

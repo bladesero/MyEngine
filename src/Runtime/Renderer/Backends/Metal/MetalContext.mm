@@ -10,6 +10,7 @@
 
 #include "Renderer/Backends/Metal/MetalContext.h"
 #include "Core/Window.h"
+#include "Renderer/MetalShaderArtifact.h"
 #include "Renderer/RHI/RHIResourceStats.h"
 #include "Core/Logger.h"
 
@@ -19,13 +20,20 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <functional>
+#include <iomanip>
 #include <mutex>
 #include <regex>
+#include <sstream>
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <unistd.h>
 
 namespace {
 constexpr uint32_t kMetalBindlessTextureCapacity = 4096;
@@ -34,11 +42,132 @@ constexpr uint32_t kMetalMaterialSamplerBaseIndex = kMetalBindlessTextureCapacit
 constexpr NSUInteger kMetalBindlessBufferIndex = 14;
 constexpr NSUInteger kMetalVertexBufferIndex = 15;
 constexpr uint64_t kMetalBindlessRetireFrames = 3;
+constexpr uint64_t kMaxMetalPipelineArchiveBytes = 128ull * 1024ull * 1024ull;
 constexpr std::array<const char*, kMetalMaterialSamplerCount> kMetalMaterialSamplerNames = {
     "g_LinearRepeatSampler",       "g_PointRepeatSampler",         "g_LinearClampURepeatVSampler",
     "g_PointClampURepeatVSampler", "g_LinearRepeatUClampVSampler", "g_PointRepeatUClampVSampler",
     "g_LinearClampSampler",        "g_PointClampSampler",
 };
+
+bool MetalCacheDiagnosticsEnabled() {
+    const char* value = std::getenv("MYENGINE_METAL_SHADER_CACHE_DIAGNOSTICS");
+    return value && *value && std::string(value) != "0";
+}
+
+std::string SanitizeCacheComponent(std::string value) {
+    for (char& character : value) {
+        if (!std::isalnum(static_cast<unsigned char>(character)) && character != '-' && character != '_')
+            character = '_';
+    }
+    if (value.size() > 96)
+        value.resize(96);
+    return value;
+}
+
+std::filesystem::path FindInternalMetalShader(const char* fileName) {
+    const std::filesystem::path relative =
+        std::filesystem::path("EngineContent") / "Shaders" / fileName;
+    std::error_code error;
+    if (const char* basePath = SDL_GetBasePath()) {
+        const std::filesystem::path candidate = std::filesystem::path(basePath) / relative;
+        if (std::filesystem::is_regular_file(candidate, error) && !error)
+            return candidate;
+    }
+    const std::filesystem::path candidate = std::filesystem::current_path() / relative;
+    if (std::filesystem::is_regular_file(candidate, error) && !error)
+        return candidate;
+    return {};
+}
+
+bool ReadBinaryFile(const std::filesystem::path& path, std::vector<uint8_t>& output) {
+    std::ifstream input(path, std::ios::binary);
+    if (!input)
+        return false;
+    input.seekg(0, std::ios::end);
+    const std::streamoff size = input.tellg();
+    input.seekg(0, std::ios::beg);
+    if (size <= 0 || static_cast<uint64_t>(size) > 256ull * 1024ull * 1024ull)
+        return false;
+    output.resize(static_cast<size_t>(size));
+    return static_cast<bool>(
+        input.read(reinterpret_cast<char*>(output.data()), static_cast<std::streamsize>(output.size())));
+}
+
+id<MTLLibrary> NewLibraryWithBytes(id<MTLDevice> device, const uint8_t* bytes, size_t size, NSError** error) {
+    if (!device || !bytes || size == 0)
+        return nil;
+    NSData* retainedBytes = [NSData dataWithBytes:bytes length:size];
+    dispatch_data_t data =
+        dispatch_data_create(retainedBytes.bytes, retainedBytes.length,
+                             dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+                               (void)retainedBytes;
+                             });
+    return [device newLibraryWithData:data error:error];
+}
+
+uint64_t StableMetalLibraryHash(const void* data, size_t size) {
+    constexpr uint64_t offset = 14695981039346656037ull;
+    constexpr uint64_t prime = 1099511628211ull;
+    uint64_t hash = offset;
+    const auto* bytes = static_cast<const uint8_t*>(data);
+    for (size_t index = 0; index < size; ++index) {
+        hash ^= bytes[index];
+        hash *= prime;
+    }
+    return hash;
+}
+
+uint64_t CombineMetalLibraryHashes(uint64_t first, uint64_t second) {
+    return first ^ (second + 0x9e3779b97f4a7c15ull + (first << 6u) + (first >> 2u));
+}
+
+std::string RenderPipelineDescriptorKey(MTLRenderPipelineDescriptor* descriptor, uint64_t libraryHash) {
+    std::ostringstream key;
+    key << std::hex << libraryHash << '|'
+        << (descriptor.vertexFunction.name ? [descriptor.vertexFunction.name UTF8String] : "") << '|'
+        << (descriptor.fragmentFunction.name ? [descriptor.fragmentFunction.name UTF8String] : "") << '|'
+        << static_cast<uint64_t>(descriptor.rasterSampleCount) << '|'
+        << static_cast<uint64_t>(descriptor.alphaToCoverageEnabled) << '|'
+        << static_cast<uint64_t>(descriptor.supportIndirectCommandBuffers) << '|'
+        << static_cast<uint64_t>(descriptor.depthAttachmentPixelFormat) << '|'
+        << static_cast<uint64_t>(descriptor.stencilAttachmentPixelFormat);
+    for (NSUInteger index = 0; index < 8; ++index) {
+        MTLRenderPipelineColorAttachmentDescriptor* attachment = descriptor.colorAttachments[index];
+        key << "|c" << index << ':' << static_cast<uint64_t>(attachment.pixelFormat) << ':'
+            << static_cast<uint64_t>(attachment.blendingEnabled) << ':'
+            << static_cast<uint64_t>(attachment.sourceRGBBlendFactor) << ':'
+            << static_cast<uint64_t>(attachment.destinationRGBBlendFactor) << ':'
+            << static_cast<uint64_t>(attachment.rgbBlendOperation) << ':'
+            << static_cast<uint64_t>(attachment.sourceAlphaBlendFactor) << ':'
+            << static_cast<uint64_t>(attachment.destinationAlphaBlendFactor) << ':'
+            << static_cast<uint64_t>(attachment.alphaBlendOperation) << ':'
+            << static_cast<uint64_t>(attachment.writeMask);
+    }
+    MTLVertexDescriptor* vertex = descriptor.vertexDescriptor;
+    if (vertex) {
+        for (NSUInteger index = 0; index < 31; ++index) {
+            MTLVertexAttributeDescriptor* attribute = vertex.attributes[index];
+            if (attribute.format != MTLVertexFormatInvalid) {
+                key << "|a" << index << ':' << static_cast<uint64_t>(attribute.format) << ':'
+                    << static_cast<uint64_t>(attribute.offset) << ':'
+                    << static_cast<uint64_t>(attribute.bufferIndex);
+            }
+            MTLVertexBufferLayoutDescriptor* layout = vertex.layouts[index];
+            if (layout.stride != 0) {
+                key << "|l" << index << ':' << static_cast<uint64_t>(layout.stride) << ':'
+                    << static_cast<uint64_t>(layout.stepFunction) << ':'
+                    << static_cast<uint64_t>(layout.stepRate);
+            }
+        }
+    }
+    return key.str();
+}
+
+std::string ComputePipelineDescriptorKey(id<MTLFunction> function, uint64_t libraryHash) {
+    std::ostringstream key;
+    key << std::hex << libraryHash << '|' << (function.name ? [function.name UTF8String] : "");
+    return key.str();
+}
 } // namespace
 
 // ============================================================================
@@ -59,6 +188,7 @@ struct MetalGpuShader : GpuShader {
     id<MTLFunction> computeFunction;
     MTLVertexDescriptor* vertexDescriptor = nil;
     bool supportsIndirectCommandBuffers = false;
+    uint64_t libraryHash = 0;
 };
 
 struct MetalGraphicsPipeline : GpuGraphicsPipeline {
@@ -618,33 +748,36 @@ bool RewriteMetalBufferBindings(std::string& first, std::string* second = nullpt
 }
 
 void CollectMetalTextureBindingNames(const std::string& source, std::vector<std::string>& names) {
-    static const std::regex textureRegex(
-        R"(([A-Za-z_][A-Za-z0-9_:<>, \*&]*?)\s+([A-Za-z_][A-Za-z0-9_]*)\s*\[\[texture\((\d+)\)\]\])");
-    for (std::sregex_iterator it(source.begin(), source.end(), textureRegex), end; it != end; ++it) {
+    static const std::regex resourceRegex(
+        R"(([A-Za-z_][A-Za-z0-9_:<>, \*&]*?)\s+([A-Za-z_][A-Za-z0-9_]*)\s*\[\[(texture|sampler)\((\d+)\)\]\])");
+    for (std::sregex_iterator it(source.begin(), source.end(), resourceRegex), end; it != end; ++it) {
         const std::string normalized = NormalizeSlangBindingName((*it)[2].str());
-        if (std::find(names.begin(), names.end(), normalized) == names.end())
-            names.push_back(normalized);
+        const std::string key = (*it)[3].str() + ":" + normalized;
+        if (std::find(names.begin(), names.end(), key) == names.end())
+            names.push_back(key);
     }
 }
 
 std::string RemapMetalTextureBindings(const std::string& source,
                                       const std::unordered_map<std::string, uint32_t>& bindings) {
-    static const std::regex textureRegex(
-        R"(([A-Za-z_][A-Za-z0-9_:<>, \*&]*?)\s+([A-Za-z_][A-Za-z0-9_]*)\s*\[\[texture\((\d+)\)\]\])");
+    static const std::regex resourceRegex(
+        R"(([A-Za-z_][A-Za-z0-9_:<>, \*&]*?)\s+([A-Za-z_][A-Za-z0-9_]*)\s*\[\[(texture|sampler)\((\d+)\)\]\])");
     std::string result;
     size_t cursor = 0;
-    for (std::sregex_iterator it(source.begin(), source.end(), textureRegex), end; it != end; ++it) {
+    for (std::sregex_iterator it(source.begin(), source.end(), resourceRegex), end; it != end; ++it) {
         const auto& match = *it;
         result.append(source, cursor, static_cast<size_t>(match.position()) - cursor);
         const std::string rawName = match[2].str();
-        const auto mapped = bindings.find(NormalizeSlangBindingName(rawName));
+        const auto mapped = bindings.find(match[3].str() + ":" + NormalizeSlangBindingName(rawName));
         if (mapped == bindings.end()) {
             result += match.str();
         } else {
             result += match[1].str();
             result += " ";
             result += rawName;
-            result += " [[texture(";
+            result += " [[";
+            result += match[3].str();
+            result += "(";
             result += std::to_string(mapped->second);
             result += ")]]";
         }
@@ -660,13 +793,20 @@ bool RewriteMetalTextureBindings(std::string& first, std::string* second = nullp
     if (second)
         CollectMetalTextureBindingNames(*second, names);
     std::sort(names.begin(), names.end());
-    if (names.size() > 128) {
-        Logger::Error("[Metal] Shader requires ", names.size(), " direct texture slots; device maximum is 128");
+    const size_t textureCount =
+        static_cast<size_t>(std::count_if(names.begin(), names.end(),
+                                          [](const std::string& name) { return name.rfind("texture:", 0) == 0; }));
+    const size_t samplerCount = names.size() - textureCount;
+    if (textureCount > 128 || samplerCount > 16) {
+        Logger::Error("[Metal] Shader requires ", textureCount, " direct texture and ", samplerCount,
+                      " direct sampler slots; device maxima are 128 and 16");
         return false;
     }
     std::unordered_map<std::string, uint32_t> bindings;
-    for (uint32_t index = 0; index < names.size(); ++index)
-        bindings[names[index]] = index;
+    uint32_t textureIndex = 0;
+    uint32_t samplerIndex = 0;
+    for (const std::string& name : names)
+        bindings[name] = name.rfind("texture:", 0) == 0 ? textureIndex++ : samplerIndex++;
     first = RemapMetalTextureBindings(first, bindings);
     if (second)
         *second = RemapMetalTextureBindings(*second, bindings);
@@ -682,6 +822,7 @@ struct MetalContext::Impl {
     id<MTLCommandQueue> queue;
     CAMetalLayer* layer = nil;
     SDL_MetalView metalView = nullptr;
+    SDL_Window* window = nullptr;
 
     // Per-frame state
     id<CAMetalDrawable> drawable;
@@ -697,6 +838,23 @@ struct MetalContext::Impl {
     std::shared_ptr<MetalBindlessState> bindless = std::make_shared<MetalBindlessState>();
     id<MTLComputePipelineState> indirectCommandBuildPipeline = nil;
     id<MTLComputePipelineState> clearStorageBufferPipeline = nil;
+    id<MTLBinaryArchive> pipelineArchive = nil;
+    std::filesystem::path pipelineArchivePath;
+    std::mutex pipelineArchiveMutex;
+    bool pipelineArchiveDirty = false;
+    bool pipelineArchiveLoadedFromDisk = false;
+    NSMutableArray<MTLRenderPipelineDescriptor*>* observedRenderPipelineDescriptors =
+        [[NSMutableArray alloc] init];
+    NSMutableArray<MTLComputePipelineDescriptor*>* observedComputePipelineDescriptors =
+        [[NSMutableArray alloc] init];
+    std::unordered_map<std::string, id<MTLRenderPipelineState>> renderPipelineStateCache;
+    std::unordered_map<std::string, id<MTLComputePipelineState>> computePipelineStateCache;
+    bool pipelineCacheDiagnostics = false;
+    uint64_t pipelineArchiveHits = 0;
+    uint64_t pipelineArchiveMisses = 0;
+    uint64_t pipelineArchiveRebuilds = 0;
+    uint64_t metallibLoads = 0;
+    uint64_t runtimeSourceCompiles = 0;
     MetalComputePipeline* boundComputePipeline = nullptr;
     bool modernDeviceBaseline = false;
     bool indirectCommandBuffersSupported = false;
@@ -726,6 +884,266 @@ struct MetalContext::Impl {
         desc.storageMode = MTLStorageModePrivate;
         desc.usage = MTLTextureUsageRenderTarget;
         depthTexture = [device newTextureWithDescriptor:desc];
+    }
+
+    void SyncDrawableSizeFromWindow() {
+        if (!window || !layer)
+            return;
+
+        int logicalWidth = 0;
+        int logicalHeight = 0;
+        int pixelWidth = 0;
+        int pixelHeight = 0;
+        if (!SDL_GetWindowSize(window, &logicalWidth, &logicalHeight) ||
+            !SDL_GetWindowSizeInPixels(window, &pixelWidth, &pixelHeight) || pixelWidth <= 0 || pixelHeight <= 0)
+            return;
+
+        if (logicalWidth > 0 && logicalHeight > 0) {
+            const CGFloat scaleX = static_cast<CGFloat>(pixelWidth) / static_cast<CGFloat>(logicalWidth);
+            const CGFloat scaleY = static_cast<CGFloat>(pixelHeight) / static_cast<CGFloat>(logicalHeight);
+            layer.contentsScale = (std::max)(scaleX, scaleY);
+        }
+        layer.drawableSize = CGSizeMake(static_cast<CGFloat>(pixelWidth), static_cast<CGFloat>(pixelHeight));
+
+        const uint32_t newWidth = static_cast<uint32_t>(pixelWidth);
+        const uint32_t newHeight = static_cast<uint32_t>(pixelHeight);
+        if (newWidth != drawableW || newHeight != drawableH) {
+            drawableW = newWidth;
+            drawableH = newHeight;
+            EnsureDepthTexture(newWidth, newHeight);
+        }
+    }
+
+    void InitializePipelineArchive() {
+        pipelineCacheDiagnostics = MetalCacheDiagnosticsEnabled();
+        pipelineArchive = nil;
+        pipelineArchivePath.clear();
+        pipelineArchiveDirty = false;
+        pipelineArchiveLoadedFromDisk = false;
+        [observedRenderPipelineDescriptors removeAllObjects];
+        [observedComputePipelineDescriptors removeAllObjects];
+        renderPipelineStateCache.clear();
+        computePipelineStateCache.clear();
+        pipelineArchiveHits = 0;
+        pipelineArchiveMisses = 0;
+        pipelineArchiveRebuilds = 0;
+
+        NSArray<NSString*>* directories =
+            NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES);
+        NSString* cacheDirectory = directories.count > 0 ? directories.firstObject : nil;
+        if (!cacheDirectory || !device)
+            return;
+        const std::string osIdentity =
+            SanitizeCacheComponent([[[NSProcessInfo processInfo] operatingSystemVersionString] UTF8String]);
+        std::ostringstream fileName;
+        fileName << std::hex << std::setfill('0') << std::setw(16) << static_cast<uint64_t>(device.registryID) << '_'
+                 << osIdentity << ".metallib";
+        pipelineArchivePath =
+            std::filesystem::path([cacheDirectory UTF8String]) / "MyEngine" / "PipelineCache" / "Metal" / "v2" /
+            fileName.str();
+        std::error_code fileError;
+        std::filesystem::create_directories(pipelineArchivePath.parent_path(), fileError);
+        if (fileError) {
+            pipelineArchivePath.clear();
+            return;
+        }
+        const bool exists = std::filesystem::is_regular_file(pipelineArchivePath, fileError) && !fileError;
+        if (exists && std::filesystem::file_size(pipelineArchivePath, fileError) > kMaxMetalPipelineArchiveBytes) {
+            std::filesystem::remove(pipelineArchivePath, fileError);
+        }
+
+        MTLBinaryArchiveDescriptor* descriptor = [[MTLBinaryArchiveDescriptor alloc] init];
+        if (std::filesystem::is_regular_file(pipelineArchivePath, fileError) && !fileError) {
+            descriptor.url = [NSURL fileURLWithPath:[NSString stringWithUTF8String:pipelineArchivePath.c_str()]];
+        }
+        NSError* archiveError = nil;
+        pipelineArchive = [device newBinaryArchiveWithDescriptor:descriptor error:&archiveError];
+        pipelineArchiveLoadedFromDisk = pipelineArchive && descriptor.url;
+        if (!pipelineArchive && descriptor.url) {
+            std::filesystem::remove(pipelineArchivePath, fileError);
+            descriptor.url = nil;
+            archiveError = nil;
+            pipelineArchive = [device newBinaryArchiveWithDescriptor:descriptor error:&archiveError];
+            pipelineArchiveLoadedFromDisk = false;
+            ++pipelineArchiveRebuilds;
+        }
+        if (!pipelineArchive) {
+            Logger::Warn("[Metal][PSO] Binary archive unavailable: ",
+                         archiveError ? [[archiveError localizedDescription] UTF8String] : "unknown");
+            pipelineArchivePath.clear();
+        } else if (pipelineCacheDiagnostics) {
+            Logger::Info("[Metal][PSO] persistent cache: ", pipelineArchivePath.string());
+        }
+    }
+
+    bool RebuildPipelineArchiveForMutation() {
+        MTLBinaryArchiveDescriptor* archiveDescriptor = [[MTLBinaryArchiveDescriptor alloc] init];
+        NSError* createError = nil;
+        id<MTLBinaryArchive> replacement =
+            [device newBinaryArchiveWithDescriptor:archiveDescriptor error:&createError];
+        if (!replacement) {
+            if (pipelineCacheDiagnostics) {
+                Logger::Warn("[Metal][PSO] Failed to create mutable archive: ",
+                             createError ? [[createError localizedDescription] UTF8String] : "unknown");
+            }
+            return false;
+        }
+
+        bool addedAny = false;
+        for (MTLRenderPipelineDescriptor* observed in observedRenderPipelineDescriptors) {
+            observed.binaryArchives = @[ replacement ];
+            NSError* addError = nil;
+            if ([replacement addRenderPipelineFunctionsWithDescriptor:observed error:&addError]) {
+                addedAny = true;
+            } else if (pipelineCacheDiagnostics) {
+                Logger::Warn("[Metal][PSO] Failed to rebuild render archive entry: ",
+                             addError ? [[addError localizedDescription] UTF8String] : "unknown");
+            }
+        }
+        for (MTLComputePipelineDescriptor* observed in observedComputePipelineDescriptors) {
+            observed.binaryArchives = @[ replacement ];
+            NSError* addError = nil;
+            if ([replacement addComputePipelineFunctionsWithDescriptor:observed error:&addError]) {
+                addedAny = true;
+            } else if (pipelineCacheDiagnostics) {
+                Logger::Warn("[Metal][PSO] Failed to rebuild compute archive entry: ",
+                             addError ? [[addError localizedDescription] UTF8String] : "unknown");
+            }
+        }
+        pipelineArchive = replacement;
+        pipelineArchiveLoadedFromDisk = false;
+        pipelineArchiveDirty = addedAny;
+        ++pipelineArchiveRebuilds;
+        return true;
+    }
+
+    id<MTLRenderPipelineState> CreateRenderPipelineState(MTLRenderPipelineDescriptor* descriptor,
+                                                          uint64_t libraryHash, NSError** error) {
+        const std::string cacheKey = RenderPipelineDescriptorKey(descriptor, libraryHash);
+        std::lock_guard<std::mutex> lock(pipelineArchiveMutex);
+        if (const auto cached = renderPipelineStateCache.find(cacheKey); cached != renderPipelineStateCache.end()) {
+            if (error)
+                *error = nil;
+            return cached->second;
+        }
+        if (!pipelineArchive) {
+            id<MTLRenderPipelineState> state =
+                [device newRenderPipelineStateWithDescriptor:descriptor error:error];
+            if (state)
+                renderPipelineStateCache.emplace(cacheKey, state);
+            return state;
+        }
+        [observedRenderPipelineDescriptors addObject:[descriptor copy]];
+        descriptor.binaryArchives = @[ pipelineArchive ];
+        NSError* hitError = nil;
+        id<MTLRenderPipelineState> state =
+            [device newRenderPipelineStateWithDescriptor:descriptor
+                                                 options:MTLPipelineOptionFailOnBinaryArchiveMiss
+                                              reflection:nil
+                                                   error:&hitError];
+        if (state) {
+            ++pipelineArchiveHits;
+            renderPipelineStateCache.emplace(cacheKey, state);
+            if (error)
+                *error = nil;
+            return state;
+        }
+        ++pipelineArchiveMisses;
+        const bool rebuilt = pipelineArchiveLoadedFromDisk && RebuildPipelineArchiveForMutation();
+        descriptor.binaryArchives = @[ pipelineArchive ];
+        NSError* addError = nil;
+        if (rebuilt || (!pipelineArchiveLoadedFromDisk &&
+                        [pipelineArchive addRenderPipelineFunctionsWithDescriptor:descriptor error:&addError]))
+            pipelineArchiveDirty = true;
+        if (pipelineArchiveLoadedFromDisk)
+            descriptor.binaryArchives = @[];
+        state = [device newRenderPipelineStateWithDescriptor:descriptor error:error];
+        if (!state && addError && pipelineCacheDiagnostics) {
+            Logger::Warn("[Metal][PSO] render archive insert failed: ",
+                         [[addError localizedDescription] UTF8String]);
+        }
+        if (state)
+            renderPipelineStateCache.emplace(cacheKey, state);
+        return state;
+    }
+
+    id<MTLComputePipelineState> CreateComputePipelineState(id<MTLFunction> function, uint64_t libraryHash,
+                                                           NSError** error) {
+        const std::string cacheKey = ComputePipelineDescriptorKey(function, libraryHash);
+        std::lock_guard<std::mutex> lock(pipelineArchiveMutex);
+        if (const auto cached = computePipelineStateCache.find(cacheKey); cached != computePipelineStateCache.end()) {
+            if (error)
+                *error = nil;
+            return cached->second;
+        }
+        if (!pipelineArchive) {
+            id<MTLComputePipelineState> state =
+                [device newComputePipelineStateWithFunction:function error:error];
+            if (state)
+                computePipelineStateCache.emplace(cacheKey, state);
+            return state;
+        }
+        MTLComputePipelineDescriptor* descriptor = [[MTLComputePipelineDescriptor alloc] init];
+        descriptor.computeFunction = function;
+        [observedComputePipelineDescriptors addObject:[descriptor copy]];
+        descriptor.binaryArchives = @[ pipelineArchive ];
+        NSError* hitError = nil;
+        id<MTLComputePipelineState> state =
+            [device newComputePipelineStateWithDescriptor:descriptor
+                                                  options:MTLPipelineOptionFailOnBinaryArchiveMiss
+                                               reflection:nil
+                                                    error:&hitError];
+        if (state) {
+            ++pipelineArchiveHits;
+            computePipelineStateCache.emplace(cacheKey, state);
+            if (error)
+                *error = nil;
+            return state;
+        }
+        ++pipelineArchiveMisses;
+        const bool rebuilt = pipelineArchiveLoadedFromDisk && RebuildPipelineArchiveForMutation();
+        descriptor.binaryArchives = @[ pipelineArchive ];
+        NSError* addError = nil;
+        if (rebuilt || (!pipelineArchiveLoadedFromDisk &&
+                        [pipelineArchive addComputePipelineFunctionsWithDescriptor:descriptor error:&addError]))
+            pipelineArchiveDirty = true;
+        if (pipelineArchiveLoadedFromDisk)
+            descriptor.binaryArchives = @[];
+        state = [device newComputePipelineStateWithDescriptor:descriptor options:MTLPipelineOptionNone reflection:nil
+                                                        error:error];
+        if (!state && addError && pipelineCacheDiagnostics) {
+            Logger::Warn("[Metal][PSO] compute archive insert failed: ",
+                         [[addError localizedDescription] UTF8String]);
+        }
+        if (state)
+            computePipelineStateCache.emplace(cacheKey, state);
+        return state;
+    }
+
+    void FlushPipelineArchive() {
+        std::lock_guard<std::mutex> lock(pipelineArchiveMutex);
+        if (!pipelineArchive || !pipelineArchiveDirty || pipelineArchivePath.empty())
+            return;
+        std::filesystem::path temporary = pipelineArchivePath;
+        temporary += ".tmp." + std::to_string(static_cast<uint64_t>(getpid()));
+        std::error_code ignored;
+        std::filesystem::remove(temporary, ignored);
+        NSError* archiveError = nil;
+        if (![pipelineArchive serializeToURL:[NSURL fileURLWithPath:[NSString stringWithUTF8String:temporary.c_str()]]
+                                       error:&archiveError]) {
+            Logger::Warn("[Metal][PSO] Failed to serialize binary archive: ",
+                         archiveError ? [[archiveError localizedDescription] UTF8String] : "unknown");
+            std::filesystem::remove(temporary, ignored);
+            return;
+        }
+        const uint64_t size = std::filesystem::file_size(temporary, ignored);
+        if (ignored || size == 0 || size > kMaxMetalPipelineArchiveBytes ||
+            ::rename(temporary.c_str(), pipelineArchivePath.c_str()) != 0) {
+            Logger::Warn("[Metal][PSO] Failed to publish binary archive");
+            std::filesystem::remove(temporary, ignored);
+            return;
+        }
+        pipelineArchiveDirty = false;
     }
 };
 
@@ -827,6 +1245,7 @@ bool MetalContext::Init(IWindow* window) {
         Logger::Error("[Metal] Init: no SDL_Window*");
         return false;
     }
+    m_Impl->window = sdlWin;
 
     // Create the CAMetalLayer-backed view.
     m_Impl->metalView = SDL_Metal_CreateView(sdlWin);
@@ -847,6 +1266,7 @@ bool MetalContext::Init(IWindow* window) {
         Logger::Error("[Metal] MTLCreateSystemDefaultDevice failed");
         return false;
     }
+    m_Impl->InitializePipelineArchive();
 
     const bool macOS14OrNewer =
         [[NSProcessInfo processInfo] isOperatingSystemAtLeastVersion:NSOperatingSystemVersion{14, 0, 0}];
@@ -908,68 +1328,44 @@ bool MetalContext::Init(IWindow* window) {
         m_Impl->bindlessSupported =
             bindless.encoder && bindless.argumentBuffer && bindless.fallbackTexture && bindless.fallbackSampler;
 
-        static constexpr const char* kBuildIndirectCommandsMSL = R"MSL(
-#include <metal_stdlib>
-using namespace metal;
-
-struct MyEngineIndexedDraw
-{
-    uint objectIndex;
-    uint indexCount;
-    uint instanceCount;
-    uint startIndex;
-    int baseVertex;
-    uint startInstance;
-};
-
-struct MyEngineIndirectCommandContainer
-{
-    command_buffer commands [[id(0)]];
-};
-
-kernel void BuildIndexedCommands(device const MyEngineIndexedDraw* draws [[buffer(0)]],
-                                 device const uint* drawCount [[buffer(1)]],
-                                 device const uint* indexBuffer [[buffer(2)]],
-                                 constant uint2& limits [[buffer(3)]],
-                                 constant MyEngineIndirectCommandContainer& commandContainer [[buffer(4)]],
-                                 device uint2* executionRange [[buffer(5)]],
-                                 uint commandIndex [[thread_position_in_grid]])
-{
-    const uint count = min(drawCount[0], limits.x);
-    if (commandIndex == 0)
-        executionRange[0] = uint2(0, count);
-    if (commandIndex >= count)
-        return;
-    const MyEngineIndexedDraw draw = draws[commandIndex];
-    render_command command(commandContainer.commands, commandIndex);
-    command.draw_indexed_primitives(primitive_type::triangle, draw.indexCount,
-                                    indexBuffer + draw.startIndex, draw.instanceCount,
-                                    draw.baseVertex, draw.startInstance);
-}
-
-kernel void ClearStorageBuffer(device uint* destination [[buffer(0)]],
-                               constant uint& clearValue [[buffer(1)]],
-                               uint wordIndex [[thread_position_in_grid]])
-{
-    destination[wordIndex] = clearValue;
-}
-)MSL";
         NSError* indirectError = nil;
-        id<MTLLibrary> indirectLibrary =
-            [m_Impl->device newLibraryWithSource:[NSString stringWithUTF8String:kBuildIndirectCommandsMSL]
-                                         options:nil
-                                           error:&indirectError];
+        id<MTLLibrary> indirectLibrary = nil;
+        std::vector<uint8_t> internalShader;
+        const std::filesystem::path libraryPath =
+            FindInternalMetalShader("MetalCommandInfrastructure.metallib");
+        if (!libraryPath.empty() && ReadBinaryFile(libraryPath, internalShader)) {
+            indirectLibrary =
+                NewLibraryWithBytes(m_Impl->device, internalShader.data(), internalShader.size(), &indirectError);
+            if (indirectLibrary)
+                ++m_Impl->metallibLoads;
+        }
+        if (!indirectLibrary) {
+            internalShader.clear();
+            const std::filesystem::path sourcePath =
+                FindInternalMetalShader("MetalCommandInfrastructure.metal");
+            if (!sourcePath.empty() && ReadBinaryFile(sourcePath, internalShader)) {
+                NSString* source = [[NSString alloc] initWithBytes:internalShader.data()
+                                                            length:internalShader.size()
+                                                          encoding:NSUTF8StringEncoding];
+                indirectError = nil;
+                if (source)
+                    indirectLibrary = [m_Impl->device newLibraryWithSource:source options:nil error:&indirectError];
+                ++m_Impl->runtimeSourceCompiles;
+            }
+        }
         id<MTLFunction> indirectFunction =
             indirectLibrary ? [indirectLibrary newFunctionWithName:@"BuildIndexedCommands"] : nil;
         id<MTLFunction> clearFunction =
             indirectLibrary ? [indirectLibrary newFunctionWithName:@"ClearStorageBuffer"] : nil;
+        const uint64_t internalLibraryHash =
+            internalShader.empty() ? 0 : StableMetalLibraryHash(internalShader.data(), internalShader.size());
         if (indirectFunction) {
-            m_Impl->indirectCommandBuildPipeline = [m_Impl->device newComputePipelineStateWithFunction:indirectFunction
-                                                                                                 error:&indirectError];
+            m_Impl->indirectCommandBuildPipeline =
+                m_Impl->CreateComputePipelineState(indirectFunction, internalLibraryHash, &indirectError);
         }
         if (clearFunction) {
-            m_Impl->clearStorageBufferPipeline = [m_Impl->device newComputePipelineStateWithFunction:clearFunction
-                                                                                               error:&indirectError];
+            m_Impl->clearStorageBufferPipeline =
+                m_Impl->CreateComputePipelineState(clearFunction, internalLibraryHash, &indirectError);
         }
         if (!m_Impl->indirectCommandBuildPipeline || !m_Impl->clearStorageBufferPipeline) {
             m_Impl->indirectCommandBuffersSupported = false;
@@ -998,6 +1394,7 @@ kernel void ClearStorageBuffer(device uint* destination [[buffer(0)]],
     m_Impl->drawableW = static_cast<uint32_t>(w);
     m_Impl->drawableH = static_cast<uint32_t>(h);
     m_Impl->EnsureDepthTexture(m_Impl->drawableW, m_Impl->drawableH);
+    m_Impl->SyncDrawableSizeFromWindow();
     m_Impl->modernFormatsSupported =
         IsFormatSupported(RHIFormat::RGBA16Float, RHIResourceUsage::ShaderResource | RHIResourceUsage::UnorderedAccess |
                                                       RHIResourceUsage::RenderTarget) &&
@@ -1022,8 +1419,32 @@ void MetalContext::Shutdown() {
     m_Impl->drawable = nil;
     m_Impl->depthTexture = nil;
     m_Impl->currentRPD = nil;
+    // Pipeline objects may be released while the final command buffer is still executing. Drain the queue before
+    // asking the driver to materialize archive state; some Metal implementations otherwise race archive
+    // serialization against deferred pipeline work during application shutdown.
+    if (m_Impl->queue) {
+        id<MTLCommandBuffer> drain = [m_Impl->queue commandBuffer];
+        [drain commit];
+        [drain waitUntilCompleted];
+    }
+    m_Impl->FlushPipelineArchive();
+    if (m_Impl->pipelineCacheDiagnostics && m_Impl->device) {
+        Logger::Info("[Metal][ShaderCache] metallibLoads=", m_Impl->metallibLoads,
+                     ", runtimeSourceCompiles=", m_Impl->runtimeSourceCompiles,
+                     ", pipelineArchiveHits=", m_Impl->pipelineArchiveHits,
+                     ", pipelineArchiveMisses=", m_Impl->pipelineArchiveMisses,
+                     ", pipelineArchiveRebuilds=", m_Impl->pipelineArchiveRebuilds);
+    }
     m_Impl->indirectCommandBuildPipeline = nil;
     m_Impl->clearStorageBufferPipeline = nil;
+    m_Impl->pipelineArchive = nil;
+    m_Impl->pipelineArchivePath.clear();
+    m_Impl->pipelineArchiveDirty = false;
+    m_Impl->pipelineArchiveLoadedFromDisk = false;
+    [m_Impl->observedRenderPipelineDescriptors removeAllObjects];
+    [m_Impl->observedComputePipelineDescriptors removeAllObjects];
+    m_Impl->renderPipelineStateCache.clear();
+    m_Impl->computePipelineStateCache.clear();
     if (m_Impl->bindless) {
         std::lock_guard<std::mutex> lock(m_Impl->bindless->mutex);
         m_Impl->bindless->encoder = nil;
@@ -1050,6 +1471,7 @@ void MetalContext::Shutdown() {
         m_Impl->metalView = nullptr;
     }
     m_Impl->layer = nil;
+    m_Impl->window = nullptr;
 
     Logger::Info("[Metal] Shutdown");
 }
@@ -1077,15 +1499,8 @@ void MetalContext::BeginFrame(float r, float g, float b, float a) {
         }
     }
 
-    // Sync drawable size with the layer (handles window resize).
-    CGSize sz = m_Impl->layer.drawableSize;
-    auto newW = static_cast<uint32_t>(sz.width);
-    auto newH = static_cast<uint32_t>(sz.height);
-    if (newW != m_Impl->drawableW || newH != m_Impl->drawableH) {
-        m_Impl->drawableW = newW;
-        m_Impl->drawableH = newH;
-        m_Impl->EnsureDepthTexture(newW, newH);
-    }
+    // Re-query SDL every frame so Retina scale changes caused by moving between displays do not leave a stale drawable.
+    m_Impl->SyncDrawableSizeFromWindow();
 
     m_Impl->drawable = [m_Impl->layer nextDrawable];
     m_Impl->cmdBuffer = [m_Impl->queue commandBuffer];
@@ -1309,6 +1724,15 @@ bool MetalContext::ResizeSwapChain(uint32_t width, uint32_t height) {
         return false;
 
     m_Impl->layer.drawableSize = CGSizeMake(static_cast<CGFloat>(width), static_cast<CGFloat>(height));
+    if (m_Impl->window) {
+        int logicalWidth = 0;
+        int logicalHeight = 0;
+        if (SDL_GetWindowSize(m_Impl->window, &logicalWidth, &logicalHeight) && logicalWidth > 0 && logicalHeight > 0) {
+            const CGFloat scaleX = static_cast<CGFloat>(width) / static_cast<CGFloat>(logicalWidth);
+            const CGFloat scaleY = static_cast<CGFloat>(height) / static_cast<CGFloat>(logicalHeight);
+            m_Impl->layer.contentsScale = (std::max)(scaleX, scaleY);
+        }
+    }
     m_Impl->drawableW = width;
     m_Impl->drawableH = height;
     m_Impl->vpW = static_cast<float>(width);
@@ -1445,34 +1869,13 @@ std::shared_ptr<GpuShader> MetalContext::CreateShader(const std::string& mslSour
 
     MTLVertexDescriptor* vd = CreateMetalVertexDescriptor(layout, layoutCount);
 
-    // Render pipeline.
-    MTLRenderPipelineDescriptor* rpd = [[MTLRenderPipelineDescriptor alloc] init];
-    rpd.vertexFunction = vsFn;
-    rpd.fragmentFunction = psFn;
-    rpd.vertexDescriptor = vd;
-    rpd.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
-    rpd.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
-
-    id<MTLRenderPipelineState> pso = [m_Impl->device newRenderPipelineStateWithDescriptor:rpd error:&err];
-    if (!pso) {
-        Logger::Error("[Metal] Pipeline creation failed: ", [[err localizedDescription] UTF8String]);
-        return nullptr;
-    }
-
-    // Depth-stencil state (matching D3D defaults: depth test less, write enabled).
-    MTLDepthStencilDescriptor* dsd = [[MTLDepthStencilDescriptor alloc] init];
-    dsd.depthCompareFunction = MTLCompareFunctionLess;
-    dsd.depthWriteEnabled = YES;
-    id<MTLDepthStencilState> dss = [m_Impl->device newDepthStencilStateWithDescriptor:dsd];
-
     auto shader = std::make_shared<MetalGpuShader>();
-    shader->pipelineState = pso;
-    shader->depthState = dss;
     shader->vertexFunction = vsFn;
     shader->fragmentFunction = psFn;
     shader->vertexDescriptor = vd;
     shader->supportsIndirectCommandBuffers = rewrittenSource.find("[[texture(") == std::string::npos &&
                                              rewrittenSource.find("[[sampler(") == std::string::npos;
+    shader->libraryHash = StableMetalLibraryHash(rewrittenSource.data(), rewrittenSource.size());
     shader->vertexBytecode.assign(rewrittenSource.begin(), rewrittenSource.end());
     shader->pixelBytecode.assign(rewrittenSource.begin(), rewrittenSource.end());
     if (layout && layoutCount)
@@ -1489,84 +1892,107 @@ std::shared_ptr<GpuShader> MetalContext::CreateShaderFromBytecode(const void* vs
     }
 
     NSError* err = nil;
-    std::string vsText(static_cast<const char*>(vsBytecode), vsSize);
-    std::string psText(static_cast<const char*>(psBytecode), psSize);
-    vsText = RewriteMetalConstantBufferLayouts(std::move(vsText));
-    psText = RewriteMetalConstantBufferLayouts(std::move(psText));
-    vsText = RewriteMetalBindlessArgumentBuffer(std::move(vsText));
-    psText = RewriteMetalBindlessArgumentBuffer(std::move(psText));
-    if (vsText.empty() || psText.empty() || !RewriteMetalBufferBindings(vsText, &psText) ||
-        !RewriteMetalTextureBindings(vsText, &psText))
-        return nullptr;
-    NSString* vsSource = [[NSString alloc] initWithBytes:vsText.data()
-                                                  length:vsText.size()
-                                                encoding:NSUTF8StringEncoding];
-    NSString* psSource = [[NSString alloc] initWithBytes:psText.data()
-                                                  length:psText.size()
-                                                encoding:NSUTF8StringEncoding];
-    if (!vsSource || !psSource) {
-        Logger::Error("[Metal] Cooked Metal shader blob is not UTF-8 MSL");
-        return nullptr;
+    MetalShaderArtifact::DecodedPayload vertexPayload;
+    MetalShaderArtifact::DecodedPayload fragmentPayload;
+    const bool container =
+        MetalShaderArtifact::IsContainer(vsBytecode, vsSize) && MetalShaderArtifact::IsContainer(psBytecode, psSize);
+    std::string vsText;
+    std::string psText;
+    if (container) {
+        std::string decodeError;
+        if (!MetalShaderArtifact::Decode(vsBytecode, vsSize, vertexPayload, &decodeError) ||
+            !MetalShaderArtifact::Decode(psBytecode, psSize, fragmentPayload, &decodeError)) {
+            Logger::Error("[Metal] Invalid cooked shader container: ", decodeError);
+            return nullptr;
+        }
+    } else {
+        // Direct compiler fallback and RHI conformance still pass raw MSL. Cooked ABI v8 artifacts always use the
+        // container path, so this compatibility branch cannot accidentally accept a stale on-disk artifact.
+        vsText.assign(static_cast<const char*>(vsBytecode), vsSize);
+        psText.assign(static_cast<const char*>(psBytecode), psSize);
+        vsText = RewriteMetalConstantBufferLayouts(std::move(vsText));
+        psText = RewriteMetalConstantBufferLayouts(std::move(psText));
+        vsText = RewriteMetalBindlessArgumentBuffer(std::move(vsText));
+        psText = RewriteMetalBindlessArgumentBuffer(std::move(psText));
+        if (vsText.empty() || psText.empty() || !RewriteMetalBufferBindings(vsText, &psText) ||
+            !RewriteMetalTextureBindings(vsText, &psText))
+            return nullptr;
+        vertexPayload.kind = MetalShaderArtifact::PayloadKind::MSLSource;
+        vertexPayload.entryPoint = "VSMain";
+        vertexPayload.data = reinterpret_cast<const uint8_t*>(vsText.data());
+        vertexPayload.size = vsText.size();
+        fragmentPayload.kind = MetalShaderArtifact::PayloadKind::MSLSource;
+        fragmentPayload.entryPoint = "PSMain";
+        fragmentPayload.data = reinterpret_cast<const uint8_t*>(psText.data());
+        fragmentPayload.size = psText.size();
+        const bool supportsIndirect =
+            vsText.find("[[texture(") == std::string::npos && psText.find("[[texture(") == std::string::npos &&
+            vsText.find("[[sampler(") == std::string::npos && psText.find("[[sampler(") == std::string::npos;
+        vertexPayload.supportsIndirectCommandBuffers = supportsIndirect;
+        fragmentPayload.supportsIndirectCommandBuffers = supportsIndirect;
     }
 
-    id<MTLLibrary> vsLib = [m_Impl->device newLibraryWithSource:vsSource options:nil error:&err];
-    if (!vsLib) {
-        Logger::Error("[Metal] Vertex MSL compile error: ", [[err localizedDescription] UTF8String]);
-        return nullptr;
-    }
-    err = nil;
-    id<MTLLibrary> psLib = [m_Impl->device newLibraryWithSource:psSource options:nil error:&err];
-    if (!psLib) {
-        Logger::Error("[Metal] Fragment MSL compile error: ", [[err localizedDescription] UTF8String]);
-        return nullptr;
-    }
+    const auto createLibrary = [&](const MetalShaderArtifact::DecodedPayload& payload,
+                                   const char* stageName) -> id<MTLLibrary> {
+        err = nil;
+        id<MTLLibrary> library = nil;
+        if (payload.kind == MetalShaderArtifact::PayloadKind::Metallib) {
+            library = NewLibraryWithBytes(m_Impl->device, payload.data, payload.size, &err);
+            ++m_Impl->metallibLoads;
+        } else {
+            NSString* source = [[NSString alloc] initWithBytes:payload.data
+                                                       length:payload.size
+                                                     encoding:NSUTF8StringEncoding];
+            if (source)
+                library = [m_Impl->device newLibraryWithSource:source options:nil error:&err];
+            ++m_Impl->runtimeSourceCompiles;
+        }
+        if (!library) {
+            Logger::Error("[Metal] ", stageName, " library load failed: ",
+                          err ? [[err localizedDescription] UTF8String] : "invalid MSL source");
+        }
+        return library;
+    };
 
-    id<MTLFunction> vsFn = [vsLib newFunctionWithName:@"VSMain"];
-    id<MTLFunction> psFn = [psLib newFunctionWithName:@"PSMain"];
+    id<MTLLibrary> vsLib = createLibrary(vertexPayload, "vertex");
+    id<MTLLibrary> psLib = createLibrary(fragmentPayload, "fragment");
+    if (!vsLib || !psLib)
+        return nullptr;
+
+    id<MTLFunction> vsFn =
+        [vsLib newFunctionWithName:[NSString stringWithUTF8String:vertexPayload.entryPoint.c_str()]];
+    id<MTLFunction> psFn =
+        [psLib newFunctionWithName:[NSString stringWithUTF8String:fragmentPayload.entryPoint.c_str()]];
     if (!vsFn || !psFn) {
-        Logger::Error("[Metal] Cannot find cooked shader functions VSMain / PSMain");
+        Logger::Error("[Metal] Cannot find cooked shader functions ", vertexPayload.entryPoint, " / ",
+                      fragmentPayload.entryPoint);
         return nullptr;
     }
 
     MTLVertexDescriptor* vd = CreateMetalVertexDescriptor(layout, layoutCount);
 
-    MTLRenderPipelineDescriptor* rpd = [[MTLRenderPipelineDescriptor alloc] init];
-    rpd.vertexFunction = vsFn;
-    rpd.fragmentFunction = psFn;
-    rpd.vertexDescriptor = vd;
-    rpd.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
-    rpd.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
-
-    err = nil;
-    id<MTLRenderPipelineState> pso = [m_Impl->device newRenderPipelineStateWithDescriptor:rpd error:&err];
-    if (!pso) {
-        Logger::Error("[Metal] Cooked pipeline creation failed: ", [[err localizedDescription] UTF8String]);
-        return nullptr;
-    }
-
-    MTLDepthStencilDescriptor* dsd = [[MTLDepthStencilDescriptor alloc] init];
-    dsd.depthCompareFunction = MTLCompareFunctionLess;
-    dsd.depthWriteEnabled = YES;
-    id<MTLDepthStencilState> dss = [m_Impl->device newDepthStencilStateWithDescriptor:dsd];
-
     auto shader = std::make_shared<MetalGpuShader>();
-    shader->pipelineState = pso;
-    shader->depthState = dss;
     shader->vertexFunction = vsFn;
     shader->fragmentFunction = psFn;
     shader->vertexDescriptor = vd;
-    shader->supportsIndirectCommandBuffers =
-        vsText.find("[[texture(") == std::string::npos && psText.find("[[texture(") == std::string::npos &&
-        vsText.find("[[sampler(") == std::string::npos && psText.find("[[sampler(") == std::string::npos;
-    shader->vertexBytecode.assign(vsText.begin(), vsText.end());
-    shader->pixelBytecode.assign(psText.begin(), psText.end());
+    shader->supportsIndirectCommandBuffers = vertexPayload.supportsIndirectCommandBuffers &&
+                                             fragmentPayload.supportsIndirectCommandBuffers;
+    shader->libraryHash =
+        CombineMetalLibraryHashes(StableMetalLibraryHash(vsBytecode, vsSize),
+                                  StableMetalLibraryHash(psBytecode, psSize));
+    shader->vertexBytecode.assign(static_cast<const uint8_t*>(vsBytecode),
+                                  static_cast<const uint8_t*>(vsBytecode) + vsSize);
+    shader->pixelBytecode.assign(static_cast<const uint8_t*>(psBytecode),
+                                 static_cast<const uint8_t*>(psBytecode) + psSize);
     if (layout && layoutCount)
         shader->vertexLayout.assign(layout, layout + layoutCount);
-    ParseMetalBindings(vsText, ShaderStageVertex, shader->reflection);
-    ParseMetalBindings(psText, ShaderStagePixel, shader->reflection);
-    if (shader->reflection.bindings.empty()) {
-        Logger::Error("[Metal] Cooked Metal shader has no binding reflection");
-        return nullptr;
+    if (vertexPayload.kind == MetalShaderArtifact::PayloadKind::MSLSource) {
+        if (vsText.empty())
+            vsText.assign(reinterpret_cast<const char*>(vertexPayload.data), vertexPayload.size);
+        if (psText.empty())
+            psText.assign(reinterpret_cast<const char*>(fragmentPayload.data), fragmentPayload.size);
+        ParseMetalBindings(vsText, ShaderStageVertex, shader->reflection);
+        ParseMetalBindings(psText, ShaderStagePixel, shader->reflection);
     }
     return shader;
 }
@@ -1574,44 +2000,67 @@ std::shared_ptr<GpuShader> MetalContext::CreateShaderFromBytecode(const void* vs
 std::shared_ptr<GpuShader> MetalContext::CreateComputeShaderFromBytecode(const void* bytecode, size_t byteSize) {
     if (!bytecode || byteSize == 0 || !m_Impl || !m_Impl->device)
         return nullptr;
-    std::string source(static_cast<const char*>(bytecode), byteSize);
-    source = RewriteMetalConstantBufferLayouts(std::move(source));
-    source = RewriteMetalBindlessArgumentBuffer(std::move(source));
-    if (source.empty() || !RewriteMetalBufferBindings(source) || !RewriteMetalTextureBindings(source))
-        return nullptr;
-    NSString* src = [[NSString alloc] initWithBytes:source.data() length:source.size() encoding:NSUTF8StringEncoding];
-    if (!src) {
-        Logger::Error("[Metal] Cooked Metal compute shader blob is not UTF-8 MSL");
-        return nullptr;
+    MetalShaderArtifact::DecodedPayload payload;
+    const bool container = MetalShaderArtifact::IsContainer(bytecode, byteSize);
+    std::string source;
+    if (container) {
+        std::string decodeError;
+        if (!MetalShaderArtifact::Decode(bytecode, byteSize, payload, &decodeError)) {
+            Logger::Error("[Metal] Invalid cooked compute container: ", decodeError);
+            return nullptr;
+        }
+    } else {
+        source.assign(static_cast<const char*>(bytecode), byteSize);
+        source = RewriteMetalConstantBufferLayouts(std::move(source));
+        source = RewriteMetalBindlessArgumentBuffer(std::move(source));
+        if (source.empty() || !RewriteMetalBufferBindings(source) || !RewriteMetalTextureBindings(source))
+            return nullptr;
+        std::smatch entryMatch;
+        static const std::regex entryRegex(
+            R"(\[\[kernel\]\]\s+[A-Za-z_][A-Za-z0-9_:<>, \*&]*\s+([A-Za-z_][A-Za-z0-9_]*)\s*\()");
+        if (!std::regex_search(source, entryMatch, entryRegex)) {
+            Logger::Error("[Metal] Cannot discover direct compute shader entry point");
+            return nullptr;
+        }
+        payload.kind = MetalShaderArtifact::PayloadKind::MSLSource;
+        payload.entryPoint = entryMatch[1].str();
+        payload.data = reinterpret_cast<const uint8_t*>(source.data());
+        payload.size = source.size();
     }
+
     NSError* err = nil;
-    id<MTLLibrary> lib = [m_Impl->device newLibraryWithSource:src options:nil error:&err];
+    id<MTLLibrary> lib = nil;
+    if (payload.kind == MetalShaderArtifact::PayloadKind::Metallib) {
+        lib = NewLibraryWithBytes(m_Impl->device, payload.data, payload.size, &err);
+        ++m_Impl->metallibLoads;
+    } else {
+        NSString* src =
+            [[NSString alloc] initWithBytes:payload.data length:payload.size encoding:NSUTF8StringEncoding];
+        if (src)
+            lib = [m_Impl->device newLibraryWithSource:src options:nil error:&err];
+        ++m_Impl->runtimeSourceCompiles;
+    }
     if (!lib) {
-        Logger::Error("[Metal] Compute MSL compile error: ", err ? [[err localizedDescription] UTF8String] : "unknown");
+        Logger::Error("[Metal] Compute library load failed: ",
+                      err ? [[err localizedDescription] UTF8String] : "invalid MSL source");
         return nullptr;
     }
-    std::smatch entryMatch;
-    static const std::regex entryRegex(
-        R"(\[\[kernel\]\]\s+[A-Za-z_][A-Za-z0-9_:<>, \*&]*\s+([A-Za-z_][A-Za-z0-9_]*)\s*\()");
-    if (!std::regex_search(source, entryMatch, entryRegex)) {
-        Logger::Error("[Metal] Cannot discover cooked compute shader entry point");
-        return nullptr;
-    }
-    const std::string entryPoint = entryMatch[1].str();
-    id<MTLFunction> fn = [lib newFunctionWithName:[NSString stringWithUTF8String:entryPoint.c_str()]];
+    id<MTLFunction> fn =
+        [lib newFunctionWithName:[NSString stringWithUTF8String:payload.entryPoint.c_str()]];
     if (!fn) {
-        Logger::Error("[Metal] Cannot find cooked compute shader function ", entryPoint);
+        Logger::Error("[Metal] Cannot find cooked compute shader function ", payload.entryPoint);
         return nullptr;
     }
 
     auto shader = std::make_shared<MetalGpuShader>();
     shader->computeFunction = fn;
+    shader->libraryHash = StableMetalLibraryHash(bytecode, byteSize);
     shader->computeBytecode.assign(static_cast<const uint8_t*>(bytecode),
                                    static_cast<const uint8_t*>(bytecode) + byteSize);
-    ParseMetalBindings(source, ShaderStageCompute, shader->reflection);
-    if (shader->reflection.bindings.empty()) {
-        Logger::Error("[Metal] Cooked Metal compute shader has no binding reflection");
-        return nullptr;
+    if (payload.kind == MetalShaderArtifact::PayloadKind::MSLSource) {
+        if (source.empty())
+            source.assign(reinterpret_cast<const char*>(payload.data), payload.size);
+        ParseMetalBindings(source, ShaderStageCompute, shader->reflection);
     }
     return shader;
 }
@@ -1725,7 +2174,7 @@ std::shared_ptr<GpuGraphicsPipeline> MetalContext::CreateGraphicsPipeline(const 
     }
 
     NSError* err = nil;
-    id<MTLRenderPipelineState> pso = [m_Impl->device newRenderPipelineStateWithDescriptor:native error:&err];
+    id<MTLRenderPipelineState> pso = m_Impl->CreateRenderPipelineState(native, shader->libraryHash, &err);
     if (!pso) {
         Logger::Error("[Metal] CreateGraphicsPipeline failed: ",
                       err ? [[err localizedDescription] UTF8String] : "unknown error");
@@ -1767,8 +2216,8 @@ std::shared_ptr<GpuComputePipeline> MetalContext::CreateComputePipeline(const Co
         return nullptr;
     }
     NSError* err = nil;
-    id<MTLComputePipelineState> pso = [m_Impl->device newComputePipelineStateWithFunction:shader->computeFunction
-                                                                                    error:&err];
+    id<MTLComputePipelineState> pso =
+        m_Impl->CreateComputePipelineState(shader->computeFunction, shader->libraryHash, &err);
     if (!pso) {
         Logger::Error("[Metal] Compute pipeline creation failed: ",
                       err ? [[err localizedDescription] UTF8String] : "unknown");
@@ -1831,8 +2280,27 @@ void MetalContext::SetComputePipeline(GpuComputePipeline* pipeline) {
 
 void MetalContext::BindShader(GpuShader* shader) {
     auto* ms = dynamic_cast<MetalGpuShader*>(shader);
-    if (!ms || !ms->pipelineState || !m_Impl->encoder)
+    if (!ms || !m_Impl->encoder || !ms->vertexFunction || !ms->fragmentFunction)
         return;
+    if (!ms->pipelineState) {
+        MTLRenderPipelineDescriptor* descriptor = [[MTLRenderPipelineDescriptor alloc] init];
+        descriptor.vertexFunction = ms->vertexFunction;
+        descriptor.fragmentFunction = ms->fragmentFunction;
+        descriptor.vertexDescriptor = ms->vertexDescriptor;
+        descriptor.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
+        descriptor.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
+        NSError* error = nil;
+        ms->pipelineState = m_Impl->CreateRenderPipelineState(descriptor, ms->libraryHash, &error);
+        if (!ms->pipelineState) {
+            Logger::Error("[Metal] Lazy compatibility pipeline failed: ",
+                          error ? [[error localizedDescription] UTF8String] : "unknown");
+            return;
+        }
+        MTLDepthStencilDescriptor* depth = [[MTLDepthStencilDescriptor alloc] init];
+        depth.depthCompareFunction = MTLCompareFunctionLess;
+        depth.depthWriteEnabled = YES;
+        ms->depthState = [m_Impl->device newDepthStencilStateWithDescriptor:depth];
+    }
     [m_Impl->encoder setRenderPipelineState:ms->pipelineState];
     [m_Impl->encoder setDepthStencilState:ms->depthState];
 }
