@@ -20,6 +20,8 @@ enum class RenderBackend : uint8_t {
 // Choose a sensible compile-time default for each platform.
 #ifdef MYENGINE_PLATFORM_MACOS
 inline constexpr RenderBackend kDefaultRenderBackend = RenderBackend::Metal;
+#elif defined(MYENGINE_PLATFORM_LINUX)
+inline constexpr RenderBackend kDefaultRenderBackend = RenderBackend::Vulkan;
 #else
 inline constexpr RenderBackend kDefaultRenderBackend = RenderBackend::D3D11;
 #endif

@@ -45,6 +45,7 @@ private:
     bool ActorMatchesOwnFilters(const Actor& actor) const;
     bool ActorMatchesSearch(const Actor& actor) const;
     void CollectVisibleActorOrder(Actor* actor, std::vector<uint64_t>& order) const;
+    std::vector<std::function<void()>> m_DeferredHierarchyActions;
     ActorHandle m_DraggedActor;
     bool m_ActorRightClicked = false;
     char m_SearchFilter[128] = {};

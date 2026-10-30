@@ -102,7 +102,7 @@ nlohmann::json SerializeCookedReflection(const ShaderAsset& shader) {
                 const auto& reflection =
                     shader.GetReflection(static_cast<ShaderBackend>(backend), static_cast<ShaderPass>(pass),
                                          static_cast<ShaderStage>(stage));
-                if (reflection.bindings.empty() && reflection.threadGroupSize[0] == 1 &&
+                if (reflection.bindings.empty() && reflection.inputs.empty() && reflection.threadGroupSize[0] == 1 &&
                     reflection.threadGroupSize[1] == 1 && reflection.threadGroupSize[2] == 1)
                     continue;
                 nlohmann::json bindings = nlohmann::json::array();
@@ -114,13 +114,20 @@ nlohmann::json SerializeCookedReflection(const ShaderAsset& shader) {
                                         {"bindCount", binding.bindCount},
                                         {"byteSize", binding.byteSize}});
                 }
+                nlohmann::json inputs = nlohmann::json::array();
+                for (const auto& input : reflection.inputs) {
+                    inputs.push_back({{"semantic", input.semantic},
+                                      {"semanticIndex", input.semanticIndex},
+                                      {"location", input.location}});
+                }
                 entries.push_back(
                     {{"backend", backend},
                      {"pass", pass},
                      {"stage", stage},
                      {"threadGroupSize",
                       {reflection.threadGroupSize[0], reflection.threadGroupSize[1], reflection.threadGroupSize[2]}},
-                     {"bindings", std::move(bindings)}});
+                     {"bindings", std::move(bindings)},
+                     {"inputs", std::move(inputs)}});
             }
         }
     }
@@ -145,6 +152,24 @@ bool ParseCookedReflection(const nlohmann::json& entries, CookedShaderReflection
             return false;
         for (size_t axis = 0; axis < 3; ++axis)
             destination.threadGroupSize[axis] = threads[axis].get<uint32_t>();
+        const auto inputs = entry.value("inputs", nlohmann::json::array());
+        if (!inputs.is_array() || (stage != static_cast<size_t>(ShaderStage::Vertex) && !inputs.empty()))
+            return false;
+        std::unordered_set<uint32_t> inputLocations;
+        std::unordered_set<std::string> inputSemantics;
+        for (const auto& item : inputs) {
+            if (!item.is_object())
+                return false;
+            CookedShaderVertexInput input;
+            input.semantic = item.value("semantic", std::string{});
+            input.semanticIndex = item.value("semanticIndex", 0u);
+            input.location = item.value("location", UINT32_MAX);
+            if (input.semantic.empty() || input.location == UINT32_MAX ||
+                !inputLocations.insert(input.location).second ||
+                !inputSemantics.insert(input.semantic + ":" + std::to_string(input.semanticIndex)).second)
+                return false;
+            destination.inputs.push_back(std::move(input));
+        }
         const auto bindings = entry.value("bindings", nlohmann::json::array());
         if (!bindings.is_array())
             return false;

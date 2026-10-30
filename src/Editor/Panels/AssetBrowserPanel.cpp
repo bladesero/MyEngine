@@ -1773,7 +1773,7 @@ void AssetBrowserPanel::DrawContent() {
                 if (ImGui::Selectable("Open")) {
                     RequestOpenFolder(folder.relativePath);
                 }
-                if (ImGui::Selectable("Reveal in Explorer")) {
+                if (ImGui::Selectable("Show in File Manager")) {
                     RequestRevealPath(folder.relativePath);
                 }
                 ImGui::Separator();
@@ -1850,10 +1850,10 @@ void AssetBrowserPanel::DrawContent() {
     ImGui::SameLine();
     ImGui::BeginGroup();
 
-    // Context menu detection for empty area
-    bool emptyRightClick = false;
-    if (EditorContextMenu::DetectWindow("##AssetCtxMenu"))
-        emptyRightClick = true;
+    // Do not open the background popup before rows have processed this click.
+    const bool emptyRightClick = ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup) &&
+                                 ImGui::IsMouseClicked(ImGuiMouseButton_Right);
+    bool assetRightClick = false;
 
     std::vector<EditorAssetInfo> visibleAssets;
     const auto folderAssets =
@@ -1915,6 +1915,7 @@ void AssetBrowserPanel::DrawContent() {
     for (size_t assetIndex = 0; assetIndex < visibleAssets.size(); ++assetIndex) {
         const auto& asset = visibleAssets[assetIndex];
         const std::string assetPath = NormalizePanelAssetPath(asset.absolutePath.string());
+        ImGui::PushID(assetPath.c_str());
         const bool selected = IsAssetSelected(assetPath);
         const bool primarySelected = context->GetSelection().HasAsset() &&
                                      NormalizePanelAssetPath(context->GetSelection().GetAssetPath()) == assetPath;
@@ -1929,6 +1930,7 @@ void AssetBrowserPanel::DrawContent() {
             if (!ImGui::IsItemActive() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
                 m_PendingRename = false;
             }
+            ImGui::PopID();
             continue;
         }
 
@@ -1962,6 +1964,7 @@ void AssetBrowserPanel::DrawContent() {
 
         // Right-click context menu per asset
         if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+            assetRightClick = true;
             if (!IsAssetSelected(assetPath)) {
                 SelectAssetRow(*context, visibleAssets, assetIndex, false, false);
             }
@@ -1972,7 +1975,7 @@ void AssetBrowserPanel::DrawContent() {
             if (ImGui::Selectable("Open")) {
                 RequestOpenAsset(asset.absolutePath.string());
             }
-            if (ImGui::Selectable("Reveal in Explorer")) {
+            if (ImGui::Selectable("Show in File Manager")) {
                 RequestRevealPath(asset.absolutePath.string());
             }
             ImGui::Separator();
@@ -2026,10 +2029,11 @@ void AssetBrowserPanel::DrawContent() {
         if (asset.type == EditorAssetType::Prefab) {
             AssetDragDropSource(kPrefabPayload, asset.absolutePath.string(), asset.relativePath).Draw();
         }
+        ImGui::PopID();
     }
 
     // Empty-area context menu
-    if (emptyRightClick) {
+    if (emptyRightClick && !assetRightClick && !ImGui::IsAnyItemHovered()) {
         ImGui::OpenPopup("##AssetCtxMenu");
     }
     Editor::UI::EditorViewportPolicy::BindNextPopupToViewport(assetBrowserViewportID);
@@ -2051,7 +2055,7 @@ void AssetBrowserPanel::DrawContent() {
         if (ImGui::Selectable("Open Selected")) {
             RequestOpenAsset(emptyContextSelection.front());
         }
-        if (ImGui::Selectable("Reveal Selected in Explorer")) {
+        if (ImGui::Selectable("Show Selected in File Manager")) {
             RequestRevealPath(emptyContextSelection.front());
         }
         if (ImGui::Selectable("Reimport Selected")) {
@@ -2074,7 +2078,7 @@ void AssetBrowserPanel::DrawContent() {
         }
         ImGui::EndDisabled();
         ImGui::Separator();
-        if (ImGui::Selectable("Reveal Folder in Explorer")) {
+        if (ImGui::Selectable("Show Folder in File Manager")) {
             RequestRevealPath(m_SelectedFolder);
         }
         if (ImGui::Selectable("Create Folder")) {

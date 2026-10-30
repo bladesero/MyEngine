@@ -198,7 +198,8 @@ bool TestEditorPlatformViewportDpiContract() {
                    imguiMetal.find("storeAction = MTLStoreActionStore") != std::string::npos &&
                    imguiMetal.find("mainFramebufferDescriptor") != std::string::npos &&
                    imguiMetal.find("initWithRenderPassDescriptor:renderPassDescriptor") != std::string::npos,
-               "Metal platform viewports can use the wrong Retina size, discard presented pixels, or reuse an incompatible pipeline"))
+               "Metal platform viewports can use the wrong Retina size, discard presented pixels, or reuse an "
+               "incompatible pipeline"))
         return false;
     if (!Check(backend.find("uploads dirty atlas data from ImDrawData") != std::string::npos &&
                    backend.find("return handles.backend == RHIBackend::Metal;") != std::string::npos,
@@ -689,7 +690,7 @@ bool TestEditorOperatorSourceContracts() {
                 assetBrowser.find("Copied \" + std::to_string(selectedPaths.size())") != std::string::npos &&
                 assetBrowser.find("ImGui::Selectable(\"Open Selected\")") != std::string::npos &&
                 assetBrowser.find("RequestOpenAsset(emptyContextSelection.front())") != std::string::npos &&
-                assetBrowser.find("ImGui::Selectable(\"Reveal Selected in Explorer\")") != std::string::npos &&
+                assetBrowser.find("ImGui::Selectable(\"Show Selected in File Manager\")") != std::string::npos &&
                 assetBrowser.find("RequestRevealPath(emptyContextSelection.front())") != std::string::npos &&
                 assetBrowser.find("ImGui::Selectable(\"Reimport Selected\")") != std::string::npos &&
                 assetBrowser.find("ImGui::Selectable(\"Copy Selected\")") != std::string::npos &&
@@ -1162,77 +1163,77 @@ bool TestEditorOperatorSourceContracts() {
                    inspectorSections.find("importer->ReimportWithSettings") == std::string::npos,
                "asset import settings edits do not route through undoable operator command"))
         return false;
-    if (!Check(editorLayer.find("\"edit.delete\"") != std::string::npos &&
-                   editorLayer.find("\"edit.duplicate\"") != std::string::npos &&
-                   editorLayer.find("\"edit.copy\"") != std::string::npos &&
-                   editorLayer.find("\"asset.validate\"") != std::string::npos &&
-                   editorLayer.find("ValidateAssets()") != std::string::npos &&
-                   editorLayer.find("m_ImportService.RefreshValidation") != std::string::npos &&
-                   editorLayer.find("m_ImportService.GetValidationSummaryText()") != std::string::npos &&
-                   editorLayer.find("\"asset.open\"") != std::string::npos &&
-                   editorLayer.find("\"asset.reveal\"") != std::string::npos &&
-                   editorLayer.find("\"asset.createFolder\"") != std::string::npos &&
-                   editorLayer.find("\"asset.createMaterial\"") != std::string::npos &&
-                   editorLayer.find("\"asset.createTexture\"") != std::string::npos &&
-                   editorLayer.find("\"asset.createPrefab\"") != std::string::npos &&
-                   editorLayer.find("\"asset.createAngelScript\"") != std::string::npos &&
-                   editorLayer.find("\"asset.createLua\"") != std::string::npos &&
-                   editorLayer.find("\"asset.createShader\"") != std::string::npos &&
-                   editorLayer.find("\"asset.createUI\"") != std::string::npos &&
-                   editorLayer.find("\"asset.createScene\"") != std::string::npos &&
-                   editorLayer.find("registerAssetTemplateAction") != std::string::npos &&
-                   editorLayer.find("\"asset.move\"") != std::string::npos &&
-                   editorLayer.find("\"asset.rename\"") != std::string::npos &&
-                   editorLayer.find("ImGui::BeginMenu(\"Assets\")") != std::string::npos &&
-                   editorLayer.find("\"File\", \"Project\", \"Assets\"") != std::string::npos &&
-                   editorLayer.find("\"view.frameSelected\"") != std::string::npos &&
-                   editorLayer.find("\"hierarchy.expandAll\"") != std::string::npos &&
-                   editorLayer.find("\"hierarchy.collapseAll\"") != std::string::npos &&
-                   editorLayer.find("\"hierarchy.createEmptyParent\"") != std::string::npos &&
-                   editorLayer.find("\"hierarchy.unparent\"") != std::string::npos &&
-                   editorLayer.find("\"hierarchy.moveUp\"") != std::string::npos &&
-                   editorLayer.find("\"hierarchy.moveDown\"") != std::string::npos &&
-                   editorLayer.find("\"hierarchy.selectChildren\"") != std::string::npos &&
-                   editorLayer.find("\"hierarchy.selectSubtree\"") != std::string::npos &&
-                   editorLayer.find("\"hierarchy.selectParent\"") != std::string::npos &&
-                   editorLayer.find("\"hierarchy.selectPreviousSibling\"") != std::string::npos &&
-                   editorLayer.find("\"hierarchy.selectNextSibling\"") != std::string::npos &&
-                   editorLayer.find("CanFocusedPanelHandleAction") != std::string::npos &&
-                   editorLayer.find("CanVisiblePanelHandleAction") != std::string::npos &&
-                   editorLayer.find("CanVisiblePanelHandleAction(\"edit.rename\")") != std::string::npos &&
-                   editorLayer.find("SetPanelFocusRequestHandler") != std::string::npos &&
-                   editorLayer.find("panel->RequestFocus()") != std::string::npos &&
-                   editorLayer.find("panel->CanHandleEditorAction") != std::string::npos &&
-                   compactEditorLayer.find("panel&&panel->IsVisible()&&panel->HandleEditorAction") !=
-                       std::string::npos &&
-                   editorLayer.find("DispatchPanelAction(\"edit.delete\")") != std::string::npos &&
-                   editorLayer.find("DispatchPanelAction(\"edit.duplicate\")") != std::string::npos &&
-                   editorLayer.find("DispatchPanelAction(\"edit.copy\")") != std::string::npos &&
-                   editorLayer.find("DispatchPanelAction(\"edit.paste\")") != std::string::npos &&
-                   editorLayer.find("operators->Commands().HasActorClipboard()") != std::string::npos &&
-                   editorLayer.find("operators->Commands().HasAssetClipboard()") != std::string::npos &&
-                   editorLayer.find("DuplicateSelection(context)") != std::string::npos &&
-                   editorLayer.find("DispatchPanelAction(\"edit.rename\")") != std::string::npos &&
-                   editorLayer.find("Rename was not handled") == std::string::npos &&
-                   editorLayer.find("DispatchPanelAction(\"edit.selectAll\")") != std::string::npos &&
-                   editorLayer.find("DispatchPanelAction(\"hierarchy.expandAll\")") != std::string::npos &&
-                   editorLayer.find("DispatchPanelAction(\"hierarchy.collapseAll\")") != std::string::npos &&
-                   editorLayer.find("DispatchPanelAction(\"hierarchy.createEmptyParent\")") != std::string::npos &&
-                   editorLayer.find("DispatchPanelAction(\"hierarchy.unparent\")") != std::string::npos &&
-                   editorLayer.find("DispatchPanelAction(\"hierarchy.moveUp\")") != std::string::npos &&
-                   editorLayer.find("DispatchPanelAction(\"hierarchy.moveDown\")") != std::string::npos &&
-                   editorLayer.find("DispatchPanelAction(\"hierarchy.selectChildren\")") != std::string::npos &&
-                   editorLayer.find("DispatchPanelAction(\"hierarchy.selectSubtree\")") != std::string::npos &&
-                   editorLayer.find("DispatchPanelAction(\"hierarchy.selectParent\")") != std::string::npos &&
-                   editorLayer.find("DispatchPanelAction(\"hierarchy.selectPreviousSibling\")") != std::string::npos &&
-                   editorLayer.find("DispatchPanelAction(\"hierarchy.selectNextSibling\")") != std::string::npos &&
-                   editorLayer.find("scene->ForEach([&](Actor& actor)") == std::string::npos &&
-                   editorLayer.find("Rename is handled by the focused panel inline editor") == std::string::npos &&
-                   editorLayer.find("Frame Selected requested") == std::string::npos &&
-                   editorLayer.find("operators->Viewport().FrameSelected") != std::string::npos &&
-                   shortcutMap.find("edit.delete") != std::string::npos &&
-                   shortcutMap.find("edit.duplicate") != std::string::npos,
-               "global edit actions or shortcuts are not registered"))
+    if (!Check(
+            editorLayer.find("\"edit.delete\"") != std::string::npos &&
+                editorLayer.find("\"edit.duplicate\"") != std::string::npos &&
+                editorLayer.find("\"edit.copy\"") != std::string::npos &&
+                editorLayer.find("\"asset.validate\"") != std::string::npos &&
+                editorLayer.find("ValidateAssets()") != std::string::npos &&
+                editorLayer.find("m_ImportService.RefreshValidation") != std::string::npos &&
+                editorLayer.find("m_ImportService.GetValidationSummaryText()") != std::string::npos &&
+                editorLayer.find("\"asset.open\"") != std::string::npos &&
+                editorLayer.find("\"asset.reveal\"") != std::string::npos &&
+                editorLayer.find("\"asset.createFolder\"") != std::string::npos &&
+                editorLayer.find("\"asset.createMaterial\"") != std::string::npos &&
+                editorLayer.find("\"asset.createTexture\"") != std::string::npos &&
+                editorLayer.find("\"asset.createPrefab\"") != std::string::npos &&
+                editorLayer.find("\"asset.createAngelScript\"") != std::string::npos &&
+                editorLayer.find("\"asset.createLua\"") != std::string::npos &&
+                editorLayer.find("\"asset.createShader\"") != std::string::npos &&
+                editorLayer.find("\"asset.createUI\"") != std::string::npos &&
+                editorLayer.find("\"asset.createScene\"") != std::string::npos &&
+                editorLayer.find("registerAssetTemplateAction") != std::string::npos &&
+                editorLayer.find("\"asset.move\"") != std::string::npos &&
+                editorLayer.find("\"asset.rename\"") != std::string::npos &&
+                editorLayer.find("ImGui::BeginMenu(\"Assets\")") != std::string::npos &&
+                editorLayer.find("\"File\", \"Project\", \"Assets\"") != std::string::npos &&
+                editorLayer.find("\"view.frameSelected\"") != std::string::npos &&
+                editorLayer.find("\"hierarchy.expandAll\"") != std::string::npos &&
+                editorLayer.find("\"hierarchy.collapseAll\"") != std::string::npos &&
+                editorLayer.find("\"hierarchy.createEmptyParent\"") != std::string::npos &&
+                editorLayer.find("\"hierarchy.unparent\"") != std::string::npos &&
+                editorLayer.find("\"hierarchy.moveUp\"") != std::string::npos &&
+                editorLayer.find("\"hierarchy.moveDown\"") != std::string::npos &&
+                editorLayer.find("\"hierarchy.selectChildren\"") != std::string::npos &&
+                editorLayer.find("\"hierarchy.selectSubtree\"") != std::string::npos &&
+                editorLayer.find("\"hierarchy.selectParent\"") != std::string::npos &&
+                editorLayer.find("\"hierarchy.selectPreviousSibling\"") != std::string::npos &&
+                editorLayer.find("\"hierarchy.selectNextSibling\"") != std::string::npos &&
+                editorLayer.find("CanFocusedPanelHandleAction") != std::string::npos &&
+                editorLayer.find("CanVisiblePanelHandleAction") != std::string::npos &&
+                editorLayer.find("CanVisiblePanelHandleAction(\"edit.rename\")") != std::string::npos &&
+                editorLayer.find("SetPanelFocusRequestHandler") != std::string::npos &&
+                editorLayer.find("panel->RequestFocus()") != std::string::npos &&
+                editorLayer.find("panel->CanHandleEditorAction") != std::string::npos &&
+                compactEditorLayer.find("panel&&panel->IsVisible()&&panel->HandleEditorAction") != std::string::npos &&
+                editorLayer.find("DispatchPanelAction(\"edit.delete\")") != std::string::npos &&
+                editorLayer.find("DispatchPanelAction(\"edit.duplicate\")") != std::string::npos &&
+                editorLayer.find("DispatchPanelAction(\"edit.copy\")") != std::string::npos &&
+                editorLayer.find("DispatchPanelAction(\"edit.paste\")") != std::string::npos &&
+                editorLayer.find("operators->Commands().HasActorClipboard()") != std::string::npos &&
+                editorLayer.find("targetPanel->CanHandleEditorAction(context, \"edit.paste\")") != std::string::npos &&
+                editorLayer.find("DuplicateSelection(context)") != std::string::npos &&
+                editorLayer.find("DispatchPanelAction(\"edit.rename\")") != std::string::npos &&
+                editorLayer.find("Rename was not handled") == std::string::npos &&
+                editorLayer.find("DispatchPanelAction(\"edit.selectAll\")") != std::string::npos &&
+                editorLayer.find("DispatchPanelAction(\"hierarchy.expandAll\")") != std::string::npos &&
+                editorLayer.find("DispatchPanelAction(\"hierarchy.collapseAll\")") != std::string::npos &&
+                editorLayer.find("DispatchPanelAction(\"hierarchy.createEmptyParent\")") != std::string::npos &&
+                editorLayer.find("DispatchPanelAction(\"hierarchy.unparent\")") != std::string::npos &&
+                editorLayer.find("DispatchPanelAction(\"hierarchy.moveUp\")") != std::string::npos &&
+                editorLayer.find("DispatchPanelAction(\"hierarchy.moveDown\")") != std::string::npos &&
+                editorLayer.find("DispatchPanelAction(\"hierarchy.selectChildren\")") != std::string::npos &&
+                editorLayer.find("DispatchPanelAction(\"hierarchy.selectSubtree\")") != std::string::npos &&
+                editorLayer.find("DispatchPanelAction(\"hierarchy.selectParent\")") != std::string::npos &&
+                editorLayer.find("DispatchPanelAction(\"hierarchy.selectPreviousSibling\")") != std::string::npos &&
+                editorLayer.find("DispatchPanelAction(\"hierarchy.selectNextSibling\")") != std::string::npos &&
+                editorLayer.find("scene->ForEach([&](Actor& actor)") == std::string::npos &&
+                editorLayer.find("Rename is handled by the focused panel inline editor") == std::string::npos &&
+                editorLayer.find("Frame Selected requested") == std::string::npos &&
+                editorLayer.find("operators->Viewport().FrameSelected") != std::string::npos &&
+                shortcutMap.find("edit.delete") != std::string::npos &&
+                shortcutMap.find("edit.duplicate") != std::string::npos,
+            "global edit actions or shortcuts are not registered"))
         return false;
     if (!Check(operatorsHeader.find("FrameSelected") != std::string::npos &&
                    operatorsHeader.find("FrameTarget") != std::string::npos &&

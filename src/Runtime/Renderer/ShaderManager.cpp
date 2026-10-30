@@ -146,6 +146,11 @@ std::shared_ptr<GpuShader> ShaderManager::CompileRecord(const ShaderRecord& rec)
             mergeMetalStageReflection(metadata, shader, stageMask);
         else if (activeBackend != RHIBackend::Vulkan)
             mergeStageReflection(metadata, shader, stageMask);
+        if (activeBackend == RHIBackend::Vulkan && stage == ShaderStage::Vertex && !metadata.inputs.empty()) {
+            shader->reflection.inputs.clear();
+            for (const auto& input : metadata.inputs)
+                shader->reflection.inputs.push_back({input.semantic, input.semanticIndex, input.location});
+        }
         if (stage == ShaderStage::Compute) {
             shader->threadGroupSize[0] = metadata.threadGroupSize[0];
             shader->threadGroupSize[1] = metadata.threadGroupSize[1];
@@ -167,6 +172,13 @@ std::shared_ptr<GpuShader> ShaderManager::CompileRecord(const ShaderRecord& rec)
                 shader->threadGroupSize[0] = metadata.threadGroupSize[0];
                 shader->threadGroupSize[1] = metadata.threadGroupSize[1];
                 shader->threadGroupSize[2] = metadata.threadGroupSize[2];
+            } else {
+                const auto& metadata = cooked.GetReflection(backend, rec.pass, ShaderStage::Vertex);
+                if (!metadata.inputs.empty()) {
+                    shader->reflection.inputs.clear();
+                    for (const auto& input : metadata.inputs)
+                        shader->reflection.inputs.push_back({input.semantic, input.semanticIndex, input.location});
+                }
             }
             return;
         }
@@ -216,6 +228,12 @@ std::shared_ptr<GpuShader> ShaderManager::CompileRecord(const ShaderRecord& rec)
         }
     };
     auto createFromCooked = [&](const ShaderAsset& cooked) -> std::shared_ptr<GpuShader> {
+        if (activeBackend == RHIBackend::Vulkan && !rec.compute && !rec.layout.empty() &&
+            cooked.GetReflection(backend, rec.pass, ShaderStage::Vertex).inputs.empty()) {
+            Logger::Error("[ShaderManager] Vulkan shader has no vertex semantic/location metadata; recook asset: ",
+                          rec.path);
+            return nullptr;
+        }
         std::shared_ptr<GpuShader> shader;
         if (rec.compute) {
             const auto& cs = cooked.GetBytecode(backend, rec.pass, ShaderStage::Compute);

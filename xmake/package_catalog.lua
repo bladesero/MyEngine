@@ -61,8 +61,8 @@ function myengine_imgui_configs()
     if is_plat("windows") then
         configs.dx11 = true
         configs.dx12 = true
-        configs.vulkan = myengine_enable_vulkan()
-        configs.vulkan_no_proto = myengine_enable_vulkan()
     end
+    configs.vulkan = myengine_enable_vulkan()
+    configs.vulkan_no_proto = myengine_enable_vulkan()
     return configs
 end

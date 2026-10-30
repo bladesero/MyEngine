@@ -22,15 +22,16 @@ add_build_define("MYENGINE_BUILD_CONFIGURATION=" .. (is_mode("release") and "rel
 if is_plat("windows") then
     add_build_define("MYENGINE_PLATFORM_WINDOWS")
     add_build_define("MYENGINE_COMPILER_MSVC")
-    if myengine_enable_vulkan() then
-        add_build_define("MYENGINE_ENABLE_VULKAN")
-    end
 elseif is_plat("macosx") then
     add_build_define("MYENGINE_PLATFORM_MACOS")
     add_build_define("MYENGINE_COMPILER_CLANG")
 elseif is_plat("linux") then
     add_build_define("MYENGINE_PLATFORM_LINUX")
     add_build_define("MYENGINE_COMPILER_GCC")
+end
+
+if myengine_enable_vulkan() then
+    add_build_define("MYENGINE_ENABLE_VULKAN")
 end
 
 target("MyEngine.BuildConfig")

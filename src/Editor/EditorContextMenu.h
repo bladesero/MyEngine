@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <vector>
 
 // Describes what was right-clicked so context-menu handlers can decide what
 // items to contribute.
@@ -32,20 +33,20 @@ struct ContextMenuContext {
 //
 class EditorContextMenu {
 public:
-    explicit EditorContextMenu(const char* id);
+    explicit EditorContextMenu(const char* id, std::vector<std::function<void()>>* deferredActions = nullptr);
     ~EditorContextMenu();
 
-    bool IsOpen() const { return m_Open; }
+    bool IsOpen() const { return m_Open && !m_CloseRequested; }
 
     // --- Menu items -------------------------------------------------------
-    // Render a clickable item.  When clicked the callback fires and the
-    // popup is automatically closed.
+    // Render a clickable item. A click closes the popup and queues the callback
+    // when a deferred-action queue was supplied; otherwise it runs immediately.
     bool AddAction(const char* label, std::function<void()> callback, bool enabled = true);
 
     // Render a horizontal separator.
     void AddSeparator();
 
-    // Explicitly close the popup (CloseCurrentPopup + EndPopup).
+    // Request closure; the destructor balances BeginPopup with EndPopup.
     void Close();
 
     // --- Static detection helpers -----------------------------------------
@@ -62,4 +63,6 @@ public:
 
 private:
     bool m_Open = false;
+    bool m_CloseRequested = false;
+    std::vector<std::function<void()>>* m_DeferredActions = nullptr;
 };

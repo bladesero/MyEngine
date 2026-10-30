@@ -6,13 +6,20 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <exception>
 #include <iostream>
 #include <string>
+#include <stdexcept>
 #include <vector>
 
 std::filesystem::path gExecutableDirectory;
 
 namespace {
+class TestSkipped final : public std::runtime_error {
+public:
+    using std::runtime_error::runtime_error;
+};
+
 std::vector<TestCase>& Registry() {
     static std::vector<TestCase> tests;
     return tests;
@@ -112,6 +119,10 @@ bool RegisterTest(const char* module, const char* name, bool (*fn)()) {
     return true;
 }
 
+bool SkipTest(const std::string& reason) {
+    throw TestSkipped(reason);
+}
+
 int RunRegisteredTests(int argc, char** argv) {
     if (argc > 0) {
         gExecutableDirectory = std::filesystem::absolute(argv[0]).parent_path();
@@ -138,16 +149,28 @@ int RunRegisteredTests(int argc, char** argv) {
     MemoryService::Get().Init();
 
     int failed = 0;
+    int skipped = 0;
     int executed = 0;
     for (const TestCase& test : tests) {
         if (!MatchesFilter(test, options))
             continue;
         ++executed;
         std::cout << "[RUN ] " << test.module << "::" << test.name << '\n';
-        if (!test.fn()) {
+        try {
+            if (!test.fn()) {
+                ++failed;
+            } else {
+                std::cout << "[PASS] " << test.module << "::" << test.name << '\n';
+            }
+        } catch (const TestSkipped& reason) {
+            ++skipped;
+            std::cout << "[SKIP] " << test.module << "::" << test.name << ": " << reason.what() << '\n';
+        } catch (const std::exception& error) {
             ++failed;
-        } else {
-            std::cout << "[PASS] " << test.module << "::" << test.name << '\n';
+            std::cerr << "[FAIL] " << test.module << "::" << test.name << " threw: " << error.what() << '\n';
+        } catch (...) {
+            ++failed;
+            std::cerr << "[FAIL] " << test.module << "::" << test.name << " threw an unknown exception\n";
         }
     }
 
@@ -159,9 +182,11 @@ int RunRegisteredTests(int argc, char** argv) {
         return 1;
     }
     if (failed == 0) {
-        std::cout << "[PASS] Executed " << executed << " test(s)\n";
+        std::cout << "[PASS] Executed " << executed << " test(s): " << executed - skipped << " passed, " << skipped
+                  << " skipped\n";
         return 0;
     }
-    std::cerr << "[FAIL] " << failed << " / " << executed << " test(s) failed\n";
+    std::cerr << "[FAIL] " << failed << " / " << executed << " test(s) failed; " << executed - failed - skipped
+              << " passed, " << skipped << " skipped\n";
     return 1;
 }

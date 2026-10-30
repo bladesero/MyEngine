@@ -2,6 +2,8 @@
 
 #include "Editor/EditorService.h"
 
+#include <functional>
+#include <memory>
 #include <mutex>
 #include <string>
 
@@ -11,6 +13,7 @@ enum class EditorFileOperation { None, OpenScene, SaveScene, ImportAsset, OpenPr
 struct EditorDialogResult {
     EditorFileOperation operation = EditorFileOperation::None;
     std::string path;
+    std::string error;
 };
 
 class EditorDialogService final : public EditorService {
@@ -23,6 +26,11 @@ public:
     void Complete(EditorFileOperation operation, const char* const* files);
 
 private:
-    std::mutex m_Mutex;
-    EditorDialogResult m_Result;
+    struct State {
+        std::mutex mutex;
+        EditorDialogResult result;
+    };
+    using Completion = std::function<void(const char* const*)>;
+    Completion MakeCompletion(EditorFileOperation operation);
+    std::shared_ptr<State> m_State = std::make_shared<State>();
 };

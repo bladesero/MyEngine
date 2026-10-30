@@ -107,19 +107,18 @@ std::string RewriteMetalBindlessArgumentBuffer(std::string source) {
     if (source.find("g_BindlessTextures_") == std::string::npos)
         return source;
 
-    constexpr const char* declaration =
-        "\nstruct MyEngineBindlessTextureTable\n"
-        "{\n"
-        "    array<texture2d<float, access::sample>, 4096> textures [[id(0)]];\n"
-        "    sampler g_LinearRepeatSampler [[id(4096)]];\n"
-        "    sampler g_PointRepeatSampler [[id(4097)]];\n"
-        "    sampler g_LinearClampURepeatVSampler [[id(4098)]];\n"
-        "    sampler g_PointClampURepeatVSampler [[id(4099)]];\n"
-        "    sampler g_LinearRepeatUClampVSampler [[id(4100)]];\n"
-        "    sampler g_PointRepeatUClampVSampler [[id(4101)]];\n"
-        "    sampler g_LinearClampSampler [[id(4102)]];\n"
-        "    sampler g_PointClampSampler [[id(4103)]];\n"
-        "};\n";
+    constexpr const char* declaration = "\nstruct MyEngineBindlessTextureTable\n"
+                                        "{\n"
+                                        "    array<texture2d<float, access::sample>, 4096> textures [[id(0)]];\n"
+                                        "    sampler g_LinearRepeatSampler [[id(4096)]];\n"
+                                        "    sampler g_PointRepeatSampler [[id(4097)]];\n"
+                                        "    sampler g_LinearClampURepeatVSampler [[id(4098)]];\n"
+                                        "    sampler g_PointClampURepeatVSampler [[id(4099)]];\n"
+                                        "    sampler g_LinearRepeatUClampVSampler [[id(4100)]];\n"
+                                        "    sampler g_PointRepeatUClampVSampler [[id(4101)]];\n"
+                                        "    sampler g_LinearClampSampler [[id(4102)]];\n"
+                                        "    sampler g_PointClampSampler [[id(4103)]];\n"
+                                        "};\n";
     const std::string marker = "using namespace metal;";
     const size_t markerPosition = source.find(marker);
     if (markerPosition == std::string::npos)
@@ -145,15 +144,14 @@ std::string RewriteMetalBindlessArgumentBuffer(std::string source) {
     const std::string tableSuffix = tableMember[1].str();
     for (const char* samplerName : kMetalMaterialSamplerNames) {
         source = std::regex_replace(
-            source, std::regex(",\\s*sampler\\s+" + std::string(samplerName) + "_\\d+\\s*\\[\\[sampler\\(\\d+\\)\\]\\]"),
-            "");
-        source = std::regex_replace(source, std::regex("\\s*sampler\\s+" + std::string(samplerName) + "_\\d+\\s*;"),
-                                    "");
-        source = std::regex_replace(
             source,
-            std::regex("\\s*\\(&[A-Za-z_][A-Za-z0-9_]*\\)->" + std::string(samplerName) +
-                       "_\\d+\\s*=\\s*" + std::string(samplerName) + "_\\d+\\s*;"),
-            "");
+            std::regex(",\\s*sampler\\s+" + std::string(samplerName) + "_\\d+\\s*\\[\\[sampler\\(\\d+\\)\\]\\]"), "");
+        source =
+            std::regex_replace(source, std::regex("\\s*sampler\\s+" + std::string(samplerName) + "_\\d+\\s*;"), "");
+        source = std::regex_replace(source,
+                                    std::regex("\\s*\\(&[A-Za-z_][A-Za-z0-9_]*\\)->" + std::string(samplerName) +
+                                               "_\\d+\\s*=\\s*" + std::string(samplerName) + "_\\d+\\s*;"),
+                                    "");
         source = std::regex_replace(source, std::regex("->" + std::string(samplerName) + "_\\d+"),
                                     "->g_BindlessTable_" + tableSuffix + "->" + samplerName);
     }
@@ -236,8 +234,8 @@ std::string RemapMetalTextureBindings(const std::string& source,
         const std::string rawName = match[2].str();
         const auto found = bindings.find(match[3].str() + ":" + NormalizeSlangBindingName(rawName));
         if (found != bindings.end()) {
-            result += match[1].str() + " " + rawName + " [[" + match[3].str() + "(" +
-                      std::to_string(found->second) + ")]]";
+            result +=
+                match[1].str() + " " + rawName + " [[" + match[3].str() + "(" + std::to_string(found->second) + ")]]";
         } else {
             result += match.str();
         }
@@ -254,9 +252,8 @@ bool RewriteMetalTextureBindings(std::string& first, std::string* second) {
         CollectMetalTextureBindingNames(*second, names);
     std::sort(names.begin(), names.end());
     names.erase(std::unique(names.begin(), names.end()), names.end());
-    const size_t textureCount =
-        static_cast<size_t>(std::count_if(names.begin(), names.end(),
-                                          [](const std::string& name) { return name.rfind("texture:", 0) == 0; }));
+    const size_t textureCount = static_cast<size_t>(std::count_if(
+        names.begin(), names.end(), [](const std::string& name) { return name.rfind("texture:", 0) == 0; }));
     const size_t samplerCount = names.size() - textureCount;
     if (textureCount > 128 || samplerCount > 16)
         return false;
@@ -302,7 +299,7 @@ std::vector<NativeBinding> ParseMetalBindings(const std::string& source) {
             binding.type = type.find("const device") != std::string::npos
                                ? CookedShaderBindingType::StructuredBuffer
                                : (type.find("device") != std::string::npos ? CookedShaderBindingType::StorageBuffer
-                                                                          : CookedShaderBindingType::ConstantBuffer);
+                                                                           : CookedShaderBindingType::ConstantBuffer);
         }
         bindings.push_back(std::move(binding));
     }
@@ -322,10 +319,8 @@ void ReconcileReflection(const std::string& source, CookedShaderStageReflection&
     std::vector<CookedShaderBinding> reconciled;
     reconciled.reserve(reflection.bindings.size());
     for (CookedShaderBinding binding : reflection.bindings) {
-        const auto found =
-            std::find_if(native.begin(), native.end(), [&](const NativeBinding& candidate) {
-                return candidate.name == binding.name;
-            });
+        const auto found = std::find_if(native.begin(), native.end(),
+                                        [&](const NativeBinding& candidate) { return candidate.name == binding.name; });
         if (found != native.end()) {
             binding.bindPoint = found->bindPoint;
             if (binding.type == CookedShaderBindingType::Texture ||
@@ -361,8 +356,8 @@ struct ProcessResult {
 std::filesystem::path TemporaryPath(const char* suffix) {
     static std::atomic_uint64_t sequence{0};
     return std::filesystem::temp_directory_path() /
-           ("myengine_metal_" + std::to_string(static_cast<uint64_t>(getpid())) + "_" +
-            std::to_string(++sequence) + suffix);
+           ("myengine_metal_" + std::to_string(static_cast<uint64_t>(getpid())) + "_" + std::to_string(++sequence) +
+            suffix);
 }
 
 uint32_t MetalToolTimeoutMs() {
@@ -399,8 +394,7 @@ ProcessResult RunProcess(const std::vector<std::string>& arguments, uint32_t tim
     argv.push_back(nullptr);
 
     pid_t child = 0;
-    const int spawnResult =
-        posix_spawnp(&child, argv.front(), &actions, nullptr, argv.data(), environ);
+    const int spawnResult = posix_spawnp(&child, argv.front(), &actions, nullptr, argv.data(), environ);
     posix_spawn_file_actions_destroy(&actions);
     ::close(output);
     result.launched = spawnResult == 0;
@@ -460,12 +454,10 @@ std::vector<std::string> CompilerArguments(const std::string& executable, const 
 }
 
 std::string InstalledMetalToolchainIdentifier() {
-    const ProcessResult component =
-        RunProcess({"xcodebuild", "-showComponent", "MetalToolchain", "-json"}, 10000);
+    const ProcessResult component = RunProcess({"xcodebuild", "-showComponent", "MetalToolchain", "-json"}, 10000);
     if (!component.succeeded)
         return {};
-    static const std::regex identifierRegex(
-        R"toolchain("toolchainIdentifier"\s*:\s*"([^"]+)")toolchain");
+    static const std::regex identifierRegex(R"toolchain("toolchainIdentifier"\s*:\s*"([^"]+)")toolchain");
     std::smatch match;
     return std::regex_search(component.output, match, identifierRegex) ? match[1].str() : std::string{};
 }
@@ -475,11 +467,13 @@ std::string FindXcodeTool(const char* name, const std::string& toolchainIdentifi
     if (!toolchainIdentifier.empty())
         arguments.insert(arguments.end(), {"--toolchain", toolchainIdentifier});
     arguments.insert(arguments.end(), {"-sdk", "macosx", "--find", name});
-    const ProcessResult found = RunProcess([&] {
-        std::vector<std::string> command{"xcrun"};
-        command.insert(command.end(), arguments.begin(), arguments.end());
-        return command;
-    }(), 10000);
+    const ProcessResult found = RunProcess(
+        [&] {
+            std::vector<std::string> command{"xcrun"};
+            command.insert(command.end(), arguments.begin(), arguments.end());
+            return command;
+        }(),
+        10000);
     return found.succeeded ? LastAbsolutePath(found.output) : std::string{};
 }
 
@@ -490,8 +484,7 @@ std::string FindMountedMetalTool(const char* name) {
         const std::string directory = it->path().filename().string();
         if (directory.rfind("com.apple.MobileAsset.MetalToolchain-", 0) != 0)
             continue;
-        const std::filesystem::path candidate =
-            it->path() / "Metal.xctoolchain" / "usr" / "bin" / name;
+        const std::filesystem::path candidate = it->path() / "Metal.xctoolchain" / "usr" / "bin" / name;
         if (std::filesystem::is_regular_file(candidate, error) || std::filesystem::is_symlink(candidate, error))
             return candidate.string();
         error.clear();
@@ -556,8 +549,7 @@ ToolchainInfo ProbeToolchain() {
         return result;
 
     result.available = true;
-    const std::string identity =
-        metalIdentity + "|" + metal.output + "|" + metallibIdentity + "|metal3.0|macos14.0";
+    const std::string identity = metalIdentity + "|" + metal.output + "|" + metallibIdentity + "|metal3.0|macos14.0";
     Sha256 hash;
     hash.Update(identity.data(), identity.size());
     result.fingerprint = "native-" + Sha256::ToHex(hash.Final());
@@ -567,8 +559,7 @@ ToolchainInfo ProbeToolchain() {
 ToolchainInfo GetToolchainInfo() {
     const char* metal = std::getenv("MYENGINE_METAL_COMPILER");
     const char* metallib = std::getenv("MYENGINE_METALLIB_COMPILER");
-    const std::string key = std::string(metal ? metal : "<xcrun>") + "|" +
-                            std::string(metallib ? metallib : "<xcrun>");
+    const std::string key = std::string(metal ? metal : "<xcrun>") + "|" + std::string(metallib ? metallib : "<xcrun>");
     static std::mutex mutex;
     static std::unordered_map<std::string, ToolchainInfo> cache;
     std::lock_guard<std::mutex> lock(mutex);
@@ -619,16 +610,15 @@ bool CompileMetallib(const std::string& source, std::vector<uint8_t>& output, st
 
     std::vector<std::string> metal = CompilerArguments(tools.metal, "metal");
     metal.insert(metal.end(),
-                 {"-std=metal3.0", "-mmacosx-version-min=14.0",
-                  "-fmodules-cache-path=" + moduleCachePath.string(), "-c", sourcePath.string(), "-o",
-                  airPath.string()});
+                 {"-std=metal3.0", "-mmacosx-version-min=14.0", "-fmodules-cache-path=" + moduleCachePath.string(),
+                  "-c", sourcePath.string(), "-o", airPath.string()});
     const ProcessResult metalResult = RunProcess(metal, MetalToolTimeoutMs(), cancellationRequested);
     if (!metalResult.succeeded) {
         cleanup();
         SetError(error, metalResult.cancelled
                             ? "Metal compiler cancelled"
                             : (metalResult.timedOut ? "Metal compiler timed out"
-                                                   : "Metal compiler failed: " + metalResult.output));
+                                                    : "Metal compiler failed: " + metalResult.output));
         return false;
     }
     std::vector<std::string> metallib = CompilerArguments(tools.metallib, "metallib");
@@ -636,10 +626,10 @@ bool CompileMetallib(const std::string& source, std::vector<uint8_t>& output, st
     const ProcessResult metallibResult = RunProcess(metallib, MetalToolTimeoutMs(), cancellationRequested);
     if (!metallibResult.succeeded) {
         cleanup();
-        SetError(error, metallibResult.cancelled
-                            ? "metallib cancelled"
-                            : (metallibResult.timedOut ? "metallib timed out"
-                                                      : "metallib failed: " + metallibResult.output));
+        SetError(error,
+                 metallibResult.cancelled
+                     ? "metallib cancelled"
+                     : (metallibResult.timedOut ? "metallib timed out" : "metallib failed: " + metallibResult.output));
         return false;
     }
     std::ifstream library(libraryPath, std::ios::binary);
@@ -712,8 +702,9 @@ bool Decode(const void* data, size_t size, DecodedPayload& output, std::string* 
     uint64_t checksum = 0;
     if (!Read(cursor, end, version) || !Read(cursor, end, kind) || !Read(cursor, end, flags) ||
         !Read(cursor, end, entryBytes) || !Read(cursor, end, payloadBytes) || !Read(cursor, end, checksum) ||
-        version != kContainerVersion || (kind != static_cast<uint32_t>(PayloadKind::MSLSource) &&
-                                         kind != static_cast<uint32_t>(PayloadKind::Metallib)) ||
+        version != kContainerVersion ||
+        (kind != static_cast<uint32_t>(PayloadKind::MSLSource) &&
+         kind != static_cast<uint32_t>(PayloadKind::Metallib)) ||
         entryBytes == 0 || payloadBytes == 0 || payloadBytes > kMaxPayloadBytes ||
         static_cast<uint64_t>(end - cursor) != static_cast<uint64_t>(entryBytes) + payloadBytes) {
         SetError(error, "Metal shader container is malformed");
@@ -749,8 +740,8 @@ bool TransformComputeSource(std::string& source, CookedShaderStageReflection& re
 
 bool TransformGraphicsSources(std::string& vertexSource, std::string& fragmentSource,
                               CookedShaderStageReflection& vertexReflection,
-                              CookedShaderStageReflection& fragmentReflection,
-                              bool& supportsIndirectCommandBuffers, std::string* error) {
+                              CookedShaderStageReflection& fragmentReflection, bool& supportsIndirectCommandBuffers,
+                              std::string* error) {
     vertexSource = RewriteMetalConstantBufferLayouts(std::move(vertexSource));
     fragmentSource = RewriteMetalConstantBufferLayouts(std::move(fragmentSource));
     vertexSource = RewriteMetalBindlessArgumentBuffer(std::move(vertexSource));
@@ -768,9 +759,8 @@ bool TransformGraphicsSources(std::string& vertexSource, std::string& fragmentSo
 }
 
 bool BuildCookedPayload(const std::string& transformedSource, const std::string& entryPoint,
-                        bool supportsIndirectCommandBuffers, std::vector<uint8_t>& output,
-                        bool* usedSourceFallback, std::string* error,
-                        const std::function<bool()>& cancellationRequested) {
+                        bool supportsIndirectCommandBuffers, std::vector<uint8_t>& output, bool* usedSourceFallback,
+                        std::string* error, const std::function<bool()>& cancellationRequested) {
     if (usedSourceFallback)
         *usedSourceFallback = false;
     if (transformedSource.empty() || entryPoint.empty()) {

@@ -114,8 +114,10 @@ extract_uint() {
 extract_cooker_contract() {
     local value
     value="$(
-        grep -Eo 'shader-cooker-v[0-9][^|"]*' \
-            "$repo_root/src/Runtime/Renderer/ShaderCooker.cpp" |
+        # clang-format may split the contract across adjacent C++ string literals.
+        tr '\n' ' ' < "$repo_root/src/Runtime/Renderer/ShaderCooker.cpp" |
+            sed -E 's/"[[:space:]]*"//g' |
+            grep -Eo 'shader-cooker-v[0-9][^|"]*' |
             awk 'NR == 1 { print; exit }'
     )"
     if [[ -z "$value" ]]; then

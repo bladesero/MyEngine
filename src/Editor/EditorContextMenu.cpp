@@ -1,10 +1,11 @@
-﻿#include "Editor/EditorContextMenu.h"
+#include "Editor/EditorContextMenu.h"
 
 #if defined(MYENGINE_ENABLE_IMGUI)
 #include <imgui.h>
 #endif
 
-EditorContextMenu::EditorContextMenu(const char* id) {
+EditorContextMenu::EditorContextMenu(const char* id, std::vector<std::function<void()>>* deferredActions)
+    : m_DeferredActions(deferredActions) {
 #if defined(MYENGINE_ENABLE_IMGUI)
     m_Open = ImGui::BeginPopup(id);
 #endif
@@ -22,10 +23,16 @@ EditorContextMenu::~EditorContextMenu() {
 
 bool EditorContextMenu::AddAction(const char* label, std::function<void()> callback, bool enabled) {
 #if defined(MYENGINE_ENABLE_IMGUI)
+    if (!IsOpen())
+        return false;
     if (ImGui::MenuItem(label, nullptr, false, enabled)) {
         Close();
-        if (callback)
-            callback();
+        if (callback) {
+            if (m_DeferredActions)
+                m_DeferredActions->push_back(std::move(callback));
+            else
+                callback();
+        }
         return true;
     }
     return false;
@@ -40,16 +47,17 @@ bool EditorContextMenu::AddAction(const char* label, std::function<void()> callb
 
 void EditorContextMenu::AddSeparator() {
 #if defined(MYENGINE_ENABLE_IMGUI)
-    ImGui::Separator();
+    if (IsOpen())
+        ImGui::Separator();
 #endif
 }
 
 void EditorContextMenu::Close() {
 #if defined(MYENGINE_ENABLE_IMGUI)
-    ImGui::CloseCurrentPopup();
-    ImGui::EndPopup();
+    if (IsOpen())
+        ImGui::CloseCurrentPopup();
 #endif
-    m_Open = false;
+    m_CloseRequested = true;
 }
 
 // --- Static helpers -------------------------------------------------------

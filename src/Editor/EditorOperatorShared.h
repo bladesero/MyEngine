@@ -1,4 +1,4 @@
-﻿#include "Editor/EditorOperators.h"
+#include "Editor/EditorOperators.h"
 
 #include "Assets/Asset.h"
 #include "Assets/AssetDatabase.h"
@@ -30,6 +30,8 @@
 #include "Scene/SceneSerializer.h"
 #include "UI/Core/UICanvasComponent.h"
 #include "UI/Core/UIComponents.h"
+
+#include <SDL3/SDL_misc.h>
 
 #include <algorithm>
 #include <chrono>
@@ -779,14 +781,31 @@ size_t RetargetAssetReferencesInJson(EditorContext& context, const std::filesyst
     return count;
 }
 
+// SDL delegates file URLs to the desktop portal/default application without invoking a shell.
+std::string ExternalFileURL(const std::filesystem::path& path) {
+    const std::string absolute = std::filesystem::absolute(path).generic_string();
+    static constexpr char hex[] = "0123456789ABCDEF";
+    std::string url = "file://";
+    for (unsigned char c : absolute) {
+        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '/' || c == '-' ||
+            c == '_' || c == '.' || c == '~') {
+            url += static_cast<char>(c);
+        } else {
+            url += '%';
+            url += hex[c >> 4];
+            url += hex[c & 15];
+        }
+    }
+    return url;
+}
+
 bool OpenExternalFile(const std::filesystem::path& path) {
 #if defined(_WIN32)
     const auto result = reinterpret_cast<intptr_t>(
         ShellExecuteW(nullptr, L"open", path.wstring().c_str(), nullptr, nullptr, SW_SHOWNORMAL));
     return result > 32;
 #else
-    (void)path;
-    return false;
+    return SDL_OpenURL(ExternalFileURL(path).c_str());
 #endif
 }
 
@@ -797,8 +816,8 @@ bool RevealExternalPath(const std::filesystem::path& path) {
         ShellExecuteW(nullptr, L"open", L"explorer.exe", parameters.c_str(), nullptr, SW_SHOWNORMAL));
     return result > 32;
 #else
-    (void)path;
-    return false;
+    const auto folder = std::filesystem::is_directory(path) ? path : path.parent_path();
+    return SDL_OpenURL(ExternalFileURL(folder).c_str());
 #endif
 }
 
@@ -946,7 +965,7 @@ std::string TemplateExtensionFor(const std::string& templateID) {
     if (templateID == "material" || templateID == "mat")
         return ".mat";
     if (templateID == "texture" || templateID == "tex")
-        return ".tex";
+        return ".tga";
     if (templateID == "prefab")
         return ".prefab.json";
     if (templateID == "ui")
@@ -1026,8 +1045,14 @@ std::string TemplateContentFor(const std::string& templateID) {
                "  \"overrides\": { \"properties\": {}, \"textures\": {} }\n"
                "}\n";
     }
-    if (templateID == "texture" || templateID == "tex")
-        return "{}\n";
+    if (templateID == "texture" || templateID == "tex") {
+        // A real 2x2 opaque checker texture, readable by the existing image loader.
+        // TGA's simple uncompressed format also preserves binary create/undo/redo.
+        const unsigned char tga[] = {0,   0,   2,   0,   0,   0,    0,   0,   0,   0,   0,   0,
+                                     2,   0,   2,   0,   32,  0x28, 255, 255, 255, 255, 128, 128,
+                                     128, 255, 128, 128, 128, 255,  255, 255, 255, 255};
+        return std::string(reinterpret_cast<const char*>(tga), sizeof(tga));
+    }
     if (templateID == "prefab") {
         return "{\n"
                "  \"version\": 1,\n"

@@ -35,9 +35,17 @@ struct CookedShaderBinding {
     uint32_t byteSize = 0;
 };
 
+struct CookedShaderVertexInput {
+    std::string semantic;
+    uint32_t semanticIndex = 0;
+    uint32_t location = UINT32_MAX;
+};
+
 struct CookedShaderStageReflection {
     std::vector<CookedShaderBinding> bindings;
     uint32_t threadGroupSize[3] = {1, 1, 1};
+    // Optional in older cooked files; locations are independent of the host mesh's attribute order.
+    std::vector<CookedShaderVertexInput> inputs;
 };
 
 using CookedShaderReflectionTable = std::array<

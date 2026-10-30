@@ -1,12 +1,80 @@
 #include "Renderer/RHIConformance.h"
 
 #include "Renderer/IRenderContext.h"
+#include "Renderer/ShaderCompilerSlang.h"
 
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <sstream>
 #include <thread>
+
+namespace {
+std::shared_ptr<GpuShader> CreateVulkanConformanceShader(IRHIContext& context, const char* source,
+                                                         const VertexElement* layout, uint32_t layoutCount,
+                                                         std::string& error) {
+    // Keep the probe self-contained rather than depending on project assets or ShaderManager singleton state.
+    // Slang's public compiler API consumes files, so reserve a unique temporary directory and clean it on every exit.
+    struct TemporaryDirectory {
+        std::filesystem::path path;
+        ~TemporaryDirectory() {
+            std::error_code ignored;
+            if (!path.empty())
+                std::filesystem::remove_all(path, ignored);
+        }
+    } temporary;
+    std::error_code filesystemError;
+    const auto root = std::filesystem::temp_directory_path(filesystemError);
+    if (filesystemError) {
+        error = "temporary shader directory is unavailable: " + filesystemError.message();
+        return nullptr;
+    }
+    static std::atomic<uint64_t> serial{0};
+    for (uint32_t attempt = 0; attempt < 16 && temporary.path.empty(); ++attempt) {
+        const auto candidate = root / ("myengine-rhi-conformance-" +
+                                       std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
+                                       "-" + std::to_string(serial.fetch_add(1)));
+        if (std::filesystem::create_directory(candidate, filesystemError))
+            temporary.path = candidate;
+        else if (filesystemError)
+            break;
+    }
+    if (temporary.path.empty()) {
+        error = "cannot create temporary shader directory: " + filesystemError.message();
+        return nullptr;
+    }
+    const auto path = temporary.path / "Conformance.hlsl";
+    {
+        std::ofstream output(path, std::ios::binary);
+        output << source;
+        output.close();
+        if (!output) {
+            error = "cannot write temporary conformance shader";
+            return nullptr;
+        }
+    }
+    std::vector<uint8_t> vertexBytecode, pixelBytecode;
+    CookedShaderStageReflection vertexReflection;
+    if (!ShaderCompilerSlang::CompileStageFromFile(path, "VSMain", ShaderStage::Vertex, ShaderBackend::Vulkan,
+                                                   vertexBytecode, {}, &error, &vertexReflection) ||
+        !ShaderCompilerSlang::CompileStageFromFile(path, "PSMain", ShaderStage::Pixel, ShaderBackend::Vulkan,
+                                                   pixelBytecode, {}, &error)) {
+        return nullptr;
+    }
+    auto shader = context.CreateShaderFromBytecode(vertexBytecode.data(), vertexBytecode.size(), pixelBytecode.data(),
+                                                   pixelBytecode.size(), layout, layoutCount);
+    if (!shader) {
+        error = "Vulkan rejected conformance SPIR-V shader bytecode";
+    } else {
+        for (const auto& input : vertexReflection.inputs)
+            shader->reflection.inputs.push_back({input.semantic, input.semanticIndex, input.location});
+    }
+    return shader;
+}
+} // namespace
 
 std::string RHIConformanceReport::Summary() const {
     std::ostringstream stream;
@@ -75,7 +143,7 @@ RHIConformanceReport RunRHIConformance(IRHIContext& context) {
 
     RHITextureDesc colorDesc;
     colorDesc.width = colorDesc.height = 32;
-    colorDesc.usage = RHIResourceUsage::RenderTarget | RHIResourceUsage::ShaderResource;
+    colorDesc.usage = RHIResourceUsage::RenderTarget | RHIResourceUsage::ShaderResource | RHIResourceUsage::CopySource;
     colorDesc.debugName = "RHIConformanceColor";
     auto color = context.CreateTexture(colorDesc);
     RHITextureViewDesc colorViewDesc;
@@ -112,12 +180,20 @@ fragment float4 PSMain(VSOutput input [[stage_in]]) { return float4(0.2, 0.6, 0.
 )";
     const VertexElement layout[] = {{"POSITION", 0, VertexFormat::Float3, 0}};
     const char* shaderSource = context.GetBackend() == RHIBackend::Metal ? metalShaderSource : hlslShaderSource;
-    auto shader = context.CreateShader(shaderSource, "VSMain", "PSMain", layout, 1);
+    std::string shaderError;
+    auto shader = context.GetBackend() == RHIBackend::Vulkan
+                      ? CreateVulkanConformanceShader(context, hlslShaderSource, layout, 1, shaderError)
+                      : context.CreateShader(shaderSource, "VSMain", "PSMain", layout, 1);
+    if (!shader && !shaderError.empty()) {
+        report.failure = "shader-compile: " + shaderError;
+        return report;
+    }
     GraphicsPipelineDesc pipelineDesc;
     pipelineDesc.shader = shader;
     pipelineDesc.colorFormats = {RHIFormat::RGBA8UNorm};
     pipelineDesc.depthStencil.depthTestEnable = false;
     pipelineDesc.depthStencil.depthWriteEnable = false;
+    pipelineDesc.rasterizer.cullMode = RHICullMode::None;
     auto pipeline = context.CreateGraphicsPipeline(pipelineDesc);
     const float vertices[] = {-0.5f, -0.5f, 0.0f, 0.0f, 0.5f, 0.0f, 0.5f, -0.5f, 0.0f};
     auto vertexBuffer = context.CreateVertexBuffer(vertices, sizeof(vertices), sizeof(float) * 3);
@@ -136,18 +212,39 @@ fragment float4 PSMain(VSOutput input [[stage_in]]) { return float4(0.2, 0.6, 0.
     colorAttachment.view = colorView.get();
     colorAttachment.loadOp = RHILoadOp::Clear;
     colorAttachment.storeOp = RHIStoreOp::Store;
+    colorAttachment.clearColor = {0.0f, 0.0f, 0.0f, 1.0f};
     RenderingInfo rendering;
     rendering.colors = &colorAttachment;
     rendering.colorCount = 1;
     rendering.width = rendering.height = 32;
+    commands->Transition(color.get(), RHIResourceState::Undefined, RHIResourceState::RenderTarget);
     commands->BeginRendering(rendering);
     commands->SetGraphicsPipeline(pipeline.get());
     commands->SetVertexBuffer(vertexBuffer.get());
     commands->Draw(3);
     commands->EndRendering();
+    auto renderedTriangle = context.GetBackend() == RHIBackend::Vulkan
+                                ? context.ReadbackTextureAsync(color, {0, 0, 0, 32, 32, 1, 0, 0})
+                                : nullptr;
     context.EndFrame();
     if (!require(!context.IsDeviceLost(), "pipeline-bind", "pipeline binding/draw transitioned to device-lost state"))
         return report;
+
+    if (context.GetBackend() == RHIBackend::Vulkan) {
+        std::vector<uint8_t> renderedBytes;
+        const uint32_t pitch = renderedTriangle ? renderedTriangle->GetRowPitch() : 0;
+        bool pixelsMatch = waitReadback(renderedTriangle) && renderedTriangle->Read(renderedBytes) && pitch >= 128 &&
+                           renderedBytes.size() >= static_cast<uint64_t>(pitch) * 32;
+        if (pixelsMatch) {
+            const uint8_t* center = renderedBytes.data() + 16u * pitch + 16u * 4u;
+            const uint8_t* corner = renderedBytes.data();
+            pixelsMatch = center[0] >= 49 && center[0] <= 53 && center[1] >= 151 && center[1] <= 155 &&
+                          center[2] >= 228 && center[2] <= 232 && center[3] == 255 && corner[0] == 0 &&
+                          corner[1] == 0 && corner[2] == 0 && corner[3] == 255;
+        }
+        if (!require(pixelsMatch, "rendered-pixels", "SPIR-V triangle center/background pixels do not match"))
+            return report;
+    }
 
     if (context.GetBackend() == RHIBackend::Metal && capabilities.indirectDrawCount && capabilities.indirectDispatch &&
         capabilities.shaderDrawParameters) {
@@ -372,8 +469,13 @@ fragment float4 PSMain(VSOutput input [[stage_in]]) {
         waitReadback(bufferReadback) && bufferReadback->Read(bufferBytes) && bufferBytes.size() >= sizeof(initial) &&
         std::memcmp(bufferBytes.data() + sizeof(uint32_t), &replacement, sizeof(replacement)) == 0;
     std::vector<uint8_t> textureBytes;
-    const bool textureReadbackOk =
-        waitReadback(textureReadback) && textureReadback->Read(textureBytes) && textureBytes.size() >= 64;
+    const uint32_t texturePitch = textureReadback ? textureReadback->GetRowPitch() : 0;
+    bool textureReadbackOk = waitReadback(textureReadback) && textureReadback->Read(textureBytes) &&
+                             textureReadback->GetWidth() == 4 && textureReadback->GetHeight() == 4 &&
+                             texturePitch >= 16 && textureBytes.size() >= static_cast<uint64_t>(texturePitch) * 3 + 16;
+    for (uint32_t row = 0; textureReadbackOk && row < 4; ++row) {
+        textureReadbackOk = std::memcmp(textureBytes.data() + row * texturePitch, pixels.data() + row * 4, 16) == 0;
+    }
     if (!bufferReadbackOk || !textureReadbackOk) {
         std::ostringstream failure;
         uint32_t actualBufferValue = 0;

@@ -61,7 +61,7 @@ private:
     struct DirectorySnapshot {
         bool valid = false;
         uint64_t entryCount = 0;
-        std::filesystem::file_time_type newestWriteTime{};
+        std::filesystem::file_time_type newestWriteTime = std::filesystem::file_time_type::min();
         std::filesystem::file_time_type databaseWriteTime{};
     };
 

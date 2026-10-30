@@ -1959,7 +1959,7 @@ bool TestEditorPanelSelectAllActionRouting() {
         return false;
     }
 
-    const fs::path textureTemplatePath = content / "Textures" / "NewTexture.tex";
+    const fs::path textureTemplatePath = content / "Textures" / "NewTexture.tga";
     if (!Check(browser.CanHandleEditorAction(context, "asset.createTexture") &&
                    browser.HandleEditorAction(context, "asset.createTexture") &&
                    fs::is_regular_file(textureTemplatePath) &&
@@ -3528,7 +3528,7 @@ bool TestEditorAssetOperatorCommandsAndWatch() {
         fs::remove_all(root, error);
         return false;
     }
-    const fs::path templatedTexturePath = toolsFolder / "NewTexture.tex";
+    const fs::path templatedTexturePath = toolsFolder / "NewTexture.tga";
     if (!Check(fs::exists(templatedTexturePath) && fs::exists(AssetMeta::MetaPathFor(templatedTexturePath.string())),
                "asset operator texture template did not create file and meta")) {
         fs::remove_all(root, error);

@@ -74,7 +74,12 @@ void EditorProjectSettingsController::DrawProjectSettingsTab(EditorLayer& layer)
     const auto& config = layer.m_Project.GetConfig();
     ImGui::InputText("Project name", layer.m_ProjectName.data(), layer.m_ProjectName.size());
     ImGui::InputText("Output directory", layer.m_PublishOutput.data(), layer.m_PublishOutput.size());
+#if defined(MYENGINE_PLATFORM_LINUX)
+    ImGui::LabelText("Target", "%s", config.GetPublishSettings().target.c_str());
+    ImGui::TextDisabled("Publishing is unavailable on Linux. Use a Windows or macOS editor to publish.");
+#else
     ImGui::LabelText("Target", "%s", PublishTargets::kDefaultTargetLabel);
+#endif
     ImGui::LabelText("Startup scene", "%s",
                      config.GetStartupScene().empty() ? "<not set>" : config.GetStartupScene().c_str());
     ImGui::TextDisabled("Use Set Startup to assign the currently saved scene.");
@@ -83,7 +88,9 @@ void EditorProjectSettingsController::DrawProjectSettingsTab(EditorLayer& layer)
         const ProjectConfig previous = editable;
         editable.SetName(layer.m_ProjectName.data());
         editable.GetPublishSettings().outputDirectory = layer.m_PublishOutput.data();
+#if !defined(MYENGINE_PLATFORM_LINUX)
         editable.GetPublishSettings().target = PublishTargets::kDefaultTargetId;
+#endif
         std::string error;
         if (!editable.SetInputConfigPath(layer.m_InputConfigPath.data(), &error)) {
             editable = previous;

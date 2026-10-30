@@ -10,6 +10,7 @@
 #include <cmath>
 #include <sstream>
 #include <unordered_set>
+#include <vector>
 
 namespace {
 
@@ -156,12 +157,29 @@ void AppendLayoutStyle(const Actor& actor, std::string& style, std::string& clas
         if (!layout->GetClassName().empty())
             className += " " + layout->GetClassName();
     } else if (auto* grid = actor.GetComponent<UIGridLayoutComponent>()) {
-        style += "display:grid;grid-template-columns:";
-        for (int i = 0; i < grid->columns; ++i)
-            style += " 1fr";
-        style += ";gap:" + Dp(grid->gap) + ";padding:" + Dp(grid->padding) + ";";
+        // RmlUi supports flex layout, not CSS grid. Rows/cells below implement equal-width column tracks without
+        // unsupported grid-template-columns, fr units, or calc expressions.
+        style += "display:flex;flex-direction:column;align-items:stretch;box-sizing:border-box;gap:" +
+                 Dp(std::max(0.0f, grid->gap)) + ";padding:" + Dp(std::max(0.0f, grid->padding)) + ";";
         if (!grid->GetClassName().empty())
             className += " " + grid->GetClassName();
+    }
+}
+
+void AppendGridItemStyle(const Actor& actor, std::string& style) {
+    // Layout groups control their immediate children's placement and column width. Leaving RectStyle's absolute
+    // anchors (or a widget's default 200dp width) in effect removes the child from flow and overlaps/overflows cells.
+    style += "position:relative;left:auto;right:auto;top:auto;bottom:auto;box-sizing:border-box;"
+             "width:100%;max-width:100%;min-width:0dp;flex-shrink:0;";
+    if (!actor.GetComponent<UIVerticalLayoutComponent>() && !actor.GetComponent<UIHorizontalLayoutComponent>() &&
+        !actor.GetComponent<UIGridLayoutComponent>()) {
+        style += "display:block;"; // In particular, a span must accept the allocated cell width.
+    }
+    if (const auto* rect = actor.GetComponent<UIRectTransformComponent>()) {
+        const RectTransform& r = rect->GetRect();
+        const float height = r.offsetMax.y - r.offsetMin.y;
+        if (!(r.anchorMin.y == 0.0f && r.anchorMax.y == 1.0f) && height > 0.0f)
+            style += "height:" + Dp(height) + ";";
     }
 }
 
@@ -202,14 +220,15 @@ std::string ElementIDFor(const Actor& actor, std::unordered_set<std::string>& us
     return fallback;
 }
 
-void AppendActorElement(const Actor& actor, std::ostringstream& out, std::unordered_set<std::string>& usedIDs) {
+void AppendActorElement(const Actor& actor, std::ostringstream& out, std::unordered_set<std::string>& usedIDs,
+                        bool gridItem = false) {
     if (!actor.IsActiveSelf())
         return;
 
     std::string tag = "div";
     std::string content;
     std::string extraAttrs;
-    std::string style = RectStyle(actor.GetComponent<UIRectTransformComponent>());
+    std::string style = gridItem ? std::string{} : RectStyle(actor.GetComponent<UIRectTransformComponent>());
     std::string className;
     bool selfClosing = false;
 
@@ -277,6 +296,8 @@ void AppendActorElement(const Actor& actor, std::ostringstream& out, std::unorde
     }
 
     AppendLayoutStyle(actor, style, className);
+    if (gridItem)
+        AppendGridItemStyle(actor, style);
     const std::string id = ElementIDFor(actor, usedIDs);
     out << "<" << tag << " id=\"" << EscapeAttr(id) << "\"";
     if (!className.empty())
@@ -294,9 +315,34 @@ void AppendActorElement(const Actor& actor, std::ostringstream& out, std::unorde
     out << content;
     if (!actor.GetChildren().empty())
         out << "\n";
-    for (const Actor* child : actor.GetChildren()) {
-        if (child)
-            AppendActorElement(*child, out, usedIDs);
+    const auto* grid = actor.GetComponent<UIGridLayoutComponent>();
+    if (grid && !actor.GetComponent<UIVerticalLayoutComponent>() &&
+        !actor.GetComponent<UIHorizontalLayoutComponent>()) {
+        std::vector<const Actor*> visibleChildren;
+        for (const Actor* child : actor.GetChildren()) {
+            if (child && child->IsActiveSelf())
+                visibleChildren.push_back(child);
+        }
+        const size_t columns = static_cast<size_t>(std::clamp(grid->columns, 1, 64));
+        for (size_t first = 0; first < visibleChildren.size(); first += columns) {
+            out << "<div class=\"ui-grid-row\" style=\"display:flex;flex-direction:row;align-items:stretch;"
+                   "flex:0 0 auto;min-width:0dp;gap:"
+                << Dp(std::max(0.0f, grid->gap)) << ";\">\n";
+            for (size_t column = 0; column < columns; ++column) {
+                out << "<div class=\"ui-grid-cell\" style=\"display:flex;flex-direction:column;align-items:stretch;"
+                       "position:relative;flex:1 1 0dp;min-width:0dp;\">";
+                if (first + column < visibleChildren.size())
+                    AppendActorElement(*visibleChildren[first + column], out, usedIDs, true);
+                // Empty final-row cells retain the same column widths as complete rows.
+                out << "</div>\n";
+            }
+            out << "</div>\n";
+        }
+    } else {
+        for (const Actor* child : actor.GetChildren()) {
+            if (child)
+                AppendActorElement(*child, out, usedIDs);
+        }
     }
     out << "</" << tag << ">\n";
 }

@@ -232,6 +232,10 @@ public:
             }
 
             GpuShader* drawShader = mat->HasShader() ? mat->GetShader() : shader;
+            const bool shadowedPbr = drawShader == shader && mainPass.m_ShaderMode == MainPass::ShaderMode::ShadowedPbr;
+            // Legacy/custom material shaders do not consume the PBR per-instance matrices or constant-buffer ABI.
+            if (!shadowedPbr)
+                instanceCount = 1;
             if (drawShader) {
                 if (drawShader == shader) {
                     const BlendMode blendMode = resolved.valid ? resolved.blendMode : mat->GetBlendMode();
@@ -278,7 +282,7 @@ public:
             namedTextures[0] = baseColorTexture;
             namedTextureAssets[0] = baseColorAsset;
 
-            if (mainPass.m_ShaderMode == MainPass::ShaderMode::ShadowedPbr) {
+            if (shadowedPbr) {
                 namedTextures[1] = mainPass.m_ShadowMap ? mainPass.m_ShadowMap : baseColorTexture;
 
                 const char* mapSlots[] = {"NormalMap", "MetallicRoughnessMap", "OcclusionMap", "EmissiveMap"};

@@ -328,12 +328,6 @@ void Engine::DispatchEvents() {
     while (!m_EventQueue.Empty()) {
         Event event = m_EventQueue.Pop();
 
-        if (event.type == EventType::Quit) {
-            Logger::Info("Quit event received");
-            m_Running = false;
-            event.handled = true;
-        }
-
         // Top-most layer handles event first.
         auto& layers = m_Layers.GetLayers();
         for (auto it = layers.rbegin(); it != layers.rend(); ++it) {
@@ -353,6 +347,11 @@ void Engine::DispatchEvents() {
             if (event.handled) {
                 break;
             }
+        }
+        // Give editor layers a chance to confirm or cancel a close request before stopping the loop.
+        if (event.type == EventType::Quit && !event.handled) {
+            Logger::Info("Quit event received");
+            m_Running = false;
         }
     }
 }

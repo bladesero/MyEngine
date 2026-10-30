@@ -1,6 +1,6 @@
 #include "Editor/Backends/Vulkan/EditorImGuiVulkanBridge.h"
 
-#if defined(MYENGINE_PLATFORM_WINDOWS) && defined(MYENGINE_ENABLE_IMGUI)
+#if defined(MYENGINE_ENABLE_VULKAN) && defined(MYENGINE_ENABLE_IMGUI)
 
 #include "Core/Logger.h"
 
@@ -30,14 +30,14 @@ PFN_vkVoidFunction LoadVulkanFunction(const char* functionName, void* userData) 
         return nullptr;
 
     auto load = [loaderData](const char* name) -> PFN_vkVoidFunction {
-        if (loaderData->device) {
-            if (PFN_vkVoidFunction fn = vkGetDeviceProcAddr(loaderData->device, name)) {
-                return fn;
-            }
-        }
+        // Instance lookup also returns dispatchable device commands. Query it first:
+        // vkGetDeviceProcAddr must not be used for instance-level surface/physical-device commands.
         if (loaderData->instance) {
-            return vkGetInstanceProcAddr(loaderData->instance, name);
+            if (PFN_vkVoidFunction fn = vkGetInstanceProcAddr(loaderData->instance, name))
+                return fn;
         }
+        if (loaderData->device)
+            return vkGetDeviceProcAddr(loaderData->device, name);
         return nullptr;
     };
 
@@ -67,6 +67,11 @@ void CheckVkResult(VkResult result) {
 
 bool EditorImGuiVulkan_Init(const ImGuiBackendHandles& handles) {
     const auto& vk = handles.vulkan;
+    if (!vk.instance || !vk.physicalDevice || !vk.device || !vk.queue || !vk.descriptorPool || vk.minImageCount < 2 ||
+        vk.imageCount < vk.minImageCount) {
+        Logger::Error("[EditorImGuiVulkanBridge] Missing or invalid Vulkan ImGui handles");
+        return false;
+    }
     VulkanLoaderData loaderData{static_cast<VkInstance>(vk.instance), static_cast<VkDevice>(vk.device)};
     g_BeginRendering =
         reinterpret_cast<PFN_vkCmdBeginRenderingKHR>(LoadVulkanFunction("vkCmdBeginRenderingKHR", &loaderData));
@@ -112,6 +117,8 @@ bool EditorImGuiVulkan_Init(const ImGuiBackendHandles& handles) {
 }
 
 void EditorImGuiVulkan_Shutdown() {
+    if (g_Device)
+        vkDeviceWaitIdle(g_Device);
     ImGui_ImplVulkan_Shutdown();
     g_BeginRendering = nullptr;
     g_EndRendering = nullptr;
@@ -147,9 +154,9 @@ void EditorImGuiVulkan_RenderDrawData(ImDrawData* drawData, const ImGuiBackendHa
         Logger::Error("[EditorImGuiVulkanBridge] Vulkan dynamic rendering functions are not loaded");
         return;
     }
-    vkCmdBeginRendering(commandBuffer, &rendering);
+    g_BeginRendering(commandBuffer, &rendering);
     ImGui_ImplVulkan_RenderDrawData(drawData, commandBuffer);
-    vkCmdEndRendering(commandBuffer);
+    g_EndRendering(commandBuffer);
 }
 
 void EditorImGuiVulkan_RenderPlatformWindows() {

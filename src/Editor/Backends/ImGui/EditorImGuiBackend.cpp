@@ -143,7 +143,6 @@ bool EditorImGuiBackend::Init() {
 
     const ImGuiBackendHandles handles = m_Interop->GetImGuiBackendHandles();
 
-#if defined(MYENGINE_PLATFORM_WINDOWS)
 #if defined(MYENGINE_ENABLE_VULKAN)
     if (handles.backend == RHIBackend::Vulkan) {
         if (!ImGui_ImplSDL3_InitForVulkan(m_Window->GetSDLWindow())) {
@@ -158,61 +157,64 @@ bool EditorImGuiBackend::Init() {
         m_Interop->SetImGuiTextureInteropReady(true);
     } else
 #endif
+    {
+#if defined(MYENGINE_PLATFORM_WINDOWS)
         if (handles.backend == RHIBackend::D3D12) {
-        if (!ImGui_ImplSDL3_InitForD3D(m_Window->GetSDLWindow())) {
-            Logger::Error("[EditorImGuiBackend] ImGui_ImplSDL3_InitForD3D failed");
-            return false;
+            if (!ImGui_ImplSDL3_InitForD3D(m_Window->GetSDLWindow())) {
+                Logger::Error("[EditorImGuiBackend] ImGui_ImplSDL3_InitForD3D failed");
+                return false;
+            }
+            auto* device = static_cast<ID3D12Device*>(handles.device);
+            auto* commandQueue = static_cast<ID3D12CommandQueue*>(handles.commandQueue);
+            auto* heap = static_cast<ID3D12DescriptorHeap*>(handles.srvHeap);
+            const D3D12_CPU_DESCRIPTOR_HANDLE fontCpu{handles.fontSrvCpuHandle};
+            const D3D12_GPU_DESCRIPTOR_HANDLE fontGpu{handles.fontSrvGpuHandle};
+            ImGui_ImplDX12_InitInfo initInfo{};
+            initInfo.Device = device;
+            initInfo.CommandQueue = commandQueue;
+            initInfo.NumFramesInFlight = static_cast<int>(handles.framesInFlight);
+            initInfo.RTVFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
+            initInfo.DSVFormat = DXGI_FORMAT_UNKNOWN;
+            initInfo.SrvDescriptorHeap = heap;
+            // MyEngine owns one persistent font SRV slot. Runtime font-atlas rebuild stays disabled for D3D12.
+            initInfo.LegacySingleSrvCpuDescriptor = fontCpu;
+            initInfo.LegacySingleSrvGpuDescriptor = fontGpu;
+            if (!device || !commandQueue || !heap || !ImGui_ImplDX12_Init(&initInfo)) {
+                ImGui_ImplSDL3_Shutdown();
+                return false;
+            }
+        } else {
+            // D3D11 or default
+            if (!ImGui_ImplSDL3_InitForD3D(m_Window->GetSDLWindow())) {
+                Logger::Error("[EditorImGuiBackend] ImGui_ImplSDL3_InitForD3D failed");
+                return false;
+            }
+            auto* device = static_cast<ID3D11Device*>(handles.device);
+            auto* ctx = static_cast<ID3D11DeviceContext*>(handles.deviceContext);
+            if (!ImGui_ImplDX11_Init(device, ctx)) {
+                ImGui_ImplSDL3_Shutdown();
+                return false;
+            }
         }
-        auto* device = static_cast<ID3D12Device*>(handles.device);
-        auto* commandQueue = static_cast<ID3D12CommandQueue*>(handles.commandQueue);
-        auto* heap = static_cast<ID3D12DescriptorHeap*>(handles.srvHeap);
-        const D3D12_CPU_DESCRIPTOR_HANDLE fontCpu{handles.fontSrvCpuHandle};
-        const D3D12_GPU_DESCRIPTOR_HANDLE fontGpu{handles.fontSrvGpuHandle};
-        ImGui_ImplDX12_InitInfo initInfo{};
-        initInfo.Device = device;
-        initInfo.CommandQueue = commandQueue;
-        initInfo.NumFramesInFlight = static_cast<int>(handles.framesInFlight);
-        initInfo.RTVFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
-        initInfo.DSVFormat = DXGI_FORMAT_UNKNOWN;
-        initInfo.SrvDescriptorHeap = heap;
-        // MyEngine owns one persistent font SRV slot. Runtime font-atlas rebuild stays disabled for D3D12.
-        initInfo.LegacySingleSrvCpuDescriptor = fontCpu;
-        initInfo.LegacySingleSrvGpuDescriptor = fontGpu;
-        if (!device || !commandQueue || !heap || !ImGui_ImplDX12_Init(&initInfo)) {
-            ImGui_ImplSDL3_Shutdown();
-            return false;
-        }
-    } else {
-        // D3D11 or default
-        if (!ImGui_ImplSDL3_InitForD3D(m_Window->GetSDLWindow())) {
-            Logger::Error("[EditorImGuiBackend] ImGui_ImplSDL3_InitForD3D failed");
-            return false;
-        }
-        auto* device = static_cast<ID3D11Device*>(handles.device);
-        auto* ctx = static_cast<ID3D11DeviceContext*>(handles.deviceContext);
-        if (!ImGui_ImplDX11_Init(device, ctx)) {
-            ImGui_ImplSDL3_Shutdown();
-            return false;
-        }
-    }
 #elif defined(MYENGINE_PLATFORM_MACOS)
-    if (handles.backend != RHIBackend::Metal || !handles.device) {
-        Logger::Error("[EditorImGuiBackend] Missing Metal ImGui handles");
-        return false;
-    }
-    if (!ImGui_ImplSDL3_InitForMetal(m_Window->GetSDLWindow())) {
-        Logger::Error("[EditorImGuiBackend] ImGui_ImplSDL3_InitForMetal failed");
-        return false;
-    }
-    if (!EditorImGuiMetal_Init(handles.device)) {
-        ImGui_ImplSDL3_Shutdown();
-        Logger::Error("[EditorImGuiBackend] ImGui_ImplMetal_Init failed");
-        return false;
-    }
+        if (handles.backend != RHIBackend::Metal || !handles.device) {
+            Logger::Error("[EditorImGuiBackend] Missing Metal ImGui handles");
+            return false;
+        }
+        if (!ImGui_ImplSDL3_InitForMetal(m_Window->GetSDLWindow())) {
+            Logger::Error("[EditorImGuiBackend] ImGui_ImplSDL3_InitForMetal failed");
+            return false;
+        }
+        if (!EditorImGuiMetal_Init(handles.device)) {
+            ImGui_ImplSDL3_Shutdown();
+            Logger::Error("[EditorImGuiBackend] ImGui_ImplMetal_Init failed");
+            return false;
+        }
 #else
-    Logger::Error("[EditorImGuiBackend] No ImGui backend for this platform");
-    return false;
+        Logger::Error("[EditorImGuiBackend] No ImGui backend for this platform");
+        return false;
 #endif
+    }
 
 #if defined(MYENGINE_PLATFORM_WINDOWS)
     if (handles.backend == RHIBackend::D3D11) {
@@ -236,7 +238,6 @@ void EditorImGuiBackend::Shutdown() {
     // Renderer backends own multi-viewport teardown. In particular, ImGui's DX12 backend must first detach the
     // special main-viewport frame data before its internal DestroyPlatformWindows call; invoking it here treats the
     // main viewport as a secondary swapchain and dereferences its intentionally-null command queue.
-#if defined(MYENGINE_PLATFORM_WINDOWS)
 #if defined(MYENGINE_ENABLE_VULKAN)
     if (backend == RHIBackend::Vulkan) {
         if (m_Interop)
@@ -245,16 +246,19 @@ void EditorImGuiBackend::Shutdown() {
         EditorImGuiVulkan_Shutdown();
     } else
 #endif
+    {
+#if defined(MYENGINE_PLATFORM_WINDOWS)
         if (backend == RHIBackend::D3D12) {
-        ImGui_ImplDX12_Shutdown();
-    } else {
-        ImGui_ImplDX11_Shutdown();
-    }
+            ImGui_ImplDX12_Shutdown();
+        } else {
+            ImGui_ImplDX11_Shutdown();
+        }
 #elif defined(MYENGINE_PLATFORM_MACOS)
-    if (backend == RHIBackend::Metal) {
-        EditorImGuiMetal_Shutdown();
-    }
+        if (backend == RHIBackend::Metal) {
+            EditorImGuiMetal_Shutdown();
+        }
 #endif
+    }
 
     ImGui_ImplSDL3_Shutdown();
     m_Initialized = false;
@@ -280,40 +284,43 @@ void EditorImGuiBackend::BeginFrame() {
     if (m_FontTextureRebuildPending && RebuildFontTextureNow()) {
         m_FontTextureRebuildPending = false;
     }
-#if defined(MYENGINE_PLATFORM_WINDOWS)
 #if defined(MYENGINE_ENABLE_VULKAN)
     if (handles.backend == RHIBackend::Vulkan) {
         EditorImGuiVulkan_NewFrame();
     } else
 #endif
+    {
+#if defined(MYENGINE_PLATFORM_WINDOWS)
         if (handles.backend == RHIBackend::D3D12) {
-        ImGui_ImplDX12_NewFrame();
-    } else {
-        // D3D11: restore backbuffer before ImGui captures the render target.
-        // The render graph's EndRendering may have cleared OM render targets.
-        if (handles.deviceContext && handles.backBufferRtvPtr) {
-            auto* ctx = static_cast<ID3D11DeviceContext*>(handles.deviceContext);
-            auto* rtv = static_cast<ID3D11RenderTargetView*>(handles.backBufferRtvPtr);
-            auto* dsv = static_cast<ID3D11DepthStencilView*>(handles.backBufferDsvPtr);
-            ctx->OMSetRenderTargets(1, &rtv, dsv);
-            if (handles.width > 0 && handles.height > 0) {
-                D3D11_VIEWPORT viewport = {};
-                viewport.Width = static_cast<float>(handles.width);
-                viewport.Height = static_cast<float>(handles.height);
-                viewport.MinDepth = 0.0f;
-                viewport.MaxDepth = 1.0f;
-                ctx->RSSetViewports(1, &viewport);
-                const D3D11_RECT scissor = {0, 0, static_cast<LONG>(handles.width), static_cast<LONG>(handles.height)};
-                ctx->RSSetScissorRects(1, &scissor);
+            ImGui_ImplDX12_NewFrame();
+        } else {
+            // D3D11: restore backbuffer before ImGui captures the render target.
+            // The render graph's EndRendering may have cleared OM render targets.
+            if (handles.deviceContext && handles.backBufferRtvPtr) {
+                auto* ctx = static_cast<ID3D11DeviceContext*>(handles.deviceContext);
+                auto* rtv = static_cast<ID3D11RenderTargetView*>(handles.backBufferRtvPtr);
+                auto* dsv = static_cast<ID3D11DepthStencilView*>(handles.backBufferDsvPtr);
+                ctx->OMSetRenderTargets(1, &rtv, dsv);
+                if (handles.width > 0 && handles.height > 0) {
+                    D3D11_VIEWPORT viewport = {};
+                    viewport.Width = static_cast<float>(handles.width);
+                    viewport.Height = static_cast<float>(handles.height);
+                    viewport.MinDepth = 0.0f;
+                    viewport.MaxDepth = 1.0f;
+                    ctx->RSSetViewports(1, &viewport);
+                    const D3D11_RECT scissor = {0, 0, static_cast<LONG>(handles.width),
+                                                static_cast<LONG>(handles.height)};
+                    ctx->RSSetScissorRects(1, &scissor);
+                }
             }
+            ImGui_ImplDX11_NewFrame();
         }
-        ImGui_ImplDX11_NewFrame();
-    }
 #elif defined(MYENGINE_PLATFORM_MACOS)
-    if (handles.backend == RHIBackend::Metal && handles.renderPassDescriptor) {
-        EditorImGuiMetal_NewFrame(handles.renderPassDescriptor);
-    }
+        if (handles.backend == RHIBackend::Metal && handles.renderPassDescriptor) {
+            EditorImGuiMetal_NewFrame(handles.renderPassDescriptor);
+        }
 #endif
+    }
 
     ImGui_ImplSDL3_NewFrame();
 #endif
@@ -326,24 +333,26 @@ void EditorImGuiBackend::RenderDrawData(ImDrawData* drawData) {
 
     const ImGuiBackendHandles handles = m_Interop->GetImGuiBackendHandles();
 
-#if defined(MYENGINE_PLATFORM_WINDOWS)
 #if defined(MYENGINE_ENABLE_VULKAN)
     if (handles.backend == RHIBackend::Vulkan) {
         EditorImGuiVulkan_RenderDrawData(drawData, handles);
     } else
 #endif
+    {
+#if defined(MYENGINE_PLATFORM_WINDOWS)
         if (handles.backend == RHIBackend::D3D12) {
-        auto* cmdList = static_cast<ID3D12GraphicsCommandList*>(handles.commandList);
-        if (cmdList)
-            ImGui_ImplDX12_RenderDrawData(drawData, cmdList);
-    } else {
-        ImGui_ImplDX11_RenderDrawData(drawData);
-    }
+            auto* cmdList = static_cast<ID3D12GraphicsCommandList*>(handles.commandList);
+            if (cmdList)
+                ImGui_ImplDX12_RenderDrawData(drawData, cmdList);
+        } else {
+            ImGui_ImplDX11_RenderDrawData(drawData);
+        }
 #elif defined(MYENGINE_PLATFORM_MACOS)
-    if (handles.backend == RHIBackend::Metal && handles.commandBuffer && handles.commandEncoder) {
-        EditorImGuiMetal_RenderDrawData(drawData, handles.commandBuffer, handles.commandEncoder);
-    }
+        if (handles.backend == RHIBackend::Metal && handles.commandBuffer && handles.commandEncoder) {
+            EditorImGuiMetal_RenderDrawData(drawData, handles.commandBuffer, handles.commandEncoder);
+        }
 #endif
+    }
 #endif
 }
 
@@ -355,13 +364,11 @@ void EditorImGuiBackend::RenderPlatformWindows() {
         return;
 
     const ImGuiBackendHandles handles = m_Interop ? m_Interop->GetImGuiBackendHandles() : ImGuiBackendHandles{};
-#if defined(MYENGINE_PLATFORM_WINDOWS)
 #if defined(MYENGINE_ENABLE_VULKAN)
     if (handles.backend == RHIBackend::Vulkan) {
         EditorImGuiVulkan_RenderPlatformWindows();
         return;
     }
-#endif
 #endif
 
 #if defined(MYENGINE_PLATFORM_WINDOWS)
@@ -392,6 +399,10 @@ bool EditorImGuiBackend::SupportsRuntimeFontTextureRebuild() const {
     if (!m_Initialized || !m_Interop)
         return false;
     const ImGuiBackendHandles handles = m_Interop->GetImGuiBackendHandles();
+#if defined(MYENGINE_ENABLE_VULKAN)
+    if (handles.backend == RHIBackend::Vulkan)
+        return true;
+#endif
 #if defined(MYENGINE_PLATFORM_WINDOWS)
     return handles.backend != RHIBackend::D3D12;
 #elif defined(MYENGINE_PLATFORM_MACOS)
@@ -410,13 +421,13 @@ bool EditorImGuiBackend::RebuildFontTextureNow() {
     if (!m_Initialized || !m_Interop)
         return false;
     const ImGuiBackendHandles handles = m_Interop->GetImGuiBackendHandles();
-#if defined(MYENGINE_PLATFORM_WINDOWS)
 #if defined(MYENGINE_ENABLE_VULKAN)
     if (handles.backend == RHIBackend::Vulkan) {
         // ImGui 1.92 renderer backends consume atlas texture updates from ImDrawData.
         return true;
     }
 #endif
+#if defined(MYENGINE_PLATFORM_WINDOWS)
     if (handles.backend == RHIBackend::D3D12) {
         ImGui_ImplDX12_InvalidateDeviceObjects();
         return ImGui_ImplDX12_CreateDeviceObjects();
@@ -437,7 +448,7 @@ bool EditorImGuiBackend::RebuildFontTextureNow() {
 void* EditorImGuiBackend::GetTextureId(GpuTextureView* view) {
     if (!view)
         return nullptr;
-#if defined(MYENGINE_PLATFORM_WINDOWS) && defined(MYENGINE_ENABLE_VULKAN)
+#if defined(MYENGINE_ENABLE_IMGUI) && defined(MYENGINE_ENABLE_VULKAN)
     if (m_Interop && m_Interop->GetImGuiBackendHandles().backend == RHIBackend::Vulkan) {
         const ImGuiNativeTextureInfo native = view->GetImGuiNativeTextureInfo();
         auto it = m_VulkanTextureCache.find(view);

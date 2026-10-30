@@ -115,7 +115,7 @@ void EditorImportService::OnAttach(EditorContext& context) {
     std::string error;
     if (!m_ImportPipeline->OpenProject(context.GetProjectRoot(), &error))
         Logger::Warn("[Editor] Asset import pipeline unavailable: ", error);
-    const std::string target = PublishTargets::kDefaultTargetId;
+    const std::string target = PublishTargets::kDefaultCacheTargetId;
     ShaderCacheService::Get().ConfigureFileSystemCache(m_ProjectRoot / "Library" / target / "ShaderCache", target);
 }
 
@@ -183,6 +183,40 @@ bool EditorImportService::EnsureShaderCache(const std::filesystem::path& sourceP
     return true;
 }
 
+bool EditorImportService::ValidateImportedAsset(const AssetImportReport& report) {
+    if (!report.succeeded || !m_ImportPipeline)
+        return false;
+    if (report.record.type != "texture" && report.record.type != "model")
+        return true;
+    AssetManager::Get().RegisterPersistentIdentity(report.record.artifactPath, report.record.uuid);
+    // A cache hit must not mask an artifact modified/corrupted since its first load.
+    const auto cached = AssetManager::Get().GetByPath<Asset>(report.record.artifactPath);
+    const bool fresh = !cached.IsValid() || AssetManager::Get().Reload(report.record.artifactPath);
+    bool loaded = false;
+    if (fresh && report.record.type == "texture") {
+        const auto asset = AssetManager::Get().Load<TextureAsset>(report.record.artifactPath);
+        loaded = asset.IsValid() && asset->IsReady();
+    } else if (fresh) {
+        const auto asset = AssetManager::Get().Load<ModelAsset>(report.record.artifactPath);
+        loaded = asset.IsValid() && asset->IsReady();
+    }
+    if (loaded)
+        return true;
+    AssetRecord failed = report.record;
+    failed.state = AssetImportState::Failed;
+    const std::string message = "Runtime decoder rejected imported " + failed.type + ": " + failed.sourcePath;
+    failed.diagnostics.push_back({"error", message});
+    std::string error;
+    if (!m_ImportPipeline->GetDatabase().Upsert(std::move(failed), &error) ||
+        !m_ImportPipeline->GetDatabase().Save(&error))
+        Logger::Warn("[Editor] Failed to persist import diagnostics: ", error);
+    m_ImportPipeline->RefreshValidation();
+    if (auto* context = GetContext(); context && context->GetAssetRegistry())
+        context->GetAssetRegistry()->Refresh();
+    Logger::Warn("[Editor] Import failed; copied source retained: ", message);
+    return false;
+}
+
 bool EditorImportService::Import(const std::string& sourcePath) {
     const auto start = ImportClock::now();
     EditorContext* context = GetContext();
@@ -211,11 +245,10 @@ bool EditorImportService::Import(const std::string& sourcePath) {
         RecordImportEvent(context, "Import", sourcePath, ElapsedImportMs(start), false, "error=" + importError);
         return false;
     }
-    AssetManager::Get().RegisterPersistentIdentity(report.record.artifactPath, report.record.uuid);
-    if (model)
-        AssetManager::Get().Load<ModelAsset>(report.record.artifactPath);
-    else
-        AssetManager::Get().Load<TextureAsset>(report.record.artifactPath);
+    if (!ValidateImportedAsset(report)) {
+        RecordImportEvent(context, "Import", sourcePath, ElapsedImportMs(start), false, "decodeFailed=true");
+        return false;
+    }
     if (context->GetAssetRegistry())
         context->GetAssetRegistry()->Refresh();
     Logger::Info("[Editor] Imported asset: ", report.record.sourcePath);
@@ -236,6 +269,10 @@ bool EditorImportService::Reimport(const std::string& uuid) {
     if (!report.succeeded) {
         Logger::Warn("[Editor] Reimport failed: ", error);
         RecordImportEvent(context, "Reimport", uuid, ElapsedImportMs(start), false, "error=" + error);
+        return false;
+    }
+    if (!ValidateImportedAsset(report)) {
+        RecordImportEvent(context, "Reimport", uuid, ElapsedImportMs(start), false, "decodeFailed=true");
         return false;
     }
     if (context && context->GetAssetRegistry()) {
@@ -262,6 +299,10 @@ bool EditorImportService::ReimportWithSettings(const std::string& uuid, const st
         return false;
     }
     AssetManager::Get().RegisterPersistentIdentity(report.record.artifactPath, report.record.uuid);
+    if (!ValidateImportedAsset(report)) {
+        RecordImportEvent(context, "Reimport", uuid, ElapsedImportMs(start), false, "decodeFailed=true");
+        return false;
+    }
     if (context && context->GetAssetRegistry()) {
         context->GetAssetRegistry()->Refresh();
     }
@@ -331,11 +372,20 @@ size_t EditorImportService::ReimportAll(std::vector<std::string>* failures) {
         RecordImportEvent(context, "Reimport All", "*", ElapsedImportMs(start), false);
         return 0;
     }
-    const size_t succeeded = m_ImportPipeline->ReimportAll(failures);
+    std::vector<std::string> localFailures;
+    auto* collectedFailures = failures ? failures : &localFailures;
+    size_t succeeded = m_ImportPipeline->ReimportAll(collectedFailures);
+    for (const auto& record : m_ImportPipeline->GetDatabase().GetAll()) {
+        if (record.state == AssetImportState::Ready && !ValidateImportedAsset({true, true, record})) {
+            if (succeeded > 0)
+                --succeeded;
+            collectedFailures->push_back("Runtime decoder rejected: " + record.sourcePath);
+        }
+    }
     if (context && context->GetAssetRegistry()) {
         context->GetAssetRegistry()->Refresh();
     }
-    const size_t failureCount = failures ? failures->size() : 0;
+    const size_t failureCount = collectedFailures->size();
     RecordImportEvent(context, "Reimport All", "*", ElapsedImportMs(start), failureCount == 0,
                       "succeeded=" + std::to_string(succeeded) + ";failures=" + std::to_string(failureCount));
     return succeeded;

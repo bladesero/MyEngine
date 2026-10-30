@@ -1,21 +1,29 @@
 #include "Renderer/Backends/Vulkan/VulkanContext.h"
 
-#ifdef MYENGINE_PLATFORM_WINDOWS
+#if defined(MYENGINE_PLATFORM_WINDOWS) || defined(MYENGINE_PLATFORM_LINUX)
 
 #include "Core/Logger.h"
 #include "Core/Window.h"
 #include "Renderer/RHI/RHIResourceStats.h"
 
 #include <SDL3/SDL.h>
+#ifdef MYENGINE_PLATFORM_WINDOWS
 #ifndef VK_USE_PLATFORM_WIN32_KHR
 #define VK_USE_PLATFORM_WIN32_KHR
 #endif
+#endif
 #include <vulkan/vulkan.h>
+#ifdef MYENGINE_PLATFORM_WINDOWS
 #include <vulkan/vulkan_win32.h>
+#else
+#include <SDL3/SDL_vulkan.h>
+#include <unistd.h>
+#endif
 
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -39,6 +47,7 @@ constexpr uint32_t kConstantUploadChunkBytes = 1024u * 1024u;
 std::filesystem::path GetVulkanPipelineCachePath(VkPhysicalDevice physicalDevice) {
     if (!physicalDevice)
         return {};
+#ifdef MYENGINE_PLATFORM_WINDOWS
     const DWORD required = GetEnvironmentVariableW(L"LOCALAPPDATA", nullptr, 0);
     if (required <= 1)
         return {};
@@ -47,6 +56,22 @@ std::filesystem::path GetVulkanPipelineCachePath(VkPhysicalDevice physicalDevice
     if (written == 0 || written >= required)
         return {};
     localAppData.resize(written);
+    const std::filesystem::path cacheRoot(localAppData);
+#else
+    // Follow XDG on Linux and never create an accidental cache in the working directory.
+    std::filesystem::path cacheRoot;
+    if (const char* xdgCacheHome = std::getenv("XDG_CACHE_HOME"); xdgCacheHome && *xdgCacheHome) {
+        const std::filesystem::path candidate(xdgCacheHome);
+        if (candidate.is_absolute())
+            cacheRoot = candidate;
+    }
+    if (cacheRoot.empty()) {
+        const char* home = std::getenv("HOME");
+        if (!home || !*home || !std::filesystem::path(home).is_absolute())
+            return {};
+        cacheRoot = std::filesystem::path(home) / ".cache";
+    }
+#endif
 
     VkPhysicalDeviceProperties properties{};
     vkGetPhysicalDeviceProperties(physicalDevice, &properties);
@@ -56,7 +81,7 @@ std::filesystem::path GetVulkanPipelineCachePath(VkPhysicalDevice physicalDevice
     for (uint8_t byte : properties.pipelineCacheUUID)
         name << std::setw(2) << static_cast<uint32_t>(byte);
     name << ".bin";
-    return std::filesystem::path(localAppData) / L"MyEngine" / L"PipelineCache" / L"Vulkan" / name.str();
+    return cacheRoot / "MyEngine" / "PipelineCache" / "Vulkan" / name.str();
 }
 
 bool ReadVulkanPipelineCache(const std::filesystem::path& path, std::vector<uint8_t>& data) {
@@ -81,7 +106,11 @@ bool WriteVulkanPipelineCache(const std::filesystem::path& path, const std::vect
     if (error)
         return false;
     std::filesystem::path temporary = path;
+#ifdef MYENGINE_PLATFORM_WINDOWS
     temporary += L".tmp." + std::to_wstring(GetCurrentProcessId());
+#else
+    temporary += ".tmp." + std::to_string(getpid());
+#endif
     {
         std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
         if (!output ||
@@ -91,7 +120,15 @@ bool WriteVulkanPipelineCache(const std::filesystem::path& path, const std::vect
             return false;
         }
     }
-    if (!MoveFileExW(temporary.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+#ifdef MYENGINE_PLATFORM_WINDOWS
+    const bool replaced =
+        MoveFileExW(temporary.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != FALSE;
+#else
+    // rename replaces an existing file atomically when both paths are on the same filesystem.
+    std::filesystem::rename(temporary, path, error);
+    const bool replaced = !error;
+#endif
+    if (!replaced) {
         std::filesystem::remove(temporary, error);
         return false;
     }
@@ -174,6 +211,11 @@ struct VulkanDeferredReleaseQueue {
     void Attach(VkDevice newDevice) {
         std::lock_guard<std::mutex> lock(mutex);
         device = newDevice;
+    }
+
+    bool IsAttached(VkDevice expectedDevice) {
+        std::lock_guard<std::mutex> lock(mutex);
+        return device && device == expectedDevice;
     }
 
     void Retire(std::function<void(VkDevice)> destroy) {
@@ -397,6 +439,7 @@ struct VulkanReadbackTicket final : GpuReadbackTicket {
     std::shared_ptr<VulkanBuffer> staging;
     VkFence fence = VK_NULL_HANDLE;
     bool ownsFence = false;
+    mutable bool completed = false;
     uint32_t size = 0;
     std::shared_ptr<VulkanDeferredReleaseQueue> deferredReleases;
 
@@ -413,9 +456,14 @@ struct VulkanReadbackTicket final : GpuReadbackTicket {
     }
 
     bool IsReady() const override {
+        if (deferredReleases && !deferredReleases->IsAttached(device))
+            return false;
+        if (completed)
+            return true;
         if (!device || !staging || !staging->memory || !fence)
             return false;
-        return vkGetFenceStatus(device, fence) == VK_SUCCESS;
+        completed = vkGetFenceStatus(device, fence) == VK_SUCCESS;
+        return completed;
     }
 
     bool Read(std::vector<uint8_t>& data) override {
@@ -433,6 +481,22 @@ struct VulkanReadbackTicket final : GpuReadbackTicket {
     }
 
     uint32_t GetSize() const override { return size; }
+};
+
+struct VulkanTextureReadbackTicket final : GpuTextureReadbackTicket {
+    std::shared_ptr<VulkanReadbackTicket> transfer;
+    uint32_t rowPitch = 0;
+    uint32_t width = 0;
+    uint32_t height = 0;
+    RHIFormat format = RHIFormat::Unknown;
+
+    bool IsReady() const override { return transfer && transfer->IsReady(); }
+    bool Read(std::vector<uint8_t>& data) override { return transfer && transfer->Read(data); }
+    uint32_t GetSize() const override { return transfer ? transfer->GetSize() : 0; }
+    uint32_t GetRowPitch() const override { return rowPitch; }
+    uint32_t GetWidth() const override { return width; }
+    uint32_t GetHeight() const override { return height; }
+    RHIFormat GetFormat() const override { return format; }
 };
 
 struct VulkanTimestampPool final : GpuTimestampQueryPool {
@@ -635,9 +699,24 @@ struct TextureBlockLayout {
 std::optional<TextureBlockLayout> GetTextureBlockLayout(RHIFormat format) {
     switch (format) {
     case RHIFormat::RGBA8UNorm:
+    case RHIFormat::RGBA8UNormSrgb:
+    case RHIFormat::BGRA8UNorm:
+    case RHIFormat::RG16Float:
+    case RHIFormat::R32Float:
+    case RHIFormat::R32UInt:
         return TextureBlockLayout{1, 1, 4};
     case RHIFormat::RGBA16Float:
+    case RHIFormat::RG32Float:
         return TextureBlockLayout{1, 1, 8};
+    case RHIFormat::RGB32Float:
+        return TextureBlockLayout{1, 1, 12};
+    case RHIFormat::RGBA32Float:
+        return TextureBlockLayout{1, 1, 16};
+    case RHIFormat::R8UNorm:
+    case RHIFormat::R8UInt:
+        return TextureBlockLayout{1, 1, 1};
+    case RHIFormat::R16UInt:
+        return TextureBlockLayout{1, 1, 2};
     case RHIFormat::D32Float:
         return TextureBlockLayout{1, 1, sizeof(float)};
     case RHIFormat::BC1UNorm:
@@ -1287,7 +1366,9 @@ public:
         (void)vsync;
         m_Owner.EndFrame();
     }
-    bool Resize(uint32_t width, uint32_t height) override { return m_Owner.RecreateSwapchain(width, height); }
+    bool Resize(uint32_t width, uint32_t height) override {
+        return width != 0 && height != 0 && m_Owner.RecreateSwapchain(width, height);
+    }
     uint32_t GetWidth() const override;
     uint32_t GetHeight() const override;
 
@@ -1329,6 +1410,7 @@ struct VulkanContext::Impl {
     std::array<VkFence, kFramesInFlight> inFlight{};
     std::array<VkDescriptorPool, kFramesInFlight> rhiDescriptorPools{};
     std::array<std::vector<std::shared_ptr<GpuResource>>, kFramesInFlight> frameKeepAlive{};
+    std::array<std::vector<std::shared_ptr<VulkanReadbackTicket>>, kFramesInFlight> frameReadbacks{};
     // Descriptor sets snapshot offsets into these persistently mapped chunks. A slot is rewound only after its fence,
     // so later passes can share an arena without overwriting constants referenced by earlier recorded commands.
     std::array<std::vector<VulkanConstantUploadChunk>, kFramesInFlight> constantUploadChunks{};
@@ -1467,6 +1549,7 @@ VkExtent2D ChooseSwapchainExtent(const VkSurfaceCapabilitiesKHR& caps, IWindow* 
 class VulkanImmediateCommandList final : public GpuCommandList {
 public:
     explicit VulkanImmediateCommandList(VulkanContext::Impl& impl) : m_Impl(impl) {}
+    bool IsRenderingOpen() const { return m_RenderingOpen; }
 
     void BindShader(GpuShader*) override {}
     void BindVertexBuffer(GpuBuffer* buffer) override { SetVertexBuffer(buffer); }
@@ -1475,26 +1558,30 @@ public:
     void Draw(uint32_t vertexCount, uint32_t startVertex = 0) override {
         if (!m_Impl.frameOpen || !m_CurrentPipeline)
             return;
-        BindPendingDescriptorSet();
+        if (!BindPendingDescriptorSet())
+            return;
         vkCmdDraw(CommandBuffer(), vertexCount, 1, startVertex, 0);
     }
     void DrawIndexed(uint32_t indexCount, uint32_t startIndex = 0, uint32_t baseVertex = 0) override {
         if (!m_Impl.frameOpen || !m_CurrentPipeline)
             return;
-        BindPendingDescriptorSet();
+        if (!BindPendingDescriptorSet())
+            return;
         vkCmdDrawIndexed(CommandBuffer(), indexCount, 1, startIndex, static_cast<int32_t>(baseVertex), 0);
     }
     void DrawInstanced(uint32_t vertexCount, uint32_t instanceCount, uint32_t startVertex = 0) override {
         if (!m_Impl.frameOpen || !m_CurrentPipeline)
             return;
-        BindPendingDescriptorSet();
+        if (!BindPendingDescriptorSet())
+            return;
         vkCmdDraw(CommandBuffer(), vertexCount, instanceCount, startVertex, 0);
     }
     void DrawIndexedInstanced(uint32_t indexCount, uint32_t instanceCount, uint32_t startIndex = 0,
                               uint32_t baseVertex = 0) override {
         if (!m_Impl.frameOpen || !m_CurrentPipeline)
             return;
-        BindPendingDescriptorSet();
+        if (!BindPendingDescriptorSet())
+            return;
         vkCmdDrawIndexed(CommandBuffer(), indexCount, instanceCount, startIndex, static_cast<int32_t>(baseVertex), 0);
     }
     void SetViewport(float x, float y, float w, float h) override {
@@ -1619,6 +1706,8 @@ public:
         vkCmdBindPipeline(CommandBuffer(), VK_PIPELINE_BIND_POINT_COMPUTE, native->pipeline);
     }
     void SetBindGroup(uint32_t, GpuBindGroup* group) override {
+        m_PendingDescriptorSet = VK_NULL_HANDLE;
+        m_PendingDescriptorLayout = VK_NULL_HANDLE;
         auto* native = dynamic_cast<VulkanBindGroup*>(group);
         if (!native || !native->GetShader())
             return;
@@ -1664,13 +1753,15 @@ public:
     void Dispatch(uint32_t x, uint32_t y = 1, uint32_t z = 1) override {
         if (!m_Impl.frameOpen || !m_CurrentComputePipeline)
             return;
-        BindPendingDescriptorSet();
+        if (!BindPendingDescriptorSet())
+            return;
         vkCmdDispatch(CommandBuffer(), x, y, z);
     }
     void DispatchIndirect(GpuBuffer* args, uint64_t offset = 0) override {
         auto* native = dynamic_cast<VulkanBuffer*>(args);
         if (m_Impl.frameOpen && native && native->buffer && m_CurrentComputePipeline) {
-            BindPendingDescriptorSet();
+            if (!BindPendingDescriptorSet())
+                return;
             vkCmdDispatchIndirect(CommandBuffer(), native->buffer, offset);
         }
     }
@@ -1740,14 +1831,16 @@ public:
     void DrawIndirect(GpuBuffer* args, uint64_t offset = 0) override {
         auto* native = dynamic_cast<VulkanBuffer*>(args);
         if (m_Impl.frameOpen && native && native->buffer && m_CurrentPipeline) {
-            BindPendingDescriptorSet();
+            if (!BindPendingDescriptorSet())
+                return;
             vkCmdDrawIndirect(CommandBuffer(), native->buffer, offset, 1, sizeof(RHIDrawIndirectArgs));
         }
     }
     void DrawIndexedIndirect(GpuBuffer* args, uint64_t offset = 0) override {
         auto* native = dynamic_cast<VulkanBuffer*>(args);
         if (m_Impl.frameOpen && native && native->buffer && m_CurrentPipeline) {
-            BindPendingDescriptorSet();
+            if (!BindPendingDescriptorSet())
+                return;
             vkCmdDrawIndexedIndirect(CommandBuffer(), native->buffer, offset, 1, sizeof(RHIDrawIndexedIndirectArgs));
         }
     }
@@ -1757,7 +1850,8 @@ public:
         auto* nativeCount = dynamic_cast<VulkanBuffer*>(countBuffer);
         if (m_Impl.frameOpen && native && native->buffer && nativeCount && nativeCount->buffer && m_CurrentPipeline &&
             maxDrawCount > 0 && stride >= sizeof(RHIDrawIndexedIndirectArgs)) {
-            BindPendingDescriptorSet();
+            if (!BindPendingDescriptorSet())
+                return;
             // Object-indexed records place a D3D12 root constant before the native draw arguments. Vulkan skips that
             // word and exposes firstInstance through Slang's raw SV_VulkanInstanceID semantic.
             const VkDeviceSize nativeArgumentOffset =
@@ -1852,17 +1946,29 @@ private:
         return true;
     }
 
-    void BindPendingDescriptorSet() {
-        if (!m_Impl.frameOpen || !m_CurrentPipelineLayout || !m_PendingDescriptorSet ||
-            m_PendingDescriptorLayout != m_CurrentPipelineLayout) {
-            return;
+    bool BindPendingDescriptorSet() {
+        if (!m_Impl.frameOpen || !m_CurrentPipelineLayout)
+            return false;
+        const auto shader = m_CurrentBindPoint == VK_PIPELINE_BIND_POINT_COMPUTE
+                                ? (m_CurrentComputePipeline ? m_CurrentComputePipeline->desc.shader : nullptr)
+                                : (m_CurrentPipeline ? m_CurrentPipeline->desc.shader : nullptr);
+        if (!shader)
+            return false;
+        if (!shader->reflection.bindings.empty()) {
+            if (!m_PendingDescriptorSet || m_PendingDescriptorLayout != m_CurrentPipelineLayout) {
+                WarnOnce("pipeline-descriptor-layout-mismatch",
+                         "[Vulkan] Skipping draw/dispatch because its required bind group is missing or belongs to "
+                         "a different shader pipeline");
+                return false;
+            }
+            vkCmdBindDescriptorSets(CommandBuffer(), m_CurrentBindPoint, m_CurrentPipelineLayout, 0, 1,
+                                    &m_PendingDescriptorSet, 0, nullptr);
         }
-        vkCmdBindDescriptorSets(CommandBuffer(), m_CurrentBindPoint, m_CurrentPipelineLayout, 0, 1,
-                                &m_PendingDescriptorSet, 0, nullptr);
         if (m_Impl.bindlessDescriptorSet) {
             vkCmdBindDescriptorSets(CommandBuffer(), m_CurrentBindPoint, m_CurrentPipelineLayout, 1, 1,
                                     &m_Impl.bindlessDescriptorSet, 0, nullptr);
         }
+        return true;
     }
 
     bool UpdateDescriptors(VulkanBindGroup& group) {
@@ -2076,8 +2182,14 @@ VulkanContext::~VulkanContext() {
 }
 
 bool VulkanContext::Init(IWindow* window) {
+#ifdef MYENGINE_PLATFORM_WINDOWS
     if (!window || !window->GetNativeHandle()) {
-        Logger::Error("[Vulkan] Init failed: missing Win32 window handle");
+        m_LastDeviceError = "missing Win32 window handle";
+#else
+    if (!window || !window->GetSDLWindow() || !(SDL_GetWindowFlags(window->GetSDLWindow()) & SDL_WINDOW_VULKAN)) {
+        m_LastDeviceError = "missing SDL window created with SDL_WINDOW_VULKAN";
+#endif
+        Logger::Error("[Vulkan] Init failed: ", m_LastDeviceError);
         return false;
     }
     m_Impl->window = window;
@@ -2085,20 +2197,34 @@ bool VulkanContext::Init(IWindow* window) {
     VkApplicationInfo app{VK_STRUCTURE_TYPE_APPLICATION_INFO};
     app.pApplicationName = "MyEngine";
     app.apiVersion = VK_API_VERSION_1_3;
+#ifdef MYENGINE_PLATFORM_WINDOWS
     const char* instanceExtensions[] = {
         VK_KHR_SURFACE_EXTENSION_NAME,
         VK_KHR_WIN32_SURFACE_EXTENSION_NAME,
     };
+    const uint32_t instanceExtensionCount = static_cast<uint32_t>(std::size(instanceExtensions));
+#else
+    // SDL chooses X11 or Wayland extensions to match the active video driver.
+    Uint32 instanceExtensionCount = 0;
+    const char* const* instanceExtensions = SDL_Vulkan_GetInstanceExtensions(&instanceExtensionCount);
+    if (!instanceExtensions || instanceExtensionCount == 0) {
+        m_LastDeviceError = std::string("SDL_Vulkan_GetInstanceExtensions failed: ") + SDL_GetError();
+        Logger::Error("[Vulkan] ", m_LastDeviceError);
+        return false;
+    }
+#endif
     VkInstanceCreateInfo instanceInfo{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
     instanceInfo.pApplicationInfo = &app;
-    instanceInfo.enabledExtensionCount = static_cast<uint32_t>(std::size(instanceExtensions));
+    instanceInfo.enabledExtensionCount = instanceExtensionCount;
     instanceInfo.ppEnabledExtensionNames = instanceExtensions;
-    if (vkCreateInstance(&instanceInfo, nullptr, &m_Impl->instance) != VK_SUCCESS) {
-        m_LastDeviceError = "vkCreateInstance failed";
+    const VkResult instanceResult = vkCreateInstance(&instanceInfo, nullptr, &m_Impl->instance);
+    if (instanceResult != VK_SUCCESS) {
+        m_LastDeviceError = std::string("vkCreateInstance failed: ") + VkResultName(instanceResult);
         Logger::Error("[Vulkan] ", m_LastDeviceError);
         return false;
     }
 
+#ifdef MYENGINE_PLATFORM_WINDOWS
     VkWin32SurfaceCreateInfoKHR surfaceInfo{VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR};
     surfaceInfo.hinstance = GetModuleHandleW(nullptr);
     surfaceInfo.hwnd = static_cast<HWND>(window->GetNativeHandle());
@@ -2107,6 +2233,13 @@ bool VulkanContext::Init(IWindow* window) {
         Logger::Error("[Vulkan] ", m_LastDeviceError);
         return false;
     }
+#else
+    if (!SDL_Vulkan_CreateSurface(window->GetSDLWindow(), m_Impl->instance, nullptr, &m_Impl->surface)) {
+        m_LastDeviceError = std::string("SDL_Vulkan_CreateSurface failed: ") + SDL_GetError();
+        Logger::Error("[Vulkan] ", m_LastDeviceError);
+        return false;
+    }
+#endif
 
     uint32_t gpuCount = 0;
     vkEnumeratePhysicalDevices(m_Impl->instance, &gpuCount, nullptr);
@@ -2405,7 +2538,15 @@ bool VulkanContext::RecreateSwapchain(uint32_t requestedWidth, uint32_t requeste
         swapchain.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
     }
     swapchain.preTransform = caps.currentTransform;
-    swapchain.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+    constexpr VkCompositeAlphaFlagBitsKHR compositeAlphaModes[] = {
+        VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR, VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR,
+        VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR, VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR};
+    for (VkCompositeAlphaFlagBitsKHR mode : compositeAlphaModes) {
+        if (caps.supportedCompositeAlpha & mode) {
+            swapchain.compositeAlpha = mode;
+            break;
+        }
+    }
     swapchain.presentMode = VK_PRESENT_MODE_FIFO_KHR;
     swapchain.clipped = VK_TRUE;
     swapchain.oldSwapchain = oldSwapchain;
@@ -2506,6 +2647,9 @@ void VulkanContext::Shutdown() {
         return;
     if (m_Impl->device)
         vkDeviceWaitIdle(m_Impl->device);
+    for (auto& readbacks : m_Impl->frameReadbacks) {
+        readbacks.clear();
+    }
     if (m_Impl->device && m_Impl->pipelineCache && m_Impl->pipelineCacheDirty && !m_Impl->pipelineCachePath.empty()) {
         size_t cacheSize = 0;
         if (vkGetPipelineCacheData(m_Impl->device, m_Impl->pipelineCache, &cacheSize, nullptr) == VK_SUCCESS &&
@@ -2582,7 +2726,19 @@ void VulkanContext::BeginFrame(float r, float g, float b, float a) {
     m_FrameIndex = m_Impl->frameIndex;
     // The fence covers every descriptor and upload resource retained for this frame slot. Reset them only after the GPU
     // has completed that slot; frame-index reuse alone does not make those objects safe to release.
-    vkWaitForFences(m_Impl->device, 1, &m_Impl->inFlight[m_Impl->frameIndex], VK_TRUE, UINT64_MAX);
+    const VkResult waitResult =
+        vkWaitForFences(m_Impl->device, 1, &m_Impl->inFlight[m_Impl->frameIndex], VK_TRUE, UINT64_MAX);
+    if (waitResult != VK_SUCCESS) {
+        m_DeviceLost = waitResult == VK_ERROR_DEVICE_LOST;
+        m_LastDeviceError = std::string("vkWaitForFences failed: ") + VkResultName(waitResult);
+        Logger::Error("[Vulkan] ", m_LastDeviceError);
+        return;
+    }
+    // Snapshot completion before a frame fence is reset and reused. Tickets remain ready even when the caller polls
+    // them several frames later, instead of accidentally observing the new work submitted with the same fence.
+    for (auto& ticket : m_Impl->frameReadbacks[m_Impl->frameIndex])
+        ticket->completed = true;
+    m_Impl->frameReadbacks[m_Impl->frameIndex].clear();
     if (m_Impl->deferredReleases)
         m_Impl->deferredReleases->AdvanceFrame();
     if (m_Impl->bindlessAllocator)
@@ -2911,8 +3067,8 @@ std::shared_ptr<GpuTexture> VulkanContext::UploadTexture(const RHITextureDesc& d
         const uint64_t requiredSourceBytes = static_cast<uint64_t>(blockRows - 1u) * sourceRowPitch + tightRowPitch;
         if (sourceRowPitch < tightRowPitch || (src.slicePitch && src.slicePitch < requiredSourceBytes))
             return nullptr;
-        const uint64_t alignment = blockLayout->bytes;
-        uploadSize = (uploadSize + alignment - 1u) & ~(alignment - 1u);
+        const uint64_t alignment = (std::max)(blockLayout->bytes, 4u);
+        uploadSize = ((uploadSize + alignment - 1u) / alignment) * alignment;
         offsets[i] = uploadSize;
         uploadSize += tightSlicePitch;
 
@@ -3154,11 +3310,40 @@ std::shared_ptr<GpuGraphicsPipeline> VulkanContext::CreateGraphicsPipeline(const
     VkVertexInputBindingDescription vertexBinding{};
     uint32_t vertexStride = 0;
     if (!shader->vertexLayout.empty()) {
-        attributes.reserve(shader->vertexLayout.size());
-        for (uint32_t i = 0; i < shader->vertexLayout.size(); ++i) {
-            const auto& element = shader->vertexLayout[i];
-            attributes.push_back({i, 0, ToVulkanVertexFormat(element.format), element.offset});
+        // Slang assigns locations from the shader's actual input interface, which need not contain all fields in
+        // the engine vertex buffer (for example unskinned Mesh COLOR is location 4, after two unused skin fields).
+        // Keep the full buffer stride but select offsets by reflected semantic rather than by layout-array index.
+        for (const auto& element : shader->vertexLayout)
             vertexStride = (std::max)(vertexStride, element.offset + VertexFormatSize(element.format));
+        if (shader->reflection.inputs.empty()) {
+            Logger::Error("[Vulkan] Missing vertex-input reflection; recompile/cook this shader with the current "
+                          "shader compiler contract");
+            return nullptr;
+        }
+        const auto sameSemantic = [](const char* layoutSemantic, const std::string& shaderSemantic) {
+            if (!layoutSemantic || std::strlen(layoutSemantic) != shaderSemantic.size())
+                return false;
+            for (size_t i = 0; i < shaderSemantic.size(); ++i) {
+                if (std::toupper(static_cast<unsigned char>(layoutSemantic[i])) !=
+                    std::toupper(static_cast<unsigned char>(shaderSemantic[i])))
+                    return false;
+            }
+            return true;
+        };
+        std::set<uint32_t> usedLocations;
+        attributes.reserve(shader->reflection.inputs.size());
+        for (const auto& input : shader->reflection.inputs) {
+            const auto element = std::find_if(
+                shader->vertexLayout.begin(), shader->vertexLayout.end(), [&](const VertexElement& candidate) {
+                    return candidate.index == input.semanticIndex && sameSemantic(candidate.semantic, input.semantic);
+                });
+            if (input.location == UINT32_MAX || element == shader->vertexLayout.end() ||
+                !usedLocations.insert(input.location).second) {
+                Logger::Error("[Vulkan] Invalid or missing vertex input ", input.semantic, input.semanticIndex,
+                              " at shader location ", input.location);
+                return nullptr;
+            }
+            attributes.push_back({input.location, 0, ToVulkanVertexFormat(element->format), element->offset});
         }
         vertexBinding.binding = 0;
         vertexBinding.stride = vertexStride;
@@ -3318,6 +3503,40 @@ std::shared_ptr<GpuBindGroup> VulkanContext::CreateBindGroup(const std::shared_p
     return group;
 }
 
+RHIDeviceIdentity VulkanContext::GetDeviceIdentity() const {
+    RHIDeviceIdentity identity;
+    if (!m_Impl || !m_Impl->physicalDevice)
+        return identity;
+
+    VkPhysicalDeviceDriverProperties driver{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES};
+    VkPhysicalDeviceProperties2 properties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
+    properties.pNext = &driver;
+    vkGetPhysicalDeviceProperties2(m_Impl->physicalDevice, &properties);
+    identity.adapterName = properties.properties.deviceName;
+    identity.vendorId = properties.properties.vendorID;
+    identity.deviceId = properties.properties.deviceID;
+    identity.softwareAdapter = properties.properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU;
+    // Vulkan driverVersion has implementation-defined encoding. Keep the driver's descriptive information and raw
+    // value instead of interpreting it as a Vulkan API version (which is incorrect for several vendor drivers).
+    identity.driverVersion = driver.driverInfo[0] ? driver.driverInfo : driver.driverName;
+    if (!identity.driverVersion.empty())
+        identity.driverVersion += " ";
+    identity.driverVersion += "[driverVersion=" + std::to_string(properties.properties.driverVersion) + "]";
+
+    // CPU/software and integrated adapters can report ordinary system RAM as DEVICE_LOCAL. That is not dedicated
+    // video memory. Only discrete GPU-local heaps have the dedicated-memory meaning of this RHI identity field.
+    if (properties.properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
+        VkPhysicalDeviceMemoryProperties memory{};
+        vkGetPhysicalDeviceMemoryProperties(m_Impl->physicalDevice, &memory);
+        for (uint32_t i = 0; i < memory.memoryHeapCount; ++i) {
+            if (memory.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT)
+                identity.dedicatedVideoMemoryBytes += memory.memoryHeaps[i].size;
+        }
+    }
+    // Vulkan has no portable subsystem/revision identifiers; leave those unavailable fields at their defaults.
+    return identity;
+}
+
 RHIDeviceCapabilities VulkanContext::GetCapabilities() const {
     RHIDeviceCapabilities caps{};
     caps.maxTextureDimension2D = 16384;
@@ -3430,7 +3649,9 @@ std::shared_ptr<GpuReadbackTicket> VulkanContext::ReadbackBufferAsync(const std:
         recordCopy(m_Impl->commandBuffers[m_Impl->frameIndex], true);
         ticket->fence = m_Impl->inFlight[m_Impl->frameIndex];
         ticket->ownsFence = false;
+        m_Impl->frameReadbacks[m_Impl->frameIndex].push_back(ticket);
         m_Impl->frameKeepAlive[m_Impl->frameIndex].push_back(staging);
+        m_Impl->frameKeepAlive[m_Impl->frameIndex].push_back(native);
         return ticket;
     }
 
@@ -3470,9 +3691,129 @@ std::shared_ptr<GpuReadbackTicket> VulkanContext::ReadbackBufferAsync(const std:
     return ticket;
 }
 
-std::shared_ptr<GpuTextureReadbackTicket> VulkanContext::ReadbackTextureAsync(const std::shared_ptr<GpuTexture>&,
-                                                                              const RHITextureRegion&) {
-    return nullptr;
+std::shared_ptr<GpuTextureReadbackTicket>
+VulkanContext::ReadbackTextureAsync(const std::shared_ptr<GpuTexture>& texture, const RHITextureRegion& region) {
+    auto native = std::dynamic_pointer_cast<VulkanTexture>(texture);
+    if (!m_Impl || !m_Impl->device || !native || !native->image || native->desc.sampleCount != 1 ||
+        !HasUsage(native->desc.usage, RHIResourceUsage::CopySource) || region.depth != 1 || region.z != 0 ||
+        region.mipLevel >= native->desc.mipLevels || region.mipLevel >= 32 ||
+        region.arrayLayer >= native->desc.arrayLayers || native->layout == VK_IMAGE_LAYOUT_UNDEFINED) {
+        return nullptr;
+    }
+    if (m_Impl->frameOpen && static_cast<VulkanImmediateCommandList*>(m_GraphicsCommandList.get())->IsRenderingOpen()) {
+        Logger::Error("[Vulkan] Texture readback must be requested outside a rendering scope");
+        return nullptr;
+    }
+    const auto block = GetTextureBlockLayout(native->desc.format);
+    if (!block)
+        return nullptr;
+    const uint32_t mipWidth = (std::max)(1u, native->desc.width >> region.mipLevel);
+    const uint32_t mipHeight = (std::max)(1u, native->desc.height >> region.mipLevel);
+    if (region.x >= mipWidth || region.y >= mipHeight)
+        return nullptr;
+    const uint32_t width = region.width ? region.width : mipWidth - region.x;
+    const uint32_t height = region.height ? region.height : mipHeight - region.y;
+    if (width > mipWidth - region.x || height > mipHeight - region.y || region.x % block->width != 0 ||
+        region.y % block->height != 0 || (width % block->width != 0 && region.x + width != mipWidth) ||
+        (height % block->height != 0 && region.y + height != mipHeight)) {
+        return nullptr;
+    }
+    const uint64_t rowPitch = ((static_cast<uint64_t>(width) + block->width - 1) / block->width) * block->bytes;
+    const uint64_t size = rowPitch * ((static_cast<uint64_t>(height) + block->height - 1) / block->height);
+    if (size == 0 || size > UINT32_MAX)
+        return nullptr;
+    RHIBufferDesc stagingDesc{};
+    stagingDesc.size = static_cast<uint32_t>(size);
+    stagingDesc.stride = 1;
+    stagingDesc.usage = RHIResourceUsage::CopyDestination;
+    stagingDesc.debugName = "VulkanTextureReadback";
+    auto staging = CreateVulkanBuffer(
+        m_Impl->device, m_Impl->physicalDevice, stagingDesc, VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, m_Impl->deferredReleases);
+    if (!staging)
+        return nullptr;
+    auto transfer = std::make_shared<VulkanReadbackTicket>();
+    transfer->device = m_Impl->device;
+    transfer->deferredReleases = m_Impl->deferredReleases;
+    transfer->staging = staging;
+    transfer->size = stagingDesc.size;
+    auto ticket = std::make_shared<VulkanTextureReadbackTicket>();
+    ticket->transfer = transfer;
+    ticket->rowPitch = static_cast<uint32_t>(rowPitch);
+    ticket->width = width;
+    ticket->height = height;
+    ticket->format = native->desc.format;
+
+    const auto recordCopy = [&](VkCommandBuffer cmd) {
+        VkImageMemoryBarrier barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+        barrier.srcAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        barrier.oldLayout = native->layout;
+        barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.image = native->image;
+        barrier.subresourceRange = {AspectMask(native->desc.format), region.mipLevel, 1, region.arrayLayer, 1};
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
+                             nullptr, 1, &barrier);
+        VkBufferImageCopy copy{};
+        copy.imageSubresource = {AspectMask(native->desc.format), region.mipLevel, region.arrayLayer, 1};
+        copy.imageOffset = {static_cast<int32_t>(region.x), static_cast<int32_t>(region.y), 0};
+        copy.imageExtent = {width, height, 1};
+        vkCmdCopyImageToBuffer(cmd, native->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, staging->buffer, 1, &copy);
+        std::swap(barrier.oldLayout, barrier.newLayout);
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        barrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, nullptr, 0,
+                             nullptr, 1, &barrier);
+    };
+    if (m_Impl->frameOpen) {
+        recordCopy(m_Impl->commandBuffers[m_Impl->frameIndex]);
+        transfer->fence = m_Impl->inFlight[m_Impl->frameIndex];
+        m_Impl->frameReadbacks[m_Impl->frameIndex].push_back(transfer);
+        m_Impl->frameKeepAlive[m_Impl->frameIndex].push_back(staging);
+        m_Impl->frameKeepAlive[m_Impl->frameIndex].push_back(native);
+        return ticket;
+    }
+
+    VkCommandBufferAllocateInfo alloc{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+    alloc.commandPool = m_Impl->commandPool;
+    alloc.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    alloc.commandBufferCount = 1;
+    VkCommandBuffer cmd = VK_NULL_HANDLE;
+    if (vkAllocateCommandBuffers(m_Impl->device, &alloc, &cmd) != VK_SUCCESS)
+        return nullptr;
+    VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+    begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    if (vkBeginCommandBuffer(cmd, &begin) != VK_SUCCESS) {
+        vkFreeCommandBuffers(m_Impl->device, m_Impl->commandPool, 1, &cmd);
+        return nullptr;
+    }
+    recordCopy(cmd);
+    if (vkEndCommandBuffer(cmd) != VK_SUCCESS) {
+        vkFreeCommandBuffers(m_Impl->device, m_Impl->commandPool, 1, &cmd);
+        return nullptr;
+    }
+    VkFenceCreateInfo fenceInfo{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+    if (vkCreateFence(m_Impl->device, &fenceInfo, nullptr, &transfer->fence) != VK_SUCCESS) {
+        vkFreeCommandBuffers(m_Impl->device, m_Impl->commandPool, 1, &cmd);
+        return nullptr;
+    }
+    transfer->ownsFence = true;
+    VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+    submit.commandBufferCount = 1;
+    submit.pCommandBuffers = &cmd;
+    const VkResult submitted = vkQueueSubmit(m_Impl->graphicsQueue, 1, &submit, transfer->fence);
+    if (submitted == VK_SUCCESS) {
+        // Match buffer readback's immediate path when no frame is recording. The returned ticket is already ready.
+        transfer->completed = vkWaitForFences(m_Impl->device, 1, &transfer->fence, VK_TRUE, UINT64_MAX) == VK_SUCCESS;
+    }
+    vkFreeCommandBuffers(m_Impl->device, m_Impl->commandPool, 1, &cmd);
+    if (submitted != VK_SUCCESS || !transfer->completed) {
+        Logger::Error("[Vulkan] Texture readback submission/completion failed: ", VkResultName(submitted));
+        return nullptr;
+    }
+    return ticket;
 }
 
 std::unique_ptr<IRenderContext> CreateVulkanContext() {

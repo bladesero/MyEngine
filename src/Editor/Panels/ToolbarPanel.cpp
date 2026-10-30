@@ -38,6 +38,8 @@ void ToolbarPanel::DrawContent() {
                                                    Editor::UI::EditorWidgetVariant::Danger);
     Editor::UI::EditorWidgets::ToolbarActionButton(*context, "play.pause", EditorIcons::PlayPause,
                                                    Editor::UI::EditorWidgetVariant::Warning);
+    Editor::UI::EditorWidgets::ToolbarActionButton(*context, "play.resume", EditorIcons::PlayStart,
+                                                   Editor::UI::EditorWidgetVariant::Accent);
     Editor::UI::EditorWidgets::ToolbarActionButton(*context, "play.step", EditorIcons::PlayStep,
                                                    Editor::UI::EditorWidgetVariant::Neutral, false);
 

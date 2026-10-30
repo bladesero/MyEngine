@@ -16,11 +16,11 @@
 #include "Renderer/Backends/D3DCommon/D3DShaderCompilerBackend.h"
 #include "Renderer/Backends/D3D11/D3D11Backend.h"
 #include "Renderer/Backends/D3D12/D3D12Backend.h"
-#if defined(MYENGINE_ENABLE_VULKAN)
-#include "Renderer/Backends/Vulkan/VulkanBackend.h"
-#endif
 #elif defined(MYENGINE_PLATFORM_MACOS)
 #include "Renderer/Backends/Metal/MetalBackend.h"
+#endif
+#if defined(MYENGINE_ENABLE_VULKAN)
+#include "Renderer/Backends/Vulkan/VulkanBackend.h"
 #endif
 
 namespace {
@@ -50,13 +50,13 @@ void InitializeMyEngineRuntimeModules() {
         if (!RegisterRenderBackend(RenderBackend::D3D11, &CreateD3D11Context) ||
             !RegisterRenderBackend(RenderBackend::D3D12, &CreateD3D12Context))
             throw std::runtime_error("failed to register Windows render backends");
-#if defined(MYENGINE_ENABLE_VULKAN)
-        if (!RegisterRenderBackend(RenderBackend::Vulkan, &CreateVulkanContext))
-            throw std::runtime_error("failed to register Vulkan render backend");
-#endif
 #elif defined(MYENGINE_PLATFORM_MACOS)
         if (!RegisterRenderBackend(RenderBackend::Metal, &CreateMetalContext))
             throw std::runtime_error("failed to register Metal render backend");
+#endif
+#if defined(MYENGINE_ENABLE_VULKAN)
+        if (!RegisterRenderBackend(RenderBackend::Vulkan, &CreateVulkanContext))
+            throw std::runtime_error("failed to register Vulkan render backend");
 #endif
         RegisterRuntimeComponentTypes();
         g_RuntimeModuleInitializationCount.fetch_add(1, std::memory_order_release);

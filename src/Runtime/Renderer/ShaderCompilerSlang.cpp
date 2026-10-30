@@ -8,6 +8,7 @@
 #include <fstream>
 #include <mutex>
 #include <sstream>
+#include <stdexcept>
 #include <thread>
 #include <unordered_set>
 #include <nlohmann/json.hpp>
@@ -255,6 +256,46 @@ bool ParseReflection(const std::filesystem::path& path, const std::string& entry
         for (const auto& point : entryPoints) {
             if (point.value("name", std::string{}) != entry)
                 continue;
+            if (point.value("stage", std::string{}) == "vertex") {
+                // Slang's struct-field varyingInput indices are relative to their containing parameter.
+                // Preserve the declared semantic and emitted location rather than guessing from field names or
+                // assigning locations from a mesh layout (which may contain extra skinning attributes).
+                const auto collectInputs = [&](const auto& self, const nlohmann::json& parameter,
+                                               uint32_t parentLocation) -> void {
+                    if (!parameter.is_object())
+                        return;
+                    uint32_t location = parentLocation;
+                    bool varyingInput = false;
+                    forEachBinding(parameter, [&](const nlohmann::json& binding) {
+                        if (binding.value("kind", std::string{}) == "varyingInput") {
+                            const uint32_t offset = binding.value("index", 0u);
+                            if (offset > UINT32_MAX - parentLocation)
+                                throw std::runtime_error("vertex input location overflow");
+                            location = parentLocation + offset;
+                            varyingInput = true;
+                        }
+                    });
+                    const auto type = parameter.find("type");
+                    if (type != parameter.end() && type->is_object()) {
+                        const auto fields = type->find("fields");
+                        if (fields != type->end() && fields->is_array()) {
+                            for (const auto& field : *fields)
+                                self(self, field, location);
+                            return;
+                        }
+                    }
+                    const std::string semantic = parameter.value("semanticName", std::string{});
+                    // Built-ins such as SV_VertexID/InstanceID have no vertex-buffer location.
+                    if (!varyingInput || semantic.empty() || semantic.rfind("SV_", 0) == 0 ||
+                        semantic.rfind("sv_", 0) == 0)
+                        return;
+                    output.inputs.push_back({semantic, parameter.value("semanticIndex", 0u), location});
+                };
+                for (const auto& parameter : point.value("parameters", nlohmann::json::array()))
+                    collectInputs(collectInputs, parameter, 0);
+                std::sort(output.inputs.begin(), output.inputs.end(),
+                          [](const auto& lhs, const auto& rhs) { return lhs.location < rhs.location; });
+            }
             const auto threads = point.value("threadGroupSize", nlohmann::json::array({1, 1, 1}));
             if (threads.is_array() && threads.size() == 3)
                 for (size_t axis = 0; axis < 3; ++axis)

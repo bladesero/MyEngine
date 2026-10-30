@@ -60,6 +60,24 @@ std::string ProjectValidationReport::Summary() const {
     return result;
 }
 
+std::vector<ShaderBackend> ProjectValidator::ShaderBackendsForValidation(const std::string& requestedBackend) {
+#if defined(MYENGINE_PLATFORM_LINUX)
+    (void)requestedBackend;
+    return {ShaderBackend::Vulkan};
+#elif defined(MYENGINE_PLATFORM_MACOS)
+    (void)requestedBackend;
+    return {ShaderBackend::Metal};
+#else
+#if defined(MYENGINE_ENABLE_VULKAN)
+    if (requestedBackend == "vulkan")
+        return {ShaderBackend::Vulkan};
+#endif
+    if (requestedBackend == "d3d12")
+        return {ShaderBackend::D3D12};
+    return {ShaderBackend::D3D11};
+#endif
+}
+
 bool ProjectValidator::Validate(const ProjectConfig& project, ProjectValidationReport& report,
                                 const ProjectValidationOptions& options) {
     report = {};
@@ -147,7 +165,9 @@ bool ProjectValidator::Validate(const ProjectConfig& project, ProjectValidationR
                         request.allowedRoot = root / "Content";
                         request.artifactPath =
                             root / "Library" / "ValidationShaders" / (file.relative.generic_string() + ".cooked");
-                        request.backends = ShaderCooker::BackendsForTargetPlatform("windows-x64");
+                        // Validate the native editor backend rather than a Windows publishing target.
+                        request.backends = ShaderBackendsForValidation(project.GetGraphicsSettings().backend);
+                        request.targetPlatform = PublishTargets::kDefaultCacheTargetId;
                         std::string cookError;
                         const ShaderCookResult cooked = ShaderCooker::Cook(request, &cookError);
                         if (!cooked.succeeded)

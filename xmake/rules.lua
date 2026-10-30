@@ -1,4 +1,8 @@
 function add_vulkan_loader_link()
+    if is_plat("linux") then
+        add_syslinks("vulkan")
+        return
+    end
     add_syslinks("vulkan-1")
     local sdk = os.getenv("VULKAN_SDK")
     if sdk and sdk ~= "" then
@@ -147,6 +151,12 @@ rule("copy_slang_tool")
             for _, dll in ipairs(os.files(path.join(bindir, "*.dll"))) do
                 incremental_files.copy_if_changed(dll, path.join(destdir, path.filename(dll)))
             end
+        elseif is_plat("linux") then
+            for _, dir in ipairs({bindir, path.join(installdir, "lib")}) do
+                for _, library in ipairs(os.files(path.join(dir, "*.so*"))) do
+                    incremental_files.copy_if_changed(library, path.join(destdir, path.filename(library)))
+                end
+            end
         elseif is_plat("macosx") then
             for _, dylib in ipairs(os.files(path.join(installdir, "lib", "*.dylib"))) do
                 incremental_files.copy_if_changed(dylib,
@@ -166,6 +176,14 @@ rule("copy_sdl_runtime")
                                          {rootdir = path.join(os.projectdir(), "xmake")})
         local pkg = target:pkg("libsdl3")
         if not pkg then
+            for _, dependency in ipairs(target:orderdeps()) do
+                pkg = dependency:pkg("libsdl3")
+                if pkg then
+                    break
+                end
+            end
+        end
+        if not pkg then
             return
         end
         local destdir = target:targetdir()
@@ -176,6 +194,10 @@ rule("copy_sdl_runtime")
                     incremental_files.copy_if_changed(
                         dll, path.join(destdir, path.filename(dll)))
                 end
+            end
+        elseif is_plat("linux") then
+            for _, library in ipairs(os.files(path.join(pkg:installdir(), "lib", "libSDL3.so*"))) do
+                incremental_files.copy_if_changed(library, path.join(destdir, path.filename(library)))
             end
         elseif is_plat("macosx") then
             local libdir = path.join(pkg:installdir(), "lib")

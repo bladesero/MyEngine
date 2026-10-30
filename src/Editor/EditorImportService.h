@@ -10,6 +10,7 @@
 
 class AssetImportService;
 struct AssetDatabaseValidationReport;
+struct AssetImportReport;
 
 class EditorImportService final : public EditorService {
 public:
@@ -33,6 +34,7 @@ public:
                                                        const std::string& extension);
 
 private:
+    bool ValidateImportedAsset(const AssetImportReport& report);
     std::unique_ptr<AssetImportService> m_ImportPipeline;
     std::filesystem::path m_ProjectRoot;
 };
