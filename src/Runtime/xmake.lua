@@ -14,7 +14,7 @@ else
     table.join2(syslinks, {"d3d11", "d3d12", "dxgi", "d3dcompiler", "user32"})
 end
 
-if not (is_plat("windows") and myengine_enable_vulkan()) then
+if not myengine_enable_vulkan() then
     table.insert(excluded_dirs, path.join(runtime_backends, "Vulkan"))
 else
     table.insert(private_packages, "vulkan-headers")
@@ -40,7 +40,10 @@ myengine_library({
     frameworks = frameworks,
     rules = {"myengine.runtime.abi", "copy_sdl_runtime"},
     configure = function()
-        if is_plat("windows") and myengine_enable_vulkan() then
+        if is_plat("linux") then
+            add_rpathdirs("$ORIGIN")
+        end
+        if myengine_enable_vulkan() then
             add_vulkan_loader_link()
         end
     end

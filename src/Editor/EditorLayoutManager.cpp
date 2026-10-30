@@ -370,7 +370,13 @@ void EditorLayoutManager::ApplyDefaultLayout(const std::vector<std::unique_ptr<E
     ImGui::DockBuilderSetNodeSize(dockspaceID, dockSize);
 
     ImGuiID mainID = dockspaceID;
-    const float topRatio = std::clamp(m_Config.toolbarHeightRatio, 0.01f, 0.4f);
+    // The split includes the dock tab bar as well as the toolbar contents.
+    // A percentage alone clips the controls on smaller windows / higher UI scales.
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const float toolbarMinimumHeight =
+        ImGui::GetFrameHeight() * 2.0f + style.WindowPadding.y * 2.0f + style.ItemSpacing.y;
+    const float topRatio =
+        std::clamp(std::max(m_Config.toolbarHeightRatio, toolbarMinimumHeight / dockSize.y), 0.01f, 0.4f);
     const float leftRatio = std::clamp(m_Config.leftWidthRatio, 0.05f, 0.45f);
     const float rightRatio = std::clamp(m_Config.rightWidthRatio, 0.05f, 0.45f);
     const float bottomRatio = std::clamp(m_Config.bottomHeightRatio, 0.05f, 0.45f);

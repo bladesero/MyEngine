@@ -1,4 +1,5 @@
-﻿#include "Editor/InspectorSectionShared.h"
+#include "Editor/InspectorSectionShared.h"
+#include "Editor/EditorAction.h"
 
 namespace {
 class SceneSettingsInspectorSection final : public EditorInspectorSection {
@@ -794,12 +795,41 @@ public:
             return;
         }
 
-        auto handle = AssetManager::Get().GetByPath<Asset>(path);
-        if (!handle.IsValid()) {
-            handle = AssetManager::Get().Load<Asset>(path);
+        const std::string extension = LowerCopy(std::filesystem::path(path).extension().string());
+        if (extension == ".lua" || extension == ".as") {
+            ImGui::Text("Type: %s", extension == ".lua" ? "Lua automation script" : "AngelScript");
+            if (extension == ".lua") {
+                EditorActionRegistry* actions = context.GetActionRegistry();
+                EditorAction* run = actions ? actions->Find("editor.runLua") : nullptr;
+                ImGui::BeginDisabled(!run || !run->CanExecute(context));
+                if (ImGui::Button("Run Lua Script") && actions)
+                    actions->Execute("editor.runLua", context);
+                ImGui::EndDisabled();
+            }
+            std::ifstream input(path, std::ios::binary);
+            if (!input) {
+                ImGui::TextDisabled("Unable to read script file.");
+                return;
+            }
+            std::string preview(64 * 1024, '\0');
+            input.read(preview.data(), static_cast<std::streamsize>(preview.size()));
+            preview.resize(static_cast<size_t>(input.gcount()));
+            if (input.peek() != std::char_traits<char>::eof())
+                preview += "\n... preview truncated ...";
+            ImGui::Separator();
+            ImGui::BeginChild("##ScriptAssetPreview", ImVec2(0, 0), true, ImGuiWindowFlags_HorizontalScrollbar);
+            ImGui::TextUnformatted(preview.c_str());
+            ImGui::EndChild();
+            return;
         }
 
-        ImGui::Text("Asset: %s", handle.IsValid() ? handle->GetName().c_str() : "(not loaded)");
+        // Generic files are not necessarily runtime assets. Show cached metadata
+        // without repeatedly requesting a nonexistent loader during every UI frame.
+        auto handle = AssetManager::Get().GetByPath<Asset>(path);
+        ImGui::Text("Asset: %s", handle.IsValid() ? handle->GetName().c_str()
+                                                  : std::filesystem::path(path).filename().string().c_str());
+        if (!handle.IsValid())
+            ImGui::TextDisabled("File metadata only; use Open to edit this file.");
 
         if (handle.IsValid()) {
             ImGui::Text("Type: %s", AssetTypeToString(handle->GetType()));

@@ -261,6 +261,7 @@ bool EditorLayer::OpenProject(const std::filesystem::path& root) {
         return false;
     }
     auto& projectConfig = m_Project.GetConfig();
+#if !defined(MYENGINE_PLATFORM_LINUX)
     if (projectConfig.GetPublishSettings().target != PublishTargets::kDefaultTargetId) {
         const std::string oldTarget = projectConfig.GetPublishSettings().target;
         projectConfig.GetPublishSettings().target = PublishTargets::kDefaultTargetId;
@@ -272,6 +273,7 @@ bool EditorLayer::OpenProject(const std::filesystem::path& root) {
             Logger::Warn("[Editor] Failed to update publish target for this platform: ", saveError);
         }
     }
+#endif
     AssetManager::Get().Clear();
     AssetManager::Get().SetProjectRoot(m_Project.GetRoot());
     ShaderManager::Get().SetShaderCacheMode(ShaderCacheMode::EditorOnDemandCompile);
@@ -391,7 +393,7 @@ void EditorLayer::RegisterPanels() {
                    (context.GetSelection().HasAsset() || CanVisiblePanelHandleAction("asset.open"));
         }));
     m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
-        "asset.reveal", "Reveal in Explorer",
+        "asset.reveal", "Show in File Manager",
         [this](EditorContext& context) {
             if (DispatchPanelAction("asset.reveal"))
                 return;
@@ -454,8 +456,21 @@ void EditorLayer::RegisterPanels() {
             return context.IsEditing() && layer && layer->HasFilePath() && !layer->IsDirty();
         }));
     m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
-        "project.publish", "Publish", [this](EditorContext&) { PublishProject(); },
-        [](EditorContext& context) { return context.IsEditing(); }));
+        "project.publish",
+#if defined(MYENGINE_PLATFORM_LINUX)
+        "Publish (unavailable on Linux)",
+#else
+        "Publish",
+#endif
+        [this](EditorContext&) { PublishProject(); },
+        [](EditorContext& context) {
+#if defined(MYENGINE_PLATFORM_LINUX)
+            (void)context;
+            return false;
+#else
+            return context.IsEditing();
+#endif
+        }));
     m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
         "editor.runLua", "Run Lua",
         [](EditorContext& context) {
@@ -557,6 +572,12 @@ void EditorLayer::RegisterPanels() {
     m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
         "edit.paste", "Paste",
         [this](EditorContext& context) {
+            EditorPanel* targetPanel = GetActionContextPanel();
+            if (targetPanel && (targetPanel->GetID() == "assetBrowser" || targetPanel->GetID() == "sceneHierarchy")) {
+                // A failed operation remains in its domain and reports its own error.
+                targetPanel->HandleEditorAction(context, "edit.paste");
+                return;
+            }
             if (DispatchPanelAction("edit.paste"))
                 return;
             if (auto* operators = context.GetOperators())
@@ -566,9 +587,13 @@ void EditorLayer::RegisterPanels() {
             auto* operators = context.GetOperators();
             if (!context.IsEditing() || !operators)
                 return false;
+            // A panel that owns a clipboard domain must not fall through to a
+            // different domain just because its current clipboard cannot be pasted.
+            const EditorPanel* targetPanel = GetActionContextPanel();
+            if (targetPanel && (targetPanel->GetID() == "assetBrowser" || targetPanel->GetID() == "sceneHierarchy"))
+                return targetPanel->CanHandleEditorAction(context, "edit.paste");
             return CanFocusedPanelHandleAction("edit.paste") ||
-                   (context.GetScene() != nullptr && operators->Commands().HasActorClipboard()) ||
-                   (IsPanelFocused("assetBrowser") && operators->Commands().HasAssetClipboard());
+                   (context.GetScene() != nullptr && operators->Commands().HasActorClipboard());
         }));
     m_ActionRegistry.Register(std::make_unique<LambdaEditorAction>(
         "edit.selectAll", "Select All",
@@ -799,6 +824,13 @@ void EditorLayer::RegisterPanels() {
     }
 }
 
+void EditorLayer::OnEvent(Event& event) {
+    if (event.type != EventType::Quit || m_AllowQuit || !m_ProjectOpen || !m_SceneLayer || !m_SceneLayer->IsDirty())
+        return;
+    event.handled = true;
+    m_CloseDialogRequested = true;
+}
+
 void EditorLayer::OnDetach() {
 #if defined(MYENGINE_ENABLE_IMGUI)
     m_Context.SetPanelFocusRequestHandler({});
@@ -819,8 +851,16 @@ void EditorLayer::OnDetach() {
         m_Project.SaveState();
         m_LayoutManager.CloseProject();
         std::string recoveryError;
-        if (!m_RecoveryService.MarkCleanShutdown(&recoveryError))
+        if (m_SceneLayer && m_SceneLayer->IsDirty() && !m_DiscardOnQuit) {
+            const std::string scenePath =
+                m_SceneLayer->HasFilePath() ? m_SceneLayer->GetSceneFilePath() : "__unsaved__";
+            const std::string serialized = SceneSerializer::SaveToString(m_SceneLayer->GetEditorScene());
+            if (!m_RecoveryService.WriteSnapshot(scenePath, m_LastRecoveryRevision + 1, serialized, &recoveryError))
+                Logger::Warn("[EditorRecovery] Final snapshot failed: ", recoveryError);
+            // Keep the recovery session dirty so the next launch offers the unsaved scene.
+        } else if (!m_RecoveryService.MarkCleanShutdown(&recoveryError)) {
             Logger::Warn("[EditorRecovery] ", recoveryError);
+        }
     }
     m_Panels.clear();
     m_Context.SetEditorScriptDomain(nullptr);
@@ -893,6 +933,12 @@ void EditorLayer::UpdateRecovery(float deltaSeconds) {
 }
 
 void EditorLayer::OnSceneSaveSucceeded() {
+    if (m_QuitAfterSave) {
+        m_QuitAfterSave = false;
+        m_AllowQuit = true;
+        if (m_Engine)
+            m_Engine->RequestQuit();
+    }
     if (m_LastRecoveryRevision == 0 || m_LastRecoveryScenePath.empty())
         return;
     std::string error;
@@ -941,7 +987,9 @@ void EditorLayer::DrawProjectSelector() {
     }
     if (!m_ProjectError.empty()) {
         ImGui::Spacing();
+        ImGui::PushTextWrapPos(0.0f);
         ImGui::TextColored({1.0f, 0.35f, 0.3f, 1.0f}, "%s", m_ProjectError.c_str());
+        ImGui::PopTextWrapPos();
     }
     ImGui::End();
 #endif
@@ -1164,6 +1212,18 @@ void EditorLayer::DispatchEditorShortcuts() {
 #endif
 }
 
+EditorPanel* EditorLayer::GetActionContextPanel() const {
+    for (const auto& panel : m_Panels) {
+        if (panel && panel->IsVisible() && panel->IsFocused())
+            return panel.get();
+    }
+    for (const auto& panel : m_Panels) {
+        if (panel && panel->IsVisible() && panel->GetID() == m_LastFocusedPanelID)
+            return panel.get();
+    }
+    return nullptr;
+}
+
 bool EditorLayer::DispatchPanelAction(std::string_view actionID) {
     if (actionID.empty())
         return false;
@@ -1171,6 +1231,13 @@ bool EditorLayer::DispatchPanelAction(std::string_view actionID) {
         if (panel && panel->IsVisible() && panel->IsFocused() && panel->HandleEditorAction(m_Context, actionID)) {
             return true;
         }
+    }
+    // Menus and native popups take ImGui focus. Keep routing their actions to
+    // the last focused editor panel instead of whichever panel is first in the list.
+    for (auto& panel : m_Panels) {
+        if (panel && panel->IsVisible() && panel->GetID() == m_LastFocusedPanelID &&
+            panel->CanHandleEditorAction(m_Context, actionID) && panel->HandleEditorAction(m_Context, actionID))
+            return true;
     }
     for (auto& panel : m_Panels) {
         if (panel && panel->IsVisible() && panel->HandleEditorAction(m_Context, actionID)) {
@@ -1187,6 +1254,11 @@ bool EditorLayer::CanFocusedPanelHandleAction(std::string_view actionID) const {
         if (panel && panel->IsVisible() && panel->IsFocused() && panel->CanHandleEditorAction(m_Context, actionID)) {
             return true;
         }
+    }
+    for (const auto& panel : m_Panels) {
+        if (panel && panel->IsVisible() && panel->GetID() == m_LastFocusedPanelID &&
+            panel->CanHandleEditorAction(m_Context, actionID))
+            return true;
     }
     return false;
 }
@@ -1227,6 +1299,42 @@ void EditorLayer::DrawProjectResult() {
     ImGui::PopTextWrapPos();
     if (ImGui::Button("OK"))
         ImGui::CloseCurrentPopup();
+    ImGui::EndPopup();
+#endif
+}
+
+void EditorLayer::DrawCloseConfirmation() {
+#if defined(MYENGINE_ENABLE_IMGUI)
+    if (m_CloseDialogRequested) {
+        ImGui::OpenPopup("Unsaved Scene");
+        m_CloseDialogRequested = false;
+    }
+    Editor::UI::EditorViewportPolicy::BindNextModalToMainViewport();
+    if (!ImGui::BeginPopupModal("Unsaved Scene", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        return;
+    ImGui::TextWrapped("Save your scene changes before closing the editor?");
+    if (ImGui::Button("Save and Close")) {
+        if (!m_Context.IsEditing()) {
+            m_SceneLayer->StopPlay();
+            m_Context.SetSceneViewMode(EditorWorldViewMode::EditorWorld);
+        }
+        m_QuitAfterSave = true;
+        SaveScene();
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Discard and Close")) {
+        m_DiscardOnQuit = true;
+        m_AllowQuit = true;
+        if (m_Engine)
+            m_Engine->RequestQuit();
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel")) {
+        m_QuitAfterSave = false;
+        ImGui::CloseCurrentPopup();
+    }
     ImGui::EndPopup();
 #endif
 }
@@ -1285,10 +1393,30 @@ void EditorLayer::DrawScriptMenuItems(const char* topLevel) {
         return;
     }
 
+    std::set<std::string> drawnSubmenus;
     for (const auto& item : domain->GetRegistry().GetMenus()) {
         const std::string label = TrimMenuPrefix(item.path, topLevel);
-        if (label.empty() || label.find('/') != std::string::npos)
+        if (label.empty())
             continue;
+        // Default script registers these actions too; keep one native item/shortcut.
+        if ((item.path == "File/New" && item.target == "scene.new") ||
+            (item.path == "File/Open" && item.target == "scene.open") ||
+            (item.path == "File/Save" && item.target == "scene.save"))
+            continue;
+        const auto slash = label.find('/');
+        if (slash != std::string::npos) {
+            const std::string submenu = label.substr(0, slash);
+            // These submenus are already drawn by the native menu tree below.
+            if ((std::strcmp(topLevel, "Assets") == 0 && submenu == "Create") ||
+                (std::strcmp(topLevel, "Build") == 0 && submenu == "Debug"))
+                continue;
+            if (!submenu.empty() && drawnSubmenus.insert(submenu).second && ImGui::BeginMenu(submenu.c_str())) {
+                const std::string prefix = std::string(topLevel) + "/" + submenu;
+                DrawScriptMenuItems(prefix.c_str());
+                ImGui::EndMenu();
+            }
+            continue;
+        }
         EditorAction* action = m_ActionRegistry.Find(item.target.c_str());
         const bool enabled = !action || action->CanExecute(m_Context);
         if (ImGui::MenuItem(label.c_str(), nullptr, false, enabled)) {
@@ -1315,7 +1443,8 @@ void EditorLayer::DrawScriptTopLevelMenus() {
         return;
     }
 
-    static const std::set<std::string> kCoreMenus{"File", "Project", "Assets", "Edit", "Build", "Build/Debug", "Tools"};
+    static const std::set<std::string> kCoreMenus{"File", "Project", "Assets",      "Edit",
+                                                  "View", "Build",   "Build/Debug", "Tools"};
     std::set<std::string> topLevels;
     for (const auto& item : domain->GetRegistry().GetMenus()) {
         const std::string top = MenuTopLevel(item.path);
@@ -1418,6 +1547,7 @@ void EditorLayer::DrawMainMenuBar() {
                 drawAction("asset.createShader");
                 drawAction("asset.createUI");
                 drawAction("asset.createScene");
+                DrawScriptMenuItems("Assets/Create");
                 ImGui::EndMenu();
             }
             drawAction("asset.move");
@@ -1457,9 +1587,13 @@ void EditorLayer::DrawMainMenuBar() {
             DrawScriptMenuItems("View");
             ImGui::EndMenu();
         }
-        if (ImGui::BeginMenu("Build/Debug")) {
-            drawAction("shader.recompile");
-            DrawScriptMenuItems("Build/Debug");
+        if (ImGui::BeginMenu("Build")) {
+            if (ImGui::BeginMenu("Debug")) {
+                drawAction("shader.recompile");
+                DrawScriptMenuItems("Build/Debug");
+                ImGui::EndMenu();
+            }
+            DrawScriptMenuItems("Build");
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Tools")) {
@@ -1524,6 +1658,8 @@ void EditorLayer::OnRender() {
         for (auto& panel : m_Panels) {
             const auto panelStart = std::chrono::steady_clock::now();
             panel->OnImGui();
+            if (panel->IsVisible() && panel->IsFocused())
+                m_LastFocusedPanelID = panel->GetID();
             panelCpuTimings.push_back(
                 {panel->GetTitle(),
                  std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - panelStart).count()});
@@ -1531,6 +1667,7 @@ void EditorLayer::OnRender() {
         DrawProjectSettings();
         DrawProjectResult();
         DrawRecoveryDialog();
+        DrawCloseConfirmation();
 
         if (m_SceneLayer && m_ViewportActivationDelayFrames > 0) {
             m_SceneLayer->SetSceneViewportActive(false);
@@ -1585,15 +1722,35 @@ void EditorLayer::OnRender() {
 
 void EditorLayer::ProcessDialogResults() {
     EditorDialogResult result;
-    if (!m_DialogService.ConsumeResult(result) || result.path.empty())
+    if (!m_DialogService.ConsumeResult(result))
         return;
+    if (!result.error.empty()) {
+        m_QuitAfterSave = false;
+        ShowProjectResult("File dialog failed: " + result.error, true);
+        return;
+    }
+    if (result.path.empty()) {
+        m_QuitAfterSave = false;
+        return;
+    }
     if (result.operation == EditorFileOperation::OpenProjectFolder) {
         std::strncpy(m_ProjectPath.data(), result.path.c_str(), m_ProjectPath.size() - 1);
         m_ProjectPath.back() = '\0';
         return;
     }
-    if (!m_ProjectOpen)
+    if (!m_ProjectOpen || !m_SceneLayer) {
+        m_QuitAfterSave = false;
         return;
+    }
+    if (!m_Context.IsEditing()) {
+        m_QuitAfterSave = false;
+        ShowProjectResult("Stop Play mode before completing a file operation.", false);
+        return;
+    }
+    if (result.operation == EditorFileOperation::OpenScene && m_SceneLayer->IsDirty()) {
+        ShowProjectResult("Save the current scene before opening another scene.", false);
+        return;
+    }
     if (result.operation == EditorFileOperation::OpenScene) {
         if (m_SceneLayer->LoadScene(result.path)) {
             m_Context.SetSceneViewMode(EditorWorldViewMode::EditorWorld);
@@ -1603,20 +1760,26 @@ void EditorLayer::ProcessDialogResults() {
         } else
             Logger::Error("[Editor] Failed to open scene: ", result.path);
     } else if (result.operation == EditorFileOperation::SaveScene) {
-        if (!m_SceneLayer->SaveSceneAs(result.path))
-            Logger::Error("[Editor] Failed to save scene: ", result.path);
-        else {
+        if (!m_SceneLayer->SaveSceneAs(result.path)) {
+            m_QuitAfterSave = false;
+            ShowProjectResult("Failed to save scene: " + result.path, true);
+        } else {
             m_Project.SetLastScenePath(result.path);
             OnSceneSaveSucceeded();
         }
     } else if (result.operation == EditorFileOperation::ImportAsset) {
-        m_ImportService.Import(result.path);
+        if (!m_ImportService.Import(result.path))
+            ShowProjectResult("Import failed. Check the file format and Log Output for details.", true);
     }
 }
 
 void EditorLayer::NewScene() {
-    if (!m_Context.IsEditing())
+    if (!m_Context.IsEditing() || !m_SceneLayer)
         return;
+    if (m_SceneLayer->IsDirty()) {
+        ShowProjectResult("Save the current scene before creating a new scene.", false);
+        return;
+    }
     m_SceneLayer->NewScene();
     m_Context.SetSceneViewMode(EditorWorldViewMode::EditorWorld);
     m_Context.GetSelection().Clear();
@@ -1624,6 +1787,10 @@ void EditorLayer::NewScene() {
 }
 
 void EditorLayer::OpenSceneDialog() {
+    if (m_SceneLayer && m_SceneLayer->IsDirty()) {
+        ShowProjectResult("Save the current scene before opening another scene.", false);
+        return;
+    }
     if (m_Context.IsEditing())
         m_DialogService.RequestOpenScene(m_Window);
 }
@@ -1632,8 +1799,12 @@ void EditorLayer::SaveScene() {
     if (!m_SceneLayer)
         return;
     if (m_SceneLayer->HasFilePath()) {
-        if (m_SceneLayer->SaveScene())
+        if (m_SceneLayer->SaveScene()) {
             OnSceneSaveSucceeded();
+        } else {
+            m_QuitAfterSave = false;
+            ShowProjectResult("Failed to save scene. The editor will remain open.", true);
+        }
     } else
         m_DialogService.RequestSaveScene(m_Window);
 }

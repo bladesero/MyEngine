@@ -466,6 +466,9 @@ void InspectorPanel::DrawContent() {
     ImGui::BeginDisabled(!canEditSelection);
     const bool multiActorSelection = m_SelectedObject.IsActor() && context->GetSelection().GetActorIDs().size() > 1;
     if (multiActorSelection) {
+        // Snapshot commands recreate scene actors. Queue mutations until this UI
+        // branch finishes so cached Actor* and property lists stay valid while drawn.
+        std::vector<std::function<void()>> pendingEdits;
         std::vector<Actor*> actors = ResolveSelectedActors(*context, *scene);
         const std::vector<uint64_t> actorIDs = ActorIDsFor(actors);
         ImGui::Text("%zu Actors Selected", actors.size());
@@ -476,13 +479,13 @@ void InspectorPanel::DrawContent() {
         ImGui::Text("Active: %s", hasCommonActive ? (commonActive ? "On" : "Off") : "Mixed");
         if (ImGui::Button("Set Active")) {
             if (auto* operators = context->GetOperators()) {
-                operators->Commands().SetActorsActive(*context, actorIDs, true);
+                pendingEdits.emplace_back([=]() { operators->Commands().SetActorsActive(*context, actorIDs, true); });
             }
         }
         ImGui::SameLine();
         if (ImGui::Button("Set Inactive")) {
             if (auto* operators = context->GetOperators()) {
-                operators->Commands().SetActorsActive(*context, actorIDs, false);
+                pendingEdits.emplace_back([=]() { operators->Commands().SetActorsActive(*context, actorIDs, false); });
             }
         }
 
@@ -502,7 +505,8 @@ void InspectorPanel::DrawContent() {
         }
         if (ImGui::IsItemDeactivatedAfterEdit()) {
             if (auto* operators = context->GetOperators()) {
-                operators->Commands().SetActorsTag(*context, actorIDs, m_MultiActorTagBuffer);
+                pendingEdits.emplace_back(
+                    [=]() { operators->Commands().SetActorsTag(*context, actorIDs, m_MultiActorTagBuffer); });
             }
             m_MultiActorTagDirty = false;
         }
@@ -513,7 +517,7 @@ void InspectorPanel::DrawContent() {
             ImGui::TextDisabled("Layer: Mixed");
         if (ImGui::InputScalar("Layer", ImGuiDataType_U32, &layer)) {
             if (auto* operators = context->GetOperators()) {
-                operators->Commands().SetActorsLayer(*context, actorIDs, layer);
+                pendingEdits.emplace_back([=]() { operators->Commands().SetActorsLayer(*context, actorIDs, layer); });
             }
         }
 
@@ -522,13 +526,13 @@ void InspectorPanel::DrawContent() {
         ImGui::Text("Static: %s", hasCommonStatic ? (commonStatic ? "On" : "Off") : "Mixed");
         if (ImGui::Button("Set Static")) {
             if (auto* operators = context->GetOperators()) {
-                operators->Commands().SetActorsStatic(*context, actorIDs, true);
+                pendingEdits.emplace_back([=]() { operators->Commands().SetActorsStatic(*context, actorIDs, true); });
             }
         }
         ImGui::SameLine();
         if (ImGui::Button("Clear Static")) {
             if (auto* operators = context->GetOperators()) {
-                operators->Commands().SetActorsStatic(*context, actorIDs, false);
+                pendingEdits.emplace_back([=]() { operators->Commands().SetActorsStatic(*context, actorIDs, false); });
             }
         }
 
@@ -540,8 +544,10 @@ void InspectorPanel::DrawContent() {
         float positionValues[3] = {position.x, position.y, position.z};
         if (ImGui::DragFloat3("Position", positionValues, 0.05f)) {
             if (auto* operators = context->GetOperators()) {
-                operators->Commands().SetActorsPosition(*context, actorIDs,
-                                                        {positionValues[0], positionValues[1], positionValues[2]});
+                pendingEdits.emplace_back([=]() {
+                    operators->Commands().SetActorsPosition(*context, actorIDs,
+                                                            {positionValues[0], positionValues[1], positionValues[2]});
+                });
             }
         }
         Vec3 rotation = Vec3::Zero();
@@ -551,8 +557,10 @@ void InspectorPanel::DrawContent() {
         float rotationValues[3] = {rotation.x, rotation.y, rotation.z};
         if (ImGui::DragFloat3("Rotation", rotationValues, 0.5f)) {
             if (auto* operators = context->GetOperators()) {
-                operators->Commands().SetActorsRotation(*context, actorIDs,
-                                                        {rotationValues[0], rotationValues[1], rotationValues[2]});
+                pendingEdits.emplace_back([=]() {
+                    operators->Commands().SetActorsRotation(*context, actorIDs,
+                                                            {rotationValues[0], rotationValues[1], rotationValues[2]});
+                });
             }
         }
         Vec3 scale = Vec3::One();
@@ -562,8 +570,10 @@ void InspectorPanel::DrawContent() {
         float scaleValues[3] = {scale.x, scale.y, scale.z};
         if (ImGui::DragFloat3("Scale", scaleValues, 0.01f)) {
             if (auto* operators = context->GetOperators()) {
-                operators->Commands().SetActorsScale(*context, actorIDs,
-                                                     {scaleValues[0], scaleValues[1], scaleValues[2]});
+                pendingEdits.emplace_back([=]() {
+                    operators->Commands().SetActorsScale(*context, actorIDs,
+                                                         {scaleValues[0], scaleValues[1], scaleValues[2]});
+                });
             }
         }
 
@@ -579,7 +589,8 @@ void InspectorPanel::DrawContent() {
                     ImGui::SameLine();
                     if (ImGui::SmallButton("Remove")) {
                         if (auto* operators = context->GetOperators()) {
-                            operators->Components().RemoveComponents(*context, actorIDs, typeName);
+                            pendingEdits.emplace_back(
+                                [=]() { operators->Components().RemoveComponents(*context, actorIDs, typeName); });
                         }
                     }
                     if (open) {
@@ -597,24 +608,30 @@ void InspectorPanel::DrawContent() {
                                     bool value = property.value.get<bool>();
                                     if (ImGui::Checkbox(property.name.c_str(), &value)) {
                                         if (auto* operators = context->GetOperators()) {
-                                            operators->Components().SetComponentPropertyForActors(
-                                                *context, actorIDs, typeName, property.name, value);
+                                            pendingEdits.emplace_back([=]() {
+                                                operators->Components().SetComponentPropertyForActors(
+                                                    *context, actorIDs, typeName, property.name, value);
+                                            });
                                         }
                                     }
                                 } else if (property.value.is_number_integer() || property.value.is_number_unsigned()) {
                                     int value = property.value.get<int>();
                                     if (ImGui::InputInt(property.name.c_str(), &value)) {
                                         if (auto* operators = context->GetOperators()) {
-                                            operators->Components().SetComponentPropertyForActors(
-                                                *context, actorIDs, typeName, property.name, value);
+                                            pendingEdits.emplace_back([=]() {
+                                                operators->Components().SetComponentPropertyForActors(
+                                                    *context, actorIDs, typeName, property.name, value);
+                                            });
                                         }
                                     }
                                 } else if (property.value.is_number_float()) {
                                     float value = property.value.get<float>();
                                     if (ImGui::DragFloat(property.name.c_str(), &value, 0.01f)) {
                                         if (auto* operators = context->GetOperators()) {
-                                            operators->Components().SetComponentPropertyForActors(
-                                                *context, actorIDs, typeName, property.name, value);
+                                            pendingEdits.emplace_back([=]() {
+                                                operators->Components().SetComponentPropertyForActors(
+                                                    *context, actorIDs, typeName, property.name, value);
+                                            });
                                         }
                                     }
                                 } else if (IsEditableVec3Json(property.value)) {
@@ -622,9 +639,11 @@ void InspectorPanel::DrawContent() {
                                                        property.value[2].get<float>()};
                                     if (ImGui::DragFloat3(property.name.c_str(), values, 0.01f)) {
                                         if (auto* operators = context->GetOperators()) {
-                                            operators->Components().SetComponentPropertyForActors(
-                                                *context, actorIDs, typeName, property.name,
-                                                nlohmann::json::array({values[0], values[1], values[2]}));
+                                            pendingEdits.emplace_back([=]() {
+                                                operators->Components().SetComponentPropertyForActors(
+                                                    *context, actorIDs, typeName, property.name,
+                                                    nlohmann::json::array({values[0], values[1], values[2]}));
+                                            });
                                         }
                                     }
                                 }
@@ -686,7 +705,10 @@ void InspectorPanel::DrawContent() {
                     const std::string label = ComponentDisplayName(type);
                     if (ImGui::Selectable(label.c_str()) && !existsOnAny) {
                         if (auto* operators = context->GetOperators()) {
-                            operators->Components().AddComponents(*context, actorIDs, type, nlohmann::json::object());
+                            pendingEdits.emplace_back([=]() {
+                                operators->Components().AddComponents(*context, actorIDs, type,
+                                                                      nlohmann::json::object());
+                            });
                         }
                     }
                     if (ImGui::IsItemHovered())
@@ -700,6 +722,8 @@ void InspectorPanel::DrawContent() {
         }
 
         ImGui::EndDisabled();
+        for (auto& edit : pendingEdits)
+            edit();
         return;
     }
 
@@ -1006,6 +1030,7 @@ void InspectorPanel::DrawContent() {
     if (EditorAngelScriptDomain* domain = context->GetEditorScriptDomain();
         domain && domain->IsLoaded() && domain->GetConfig().enableInspectorExtensions) {
         for (const auto& section : domain->GetRegistry().GetInspectors()) {
+            actor = m_SelectedObject.IsActor() ? context->GetSelection().ResolveActor(*scene) : nullptr;
             if (!MatchesScriptInspectorTarget(section, m_SelectedObject, actor))
                 continue;
             std::string error;

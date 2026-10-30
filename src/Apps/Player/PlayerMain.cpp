@@ -132,9 +132,9 @@ protected:
                                                                           : ShaderCacheMode::EditorOnDemandCompile);
         ShaderCacheService::Get().ClearResolver();
         if (!m_PublishedContentMounted) {
-            const std::string target = PublishTargets::kDefaultTargetId;
-            ShaderCacheService::Get().ConfigureFileSystemCache(
-                m_Project.GetRoot() / "Library" / target / "ShaderCache", target);
+            const std::string target = PublishTargets::kDefaultCacheTargetId;
+            ShaderCacheService::Get().ConfigureFileSystemCache(m_Project.GetRoot() / "Library" / target / "ShaderCache",
+                                                               target);
             Logger::Info("[Player] Content.pak not mounted; using the development shader cache");
         }
         LoadProjectInputConfig();

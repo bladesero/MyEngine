@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Editor/Cooking/CookDependencyGraph.h"
+#include "Assets/ShaderAsset.h"
 
 #include <cstdint>
 #include <filesystem>
@@ -46,6 +47,7 @@ struct ProjectValidationReport {
 
 class ProjectValidator {
 public:
+    static std::vector<ShaderBackend> ShaderBackendsForValidation(const std::string& requestedBackend);
     static bool Validate(const ProjectConfig& project, ProjectValidationReport& report,
                          const ProjectValidationOptions& options = {});
 };

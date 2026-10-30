@@ -14,6 +14,7 @@ void DrawToolbar()
     UI::ToolbarActionButtonEx("play.start", "play-start", 1, true);
     UI::ToolbarActionButtonEx("play.stop", "play-stop", 2, true);
     UI::ToolbarActionButtonEx("play.pause", "play-pause", 3, true);
+    UI::ToolbarActionButtonEx("play.resume", "play-resume", 1, true);
     UI::ToolbarActionButtonEx("play.step", "play-step", 0, false);
 }
 

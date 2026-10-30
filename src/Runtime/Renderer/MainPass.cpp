@@ -18,9 +18,6 @@
 #include <string>
 #include <vector>
 
-#ifdef MYENGINE_PLATFORM_WINDOWS
-#endif
-
 namespace {
 
 struct SkyConstants {
@@ -216,7 +213,14 @@ MainPass::GetOrCreateMaterialBindGroup(GpuShader* shader, const MaterialAsset& m
 
     auto createBindGroup = [&]() -> std::shared_ptr<GpuBindGroup> {
         ++m_LastStats.bindGroupCreates;
-        auto bindings = Device()->CreateBindGroup(m_MainShaderHandle ? m_MainShaderHandle->shader : nullptr);
+        // The material may use a custom shader with a completely different descriptor layout from the main PBR
+        // shader. Bind resources against the exact shader used to create this draw's pipeline.
+        std::shared_ptr<GpuShader> shaderHandle;
+        if (material.GetShader() == shader)
+            shaderHandle = material.GetShaderHandle();
+        else if (m_MainShaderHandle && m_MainShaderHandle->shader.get() == shader)
+            shaderHandle = m_MainShaderHandle->shader;
+        auto bindings = Device()->CreateBindGroup(shaderHandle);
         if (!bindings)
             return nullptr;
         for (uint32_t slot = 0; slot < slotCount; ++slot) {
@@ -289,14 +293,15 @@ GpuShader* MainPass::GetOrCreateShader() {
         }
     }
 #else
-    if (Device()->GetBackend() == RHIBackend::Metal) {
+    // Vulkan uses cooked/cached SPIR-V on every platform; it cannot compile the legacy inline HLSL source.
+    if (Device()->GetBackend() == RHIBackend::Metal || Device()->GetBackend() == RHIBackend::Vulkan) {
         if (!m_MainShaderHandle) {
             m_MainShaderHandle = ShaderManager::Get().GetOrCreate(EngineShaders::kShadowedMainPass, k_MeshVertexLayout,
                                                                   k_MeshVertexLayoutCount);
             m_ShaderMode = ShaderMode::ShadowedPbr;
         }
         if ((!m_MainShaderHandle || !m_MainShaderHandle->shader) && m_ShaderMode == ShaderMode::ShadowedPbr) {
-            Logger::Warn("[MainPass] Metal PBR shader failed; fallback to legacy shader");
+            Logger::Warn("[MainPass] PBR shader failed; fallback to legacy shader");
             m_MainShaderHandle =
                 ShaderManager::Get().GetOrCreate(EngineShaders::kMesh, k_MeshVertexLayout, k_MeshVertexLayoutCount);
             m_ShaderMode = ShaderMode::Legacy;

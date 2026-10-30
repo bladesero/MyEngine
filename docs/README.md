@@ -7,6 +7,7 @@
 
 ## 快速入口
 
+- [Linux Vulkan 构建与验证](./linux-vulkan.md)
 - [架构总览](./architecture.md)
 - [类文档索引](./classes/INDEX.md)
 

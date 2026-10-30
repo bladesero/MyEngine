@@ -4,6 +4,7 @@
 #include "Assets/AssetManager.h"
 #include "Core/Sha256.h"
 #include "Project/RuntimeCompatibility.h"
+#include "Project/PublishTargets.h"
 #include "Renderer/ShaderCooker.h"
 
 #include <nlohmann/json.hpp>
@@ -111,7 +112,7 @@ std::string StableVirtualShaderUuid(const std::filesystem::path& source) {
 bool AssetImportService::OpenProject(const std::filesystem::path& projectRoot, std::string* error) {
     m_ProjectRoot = std::filesystem::absolute(projectRoot).lexically_normal();
     std::filesystem::create_directories(m_ProjectRoot / "SourceAssets");
-    std::filesystem::create_directories(m_ProjectRoot / "Library/windows-x64");
+    std::filesystem::create_directories(m_ProjectRoot / "Library" / PublishTargets::kDefaultCacheTargetId);
     if (m_Importers.empty()) {
         RegisterImporter(CreateGltfModelAssetImporter());
         RegisterImporter(CreateShaderAssetImporter());
@@ -150,10 +151,12 @@ std::string AssetImportService::BuildCacheKey(const IAssetImporter& importer, co
     Sha256 hash;
     std::string dependencyContract;
     if (std::string(importer.GetName()) == "shader") {
-        const std::vector<ShaderBackend> backends = ShaderCooker::BackendsForTargetPlatform("windows-x64");
+        const std::vector<ShaderBackend> backends =
+            ShaderCooker::BackendsForTargetPlatform(PublishTargets::kDefaultCacheTargetId);
         std::vector<std::string> dependencies;
-        const std::string shaderKey = ShaderCooker::BuildCacheKey(source, FindShaderContentRoot(source), backends,
-                                                                  "windows-x64", settingsJson, &dependencies, error);
+        const std::string shaderKey =
+            ShaderCooker::BuildCacheKey(source, FindShaderContentRoot(source), backends,
+                                        PublishTargets::kDefaultCacheTargetId, settingsJson, &dependencies, error);
         if (shaderKey.empty())
             return {};
         dependencyContract += "|shader:";
@@ -180,7 +183,7 @@ std::string AssetImportService::BuildCacheKey(const IAssetImporter& importer, co
     }
     const std::string contract = sourceHash + dependencyContract + "|" + settingsJson + "|" + importer.GetName() + "|" +
                                  std::to_string(importer.GetVersion()) + "|" + RuntimeCompatibility::kBuildId +
-                                 "|windows-x64";
+                                 std::string("|") + PublishTargets::kDefaultCacheTargetId;
     hash.Update(contract.data(), contract.size());
     return Sha256::ToHex(hash.Final());
 }
@@ -243,8 +246,8 @@ AssetImportReport AssetImportService::ImportSourceInternal(const std::filesystem
     const std::string cacheKey = BuildCacheKey(*importer, source, settingsJson, error);
     if (cacheKey.empty())
         return report;
-    const auto artifact =
-        m_ProjectRoot / "Library/windows-x64" / meta.uuid / (cacheKey + importer->GetArtifactExtension(source));
+    const auto artifact = m_ProjectRoot / "Library" / PublishTargets::kDefaultCacheTargetId / meta.uuid /
+                          (cacheKey + importer->GetArtifactExtension(source));
     AssetRecord previous;
     const AssetRecord* existing = m_Database.FindByUuid(meta.uuid);
     if (existing)
@@ -259,7 +262,7 @@ AssetImportReport AssetImportService::ImportSourceInternal(const std::filesystem
     const auto stagingArtifact = std::filesystem::path(artifact.string() + ".import-staging");
     std::error_code fileError;
     std::filesystem::remove(stagingArtifact, fileError);
-    ImportRequest request{source, stagingArtifact, meta.uuid, settingsJson, "windows-x64"};
+    ImportRequest request{source, stagingArtifact, meta.uuid, settingsJson, PublishTargets::kDefaultCacheTargetId};
     ImportResult result = importer->Import(request);
     AssetRecord record = existing ? *existing : AssetRecord{};
     record.uuid = meta.uuid;

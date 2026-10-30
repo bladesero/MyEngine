@@ -62,7 +62,7 @@ public:
     void OnAttach() override;
     void OnDetach() override;
     void OnUpdate(float deltaSeconds) override;
-    void OnEvent(Event& event) override { (void)event; }
+    void OnEvent(Event& event) override;
     void OnRender() override;
 
 private:
@@ -71,6 +71,7 @@ private:
     void DrawProjectSettings();
     void DrawProjectResult();
     void DrawRecoveryDialog();
+    void DrawCloseConfirmation();
     void DrawShortcutSettingsTab();
     void DrawMainMenuBar();
     void DrawScriptMenuItems(const char* topLevel);
@@ -85,6 +86,7 @@ private:
     void LoadProjectInputConfig();
     void CreateDefaultInputConfig();
     void DispatchEditorShortcuts();
+    EditorPanel* GetActionContextPanel() const;
     bool DispatchPanelAction(std::string_view actionID);
     bool CanFocusedPanelHandleAction(std::string_view actionID) const;
     bool CanVisiblePanelHandleAction(std::string_view actionID) const;
@@ -153,6 +155,7 @@ private:
     int m_DeviceProfileIndex = 0;
     bool m_HardwareRayTracing = false;
     std::string m_ProjectError;
+    std::string m_LastFocusedPanelID;
     std::string m_ProjectResult;
     std::string m_CapturingShortcutAction;
     std::string m_ShortcutCaptureError;
@@ -165,6 +168,10 @@ private:
     float m_RecoveryElapsedSeconds = 0.0f;
     bool m_RecoveryDialogRequested = false;
     bool m_ProjectSettingsRequested = false;
+    bool m_CloseDialogRequested = false;
+    bool m_QuitAfterSave = false;
+    bool m_AllowQuit = false;
+    bool m_DiscardOnQuit = false;
     bool m_ProjectResultRequested = false;
     bool m_ProjectResultIsError = false;
     bool m_ProjectOpen = false;

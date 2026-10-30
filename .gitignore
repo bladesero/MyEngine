@@ -48,6 +48,9 @@ Saved/PerformanceReports/**
 # Compiled output
 *.o
 *.obj
+# Wavefront source assets are not compiler object files.
+!Content/**/*.obj
+!EngineContent/**/*.obj
 *.a
 *.lib
 *.dll

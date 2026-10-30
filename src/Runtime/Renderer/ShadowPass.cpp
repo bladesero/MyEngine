@@ -28,7 +28,9 @@ const VertexElement k_StaticShadowVertexLayout[] = {
     {"POSITION", 0, VertexFormat::Float3, offsetof(MeshVertex, position)},
     {"TEXCOORD", 0, VertexFormat::Float2, offsetof(MeshVertex, u)},
     {"COLOR", 0, VertexFormat::Float4, offsetof(MeshVertex, color)},
-#if defined(MYENGINE_PLATFORM_MACOS)
+#if defined(MYENGINE_PLATFORM_MACOS) || defined(MYENGINE_PLATFORM_LINUX)
+    // These backends infer the interleaved stride from the layout's largest field extent. Static shadows still
+    // consume MeshVertex buffers, so retain the final field even though their vertex shader does not read it.
     {"BLENDWEIGHT", 0, VertexFormat::Float4, offsetof(MeshVertex, boneWeights)},
 #endif
 };

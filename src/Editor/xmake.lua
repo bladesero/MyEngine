@@ -4,7 +4,7 @@ local syslinks = {}
 local frameworks = {}
 
 local editor_backends = path.join(os.scriptdir(), "Backends")
-if not (is_plat("windows") and myengine_enable_vulkan()) then
+if not myengine_enable_vulkan() then
     table.insert(excluded_dirs, path.join(editor_backends, "Vulkan"))
 else
     table.insert(private_packages, "vulkan-headers")
@@ -32,7 +32,7 @@ myengine_library({
     syslinks = syslinks,
     frameworks = frameworks,
     configure = function()
-        if is_plat("windows") and myengine_enable_vulkan() then
+        if myengine_enable_vulkan() then
             add_vulkan_loader_link()
         end
     end

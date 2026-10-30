@@ -33,5 +33,11 @@ myengine_library({
     private_packages = {"imgui", "angelscript"},
     defines = lua_defines,
     syslinks = lua_syslinks,
+    configure = function()
+        -- This static archive is linked into the Runtime shared library.
+        if is_plat("linux") then
+            add_cxflags("-fPIC")
+        end
+    end,
     warnings = "none"
 })

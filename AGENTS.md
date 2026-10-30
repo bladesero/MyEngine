@@ -6,14 +6,14 @@
 
 ## What this is
 
-- **C++17** game/engine codebase: **SDL3** windowing and events, **ImGui** + **ImGuizmo** editor UI, scene graph (**Scene** / **Actor** / components), **JSON** scene serialization (**nlohmann_json**), rendering via **IRenderContext** (D3D11/D3D12 on Windows, Metal on macOS).
+- **C++17** game/engine codebase: **SDL3** windowing and events, **ImGui** + **ImGuizmo** editor UI, scene graph (**Scene** / **Actor** / components), **JSON** scene serialization (**nlohmann_json**), rendering via **IRenderContext** (D3D11/D3D12 on Windows, Metal on macOS, Vulkan on Linux).
 - The build produces three engine libraries: `MyEngine.ThirdParty` (static), `MyEngineRuntime` (shared, `runtime` basename), and `MyEngine.Editor` (static). Runtime sources compile directly into the DLL; Editor, Cooking, and Editor backends compile once into the Editor library.
 
 ---
 
 ## Build and run
 
-- **Prerequisites**: [xmake](https://xmake.io/) ≥ **3.0.7**, C++17 toolchain (MSVC on Windows, Clang on macOS). On Windows, **PowerShell** is used for HLSL embedding (see below).
+- **Prerequisites**: [xmake](https://xmake.io/) ≥ **3.0.7**, C++17 toolchain (MSVC on Windows, Clang on macOS, GCC/Clang on Linux). On Windows, **PowerShell** is used for HLSL embedding (see below).
 - **Smoke check** (recommended before/after engine changes):
 
 ```powershell
@@ -117,7 +117,7 @@ runtime cache. Publishing currently supports Windows x64 only.
 
 ## Platform gaps
 
-- **Linux**: `MYENGINE_PLATFORM_LINUX` may be defined, but there is **no** `IRenderContext` implementation in-repo yet; do not assume a GPU backend exists there.
+- **Linux**: Vulkan is enabled by default. Build with `tools/build-linux.sh`; see `docs/linux-vulkan.md` for driver, Slang, display, validation, and missing sample-asset requirements. Linux publishing remains unsupported.
 
 ---
 

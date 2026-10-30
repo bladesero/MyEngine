@@ -1,6 +1,7 @@
 #include "Core/Application.h"
 #include "Core/Logger.h"
 #include "Core/CrashHandler.h"
+#include "Core/Memory/MemoryService.h"
 #include "Assets/AssetManager.h"
 #include "Input/Input.h"
 #include "Miscs/IconsManager.h"
@@ -25,6 +26,9 @@ int Application::Run() {
     //    and call SwapBuffers at the right time.
     m_Engine.SetWindow(m_Window.get());
 
+    // Track actors created by the startup scene before Engine::RunLoop begins.
+    MemoryService::Get().Init();
+
     // 3. Let the derived class push layers / load resources.
     const bool initialized = OnInit();
 
@@ -46,6 +50,7 @@ int Application::Run() {
 
     // 6. Derived-class teardown.
     OnShutdown();
+    MemoryService::Get().Shutdown(); // Also handles an initialization failure before RunLoop.
 
     // 7. Tear down input state before SDL shuts down.
     Input::Shutdown();

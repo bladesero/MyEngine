@@ -42,7 +42,8 @@ private:
     struct ScriptSnapshot {
         bool valid = false;
         uint64_t fileCount = 0;
-        std::filesystem::file_time_type newestWriteTime{};
+        // libstdc++ file-clock timestamps can be negative relative to its epoch.
+        std::filesystem::file_time_type newestWriteTime = std::filesystem::file_time_type::min();
     };
 
     struct RegisterCallback {

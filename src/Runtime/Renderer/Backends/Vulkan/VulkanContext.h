@@ -2,7 +2,7 @@
 
 #include "Core/Platform.h"
 
-#ifdef MYENGINE_PLATFORM_WINDOWS
+#if defined(MYENGINE_PLATFORM_WINDOWS) || defined(MYENGINE_PLATFORM_LINUX)
 
 #include "Renderer/RHI/IRenderContext.h"
 #include "Renderer/RHI/IEditorImGuiRHIInterop.h"
@@ -33,6 +33,7 @@ public:
     GpuSwapChain* GetSwapChain() override;
     GpuTextureView* GetCurrentBackBufferView() override;
     RHIBackend GetBackend() const override { return RHIBackend::Vulkan; }
+    RHIDeviceIdentity GetDeviceIdentity() const override;
     IEditorImGuiRHIInterop* QueryEditorImGuiInterop() override { return this; }
     ImGuiBackendHandles GetImGuiBackendHandles() override;
     void SetImGuiTextureInteropReady(bool ready) override;

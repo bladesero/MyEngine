@@ -1,4 +1,4 @@
-﻿#include "Editor/InspectorSectionShared.h"
+#include "Editor/InspectorSectionShared.h"
 
 namespace {
 class TransformInspectorSection final : public ActorInspectorSection {
@@ -403,8 +403,15 @@ public:
             return;
         }
         bool enabled = skylight->IsEnabled();
-        if (ImGui::Checkbox("Enabled", &enabled))
+        if (ImGui::Checkbox("Enabled", &enabled)) {
             CommitComponentEnabledEdit(context, *actor, *skylight, enabled);
+            actor = SelectedActor(context);
+            skylight = actor ? actor->GetComponent<SkylightComponent>() : nullptr;
+            if (!skylight) {
+                ImGui::PopID();
+                return;
+            }
+        }
 
         auto drawHdrColor = [&](const char* label, const Vec3& value, const char* propertyName, auto&& setter) {
             float values[3] = {value.x, value.y, value.z};

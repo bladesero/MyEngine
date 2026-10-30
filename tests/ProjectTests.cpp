@@ -532,6 +532,9 @@ bool TestWorkspaceCookAndPublish() {
     if (!Check(project.Save(&error), "failed to restore Windows publish target"))
         return false;
 
+#ifdef MYENGINE_PLATFORM_LINUX
+    return SkipTest("Linux publishing is not implemented; Windows/macOS publish gates require their supported host");
+#endif
     const auto binaries = base / "Binaries";
     fs::create_directories(binaries);
 #ifdef _WIN32

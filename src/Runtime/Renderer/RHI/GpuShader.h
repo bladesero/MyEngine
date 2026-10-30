@@ -31,6 +31,8 @@ struct ShaderBindingDesc {
 struct ShaderInputDesc {
     std::string semantic;
     uint32_t semanticIndex = 0;
+    // Explicit shader input location. Older/native reflectors may provide semantics only.
+    uint32_t location = UINT32_MAX;
 };
 
 struct ShaderReflection {

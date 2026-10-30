@@ -175,6 +175,8 @@ const char* BackendName(ShaderBackend backend) {
 std::vector<ShaderBackend> BackendsForTargetPlatform(const std::string& targetPlatform) {
     if (targetPlatform == "macos-arm64")
         return {ShaderBackend::Metal};
+    if (targetPlatform == "linux-x64" || targetPlatform == "linux-arm64" || targetPlatform == "linux")
+        return {ShaderBackend::Vulkan};
 #if defined(MYENGINE_ENABLE_VULKAN)
     return {ShaderBackend::D3D11, ShaderBackend::D3D12, ShaderBackend::Vulkan};
 #else
@@ -272,10 +274,10 @@ std::string BuildCacheKey(const fs::path& source, const fs::path& allowedRoot,
     // otherwise an unchanged HLSL file can keep an older artifact with missing or mis-typed resource bindings.
     const std::string cookerContract =
         std::string(RuntimeCompatibility::kBuildId) +
-        "|shader-cooker-v8-slang-metal-container1-nativebindings1-stablepublish1-objectdraw3-materialsampler1|" +
+        "|shader-cooker-v8-slang-metal-container1-nativebindings1-stablepublish1-objectdraw3-materialsampler1-"
+        "vertexinputs1|" +
         (usesSlang ? ShaderCompilerSlang::GetVersionString() : "fxc") + "|" +
-        std::to_string(description->GetSourceHash()) + "|" + targetPlatform + "|" + settingsJson + "|" +
-        graphContract +
+        std::to_string(description->GetSourceHash()) + "|" + targetPlatform + "|" + settingsJson + "|" + graphContract +
         (usesMetal ? "|metal-transform-" + std::to_string(MetalShaderArtifact::kTransformationAbi) +
                          "|metal3.0|macos14.0|" + MetalShaderArtifact::GetToolchainFingerprint()
                    : std::string{});
@@ -456,13 +458,12 @@ ShaderCookResult Cook(const ShaderCookRequest& request, std::string* error) {
                     result.diagnostics.push_back({"error", error ? *error : "Metal ABI transformation failed"});
                     return result;
                 }
-                const ShaderStageSource& sourceStage =
-                    description->IsGraph() ? generatedStages[static_cast<size_t>(ShaderStage::Compute)]
-                                           : description->GetPassStage(pass, ShaderStage::Compute);
-                if (!MetalShaderArtifact::BuildCookedPayload(
-                        source, sourceStage.entry, supportsIndirectCommandBuffers,
-                        metalBlobs[static_cast<size_t>(ShaderStage::Compute)], nullptr, error,
-                        request.cancellationRequested)) {
+                const ShaderStageSource& sourceStage = description->IsGraph()
+                                                           ? generatedStages[static_cast<size_t>(ShaderStage::Compute)]
+                                                           : description->GetPassStage(pass, ShaderStage::Compute);
+                if (!MetalShaderArtifact::BuildCookedPayload(source, sourceStage.entry, supportsIndirectCommandBuffers,
+                                                             metalBlobs[static_cast<size_t>(ShaderStage::Compute)],
+                                                             nullptr, error, request.cancellationRequested)) {
                     if (!generatedPath.empty())
                         fs::remove(generatedPath, ec);
                     result.diagnostics.push_back({"error", error ? *error : "Metal library compilation failed"});
@@ -482,20 +483,20 @@ ShaderCookResult Cook(const ShaderCookRequest& request, std::string* error) {
                     result.diagnostics.push_back({"error", error ? *error : "Metal ABI transformation failed"});
                     return result;
                 }
-                const ShaderStageSource& vertexStage =
-                    description->IsGraph() ? generatedStages[static_cast<size_t>(ShaderStage::Vertex)]
-                                           : description->GetPassStage(pass, ShaderStage::Vertex);
-                const ShaderStageSource& pixelStage =
-                    description->IsGraph() ? generatedStages[static_cast<size_t>(ShaderStage::Pixel)]
-                                           : description->GetPassStage(pass, ShaderStage::Pixel);
-                if (!MetalShaderArtifact::BuildCookedPayload(
-                        vertexSource, vertexStage.entry, supportsIndirectCommandBuffers,
-                        metalBlobs[static_cast<size_t>(ShaderStage::Vertex)], nullptr, error,
-                        request.cancellationRequested) ||
-                    !MetalShaderArtifact::BuildCookedPayload(
-                        fragmentSource, pixelStage.entry, supportsIndirectCommandBuffers,
-                        metalBlobs[static_cast<size_t>(ShaderStage::Pixel)], nullptr, error,
-                        request.cancellationRequested)) {
+                const ShaderStageSource& vertexStage = description->IsGraph()
+                                                           ? generatedStages[static_cast<size_t>(ShaderStage::Vertex)]
+                                                           : description->GetPassStage(pass, ShaderStage::Vertex);
+                const ShaderStageSource& pixelStage = description->IsGraph()
+                                                          ? generatedStages[static_cast<size_t>(ShaderStage::Pixel)]
+                                                          : description->GetPassStage(pass, ShaderStage::Pixel);
+                if (!MetalShaderArtifact::BuildCookedPayload(vertexSource, vertexStage.entry,
+                                                             supportsIndirectCommandBuffers,
+                                                             metalBlobs[static_cast<size_t>(ShaderStage::Vertex)],
+                                                             nullptr, error, request.cancellationRequested) ||
+                    !MetalShaderArtifact::BuildCookedPayload(fragmentSource, pixelStage.entry,
+                                                             supportsIndirectCommandBuffers,
+                                                             metalBlobs[static_cast<size_t>(ShaderStage::Pixel)],
+                                                             nullptr, error, request.cancellationRequested)) {
                     if (!generatedPath.empty())
                         fs::remove(generatedPath, ec);
                     result.diagnostics.push_back({"error", error ? *error : "Metal library compilation failed"});

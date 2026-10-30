@@ -6,7 +6,8 @@
 
 // ============================================================================
 // Legacy Metal source. Windows uses Content/Engine/Shaders/Mesh.shader.
-// (built with dxc via xmake). macOS uses MSL below. Linux has no GPU backend yet.
+// (built with dxc via xmake). Vulkan uses Slang SPIR-V with reflected vertex input locations.
+// macOS retains the MSL fallback below.
 //
 // Semantics:
 //   VS constant buffer slot / buffer index 1: MVP (64 bytes) + BaseColor (16 bytes)

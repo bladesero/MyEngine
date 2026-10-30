@@ -69,6 +69,9 @@ void EditorPanel::RegisterContextMenuHandler(ContextMenuHandler handler) {
 }
 
 void EditorPanel::ShowContextMenu(const ContextMenuContext& ctx, EditorContextMenu& menu) {
-    for (auto& handler : m_ContextMenuHandlers)
+    for (auto& handler : m_ContextMenuHandlers) {
+        if (!menu.IsOpen())
+            break;
         handler(ctx, menu);
+    }
 }

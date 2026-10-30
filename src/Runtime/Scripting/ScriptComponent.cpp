@@ -458,7 +458,7 @@ bool ScriptComponent::LoadFileSource(std::string& outSource) {
 
 std::filesystem::file_time_type ScriptComponent::CurrentDependencyWriteTime(bool& valid) const {
     valid = false;
-    std::filesystem::file_time_type newest{};
+    std::filesystem::file_time_type newest = std::filesystem::file_time_type::min();
     auto visit = [&](const std::string& path) {
         if (path.empty())
             return;

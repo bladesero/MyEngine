@@ -20,6 +20,19 @@ inline constexpr const char* kDefaultTargetId = kWindowsX64.id;
 inline constexpr const char* kDefaultTargetLabel = kWindowsX64.label;
 #endif
 
+// Development caches follow the executing platform, even when that host cannot publish a package.
+#if defined(MYENGINE_PLATFORM_LINUX)
+#if defined(__aarch64__)
+inline constexpr const char* kDefaultCacheTargetId = "linux-arm64";
+#elif defined(__x86_64__)
+inline constexpr const char* kDefaultCacheTargetId = "linux-x64";
+#else
+inline constexpr const char* kDefaultCacheTargetId = "linux";
+#endif
+#else
+inline constexpr const char* kDefaultCacheTargetId = kDefaultTargetId;
+#endif
+
 inline constexpr bool IsSupported(std::string_view target) {
     for (const TargetInfo& info : kSupported) {
         if (target == info.id)

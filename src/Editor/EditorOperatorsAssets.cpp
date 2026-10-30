@@ -411,15 +411,9 @@ bool EditorAssetOperator::RevealAsset(EditorContext& context, const std::string&
         RecordAssetOperatorEvent(context, "Reveal Asset", path, ElapsedOperatorMs(start), false);
         return false;
     }
-#if defined(_WIN32)
     const bool ok = RevealExternalPath(assetPath);
     RecordAssetOperatorEvent(context, "Reveal Asset", assetPath.string(), ElapsedOperatorMs(start), ok);
     return ok;
-#else
-    Logger::Info("[Editor] Reveal asset: ", assetPath.string());
-    RecordAssetOperatorEvent(context, "Reveal Asset", assetPath.string(), ElapsedOperatorMs(start), true);
-    return true;
-#endif
 }
 
 std::vector<EditorAssetOperator::SceneReferenceInfo>

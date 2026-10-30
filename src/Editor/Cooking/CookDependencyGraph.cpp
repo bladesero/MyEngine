@@ -2,6 +2,7 @@
 
 #include "Assets/AssetDatabase.h"
 #include "Project/ContentPathPolicy.h"
+#include "Project/PublishTargets.h"
 #include "Project/RuntimePerformanceProfile.h"
 #include "UI/Core/RuntimeUIScreenConfig.h"
 #include "UI/Core/RuntimeUIScreenStack.h"
@@ -101,9 +102,9 @@ std::optional<std::string> ExtractProjectLibraryArtifactUuid(const fs::path& pro
     if (ec)
         absolute = path;
     absolute = absolute.lexically_normal();
-    fs::path libraryRoot = fs::absolute(projectRoot / "Library" / "windows-x64", ec);
+    fs::path libraryRoot = fs::absolute(projectRoot / "Library", ec);
     if (ec)
-        libraryRoot = projectRoot / "Library" / "windows-x64";
+        libraryRoot = projectRoot / "Library";
     libraryRoot = libraryRoot.lexically_normal();
     const fs::path relative = fs::relative(absolute, libraryRoot, ec);
     if (ec || relative.empty() || relative.is_absolute())
@@ -111,9 +112,16 @@ std::optional<std::string> ExtractProjectLibraryArtifactUuid(const fs::path& pro
     auto part = relative.begin();
     if (part == relative.end() || *part == "..")
         return std::nullopt;
+    // Resolve imported references from the native cache and older cross-platform
+    // project caches without treating the platform directory itself as the UUID.
+    const std::string target = part->generic_string();
+    if (target != PublishTargets::kDefaultCacheTargetId && target != "windows-x64" && target != "macos-arm64" &&
+        target != "linux-x64" && target != "linux-arm64")
+        return std::nullopt;
+    if (++part == relative.end())
+        return std::nullopt;
     const std::string uuid = part->generic_string();
-    ++part;
-    if (part == relative.end())
+    if (++part == relative.end())
         return std::nullopt;
     return uuid;
 }

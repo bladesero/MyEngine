@@ -2,7 +2,7 @@
 
 #include "Core/Platform.h"
 
-#if defined(MYENGINE_PLATFORM_WINDOWS)
+#if defined(MYENGINE_ENABLE_VULKAN)
 
 #include "Renderer/RHI/GpuTextureView.h"
 #include "Renderer/RHI/IEditorImGuiRHIInterop.h"

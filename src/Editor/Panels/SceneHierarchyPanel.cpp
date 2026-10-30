@@ -150,8 +150,8 @@ bool ExecuteMoveActorDrop(EditorContext& context, Scene& scene, Actor& source, A
 }
 
 void AddUIActorMenu(EditorContext& context, Actor* parent, EditorContextMenu& menu) {
-    auto addPreset = [&context, parent](const char* presetID) {
-        const uint64_t parentID = parent ? parent->GetID() : 0;
+    const uint64_t parentID = parent ? parent->GetID() : 0;
+    auto addPreset = [&context, parentID](const char* presetID) {
         if (auto* operators = context.GetOperators()) {
             operators->Commands().CreateUIActor(context, presetID, parentID);
         }
@@ -188,9 +188,10 @@ SceneHierarchyPanel::SceneHierarchyPanel() : EditorPanel("sceneHierarchy", "Scen
         if (!scene || !context->IsEditing())
             return;
 
-        menu.AddAction("Create Child Actor", [this, context, scene, actor]() {
+        const uint64_t actorID = actor->GetID();
+        menu.AddAction("Create Child Actor", [this, context, scene, actorID]() {
             if (auto* operators = context->GetOperators()) {
-                operators->Commands().CreateChildActor(*context, "Actor", actor->GetID());
+                operators->Commands().CreateChildActor(*context, "Actor", actorID);
             }
         });
 
@@ -198,36 +199,36 @@ SceneHierarchyPanel::SceneHierarchyPanel() : EditorPanel("sceneHierarchy", "Scen
 
         menu.AddSeparator();
 
-        menu.AddAction("Create Empty Parent", [context, actor]() {
+        menu.AddAction("Create Empty Parent", [context, actorID]() {
             if (auto* operators = context->GetOperators()) {
-                operators->Selection().SelectActor(*context, actor->GetID());
-                operators->Commands().CreateEmptyParent(*context, actor->GetID());
+                operators->Selection().SelectActor(*context, actorID);
+                operators->Commands().CreateEmptyParent(*context, actorID);
             }
         });
 
         if (actor->GetParent()) {
-            menu.AddAction("Unparent", [context, actor]() {
+            menu.AddAction("Unparent", [context, actorID]() {
                 if (auto* operators = context->GetOperators()) {
-                    operators->Selection().SelectActor(*context, actor->GetID());
-                    operators->Commands().UnparentActor(*context, actor->GetID());
+                    operators->Selection().SelectActor(*context, actorID);
+                    operators->Commands().UnparentActor(*context, actorID);
                 }
             });
         }
 
         if (GetPreviousSibling(*scene, *actor)) {
-            menu.AddAction("Move Up", [context, actor]() {
+            menu.AddAction("Move Up", [context, actorID]() {
                 if (auto* operators = context->GetOperators()) {
-                    operators->Selection().SelectActor(*context, actor->GetID());
-                    operators->Commands().MoveActorUp(*context, actor->GetID());
+                    operators->Selection().SelectActor(*context, actorID);
+                    operators->Commands().MoveActorUp(*context, actorID);
                 }
             });
         }
 
         if (GetNextSibling(*scene, *actor)) {
-            menu.AddAction("Move Down", [context, actor]() {
+            menu.AddAction("Move Down", [context, actorID]() {
                 if (auto* operators = context->GetOperators()) {
-                    operators->Selection().SelectActor(*context, actor->GetID());
-                    operators->Commands().MoveActorDown(*context, actor->GetID());
+                    operators->Selection().SelectActor(*context, actorID);
+                    operators->Commands().MoveActorDown(*context, actorID);
                 }
             });
         }
@@ -235,79 +236,79 @@ SceneHierarchyPanel::SceneHierarchyPanel() : EditorPanel("sceneHierarchy", "Scen
         menu.AddSeparator();
 
         if (actor->GetParent()) {
-            menu.AddAction("Select Parent", [context, actor]() {
+            menu.AddAction("Select Parent", [context, parentID = actor->GetParent()->GetID()]() {
                 if (auto* operators = context->GetOperators()) {
-                    operators->Selection().SelectActor(*context, actor->GetParent()->GetID());
+                    operators->Selection().SelectActor(*context, parentID);
                 }
             });
         }
 
         if (Actor* previous = GetPreviousSibling(*scene, *actor)) {
-            menu.AddAction("Select Previous Sibling", [context, previous]() {
+            menu.AddAction("Select Previous Sibling", [context, previousID = previous->GetID()]() {
                 if (auto* operators = context->GetOperators()) {
-                    operators->Selection().SelectActor(*context, previous->GetID());
+                    operators->Selection().SelectActor(*context, previousID);
                 }
             });
         }
 
         if (Actor* next = GetNextSibling(*scene, *actor)) {
-            menu.AddAction("Select Next Sibling", [context, next]() {
+            menu.AddAction("Select Next Sibling", [context, nextID = next->GetID()]() {
                 if (auto* operators = context->GetOperators()) {
-                    operators->Selection().SelectActor(*context, next->GetID());
+                    operators->Selection().SelectActor(*context, nextID);
                 }
             });
         }
 
         if (!actor->GetChildren().empty()) {
-            menu.AddAction("Select Subtree", [context, actor]() {
+            menu.AddAction("Select Subtree", [context, actorID]() {
                 if (auto* operators = context->GetOperators()) {
-                    operators->Selection().SelectActorSubtree(*context, actor->GetID(), true);
+                    operators->Selection().SelectActorSubtree(*context, actorID, true);
                 }
             });
-            menu.AddAction("Select Children", [context, actor]() {
+            menu.AddAction("Select Children", [context, actorID]() {
                 if (auto* operators = context->GetOperators()) {
-                    operators->Selection().SelectActorSubtree(*context, actor->GetID(), false);
+                    operators->Selection().SelectActorSubtree(*context, actorID, false);
                 }
             });
         }
 
         menu.AddSeparator();
 
-        menu.AddAction("Duplicate", [this, context, scene, actor]() {
+        menu.AddAction("Duplicate", [this, context, scene, actorID]() {
             if (auto* operators = context->GetOperators()) {
-                if (!context->GetSelection().IsSelected(actor->GetID())) {
-                    operators->Selection().SelectActor(*context, actor->GetID());
+                if (!context->GetSelection().IsSelected(actorID)) {
+                    operators->Selection().SelectActor(*context, actorID);
                 }
                 operators->Commands().DuplicateSelection(*context);
             }
         });
 
-        menu.AddAction("Rename", [this, context, scene, actor]() {
-            m_PendingRenameID = actor->GetID();
-            std::strncpy(m_RenameBuffer, actor->GetName().c_str(), sizeof(m_RenameBuffer) - 1);
+        menu.AddAction("Rename", [this, actorID, actorName = actor->GetName()]() {
+            m_PendingRenameID = actorID;
+            std::strncpy(m_RenameBuffer, actorName.c_str(), sizeof(m_RenameBuffer) - 1);
             m_RenameBuffer[sizeof(m_RenameBuffer) - 1] = '\0';
         });
 
         menu.AddSeparator();
 
         const char* activeLabel = actor->IsActiveSelf() ? "Set Inactive" : "Set Active";
-        menu.AddAction(activeLabel, [this, context, actor]() {
+        menu.AddAction(activeLabel, [context, actorID, wasActive = actor->IsActiveSelf()]() {
             if (auto* operators = context->GetOperators()) {
-                operators->Commands().SetActorActive(*context, actor->GetID(), !actor->IsActiveSelf());
+                operators->Commands().SetActorActive(*context, actorID, !wasActive);
             }
         });
 
         menu.AddSeparator();
 
-        menu.AddAction("Delete", [this, context, scene, actor]() {
+        menu.AddAction("Delete", [this, context, scene, actorID]() {
             if (auto* operators = context->GetOperators()) {
-                operators->Commands().DeleteActor(*context, actor->GetID());
+                operators->Commands().DeleteActor(*context, actorID);
             }
         });
 
-        menu.AddAction("Create Prefab", [this, context, scene, actor]() {
+        menu.AddAction("Create Prefab", [this, context, scene, actorID]() {
             if (auto* operators = context->GetOperators()) {
-                operators->Prefabs().CreatePrefabFromActor(*context, actor->GetID());
+                operators->Prefabs().CreatePrefabFromActor(*context, actorID);
             }
         });
     });
@@ -792,7 +793,7 @@ void SceneHierarchyPanel::DrawActor(Actor* actor) {
             }
         }
         {
-            EditorContextMenu actorMenu("##ActorCtx");
+            EditorContextMenu actorMenu("##ActorCtx", &m_DeferredHierarchyActions);
             if (actorMenu.IsOpen()) {
                 ContextMenuContext ctxCtx;
                 ctxCtx.target = ContextMenuContext::Target::Actor;
@@ -936,7 +937,7 @@ void SceneHierarchyPanel::DrawContent() {
 
     if (!m_ActorRightClicked && EditorContextMenu::DetectWindow("##EmptyCtxMenu")) {}
     {
-        EditorContextMenu emptyMenu("##EmptyCtxMenu");
+        EditorContextMenu emptyMenu("##EmptyCtxMenu", &m_DeferredHierarchyActions);
         if (emptyMenu.IsOpen()) {
             ContextMenuContext ctxCtx;
             ShowContextMenu(ctxCtx, emptyMenu);
@@ -951,5 +952,9 @@ void SceneHierarchyPanel::DrawContent() {
     HandleDragDropTarget(nullptr);
 
     ImGui::EndDisabled();
+    auto deferredActions = std::move(m_DeferredHierarchyActions);
+    m_DeferredHierarchyActions.clear();
+    for (auto& action : deferredActions)
+        action();
 #endif
 }

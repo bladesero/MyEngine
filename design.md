@@ -64,7 +64,7 @@ MyEngine/
 | **miniaudio（vendored）** | 运行时音频设备、解码和播放 |
 | **Slang / slangc（SDK/tool）** | 统一 Shader 编译入口；`.shader + .hlsl/.hlsli` 一次编写，cook/热编译生成后端产物 |
 
-Xmake package 版本只在 `xmake/packages.lua` 声明。三库的本地脚本集中声明直接 package 与平台 syslink/framework：Windows 使用 D3D/DXGI，macOS 使用 Metal/MetalKit。
+Xmake package 版本只在 `xmake/packages.lua` 声明。三库的本地脚本集中声明直接 package 与平台 syslink/framework：Windows 使用 D3D/DXGI（可选 Vulkan），macOS 使用 Metal/MetalKit，Linux 使用 Vulkan loader。
 
 ---
 
@@ -164,7 +164,7 @@ Application::Run()
 
 - **Windows**：`D3D11Context` / `D3D12Context`；入口可通过 `--backend d3d11 | d3d12` 选择。
 - **macOS**：`MetalContext`；Editor Metal 源码目录通过本地 `.mm` wrapper 编译 ImGui Metal 实现，不存在跨目录手写源码数组或辅助 target。
-- **Linux**：当前仅有 `MYENGINE_PLATFORM_LINUX` 等编译定义；**无 GPU `IRenderContext` 实现**，需后续补充（如 Vulkan/OpenGL）。
+- **Linux**：默认启用 Vulkan，SDL3 根据 X11/Wayland video driver 创建 surface；使用 `tools/build-linux.sh` 构建。驱动、Slang、诊断场景与验收限制见 `docs/linux-vulkan.md`。Linux publishing 暂未实现。
 
 Shader 管线以 HLSL 为唯一源码形态：`.shader` 描述逻辑 stage、entry 与
 defines，源码仍放在 `EngineContent/Shaders` 或项目 `Content/Shaders` 下的
@@ -175,7 +175,7 @@ defines，源码仍放在 `EngineContent/Shaders` 或项目 `Content/Shaders` �
 离线生成原生库；工具链缺失时容器保存最终重写后的 MSL 作为明确的性能降级路径。Editor 与
 未挂载 `Content.pak` 的开发态 Player 通过 `ShaderCacheService` 使用当前平台项目缓存：
 Windows 为 `Library/windows-x64/ShaderCache/<cacheKey>.shader`，Apple Silicon macOS 为
-`Library/macos-arm64/ShaderCache/<cacheKey>.shader`。键包含构建与转换 ABI、最低 macOS 14、
+`Library/macos-arm64/ShaderCache/<cacheKey>.shader`，Linux 为 `Library/linux-x64/ShaderCache/<cacheKey>.shader`（ARM64 为 `linux-arm64`）。键包含构建与转换 ABI、最低 macOS 14、
 Metal 3、Slang/Metal toolchain 指纹、目标后端/平台、设置以及 `.shader/.hlsl/.hlsli` 完整
 依赖内容；升级工具链会自然生成新 artifact。发布包 Player 切换到 `RuntimeCookedOnly`、
 移除开发态 resolver，只消费 `Content.pak` 中的 cooked shader，缺失或不匹配时明确失败而
@@ -202,7 +202,7 @@ DXIL 重建并原子替换，graphics PSO 当前仍按需创建。Vulkan 以 ven
 descriptor 按需创建，并按 metallib 内容哈希和完整 native descriptor 在进程内去重；只有旧
 `BindShader` 兼容入口会惰性建立默认格式 PSO。
 开发机需要在 `PATH` 中提供 `slangc`，或通过 `MYENGINE_SLANGC` 指定编译器路径；
-Windows 热编译在 Slang 不可用时可临时回退到原 D3D 编译器，Metal 后端必须依赖 Slang。
+Windows 热编译在 Slang 不可用时可临时回退到原 D3D 编译器，Metal 和 Vulkan 后端必须依赖 Slang。Vulkan 顶点输入保存 Slang 的 semantic/index/location 元数据，不能按 mesh layout 顺序猜测 shader location；新增输入元数据作为 cooked v8 的可选 JSON 字段，旧 Vulkan artifact 缺失必要元数据时明确要求重新 cook，开发缓存由 `vertexinputs1` 合同重新生成。
 
 ---
 

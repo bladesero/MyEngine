@@ -25,14 +25,14 @@ option("mem_guard", function()
 end)
 
 option("vulkan", function()
-    set_default(false)
+    set_default(is_plat("linux"))
     set_showmenu(true)
     set_category("rendering")
-    set_description("Compile the optional Windows Vulkan backend")
+    set_description("Compile the Vulkan backend (Windows or Linux)")
 end)
 
 function myengine_enable_vulkan()
-    return is_plat("windows") and has_config("vulkan")
+    return is_plat("windows", "linux") and has_config("vulkan")
 end
 
 function myengine_feature_state()
