@@ -136,7 +136,7 @@ Aux:
     hitDistance / valid / truncated（独立元数据，不挤占 T）
 ```
 
-空段为 `(J=0,T=1)`；命中不透明表面为 `(J=Lo_source,T=0)`。本阶段没有半透明材质。近段 a 与远段 b 的合成为：
+空段为 `(J=0,T=1)`；命中不透明表面为 `(J=Lo_source,T=0)`。本阶段没有半透明材质。unknown/invalid 需要沿仍有透射的路径传播：若近段已知且 T=0，未知远段不应抹掉已知近段贡献；若近段 T>0，远段未知不能伪装成完整无遮挡结果。近段 a 与远段 b 的合成为：
 
 ```text
 Compose(a,b) = (a.J + a.T * b.J, a.T * b.T)
@@ -160,7 +160,9 @@ trace 接口建议固定为 `TraceRadianceInterval(origin, direction, tMin, tMax
 
 在同一有界体积内，`s_i=s0*2^i`、`P_i≈P0/8^i`、`D_i=D0*4^i`，所以每层存储 `S_i=P_i*D_i=S0/2^i`。球面角度有两个维度，不能套二维“方向数只翻倍”的假设。
 
-采用六面嵌套方向网格便于 parent → 4 child 映射。各 face texel 的立体角不相等，必须预计算/积分 solid-angle weights；检查总和约为 4π，cosine integral 约为 π。禁止简单平均所有 cubemap texels 后称为能量守恒。
+采用六面嵌套方向网格便于 parent → 4 child 映射。一般分辨率下各 face texel 的立体角不相等，必须预计算/积分 solid-angle weights，检查总和约为 4π。禁止简单平均所有 cubemap texels 后称为能量守恒。
+
+**已知参数冲突，不能隐藏：** 若 base 24 个方向取每个 2×2 face texel 的中心，因对称性这一级各 texel 的 Ω 都是 π/6；但轴向 normal 的中心采样 cosine sum 约为 3.42013，比 π 高 **8.866%**。因此这张表只是初始存储/trace 量级，**不是已满足 §10 的 2% 积分门槛的质量配置**。P0a 必须选择更好的 quadrature / 增加 base 方向数，或按 §6.6 对每个 angular bin 积分 clamped cosine。增加方向数会改变所有 interval 与显存数字，须重算 §8，不能沿用 105 MiB 预算。不能用一个经验性全局缩放代替不同法线方向上的积分检查。
 
 **边界与有限范围：** 16 m 射程小于 16 m 立方体的对角线；到 tMax 仍在体积中表示“远处未知/截断”，不是天空。首版封闭室内测试将 tail 辐射设为零并记录 truncated fraction。只有确实离开“边界之外已知为空”的测试体积，才可使用规定的环境边界。开放世界必须额外建覆盖/clipmap，不能在每级未命中时重复加天空。
 
@@ -170,12 +172,12 @@ trace 接口建议固定为 `TraceRadianceInterval(origin, direction, tMin, tMax
 2. 从最远层向最近层构建 merged intervals；每个 pass 读上层 SRV、读本层 raw，写本层另一份 UAV。
 3. 不在同一 dispatch 里让不同 workgroups 原地读写相互依赖的 cascade。图中每层有显式依赖与 UAV→SRV 转换；不使用不必要的 `ManualResourceTransitions` 绕过验证。
 4. 同方向、八邻居三线性插值是**近似低成本模式**，会有视差、重复遮挡或漏光。不能先把八个 far 结果平均，再用一次近段追踪就声称得到 corrected merge。
-5. 参考/高质量模式按 Appendix A 的思路：针对每个上级空间邻居及对应细分方向，重接下级区间起点到该上级 child interval 起点，分别追踪并合并，再按空间与立体角权重归一。三维有八邻居，论文指出修正可使同角度采样的追踪成本约为八倍；这部分额外 trace **没有包含在上表的 raw interval 数中**。[Appendix A](https://doi.org/10.1093/rasti/rzae062)
+5. 参考/高质量模式按 Appendix A 的思路：针对每个上级空间邻居及对应细分方向，重接下级区间起点到该上级 child interval 起点，分别追踪并合并，再按空间与立体角权重归一。三维有八邻居，论文指出除最远层外，对应待追踪射线数量增至约八倍；**这不是 GPU 耗时必然八倍的保证**。这部分额外 trace **没有包含在上表的 raw interval 数中**。[Appendix A](https://doi.org/10.1093/rasti/rzae062)
 6. 重接区间的几何端点、方向和长度要在 CPU 参考实现中显式构造，不能只用一个“更大 bias”代替。保留每段可视化。
 7. 最终表面 → probe 的短段可见性、inside-solid probe 拒绝、normal bias 是**另外一层**保护，不替代 corrected merge。spacing 不满足 penumbra 条件仍可能失败；通过误差和漏光测试决定是否允许低成本模式。
 8. 每层记录 invalid / inside / truncated / max-step-hit 计数。DDA 达到步数上限返回 unknown，不返回无遮挡。
 
-第一次 GPU 调试采用更小的 8³ base probes、2–3 层和 32³ voxels；先与 CPU 全方向长射线参考一致，再扩大到表格配置。固定方向单帧就应能成像；时间滤波不是算法成立的前提。
+第一次 GPU 调试采用更小的 8³ base probes、2–3 层和 32³ voxels；先与 CPU 全方向长射线参考在预定误差门槛内一致，再扩大到表格配置。固定方向单帧就应能成像；时间滤波不是算法成立的前提。
 
 ### 6.6 表面 Resolve 与能量契约
 
@@ -186,6 +188,8 @@ E(x,n)   = sum_k L(x,omega_k) * max(dot(n,omega_k),0) * deltaOmega_k
 B(x,n)   = E(x,n) / pi
 Ldiffuse = kD * linearAlbedo * B(x,n)
 ```
+
+上式是中心方向 quadrature 近似；对 §6.4 的低角度网格，另一个可验证的选择是对每个 angular bin 计算 `w_k(n)=integral_bin max(dot(n,omega),0) dOmega`，使用 `E≈sum_k L_k*w_k(n)`，**此时不能再乘 deltaOmega_k**。这能消除常量 radiance 场的中心 cosine 积分偏差，但不消除 bin 内实际辐射变化/小光源 aliasing；权重实现、成本和误差都要独立测试。
 
 - `RCResolve.rgb = B = E/pi`，不包含接收表面的 albedo，不包含 exposure/gamma，不提前乘 art intensity。
 - 在 x 周围采样 probe 前做 inside-solid / surface-to-probe visibility 检查，拒绝穿墙候选；有效权重重新归一。无可靠候选时返回 invalid + 约定 fallback，而不是将陈旧亮值继续保留。
@@ -315,7 +319,7 @@ Existing TAA -> tone mapping -> ScreenUI
 
 - `Compose(identity,x)=x`；opaque near 使 far contribution 为零；同一连续射线分段与整段结果 FP32 误差 ≤1e-5（简单解析 fixture）。
 - 球面权重总和与 4π 的相对误差 ≤1e-4；对数个法线的 cosine integral 与 π 误差 ≤2%（低分辨率初始角网格不达标则提高/改善 quadrature）。
-- 恒定 radiance L 下 B≈L；Lambert receiver 输出≈rho×L；发光翻倍、结果线性翻倍，无额外 inverse-square 或 π。
+- 恒定 radiance L 下 B≈L；纯 Lambert 归一化 fixture 固定 kD=1，此时 receiver 输出≈rho×L；实际 PBR 接入另按引擎 Fresnel/diffuse split 比较。发光翻倍、结果线性翻倍，无额外 inverse-square 或 π。
 - 每层首尾 index、parent/child、face seam、正负轴、interval 边界去重、NaN/Inf/zero direction、overflow 都有测试。
 - FP16 packing round trip 记录误差与溢出范围；不能用 1e-5 阈值要求全部 FP16 HDR 数据。
 
@@ -374,6 +378,7 @@ xmake run MyEngineRuntimeLinkProbe
 ### Split RC / RT 下一步如何评估
 
 - 保持 `TraceRadianceInterval` 与 cache/layout 解耦，先用相同 tiny/reference 场景比较软件 trace 与当前可用的 D3D12 RayQuery 路径；Vulkan/Metal RT 是独立 backend 工作项。
+- 本次 Split RC 证据范围是论文摘要、版本记录及作者参考代码；PDF 未完整抓取/通读，也未运行作者 demo，**不声称复现其全部方法或性能**。
 - Split RC 的原作者 [Chandra 实现](https://github.com/entropylost/chandra) 可作算法与实验参考；其 Rust/Keter、本地依赖、浮点原子、64-bit keys 与 RT 资源要求不等价于本仓库 C++/HLSL RHI 能力。移植前固定上游 SHA、检查许可证和依赖，不复制整套引擎。
 - 稀疏版本必须量化 hash occupancy/load、碰撞/溢出、probe eviction、相机新显露区域、累积归一化、原子竞争和最坏显存。不能只比较平均 FPS。
 - 第一阶段保留下来的 dense/long-ray oracle 正是后续评估 sparse quality 的基线；不因选择 Split RC 就丢弃验收场景。
