@@ -40,8 +40,7 @@ MYENGINE_METAL_ARTIFACT_API bool Encode(PayloadKind kind, const std::string& ent
 MYENGINE_METAL_ARTIFACT_API bool Decode(const void* data, size_t size, DecodedPayload& output,
                                         std::string* error = nullptr);
 
-MYENGINE_METAL_ARTIFACT_API bool TransformComputeSource(std::string& source,
-                                                        CookedShaderStageReflection& reflection,
+MYENGINE_METAL_ARTIFACT_API bool TransformComputeSource(std::string& source, CookedShaderStageReflection& reflection,
                                                         bool& supportsIndirectCommandBuffers,
                                                         std::string* error = nullptr);
 MYENGINE_METAL_ARTIFACT_API bool TransformGraphicsSources(std::string& vertexSource, std::string& fragmentSource,
@@ -52,12 +51,9 @@ MYENGINE_METAL_ARTIFACT_API bool TransformGraphicsSources(std::string& vertexSou
 
 // Produces a native Metal library when the optional Xcode Metal Toolchain is available. Otherwise it wraps the
 // already-transformed MSL source so the runtime can retain its compatibility path without repeating ABI rewrites.
-MYENGINE_METAL_ARTIFACT_API bool BuildCookedPayload(const std::string& transformedSource,
-                                                    const std::string& entryPoint,
-                                                    bool supportsIndirectCommandBuffers,
-                                                    std::vector<uint8_t>& output,
-                                                    bool* usedSourceFallback = nullptr,
-                                                    std::string* error = nullptr,
+MYENGINE_METAL_ARTIFACT_API bool BuildCookedPayload(const std::string& transformedSource, const std::string& entryPoint,
+                                                    bool supportsIndirectCommandBuffers, std::vector<uint8_t>& output,
+                                                    bool* usedSourceFallback = nullptr, std::string* error = nullptr,
                                                     const std::function<bool()>& cancellationRequested = {});
 
 MYENGINE_METAL_ARTIFACT_API bool IsNativeCompilerAvailable();

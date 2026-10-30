@@ -65,8 +65,7 @@ std::string SanitizeCacheComponent(std::string value) {
 }
 
 std::filesystem::path FindInternalMetalShader(const char* fileName) {
-    const std::filesystem::path relative =
-        std::filesystem::path("EngineContent") / "Shaders" / fileName;
+    const std::filesystem::path relative = std::filesystem::path("EngineContent") / "Shaders" / fileName;
     std::error_code error;
     if (const char* basePath = SDL_GetBasePath()) {
         const std::filesystem::path candidate = std::filesystem::path(basePath) / relative;
@@ -98,10 +97,8 @@ id<MTLLibrary> NewLibraryWithBytes(id<MTLDevice> device, const uint8_t* bytes, s
         return nil;
     NSData* retainedBytes = [NSData dataWithBytes:bytes length:size];
     dispatch_data_t data =
-        dispatch_data_create(retainedBytes.bytes, retainedBytes.length,
-                             dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
-                               (void)retainedBytes;
-                             });
+        dispatch_data_create(retainedBytes.bytes, retainedBytes.length, dispatch_get_global_queue(QOS_CLASS_UTILITY, 0),
+                             ^{ (void)retainedBytes; });
     return [device newLibraryWithData:data error:error];
 }
 
@@ -149,14 +146,12 @@ std::string RenderPipelineDescriptorKey(MTLRenderPipelineDescriptor* descriptor,
             MTLVertexAttributeDescriptor* attribute = vertex.attributes[index];
             if (attribute.format != MTLVertexFormatInvalid) {
                 key << "|a" << index << ':' << static_cast<uint64_t>(attribute.format) << ':'
-                    << static_cast<uint64_t>(attribute.offset) << ':'
-                    << static_cast<uint64_t>(attribute.bufferIndex);
+                    << static_cast<uint64_t>(attribute.offset) << ':' << static_cast<uint64_t>(attribute.bufferIndex);
             }
             MTLVertexBufferLayoutDescriptor* layout = vertex.layouts[index];
             if (layout.stride != 0) {
                 key << "|l" << index << ':' << static_cast<uint64_t>(layout.stride) << ':'
-                    << static_cast<uint64_t>(layout.stepFunction) << ':'
-                    << static_cast<uint64_t>(layout.stepRate);
+                    << static_cast<uint64_t>(layout.stepFunction) << ':' << static_cast<uint64_t>(layout.stepRate);
             }
         }
     }
@@ -793,9 +788,8 @@ bool RewriteMetalTextureBindings(std::string& first, std::string* second = nullp
     if (second)
         CollectMetalTextureBindingNames(*second, names);
     std::sort(names.begin(), names.end());
-    const size_t textureCount =
-        static_cast<size_t>(std::count_if(names.begin(), names.end(),
-                                          [](const std::string& name) { return name.rfind("texture:", 0) == 0; }));
+    const size_t textureCount = static_cast<size_t>(std::count_if(
+        names.begin(), names.end(), [](const std::string& name) { return name.rfind("texture:", 0) == 0; }));
     const size_t samplerCount = names.size() - textureCount;
     if (textureCount > 128 || samplerCount > 16) {
         Logger::Error("[Metal] Shader requires ", textureCount, " direct texture and ", samplerCount,
@@ -843,10 +837,8 @@ struct MetalContext::Impl {
     std::mutex pipelineArchiveMutex;
     bool pipelineArchiveDirty = false;
     bool pipelineArchiveLoadedFromDisk = false;
-    NSMutableArray<MTLRenderPipelineDescriptor*>* observedRenderPipelineDescriptors =
-        [[NSMutableArray alloc] init];
-    NSMutableArray<MTLComputePipelineDescriptor*>* observedComputePipelineDescriptors =
-        [[NSMutableArray alloc] init];
+    NSMutableArray<MTLRenderPipelineDescriptor*>* observedRenderPipelineDescriptors = [[NSMutableArray alloc] init];
+    NSMutableArray<MTLComputePipelineDescriptor*>* observedComputePipelineDescriptors = [[NSMutableArray alloc] init];
     std::unordered_map<std::string, id<MTLRenderPipelineState>> renderPipelineStateCache;
     std::unordered_map<std::string, id<MTLComputePipelineState>> computePipelineStateCache;
     bool pipelineCacheDiagnostics = false;
@@ -928,8 +920,7 @@ struct MetalContext::Impl {
         pipelineArchiveMisses = 0;
         pipelineArchiveRebuilds = 0;
 
-        NSArray<NSString*>* directories =
-            NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES);
+        NSArray<NSString*>* directories = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES);
         NSString* cacheDirectory = directories.count > 0 ? directories.firstObject : nil;
         if (!cacheDirectory || !device)
             return;
@@ -938,9 +929,8 @@ struct MetalContext::Impl {
         std::ostringstream fileName;
         fileName << std::hex << std::setfill('0') << std::setw(16) << static_cast<uint64_t>(device.registryID) << '_'
                  << osIdentity << ".metallib";
-        pipelineArchivePath =
-            std::filesystem::path([cacheDirectory UTF8String]) / "MyEngine" / "PipelineCache" / "Metal" / "v2" /
-            fileName.str();
+        pipelineArchivePath = std::filesystem::path([cacheDirectory UTF8String]) / "MyEngine" / "PipelineCache" /
+                              "Metal" / "v2" / fileName.str();
         std::error_code fileError;
         std::filesystem::create_directories(pipelineArchivePath.parent_path(), fileError);
         if (fileError) {
@@ -979,8 +969,7 @@ struct MetalContext::Impl {
     bool RebuildPipelineArchiveForMutation() {
         MTLBinaryArchiveDescriptor* archiveDescriptor = [[MTLBinaryArchiveDescriptor alloc] init];
         NSError* createError = nil;
-        id<MTLBinaryArchive> replacement =
-            [device newBinaryArchiveWithDescriptor:archiveDescriptor error:&createError];
+        id<MTLBinaryArchive> replacement = [device newBinaryArchiveWithDescriptor:archiveDescriptor error:&createError];
         if (!replacement) {
             if (pipelineCacheDiagnostics) {
                 Logger::Warn("[Metal][PSO] Failed to create mutable archive: ",
@@ -1017,8 +1006,8 @@ struct MetalContext::Impl {
         return true;
     }
 
-    id<MTLRenderPipelineState> CreateRenderPipelineState(MTLRenderPipelineDescriptor* descriptor,
-                                                          uint64_t libraryHash, NSError** error) {
+    id<MTLRenderPipelineState> CreateRenderPipelineState(MTLRenderPipelineDescriptor* descriptor, uint64_t libraryHash,
+                                                         NSError** error) {
         const std::string cacheKey = RenderPipelineDescriptorKey(descriptor, libraryHash);
         std::lock_guard<std::mutex> lock(pipelineArchiveMutex);
         if (const auto cached = renderPipelineStateCache.find(cacheKey); cached != renderPipelineStateCache.end()) {
@@ -1027,8 +1016,7 @@ struct MetalContext::Impl {
             return cached->second;
         }
         if (!pipelineArchive) {
-            id<MTLRenderPipelineState> state =
-                [device newRenderPipelineStateWithDescriptor:descriptor error:error];
+            id<MTLRenderPipelineState> state = [device newRenderPipelineStateWithDescriptor:descriptor error:error];
             if (state)
                 renderPipelineStateCache.emplace(cacheKey, state);
             return state;
@@ -1059,8 +1047,7 @@ struct MetalContext::Impl {
             descriptor.binaryArchives = @[];
         state = [device newRenderPipelineStateWithDescriptor:descriptor error:error];
         if (!state && addError && pipelineCacheDiagnostics) {
-            Logger::Warn("[Metal][PSO] render archive insert failed: ",
-                         [[addError localizedDescription] UTF8String]);
+            Logger::Warn("[Metal][PSO] render archive insert failed: ", [[addError localizedDescription] UTF8String]);
         }
         if (state)
             renderPipelineStateCache.emplace(cacheKey, state);
@@ -1077,8 +1064,7 @@ struct MetalContext::Impl {
             return cached->second;
         }
         if (!pipelineArchive) {
-            id<MTLComputePipelineState> state =
-                [device newComputePipelineStateWithFunction:function error:error];
+            id<MTLComputePipelineState> state = [device newComputePipelineStateWithFunction:function error:error];
             if (state)
                 computePipelineStateCache.emplace(cacheKey, state);
             return state;
@@ -1109,11 +1095,12 @@ struct MetalContext::Impl {
             pipelineArchiveDirty = true;
         if (pipelineArchiveLoadedFromDisk)
             descriptor.binaryArchives = @[];
-        state = [device newComputePipelineStateWithDescriptor:descriptor options:MTLPipelineOptionNone reflection:nil
+        state = [device newComputePipelineStateWithDescriptor:descriptor
+                                                      options:MTLPipelineOptionNone
+                                                   reflection:nil
                                                         error:error];
         if (!state && addError && pipelineCacheDiagnostics) {
-            Logger::Warn("[Metal][PSO] compute archive insert failed: ",
-                         [[addError localizedDescription] UTF8String]);
+            Logger::Warn("[Metal][PSO] compute archive insert failed: ", [[addError localizedDescription] UTF8String]);
         }
         if (state)
             computePipelineStateCache.emplace(cacheKey, state);
@@ -1331,8 +1318,7 @@ bool MetalContext::Init(IWindow* window) {
         NSError* indirectError = nil;
         id<MTLLibrary> indirectLibrary = nil;
         std::vector<uint8_t> internalShader;
-        const std::filesystem::path libraryPath =
-            FindInternalMetalShader("MetalCommandInfrastructure.metallib");
+        const std::filesystem::path libraryPath = FindInternalMetalShader("MetalCommandInfrastructure.metallib");
         if (!libraryPath.empty() && ReadBinaryFile(libraryPath, internalShader)) {
             indirectLibrary =
                 NewLibraryWithBytes(m_Impl->device, internalShader.data(), internalShader.size(), &indirectError);
@@ -1341,8 +1327,7 @@ bool MetalContext::Init(IWindow* window) {
         }
         if (!indirectLibrary) {
             internalShader.clear();
-            const std::filesystem::path sourcePath =
-                FindInternalMetalShader("MetalCommandInfrastructure.metal");
+            const std::filesystem::path sourcePath = FindInternalMetalShader("MetalCommandInfrastructure.metal");
             if (!sourcePath.empty() && ReadBinaryFile(sourcePath, internalShader)) {
                 NSString* source = [[NSString alloc] initWithBytes:internalShader.data()
                                                             length:internalShader.size()
@@ -1941,8 +1926,8 @@ std::shared_ptr<GpuShader> MetalContext::CreateShaderFromBytecode(const void* vs
             ++m_Impl->metallibLoads;
         } else {
             NSString* source = [[NSString alloc] initWithBytes:payload.data
-                                                       length:payload.size
-                                                     encoding:NSUTF8StringEncoding];
+                                                        length:payload.size
+                                                      encoding:NSUTF8StringEncoding];
             if (source)
                 library = [m_Impl->device newLibraryWithSource:source options:nil error:&err];
             ++m_Impl->runtimeSourceCompiles;
@@ -1959,8 +1944,7 @@ std::shared_ptr<GpuShader> MetalContext::CreateShaderFromBytecode(const void* vs
     if (!vsLib || !psLib)
         return nullptr;
 
-    id<MTLFunction> vsFn =
-        [vsLib newFunctionWithName:[NSString stringWithUTF8String:vertexPayload.entryPoint.c_str()]];
+    id<MTLFunction> vsFn = [vsLib newFunctionWithName:[NSString stringWithUTF8String:vertexPayload.entryPoint.c_str()]];
     id<MTLFunction> psFn =
         [psLib newFunctionWithName:[NSString stringWithUTF8String:fragmentPayload.entryPoint.c_str()]];
     if (!vsFn || !psFn) {
@@ -1975,11 +1959,10 @@ std::shared_ptr<GpuShader> MetalContext::CreateShaderFromBytecode(const void* vs
     shader->vertexFunction = vsFn;
     shader->fragmentFunction = psFn;
     shader->vertexDescriptor = vd;
-    shader->supportsIndirectCommandBuffers = vertexPayload.supportsIndirectCommandBuffers &&
-                                             fragmentPayload.supportsIndirectCommandBuffers;
-    shader->libraryHash =
-        CombineMetalLibraryHashes(StableMetalLibraryHash(vsBytecode, vsSize),
-                                  StableMetalLibraryHash(psBytecode, psSize));
+    shader->supportsIndirectCommandBuffers =
+        vertexPayload.supportsIndirectCommandBuffers && fragmentPayload.supportsIndirectCommandBuffers;
+    shader->libraryHash = CombineMetalLibraryHashes(StableMetalLibraryHash(vsBytecode, vsSize),
+                                                    StableMetalLibraryHash(psBytecode, psSize));
     shader->vertexBytecode.assign(static_cast<const uint8_t*>(vsBytecode),
                                   static_cast<const uint8_t*>(vsBytecode) + vsSize);
     shader->pixelBytecode.assign(static_cast<const uint8_t*>(psBytecode),
@@ -2034,8 +2017,7 @@ std::shared_ptr<GpuShader> MetalContext::CreateComputeShaderFromBytecode(const v
         lib = NewLibraryWithBytes(m_Impl->device, payload.data, payload.size, &err);
         ++m_Impl->metallibLoads;
     } else {
-        NSString* src =
-            [[NSString alloc] initWithBytes:payload.data length:payload.size encoding:NSUTF8StringEncoding];
+        NSString* src = [[NSString alloc] initWithBytes:payload.data length:payload.size encoding:NSUTF8StringEncoding];
         if (src)
             lib = [m_Impl->device newLibraryWithSource:src options:nil error:&err];
         ++m_Impl->runtimeSourceCompiles;
@@ -2045,8 +2027,7 @@ std::shared_ptr<GpuShader> MetalContext::CreateComputeShaderFromBytecode(const v
                       err ? [[err localizedDescription] UTF8String] : "invalid MSL source");
         return nullptr;
     }
-    id<MTLFunction> fn =
-        [lib newFunctionWithName:[NSString stringWithUTF8String:payload.entryPoint.c_str()]];
+    id<MTLFunction> fn = [lib newFunctionWithName:[NSString stringWithUTF8String:payload.entryPoint.c_str()]];
     if (!fn) {
         Logger::Error("[Metal] Cannot find cooked compute shader function ", payload.entryPoint);
         return nullptr;
