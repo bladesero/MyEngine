@@ -28,8 +28,27 @@ add_executable(MyEngineBuiEditor BuiEditorMain.cpp)
 target_compile_features(MyEngineBuiEditor PRIVATE cxx_std_17)
 target_link_libraries(MyEngineBuiEditor PRIVATE bui::kit nlohmann_json::nlohmann_json)
 
+# Loadable native BUI skin for the engine-owned SDL/RHI viewport. The kit
+# never opens a native window or calls any platform presentation function.
+set(viewport_headers "${CMAKE_CURRENT_SOURCE_DIR}/../../src/Apps/BuiViewport")
+add_library(MyEngineBuiViewportKit SHARED BuiViewportKit.cpp)
+target_compile_features(MyEngineBuiViewportKit PRIVATE cxx_std_17)
+target_include_directories(MyEngineBuiViewportKit PRIVATE "${viewport_headers}")
+target_link_libraries(MyEngineBuiViewportKit PRIVATE bui::kit)
+set_target_properties(MyEngineBuiViewportKit PROPERTIES CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES)
+if(APPLE)
+    target_link_options(MyEngineBuiViewportKit PRIVATE "LINKER:-exported_symbol,_MyEngineBuiGetApi")
+elseif(UNIX)
+    target_link_options(MyEngineBuiViewportKit PRIVATE "LINKER:--exclude-libs,ALL")
+endif()
+
 include(CTest)
 if(BUILD_TESTING)
+    add_executable(MyEngineBuiViewportContractTest BuiViewportContractTest.cpp)
+    target_compile_features(MyEngineBuiViewportContractTest PRIVATE cxx_std_17)
+    target_include_directories(MyEngineBuiViewportContractTest PRIVATE "${viewport_headers}")
+    target_link_libraries(MyEngineBuiViewportContractTest PRIVATE MyEngineBuiViewportKit)
+    add_test(NAME MyEngineBuiViewportContracts COMMAND MyEngineBuiViewportContractTest)
     add_test(NAME MyEngineBuiProjectSmoke COMMAND MyEngineBuiEditor
         --self-test --project "${CMAKE_CURRENT_SOURCE_DIR}/../..")
     add_test(NAME MyEngineBuiInvalidProject COMMAND MyEngineBuiEditor

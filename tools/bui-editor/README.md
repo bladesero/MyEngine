@@ -35,6 +35,11 @@ With a multiconfig generator, the executable will usually be
 checks the hierarchy/inspector and scene picker against this repo's sample
 project. Negative tests exercise a nonexistent project and a malformed cyclic scene.
 
+## Engine viewport experiment
+
+[See the integrated Scene View build and acceptance checklist](Viewport.md).
+The viewport experiment and this project browser are still separate entry points.
+
 ## Integration boundary
 
 `xmake run MyEngineEditor` remains the full, ImGui-based production editor.
@@ -42,10 +47,10 @@ This workbench does not change the Player, graphics backends, binary exports,
 or existing editor packaging. The native BUI workbench is built separately.
 The next integration should bind BUI widgets to MyEngine's existing editor
 commands and scene model instead of adding a second scene writer. For the
-embedded viewport, keep the engine's one-present-per-frame ownership and add
-a tested scene-color composite/input bridge; BUI's low-level render sink does
-not capture native kit widgets. Port the viewport and gizmo, remaining panels,
-and node editor before removing the old target or its third-party packages.
+embedded viewport, the experiment keeps the engine's frame ownership and
+uses BUI raster output; BUI's low-level render sink does not capture native
+kit widgets. Complete the platform acceptance in the guide before porting
+Gizmo, Shader Graph, or scene editing.
 
 Upstream BUI is GPL-3.0-or-later. This branch does not vendor BUI, distribute
 a linked executable, or change MyEngine's licensing. Review distribution

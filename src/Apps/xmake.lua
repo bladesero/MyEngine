@@ -1,5 +1,6 @@
 includes("IconTool")
 includes("Editor")
+includes("BuiViewport")
 includes("Player")
 includes("Cooker")
 includes("EditorPackager")
