@@ -68,12 +68,18 @@ this branch's xmake engine app is enabled on macOS and Windows.
    The separate total includes any earlier chrome-only frames.
    This counter verifies the application frame boundary, **not** the
    driver-level Present call count.
-3. Capture a steady frame on the target backend. In the GPU trace, locate
-   `BUI viewport composite` after the offscreen scene passes. Verify its
-   color attachment is the single engine backbuffer and the SceneColor
-   texture is read by the second draw. Verify exactly one swapchain Present
-   (or one Metal drawable scheduled for presentation) follows it. Repeat
-   on resize and check that there is no second swapchain or validation error.
+3. Capture a steady frame on the target backend. On D3D12, look for the
+   `BUI viewport composite` marker after the offscreen scene passes. Metal
+   and D3D11 do not emit this marker. On those backends, identify the final
+   backbuffer (drawable on Metal) color attachment by the two draws: the
+   full-window BUI chrome quad, then the viewport quad sampling the scene's
+   offscreen SceneColor. A missing label alone is not a rendering failure.
+   Verify exactly one native presentation is submitted for the same rendered
+   frame. If a Metal capture does not expose the count, use a symbolized
+   build and log or break at the `presentDrawable:` call in
+   `MetalContext::PresentSwapChain`, correlating hits with rendered-frame
+   boundaries. This verifies scheduling a drawable, not display scanout.
+   Repeat after resize; check for a second swapchain or validation errors.
 
 The portable contract test exercises actual BUI raster drawing and button
 input, plus coordinate conversion, input cancellation and the scoped frame
